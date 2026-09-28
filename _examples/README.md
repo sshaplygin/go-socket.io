@@ -1,199 +1,31 @@
-## Base example with using std net/http
+# Examples
 
-```go
-package main
+Each directory is a standalone Go module. All but `dockerize-default-http` and
+`redis-adapter-unix-socket` carry a `replace` directive pointing at the repository
+root, so they build against the checked-out library; those two pin an upstream
+release in their `go.mod`.
 
-import (
-	"fmt"
-	"log"
-	"net/http"
-
-	socketio "github.com/googollee/go-socket.io"
-)
-
-func main() {
-	server := socketio.NewServer(nil)
-	
-	server.OnConnect("/", func(s socketio.Conn) error {
-		s.SetContext("")
-		fmt.Println("connected:", s.ID())
-		return nil
-	})
-
-	server.OnEvent("/", "notice", func(s socketio.Conn, msg string) {
-		fmt.Println("notice:", msg)
-		s.Emit("reply", "have "+msg)
-	})
-
-	server.OnEvent("/chat", "msg", func(s socketio.Conn, msg string) string {
-		s.SetContext(msg)
-		return "recv " + msg
-	})
-
-	server.OnEvent("/", "bye", func(s socketio.Conn) string {
-		last := s.Context().(string)
-		s.Emit("bye", last)
-		s.Close()
-		return last
-	})
-
-	server.OnError("/", func(s socketio.Conn, e error) {
-		// server.Remove(s.ID())
-		fmt.Println("meet error:", e)
-	})
-
-	server.OnDisconnect("/", func(s socketio.Conn, reason string) {
-		// Add the Remove session id. Fixed the connection & mem leak
-		server.Remove(s.ID())
-		fmt.Println("closed", reason)
-	})
-
-	go server.Serve()
-	defer server.Close()
-
-	http.Handle("/socket.io/", server)
-	http.Handle("/", http.FileServer(http.Dir("./asset")))
-	log.Println("Serving at localhost:8000...")
-	log.Fatal(http.ListenAndServe(":8000", nil))
-}
+```sh
+cd _examples/<name>
+go run .
 ```
 
-## How to use the client
+Browser examples serve `_examples/asset/index.html`, which bundles `socket.io-client`
+1.2. Open <http://localhost:8000> after starting the server.
 
-This is still very beta code and should not be relied upon.
+| Directory | Shows |
+| --- | --- |
+| `default-http` | `net/http` server, namespaces, acks, CORS-permissive transports |
+| `dockerize-default-http` | the same server in a Docker image |
+| `gin-gonic`, `gin-cors` | mounting on gin, with and without CORS middleware |
+| `go-echo` | mounting on echo |
+| `iris` | mounting on iris |
+| `gf` | mounting on GoFrame |
+| `graceful-shutdown` | closing the server on SIGTERM |
+| `pprof` | exposing `net/http/pprof` next to the socket server |
+| `redis-adapter` | two instances sharing rooms through Redis over TCP |
+| `redis-adapter-unix-socket` | the same through a Unix socket |
+| `client` | the experimental Go client talking to `default-http` |
 
-```go
-package main
-
-import (
-	...
-	socketio "github.com/googollee/go-socket.io"
-)
-
-func main() {
-	uri := "http://127.0.0.1:8000"
-
-	client, _ := socketio.NewClient(uri, nil)
-
-	// Handle an incoming event
-	client.OnEvent("reply", func(s socketio.Conn, msg string) {
-		log.Println("Receive Message /reply: ", "reply", msg)
-	})
-
-	client.Connect()
-	client.Emit("notice", "hello")
-	client.Close()
-}
-```
-
-## How to use Redis broadcast adapter
-```go
-server := socketio.NewServer(nil)
-
-_, err := server.Adapter(&socketio.RedisAdapterOptions{
-    Addr:   "127.0.0.1:6379",
-    Host:   "127.0.0.1",
-    Port:   "6379",
-    Prefix: "socket.io", 
-    DB: 1,
-})
-if err != nil {
-    log.Fatal("error:", err)
-}
-```
-
-## Acknowledgements in go-socket.io 1.X.X
-
-[See documentation about acknowledgements](https://socket.io/docs/v4/emitting-events/#acknowledgements)
-
-##### Sending ACK with data from SERVER to CLIENT
-
-* Client-side
-
-```javascript
- //using client-side socket.io-1.X.X.js
-socket.emit('some:event', JSON.stringify(someData), function(data){
-   console.log('ACK from server wtih data: ', data);
-});
-```
-
-* Server-side
-
-```go
-// The return type may vary depending on whether you will return
-// In golang implementation of Socket.IO don't used callbacks for acknowledgement,
-// but used return value, which wrapped into ack package and returned to the client's callback in JavaScript
-server.On("some:event", func(msg string) string {
-	return msg //Sending ack with data in msg back to client, using "return statement"
-})
-```
-
-##### Sending ACK with data from CLIENT to SERVER
-
-* Client-side
-
-```javascript
-//using client-side socket.io-1.X.X.js
-//last parameter of "on" handler is callback for sending ack to server with data or without data
-socket.on('some:event', function (msg, sendAckCb) {
-    //Sending ACK with data to server after receiving some:event from server
-    sendAckCb(JSON.stringify(data)); // for example used serializing to JSON
-}
-```
-
-* Server-side
-
-```go
-//You can use Emit or BroadcastTo with last parameter as callback for handling ack from client
-//Sending packet to room "room_name" and event "some:event"
-server.BroadcastTo("room_name", "some:event", dataForClient, func (so socketio.Socket, data string) {
-	log.Println("Client ACK with data: ", data)
-})
-
-// Or
-
-server.Emit("some:event", dataForClient, func (so socketio.Socket, data string) {
-	log.Println("Client ACK with data: ", data)
-})
-```
-
-##### Broadcast to All connected Client
-* Server-side
-
-```go
-//Add all connected user to a room, in example? "bcast"
-server.OnConnect("/", func(s socketio.Conn) error {
-	s.SetContext("")
-	fmt.Println("connected:", s.ID())
-	s.Join("bcast")
-	return nil
-})
-
-//Broadcast message to all connected user
-server.BroadcastToRoom("", "bcast", "event:name", msg)
-```
-* Client-side
-```
-socket.on('some:event', function (msg) {
-	console.log(msg);
-});
-```
-
-
-##### Catch Disconnected reason
-
-* Server-side
-
-```go
-
-server.OnDisconnect("/", func(so socketio.Conn, reason string) {
-  	log.Println("closed", reason)
-})
-```
-
-Possible reasons:
-
-
-| Reason | Side | Description |
-|------------|-------------|------------|
-| client namespace disconnect | Client Side | Got disconnect packet from client |
+Redis examples expect a Redis server on `127.0.0.1:6379` or the Unix socket path set
+in `main.go`.

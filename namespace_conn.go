@@ -18,6 +18,11 @@ type Namespace interface {
 	SetContext(ctx interface{})
 
 	Namespace() string
+	// Emit sends eventName with arguments v to the client. If the last element of v
+	// is a func, it is not sent but registered as the acknowledgement callback: the
+	// client's ACK arguments are decoded into its parameters and it is called on the
+	// read goroutine of the connection. Emit blocks until the packet is queued or the
+	// connection is closed.
 	Emit(eventName string, v ...interface{})
 
 	Join(room string)

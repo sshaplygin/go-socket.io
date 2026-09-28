@@ -1,71 +1,80 @@
-# WARNING
-
-**This repo is archived. Please check the forked one https://github.com/feederco/go-socket.io.**
-
 # go-socket.io
 
-go-socket.io is library an implementation of [Socket.IO](http://socket.io) in Golang, which is a realtime application framework.
+A [Socket.IO](https://socket.io) server for Go with namespaces, rooms, acknowledgements,
+broadcast and a Redis adapter for multi-instance deployments. Engine.IO is included as
+the `engineio` sub-package and can be used on its own.
 
-Current this library supports 1.4 version of the Socket.IO client. It supports room, namespaces and broadcast at now.
+This is a maintained fork of the archived `googollee/go-socket.io`. The modernisation
+plan, including Socket.IO protocol v5 support, is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
-**Help wanted** This project is looking for contributors to help fix bugs and implement new features. Please check [Issue 192](https://github.com/googollee/go-socket.io/issues/192). All help is much appreciated.
+![Build Status](https://github.com/sshaplygin/go-socket.io/workflows/CI/badge.svg)
+[![GoDoc](https://pkg.go.dev/badge/github.com/googollee/go-socket.io)](https://pkg.go.dev/github.com/googollee/go-socket.io)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
-## Badges
+## Compatibility
 
-![Build Status](https://github.com/googollee/go-socket.io/workflows/CI/badge.svg)
-[![GoDoc](http://godoc.org/github.com/googollee/go-socket.io?status.svg)](http://godoc.org/github.com/googollee/go-socket.io)
-[![License](https://img.shields.io/github/license/golangci/golangci-lint)](/LICENSE)
-[![Release](https://img.shields.io/github/release/googollee/go-socket.io.svg)](https://github.com/googollee/go-socket.io/releases/latest)
-[![Go Report Card](https://goreportcard.com/badge/github.com/googollee/go-socket.io)](https://goreportcard.com/report/github.com/googollee/go-socket.io)
+| Server | Socket.IO protocol | Engine.IO protocol | JavaScript client |
+| --- | --- | --- | --- |
+| v1.x (this branch) | v4 | v3 | `socket.io-client` 1.x and 2.x |
+| v2 (planned) | v5 | v4 | `socket.io-client` 3.x and 4.x |
 
-## Contents
-
-- [Install](#install)
-- [Example](#example)
-- [FAQ](#faq)
-- [Engine.io](#engineio)
-- [Community](#community)
-- [License](#license)
+Details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Install
 
-Install the package with:
+The module path is still `github.com/googollee/go-socket.io` until v2. To use this fork,
+add a `replace` directive:
 
-```bash
+```sh
 go get github.com/googollee/go-socket.io
+go mod edit -replace github.com/googollee/go-socket.io=github.com/sshaplygin/go-socket.io@master
+go mod tidy
 ```
 
-Import it with:
+## Quick start
 
 ```go
-import "github.com/googollee/go-socket.io"
+package main
+
+import (
+    "log"
+    "net/http"
+
+    socketio "github.com/googollee/go-socket.io"
+)
+
+func main() {
+    server := socketio.NewServer(nil)
+
+    server.OnConnect("/", func(s socketio.Conn) error {
+        s.Join("lobby")
+        return nil
+    })
+    // Return values are sent back to the client as the acknowledgement.
+    server.OnEvent("/", "msg", func(s socketio.Conn, msg string) string {
+        server.BroadcastToRoom("/", "lobby", "msg", msg)
+        return "ok"
+    })
+    server.OnDisconnect("/", func(s socketio.Conn, reason string) {
+        log.Println("closed:", reason)
+    })
+
+    go func() { log.Fatal(server.Serve()) }()
+    defer server.Close()
+
+    http.Handle("/socket.io/", server)
+    log.Fatal(http.ListenAndServe(":8000", nil))
+}
 ```
 
-and use `socketio` as the package name inside the code.
+Runnable examples for gin, echo, iris, gf, CORS, Redis and graceful shutdown are in
+[_examples/](_examples/README.md). API reference: [pkg.go.dev](https://pkg.go.dev/github.com/googollee/go-socket.io).
 
-## Example
+## Contributing
 
-Please check more examples into folder in project for details. [Examples](https://github.com/googollee/go-socket.io/tree/master/_examples)
-
-## FAQ
-
-It is some popular questions about this repository: 
-
-- Is this library supported socket.io version 2?
-    - No, but if you wanna you can help to do it. Join us in community chat Telegram   
-- How to use go-socket.io with CORS?
-    - Please see examples in [directory](https://github.com/googollee/go-socket.io/tree/master/_examples)
-
-## Community
-
-Telegram chat: [@go_socketio](https://t.me/go_socketio)
-
-## Engineio
-
-This project contains a sub-package called `engineio`. This used to be a separate package under https://github.com/googollee/go-engine.io.
-
-It contains the `engine.io` analog implementation of the original node-package. https://github.com/socketio/engine.io It can be used without the socket.io-implementation. Please check the README.md in `engineio/`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the PR process and [CLAUDE.md](CLAUDE.md) for
+how to build and test.
 
 ## License
 
-The 3-clause BSD License  - see [LICENSE](https://opensource.org/licenses/BSD-3-Clause) for more details
+BSD 3-Clause, see [LICENSE](LICENSE).

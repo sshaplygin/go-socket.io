@@ -89,7 +89,13 @@ func (s *Server) OnError(namespace string, f func(Conn, error)) {
 	h.OnError(f)
 }
 
-// OnEvent set a handler function f to handle event for namespace.
+// OnEvent sets the handler f for event in namespace.
+//
+// f must be a func whose first parameter is Conn; the remaining parameters are
+// decoded from the event arguments. If f returns values, or the client asked for an
+// acknowledgement, the return values are sent back to the client as the ACK payload.
+// f is called on the read goroutine of the connection, so a blocking f delays only
+// that client. OnEvent panics if f is not a func or its first parameter is not Conn.
 func (s *Server) OnEvent(namespace, event string, f interface{}) {
 	h := s.getNamespace(namespace)
 	if h == nil {

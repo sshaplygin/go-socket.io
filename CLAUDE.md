@@ -22,22 +22,23 @@ the read goroutine of that connection, so a blocking handler blocks that client 
 ## Commands
 
 ```sh
-make lint      # golangci-lint run (requires golangci-lint v1.x, config is v1 format)
-make test      # go test -v -race -count=1 ./...
-make bench     # go test -bench . -benchmem ./...
-make cover     # coverage profile + HTML report
-make all       # go install ./...
+make lint       # gofmt -s check, go vet, golangci-lint (v2 config)
+make test       # go test -count=1 ./...
+make test-race  # the same with -race; what CI runs
+make bench      # benchmarks only, no tests
+make vuln       # govulncheck ./...
+make cover      # coverage profile + HTML report
+make examples   # go build in every _examples/*/ module
+make all        # go install ./...
 ```
 
-Tests need no external services. Examples are built separately:
+Requires Go 1.22+, golangci-lint v2 and govulncheck (`go install
+golang.org/x/vuln/cmd/govulncheck@latest`). Tests need no external services.
 
-```sh
-cd _examples/<name> && go build ./...
-```
-
-CI (`.github/workflows/ci.yaml`) runs gofmt, `go mod tidy` diff, `go mod verify`,
-golangci-lint, `make test` and `make bench` on ubuntu, macos and windows with `stable`
-and `oldstable` Go.
+CI (`.github/workflows/ci.yaml`) has three jobs: `lint` (tidy diff, mod verify, gofmt,
+vet, golangci-lint, govulncheck on ubuntu), `test` (race tests and benchmarks on
+ubuntu, macos and windows with `stable` and `oldstable` Go) and `examples`
+(`make examples`). Dependabot groups Go minor/patch and Actions updates weekly.
 
 ## Conventions
 

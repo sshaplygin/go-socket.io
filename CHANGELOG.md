@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Toolchain: `go 1.22` in `go.mod`; `golang.org/x/exp/slog` replaced by `log/slog`;
+  `gofrs/uuid` replaced by `google/uuid`; `gorilla/websocket` 1.5.3; `testify` 1.12.1;
+  `io/ioutil` replaced by `io` (roadmap stage 1.1).
+- Lint: `.golangci.yml` migrated to the golangci-lint v2 schema with the standard
+  linter set; `client.EmptyAddrErr` renamed to `ErrEmptyAddr` with the old name kept
+  as a deprecated alias.
+- Build: Makefile targets `test`, `test-race`, `bench`, `lint`, `vuln`, `cover`,
+  `examples`; CI split into `lint`, `test` (3 OS × 2 Go) and `examples` jobs on
+  current GitHub Actions; Dependabot updates grouped weekly.
+- Examples: all `_examples/*` modules tidied; nine of them did not build before.
 - Documentation baseline: English-only docs with a single owner per topic
   (`CLAUDE.md`, `docs/ROADMAP.md`, `docs/PROTOCOL.md`); `README.md` trimmed to
   purpose, compatibility, install and quick start; `upgrade workflow.md` merged into

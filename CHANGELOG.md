@@ -16,8 +16,8 @@ All notable changes to this project are documented here. The format follows
 
 - `engineio.Options.Logger` (`*slog.Logger`): the Engine.IO server, its sessions, the
   socket.io `Server`, `Client` and every connection log through it; nil means
-  `slog.Default()`. The parser, the transports and the client dialer still use the
-  package-level `logger.Log` (roadmap stage 1.2).
+  `slog.Default()`. The parser, the transports, `engineio/packet` and the client dialer still
+  use the package-level `logger.Log` (roadmap stage 1.2).
 
 ### Changed
 

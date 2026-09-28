@@ -24,9 +24,9 @@ type Options struct {
 	ConnInitor     ConnInitorFunc
 
 	// Logger receives errors and diagnostics from the server and the sessions
-	// it creates. nil means slog.Default(). Transports, the parser and the
-	// client dialer do not have access to Options and keep using the
-	// package-level logger.Log.
+	// it creates. nil means slog.Default(). Transports, the parser, the packet
+	// codec and the client dialer do not have access to Options and keep using
+	// the package-level logger.Log.
 	Logger *slog.Logger
 }
 

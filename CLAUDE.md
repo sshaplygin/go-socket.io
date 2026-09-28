@@ -10,7 +10,7 @@ Go implementation of a Socket.IO server (and an experimental client). Module pat
 | `*.go` (root, package `socketio`) | Socket.IO server, client, namespaces, rooms, in-memory and Redis broadcast |
 | `parser/` | Socket.IO packet encoder/decoder, binary attachments |
 | `engineio/` | Engine.IO server and client: sessions, polling and websocket transports, payload codec |
-| `logger/` | package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: parser, transports, client dialer |
+| `logger/` | package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: parser, transports, `engineio/packet`, client dialer |
 | `_examples/` | runnable examples, each with its own `go.mod`; excluded from the root build by the `_` prefix |
 | `docs/` | protocol notes and roadmap |
 

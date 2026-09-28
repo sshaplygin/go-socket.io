@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -324,4 +325,88 @@ func TestEngineUpgrade(t *testing.T) {
 	wg.Wait()
 
 	must.NoError(ws.Close())
+}
+
+// TestEngineRejectsTransportDowngrade checks that once a session has been
+// upgraded to websocket, a polling request carrying the same sid is refused
+// with 400 instead of being treated as an "upgrade" back to polling, which
+// left the request blocked until pingTimeout.
+func TestEngineRejectsTransportDowngrade(t *testing.T) {
+	should := assert.New(t)
+	must := require.New(t)
+
+	svr := NewServer(nil)
+	defer func() {
+		must.NoError(svr.Close())
+	}()
+
+	httpSvr := httptest.NewServer(svr)
+	defer httpSvr.Close()
+
+	u, err := url.Parse(httpSvr.URL)
+	must.NoError(err)
+
+	query := u.Query()
+	query.Set("EIO", "3")
+	u.RawQuery = query.Encode()
+
+	p, err := polling.Default.Dial(u, nil)
+	must.NoError(err)
+	defer func() { _ = p.Close() }()
+
+	params, err := p.(Opener).Open()
+	must.NoError(err)
+
+	// Drain the NOOP the server sends to the polling connection while pausing it.
+	go func() {
+		_, _, r, err := p.NextReader()
+		if err == nil {
+			_ = r.Close()
+		}
+	}()
+
+	upU := *u
+	upU.Scheme = "ws"
+	query = upU.Query()
+	query.Set("sid", params.SID)
+	upU.RawQuery = query.Encode()
+
+	ws, err := websocket.Default.Dial(&upU, nil)
+	must.NoError(err)
+	defer func() { _ = ws.Close() }()
+
+	w, err := ws.NextWriter(frame.String, packet.PING)
+	must.NoError(err)
+	_, err = w.Write([]byte("probe"))
+	must.NoError(err)
+	must.NoError(w.Close())
+
+	_, pt, r, err := ws.NextReader()
+	must.NoError(err)
+	should.Equal(packet.PONG, pt)
+	must.NoError(r.Close())
+
+	w, err = ws.NextWriter(frame.String, packet.UPGRADE)
+	must.NoError(err)
+	must.NoError(w.Close())
+
+	// The session now runs on websocket. A polling request with its sid must
+	// be rejected promptly rather than held open.
+	pollURL := *u
+	query = pollURL.Query()
+	query.Set("sid", params.SID)
+	query.Set("transport", "polling")
+	pollURL.RawQuery = query.Encode()
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	var status int
+	must.Eventually(func() bool {
+		resp, err := client.Get(pollURL.String())
+		if err != nil {
+			return false
+		}
+		_ = resp.Body.Close()
+		status = resp.StatusCode
+		return status == http.StatusBadRequest
+	}, 5*time.Second, 50*time.Millisecond, "polling request after upgrade was not rejected; last status %d", status)
 }

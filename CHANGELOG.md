@@ -16,12 +16,18 @@ All notable changes to this project are documented here. The format follows
 
 - `engineio.Options.Logger` (`*slog.Logger`): the Engine.IO server, its sessions, the
   socket.io `Server`, `Client` and every connection log through it; nil means
-  `slog.Default()`. The parser, the transports, `engineio/packet` and the client dialer still
+  `logger.Log`. The parser, the transports, `engineio/packet` and the client dialer still
   use the package-level `logger.Log` (roadmap stage 1.2).
+- `SOCKETIO_LOG_LEVEL` (`error`, `warn`, `info`, `debug`, `trace`), read once at start
+  into `logger.Level`: while set, it decides which library records are enabled,
+  whatever the level of the application's handler. `logger.Wrap`, `logger.LevelTrace`
+  and `logger.ReplaceAttr` (renders `TRACE`) are exported. Connection and session
+  records carry `sid`; session records also carry `transport` (roadmap stage 1.2a).
 
 ### Changed
 
 - `session.New` takes a trailing `*slog.Logger` parameter (nil accepted).
+- `logger.Error` accepts a nil error instead of panicking.
 - Connection-level errors that were printed with `log.Println` are now `slog` Error
   records carrying the namespace. Messages logged by the Engine.IO session and the
   socket.io server, client and connection code lose their trailing colons; messages

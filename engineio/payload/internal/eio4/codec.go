@@ -105,6 +105,8 @@ func Encode(packets []Packet, maxBytes int) ([]byte, error) {
 // maxBytes must be positive. Callers must also bound reads before buffering the
 // HTTP body; this limit cannot prevent allocations made by the caller.
 // It is not a heap limit: many tiny records allocate a much larger Packet slice.
+// Like the JS polling decoder, Decode collects the complete batch in memory
+// without an additional packet-count limit.
 // Returned packet data owns its bytes and may be changed independently of body.
 // On any error, no partial batch is returned. Empty records are invalid.
 // Base64 must use the canonical padded standard alphabet, without whitespace.
@@ -119,6 +121,9 @@ func Decode(body []byte, maxBytes int) ([]Packet, error) {
 		return nil, ErrInvalidPayload
 	}
 
+	// TODO: Reduce allocations for dense payloads, potentially by consuming packets
+	// incrementally. Preserve byte-limit acceptance without adding a packet-count
+	// cap; use BenchmarkDecode/dense-records to evaluate a future implementation.
 	var packets []Packet
 	for {
 		record, rest, found := bytes.Cut(body, []byte{separator})

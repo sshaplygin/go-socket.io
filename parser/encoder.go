@@ -153,7 +153,7 @@ func (e *Encoder) writeUint64(w byteWriter, i uint64) error {
 }
 
 func (e *Encoder) attachBuffer(v reflect.Value, index *uint64) ([][]byte, error) {
-	for v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 		v = v.Elem()
 	}
 

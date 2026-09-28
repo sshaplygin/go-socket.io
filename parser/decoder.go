@@ -110,7 +110,7 @@ func (d *Decoder) DecodeArgs(types []reflect.Type) ([]reflect.Value, error) {
 	values := make([]interface{}, len(types))
 
 	for i, typ := range types {
-		if typ.Kind() == reflect.Ptr {
+		if typ.Kind() == reflect.Pointer {
 			typ = typ.Elem()
 		}
 		ret[i] = reflect.New(typ)
@@ -131,7 +131,7 @@ func (d *Decoder) DecodeArgs(types []reflect.Type) ([]reflect.Value, error) {
 	_ = d.DiscardLast()
 
 	for i, typ := range types {
-		if typ.Kind() != reflect.Ptr {
+		if typ.Kind() != reflect.Pointer {
 			ret[i] = ret[i].Elem()
 		}
 	}
@@ -342,7 +342,7 @@ func (d *Decoder) readBuffer(ft session.FrameType, r io.ReadCloser) ([]byte, err
 }
 
 func (d *Decoder) detachBuffer(v reflect.Value, buffers []Buffer) error {
-	for v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 		v = v.Elem()
 	}
 

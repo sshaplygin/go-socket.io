@@ -32,6 +32,11 @@ error recovery: the Go codec returns no partial packets when any record is inval
 
 `BenchmarkDecode/dense-records` measures heap amplification: a 999,999-byte body
 holds 500,000 empty MESSAGE packets. The caller's wire limit does not bound the
-decoded heap to the same byte count. Before transport integration, choose a
-packet-count policy or incremental consumption if the deployment requires a tighter
-memory bound. The current codec is staged internally and is not connected to v1.
+decoded heap to the same byte count. The accepted approach follows JS polling:
+limit the HTTP body size, decode the complete batch into memory, and impose no
+additional packet-count limit. Transport integration must bound HTTP reads before
+buffering; reducing the decoded batch's memory use is a future optimization, not an
+integration prerequisite. The TODO in `Decode` marks where to investigate
+incremental consumption while preserving acceptance of payloads within the byte
+limit. Use the dense-record benchmark to assess improvements. The current codec is
+staged internally and is not connected to v1.

@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net/http/httptest"
 	"sync"
@@ -90,4 +91,89 @@ func TestServerLoggerOption(t *testing.T) {
 		5*time.Second, 20*time.Millisecond, "custom logger did not receive the namespace error")
 	require.False(t, fallback.hasAttr("namespace", "/nope"),
 		"error was also written to the package-level logger")
+}
+
+// attrRecorder records every record with the attributes added through With.
+type attrRecorder struct {
+	mu    *sync.Mutex
+	recs  *[]map[string]string
+	attrs []slog.Attr
+}
+
+func newAttrRecorder() *attrRecorder {
+	return &attrRecorder{mu: &sync.Mutex{}, recs: &[]map[string]string{}}
+}
+
+func (h *attrRecorder) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *attrRecorder) Handle(_ context.Context, r slog.Record) error {
+	m := map[string]string{"msg": r.Message}
+	for _, a := range h.attrs {
+		m[a.Key] = a.Value.String()
+	}
+	r.Attrs(func(a slog.Attr) bool {
+		m[a.Key] = a.Value.String()
+		return true
+	})
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	*h.recs = append(*h.recs, m)
+	return nil
+}
+
+func (h *attrRecorder) WithAttrs(attrs []slog.Attr) slog.Handler {
+	next := *h
+	next.attrs = append(append([]slog.Attr{}, h.attrs...), attrs...)
+	return &next
+}
+
+func (h *attrRecorder) WithGroup(string) slog.Handler { return h }
+
+func (h *attrRecorder) find(key, val string) map[string]string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, m := range *h.recs {
+		if m[key] == val {
+			return m
+		}
+	}
+	return nil
+}
+
+// TestConnLogWrappedWithSid checks that the socket.io layer wraps
+// Options.Logger (a debug record is enabled under logger.Level even though
+// the handler is at ERROR) and that connection records carry the engine sid.
+func TestConnLogWrappedWithSid(t *testing.T) {
+	prev := logger.Level.Level()
+	logger.Level.Set(slog.LevelDebug)
+	t.Cleanup(func() { logger.Level.Set(prev) })
+
+	rec := newAttrRecorder()
+	app := slog.New(rec)
+	errOnly := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+	require.True(t, loggerFrom(&engineio.Options{Logger: errOnly}).Enabled(context.Background(), slog.LevelDebug))
+	require.Same(t, logger.Log, loggerFrom(nil))
+
+	srv := NewServer(&engineio.Options{Logger: app})
+	srv.OnConnect("/", func(Conn) error { return nil })
+	go func() { _ = srv.Serve() }()
+	defer func() { _ = srv.Close() }()
+
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	dialer := engineio.Dialer{Transports: []transport.Transport{polling.Default}}
+	conn, err := dialer.Dial(ts.URL, nil)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	w, err := conn.NextWriter(session.TEXT)
+	require.NoError(t, err)
+	_, err = w.Write([]byte("0/nope"))
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+
+	require.Eventually(t, func() bool { return rec.find("namespace", "/nope") != nil },
+		5*time.Second, 20*time.Millisecond)
+	require.Equal(t, conn.ID(), rec.find("namespace", "/nope")["sid"])
 }

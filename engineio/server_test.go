@@ -343,6 +343,18 @@ func TestEngineRejectsTransportDowngrade(t *testing.T) {
 	httpSvr := httptest.NewServer(svr)
 	defer httpSvr.Close()
 
+	// Accept the session like the other tests do: it orders Server.Close
+	// after newSession has handed the session over.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, err := svr.Accept()
+		if err == nil {
+			_ = conn.Close()
+		}
+	}()
+	defer func() { <-done }()
+
 	u, err := url.Parse(httpSvr.URL)
 	must.NoError(err)
 

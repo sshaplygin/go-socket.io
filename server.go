@@ -19,7 +19,7 @@ type Server struct {
 
 	redisAdapter *RedisAdapterOptions
 
-	logger *slog.Logger
+	log *slog.Logger
 }
 
 // NewServer returns a server.
@@ -27,7 +27,7 @@ func NewServer(opts *engineio.Options) *Server {
 	return &Server{
 		handlers: newNamespaceHandlers(),
 		engine:   engineio.NewServer(opts),
-		logger:   loggerFrom(opts),
+		log:      loggerFrom(opts),
 	}
 }
 
@@ -238,7 +238,7 @@ func (s *Server) ForEach(namespace string, room string, f EachFunc) bool {
 }
 
 func (s *Server) serveConn(conn engineio.Conn) {
-	c := newConn(conn, s.handlers, s.logger)
+	c := newConn(conn, s.handlers, s.log)
 	if err := c.connect(); err != nil {
 		_ = c.Close()
 		if root, ok := s.handlers.Get(rootNamespace); ok && root.onError != nil {

@@ -30,7 +30,7 @@ type Server struct {
 	connChan  chan Conn
 	closeOnce sync.Once
 
-	logger *slog.Logger
+	log *slog.Logger
 }
 
 // NewServer returns a server.
@@ -43,7 +43,7 @@ func NewServer(opts *Options) *Server {
 		connInitor:     opts.getConnInitor(),
 		sessions:       session.NewManager(opts.getSessionIDGenerator()),
 		connChan:       make(chan Conn, 1),
-		logger:         opts.getLogger(),
+		log:            opts.getLogger(),
 	}
 }
 
@@ -158,14 +158,14 @@ func (s *Server) newSession(_ context.Context, conn transport.Conn, reqTransport
 	}
 
 	sid := s.sessions.NewID()
-	newSession, err := session.New(conn, sid, reqTransport, params, s.logger)
+	newSession, err := session.New(conn, sid, reqTransport, params, s.log)
 	if err != nil {
 		return nil, err
 	}
 
 	go func(newSession *session.Session) {
 		if err = newSession.InitSession(); err != nil {
-			s.logger.Error("init new session", "err", err)
+			s.log.Error("init new session", "err", err)
 
 			return
 		}

@@ -343,18 +343,6 @@ func TestEngineRejectsTransportDowngrade(t *testing.T) {
 	httpSvr := httptest.NewServer(svr)
 	defer httpSvr.Close()
 
-	// Accept the session like the other tests do: it orders Server.Close
-	// after newSession has handed the session over.
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		conn, err := svr.Accept()
-		if err == nil {
-			_ = conn.Close()
-		}
-	}()
-	defer func() { <-done }()
-
 	u, err := url.Parse(httpSvr.URL)
 	must.NoError(err)
 
@@ -368,6 +356,13 @@ func TestEngineRejectsTransportDowngrade(t *testing.T) {
 
 	params, err := p.(Opener).Open()
 	must.NoError(err)
+
+	// Take the session out of the accept queue as the other tests do: it
+	// orders Server.Close after newSession has handed the session over, and
+	// it cannot block here because the handshake above has already created it.
+	conn, err := svr.Accept()
+	must.NoError(err)
+	defer func() { _ = conn.Close() }()
 
 	// Drain the NOOP the server sends to the polling connection while pausing it.
 	go func() {

@@ -11,7 +11,7 @@ All notable changes to this project are documented here. The format follows
   `gofrs/uuid` replaced by `google/uuid`; `gorilla/websocket` 1.5.3; `testify` 1.12.1;
   `io/ioutil` replaced by `io` (roadmap stage 1.1).
 - Lint: `.golangci.yml` migrated to the golangci-lint v2 schema with the standard
-  linter set; `client.EmptyAddrErr` renamed to `ErrEmptyAddr` with the old name kept
+  linter set; `EmptyAddrErr` renamed to `ErrEmptyAddr` with the old name kept
   as a deprecated alias.
 - Build: Makefile targets `test`, `test-race`, `bench`, `lint`, `vuln`, `cover`,
   `examples`; CI split into `lint`, `test` (3 OS × 2 Go) and `examples` jobs on

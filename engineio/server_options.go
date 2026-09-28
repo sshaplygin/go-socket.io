@@ -1,9 +1,11 @@
 package engineio
 
 import (
-	"github.com/googollee/go-socket.io/engineio/session"
+	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/googollee/go-socket.io/engineio/session"
 
 	"github.com/googollee/go-socket.io/engineio/transport"
 	"github.com/googollee/go-socket.io/engineio/transport/polling"
@@ -20,6 +22,19 @@ type Options struct {
 
 	RequestChecker CheckerFunc
 	ConnInitor     ConnInitorFunc
+
+	// Logger receives errors and diagnostics from the server and the sessions
+	// it creates. nil means slog.Default(). Transports, the parser and the
+	// client dialer do not have access to Options and keep using the
+	// package-level logger.Log.
+	Logger *slog.Logger
+}
+
+func (c *Options) getLogger() *slog.Logger {
+	if c != nil && c.Logger != nil {
+		return c.Logger
+	}
+	return slog.Default()
 }
 
 func (c *Options) getRequestChecker() CheckerFunc {

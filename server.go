@@ -2,12 +2,12 @@ package socketio
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/gomodule/redigo/redis"
 
 	"github.com/googollee/go-socket.io/engineio"
-	"github.com/googollee/go-socket.io/logger"
 	"github.com/googollee/go-socket.io/parser"
 )
 
@@ -18,6 +18,8 @@ type Server struct {
 	handlers *namespaceHandlers
 
 	redisAdapter *RedisAdapterOptions
+
+	logger *slog.Logger
 }
 
 // NewServer returns a server.
@@ -25,7 +27,17 @@ func NewServer(opts *engineio.Options) *Server {
 	return &Server{
 		handlers: newNamespaceHandlers(),
 		engine:   engineio.NewServer(opts),
+		logger:   loggerFrom(opts),
 	}
+}
+
+// loggerFrom returns opts.Logger, or slog.Default() when opts or the field is nil.
+// It mirrors engineio.Options.getLogger for the socket.io layer.
+func loggerFrom(opts *engineio.Options) *slog.Logger {
+	if opts != nil && opts.Logger != nil {
+		return opts.Logger
+	}
+	return slog.Default()
 }
 
 // Adapter sets redis broadcast adapter.
@@ -226,7 +238,7 @@ func (s *Server) ForEach(namespace string, room string, f EachFunc) bool {
 }
 
 func (s *Server) serveConn(conn engineio.Conn) {
-	c := newConn(conn, s.handlers)
+	c := newConn(conn, s.handlers, s.logger)
 	if err := c.connect(); err != nil {
 		_ = c.Close()
 		if root, ok := s.handlers.Get(rootNamespace); ok && root.onError != nil {
@@ -244,7 +256,7 @@ func (s *Server) serveConn(conn engineio.Conn) {
 func (s *Server) serveError(c *conn) {
 	defer func() {
 		if err := c.Close(); err != nil {
-			logger.Error("close connect:", err)
+			c.log.Error("close connection", "err", err)
 		}
 
 		s.engine.Remove(c.Conn.ID())
@@ -276,7 +288,7 @@ func (s *Server) serveError(c *conn) {
 func (s *Server) serveWrite(c *conn) {
 	defer func() {
 		if err := c.Close(); err != nil {
-			logger.Error("close connect:", err)
+			c.log.Error("close connection", "err", err)
 		}
 
 		s.engine.Remove(c.Conn.ID())
@@ -297,7 +309,7 @@ func (s *Server) serveWrite(c *conn) {
 func (s *Server) serveRead(c *conn) {
 	defer func() {
 		if err := c.Close(); err != nil {
-			logger.Error("close connect:", err)
+			c.log.Error("close connection", "err", err)
 		}
 
 		s.engine.Remove(c.Conn.ID())
@@ -309,7 +321,7 @@ func (s *Server) serveRead(c *conn) {
 		var header parser.Header
 
 		if err := c.decoder.DecodeHeader(&header, &event); err != nil {
-			logger.Error("DecodeHeader Error in serveRead", err)
+			c.log.Error("decode packet header", "err", err)
 			c.onError(rootNamespace, err)
 			return
 		}
@@ -331,7 +343,7 @@ func (s *Server) serveRead(c *conn) {
 		}
 
 		if err != nil {
-			logger.Error("serve read:", err)
+			c.log.Error("serve read", "err", err)
 
 			return
 		}

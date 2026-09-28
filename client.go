@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"errors"
+	"log/slog"
 	"net/url"
 	"path"
 	"strings"
@@ -9,7 +10,6 @@ import (
 	"github.com/googollee/go-socket.io/engineio"
 	"github.com/googollee/go-socket.io/engineio/transport"
 	"github.com/googollee/go-socket.io/engineio/transport/polling"
-	"github.com/googollee/go-socket.io/logger"
 	"github.com/googollee/go-socket.io/parser"
 )
 
@@ -30,6 +30,7 @@ type Client struct {
 	handlers *namespaceHandlers
 
 	opts *engineio.Options
+	log  *slog.Logger
 }
 
 // NewClient returns a server
@@ -58,6 +59,7 @@ func NewClient(addr string, opts *engineio.Options) (*Client, error) {
 		url:       u.String(),
 		handlers:  newNamespaceHandlers(),
 		opts:      opts,
+		log:       loggerFrom(opts),
 	}, nil
 }
 
@@ -79,7 +81,7 @@ func (c *Client) Connect() error {
 		return err
 	}
 
-	c.conn = newConn(enginioCon, c.handlers)
+	c.conn = newConn(enginioCon, c.handlers, c.log)
 
 	if err := c.conn.connectClient(); err != nil {
 		_ = c.Close()
@@ -105,7 +107,7 @@ func (c *Client) Close() error {
 func (c *Client) Emit(event string, args ...interface{}) {
 	nsConn, ok := c.conn.namespaces.Get(c.namespace)
 	if !ok {
-		logger.Info("Connection Namespace not initialized")
+		c.log.Info("emit before namespace connected", "namespace", c.namespace, "event", event)
 		return
 	}
 
@@ -155,7 +157,7 @@ func (c *Client) OnEvent(event string, f interface{}) {
 func (c *Client) clientError() {
 	defer func() {
 		if err := c.Close(); err != nil {
-			logger.Error("close connect:", err)
+			c.log.Error("close connection", "err", err)
 		}
 	}()
 
@@ -164,7 +166,7 @@ func (c *Client) clientError() {
 		case <-c.conn.quitChan:
 			return
 		case err := <-c.conn.errorChan:
-			logger.Error("clientError", err)
+			c.log.Error("connection error", "err", err)
 
 			var errMsg *errorMessage
 			if !errors.As(err, &errMsg) {
@@ -187,7 +189,7 @@ func (c *Client) clientError() {
 func (c *Client) clientWrite() {
 	defer func() {
 		if err := c.Close(); err != nil {
-			logger.Error("close connect:", err)
+			c.log.Error("close connection", "err", err)
 		}
 
 	}()
@@ -195,7 +197,7 @@ func (c *Client) clientWrite() {
 	for {
 		select {
 		case <-c.conn.quitChan:
-			logger.Info("clientWrite Writer loop has stopped")
+			c.log.Info("writer loop stopped")
 			return
 		case pkg := <-c.conn.writeChan:
 			if err := c.conn.encoder.Encode(pkg.Header, pkg.Data); err != nil {
@@ -208,7 +210,7 @@ func (c *Client) clientWrite() {
 func (c *Client) clientRead() {
 	defer func() {
 		if err := c.Close(); err != nil {
-			logger.Error("close connect:", err)
+			c.log.Error("close connection", "err", err)
 		}
 	}()
 
@@ -220,7 +222,7 @@ func (c *Client) clientRead() {
 		if err := c.conn.decoder.DecodeHeader(&header, &event); err != nil {
 			c.conn.onError(rootNamespace, err)
 
-			logger.Error("clientRead Error in Decoder", err)
+			c.log.Error("decode packet header", "err", err)
 
 			return
 		}
@@ -244,7 +246,7 @@ func (c *Client) clientRead() {
 		}
 
 		if err != nil {
-			logger.Error("client read:", err)
+			c.log.Error("client read", "err", err)
 
 			return
 		}

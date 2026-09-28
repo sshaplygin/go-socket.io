@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -39,11 +40,14 @@ type conn struct {
 	errorChan chan error
 	quitChan  chan struct{}
 
+	log *slog.Logger
+
 	closeOnce sync.Once
 }
 
-func newConn(engineConn engineio.Conn, handlers *namespaceHandlers) *conn {
+func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, log *slog.Logger) *conn {
 	return &conn{
+		log:        log,
 		Conn:       engineConn,
 		encoder:    parser.NewEncoder(engineConn),
 		decoder:    parser.NewDecoder(engineConn),

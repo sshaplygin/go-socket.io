@@ -12,8 +12,18 @@ All notable changes to this project are documented here. The format follows
   answered with HTTP 400 instead of starting a second upgrade that held the request
   open until `pingTimeout`. This also removes a 60 s wait in `go test ./engineio`.
 
+### Added
+
+- `engineio.Options.Logger` (`*slog.Logger`): the Engine.IO server, its sessions, the
+  socket.io `Server`, `Client` and every connection log through it; nil means
+  `slog.Default()`. The parser, the transports and the client dialer still use the
+  package-level `logger.Log` (roadmap stage 1.2).
+
 ### Changed
 
+- `session.New` takes a trailing `*slog.Logger` parameter (nil accepted).
+- Connection-level errors that were printed with `log.Println` are now `slog` Error
+  records carrying the namespace; `logger.Error`'s trailing-colon messages are gone.
 - Toolchain: `go 1.22` in `go.mod`; `golang.org/x/exp/slog` replaced by `log/slog`;
   `gofrs/uuid` replaced by `google/uuid`; `gorilla/websocket` 1.5.3; `testify` 1.12.1;
   `io/ioutil` replaced by `io` (roadmap stage 1.1).

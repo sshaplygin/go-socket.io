@@ -79,8 +79,13 @@ transport swap happens in stage 2 where the transport is rewritten.
    deployment and follows one client through handshake, namespace connect, events and
    disconnect by `sid`, with no rebuild. The first PR (`engineio.Options.Logger`,
    `log.Println` removed from the connection code, constant messages in the session and
-   socket.io code) and 2a have landed; see [CHANGELOG.md](../CHANGELOG.md). 2a deferred
-   the `nsp` attribute on namespace connections to 2b. Remaining:
+   socket.io code) and 2a have landed; see [CHANGELOG.md](../CHANGELOG.md). 2a differs
+   from the text below in four points: the `nsp` attribute on namespace connections and
+   the deprecation of `logger.Error`/`logger.Info` moved to 2b; `TRACE` rendering is
+   opt-in through `logger.ReplaceAttr`, since a library cannot rename levels in an
+   application's handler; `logger.Log` resolves `slog.Default()` at log time rather than
+   at init, and `Level` starts at `LevelUnset` so `Level.Set` works without the variable.
+   Remaining:
    - **2a. Levels, environment variable, sink.** `logger/logger.go` exports `Level`
      (`*slog.LevelVar`), read once at `init` from `SOCKETIO_LOG_LEVEL` (case-insensitive;
      unset means the application's handler decides; an invalid value logs one `WARN`

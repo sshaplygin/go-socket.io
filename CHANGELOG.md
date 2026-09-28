@@ -20,9 +20,13 @@ All notable changes to this project are documented here. The format follows
   use the package-level `logger.Log` (roadmap stage 1.2).
 - `SOCKETIO_LOG_LEVEL` (`error`, `warn`, `info`, `debug`, `trace`), read once at start
   into `logger.Level`: while set, it decides which library records are enabled,
-  whatever the level of the application's handler. `logger.Wrap`, `logger.LevelTrace`
-  and `logger.ReplaceAttr` (renders `TRACE`) are exported. Connection and session
-  records carry `sid`; session records also carry `transport` (roadmap stage 1.2a).
+  whatever the level of the application's handler. Applications can also call
+  `logger.Level.Set` at runtime; `logger.LevelUnset` hands the decision back to the
+  handler. `logger.Wrap`, `logger.LevelTrace` and `logger.ReplaceAttr` (renders
+  `TRACE`) are exported. Connection and session records carry `sid`; session records
+  also carry the current `transport`, updated on upgrade (roadmap stage 1.2a).
+- `logger.Log` writes to whatever `slog.Default()` is at log time, so an application's
+  `slog.SetDefault` in `main` applies to library records.
 
 ### Changed
 

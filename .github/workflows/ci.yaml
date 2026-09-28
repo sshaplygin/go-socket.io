@@ -8,51 +8,67 @@ on:
   pull_request:
     branches: [master]
   schedule:
-    - cron: '0 8 * * 1' # run "At 08:00 on Monday"
+    - cron: '0 8 * * 1' # Mondays 08:00 UTC
 
 jobs:
-  build:
-    name: ${{ matrix.os }} Go (${{ matrix.go }})
-    timeout-minutes: 5
-    strategy:
-      matrix:
-        go: ['stable','oldstable']
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Install Go 1.x
-        uses: actions/setup-go@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+      - name: Go Tidy
+        run: go mod tidy && git diff --exit-code
+      - name: Go Mod Verify
+        run: go mod verify
+      - name: Format
+        run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
+      - name: Vet
+        run: go vet ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  test:
+    name: Test ${{ matrix.os }} Go ${{ matrix.go }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['stable', 'oldstable']
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
           check-latest: true
-
-      - name: Check out code into the Go module directory
-        uses: actions/checkout@v3
-
-      - name: Check go version
+      - name: Go version
         run: go version
+      - name: Tests with race detector
+        run: go test -race -count=1 ./...
+      - name: Benchmarks
+        run: go test -run '^$' -bench . -benchmem ./...
 
-      - name: Go Format
-        run: gofmt -s -w . && git diff --exit-code
-
-      - name: Go Tidy
-        run: go mod tidy && git diff --exit-code
-
-      - name: Go Mod Verify
-        run: go mod verify
-
-      - name: Run linter
-        uses: golangci/golangci-lint-action@v3
+  examples:
+    name: Build examples
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          version: latest
-          skip-cache: true
-          skip-pkg-cache: true
-          skip-build-cache: true
-
-      - name: Run tests
-        run: |
-          make test
-
-      - name: Run benchmarks
-        run: |
-          make bench
+          go-version: stable
+          check-latest: true
+      - name: Build every example module
+        run: make examples

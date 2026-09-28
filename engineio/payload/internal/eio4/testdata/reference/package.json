@@ -1,0 +1,10 @@
+{
+  "name": "eio4-payload-reference",
+  "private": true,
+  "scripts": {
+    "test": "node verify.cjs"
+  },
+  "dependencies": {
+    "engine.io-parser": "5.2.3"
+  }
+}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/googollee/go-socket.io/engineio/frame"
@@ -143,6 +144,67 @@ func TestLimits(t *testing.T) {
 			t.Fatal(err)
 		}
 		assertPackets(t, got, []Packet{p})
+	}
+}
+
+func TestBinarySizeBoundaries(t *testing.T) {
+	for _, tc := range []struct{ dataBytes, wireBytes int }{
+		{0, 1}, {1, 5}, {2, 5}, {3, 5}, {4, 9}, {5, 9}, {6, 9},
+	} {
+		t.Run(strconv.Itoa(tc.dataBytes), func(t *testing.T) {
+			want := []Packet{{Frame: frame.Binary, Type: packet.MESSAGE, Data: make([]byte, tc.dataBytes)}}
+			body, err := Encode(want, tc.wireBytes)
+			if err != nil || len(body) != tc.wireBytes {
+				t.Fatalf("Encode = %q, %v; want %d bytes", body, err, tc.wireBytes)
+			}
+			got, err := Decode(body, tc.wireBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertPackets(t, got, want)
+			if tc.wireBytes > 1 {
+				if _, err := Encode(want, tc.wireBytes-1); !errors.Is(err, ErrTooLarge) {
+					t.Fatalf("Encode below exact limit = %v", err)
+				}
+				if _, err := Decode(body, tc.wireBytes-1); !errors.Is(err, ErrTooLarge) {
+					t.Fatalf("Decode below exact limit = %v", err)
+				}
+			}
+			if _, err := Encode(want, int(^uint(0)>>1)); err != nil {
+				t.Fatalf("Encode with MaxInt limit = %v", err)
+			}
+		})
+	}
+}
+
+func TestOversizedTextRejectedBeforeValidation(t *testing.T) {
+	// Size rejection wins over content validation when raw bytes alone cannot fit.
+	for _, data := range [][]byte{[]byte("too long"), {0xff, 0xff}, {'\x1e', '\x1e'}} {
+		got, err := Encode([]Packet{{Type: packet.MESSAGE, Data: data}}, 1)
+		if got != nil || !errors.Is(err, ErrTooLarge) {
+			t.Fatalf("Encode oversized text = %q, %v", got, err)
+		}
+	}
+}
+
+func BenchmarkDecode(b *testing.B) {
+	for _, tc := range []struct {
+		name string
+		body []byte
+	}{
+		{"mixed", []byte("4hello\x1e2\x1ebAQIDBA==")},
+		{"large-text", append([]byte("4"), bytes.Repeat([]byte("x"), 128*1024)...)},
+		{"dense-records", bytes.Repeat([]byte("4\x1e"), 500000)[:999999]},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(len(tc.body)))
+			for i := 0; i < b.N; i++ {
+				if _, err := Decode(tc.body, len(tc.body)); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
 

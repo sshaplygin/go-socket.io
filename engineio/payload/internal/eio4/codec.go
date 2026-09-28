@@ -3,6 +3,8 @@
 //
 // Callers own HTTP body limits, batching, deadlines, pause and resume. This codec
 // has no session state or goroutines. It does not encode WebSocket frames.
+// The polling rewrite should use it through package payload, as Go's internal
+// visibility rules prevent direct use by the sibling transport/polling package.
 package eio4
 
 import (
@@ -50,6 +52,11 @@ func Encode(packets []Packet, maxBytes int) ([]byte, error) {
 
 	size := 0
 	for i, p := range packets {
+		// Raw data is a lower bound on wire size for either frame type. Reject
+		// oversized input before scanning text for UTF-8 and separators.
+		if len(p.Data) > maxBytes-size {
+			return nil, ErrTooLarge
+		}
 		if err := validate(p); err != nil {
 			return nil, fmt.Errorf("packet %d: %w", i, err)
 		}
@@ -97,6 +104,7 @@ func Encode(packets []Packet, maxBytes int) ([]byte, error) {
 // Decode decodes one complete polling body of at most maxBytes wire bytes.
 // maxBytes must be positive. Callers must also bound reads before buffering the
 // HTTP body; this limit cannot prevent allocations made by the caller.
+// It is not a heap limit: many tiny records allocate a much larger Packet slice.
 // Returned packet data owns its bytes and may be changed independently of body.
 // On any error, no partial batch is returned. Empty records are invalid.
 // Base64 must use the canonical padded standard alphabet, without whitespace.

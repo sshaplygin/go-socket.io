@@ -10,8 +10,9 @@
 // level configured on the application's handler, so an operator can turn on
 // debug output of a running deployment without a rebuild. When it is unset,
 // the application's handler decides. An invalid value logs one WARN and
-// behaves as unset. Level can be changed at runtime with Level.Set; the change
-// takes effect only while the variable was set at start.
+// behaves as unset. Applications can change Level at runtime with Level.Set,
+// with or without the variable; Level.Set(LevelUnset) hands the decision back
+// to the application's handler.
 //
 // engineio.Options.Logger chooses where records go; it never chooses the
 // level. Every logger the library uses is passed through Wrap.
@@ -26,9 +27,9 @@ package logger
 import (
 	"context"
 	"log/slog"
+	"math"
 	"os"
 	"strings"
-	"sync/atomic"
 )
 
 // EnvLevel is the name of the environment variable that sets Level.
@@ -38,18 +39,25 @@ const EnvLevel = "SOCKETIO_LOG_LEVEL"
 // they use ReplaceAttr.
 const LevelTrace = slog.LevelDebug - 4
 
-// Level is the library log level while SOCKETIO_LOG_LEVEL is set.
+// LevelUnset is the value of Level while no override is active: the
+// application's handler decides what is enabled.
+const LevelUnset = slog.Level(math.MaxInt32)
+
+// Level is the library log level. It starts at the value of SOCKETIO_LOG_LEVEL,
+// or LevelUnset when the variable is unset or invalid. Setting it to any other
+// level at runtime turns the override on; setting it to LevelUnset turns it off.
 var Level = new(slog.LevelVar)
 
-// override is true when SOCKETIO_LOG_LEVEL held a valid value at start.
-var override atomic.Bool
+func overrideOn() bool { return Level.Level() != LevelUnset }
 
 // Log is the fallback logger for packages without access to
 // engineio.Options: the parser, the transports, engineio/packet and the client
-// dialer.
-var Log = Wrap(slog.Default())
+// dialer. It writes to whatever slog.Default() is when a record is logged, so
+// an application's later slog.SetDefault applies to it.
+var Log = slog.New(&levelHandler{next: &defaultHandler{}})
 
 func init() {
+	Level.Set(LevelUnset)
 	value, ok := os.LookupEnv(EnvLevel)
 	if !ok {
 		return
@@ -60,7 +68,6 @@ func init() {
 		return
 	}
 	Level.Set(lvl)
-	override.Store(true)
 }
 
 func parseLevel(value string) (slog.Level, bool) {
@@ -91,11 +98,11 @@ func ReplaceAttr(_ []string, a slog.Attr) slog.Attr {
 }
 
 // Wrap returns a logger over l's handler whose Enabled follows Level while
-// SOCKETIO_LOG_LEVEL is set, and l's handler otherwise. A nil l means
-// slog.Default(). Wrapping an already wrapped logger returns it unchanged.
+// SOCKETIO_LOG_LEVEL is set, and l's handler otherwise. A nil l means Log,
+// which follows slog.Default() at log time. Wrapping an already wrapped logger returns it unchanged.
 func Wrap(l *slog.Logger) *slog.Logger {
 	if l == nil {
-		l = slog.Default()
+		return Log
 	}
 	if _, ok := l.Handler().(*levelHandler); ok {
 		return l
@@ -108,7 +115,7 @@ type levelHandler struct {
 }
 
 func (h *levelHandler) Enabled(ctx context.Context, lvl slog.Level) bool {
-	if override.Load() {
+	if overrideOn() {
 		return lvl >= Level.Level()
 	}
 	return h.next.Enabled(ctx, lvl)
@@ -126,6 +133,52 @@ func (h *levelHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h *levelHandler) WithGroup(name string) slog.Handler {
 	return &levelHandler{next: h.next.WithGroup(name)}
+}
+
+// defaultHandler delegates to slog.Default()'s handler at call time, applying
+// the attributes and groups added through With/WithGroup on the way.
+type defaultHandler struct {
+	ops []func(slog.Handler) slog.Handler
+}
+
+// stderrHandler is used when slog.Default() is Log itself, which would
+// otherwise recurse.
+var stderrHandler = slog.NewTextHandler(os.Stderr, nil)
+
+func (h *defaultHandler) base() slog.Handler {
+	next := slog.Default().Handler()
+	if lh, ok := next.(*levelHandler); ok {
+		if _, self := lh.next.(*defaultHandler); self {
+			return stderrHandler
+		}
+	}
+	return next
+}
+
+func (h *defaultHandler) Enabled(ctx context.Context, lvl slog.Level) bool {
+	return h.base().Enabled(ctx, lvl)
+}
+
+func (h *defaultHandler) Handle(ctx context.Context, r slog.Record) error {
+	next := h.base()
+	for _, op := range h.ops {
+		next = op(next)
+	}
+	return next.Handle(ctx, r)
+}
+
+func (h *defaultHandler) with(op func(slog.Handler) slog.Handler) *defaultHandler {
+	ops := make([]func(slog.Handler) slog.Handler, len(h.ops), len(h.ops)+1)
+	copy(ops, h.ops)
+	return &defaultHandler{ops: append(ops, op)}
+}
+
+func (h *defaultHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return h.with(func(n slog.Handler) slog.Handler { return n.WithAttrs(attrs) })
+}
+
+func (h *defaultHandler) WithGroup(name string) slog.Handler {
+	return h.with(func(n slog.Handler) slog.Handler { return n.WithGroup(name) })
 }
 
 // Error logs msg with err at ERROR through Log. A nil err is logged as such.

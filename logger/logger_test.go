@@ -20,10 +20,17 @@ func TestMain(m *testing.M) {
 	if os.Getenv(helperEnv) == "1" {
 		// Output on stdout: "<override> <level>". Warnings from init go to
 		// stderr through the default slog handler.
-		_, _ = os.Stdout.WriteString(boolString(override.Load()) + " " + Level.Level().String() + "\n")
+		_, _ = os.Stdout.WriteString(boolString(overrideOn()) + " " + levelName() + "\n")
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
+}
+
+func levelName() string {
+	if !overrideOn() {
+		return "UNSET"
+	}
+	return Level.Level().String()
 }
 
 func boolString(b bool) string {
@@ -36,7 +43,13 @@ func boolString(b bool) string {
 func runHelper(t *testing.T, value string, set bool) (stdout, stderr string) {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(os.Environ(), helperEnv+"=1")
+	// Drop any SOCKETIO_LOG_LEVEL inherited from the developer's shell or CI.
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, EnvLevel+"=") {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	cmd.Env = append(cmd.Env, helperEnv+"=1")
 	if set {
 		cmd.Env = append(cmd.Env, EnvLevel+"="+value)
 	}
@@ -61,26 +74,23 @@ func TestLogLevelFromEnv(t *testing.T) {
 	}
 
 	out, _ := runHelper(t, "", false)
-	require.Equal(t, "false INFO", out, "unset variable must not enable the override")
+	require.Equal(t, "false UNSET", out, "unset variable must not enable the override")
 }
 
 func TestLogLevelInvalidEnv(t *testing.T) {
 	out, errOut := runHelper(t, "bogus", true)
-	require.Equal(t, "false INFO", out, "invalid value must behave as unset")
+	require.Equal(t, "false UNSET", out, "invalid value must behave as unset")
 	require.Equal(t, 1, strings.Count(errOut, "WARN"), "exactly one warning: %q", errOut)
 	require.Contains(t, errOut, "bogus")
 }
 
-// setOverride enables the environment override at lvl for one test.
+// setOverride sets Level for one test, as an application or the environment
+// variable would; LevelUnset turns the override off.
 func setOverride(t *testing.T, lvl slog.Level) {
 	t.Helper()
-	prevOn, prevLvl := override.Load(), Level.Level()
-	override.Store(true)
+	prev := Level.Level()
 	Level.Set(lvl)
-	t.Cleanup(func() {
-		override.Store(prevOn)
-		Level.Set(prevLvl)
-	})
+	t.Cleanup(func() { Level.Set(prev) })
 }
 
 func TestWrapOverridesHandlerLevel(t *testing.T) {
@@ -88,12 +98,17 @@ func TestWrapOverridesHandlerLevel(t *testing.T) {
 	app := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError}))
 	l := Wrap(app)
 
-	// Variable unset: the application's handler decides.
+	// Override off (whatever the test process inherited): the application's
+	// handler decides.
+	setOverride(t, LevelUnset)
 	l.Debug("hidden by app level")
 	require.Empty(t, buf.String())
 
-	// Variable set to debug: library lines pass even though the handler is at ERROR.
+	// Level set to debug at runtime, without the variable: library lines pass
+	// even though the handler is at ERROR, also through With and WithGroup.
 	setOverride(t, slog.LevelDebug)
+	l.WithGroup("g").Debug("shown in group")
+	require.Contains(t, buf.String(), "shown in group")
 	l.With("sid", "1").Debug("shown by override")
 	require.Contains(t, buf.String(), "shown by override")
 	require.Contains(t, buf.String(), "sid=1")
@@ -127,4 +142,25 @@ func TestTraceDisabledNoAlloc(t *testing.T) {
 
 func TestErrorNilSafe(t *testing.T) {
 	require.NotPanics(t, func() { Error("nil error", nil) })
+}
+
+// TestLogFollowsSetDefault checks that the fallback logger writes to the
+// handler installed by a later slog.SetDefault, with level and attributes
+// intact, and that installing Log itself as the default does not recurse.
+func TestLogFollowsSetDefault(t *testing.T) {
+	setOverride(t, LevelUnset)
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	var buf bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	Log.With("sid", "7").Error("after set default", "k", "v")
+	require.Contains(t, buf.String(), `"level":"ERROR"`)
+	require.Contains(t, buf.String(), `"msg":"after set default"`)
+	require.Contains(t, buf.String(), `"sid":"7"`)
+	require.Contains(t, buf.String(), `"k":"v"`)
+	require.Same(t, Log, Wrap(nil))
+
+	slog.SetDefault(Log)
+	require.NotPanics(t, func() { Log.Info("no recursion") })
 }

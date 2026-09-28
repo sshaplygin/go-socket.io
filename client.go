@@ -13,7 +13,13 @@ import (
 	"github.com/googollee/go-socket.io/parser"
 )
 
-var EmptyAddrErr = errors.New("empty addr")
+// ErrEmptyAddr is returned by NewClient when addr is empty.
+var ErrEmptyAddr = errors.New("empty addr")
+
+// EmptyAddrErr is the former name of ErrEmptyAddr.
+//
+// Deprecated: use ErrEmptyAddr.
+var EmptyAddrErr = ErrEmptyAddr
 
 // Client is client for socket.io server
 type Client struct {
@@ -30,7 +36,7 @@ type Client struct {
 // addr like http://asd.com:8080/{$namespace}
 func NewClient(addr string, opts *engineio.Options) (*Client, error) {
 	if addr == "" {
-		return nil, EmptyAddrErr
+		return nil, ErrEmptyAddr
 	}
 
 	u, err := url.Parse(addr)

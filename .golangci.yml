@@ -1,15 +1,30 @@
-# More info on config here: https://github.com/golangci/golangci-lint#config-file
+# golangci-lint v2 configuration. Run with `make lint`.
+version: "2"
+
 run:
   timeout: 3m
-  deadline: 5m
 
-output:
-  format: colored-line-number
-  print-issued-lines: true
-  print-linter-name: true
+linters:
+  # Default set: errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  settings:
+    staticcheck:
+      # golangci-lint's default staticcheck selection, minus QF1008
+      # (redundant embedded-field selectors), which is a style preference:
+      # explicit selectors are kept where a type embeds an interface.
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        - -QF1008
 
-issues:
-  exclude-use-default: false
-  exclude:
-    # support go 1.13 with deprecated APIs
-    - SA1019
+formatters:
+  enable:
+    - gofmt
+  settings:
+    gofmt:
+      simplify: true

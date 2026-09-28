@@ -1,23 +1,35 @@
+EXAMPLES := $(patsubst %/go.mod,%,$(wildcard _examples/*/go.mod))
+
 .PHONY: all
 all:
 	go install ./...
 
-.PHONY: get_dev
-get_dev:
-	go get -t ./...
-
 .PHONY: test
 test:
-	go clean -testcache && go test -v -race -count=1 ./...
+	go test -count=1 ./...
+
+.PHONY: test-race
+test-race:
+	go test -race -count=1 ./...
 
 .PHONY: bench
 bench:
-	go clean -testcache && go test -bench . -benchmem ./...
+	go test -run '^$$' -bench . -benchmem ./...
 
 .PHONY: lint
 lint:
-	golangci-lint run 
+	gofmt -s -l . | tee /dev/stderr | test -z "$$(cat)"
+	go vet ./...
+	golangci-lint run ./...
+
+.PHONY: vuln
+vuln:
+	govulncheck ./...
 
 .PHONY: cover
 cover:
-	go clean -testcache && go test ./... -cover -coverprofile=c.out && go tool cover -html=c.out
+	go test -count=1 -coverprofile=c.out ./... && go tool cover -html=c.out
+
+.PHONY: examples
+examples:
+	@set -e; for d in $(EXAMPLES); do echo "==> $$d"; (cd $$d && go build ./...); done

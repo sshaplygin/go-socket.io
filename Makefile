@@ -32,4 +32,4 @@ cover:
 
 .PHONY: examples
 examples:
-	@set -e; for d in $(EXAMPLES); do echo "==> $$d"; (cd $$d && go build ./...); done
+	@set -e; for d in $(EXAMPLES); do echo "==> $$d"; (cd $$d && go build -o /dev/null ./...); done

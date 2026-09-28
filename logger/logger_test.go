@@ -20,7 +20,7 @@ func TestMain(m *testing.M) {
 	if os.Getenv(helperEnv) == "1" {
 		// Output on stdout: "<override> <level>". Warnings from init go to
 		// stderr through the default slog handler.
-		os.Stdout.WriteString(boolString(override.Load()) + " " + Level.Level().String() + "\n")
+		_, _ = os.Stdout.WriteString(boolString(override.Load()) + " " + Level.Level().String() + "\n")
 		os.Exit(0)
 	}
 	os.Exit(m.Run())

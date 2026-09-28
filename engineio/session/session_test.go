@@ -103,3 +103,65 @@ func TestNewNilLoggerDefaults(t *testing.T) {
 	require.Nil(t, s)
 	require.ErrorIs(t, err, deadlineErr)
 }
+
+// attrHandler records every record together with the attributes added
+// through With, keyed by attribute name.
+type attrHandler struct {
+	mu    *sync.Mutex
+	recs  *[]map[string]string
+	attrs []slog.Attr
+}
+
+func newAttrHandler() *attrHandler {
+	return &attrHandler{mu: &sync.Mutex{}, recs: &[]map[string]string{}}
+}
+
+func (h *attrHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *attrHandler) Handle(_ context.Context, r slog.Record) error {
+	m := map[string]string{"msg": r.Message}
+	for _, a := range h.attrs {
+		m[a.Key] = a.Value.String()
+	}
+	r.Attrs(func(a slog.Attr) bool {
+		m[a.Key] = a.Value.String()
+		return true
+	})
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	*h.recs = append(*h.recs, m)
+	return nil
+}
+
+func (h *attrHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	next := *h
+	next.attrs = append(append([]slog.Attr{}, h.attrs...), attrs...)
+	return &next
+}
+
+func (h *attrHandler) WithGroup(string) slog.Handler { return h }
+
+func (h *attrHandler) last() map[string]string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return (*h.recs)[len(*h.recs)-1]
+}
+
+// TestSessionLogAttributes checks that session records carry sid and the
+// current transport, and that the transport follows an upgrade.
+func TestSessionLogAttributes(t *testing.T) {
+	h := newAttrHandler()
+	s, err := New(failingConn{}, "sid7", "polling",
+		transport.ConnParameters{PingTimeout: time.Second}, slog.New(h))
+	require.NoError(t, err)
+
+	s.logger().Error("before upgrade")
+	require.Equal(t, "sid7", h.last()["sid"])
+	require.Equal(t, "polling", h.last()["transport"])
+
+	s.switchTransport("websocket", failingConn{})
+	s.logger().Error("after upgrade")
+	require.Equal(t, "sid7", h.last()["sid"])
+	require.Equal(t, "websocket", h.last()["transport"])
+	require.Equal(t, "websocket", s.Transport())
+}

@@ -407,7 +407,7 @@ func TestEngineRejectsTransportDowngrade(t *testing.T) {
 
 	client := &http.Client{Timeout: 2 * time.Second}
 	var status int
-	must.Eventually(func() bool {
+	rejected := assert.Eventually(t, func() bool {
 		resp, err := client.Get(pollURL.String())
 		if err != nil {
 			return false
@@ -415,5 +415,8 @@ func TestEngineRejectsTransportDowngrade(t *testing.T) {
 		_ = resp.Body.Close()
 		status = resp.StatusCode
 		return status == http.StatusBadRequest
-	}, 5*time.Second, 50*time.Millisecond, "polling request after upgrade was not rejected; last status %d", status)
+	}, 5*time.Second, 50*time.Millisecond)
+	if !rejected {
+		t.Fatalf("polling request after upgrade was not rejected; last status %d", status)
+	}
 }

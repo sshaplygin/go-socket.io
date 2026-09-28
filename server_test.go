@@ -68,7 +68,7 @@ func TestServerLoggerOption(t *testing.T) {
 	srv := NewServer(&engineio.Options{Logger: slog.New(custom)})
 	srv.OnConnect("/", func(Conn) error { return nil })
 	go func() { _ = srv.Serve() }()
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
@@ -78,7 +78,7 @@ func TestServerLoggerOption(t *testing.T) {
 	dialer := engineio.Dialer{Transports: []transport.Transport{polling.Default}}
 	conn, err := dialer.Dial(ts.URL, nil)
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	w, err := conn.NextWriter(session.TEXT)
 	require.NoError(t, err)

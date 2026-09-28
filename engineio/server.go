@@ -110,7 +110,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// try upgrade current connection
-	if reqSession.Transport() != reqTransport {
+	if current := reqSession.Transport(); current != reqTransport {
+		if !s.canUpgrade(current, reqTransport) {
+			http.Error(w, fmt.Sprintf("invalid transport upgrade: %s to %s", current, reqTransport), http.StatusBadRequest)
+			return
+		}
+
 		transportConn, err := srvTransport.Accept(w, r)
 		if err != nil {
 			// don't call http.Error() for HandshakeErrors because
@@ -168,4 +173,17 @@ func (s *Server) newSession(_ context.Context, conn transport.Conn, reqTransport
 	}(newSession)
 
 	return newSession, nil
+}
+
+// canUpgrade reports whether a session on transport from may move to
+// transport to, that is whether to comes later in the configured transport
+// order. Anything else, including a request on an earlier transport with a
+// live sid, is rejected by ServeHTTP instead of being treated as an upgrade.
+func (s *Server) canUpgrade(from, to string) bool {
+	for _, name := range s.transports.UpgradeFrom(from) {
+		if name == to {
+			return true
+		}
+	}
+	return false
 }

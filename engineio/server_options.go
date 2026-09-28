@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/googollee/go-socket.io/engineio/session"
-
 	"github.com/googollee/go-socket.io/engineio/transport"
 	"github.com/googollee/go-socket.io/engineio/transport/polling"
 	"github.com/googollee/go-socket.io/engineio/transport/websocket"

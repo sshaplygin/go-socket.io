@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- engineio: a request whose transport is earlier in the configured order than the
+  session's current transport (for example polling after an upgrade to websocket) is
+  answered with HTTP 400 instead of starting a second upgrade that held the request
+  open until `pingTimeout`. This also removes a 60 s wait in `go test ./engineio`.
+
 ### Changed
 
 - Toolchain: `go 1.22` in `go.mod`; `golang.org/x/exp/slog` replaced by `log/slog`;

@@ -8,6 +8,7 @@ import (
 	"github.com/gomodule/redigo/redis"
 
 	"github.com/googollee/go-socket.io/engineio"
+	"github.com/googollee/go-socket.io/logger"
 	"github.com/googollee/go-socket.io/parser"
 )
 
@@ -31,13 +32,14 @@ func NewServer(opts *engineio.Options) *Server {
 	}
 }
 
-// loggerFrom returns opts.Logger, or slog.Default() when opts or the field is nil.
-// It mirrors engineio.Options.getLogger for the socket.io layer.
+// loggerFrom returns opts.Logger passed through logger.Wrap, or logger.Log
+// when opts or the field is nil. It mirrors engineio.Options.getLogger for the
+// socket.io layer.
 func loggerFrom(opts *engineio.Options) *slog.Logger {
 	if opts != nil && opts.Logger != nil {
-		return opts.Logger
+		return logger.Wrap(opts.Logger)
 	}
-	return slog.Default()
+	return logger.Log
 }
 
 // Adapter sets redis broadcast adapter.
@@ -238,7 +240,7 @@ func (s *Server) ForEach(namespace string, room string, f EachFunc) bool {
 }
 
 func (s *Server) serveConn(conn engineio.Conn) {
-	c := newConn(conn, s.handlers, s.log)
+	c := newConn(conn, s.handlers, s.log.With("sid", conn.ID()))
 	if err := c.connect(); err != nil {
 		_ = c.Close()
 		if root, ok := s.handlers.Get(rootNamespace); ok && root.onError != nil {

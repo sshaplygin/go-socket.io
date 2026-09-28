@@ -9,6 +9,7 @@ import (
 	"github.com/googollee/go-socket.io/engineio/transport"
 	"github.com/googollee/go-socket.io/engineio/transport/polling"
 	"github.com/googollee/go-socket.io/engineio/transport/websocket"
+	"github.com/googollee/go-socket.io/logger"
 )
 
 // Options is options to create a server.
@@ -23,17 +24,18 @@ type Options struct {
 	ConnInitor     ConnInitorFunc
 
 	// Logger receives errors and diagnostics from the server and the sessions
-	// it creates. nil means slog.Default(). Transports, the parser, the packet
-	// codec and the client dialer do not have access to Options and keep using
-	// the package-level logger.Log.
+	// it creates. nil means logger.Log. It chooses the sink only: the level is
+	// the handler's, or SOCKETIO_LOG_LEVEL when set (see package logger).
+	// Transports, the parser, the packet codec and the client dialer do not
+	// have access to Options and keep using logger.Log.
 	Logger *slog.Logger
 }
 
 func (c *Options) getLogger() *slog.Logger {
 	if c != nil && c.Logger != nil {
-		return c.Logger
+		return logger.Wrap(c.Logger)
 	}
-	return slog.Default()
+	return logger.Log
 }
 
 func (c *Options) getRequestChecker() CheckerFunc {

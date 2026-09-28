@@ -81,7 +81,7 @@ func (c *Client) Connect() error {
 		return err
 	}
 
-	c.conn = newConn(enginioCon, c.handlers, c.log)
+	c.conn = newConn(enginioCon, c.handlers, c.log.With("sid", enginioCon.ID()))
 
 	if err := c.conn.connectClient(); err != nil {
 		_ = c.Close()

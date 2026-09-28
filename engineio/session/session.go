@@ -13,6 +13,7 @@ import (
 	"github.com/googollee/go-socket.io/engineio/packet"
 	"github.com/googollee/go-socket.io/engineio/payload"
 	"github.com/googollee/go-socket.io/engineio/transport"
+	"github.com/googollee/go-socket.io/logger"
 )
 
 // Pauser is connection which can be paused and resumes.
@@ -33,12 +34,11 @@ type Session struct {
 }
 
 // New creates a session over conn. log receives errors the session cannot
-// return to a caller; nil means slog.Default().
+// return to a caller, with sid and transport attributes added; nil means
+// logger.Log.
 func New(conn transport.Conn, sid, transport string, params transport.ConnParameters, log *slog.Logger) (*Session, error) {
 	params.SID = sid
-	if log == nil {
-		log = slog.Default()
-	}
+	log = logger.Wrap(log).With("sid", sid, "transport", transport)
 
 	ses := &Session{
 		transport: transport,

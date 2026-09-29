@@ -1,0 +1,3 @@
+cannot use
+42
+string

@@ -1,0 +1,4 @@
+cannot use
+result
+int
+string

@@ -1,0 +1,3 @@
+cannot use
+(string, error)
+(int, error)

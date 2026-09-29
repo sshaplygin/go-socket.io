@@ -49,6 +49,21 @@ ubuntu, macos and windows with `stable` and `oldstable` Go) and `examples`
 - Public API changes go through `docs/ROADMAP.md` first.
 - All text in the repository (docs, comments, commit messages, identifiers) is English.
 
+## Roadmap validation
+
+After editing `docs/ROADMAP.md`, launch three independent sub-agents against the
+same saved revision: **QA** (testability, coverage and release gates), **Critic**
+(feasibility, failure modes and unsupported assumptions), and **Reviewer**
+(consistency, dependency/parallel-work graph, scope and duplication). They review
+read-only and do not see each other's findings before submitting their own.
+
+Resolve findings in the owning section; each requirement has one source of truth.
+Ask affected reviewers to recheck fixes. If a fix changes scope, public contracts or
+dependencies, all three recheck the final saved revision independently. Report
+unresolved findings and each role's verdict; do not describe the plan as validated
+while a blocking finding remains. If sub-agents are unavailable, state that this
+validation step is incomplete.
+
 ## Documentation
 
 One fact lives in exactly one file; other files link to it. Before adding text, find its

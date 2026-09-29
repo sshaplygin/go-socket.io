@@ -105,7 +105,7 @@ func getStats(ctx context.Context, client *http.Client, address string, gc bool)
 	if err != nil {
 		return s, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return s, fmt.Errorf("stats: HTTP %d", resp.StatusCode)
 	}

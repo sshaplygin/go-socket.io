@@ -32,7 +32,7 @@ func serveBackend(backend string, lifetime time.Duration) error {
 	if err != nil {
 		return err
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	var active atomic.Int64
 	mux := http.NewServeMux()
 	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +51,7 @@ func serveBackend(backend string, lifetime time.Duration) error {
 			if err != nil {
 				return
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 			active.Add(1)
 			defer active.Add(-1)
 			conn.SetReadLimit(messageLimit)
@@ -67,7 +67,7 @@ func serveBackend(backend string, lifetime time.Duration) error {
 		if err != nil {
 			return
 		}
-		defer raw.Close()
+		defer func() { _ = raw.Close() }()
 		active.Add(1)
 		defer active.Add(-1)
 		_ = raw.SetDeadline(time.Now().Add(lifetime))

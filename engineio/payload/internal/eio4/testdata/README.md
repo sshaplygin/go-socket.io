@@ -15,6 +15,13 @@ inside UTF-8 characters). It checks status 200/413, delivered message contents,
 and that oversized bodies dispatch nothing. These are fixture tests of the Node
 server and the isolated Go reader, not a claim of Go server interoperability.
 
+`batches.json` records ordered prefix selection for client polling POSTs using
+the peer's advertised `maxPayload`. Go checks `EncodeBatch`; the Node verifier
+calls the pinned client's actual `_getWritablePackets` method with a queue and
+polling transport name, without opening a socket. The independent Node encoder
+checks each selected Go prefix's wire bytes, bound and maximality. This does not
+introduce a server-to-client response size policy.
+
 From the repository root:
 
 ```sh
@@ -24,11 +31,13 @@ npm test --prefix engineio/payload/internal/eio4/testdata/reference
 go test ./engineio/payload/internal/eio4 -run '^$' -fuzz '^FuzzDecode$' -fuzztime 20s -parallel 2
 go test ./engineio/payload/internal/eio4 -run '^$' -fuzz '^FuzzBinaryRoundTrip$' -fuzztime 20s -parallel 2
 go test ./engineio/payload/internal/eio4 -run '^$' -fuzz '^FuzzDecodeReader$' -fuzztime 20s -parallel 2
+go test ./engineio/payload/internal/eio4 -run '^$' -fuzz '^FuzzEncodeBatch$' -fuzztime 20s -parallel 2
 go test ./engineio/payload/internal/eio4 -run '^$' -bench BenchmarkDecode -benchmem
 ```
 
 The reference dependencies are pinned to `engine.io-parser@5.2.3` (protocol 4) and
-`engine.io@6.6.4`, including npm integrity hashes. The optional checks need Node
+`engine.io@6.6.4` and `engine.io-client@6.6.3`, including npm integrity hashes.
+The optional checks need Node
 18+ and loopback HTTP access. They are test tooling only: ordinary Go tests and
 the root module require neither Node nor npm. Both codec implementations independently
 encode packets to the expected wire body and decode that body to expected packets.
@@ -40,6 +49,18 @@ and decodes after the request ends. The Go reader preserves its existing strict
 UTF-8 and base64 validation. Reader tests also cover I/O failures, read ownership,
 invalid limits and the largest positive int; `FuzzDecodeReader` checks chunk
 boundaries and consumed bytes against the complete-body decoder.
+
+Batching follows the ordered-prefix approach in the pinned
+[TS client](https://github.com/socketio/socket.io/blob/engine.io-client%406.6.3/packages/engine.io-client/lib/socket.ts),
+with deliberately stricter size handling consistent with the existing Go encoder.
+JS estimates binary expansion as `ceil(n * 1.33)` and allows an oversized first
+packet through; Go counts exact base64 padding and reports `ErrTooLarge` locally
+when the first packet cannot fit. The `binary-padding-estimate`,
+`empty-binary-estimate` and `oversized-first` fixtures explicitly record differing
+Go and JS selections. The empty Buffer case also exposes the reference size
+helper's `byteLength || size` expression producing `NaN`. Neither implementation
+splits a packet or reorders the queue. The Node verifier checks these differences
+instead of claiming identical batching at every boundary.
 
 Malformed-input tests live in `codec_test.go`. The Go decoder deliberately rejects
 noncanonical base64 (missing padding, nonzero padding bits, whitespace or the URL

@@ -1,8 +1,8 @@
 // Package eio4 encodes complete Engine.IO v4 HTTP polling payloads.
 // It is staged for the v2 transport rewrite; the v1 transport does not use it.
 //
-// Callers choose HTTP body limits and own batching, deadlines, pause and resume. This codec
-// has no session state or goroutines. It does not encode WebSocket frames.
+// Callers choose HTTP body limits and own queues, deadlines, pause and resume.
+// This codec has no session state or goroutines. It does not encode WebSocket frames.
 // The polling rewrite should use it through package payload, as Go's internal
 // visibility rules prevent direct use by the sibling transport/polling package.
 package eio4
@@ -49,42 +49,54 @@ func Encode(packets []Packet, maxBytes int) ([]byte, error) {
 	if len(packets) == 0 {
 		return nil, ErrInvalidPayload
 	}
+	_, size, err := measure(packets, maxBytes)
+	if err != nil {
+		return nil, err
+	}
+	return encodePackets(packets, size), nil
+}
 
-	size := 0
+// measure returns the number and wire size of complete packets before the first
+// error. size never includes bytes from a packet that did not fit.
+func measure(packets []Packet, maxBytes int) (count, size int, err error) {
 	for i, p := range packets {
 		// Raw data is a lower bound on wire size for either frame type. Reject
 		// oversized input before scanning text for UTF-8 and separators.
 		if len(p.Data) > maxBytes-size {
-			return nil, ErrTooLarge
+			return i, size, ErrTooLarge
 		}
 		if err := validate(p); err != nil {
-			return nil, fmt.Errorf("packet %d: %w", i, err)
+			return i, size, fmt.Errorf("packet %d: %w", i, err)
 		}
+		nextSize := size
 		if i > 0 {
-			if size == maxBytes {
-				return nil, ErrTooLarge
+			if nextSize == maxBytes {
+				return i, size, ErrTooLarge
 			}
-			size++
+			nextSize++
 		}
-		if size == maxBytes {
-			return nil, ErrTooLarge
+		if nextSize == maxBytes {
+			return i, size, ErrTooLarge
 		}
-		size++ // Packet type or binary prefix.
-		remaining := maxBytes - size
+		nextSize++ // Packet type or binary prefix.
+		remaining := maxBytes - nextSize
 		n := len(p.Data)
 		if p.Frame == frame.Binary {
 			// Check before EncodedLen so its integer arithmetic cannot overflow.
 			if n > (remaining/4)*3 {
-				return nil, ErrTooLarge
+				return i, size, ErrTooLarge
 			}
 			n = base64.StdEncoding.EncodedLen(n)
 		}
 		if n > remaining {
-			return nil, ErrTooLarge
+			return i, size, ErrTooLarge
 		}
-		size += n
+		size = nextSize + n
 	}
+	return len(packets), size, nil
+}
 
+func encodePackets(packets []Packet, size int) []byte {
 	out := make([]byte, 0, size)
 	for i, p := range packets {
 		if i > 0 {
@@ -98,7 +110,7 @@ func Encode(packets []Packet, maxBytes int) ([]byte, error) {
 			out = append(out, p.Data...)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // Decode decodes one complete polling body of at most maxBytes wire bytes.

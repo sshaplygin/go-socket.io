@@ -98,8 +98,10 @@ func ReplaceAttr(_ []string, a slog.Attr) slog.Attr {
 }
 
 // Wrap returns a logger over l's handler whose Enabled follows Level while
-// SOCKETIO_LOG_LEVEL is set, and l's handler otherwise. A nil l means Log,
-// which follows slog.Default() at log time. Wrapping an already wrapped logger returns it unchanged.
+// Level is not LevelUnset, whether it was set by SOCKETIO_LOG_LEVEL or by
+// Level.Set, and l's handler otherwise. A nil l means Log, which follows
+// slog.Default() at log time. Wrapping an already wrapped logger returns it
+// unchanged.
 func Wrap(l *slog.Logger) *slog.Logger {
 	if l == nil {
 		return Log

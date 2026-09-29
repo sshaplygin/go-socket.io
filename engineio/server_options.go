@@ -24,8 +24,9 @@ type Options struct {
 	ConnInitor     ConnInitorFunc
 
 	// Logger receives errors and diagnostics from the server and the sessions
-	// it creates. nil means logger.Log. It chooses the sink only: the level is
-	// the handler's, or SOCKETIO_LOG_LEVEL when set (see package logger).
+	// it creates. nil means logger.Log. It chooses the sink only: logger.Level
+	// decides what is enabled while it is not logger.LevelUnset (set from
+	// SOCKETIO_LOG_LEVEL or by logger.Level.Set), the handler otherwise.
 	// Transports, the parser, the packet codec and the client dialer do not
 	// have access to Options and keep using logger.Log.
 	Logger *slog.Logger

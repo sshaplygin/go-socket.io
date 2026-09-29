@@ -1,0 +1,3 @@
+cannot use
+as func(
+socketio.EventInfo) context.Context

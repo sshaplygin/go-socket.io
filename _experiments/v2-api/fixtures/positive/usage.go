@@ -48,12 +48,12 @@ func Server(ctx context.Context, n *sio.Namespace, s *sio.Socket) error {
 	if err != nil {
 		return err
 	}
-	var _ Receipt = receipt
+	assertType[Receipt](receipt)
 	result, err := MessageEvent.EmitTo(ctx, n.To("room").Except(s.ID()).Local(), Message{})
 	if err != nil {
 		return err
 	}
-	var _ sio.BroadcastResult = result
+	assertType[sio.BroadcastResult](result)
 	if err := Pair.Handle(n, func(context.Context, *sio.Socket, sio.Args2[string, sio.Binary]) error { return nil }); err != nil {
 		return err
 	}
@@ -74,7 +74,7 @@ func Client(ctx context.Context, c *client.Client) error {
 	if err != nil {
 		return err
 	}
-	var _ Receipt = receipt
+	assertType[Receipt](receipt)
 	if err := Pair.HandleClient(c, func(context.Context, sio.Endpoint, sio.Args2[string, sio.Binary]) error { return nil }); err != nil {
 		return err
 	}
@@ -87,7 +87,7 @@ func Client(ctx context.Context, c *client.Client) error {
 	if err != nil {
 		return err
 	}
-	var _ sio.Args2[string, sio.Binary] = pair
+	assertType[sio.Args2[string, sio.Binary]](pair)
 	return Pair.Emit(ctx, c, sio.Args2[string, sio.Binary]{First: "file", Second: sio.Binary{0, 255}})
 }
 
@@ -103,3 +103,7 @@ func Construction(ctx context.Context) error {
 	}
 	return c.Close()
 }
+
+// assertType proves assignability to the explicitly supplied result type. Like
+// the rest of this fixture it is compiled, never executed.
+func assertType[T any](T) {}

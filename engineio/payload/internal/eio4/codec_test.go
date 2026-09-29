@@ -14,14 +14,32 @@ import (
 )
 
 type fixture struct {
-	Name    string `json:"name"`
-	Wire    string `json:"wire"`
-	Packets []struct {
-		Type   packet.Type `json:"type"`
-		Binary bool        `json:"binary"`
-		Text   string      `json:"text"`
-		Base64 string      `json:"base64"`
-	} `json:"packets"`
+	Name    string          `json:"name"`
+	Wire    string          `json:"wire"`
+	Packets []fixturePacket `json:"packets"`
+}
+
+type fixturePacket struct {
+	Type   packet.Type `json:"type"`
+	Binary bool        `json:"binary"`
+	Text   string      `json:"text"`
+	Base64 string      `json:"base64"`
+}
+
+func (f fixture) packetValues(t testing.TB) []Packet {
+	t.Helper()
+	packets := make([]Packet, len(f.Packets))
+	for i, p := range f.Packets {
+		packets[i] = Packet{Frame: frame.String, Type: p.Type, Data: []byte(p.Text)}
+		if p.Binary {
+			data, err := base64.StdEncoding.DecodeString(p.Base64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			packets[i].Frame, packets[i].Data = frame.Binary, data
+		}
+	}
+	return packets
 }
 
 func loadFixtures(t testing.TB) []fixture {
@@ -40,17 +58,7 @@ func loadFixtures(t testing.TB) []fixture {
 func TestProtocolFixtures(t *testing.T) {
 	for _, f := range loadFixtures(t) {
 		t.Run(f.Name, func(t *testing.T) {
-			want := make([]Packet, len(f.Packets))
-			for i, p := range f.Packets {
-				want[i] = Packet{Frame: frame.String, Type: p.Type, Data: []byte(p.Text)}
-				if p.Binary {
-					data, err := base64.StdEncoding.DecodeString(p.Base64)
-					if err != nil {
-						t.Fatal(err)
-					}
-					want[i].Frame, want[i].Data = frame.Binary, data
-				}
-			}
+			want := f.packetValues(t)
 			encoded, err := Encode(want, len(f.Wire))
 			if err != nil || string(encoded) != f.Wire {
 				t.Fatalf("Encode = %q, %v; want %q", encoded, err, f.Wire)

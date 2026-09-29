@@ -3,6 +3,7 @@ package logger
 import (
 	"bytes"
 	"context"
+	"log"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -149,8 +150,14 @@ func TestErrorNilSafe(t *testing.T) {
 // intact, and that installing Log itself as the default does not recurse.
 func TestLogFollowsSetDefault(t *testing.T) {
 	setOverride(t, LevelUnset)
-	prev := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(prev) })
+	// slog.SetDefault also redirects the standard log package; restore both,
+	// or the next record through the default handler deadlocks in log.
+	prev, prevOut, prevFlags := slog.Default(), log.Writer(), log.Flags()
+	t.Cleanup(func() {
+		slog.SetDefault(prev)
+		log.SetOutput(prevOut)
+		log.SetFlags(prevFlags)
+	})
 
 	var buf bytes.Buffer
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))

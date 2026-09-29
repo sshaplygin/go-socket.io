@@ -1,0 +1,8947 @@
+{
+  "schema": 1,
+  "adapter": "2.5.5",
+  "parser": "4.2.7",
+  "cases": [
+    {
+      "name": "empty",
+      "trace": [],
+      "events": [],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [],
+          "ids": []
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": null
+        },
+        {
+          "id": "b",
+          "rooms": null
+        },
+        {
+          "id": "c",
+          "rooms": null
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [],
+        "except": [],
+        "flags": {},
+        "writes": [],
+        "notifications": []
+      }
+    },
+    {
+      "name": "all",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [],
+        "except": [],
+        "flags": {},
+        "writes": [
+          {
+            "id": "a",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "b",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "c",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "a",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "b",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "c",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "room-union-deduplicates",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "shared",
+            "red",
+            "shared"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [
+          "shared",
+          "red",
+          "shared"
+        ],
+        "except": [],
+        "flags": {},
+        "writes": [
+          {
+            "id": "a",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "b",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "c",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "a",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "b",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "c",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown-target-room",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [
+          "missing"
+        ],
+        "except": [],
+        "flags": {},
+        "writes": [],
+        "notifications": []
+      }
+    },
+    {
+      "name": "known-and-unknown-room",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "missing",
+            "blue"
+          ],
+          "ids": [
+            "b"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [
+          "missing",
+          "blue"
+        ],
+        "except": [],
+        "flags": {},
+        "writes": [
+          {
+            "id": "b",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "b",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "exclude-room",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [],
+        "except": [
+          "red"
+        ],
+        "flags": {},
+        "writes": [
+          {
+            "id": "b",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "b",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "exclude-automatic-socket-room",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [],
+        "except": [
+          "a"
+        ],
+        "flags": {},
+        "writes": [
+          {
+            "id": "b",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "c",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "b",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "c",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "exclude-unknown-room",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [],
+        "except": [
+          "missing"
+        ],
+        "flags": {},
+        "writes": [
+          {
+            "id": "a",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "b",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "c",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "a",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "b",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "c",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "exclude-overlapping-rooms",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "red",
+            "blue"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [
+          "red",
+          "blue"
+        ],
+        "except": [
+          "shared",
+          "red"
+        ],
+        "flags": {},
+        "writes": [],
+        "notifications": []
+      }
+    },
+    {
+      "name": "id-is-also-another-sockets-room",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "addAll",
+            "id": "b",
+            "rooms": [
+              "a"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "a",
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "b"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "a",
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [],
+        "except": [
+          "a"
+        ],
+        "flags": {},
+        "writes": [
+          {
+            "id": "c",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "c",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate-add-is-idempotent",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "addAll",
+            "id": "a",
+            "rooms": [
+              "red",
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [],
+        "except": [],
+        "flags": {},
+        "writes": [
+          {
+            "id": "a",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "b",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "c",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "a",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "b",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "c",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "leave-last-member-cleans-room",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "del",
+            "id": "b",
+            "room": "blue"
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        },
+        {
+          "event": "leave-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "delete-room",
+          "args": [
+            "blue"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [],
+        "except": [],
+        "flags": {},
+        "writes": [
+          {
+            "id": "a",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "b",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "c",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "a",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "b",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "c",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "leave-missing-is-idempotent",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "del",
+            "id": "missing",
+            "room": "red"
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "del",
+            "id": "a",
+            "room": "missing"
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [],
+        "except": [],
+        "flags": {},
+        "writes": [
+          {
+            "id": "a",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "b",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "c",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "a",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "b",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "c",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "delAll-cleans-memberships",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "delAll",
+            "id": "a"
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "delAll",
+            "id": "a"
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "delAll",
+            "id": "missing"
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        },
+        {
+          "event": "leave-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "delete-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "leave-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "leave-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [],
+          "ids": [
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": null
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [],
+        "except": [],
+        "flags": {},
+        "writes": [
+          {
+            "id": "b",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "c",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "b",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "c",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "leave-final-room-retains-empty-sid",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": []
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "del",
+            "id": "a",
+            "room": "a"
+          },
+          "state": {
+            "rooms": [],
+            "sids": [
+              {
+                "key": "a",
+                "values": []
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "leave-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "delete-room",
+          "args": [
+            "a"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [],
+          "ids": [
+            "a"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": []
+        },
+        {
+          "id": "b",
+          "rooms": null
+        },
+        {
+          "id": "c",
+          "rooms": null
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [],
+        "except": [],
+        "flags": {},
+        "writes": [
+          {
+            "id": "a",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "a",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty-add-creates-empty-sid",
+      "trace": [
+        {
+          "action": {
+            "op": "addAll",
+            "id": "ghost",
+            "rooms": []
+          },
+          "state": {
+            "rooms": [],
+            "sids": [
+              {
+                "key": "ghost",
+                "values": []
+              }
+            ],
+            "live": []
+          }
+        }
+      ],
+      "events": [],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [],
+          "ids": []
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": null
+        },
+        {
+          "id": "b",
+          "rooms": null
+        },
+        {
+          "id": "c",
+          "rooms": null
+        },
+        {
+          "id": "ghost",
+          "rooms": []
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [],
+        "except": [],
+        "flags": {},
+        "writes": [],
+        "notifications": []
+      }
+    },
+    {
+      "name": "membership-without-live-socket-is-skipped",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "addAll",
+            "id": "ghost",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c",
+                  "ghost"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              },
+              {
+                "key": "ghost",
+                "values": [
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "ghost"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "ghost",
+          "rooms": [
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [
+          "red"
+        ],
+        "except": [],
+        "flags": {},
+        "writes": [
+          {
+            "id": "a",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "c",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "a",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "c",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "stale-live-map-entry-is-skipped",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "unregister",
+            "id": "a"
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [],
+          "ids": [
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [],
+        "except": [],
+        "flags": {},
+        "writes": [
+          {
+            "id": "b",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "c",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "b",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "c",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "local-does-not-change-local-selection",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [
+          "red"
+        ],
+        "except": [],
+        "flags": {
+          "local": true
+        },
+        "writes": [
+          {
+            "id": "a",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "c",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "a",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "c",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "volatile-and-compress-are-forwarded",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "shared"
+          ],
+          "ids": [
+            "a",
+            "b"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [
+          "shared"
+        ],
+        "except": [],
+        "flags": {
+          "volatile": true,
+          "compress": false
+        },
+        "writes": [
+          {
+            "id": "a",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true,
+              "volatile": true,
+              "compress": false
+            }
+          },
+          {
+            "id": "b",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true,
+              "volatile": true,
+              "compress": false
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "a",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "b",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "explicit-false-volatile-is-forwarded",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "red",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              "blue",
+              "shared"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "c",
+            "rooms": [
+              "red"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "blue",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c"
+                ]
+              },
+              {
+                "key": "red",
+                "values": [
+                  "a",
+                  "c"
+                ]
+              },
+              {
+                "key": "shared",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "a",
+                  "red",
+                  "shared"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b",
+                  "blue",
+                  "shared"
+                ]
+              },
+              {
+                "key": "c",
+                "values": [
+                  "c",
+                  "red"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b",
+              "c"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "red"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "shared"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "blue"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "blue",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "shared",
+            "b"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "c",
+            "c"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "red",
+            "c"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": [
+            "a",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "a",
+            "red",
+            "shared"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "b",
+            "blue",
+            "shared"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": [
+            "c",
+            "red"
+          ]
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [],
+        "except": [
+          "c"
+        ],
+        "flags": {
+          "volatile": false,
+          "compress": true
+        },
+        "writes": [
+          {
+            "id": "a",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true,
+              "volatile": false,
+              "compress": true
+            }
+          },
+          {
+            "id": "b",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true,
+              "volatile": false,
+              "compress": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "a",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "b",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty-and-unicode-room-names",
+      "trace": [
+        {
+          "action": {
+            "op": "connect",
+            "id": "a",
+            "rooms": [
+              "",
+              "комната"
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "комната",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "",
+                  "a",
+                  "комната"
+                ]
+              }
+            ],
+            "live": [
+              "a"
+            ]
+          }
+        },
+        {
+          "action": {
+            "op": "connect",
+            "id": "b",
+            "rooms": [
+              ""
+            ]
+          },
+          "state": {
+            "rooms": [
+              {
+                "key": "",
+                "values": [
+                  "a",
+                  "b"
+                ]
+              },
+              {
+                "key": "a",
+                "values": [
+                  "a"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "b"
+                ]
+              },
+              {
+                "key": "комната",
+                "values": [
+                  "a"
+                ]
+              }
+            ],
+            "sids": [
+              {
+                "key": "a",
+                "values": [
+                  "",
+                  "a",
+                  "комната"
+                ]
+              },
+              {
+                "key": "b",
+                "values": [
+                  "",
+                  "b"
+                ]
+              }
+            ],
+            "live": [
+              "a",
+              "b"
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "create-room",
+          "args": [
+            "a"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "a",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            ""
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "комната"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "комната",
+            "a"
+          ]
+        },
+        {
+          "event": "create-room",
+          "args": [
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "b",
+            "b"
+          ]
+        },
+        {
+          "event": "join-room",
+          "args": [
+            "",
+            "b"
+          ]
+        }
+      ],
+      "queries": [
+        {
+          "rooms": [],
+          "ids": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "rooms": [
+            "red"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "shared",
+            "red"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "missing"
+          ],
+          "ids": []
+        },
+        {
+          "rooms": [
+            "",
+            "комната"
+          ],
+          "ids": [
+            "a",
+            "b"
+          ]
+        }
+      ],
+      "socketRooms": [
+        {
+          "id": "a",
+          "rooms": [
+            "",
+            "a",
+            "комната"
+          ]
+        },
+        {
+          "id": "b",
+          "rooms": [
+            "",
+            "b"
+          ]
+        },
+        {
+          "id": "c",
+          "rooms": null
+        },
+        {
+          "id": "missing",
+          "rooms": null
+        }
+      ],
+      "broadcast": {
+        "rooms": [
+          "",
+          "комната"
+        ],
+        "except": [],
+        "flags": {},
+        "writes": [
+          {
+            "id": "a",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          },
+          {
+            "id": "b",
+            "packets": [
+              "2/rooms,[\"notice\",{\"value\":1}]"
+            ],
+            "options": {
+              "preEncoded": true
+            }
+          }
+        ],
+        "notifications": [
+          {
+            "id": "a",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          },
+          {
+            "id": "b",
+            "packet": {
+              "type": 2,
+              "data": [
+                "notice",
+                {
+                  "value": 1
+                }
+              ],
+              "nsp": "/rooms"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

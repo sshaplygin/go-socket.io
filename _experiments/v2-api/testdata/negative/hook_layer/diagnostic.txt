@@ -1,0 +1,2 @@
+cannot use
+as *socketio.Hooks

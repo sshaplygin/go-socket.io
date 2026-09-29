@@ -107,6 +107,9 @@ Go generic descriptor and error-first typed ack convention come from the approve
 Go roadmap; they are not claims that Node imposes those application conventions.
 No byte interoperability is claimed: `Args2` expansion, nested binary extraction,
 error-first ack conversion and all codecs remain unimplemented.
+Descriptors currently retain only their names; `parser.ArgumentCodec[T]` describes
+a proposed conversion boundary but is not constructed or bound to descriptors.
+Runtime implementation must add that binding with its encoding/decoding tests.
 
 ## Integration gate still required
 

@@ -59,8 +59,7 @@ var _ parser.BinaryValue = Binary(nil)
 
 // Event keeps the payload/handler type relationship on the descriptor.
 type Event[T any] struct {
-	name  string
-	codec parser.ArgumentCodec[T]
+	name string
 }
 
 func NewEvent[T any](name string) Event[T] { return Event[T]{name: name} }
@@ -79,9 +78,7 @@ func (e Event[T]) EmitTo(context.Context, BroadcastOperator, T) (BroadcastResult
 // AckEvent binds both request and response types. Runtime uses error-first ACKs:
 // success [null, ...resultArgs], failure [{"code":"...","message":"..."}].
 type AckEvent[T, R any] struct {
-	name   string
-	input  parser.ArgumentCodec[T]
-	output parser.ArgumentCodec[R]
+	name string
 }
 
 func NewAckEvent[T, R any](name string) AckEvent[T, R] { return AckEvent[T, R]{name: name} }

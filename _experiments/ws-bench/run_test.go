@@ -150,7 +150,7 @@ func TestRejectsWrongEcho(t *testing.T) {
 			if err != nil {
 				return
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 			op, data, err := conn.ReadMessage()
 			if err != nil {
 				return

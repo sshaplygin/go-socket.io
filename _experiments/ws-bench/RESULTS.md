@@ -17,7 +17,8 @@ Exact commands from this directory:
 
 ```sh
 go build -o ws-bench .
-python3 measure.py --output results-darwin-arm64.json --repeats 3 --idle-connections 1000
+python3 measure.py --output /tmp/ws-bench-round2-results.json --repeats 3 --idle-connections 1000
+cp /tmp/ws-bench-round2-results.json results-darwin-arm64.json
 ```
 
 [Raw results](results-darwin-arm64.json) contain all 36 successful invocations:
@@ -33,19 +34,19 @@ of a pooled sample. One echo means one request plus its complete response.
 
 | Connections | Payload | Backend | Echoes/s | RTT p50 / p95 / p99, µs | Server allocated B/echo | Server mallocs/echo |
 |---:|---:|---|---:|---:|---:|---:|
-| 1 | 32 B | Gorilla | 28,014 | 31.7 / 70.4 / 97.9 | 521 | 2.01 |
-| 1 | 32 B | Gobwas prototype | 24,621 | 37.0 / 74.8 / 124.4 | 4,802 | 5.01 |
-| 1 | 1 KiB | Gorilla | 22,791 | 40.9 / 77.0 / 111.3 | 2,826 | 4.01 |
-| 1 | 1 KiB | Gobwas prototype | 18,936 | 45.7 / 95.8 / 165.8 | 7,106 | 7.01 |
-| 1 | 64 KiB | Gorilla | 5,465 | 161.9 / 299.8 / 388.5 | 285,016 | 19.04 |
-| 1 | 64 KiB | Gobwas prototype | 5,381 | 160.0 / 306.5 / 426.9 | 289,240 | 21.04 |
-| 16 | 1 KiB | Gorilla | 97,981 | 143.5 / 291.5 / 519.1 | 2,825 | 4.01 |
-| 16 | 1 KiB | Gobwas prototype | 93,431 | 145.5 / 336.5 / 578.1 | 7,106 | 7.01 |
-| 16 | 64 KiB | Gorilla | 8,616 | 1,347.8 / 4,595.6 / 6,981.8 | 285,016 | 19.07 |
-| 16 | 64 KiB | Gobwas prototype | 9,441 | 1,234.7 / 4,268.2 / 6,312.6 | 289,239 | 21.06 |
+| 1 | 32 B | Gorilla | 33,457 | 26.2 / 55.6 / 74.4 | 521 | 2.01 |
+| 1 | 32 B | Gobwas prototype | 32,726 | 25.0 / 60.4 / 81.6 | 4,802 | 5.01 |
+| 1 | 1 KiB | Gorilla | 25,511 | 30.1 / 67.3 / 87.9 | 2,826 | 4.01 |
+| 1 | 1 KiB | Gobwas prototype | 25,763 | 34.9 / 69.8 / 95.7 | 7,106 | 7.01 |
+| 1 | 64 KiB | Gorilla | 5,913 | 151.6 / 274.3 / 338.4 | 285,016 | 19.04 |
+| 1 | 64 KiB | Gobwas prototype | 5,866 | 153.7 / 280.3 / 350.5 | 289,240 | 21.03 |
+| 16 | 1 KiB | Gorilla | 112,255 | 129.6 / 236.9 / 432.2 | 2,825 | 4.00 |
+| 16 | 1 KiB | Gobwas prototype | 107,761 | 131.0 / 259.1 / 477.4 | 7,105 | 7.01 |
+| 16 | 64 KiB | Gorilla | 10,950 | 1,108.1 / 3,474.7 / 5,111.7 | 285,015 | 19.05 |
+| 16 | 64 KiB | Gobwas prototype | 10,763 | 1,129.7 / 3,519.8 / 5,152.0 | 289,238 | 21.04 |
 
-For example, 16-connection 64 KiB throughput ranged from 5,885 to 10,101
-echoes/s for Gorilla and 6,728 to 9,694 for Gobwas; those ranges overlap widely.
+For example, 16-connection 64 KiB throughput ranged from 10,934 to 11,033
+echoes/s for Gorilla and 10,597 to 11,040 for Gobwas; those ranges overlap widely.
 The extra roughly 4.2 KiB allocated per Gobwas echo is consistent with the
 prototype creating a new writer/buffer per message. This is an interpretation
 of the implementation and measurements, not an allocation profile proving
@@ -57,8 +58,8 @@ snapshot. Every run verified all target connections remained active:
 
 | Backend | Median Go HeapAlloc delta per connection | Median server goroutine delta |
 |---|---:|---:|
-| Gorilla | 21,003 B | 1,000 |
-| Gobwas prototype | 11,789 B | 1,000 |
+| Gorilla | 21,004 B | 1,000 |
+| Gobwas prototype | 11,792 B | 1,000 |
 
 This is a point-in-time Go heap observation, not RSS, kernel socket memory,
 total machine memory or a stability test. CPU utilization was not measured.
@@ -70,6 +71,7 @@ Validation performed independently of the performance runs:
 ```sh
 go test -race -count=1 ./...
 go vet ./...
+golangci-lint run --allow-serial-runners ./...
 GOTOOLCHAIN=go1.22.12 go test -ldflags=-linkmode=external -count=1 ./...
 ```
 

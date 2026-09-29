@@ -1,0 +1,12 @@
+[
+  {"name": "empty-message", "wire": "4", "limit": 1, "status": 200},
+  {"name": "empty-binary", "wire": "b", "limit": 1, "status": 200},
+  {"name": "text-exact", "wire": "4hello", "limit": 6, "status": 200},
+  {"name": "text-over", "wire": "4hello", "limit": 5, "status": 413},
+  {"name": "unicode-exact", "wire": "4€🙂", "limit": 8, "status": 200},
+  {"name": "unicode-over", "wire": "4€🙂", "limit": 7, "status": 413},
+  {"name": "binary-exact", "wire": "bAQIDBA==", "limit": 9, "status": 200},
+  {"name": "binary-over", "wire": "bAQIDBA==", "limit": 8, "status": 413},
+  {"name": "batch-exact", "wire": "4a\u001e4b", "limit": 5, "status": 200},
+  {"name": "batch-over", "wire": "4a\u001e4b", "limit": 4, "status": 413}
+]

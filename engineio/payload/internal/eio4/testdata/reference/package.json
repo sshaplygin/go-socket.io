@@ -2,9 +2,10 @@
   "name": "eio4-payload-reference",
   "private": true,
   "scripts": {
-    "test": "node verify.cjs"
+    "test": "node verify.cjs && node --test verify-reader.cjs"
   },
   "dependencies": {
-    "engine.io-parser": "5.2.3"
+    "engine.io-parser": "5.2.3",
+    "engine.io": "6.6.4"
   }
 }

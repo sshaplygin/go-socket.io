@@ -1,7 +1,7 @@
 // Package eio4 encodes complete Engine.IO v4 HTTP polling payloads.
 // It is staged for the v2 transport rewrite; the v1 transport does not use it.
 //
-// Callers own HTTP body limits, batching, deadlines, pause and resume. This codec
+// Callers choose HTTP body limits and own batching, deadlines, pause and resume. This codec
 // has no session state or goroutines. It does not encode WebSocket frames.
 // The polling rewrite should use it through package payload, as Go's internal
 // visibility rules prevent direct use by the sibling transport/polling package.
@@ -104,6 +104,7 @@ func Encode(packets []Packet, maxBytes int) ([]byte, error) {
 // Decode decodes one complete polling body of at most maxBytes wire bytes.
 // maxBytes must be positive. Callers must also bound reads before buffering the
 // HTTP body; this limit cannot prevent allocations made by the caller.
+// DecodeReader applies the wire limit while reading an unbuffered body.
 // It is not a heap limit: many tiny records allocate a much larger Packet slice.
 // Like the JS polling decoder, Decode collects the complete batch in memory
 // without an additional packet-count limit.

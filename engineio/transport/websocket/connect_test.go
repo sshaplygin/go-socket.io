@@ -63,8 +63,8 @@ func TestWebsocketSetReadDeadline(t *testing.T) {
 }
 
 // TestWebsocketCloseIdempotent checks that closing a connection a second
-// time, for example after the engine.io client closed it on a read error, is
-// not reported as an error.
+// time is not reported as an error. engineio's client.Close and the client's
+// serve goroutine both close the transport connection, in either order.
 func TestWebsocketCloseIdempotent(t *testing.T) {
 	tran := &Transport{}
 	conn := make(chan transport.Conn, 1)

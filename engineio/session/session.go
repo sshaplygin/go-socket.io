@@ -32,7 +32,8 @@ type Session struct {
 
 	context interface{}
 
-	upgradeLocker sync.RWMutex
+	upgradeLocker sync.RWMutex // guards conn, transport and closed
+	closed        bool         // set by Close; a closed session is never upgraded
 }
 
 // New creates a session over conn. log receives errors the session cannot
@@ -81,10 +82,12 @@ func (s *Session) Transport() string {
 }
 
 func (s *Session) Close() error {
-	s.upgradeLocker.RLock()
-	defer s.upgradeLocker.RUnlock()
+	s.upgradeLocker.Lock()
+	s.closed = true
+	conn := s.conn
+	s.upgradeLocker.Unlock()
 
-	return s.conn.Close()
+	return conn.Close()
 }
 
 // NextReader attempts to obtain a ReadCloser from the session's connection.
@@ -477,7 +480,9 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	}
 
 	// Successful upgrade.
-	s.switchTransport(t, conn)
+	if !s.switchTransport(t, conn) {
+		return
+	}
 
 	p = nil
 
@@ -492,19 +497,29 @@ func (s *Session) logger() *slog.Logger {
 }
 
 // switchTransport makes conn, on transport t, the session's connection and
-// updates the logger's transport attribute.
-func (s *Session) switchTransport(t string, conn transport.Conn) {
+// updates the logger's transport attribute. If the session has been closed,
+// conn is closed instead and switchTransport reports false.
+func (s *Session) switchTransport(t string, conn transport.Conn) bool {
 	s.upgradeLocker.Lock()
+	if s.closed {
+		s.upgradeLocker.Unlock()
+		if err := conn.Close(); err != nil {
+			s.logger().Error("close upgrade connection of a closed session", "err", err)
+		}
+		return false
+	}
 	s.conn = conn
 	s.transport = t
 	s.log.Store(s.baseLog.With("transport", t))
 	s.upgradeLocker.Unlock()
+	return true
 }
 
-// replaced reports whether conn is no longer the session's connection,
-// because an upgrade has switched to another one.
+// replaced reports whether conn is no longer the session's connection
+// because an upgrade switched to another one. It is false once the session
+// is closed, so a closed session's operations fail instead of moving on.
 func (s *Session) replaced(conn transport.Conn) bool {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
-	return s.conn != conn
+	return !s.closed && s.conn != conn
 }

@@ -163,14 +163,17 @@ func (s *Server) newSession(_ context.Context, conn transport.Conn, reqTransport
 		return nil, err
 	}
 
+	// Register before the handshake: the client may send its next request
+	// with this sid as soon as it reads the OPEN packet.
+	s.sessions.Add(newSession)
+
 	go func(newSession *session.Session) {
-		if err = newSession.InitSession(); err != nil {
+		if err := newSession.InitSession(); err != nil {
+			s.sessions.Remove(newSession.ID())
 			s.log.Error("init new session", "err", err)
 
 			return
 		}
-
-		s.sessions.Add(newSession)
 
 		s.connChan <- newSession
 	}(newSession)

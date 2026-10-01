@@ -47,8 +47,8 @@ func (m *Manager) Remove(sid string) {
 }
 
 func (m *Manager) Count() int {
-	m.locker.Lock()
-	defer m.locker.Unlock()
+	m.locker.RLock()
+	defer m.locker.RUnlock()
 
 	return len(m.sessions)
 }

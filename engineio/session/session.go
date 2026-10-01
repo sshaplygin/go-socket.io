@@ -259,6 +259,11 @@ func (s *Session) nextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
 			if op, ok := err.(payload.Error); ok && op.Temporary() {
 				continue
 			}
+			if s.replaced(conn) {
+				// An upgrade switched the session to a new connection and
+				// closed this one while we waited on it; read from the new one.
+				continue
+			}
 			return 0, 0, nil, err
 		}
 		return ft, pt, r, nil
@@ -274,6 +279,10 @@ func (s *Session) nextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, err
 		w, err := conn.NextWriter(ft, pt)
 		if err != nil {
 			if op, ok := err.(payload.Error); ok && op.Temporary() {
+				continue
+			}
+			if s.replaced(conn) {
+				// See nextReader: retry on the connection that replaced conn.
 				continue
 			}
 			return nil, err
@@ -490,4 +499,12 @@ func (s *Session) switchTransport(t string, conn transport.Conn) {
 	s.transport = t
 	s.log.Store(s.baseLog.With("transport", t))
 	s.upgradeLocker.Unlock()
+}
+
+// replaced reports whether conn is no longer the session's connection,
+// because an upgrade has switched to another one.
+func (s *Session) replaced(conn transport.Conn) bool {
+	s.upgradeLocker.RLock()
+	defer s.upgradeLocker.RUnlock()
+	return s.conn != conn
 }

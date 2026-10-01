@@ -75,10 +75,16 @@ func TestLifecycleRootNamespace(t *testing.T) {
 	require.True(t, srv.BroadcastToRoom("/", "lobby", "news", "room"))
 	require.Equal(t, "room", recv(t, news, "room broadcast"))
 
+	// Known defect, pinned until roadmap 1.B / 2.2 fix it: BroadcastToNamespace
+	// sends one copy per room the connection is in (here "lobby" and its sid
+	// room), where Socket.IO delivers one copy per socket.
 	require.True(t, srv.BroadcastToNamespace("/", "news", "nsp"))
-	require.Equal(t, "nsp", recv(t, news, "namespace broadcast"))
-	for len(news) > 0 { // one copy per room the connection is in
-		require.Equal(t, "nsp", <-news)
+	require.Equal(t, "nsp", recv(t, news, "first namespace broadcast copy"))
+	require.Equal(t, "nsp", recv(t, news, "second namespace broadcast copy"))
+	select {
+	case extra := <-news:
+		t.Fatalf("unexpected third copy %q", extra)
+	case <-time.After(200 * time.Millisecond):
 	}
 
 	seen := 0
@@ -104,7 +110,9 @@ func TestLifecycleRootNamespace(t *testing.T) {
 	require.Equal(t, -1, srv.RoomLen("/missing", "r"))
 	require.Nil(t, srv.Rooms("/missing"))
 
-	// Server-side close runs OnDisconnect.
+	// Server-side close runs OnDisconnect. Known defect, pinned until stage 2.3
+	// defines disconnect reasons: the reason reported is clientDisconnectMsg
+	// ("client namespace disconnect") although the server closed the connection.
 	cl.Emit("bye")
 	require.Equal(t, clientDisconnectMsg, recv(t, disconnected, "OnDisconnect"))
 }
@@ -176,7 +184,9 @@ func TestLifecycleNamespace(t *testing.T) {
 
 	c.send("0/chat")
 	require.Equal(t, "/chat", recv(t, nspConnected, "OnConnect(/chat)"))
-	// v1 wire format: the server's CONNECT reply carries an empty argument list.
+	// Known deviation, pinned until the v2 rewrite (stage 2.3): the server's
+	// namespace CONNECT reply carries an empty JSON array and a trailing
+	// newline ("0/chat,[]\n") instead of the bare "0/chat" of protocol v4.
 	require.Equal(t, "0/chat,[]\n", c.read(), "namespace CONNECT acknowledged")
 
 	c.send(`2/chat,7["ping",41]`)

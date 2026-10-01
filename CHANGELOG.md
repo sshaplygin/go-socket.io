@@ -9,9 +9,12 @@ All notable changes to this project are documented here. The format follows
 
 - engineio: a new session is registered before its OPEN packet is written, so a
   client that reuses the sid immediately no longer gets HTTP 400 "invalid sid";
-  a session whose handshake fails is removed again (roadmap task 1.S).
-- `session.Manager.Count` takes the read lock instead of the write lock.
-- `socketio.Server.Serve` returns nil instead of `io.EOF` after `Close`.
+  a session whose handshake fails is removed again (`engineio/server.go:173` at
+  `61a7927`, roadmap task 1.S).
+- `session.Manager.Count` takes the read lock instead of the write lock
+  (`engineio/session/session_manager.go:50` at `61a7927`).
+- `socketio.Server.Serve` returns nil instead of `io.EOF` after `Close`
+  (`server.go:126` at `61a7927`).
 - engineio: a request whose transport is earlier in the configured order than the
   session's current transport (for example polling after an upgrade to websocket) is
   answered with HTTP 400 instead of starting a second upgrade that held the request

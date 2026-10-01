@@ -3,6 +3,7 @@ package socketio
 import (
 	"context"
 	"io"
+	"log"
 	"log/slog"
 	"net/http/httptest"
 	"sync"
@@ -62,9 +63,16 @@ func (h *recordingHandler) hasAttr(key, val string) bool {
 func TestServerLoggerOption(t *testing.T) {
 	custom := &recordingHandler{}
 	fallback := &recordingHandler{}
-	prev := logger.Log
-	logger.Log = slog.New(fallback)
-	t.Cleanup(func() { logger.Log = prev })
+	// logger.Log follows slog.Default(); swap the default atomically instead of
+	// assigning the package variable, which goroutines left by earlier tests
+	// may still read. slog.SetDefault also redirects the log package; restore it.
+	prev, prevOut, prevFlags := slog.Default(), log.Writer(), log.Flags()
+	slog.SetDefault(slog.New(fallback))
+	t.Cleanup(func() {
+		slog.SetDefault(prev)
+		log.SetOutput(prevOut)
+		log.SetFlags(prevFlags)
+	})
 
 	srv := NewServer(&engineio.Options{Logger: slog.New(custom)})
 	srv.OnConnect("/", func(Conn) error { return nil })

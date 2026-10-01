@@ -143,8 +143,10 @@ func TestLifecycleDisconnectHandlers(t *testing.T) {
 
 	// DISCONNECT for a namespace that was never connected is ignored.
 	c.send("1/other")
-	// A namespace DISCONNECT (protocol v4: no payload) runs OnDisconnect with an
-	// empty reason and keeps the connection open.
+	// A namespace DISCONNECT (protocol v4: no payload) runs OnDisconnect and
+	// keeps the connection open. Known defect, pinned until stage 2.3 defines
+	// disconnect reasons: the reason is "" (a server-side Close reports
+	// "client namespace disconnect" instead; see TestLifecycleRootNamespace).
 	c.send("1/chat")
 	require.Equal(t, "", recv(t, reasons, "OnDisconnect(/chat)"))
 	c.send("0/chat")
@@ -220,6 +222,8 @@ func TestClientEventAndDisconnect(t *testing.T) {
 	srv.send(`2["num",5]`)
 	require.Equal(t, 5, recv(t, events, "client event"))
 
+	// Known defect, pinned until stage 2.3 defines disconnect reasons: a server
+	// DISCONNECT reaches the client's OnDisconnect with an empty reason.
 	srv.send("1")
 	require.Equal(t, "", recv(t, reasons, "client OnDisconnect"))
 }

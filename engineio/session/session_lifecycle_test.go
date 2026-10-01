@@ -439,3 +439,67 @@ func TestSessionWriteSurvivesUpgrade(t *testing.T) {
 		t.Fatal("NextWriter did not return")
 	}
 }
+
+// heldConn is a transport.Conn whose NextReader and NextWriter block until
+// release is closed, independently of Close, and then fail with io.EOF. It
+// models a polling payload whose waiting reader is woken after Close returns.
+type heldConn struct {
+	pausableConn
+	release chan struct{}
+	entered chan struct{}
+}
+
+func newHeldConn() *heldConn {
+	return &heldConn{release: make(chan struct{}), entered: make(chan struct{}, 2)}
+}
+
+func (c *heldConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+	c.entered <- struct{}{}
+	<-c.release
+	return 0, 0, nil, io.EOF
+}
+
+func (c *heldConn) NextWriter(frame.Type, packet.Type) (io.WriteCloser, error) {
+	c.entered <- struct{}{}
+	<-c.release
+	return nil, io.EOF
+}
+
+// TestSessionClosedBeforeUpgradeCompletes checks the order: an operation is
+// blocked on the old connection, the session is closed, then an upgrade
+// completes, then the old connection fails. The session must stay closed:
+// the operation fails and the incoming connection is closed, not installed.
+func TestSessionClosedBeforeUpgradeCompletes(t *testing.T) {
+	for _, op := range []string{"read", "write"} {
+		t.Run(op, func(t *testing.T) {
+			old := newHeldConn()
+			s := newTestSession(t, old, "polling")
+
+			errs := make(chan error, 1)
+			go func() {
+				if op == "read" {
+					_, _, err := s.NextReader()
+					errs <- err
+					return
+				}
+				_, err := s.NextWriter(TEXT)
+				errs <- err
+			}()
+			<-old.entered
+
+			require.NoError(t, s.Close())
+			next := &scriptConn{reads: []scriptedPacket{{ft: frame.String, pt: packet.MESSAGE, data: "late"}}}
+			s.switchTransport("websocket", next)
+			close(old.release)
+
+			select {
+			case err := <-errs:
+				require.Error(t, err, "%s must fail after Session.Close", op)
+			case <-time.After(5 * time.Second):
+				t.Fatalf("%s did not return", op)
+			}
+			require.True(t, next.isClosed(), "a connection arriving after Close must be closed")
+			require.Equal(t, "polling", s.Transport(), "a closed session is not upgraded")
+		})
+	}
+}

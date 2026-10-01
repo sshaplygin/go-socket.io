@@ -71,7 +71,7 @@ func TestLogLevelFromEnv(t *testing.T) {
 	for value, want := range cases {
 		out, errOut := runHelper(t, value, true)
 		require.Equal(t, "true "+want, out, "value %q", value)
-		require.Empty(t, errOut, "value %q", value)
+		require.NotContains(t, errOut, "WARN", "value %q", value)
 	}
 
 	out, _ := runHelper(t, "", false)

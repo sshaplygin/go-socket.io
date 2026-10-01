@@ -61,3 +61,29 @@ func TestWebsocketSetReadDeadline(t *testing.T) {
 	at.True(ok)
 	at.True(op.Timeout())
 }
+
+// TestWebsocketCloseIdempotent checks that closing a connection a second
+// time, for example after the engine.io client closed it on a read error, is
+// not reported as an error.
+func TestWebsocketCloseIdempotent(t *testing.T) {
+	tran := &Transport{}
+	conn := make(chan transport.Conn, 1)
+	httpSvr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := tran.Accept(w, r)
+		require.NoError(t, err)
+		conn <- c
+	}))
+	defer httpSvr.Close()
+
+	u, err := url.Parse(httpSvr.URL)
+	require.NoError(t, err)
+	u.Scheme = "ws"
+	cc, err := tran.Dial(u, make(http.Header))
+	require.NoError(t, err)
+	sc := <-conn
+
+	require.NoError(t, cc.Close())
+	require.NoError(t, cc.Close(), "second Close")
+	require.NoError(t, sc.Close())
+	require.NoError(t, sc.Close(), "second Close")
+}

@@ -75,9 +75,13 @@ func (c *conn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	<-c.closed
 }
 
+// Close closes the connection. Only the first call closes the underlying
+// websocket and reports its error; later calls return nil.
 func (c *conn) Close() error {
+	var err error
 	c.closeOnce.Do(func() {
 		close(c.closed)
+		err = c.ws.Close()
 	})
-	return c.ws.Close()
+	return err
 }

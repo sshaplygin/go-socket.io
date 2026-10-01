@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -123,7 +124,10 @@ func (s *Server) OnEvent(namespace, event string, f interface{}) {
 func (s *Server) Serve() error {
 	for {
 		conn, err := s.engine.Accept()
-		//todo maybe need check EOF from Accept()
+		if errors.Is(err, io.EOF) {
+			// Accept reports io.EOF once Close has been called.
+			return nil
+		}
 		if err != nil {
 			return err
 		}

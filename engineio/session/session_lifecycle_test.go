@@ -340,3 +340,102 @@ func TestSessionUpgradeRunsAsync(t *testing.T) {
 	require.Eventually(t, func() bool { return s.Transport() == "websocket" },
 		5*time.Second, 5*time.Millisecond)
 }
+
+// closingConn is a pausable transport.Conn whose NextReader and NextWriter
+// block until Close and then fail with io.EOF, as a closed polling payload
+// does. entered is signalled each time a reader or writer starts waiting.
+type closingConn struct {
+	pausableConn
+	once    sync.Once
+	done    chan struct{}
+	entered chan struct{}
+}
+
+func newClosingConn() *closingConn {
+	return &closingConn{done: make(chan struct{}), entered: make(chan struct{}, 2)}
+}
+
+func (c *closingConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+	c.entered <- struct{}{}
+	<-c.done
+	return 0, 0, nil, io.EOF
+}
+
+func (c *closingConn) NextWriter(frame.Type, packet.Type) (io.WriteCloser, error) {
+	c.entered <- struct{}{}
+	<-c.done
+	return nil, io.EOF
+}
+
+func (c *closingConn) Close() error {
+	c.once.Do(func() { close(c.done) })
+	return nil
+}
+
+// TestSessionReadSurvivesUpgrade checks that a read blocked on the old
+// connection when an upgrade completes continues on the new connection
+// instead of failing: closing the replaced connection is not an error of
+// the session.
+func TestSessionReadSurvivesUpgrade(t *testing.T) {
+	old := newClosingConn()
+	s := newTestSession(t, old, "polling")
+
+	type result struct {
+		data string
+		err  error
+	}
+	got := make(chan result, 1)
+	go func() {
+		_, r, err := s.NextReader()
+		if err != nil {
+			got <- result{err: err}
+			return
+		}
+		b, _ := io.ReadAll(r)
+		_ = r.Close()
+		got <- result{data: string(b)}
+	}()
+	<-old.entered
+
+	next := &scriptConn{reads: []scriptedPacket{{ft: frame.String, pt: packet.MESSAGE, data: "after upgrade"}}}
+	s.switchTransport("websocket", next)
+	require.NoError(t, old.Close())
+
+	select {
+	case r := <-got:
+		require.NoError(t, r.err)
+		require.Equal(t, "after upgrade", r.data)
+	case <-time.After(5 * time.Second):
+		t.Fatal("NextReader did not return")
+	}
+	require.False(t, next.isClosed(), "the new connection must stay open")
+}
+
+// TestSessionWriteSurvivesUpgrade is the same for a writer.
+func TestSessionWriteSurvivesUpgrade(t *testing.T) {
+	old := newClosingConn()
+	s := newTestSession(t, old, "polling")
+
+	errs := make(chan error, 1)
+	go func() {
+		w, err := s.NextWriter(TEXT)
+		if err == nil {
+			_, _ = w.Write([]byte("x"))
+			err = w.Close()
+		}
+		errs <- err
+	}()
+	<-old.entered
+
+	next := &scriptConn{}
+	s.switchTransport("websocket", next)
+	require.NoError(t, old.Close())
+
+	select {
+	case err := <-errs:
+		require.NoError(t, err)
+		require.Equal(t, []writtenPacket{{ft: frame.String, pt: packet.MESSAGE, data: "x"}}, next.written())
+	case <-time.After(5 * time.Second):
+		t.Fatal("NextWriter did not return")
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/gomodule/redigo/redis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -200,4 +201,30 @@ func TestRedisBroadcastEmitWithoutLock(t *testing.T) {
 			require.Empty(t, a.Rooms(c))
 		})
 	}
+}
+
+// PUBSUB NUMSUB also counts a subscriber of the request channel that never
+// answers, such as an instance that hangs.
+func TestRedisBroadcastRequestTimeout(t *testing.T) {
+	s := miniredis.RunT(t)
+	a := newTestRedisBroadcast(t, s)
+	silent, err := redis.Dial("tcp", s.Addr())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = silent.Close() })
+	require.NoError(t, redis.PubSubConn{Conn: silent}.Subscribe(testRedisReqChannel))
+	waitRedisSubscribers(t, s, 2)
+	a.Join("room", newRedisTestConn("a1"))
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		assert.Equal(t, 1, a.Len("room"))
+		assert.Equal(t, []string{"room"}, a.AllRooms())
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Len and AllRooms did not return")
+	}
+	require.Empty(t, a.requests)
 }

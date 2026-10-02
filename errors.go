@@ -20,7 +20,8 @@ var (
 )
 
 // errWriteBufferFull is reported to OnError when a connection's outbound
-// queue is full; the connection is then closed.
+// queue is full, unless the connection is already closing; the connection is
+// then closed.
 var errWriteBufferFull = errors.New("write buffer full")
 
 type errorMessage struct {

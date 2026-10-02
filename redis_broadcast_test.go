@@ -175,3 +175,29 @@ func TestRedisBroadcastRequestsReadRoomsUnderLock(t *testing.T) {
 	close(stop)
 	<-joined
 }
+
+// A connection may leave its rooms while a message is emitted to it, as a
+// connection that closes itself does; leaving takes the write lock.
+func TestRedisBroadcastEmitWithoutLock(t *testing.T) {
+	cases := map[string]func(a, b *redisBroadcast){
+		"Send":           func(a, _ *redisBroadcast) { a.Send("room", "msg") },
+		"SendAll":        func(a, _ *redisBroadcast) { a.SendAll("msg") },
+		"ForEach":        func(a, _ *redisBroadcast) { a.ForEach("room", func(c Conn) { c.Emit("msg") }) },
+		"remote Send":    func(_, b *redisBroadcast) { b.Send("room", "msg") },
+		"remote SendAll": func(_, b *redisBroadcast) { b.SendAll("msg") },
+	}
+	for name, run := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := miniredis.RunT(t)
+			a := newTestRedisBroadcast(t, s)
+			b := newTestRedisBroadcast(t, s)
+			c := newRedisTestConn("a1")
+			c.onEmit = func() { a.LeaveAll(c) }
+			a.Join("room", c)
+
+			go run(a, b)
+			expectEvent(t, c, "msg []")
+			require.Empty(t, a.Rooms(c))
+		})
+	}
+}

@@ -47,7 +47,7 @@ workers submit changes to these files through that integrator.
 
 | Wave | Prerequisites | Independent work / write ownership | Join gate |
 | --- | --- | --- | --- |
-| 1A | landed infrastructure | 1.R Redis internals (`redis_broadcast.go`); 1.B queue internals (`connection.go`, `broadcast.go`, `errors.go`, and the writer loops `serveWrite` in `server.go` and `clientWrite` in `client.go`); 1.S session/server fixes (`engineio/session`, `engineio/server.go`, `server.go` except `serveWrite`; landed) | component regression tests pass |
+| 1A | landed infrastructure | 1.R Redis internals (`redis_broadcast.go`); 1.B queue and close internals (`connection.go`, `broadcast.go`, `errors.go`, the socket.io goroutines and close paths in `server.go` (`serveConn`, `serveRead`, `serveWrite`, `serveError`) and `client.go` (`Connect`, `Close`, `clientRead`, `clientWrite`, `clientError`), and the disconnect handlers in `connection_handlers.go`); 1.S session/server fixes (`engineio/session`, `engineio/server.go`, `server.go`; landed) | component regression tests pass |
 | 1I | 1A | integrator wires Redis construction errors through `namespace_handler.go` and `server.go`; wires `WriteBufferSize` and the drain deadline (`PingTimeout`) through `engineio/server_options.go`, `server.go` and `client.go`; runs the 1.B slow-client test against the Redis broadcast | integrated bug tests (including the 1I wiring tests named in 1.B) and root build pass |
 | 1B | 1I | 1.L logging call sites across layers; 1.D docs/links in Markdown | M1 checks and v1 compatibility |
 | 1b | M1, branch `v1` cut | one refactor owner; moves/merges applied sequentially | M1b regression checks |
@@ -93,64 +93,96 @@ Remaining tasks:
 - **1.R Redis:** protect `requests` and room access; time out peer queries; propagate
   adapter construction errors through the 1I integration step; reconnect subscriptions with backoff after receive
   failures. Each fix has a regression test, including two-server tests under `-race`.
-- **1.B Backpressure:** each connection has a bounded queue of outbound packets.
+- **1.B Backpressure:** each connection has a bounded queue of outbound packets. The
+  rules below apply to `Server` connections and to `Client` alike.
   - *Size:* temporary v1 `engineio.Options.WriteBufferSize` counts socket.io packets
     (unrelated to `websocket.Transport.WriteBufferSize`, which counts bytes); 0 and
-    negative values mean the default 64; no opt-out in v1; `Server` and `Client` both
-    honour it. 1.B uses an unexported default; 1I wires the option.
+    negative values mean the default 64; no opt-out in v1. 1.B uses an unexported
+    default; 1I wires the option.
   - *Drain deadline:* `engineio.Options.PingTimeout` as passed to `NewServer` /
-    `NewClient`, 0 meaning the engine.io default of one minute, read by the socket.io
-    layer without changing the `engineio.Conn` interface. 1.B keeps it in an unexported
+    `NewClient`; nil options, 0 and negative values mean one minute. It is read by the
+    socket.io layer without changing the `engineio.Conn` interface. For `Client` it is
+    the local option, not the server's handshake value. 1.B keeps it in an unexported
     per-connection field (tests set it); 1I wires it.
-  - *Emit* never blocks.
-  - *Overflow* (before any `Close`): an Emit that finds the queue full marks the
-    connection overflowed, drops that packet and every later one, and closes the
-    engine.io connection without blocking the emitter. `OnDisconnect`, leaving the
-    rooms and one `ErrWriteBufferFull` report (exported sentinel) run on the
-    connection's own goroutines; the report goes to `OnError` of the namespace of the
+  - *Emit* never blocks. Emits from `OnConnect` are queued and written once the writer
+    starts.
+  - *First close decides:* a connection is closed at most once. The first close,
+    draining or discarding, fixes the mode; `OnDisconnect` runs exactly once per
+    connected namespace whatever the number and kind of closes; later `Close` calls
+    return `nil` and change nothing. A library-started close during a drain ends the
+    drain at once and discards the rest. Once any close has started, an `Emit` is
+    dropped silently, never blocks and is not reported, except that a draining close
+    still queues packets until its seal.
+  - *Overflow* (no close started): an Emit that finds the queue full marks the
+    connection overflowed, drops that packet and every later one, and starts a
+    discarding close without blocking the emitter. `OnDisconnect`, leaving the rooms
+    and one `ErrWriteBufferFull` report (exported sentinel) run on the connection's
+    own goroutines, or synchronously on the connect-failure path if the overflow
+    happens before they start; the report goes to `OnError` of the namespace of the
     overflowing packet and is delivered although the connection is closing; with no
     `OnError` registered it is dropped (1.L logs it). Report and `OnDisconnect` have no
-    guaranteed order. No `NextWriter`/`Write` starts on the engine.io connection after
-    the overflow is detected; a write already in flight may complete.
+    guaranteed order. After the overflow flag is set the socket.io writer starts no
+    further packet; a packet whose first frame was already started counts as in flight
+    together with its binary attachments. Engine.io control frames are out of scope.
   - *Draining close:* only `Conn.Close` or `Client.Close` called by application code
-    (including from handlers) drains. From the start of `Close` the overflow rule is
-    suspended. `Close` runs `OnDisconnect`; the queue is *sealed* when every
-    `OnDisconnect` called by this `Close` has returned. Packets queued before the seal,
-    including Emits from `OnDisconnect`, are written by the writer goroutine in the
-    background; an Emit that finds the queue full before the seal, or any Emit after
-    the seal, is dropped silently, never blocks and is not reported. The drain ends
-    when the queue is empty or at the drain deadline measured from the start of
-    `Close`, whichever is first; remaining packets are discarded and the engine.io
-    connection is closed. `Close` returns `nil` without waiting (`nil` again on later
-    calls); until the transport closes, `Server.Count` still counts the session.
+    (including from handlers) drains. `Close` runs `OnDisconnect`; the queue is
+    *sealed* when every `OnDisconnect` called by this `Close` has returned. Packets
+    queued before the seal, including Emits from `OnDisconnect`, are written by the
+    writer goroutine in the background; an Emit that finds the queue full before the
+    seal is dropped silently and not reported. The drain ends when the queue is empty
+    after the seal, or at the drain deadline measured from the start of `Close`,
+    whichever is first; remaining packets are discarded and the engine.io connection
+    is closed. From the start of `Close` the read goroutine keeps reading, so engine.io
+    pings are answered and a peer close is detected, but it dispatches no CONNECT,
+    EVENT, ACK or DISCONNECT packet. `Close` returns `nil` without waiting.
   - *Discarding closes:* every close started inside the library discards the queue and
-    closes the engine.io connection at once: read, decode, dispatch or encode error,
-    peer close (engine.io CLOSE or socket.io DISCONNECT), ping timeout, overflow, and a
-    connect failure before the writer starts. v1 `Server.Close` does not close
-    sessions. `OnDisconnect` runs exactly once for every close of either kind.
-  - *Docs:* godoc of `WriteBufferSize`, `Emit` and `Close` states the rules above and
+    closes the engine.io connection at once: read or decode error, dispatch error,
+    encode error (reported to `OnError` of the packet's namespace first; in v1.4 the
+    connection stayed open), peer close (engine.io CLOSE or the transport closed or
+    failed from the peer side), ping timeout, overflow, and a connect failure before
+    the writer starts. v1 `Server.Close` does not close sessions.
+  - *Namespace DISCONNECT:* a socket.io DISCONNECT from the peer ends only that
+    namespace: its `OnDisconnect` runs once and its rooms are left; the engine.io
+    connection and the queue stay as they are.
+  - *Docs:* godoc of `WriteBufferSize`, `Emit` and `Close` states the rules above;
     that more than `WriteBufferSize` packets queued faster than the writer drains them
-    *can* close a healthy client; polling writes one engine.io frame per poll round
-    trip (a packet with k binary attachments needs k+1), so polling clients overflow
-    at much lower emit rates. The changelog states the change and links to that godoc.
-  - *Broadcasts:* `Send`, `SendAll` and `ForEach` (in-memory and Redis) snapshot room
-    members under the lock and emit or call back after releasing it.
+    *can* close a healthy client; that polling writes one engine.io frame per poll
+    round trip (a packet with k binary attachments needs k+1), so polling clients
+    overflow at much lower emit rates; that an encode error now closes the connection;
+    and that after `Close` returns the transport closes asynchronously, so
+    `Server.Count` still counts the session until then. The changelog states the
+    changes and links to that godoc.
+  - *Broadcasts:* `Send`, `SendAll` and `ForEach` emit or call back after releasing
+    the room lock. The Redis broadcast already does this (1.R); 1.B changes the
+    in-memory one. One copy per socket for `SendAll` is owned by 2.2; 1.B points the
+    pinning comment in `lifecycle_test.go` at 2.2 only.
   - *Tests (1.B):* deterministic under `-race` with a fake `engineio.Conn` whose
-    writer can be blocked: one stalled member does not block another; a draining
-    `Close` delivers N queued packets (N = 1 and N = 64), returns while the writer is
-    still blocked, writes Emits from `OnDisconnect`, and drops without report an Emit
-    after the seal and an Emit that finds the queue full during `OnDisconnect`; with
-    `PingTimeout` 50 ms a stalled peer's engine.io connection closes within
-    `PingTimeout` + 1 s; a read-error, a peer-close, a dispatch-error and a
-    connect-failure close do not drain and close at once; an overflow reports
-    `ErrWriteBufferFull` exactly once to the right namespace and no write starts after
-    it; overflow triggered inside `BroadcastToRoom`, inside `ForEach` and by an Emit
-    from an `OnError` handler does not deadlock; `Close` from `OnError`, from
-    `OnDisconnect` and twice concurrently does not deadlock.
+    writer can be blocked; every close test asserts the `OnDisconnect` call count.
+    For `Server` and for `Client`: one stalled member does not block another
+    (`Server`); a draining `Close` delivers N queued packets (N = 1 and N = 64),
+    returns while the writer is still blocked, writes Emits from `OnDisconnect`
+    including one made after the writer emptied the queue, and drops without report
+    an Emit after the seal and an Emit that finds the queue full during
+    `OnDisconnect`; after a draining `Close` an incoming EVENT runs no handler and an
+    incoming CONNECT runs no `OnConnect`; with `PingTimeout` 50 ms a stalled peer's
+    engine.io connection closes within `PingTimeout` + 1 s; a read-error, an
+    engine.io-CLOSE, a dispatch-error, an encode-error and a connect-failure close do
+    not drain and close at once, and a read-error close whose `OnDisconnect` emits
+    `WriteBufferSize`+1 packets reports nothing; a library close racing a draining
+    `Close` ends the drain and runs `OnDisconnect` once; an overflow reports
+    `ErrWriteBufferFull` exactly once to the right namespace and the writer starts no
+    packet after it (tested with a binary packet in flight); an overflow inside root
+    `OnConnect`, with `OnConnect` returning nil and returning an error, reports once
+    and writes nothing after it; overflow triggered inside `BroadcastToRoom`, inside
+    `ForEach` and by an Emit from an `OnError` handler does not deadlock; `Close` from
+    `OnError`, from `OnDisconnect` and twice concurrently does not deadlock; a
+    namespace DISCONNECT keeps the session and the other namespaces working.
   - *Tests (1I):* the slow-client test against the Redis broadcast; `WriteBufferSize`
     0, negative and a custom value; the drain deadline wired from `Options.PingTimeout`
-    for `Server` and for `Client`.
-- **1.S Runtime fixes:** synchronous session registration before a second request can
+    (nil, 0, negative and a custom value) for `Server` and for `Client`.
+  - *Gate record:* the 1.B and 1I task reports map every bullet of both test lists to
+    a test name; the stage 1 DoD checks that mapping.
+- **1.S Runtime fixes (landed; its lifecycle tests stay a stage gate):** synchronous session registration before a second request can
   use its SID; `Manager.Count` uses `RLock`; correct EOF result from `Server.Serve`.
   Cover session lifecycle and root connect/event/ack/namespace/room/disconnect paths.
 - **1.L Logging:** replace remaining `fmt.Printf`/`log.Print` library calls, normalize
@@ -189,8 +221,8 @@ Boundary lines. The keys are a contract reused by stage 2.4.
 DoD: `make lint test-race` green on ubuntu/macos/windows for `stable` and `oldstable`;
 an additional Ubuntu job builds/tests the root on Go 1.22 with automatic toolchain
 upgrades disabled. From v2 this job covers every shipped runtime module;
-`govulncheck` clean; two-instance Redis test under `-race` passes; the 1.B and 1I
-tests listed in 1.B pass; `engineio/session` coverage ≥ 70%, root
+`govulncheck` clean; two-instance Redis test under `-race` passes; every 1.B and 1I
+test bullet maps to a passing named test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
 package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses.
 Logging gate: `TestServerLoggerOption`, `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv`,
 `TestWrapOverridesHandlerLevel`, `TestTraceDisabledNoAlloc` and
@@ -353,7 +385,8 @@ Lifecycle contract, implemented in 2.1/2.3 and instrumented in 2.4:
   immediately. A socket or session close requested by the application drains the
   session's queued outbound messages within the session ping timeout, as v1
   `Conn.Close` does since 1.B; closes started inside the library discard, as in 1.B.
-  The DoD below includes a disconnect-drain test; the v1 to v2 mapping is in 2.5. Application handlers must honor cancellation: Go cannot forcibly
+  The DoD below includes a disconnect-drain test; the v1 to v2 mapping is in 2.5.
+  Application handlers must honor cancellation: Go cannot forcibly
   terminate them, and shutdown returns on its deadline even if one does not exit.
   Injected broker clients, loggers and OTel providers remain application-owned.
 

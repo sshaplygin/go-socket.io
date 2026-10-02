@@ -18,7 +18,11 @@ type redisBroadcast struct {
 	// one concurrent caller, and these commands come from user goroutines and
 	// the dispatch goroutine, so each command takes its own pooled connection.
 	pub *redis.Pool
-	sub *redis.PubSubConn
+	// sub is read by the dispatch goroutine and replaced by it after a
+	// receive error; subLock orders the replacement with close.
+	sub     *redis.PubSubConn
+	subLock sync.Mutex
+	done    chan struct{}
 	// dial opens a connection to the server; pattern is the broadcast channel
 	// pattern the subscriber listens on.
 	dial    func() (redis.Conn, error)
@@ -42,6 +46,13 @@ type redisBroadcast struct {
 // of the subscribers counted by PUBSUB NUMSUB; an instance that died or hangs
 // is still counted until Redis drops its connection.
 var redisRequestTimeout = 5 * time.Second
+
+// Backoff between attempts to reopen the subscriber connection after a
+// receive error; tests shorten it.
+var (
+	redisReconnectMin = 100 * time.Millisecond
+	redisReconnectMax = 5 * time.Second
+)
 
 // request types
 const (
@@ -118,6 +129,7 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 	rbc := &redisBroadcast{
 		rooms:      make(map[string]map[string]Conn),
 		requests:   make(map[string]interface{}),
+		done:       make(chan struct{}),
 		pub:        pub,
 		dial:       dial,
 		pattern:    fmt.Sprintf("%s#%s#*", opts.Prefix, nsp),
@@ -324,6 +336,9 @@ func (bc *redisBroadcast) onMessage(channel string, msg []byte) error {
 
 	args := bcMessage["args"]
 	opts := bcMessage["opts"]
+	if len(opts) < 2 {
+		return errors.New("invalid broadcast message")
+	}
 
 	room, ok := opts[0].(string)
 	if !ok {
@@ -454,46 +469,43 @@ func (bc *redisBroadcast) onResponse(msg []byte) {
 		return
 	}
 
+	id, _ := res["RequestID"].(string)
 	bc.requestLock.Lock()
-	req, ok := bc.requests[res["RequestID"].(string)]
+	req, ok := bc.requests[id]
 	bc.requestLock.Unlock()
 	if !ok {
 		return
 	}
 
-	switch res["RequestType"] {
-	case roomLenReqType:
-		roomLenReq := req.(*roomLenRequest)
+	// Fields of a malformed answer count as empty.
+	switch req := req.(type) {
+	case *roomLenRequest:
+		connections, _ := res["Connections"].(float64)
 
-		roomLenReq.mutex.Lock()
-		roomLenReq.msgCount++
-		roomLenReq.connections += int(res["Connections"].(float64))
-		roomLenReq.mutex.Unlock()
+		req.mutex.Lock()
+		req.msgCount++
+		req.connections += int(connections)
+		req.mutex.Unlock()
 
-		if roomLenReq.numSub == roomLenReq.msgCount {
-			notify(roomLenReq.done)
+		if req.numSub == req.msgCount {
+			notify(req.done)
 		}
 
-	case allRoomReqType:
-		allRoomReq := req.(*allRoomRequest)
-		rooms, ok := res["Rooms"].([]interface{})
-		if !ok {
-			notify(allRoomReq.done)
-			return
-		}
+	case *allRoomRequest:
+		rooms, _ := res["Rooms"].([]interface{})
 
-		allRoomReq.mutex.Lock()
-		allRoomReq.msgCount++
+		req.mutex.Lock()
+		req.msgCount++
 		for _, room := range rooms {
-			allRoomReq.rooms[room.(string)] = true
+			if name, ok := room.(string); ok {
+				req.rooms[name] = true
+			}
 		}
-		allRoomReq.mutex.Unlock()
+		req.mutex.Unlock()
 
-		if allRoomReq.numSub == allRoomReq.msgCount {
-			notify(allRoomReq.done)
+		if req.numSub == req.msgCount {
+			notify(req.done)
 		}
-
-	default:
 	}
 }
 
@@ -602,21 +614,21 @@ func (bc *redisBroadcast) getRoomsByConn(connection Conn) []string {
 	return rooms
 }
 
+// dispatch handles the messages of the subscriber connection until the
+// broadcast is closed. Malformed messages are skipped; after a receive error
+// the subscriber connection is reopened.
 func (bc *redisBroadcast) dispatch() {
+	sub := bc.sub
 	for {
-		switch m := bc.sub.Receive().(type) {
+		switch m := sub.Receive().(type) {
 		case redis.Message:
-			if m.Channel == bc.reqChannel {
+			switch m.Channel {
+			case bc.reqChannel:
 				bc.onRequest(m.Data)
-				break
-			} else if m.Channel == bc.resChannel {
+			case bc.resChannel:
 				bc.onResponse(m.Data)
-				break
-			}
-
-			err := bc.onMessage(m.Channel, m.Data)
-			if err != nil {
-				return
+			default:
+				_ = bc.onMessage(m.Channel, m.Data)
 			}
 
 		case redis.Subscription:
@@ -625,7 +637,54 @@ func (bc *redisBroadcast) dispatch() {
 			}
 
 		case error:
-			return
+			_ = sub.Close()
+			if sub = bc.resubscribe(); sub == nil {
+				return
+			}
 		}
 	}
+}
+
+// resubscribe opens a new subscriber connection, retrying with exponential
+// backoff from redisReconnectMin up to redisReconnectMax. It returns nil once
+// the broadcast is closed.
+func (bc *redisBroadcast) resubscribe() *redis.PubSubConn {
+	for delay := redisReconnectMin; ; delay = min(2*delay, redisReconnectMax) {
+		select {
+		case <-bc.done:
+			return nil
+		case <-time.After(delay):
+		}
+
+		sub, err := bc.subscribe()
+		if err != nil {
+			continue
+		}
+
+		bc.subLock.Lock()
+		defer bc.subLock.Unlock()
+		select {
+		case <-bc.done:
+			_ = sub.Close()
+			return nil
+		default:
+			bc.sub = sub
+			return sub
+		}
+	}
+}
+
+// close stops the dispatch goroutine and closes the connections.
+func (bc *redisBroadcast) close() {
+	bc.subLock.Lock()
+	defer bc.subLock.Unlock()
+	select {
+	case <-bc.done:
+		return
+	default:
+	}
+
+	close(bc.done)
+	_ = bc.sub.Close()
+	_ = bc.pub.Close()
 }

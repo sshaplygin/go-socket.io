@@ -19,6 +19,8 @@ const testRedisReqChannel = "socket.io-request#/"
 
 func init() {
 	redisRequestTimeout = 300 * time.Millisecond
+	redisReconnectMin = 5 * time.Millisecond
+	redisReconnectMax = 50 * time.Millisecond
 }
 
 // redisTestConn is a Conn that records the events emitted to it. Only ID and
@@ -48,6 +50,7 @@ func newTestRedisBroadcast(t *testing.T, s *miniredis.Miniredis) *redisBroadcast
 	before := s.PubSubNumSub(testRedisReqChannel)[testRedisReqChannel]
 	bc, err := newRedisBroadcast("/", &RedisAdapterOptions{Addr: s.Addr(), Prefix: "socket.io", Network: "tcp"})
 	require.NoError(t, err)
+	t.Cleanup(bc.close)
 	waitRedisSubscribers(t, s, before+1)
 	return bc
 }
@@ -321,4 +324,10 @@ func TestRedisBroadcastResubscribesAfterRestart(t *testing.T) {
 		}
 	}, 2*time.Second, time.Millisecond)
 	require.Eventually(t, func() bool { return b.Len("room") == 1 }, 2*time.Second, time.Millisecond)
+
+	// close stops the dispatcher instead of making it subscribe again.
+	a.close()
+	waitRedisSubscribers(t, s, 1)
+	time.Sleep(4 * redisReconnectMax)
+	require.Equal(t, 1, s.PubSubNumSub(testRedisReqChannel)[testRedisReqChannel])
 }

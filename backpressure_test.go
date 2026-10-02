@@ -28,27 +28,16 @@ import (
 // blocks until a send on release, its close, or Close; after Close, or with
 // failWrite, it fails.
 type fakeConn struct {
-	reads     chan string
-	out       chan string
-	hold      atomic.Bool
-	held      chan struct{}
-	release   chan struct{}
-	texts     atomic.Int32
-	failWrite atomic.Bool
-	peerGone  chan struct{}
-	closed    chan struct{}
-	closeOnce sync.Once
+	reads, out                      chan string
+	hold, failWrite                 atomic.Bool
+	held, release, peerGone, closed chan struct{}
+	texts                           atomic.Int32
+	closeOnce                       sync.Once
 }
 
 func newFakeConn(t *testing.T) *fakeConn {
-	f := &fakeConn{
-		reads:    make(chan string),
-		out:      make(chan string, 256),
-		held:     make(chan struct{}, 1),
-		release:  make(chan struct{}),
-		peerGone: make(chan struct{}),
-		closed:   make(chan struct{}),
-	}
+	f := &fakeConn{reads: make(chan string), out: make(chan string, 256), held: make(chan struct{}, 1)}
+	f.release, f.peerGone, f.closed = make(chan struct{}), make(chan struct{}), make(chan struct{})
 	t.Cleanup(func() { _ = f.Close() })
 	return f
 }
@@ -150,13 +139,8 @@ type peer struct {
 }
 
 func newPeer(t *testing.T, side byte, h hooks, nsps ...string) *peer {
-	p := &peer{
-		fc:      newFakeConn(t),
-		conns:   make(chan Conn, 8),
-		errs:    make(chan nsErr, 128),
-		nilErrs: make(chan error, 8),
-		discs:   make(chan string, 8),
-	}
+	p := &peer{fc: newFakeConn(t), conns: make(chan Conn, 8), errs: make(chan nsErr, 128)}
+	p.nilErrs, p.discs = make(chan error, 8), make(chan string, 8)
 	var nhs []*namespaceHandler
 	if side == 'S' {
 		p.srv = NewServer(nil)
@@ -251,6 +235,16 @@ func (p *peer) conn() *conn {
 		return p.cl.conn
 	}
 	return p.nc.(*namespaceConn).conn
+}
+
+// sub joins /a on S and returns its Conn, its DISCONNECT frame and the other
+// connected namespaces; on C it returns those of the root namespace.
+func (p *peer) sub(t *testing.T) (Conn, string, []string) {
+	t.Helper()
+	if p.srv == nil {
+		return p.nc, "1", nil
+	}
+	return p.join(t, "/a"), "1/a", []string{"/"}
 }
 
 // stall holds the writer on a first packet of nc and queues n more behind it.
@@ -461,10 +455,7 @@ func TestBackpressureEncodeErrorClosesAfterReport(t *testing.T) {
 		var p *peer
 		closedAtReport := make(chan bool, 4)
 		p = start(t, side, hooks{onError: func(Conn, error) { closedAtReport <- isDone(p.fc.closed) }}, "/a")
-		nc, nsps := p.nc, []string{"/"}
-		if side == 'S' {
-			nc, nsps = p.join(t, "/a"), []string{"/", "/a"}
-		}
+		nc, _, others := p.sub(t)
 		p.fc.hold.Store(true)
 		nc.Emit("bad", make(chan int)) // json cannot encode a channel
 		recv(t, p.fc.held, "the writer to block on the bad packet")
@@ -475,7 +466,7 @@ func TestBackpressureEncodeErrorClosesAfterReport(t *testing.T) {
 		require.Equal(t, nc.Namespace(), got.nsp)
 		require.False(t, recv(t, closedAtReport, "OnError"), "closed before the report")
 		recv(t, p.fc.closed, "engine.io close after the report")
-		p.disconnected(t, nsps...)
+		p.disconnected(t, append(others, nc.Namespace())...)
 		require.Empty(t, drain(p.errs), "a second report")
 		for _, frame := range drain(p.fc.out) {
 			require.NotContains(t, frame, `"x"`, "a packet queued after the bad one was written")
@@ -509,19 +500,15 @@ func TestBackpressureConnectFailureDiscards(t *testing.T) {
 // Covers 1B-T14 (S, C).
 func TestBackpressureNamespaceDisconnectRacesClose(t *testing.T) {
 	sides(t, "SC", func(t *testing.T, side byte) {
-		target, frame, others := "/", "1", []string(nil)
-		if side == 'S' {
-			target, frame, others = "/a", "1/a", []string{"/"}
-		}
+		var target string
 		hold := make(chan struct{})
 		p := start(t, side, hooks{disconnect: func(c Conn) {
 			if c.Namespace() == target {
 				<-hold
 			}
 		}}, "/a")
-		if side == 'S' {
-			p.join(t, "/a")
-		}
+		nc, frame, others := p.sub(t)
+		target = nc.Namespace()
 		p.send(t, frame)
 		require.Equal(t, target, recv(t, p.discs, "the held OnDisconnect"))
 		recv(t, inBackground(func() { _ = p.Close() }), "Close while OnDisconnect is held")
@@ -535,10 +522,7 @@ func TestBackpressureNamespaceDisconnectRacesClose(t *testing.T) {
 func TestBackpressureOverflow(t *testing.T) {
 	sides(t, "SC", func(t *testing.T, side byte) {
 		p := start(t, side, hooks{}, "/a")
-		nc, nsps := p.nc, []string{"/"}
-		if side == 'S' {
-			nc, nsps = p.join(t, "/a"), []string{"/", "/a"}
-		}
+		nc, _, others := p.sub(t)
 		p.fc.hold.Store(true)
 		nc.Emit("bin", &parser.Buffer{Data: []byte{1}})
 		recv(t, p.fc.held, "the writer to block on the binary packet")
@@ -547,7 +531,7 @@ func TestBackpressureOverflow(t *testing.T) {
 		flood(nc, defaultWriteBufferSize+3)
 		recv(t, p.fc.closed, "engine.io close on overflow")
 		p.overflowReported(t, nc.Namespace())
-		p.disconnected(t, nsps...)
+		p.disconnected(t, append(others, nc.Namespace())...)
 		require.Never(t, func() bool { return p.fc.texts.Load() != started }, 100*time.Millisecond, time.Millisecond, "the writer started a packet")
 	})
 }
@@ -555,7 +539,7 @@ func TestBackpressureOverflow(t *testing.T) {
 // Covers 1B-T17 (S).
 // Covers 1B-T18 (S).
 func TestBackpressureOverflowInOnConnect(t *testing.T) {
-	for _, connectErr := range []error{nil, errors.New("refused")} {
+	for _, connectErr := range []error{nil, errors.New("refused"), ErrWriteBufferFull} {
 		var p *peer
 		var late []bool // per report: made after the engine.io close or OnDisconnect
 		p = newPeer(t, 'S', hooks{
@@ -575,6 +559,26 @@ func TestBackpressureOverflowInOnConnect(t *testing.T) {
 		require.Empty(t, drain(p.errs))
 		require.Empty(t, drain(p.fc.out), "a packet was written")
 	}
+}
+
+// The close of a failed connect starts before its report, so an Emit made from
+// another goroutine during root OnError is dropped and cannot overflow.
+func TestBackpressureConnectFailureDropsConcurrentEmit(t *testing.T) {
+	late, refused := make(chan struct{}, 2), errors.New("refused")
+	var emitted <-chan struct{}
+	p := newPeer(t, 'S', hooks{
+		connect: func(c Conn) error {
+			flood(c, defaultWriteBufferSize) // the queue is full
+			emitted = inBackground(func() { <-late; c.Emit("late") })
+			return refused
+		},
+		onError: func(Conn, error) { late <- struct{}{}; time.Sleep(20 * time.Millisecond) },
+	}).connect(t)
+	recv(t, emitted, "the Emit during root OnError")
+	p.disconnected(t, "/")
+	require.Equal(t, []error{refused}, drain(p.nilErrs), "connect-failure reports")
+	require.Empty(t, drain(p.errs))
+	require.Empty(t, drain(p.fc.out), "a packet was written")
 }
 
 // Covers 1B-T19 (S).
@@ -650,14 +654,10 @@ func TestBackpressureCloseFromHandlers(t *testing.T) {
 func TestBackpressureNamespaceDisconnectKeepsSession(t *testing.T) {
 	sides(t, "SC", func(t *testing.T, side byte) {
 		p := start(t, side, hooks{events: map[string]interface{}{"echo": func(Conn) string { return "ok" }}}, "/a")
-		target, frame := "/", "1"
-		if side == 'S' {
-			target, frame = "/a", "1/a"
-			p.join(t, "/a")
-		}
+		nc, frame, _ := p.sub(t)
 		p.stall(t, p.nc, 0)
 		p.send(t, frame)
-		require.Equal(t, target, recv(t, p.discs, "OnDisconnect of "+target))
+		require.Equal(t, nc.Namespace(), recv(t, p.discs, "OnDisconnect of "+nc.Namespace()))
 		close(p.fc.release)
 		require.Equal(t, ev("first"), recv(t, p.fc.out, "the packet queued before the DISCONNECT"))
 		if side == 'S' {
@@ -710,8 +710,73 @@ func TestBackpressureArgDecodeErrorReport(t *testing.T) {
 	p := start(t, 'S', hooks{events: map[string]interface{}{"num": func(Conn, int) {}}}, "/a")
 	p.join(t, "/a")
 	p.send(t, `2/a,["num","x"]`)
+	require.Equal(t, "/a", recv(t, p.errs, "the report").nsp)
 	p.disconnected(t, "/", "/a")
-	errs := drain(p.errs)
-	require.Len(t, errs, 1, "reports")
-	require.Equal(t, "/a", errs[0].nsp)
+	require.Empty(t, drain(p.errs), "a second report")
+}
+
+// emitConn is a Conn for broadcast tests: ID and Emit only. Emit calls onEmit.
+type emitConn struct {
+	Conn
+	id     string
+	onEmit func(event string)
+}
+
+func (c *emitConn) ID() string { return c.id }
+
+func (c *emitConn) Emit(event string, _ ...interface{}) { c.onEmit(event) }
+
+// A recipient whose Emit blocks does not stop others from joining or leaving
+// rooms; one whose Emit leaves all rooms does not deadlock Send or SendAll.
+func TestBroadcastDoesNotHoldLockWhileEmitting(t *testing.T) {
+	bc := newBroadcast()
+	entered, release := make(chan struct{}), make(chan struct{})
+	slow := &emitConn{id: "slow", onEmit: func(string) {
+		entered <- struct{}{}
+		<-release
+	}}
+	other := &emitConn{id: "other", onEmit: func(string) {}}
+	bc.Join("r", slow)
+	sent := inBackground(func() { bc.Send("r", "msg") })
+	recv(t, entered, "Emit on the slow member")
+	recv(t, inBackground(func() {
+		bc.Join("r", other)
+		bc.LeaveAll(other)
+	}), "Join and LeaveAll during a blocked Emit")
+	close(release)
+	recv(t, sent, "Send")
+	bc.LeaveAll(slow)
+	var events []string
+	leaver := &emitConn{id: "leaver"}
+	leaver.onEmit = func(event string) {
+		events = append(events, event)
+		bc.LeaveAll(leaver)
+	}
+	for _, send := range []func(){
+		func() { bc.Send("a", "send") },
+		func() { bc.SendAll("send-all") },
+	} {
+		bc.Join("a", leaver)
+		recv(t, inBackground(send), "a broadcast whose recipient leaves")
+	}
+	require.Equal(t, []string{"send", "send-all"}, events)
+}
+
+// The ForEach callback may change rooms; it visits the members present when
+// ForEach started.
+func TestBroadcastForEachCallbackChangesRooms(t *testing.T) {
+	bc := newBroadcast()
+	bc.Join("r", &emitConn{id: "a"})
+	bc.Join("r", &emitConn{id: "b"})
+	var visited []string
+	recv(t, inBackground(func() {
+		bc.ForEach("r", func(c Conn) {
+			visited = append(visited, c.ID())
+			bc.Leave("r", c)
+			bc.Join("moved", c)
+		})
+	}), "ForEach whose callback changes rooms")
+	require.ElementsMatch(t, []string{"a", "b"}, visited)
+	require.Equal(t, 0, bc.Len("r"))
+	require.Equal(t, 2, bc.Len("moved"))
 }

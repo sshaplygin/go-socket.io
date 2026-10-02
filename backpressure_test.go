@@ -371,6 +371,7 @@ func TestBackpressureCloseDropsLateAndOverflowingEmits(t *testing.T) {
 	})
 }
 
+// A CONNECT to a namespace without a handler does not end the drain either.
 // Covers 1B-T5 (S, C).
 func TestBackpressureCloseStopsDispatch(t *testing.T) {
 	sides(t, "SC", func(t *testing.T, side byte) {
@@ -379,7 +380,7 @@ func TestBackpressureCloseStopsDispatch(t *testing.T) {
 		p.stall(t, p.nc, 0) // keeps the drain running
 		require.NoError(t, p.Close())
 
-		for _, frame := range []string{`2["ev"]`, map[byte]string{'S': "0/a", 'C': "0"}[side], `2["ev"]`} {
+		for _, frame := range []string{`2["ev"]`, map[byte]string{'S': "0/a", 'C': "0"}[side], "0/none", `2["ev"]`} {
 			p.send(t, frame)
 		}
 		close(p.fc.release)

@@ -17,8 +17,9 @@ import (
 )
 
 // stallConn is an engineio.Conn for Server.serveConn. The first allowed
-// frames are recorded on frames; every later NextWriter blocks until Close
-// (allowed < 0 never blocks). NextReader returns frames from reads until Close.
+// frames are recorded on frames; every later NextWriter blocks until release
+// or Close (allowed < 0 never blocks), and none succeeds after Close.
+// NextReader returns frames from reads until Close.
 type stallConn struct {
 	id      string
 	allowed int32
@@ -28,6 +29,7 @@ type stallConn struct {
 	reads     chan string
 	stalled   chan struct{}
 	stallOnce sync.Once
+	release   chan struct{}
 	closed    chan struct{}
 	closeOnce sync.Once
 }
@@ -39,6 +41,7 @@ func newStallConn(id string, allowed int32) *stallConn {
 		frames:  make(chan string, 256),
 		reads:   make(chan string, 1),
 		stalled: make(chan struct{}),
+		release: make(chan struct{}),
 		closed:  make(chan struct{}),
 	}
 }
@@ -46,10 +49,17 @@ func newStallConn(id string, allowed int32) *stallConn {
 func (s *stallConn) NextWriter(session.FrameType) (io.WriteCloser, error) {
 	if n := s.writes.Add(1); s.allowed >= 0 && n > s.allowed {
 		s.stallOnce.Do(func() { close(s.stalled) })
-		<-s.closed
-		return nil, io.EOF
+		select {
+		case <-s.release:
+		case <-s.closed:
+		}
 	}
-	return &frameWriter{out: s.frames}, nil
+	select {
+	case <-s.closed:
+		return nil, io.EOF
+	default:
+		return &frameWriter{out: s.frames}, nil
+	}
 }
 
 func (s *stallConn) NextReader() (session.FrameType, io.ReadCloser, error) {
@@ -255,4 +265,26 @@ func TestBackpressureOverflowDisconnectsOnReadGoroutine(t *testing.T) {
 	fc.reads <- `2["flood"]`
 	require.False(t, recv(t, early, "the overflowing handler"), "OnDisconnect ran while the overflowing handler was running")
 	srv.expectOverflow(t, fc)
+}
+
+// TestBackpressureCloseWritesQueuedPackets checks that a normal Close writes
+// the packets queued before it and only then closes the engine.io connection.
+func TestBackpressureCloseWritesQueuedPackets(t *testing.T) {
+	srv := newBackpressureServer(t)
+	fc := newStallConn("slow", 1)
+	nc := srv.serve(t, fc)
+
+	for i := 0; i < 5; i++ {
+		nc.Emit("msg", i)
+	}
+	recv(t, fc.stalled, "the writer to take the first packet")
+	closed := inBackground(func() { _ = nc.Close() })
+	require.Equal(t, fc.id, recv(t, srv.disconnects, "OnDisconnect of "+fc.id))
+	close(fc.release)
+	recv(t, closed, "Close")
+
+	require.Len(t, fc.frames, 5, "packets written before Close returned")
+	for i := 0; i < 5; i++ {
+		require.Equal(t, fmt.Sprintf("2[\"msg\",%d]\n", i), <-fc.frames)
+	}
 }

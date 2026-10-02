@@ -1,6 +1,6 @@
 # Roadmap
 
-Scope approved: 2026-09-28. Updated: 2026-09-29. Owner: Sam Shaplygin.
+Scope approved: 2026-09-28. Updated: 2026-10-02. Owner: Sam Shaplygin.
 
 This file owns scope, dependencies, implementation contracts and release gates.
 Current implementation: [PROTOCOL.md](PROTOCOL.md). Completed changes:
@@ -47,7 +47,7 @@ workers submit changes to these files through that integrator.
 
 | Wave | Prerequisites | Independent work / write ownership | Join gate |
 | --- | --- | --- | --- |
-| 1A | landed infrastructure | 1.R Redis internals (`redis_broadcast.go`); 1.B queue internals (`connection.go`, `broadcast.go`); 1.S session/server fixes (`engineio/session`, `engineio/server.go`, `server.go`) | component regression tests pass |
+| 1A | landed infrastructure | 1.R Redis internals (`redis_broadcast.go`); 1.B queue internals (`connection.go`, `broadcast.go`, `errors.go`, and the writer loops `serveWrite` in `server.go` and `clientWrite` in `client.go`); 1.S session/server fixes (`engineio/session`, `engineio/server.go`, `server.go`) | component regression tests pass |
 | 1I | 1A | integrator wires Redis construction errors through `namespace_handler.go` and `server.go`, and queue options through `engineio/server_options.go` and consumers | integrated bug tests and root build pass |
 | 1B | 1I | 1.L logging call sites across layers; 1.D docs/links in Markdown | M1 checks and v1 compatibility |
 | 1b | M1, branch `v1` cut | one refactor owner; moves/merges applied sequentially | M1b regression checks |
@@ -81,7 +81,8 @@ release history and implementation commands stay in their respective files.
 ## Stage 1. Infrastructure and known bugs (tag `v1.5.0`)
 
 No protocol changes. Allowed API changes are `engineio.Options.Logger`,
-`engineio.Options.WriteBufferSize` (temporary v1 placement), the logger exports
+`engineio.Options.WriteBufferSize` (temporary v1 placement), `socketio.ErrWriteBufferFull`,
+the logger exports
 listed in the changelog, and the already-landed session logger parameter. That
 session constructor signature change must be called out in v1 migration notes;
 root `NewServer` and handler signatures stay unchanged. `gorilla/websocket` stays in v1; the
@@ -92,15 +93,34 @@ Remaining tasks:
 - **1.R Redis:** protect `requests` and room access; time out peer queries; propagate
   adapter construction errors through the 1I integration step; reconnect subscriptions with backoff after receive
   failures. Each fix has a regression test, including two-server tests under `-race`.
-- **1.B Backpressure:** add temporary v1 `engineio.Options.WriteBufferSize` (default
-  64); `Emit` never blocks; on a full queue close the slow connection and report
-  overflow via `OnError`. On a normal (non-overflow) `Close`, packets already queued
-  are written before the engine.io connection closes, bounded by the write deadline;
-  an overflow close may discard them. A burst larger than `WriteBufferSize` therefore
-  closes even a healthy client; the `Emit` and `WriteBufferSize` godoc and the
-  changelog say so. Snapshot room members under lock; emit after releasing it. Test
-  that one stalled member does not block another and that a normal `Close` delivers
-  queued packets.
+- **1.B Backpressure:** each connection has a bounded queue of outbound packets.
+  - *Size:* temporary v1 `engineio.Options.WriteBufferSize`, unit outbound packets;
+    0 and negative values mean the default 64; no opt-out in v1; `Server` and `Client`
+    both honour it (the option is wired by 1I).
+  - *Emit* never blocks.
+  - *Overflow:* when the queue is full, the first overflow closes the connection at
+    once (engine.io close before the report), drops that packet and every later one,
+    and reports `ErrWriteBufferFull` (exported sentinel) to `OnError` exactly once.
+  - *Normal Close:* only a `Close` called by the application or the server drains. It
+    runs `OnDisconnect` first; packets queued before the engine.io close begins,
+    including Emits from `OnDisconnect`, are written by the writer goroutine in the
+    background. `Close` returns without waiting. The whole drain is bounded by one
+    `PingTimeout` from the start of `Close`; packets left then are discarded. After the
+    cutoff, `Emit` drops silently, never blocks and is not reported.
+  - *Discarding closes:* a close caused by overflow, a transport error or a ping
+    timeout does not drain.
+  - *Docs:* the `Emit`, `Close` and `WriteBufferSize` godoc and the changelog say that
+    more than `WriteBufferSize` packets queued faster than the writer drains them *can*
+    close a healthy client, and that polling drains one packet per poll round trip, so
+    polling clients overflow at much lower emit rates.
+  - *Broadcasts:* snapshot room members under lock; emit after releasing it.
+  - *Tests:* one stalled member does not block another (in-memory broadcast here;
+    Redis broadcast in 1I); a normal `Close` delivers N queued packets (1 ≤ N ≤ 64) and
+    returns without waiting; a stalled peer is closed no later than `PingTimeout` after
+    `Close`; exactly one `ErrWriteBufferFull` per connection and nothing delivered
+    after the overflow; `Close` from `OnError`, from `OnDisconnect` and twice
+    concurrently does not deadlock; a transport-error close does not drain. All
+    deterministic under `-race` (fake `engineio.Conn` with a blockable writer).
 - **1.S Runtime fixes:** synchronous session registration before a second request can
   use its SID; `Manager.Count` uses `RLock`; correct EOF result from `Server.Serve`.
   Cover session lifecycle and root connect/event/ack/namespace/room/disconnect paths.
@@ -141,7 +161,8 @@ DoD: `make lint test-race` green on ubuntu/macos/windows for `stable` and `oldst
 an additional Ubuntu job builds/tests the root on Go 1.22 with automatic toolchain
 upgrades disabled. From v2 this job covers every shipped runtime module;
 `govulncheck` clean; two-instance Redis test under `-race` passes; slow-client test
-proves other room members keep receiving; `engineio/session` coverage ≥ 70%, root
+proves other room members keep receiving, for the in-memory and the Redis broadcast;
+the 1.B tests listed above pass; `engineio/session` coverage ≥ 70%, root
 package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses.
 Logging gate: `TestServerLoggerOption`, `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv`,
 `TestWrapOverridesHandlerLevel`, `TestTraceDisabledNoAlloc` and
@@ -301,7 +322,9 @@ Lifecycle contract, implemented in 2.1/2.3 and instrumented in 2.4:
 - `Shutdown(ctx)` rejects new handshakes/events, cancels socket/handler contexts and
   pending acks, drains already queued outbound messages until the deadline, then
   closes transports and owned adapter workers. It is idempotent; `Close()` aborts
-  immediately. Application handlers must honor cancellation: Go cannot forcibly
+  immediately. A per-socket disconnect drains its queued outbound messages within
+  the session's ping timeout, as v1 `Conn.Close` does since 1.B; 2.5D records the
+  mapping in MIGRATION.md. Application handlers must honor cancellation: Go cannot forcibly
   terminate them, and shutdown returns on its deadline even if one does not exit.
   Injected broker clients, loggers and OTel providers remain application-owned.
 

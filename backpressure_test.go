@@ -201,7 +201,8 @@ func TestBackpressureStalledMemberDoesNotBlockRoom(t *testing.T) {
 }
 
 // TestBackpressureQueueCapacity checks that exactly defaultWriteBufferSize
-// packets wait behind a stalled writer and the next one closes the connection.
+// packets wait behind a stalled writer, the next one closes the connection,
+// and only the first overflow is reported.
 func TestBackpressureQueueCapacity(t *testing.T) {
 	srv := newBackpressureServer(t)
 	fc := newStallConn("stalled", 1)
@@ -217,8 +218,11 @@ func TestBackpressureQueueCapacity(t *testing.T) {
 	}), "packets queued behind the stalled writer")
 	require.Len(t, nc.(*namespaceConn).writeChan, defaultWriteBufferSize)
 
-	recv(t, inBackground(func() { nc.Emit("msg") }), "the overflowing Emit")
+	recv(t, inBackground(func() { nc.Emit("msg"); nc.Emit("msg"); nc.Emit("msg") }), "the overflowing Emits")
 	srv.expectOverflow(t, fc)
+	for len(srv.errs) > 0 {
+		require.NotErrorIs(t, (<-srv.errs).err, errWriteBufferFull, "a second overflow report")
+	}
 }
 
 // TestBackpressureOverflowInCloseFromOnError checks that Close called from

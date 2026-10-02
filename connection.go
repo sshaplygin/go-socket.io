@@ -46,7 +46,8 @@ type conn struct {
 
 	log *slog.Logger
 
-	closeOnce sync.Once
+	closeOnce    sync.Once
+	overflowOnce sync.Once
 }
 
 func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, log *slog.Logger) *conn {
@@ -56,7 +57,7 @@ func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, log *slog.Lo
 		encoder:    parser.NewEncoder(engineConn),
 		decoder:    parser.NewDecoder(engineConn),
 		errorChan:  make(chan error),
-		writeChan:  make(chan parser.Payload),
+		writeChan:  make(chan parser.Payload, defaultWriteBufferSize),
 		quitChan:   make(chan struct{}),
 		handlers:   handlers,
 		namespaces: newNamespaces(),
@@ -135,7 +136,20 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 	select {
 	case c.writeChan <- pkg:
 	case <-c.quitChan:
-		return
+	default:
+		c.overflowOnce.Do(func() { go c.closeOnOverflow(header.Namespace) })
+	}
+}
+
+// closeOnOverflow reports errWriteBufferFull to the OnError handler of
+// namespace and closes the connection. It runs on its own goroutine: write
+// may be called with a broadcast lock held, and Close takes that lock to
+// leave the rooms.
+func (c *conn) closeOnOverflow(namespace string) {
+	c.onError(namespace, errWriteBufferFull)
+
+	if err := c.Close(); err != nil {
+		c.log.Error("close connection", "err", err)
 	}
 }
 

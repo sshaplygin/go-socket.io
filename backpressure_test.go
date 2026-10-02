@@ -445,7 +445,7 @@ func TestBackpressureEncodeErrorClosesAfterReport(t *testing.T) {
 	sides(t, "SC", func(t *testing.T, side byte) {
 		var p *peer
 		closedAtReport := make(chan bool, 4)
-		p = start(t, side, hooks{onError: func(Conn, error) { closedAtReport <- isDone(p.fc.closed) }}, "/a")
+		p = start(t, side, hooks{onError: func(Conn, error) { closedAtReport <- isDone(p.conn().discard) }}, "/a")
 		nc, _, others := p.sub(t)
 		p.fc.hold.Store(true)
 		nc.Emit("bad", make(chan int)) // json cannot encode a channel
@@ -455,7 +455,7 @@ func TestBackpressureEncodeErrorClosesAfterReport(t *testing.T) {
 
 		got := recv(t, p.errs, "the encode error report")
 		require.Equal(t, nc.Namespace(), got.nsp)
-		require.False(t, recv(t, closedAtReport, "OnError"), "closed before the report")
+		require.False(t, recv(t, closedAtReport, "OnError"), "discarded before the report")
 		recv(t, p.fc.closed, "engine.io close after the report")
 		p.disconnected(t, append(others, nc.Namespace())...)
 		require.Empty(t, drain(p.errs), "a second report")

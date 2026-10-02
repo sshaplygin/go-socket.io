@@ -338,6 +338,27 @@ func TestRedisBroadcastResubscribesAfterRestart(t *testing.T) {
 	require.Equal(t, 1, s.PubSubNumSub(testRedisReqChannel)[testRedisReqChannel])
 }
 
+// close may run after the dispatcher subscribed again but before it stored
+// the new subscriber, which waits for subLock; that subscriber is closed.
+func TestRedisBroadcastCloseDuringResubscribe(t *testing.T) {
+	s := miniredis.RunT(t)
+	a := newTestRedisBroadcast(t, s)
+
+	a.subLock.Lock()
+	s.Close()
+	require.NoError(t, s.Restart())
+	waitRedisSubscribers(t, s, 1)
+	// The steps of close, which would wait for subLock.
+	close(a.done)
+	_ = a.sub.Close()
+	_ = a.pub.Close()
+	a.subLock.Unlock()
+
+	waitRedisSubscribers(t, s, 0)
+	time.Sleep(4 * redisReconnectMax)
+	require.Equal(t, 0, s.PubSubNumSub(testRedisReqChannel)[testRedisReqChannel])
+}
+
 // A server that accepts the connection but refuses the subscription, as on
 // NOAUTH or an ACL error, fails every reconnect after a successful dial.
 func TestRedisBroadcastReconnectBackoff(t *testing.T) {

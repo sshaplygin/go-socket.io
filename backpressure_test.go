@@ -347,3 +347,28 @@ func TestBackpressureCloseFromOnErrorWhileWriterFails(t *testing.T) {
 	close(fc.release)
 	recv(t, fc.closed, "engine.io close of "+fc.id)
 }
+
+// TestBackpressureCloseDropsLateEmit checks that an Emit made while Close
+// waits for the queue is dropped: exactly the packets queued before Close are
+// written, and the flush token is neither written nor taken for a packet.
+func TestBackpressureCloseDropsLateEmit(t *testing.T) {
+	srv := newBackpressureServer(t)
+	fc := newStallConn("slow", 1)
+	nc := srv.serve(t, fc)
+
+	for i := 0; i < 3; i++ {
+		nc.Emit("msg", i)
+	}
+	recv(t, fc.stalled, "the writer to take the first packet")
+	closed := inBackground(func() { _ = nc.Close() })
+	queue := nc.(*namespaceConn).writeChan
+	require.Eventually(t, func() bool { return len(queue) == 3 }, waitFor, time.Millisecond, "the flush token")
+	nc.Emit("late")
+	close(fc.release)
+	recv(t, closed, "Close")
+
+	require.Len(t, fc.frames, 3, "packets written before Close returned")
+	for i := 0; i < 3; i++ {
+		require.Equal(t, fmt.Sprintf("2[\"msg\",%d]\n", i), <-fc.frames)
+	}
+}

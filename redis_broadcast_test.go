@@ -310,7 +310,9 @@ func TestRedisBroadcastResubscribesAfterRestart(t *testing.T) {
 	a1 := newRedisTestConn("a1")
 	a.Join("room", a1)
 
+	// Keep the server down across several reconnect attempts.
 	s.Close()
+	time.Sleep(3 * redisReconnectMax)
 	require.NoError(t, s.Restart())
 	waitRedisSubscribers(t, s, 2)
 

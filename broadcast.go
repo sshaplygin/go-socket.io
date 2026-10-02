@@ -91,17 +91,8 @@ func (bc *broadcast) Send(room, event string, args ...interface{}) {
 
 // SendAll sends given event & args to all the connections to all the rooms
 func (bc *broadcast) SendAll(event string, args ...interface{}) {
-	bc.lock.RLock()
-	var recipients []Conn
-	for _, connections := range bc.rooms {
-		for _, connection := range connections {
-			recipients = append(recipients, connection)
-		}
-	}
-	bc.lock.RUnlock()
-
-	for _, connection := range recipients {
-		connection.Emit(event, args...)
+	for _, room := range bc.AllRooms() {
+		bc.Send(room, event, args...)
 	}
 }
 
@@ -112,9 +103,8 @@ func (bc *broadcast) ForEach(room string, f EachFunc) {
 	}
 }
 
-// members returns a snapshot of the connections in room. Send, SendAll and
-// ForEach emit or call back after releasing bc.lock, so that a blocked
-// recipient does not hold the lock and a recipient may join or leave rooms.
+// members returns the connections in room, so that Send, SendAll and ForEach
+// emit or call back without holding bc.lock.
 func (bc *broadcast) members(room string) []Conn {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()

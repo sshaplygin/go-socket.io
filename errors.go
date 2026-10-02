@@ -19,15 +19,20 @@ var (
 	errDecodeArgs = errors.New("decode args error")
 )
 
-// ErrWriteBufferFull is reported to OnError when a connection's outbound
-// queue is full; the connection is then closed. If the queue overflows while
-// Close runs OnDisconnect, the report may or may not reach OnError and the
-// engine.io connection may be closed twice. Once Close has run OnDisconnect,
-// Emit drops packets without a report.
+// ErrWriteBufferFull is reported once, to OnError of the packet's namespace
+// and unordered with OnDisconnect, when an Emit or a packet the library queues
+// (an ACK reply) finds the outbound queue full before any close started. Emit
+// never blocks: that packet and every later one are dropped and the
+// connection is closed without draining; an overflow in root OnConnect fails
+// the connect. Packets queued faster than they are written can close a
+// healthy client: polling writes one engine.io frame per round trip, and a
+// packet with k binary attachments takes k+1 frames.
 var ErrWriteBufferFull = errors.New("write buffer full")
 
 type errorMessage struct {
 	namespace string
+	conn      *namespaceConn // nil if namespace is not connected
+	done      chan struct{}  // closed once OnError returned
 
 	err error
 }
@@ -39,6 +44,7 @@ func (e errorMessage) Error() string {
 func newErrorMessage(namespace string, err error) *errorMessage {
 	return &errorMessage{
 		namespace: namespace,
+		done:      make(chan struct{}),
 		err:       err,
 	}
 }

@@ -246,31 +246,26 @@ func (s *Server) ForEach(namespace string, room string, f EachFunc) bool {
 func (s *Server) serveConn(conn engineio.Conn) {
 	c := newConn(conn, s.handlers, s.log.With("sid", conn.ID()))
 	if err := c.connect(); err != nil {
-		_ = c.Close()
-		if root, ok := s.handlers.Get(rootNamespace); ok && root.onError != nil {
+		c.stop()
+		c.finish()
+		c.reportOverflow()
+		if root, ok := s.handlers.Get(rootNamespace); ok && root.onError != nil && err != ErrWriteBufferFull {
 			root.onError(nil, err)
 		}
 
 		return
 	}
 
-	go s.serveError(c)
-	go s.serveWrite(c)
+	go c.serveError()
+	go c.serveWrite()
 	go s.serveRead(c)
 }
 
-func (s *Server) serveError(c *conn) {
-	defer func() {
-		if err := c.Close(); err != nil {
-			c.log.Error("close connection", "err", err)
-		}
-
-		s.engine.Remove(c.Conn.ID())
-	}()
-
+func (c *conn) serveError() {
 	for {
 		select {
-		case <-c.quitChan:
+		case <-c.closing:
+			c.reportOverflow()
 			return
 		case err := <-c.errorChan:
 			var errMsg *errorMessage
@@ -279,47 +274,46 @@ func (s *Server) serveError(c *conn) {
 			}
 
 			if handler := c.namespace(errMsg.namespace); handler != nil {
-				if handler.onError != nil {
-					nsConn, ok := c.namespaces.Get(errMsg.namespace)
-					if !ok {
-						continue
-					}
-					handler.onError(nsConn, errMsg.err)
+				if handler.onError != nil && errMsg.conn != nil {
+					handler.onError(errMsg.conn, errMsg.err)
 				}
 			}
+			close(errMsg.done)
 		}
 	}
 }
 
-func (s *Server) serveWrite(c *conn) {
-	defer func() {
-		if err := c.Close(); err != nil {
-			c.log.Error("close connection", "err", err)
-		}
-
-		s.engine.Remove(c.Conn.ID())
-	}()
-
+// serveWrite writes until the queue is discarded, or empty after the seal.
+func (c *conn) serveWrite() {
+	seal := c.seal
 	for {
 		select {
-		case <-c.quitChan:
+		case <-c.discard:
 			return
+		case <-seal:
+			seal = nil
 		case pkg := <-c.writeChan:
-			if err := c.encoder.Encode(pkg.Header, pkg.Data); err != nil {
+			if err := c.encoder.Encode(pkg.Header, pkg.Data); err != nil && !isDone(c.closing) {
 				c.onError(pkg.Header.Namespace, err)
+				c.stop()
 			}
+		}
+		if seal == nil && len(c.writeChan) == 0 {
+			c.stop()
 		}
 	}
 }
 
 func (s *Server) serveRead(c *conn) {
-	defer func() {
-		if err := c.Close(); err != nil {
-			c.log.Error("close connection", "err", err)
-		}
+	c.serveRead(connectPacketHandler, disconnectPacketHandler)
+	s.engine.Remove(c.Conn.ID())
+}
 
-		s.engine.Remove(c.Conn.ID())
-	}()
+// serveRead dispatches packets; once a close took the namespaces, the
+// handlers find none.
+func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
+	defer c.finish()
+	defer c.stop()
 
 	var event string
 
@@ -341,9 +335,9 @@ func (s *Server) serveRead(c *conn) {
 		case parser.Ack:
 			err = ackPacketHandler(c, header)
 		case parser.Connect:
-			err = connectPacketHandler(c, header)
+			err = connect(c, header)
 		case parser.Disconnect:
-			err = disconnectPacketHandler(c, header)
+			err = disconnect(c, header)
 		case parser.Event:
 			err = eventPacketHandler(c, event, header)
 		}

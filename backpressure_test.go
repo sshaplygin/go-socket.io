@@ -702,12 +702,3 @@ func TestBackpressureAckOverflow(t *testing.T) {
 	p.overflowReported(t, "/")
 	p.disconnected(t, "/") // the read goroutine ran it, so it did not block
 }
-
-func isDone(ch <-chan struct{}) bool {
-	select {
-	case <-ch:
-		return true
-	default:
-		return false
-	}
-}

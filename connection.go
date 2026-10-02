@@ -15,16 +15,26 @@ import (
 	"github.com/googollee/go-socket.io/parser"
 )
 
-// defaultWriteBufferSize is the number of outbound packets a connection
-// queues while its writer is busy; one more closes the connection.
+// defaultWriteBufferSize is the outbound queue size; see ErrWriteBufferFull.
 const defaultWriteBufferSize = 64
 
-// defaultDrainTimeout bounds the drain of Close; see Conn.Close.
-const defaultDrainTimeout = time.Minute
+const defaultDrainTimeout = time.Minute // see Conn.Close
 
 // Conn is a connection in go-socket.io
 type Conn interface {
-	io.Closer
+	// Close closes the connection and returns nil; only the first close, by
+	// Close or by the library, has an effect. Close runs OnDisconnect for
+	// every connected namespace, leaves its rooms and returns without waiting.
+	// The packets queued until then, Emits from OnDisconnect included, are
+	// written in the background; an Emit that finds the queue full, or comes
+	// later, is dropped without a report. Then, or one minute after Close
+	// started, the rest is discarded and the engine.io connection is closed;
+	// Server.Count counts the session until then. Incoming packets are no
+	// longer dispatched. The library closes a connection on a read, decode,
+	// dispatch or encode error (an encode error is reported to OnError
+	// first), a peer close, a ping timeout, an overflow (see
+	// ErrWriteBufferFull) or a failed connect, discarding the queue at once.
+	Close() error
 	Namespace
 
 	// ID returns session id
@@ -47,62 +57,119 @@ type conn struct {
 
 	writeChan chan parser.Payload
 	errorChan chan error
-	quitChan  chan struct{}
-	done      chan struct{} // closed once the close has run every OnDisconnect it owes
 
 	log *slog.Logger
 
-	closeOnce sync.Once
-
-	// mu orders write and flush: nothing is queued after the flush token.
-	mu           sync.Mutex
-	closing      bool
-	queued       bool          // a packet was queued, so flush has work
-	discard      bool          // the queue overflowed or no writer reads it
-	token        bool          // the flush token is in writeChan
-	written      chan struct{} // closed when the writer reaches the token
-	draining     chan struct{} // closed by flush; onError then drops reports
-	drainTimeout time.Duration // see Conn.Close; tests shorten it
+	// mu orders the close state against queueing packets and connecting
+	// namespaces. The channels close at those steps of the close.
+	mu                           sync.Mutex
+	closing, seal, discard, done chan struct{}
+	draining                     bool             // the first close is Close
+	overflow                     *namespaceConn   // the first close is its overflow
+	pending                      []*namespaceConn // OnDisconnect calls a library close owes
+	drainTimer                   *time.Timer
+	drainTimeout                 time.Duration // tests shorten it
 }
 
 func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, log *slog.Logger) *conn {
 	c := &conn{
-		log:          log,
-		Conn:         engineConn,
-		decoder:      parser.NewDecoder(engineConn),
-		errorChan:    make(chan error),
-		writeChan:    make(chan parser.Payload, defaultWriteBufferSize+1),
-		quitChan:     make(chan struct{}),
-		done:         make(chan struct{}),
-		handlers:     handlers,
-		namespaces:   newNamespaces(),
-		written:      make(chan struct{}),
-		draining:     make(chan struct{}),
-		drainTimeout: defaultDrainTimeout,
+		log:        log,
+		Conn:       engineConn,
+		decoder:    parser.NewDecoder(engineConn),
+		errorChan:  make(chan error),
+		writeChan:  make(chan parser.Payload, defaultWriteBufferSize),
+		handlers:   handlers,
+		namespaces: newNamespaces(),
+		closing:    make(chan struct{}),
+		seal:       make(chan struct{}),
+		discard:    make(chan struct{}),
+		done:       make(chan struct{}),
 	}
-	c.encoder = parser.NewEncoder(queueWriter{c})
+	c.encoder, c.drainTimeout = parser.NewEncoder(queueWriter{c}), defaultDrainTimeout
 	return c
 }
 
 func (c *conn) Close() error {
-	var err error
+	c.mu.Lock()
+	if isDone(c.closing) {
+		c.mu.Unlock()
+		return nil
+	}
+	ncs := c.startClose()
+	c.draining = true
+	c.drainTimer = time.AfterFunc(c.drainTimeout, c.stop)
+	c.mu.Unlock()
 
-	c.closeOnce.Do(func() {
-		// for each namespace, leave all rooms, and call the disconnect handler.
-		c.namespaces.Range(func(ns string, nc *namespaceConn) {
-			if nh, _ := c.handlers.Get(ns); nh != nil && nh.onDisconnect != nil {
-				nh.onDisconnect(nc, clientDisconnectMsg)
-			}
-			nc.LeaveAll()
-		})
-		c.flush()
-		err = c.Conn.Close()
+	c.disconnect(ncs)
+	c.mu.Lock()
+	close(c.seal)
+	c.mu.Unlock()
+	return nil
+}
 
-		close(c.quitChan)
-		close(c.done)
-	})
+// startClose takes the connected namespaces; c.mu is held.
+func (c *conn) startClose() (ncs []*namespaceConn) {
+	close(c.closing)
+	c.namespaces.Range(func(_ string, nc *namespaceConn) { ncs = append(ncs, nc) })
+	for _, nc := range ncs {
+		c.namespaces.Delete(fmtNS(nc.namespace))
+	}
+	return ncs
+}
 
-	return err
+// stop starts a library close, or ends a drain.
+func (c *conn) stop() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.stopLocked()
+}
+
+func (c *conn) stopLocked() {
+	if !isDone(c.closing) {
+		c.pending = c.startClose()
+	}
+	if !isDone(c.discard) {
+		close(c.discard)
+		if c.drainTimer != nil {
+			c.drainTimer.Stop()
+		}
+		go func() { _ = c.Conn.Close() }() // the emitter of an overflow must not block
+	}
+}
+
+func (c *conn) finish() {
+	c.mu.Lock()
+	ncs := c.pending
+	c.mu.Unlock()
+	c.disconnect(ncs)
+	close(c.done)
+}
+
+func (c *conn) disconnect(ncs []*namespaceConn) {
+	for _, nc := range ncs {
+		if nh := c.namespace(fmtNS(nc.namespace)); nh != nil && nh.onDisconnect != nil {
+			nh.onDisconnect(nc, clientDisconnectMsg)
+		}
+		nc.LeaveAll()
+	}
+}
+
+func (c *conn) register(nsp string, nc *namespaceConn) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if isDone(c.closing) {
+		return false
+	}
+	c.namespaces.Set(nsp, nc)
+	return true
+}
+
+func (c *conn) claim(nsp string) (*namespaceConn, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	nc, ok := c.namespaces.Get(nsp)
+	c.namespaces.Delete(nsp)
+	return nc, ok
 }
 
 func (c *conn) connect() error {
@@ -128,17 +195,15 @@ func (c *conn) connect() error {
 		return err
 	}
 
-	handler, ok := c.handlers.Get(header.Namespace)
-	if ok {
-		_, err := handler.dispatch(root, header)
-		if err != nil {
-			c.mu.Lock()
-			c.discard = true // serveConn closes c without starting its writer
-			c.mu.Unlock()
-		}
+	if _, err := rootHandler.dispatch(root, header); err != nil {
 		return err
 	}
 
+	c.mu.Lock() // the goroutines start after this; an overflow before it fails the connect
+	defer c.mu.Unlock()
+	if c.overflow != nil {
+		return ErrWriteBufferFull
+	}
 	return nil
 }
 
@@ -163,83 +228,53 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	switch {
-	case c.closing:
-	case len(c.writeChan) < defaultWriteBufferSize: // one slot is left for the token
+	case isDone(c.closing) && (!c.draining || isDone(c.seal) || isDone(c.discard)):
+	case len(c.writeChan) < cap(c.writeChan):
 		c.writeChan <- pkg
-		c.queued = true
-	case !c.discard: // report the first overflow only
-		c.discard = true // an overflow close may discard the queue
-		go c.closeOnOverflow(header.Namespace)
+	case !isDone(c.closing):
+		c.overflow, _ = c.namespaces.Get(header.Namespace)
+		c.stopLocked()
 	}
 }
 
-// flush waits, at most drainTimeout, until the writer has written the packets
-// queued before Close: it queues a token behind them in the slot write leaves
-// free, and the writer takes writeChan in order.
-func (c *conn) flush() {
-	c.mu.Lock()
-	c.closing = true
-	close(c.draining) // the writer must not wait for a goroutine in Close
-	if c.discard || !c.queued {
-		c.mu.Unlock()
-		return
-	}
-	c.writeChan <- parser.Payload{}
-	c.token = true
-	c.mu.Unlock()
-
-	timer := time.NewTimer(c.drainTimeout)
-	defer timer.Stop()
-	select {
-	case <-c.written:
-	case <-timer.C:
+func (c *conn) reportOverflow() {
+	if nc := c.overflow; nc != nil {
+		if nh := c.namespace(fmtNS(nc.namespace)); nh != nil && nh.onError != nil {
+			nh.onError(nc, ErrWriteBufferFull)
+		}
 	}
 }
 
-// queueWriter is the encoder's FrameWriter. A packet starts with a TEXT frame;
-// the one starting with writeChan empty after the token was queued is the token.
+// queueWriter starts no packet (its TEXT frame) once the queue is discarded.
 type queueWriter struct{ c *conn }
 
 func (w queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
-	c := w.c
-	c.mu.Lock()
-	token := ft == session.TEXT && c.token && len(c.writeChan) == 0
-	c.token = c.token && !token // close written once
-	c.mu.Unlock()
-	if token {
-		close(c.written)
-		return discardWriter{io.Discard}, nil
+	if ft == session.TEXT && isDone(w.c.discard) {
+		return nil, io.EOF
 	}
-	return c.Conn.NextWriter(ft)
+	return w.c.Conn.NextWriter(ft)
 }
 
-type discardWriter struct{ io.Writer }
-
-func (discardWriter) Close() error { return nil }
-
-// closeOnOverflow reports ErrWriteBufferFull to OnError of namespace unless
-// Close starts draining first, then closes the engine.io connection; the read
-// goroutine fails and runs OnDisconnect, unordered with OnError, after its
-// handler returns. It runs off the emitter, which may take the report itself.
-func (c *conn) closeOnOverflow(namespace string) {
-	c.onError(namespace, ErrWriteBufferFull)
-
+func isDone(ch <-chan struct{}) bool {
 	select {
-	case <-c.quitChan:
-		return
+	case <-ch:
+		return true
 	default:
-	}
-
-	if err := c.Conn.Close(); err != nil {
-		c.log.Error("close engine.io connection", "err", err)
+		return false
 	}
 }
 
+// onError reports err and waits for OnError, unless a close started.
 func (c *conn) onError(namespace string, err error) {
+	if isDone(c.closing) {
+		return
+	}
+	msg := newErrorMessage(namespace, err)
+	msg.conn, _ = c.namespaces.Get(namespace)
 	select {
-	case c.errorChan <- newErrorMessage(namespace, err):
-	case <-c.quitChan:
-	case <-c.draining:
+	case c.errorChan <- msg:
+		<-msg.done
+	case <-c.closing:
 	}
 }
 

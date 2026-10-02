@@ -75,7 +75,7 @@ func TestLifecycleRootNamespace(t *testing.T) {
 	require.True(t, srv.BroadcastToRoom("/", "lobby", "news", "room"))
 	require.Equal(t, "room", recv(t, news, "room broadcast"))
 
-	// Known defect, pinned until roadmap 1.B / 2.2 fix it: BroadcastToNamespace
+	// Known defect, pinned until roadmap 2.2 fixes it: BroadcastToNamespace
 	// sends one copy per room the connection is in (here "lobby" and its sid
 	// room), where Socket.IO delivers one copy per socket.
 	require.True(t, srv.BroadcastToNamespace("/", "news", "nsp"))

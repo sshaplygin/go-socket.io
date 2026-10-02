@@ -220,25 +220,28 @@ func TestBackpressureQueueCapacity(t *testing.T) {
 	srv.expectOverflow(t, fc)
 }
 
-// TestBackpressureOverflowDuringClose checks that a queue overflowing on the
-// goroutine that runs Close, here from OnDisconnect, does not deadlock Close:
-// closing on the emitting goroutine would re-enter Close.
-func TestBackpressureOverflowDuringClose(t *testing.T) {
+// TestBackpressureOverflowInCloseFromOnError checks that Close called from
+// OnError, whose OnDisconnect overflows the queue of a stalled writer, does not
+// deadlock. The overflow report waits for the goroutine that runs OnError, so
+// closeOnOverflow must not run on the emitter, and Close must not wait to
+// write a queue that overflowed.
+func TestBackpressureOverflowInCloseFromOnError(t *testing.T) {
 	srv := newBackpressureServer(t)
+	srv.OnError("/", func(c Conn, err error) {
+		if c != nil && !errors.Is(err, errWriteBufferFull) {
+			_ = c.Close()
+		}
+	})
 	srv.OnDisconnect("/", func(c Conn, _ string) {
-		c.Emit("bye")
+		for i := 0; i < defaultWriteBufferSize+2; i++ {
+			c.Emit("msg")
+		}
 		srv.disconnects <- c.ID()
 	})
-	fc := newStallConn("stalled", 1)
+	fc := newStallConn("stalled", 2)
 	nc := srv.serve(t, fc)
 
-	nc.Emit("msg")
-	recv(t, fc.stalled, "the writer to take the first packet")
-	for i := 0; i < defaultWriteBufferSize; i++ {
-		nc.Emit("msg")
-	}
-
-	recv(t, inBackground(func() { _ = nc.Close() }), "Close whose OnDisconnect overflows the queue")
+	nc.Emit("bad", make(chan int)) // fails to encode, so the writer reports it
 	require.Equal(t, fc.id, recv(t, srv.disconnects, "OnDisconnect of "+fc.id))
 	recv(t, fc.closed, "engine.io close of "+fc.id)
 }

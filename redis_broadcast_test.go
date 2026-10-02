@@ -338,6 +338,15 @@ func TestRedisBroadcastResubscribesAfterRestart(t *testing.T) {
 	require.Equal(t, 1, s.PubSubNumSub(testRedisReqChannel)[testRedisReqChannel])
 }
 
+// close closes the subscriber and the idle publishing connections.
+func TestRedisBroadcastCloseConnections(t *testing.T) {
+	s := miniredis.RunT(t)
+	a := newTestRedisBroadcast(t, s)
+	a.SendAll("msg")
+	a.close()
+	require.Eventually(t, func() bool { return s.CurrentConnectionCount() == 0 }, 2*time.Second, 5*time.Millisecond)
+}
+
 // close may run after the dispatcher subscribed again but before it stored
 // the new subscriber, which waits for subLock; that subscriber is closed.
 func TestRedisBroadcastCloseDuringResubscribe(t *testing.T) {

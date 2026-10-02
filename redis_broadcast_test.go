@@ -14,6 +14,10 @@ import (
 
 const testRedisReqChannel = "socket.io-request#/"
 
+func init() {
+	redisRequestTimeout = 300 * time.Millisecond
+}
+
 // redisTestConn is a Conn that records the events emitted to it. Only ID and
 // Emit are used by the Redis broadcast; the embedded Conn is nil.
 type redisTestConn struct {

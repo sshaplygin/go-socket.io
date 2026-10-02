@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gomodule/redigo/redis"
 )
@@ -32,6 +33,11 @@ type redisBroadcast struct {
 
 	lock sync.RWMutex
 }
+
+// redisRequestTimeout bounds how long Len and AllRooms wait for the answers
+// of the subscribers counted by PUBSUB NUMSUB; an instance that died or hangs
+// is still counted until Redis drops its connection.
+var redisRequestTimeout = 5 * time.Second
 
 // request types
 const (
@@ -159,8 +165,10 @@ func (bc *redisBroadcast) AllRooms() []string {
 		return []string{} // if error occurred,return empty
 	}
 
-	<-req.done
+	waitAnswers(req.done)
 
+	req.mutex.Lock()
+	defer req.mutex.Unlock()
 	rooms := make([]string, 0, len(req.rooms))
 	for room := range req.rooms {
 		rooms = append(rooms, room)
@@ -266,8 +274,10 @@ func (bc *redisBroadcast) Len(room string) int {
 		return -1
 	}
 
-	<-req.done
+	waitAnswers(req.done)
 
+	req.mutex.Lock()
+	defer req.mutex.Unlock()
 	return req.connections
 }
 
@@ -403,6 +413,27 @@ func (bc *redisBroadcast) publish(channel string, msg interface{}) {
 	}
 }
 
+// waitAnswers waits until all answers to a request arrived or
+// redisRequestTimeout passed. On timeout the caller returns the answers
+// gathered so far.
+func waitAnswers(done <-chan bool) {
+	timer := time.NewTimer(redisRequestTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+	}
+}
+
+// notify signals done without blocking the dispatch goroutine when the
+// request already completed or its caller stopped waiting.
+func notify(done chan<- bool) {
+	select {
+	case done <- true:
+	default:
+	}
+}
+
 // Handle response from redis channel.
 func (bc *redisBroadcast) onResponse(msg []byte) {
 	var res map[string]interface{}
@@ -429,14 +460,14 @@ func (bc *redisBroadcast) onResponse(msg []byte) {
 		roomLenReq.mutex.Unlock()
 
 		if roomLenReq.numSub == roomLenReq.msgCount {
-			roomLenReq.done <- true
+			notify(roomLenReq.done)
 		}
 
 	case allRoomReqType:
 		allRoomReq := req.(*allRoomRequest)
 		rooms, ok := res["Rooms"].([]interface{})
 		if !ok {
-			allRoomReq.done <- true
+			notify(allRoomReq.done)
 			return
 		}
 
@@ -448,7 +479,7 @@ func (bc *redisBroadcast) onResponse(msg []byte) {
 		allRoomReq.mutex.Unlock()
 
 		if allRoomReq.numSub == allRoomReq.msgCount {
-			allRoomReq.done <- true
+			notify(allRoomReq.done)
 		}
 
 	default:

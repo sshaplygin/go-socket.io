@@ -131,7 +131,8 @@ type peer struct {
 	fc      *fakeConn
 	srv     *Server
 	cl      *Client
-	nc      Conn // the root namespace
+	nc      Conn                         // the root namespace
+	emit    func(string, ...interface{}) // the application's root Emit: Client.Emit on C
 	conns   chan Conn
 	errs    chan nsErr
 	nilErrs chan error
@@ -202,6 +203,9 @@ func (p *peer) connect(t *testing.T) *peer {
 		p.send(t, "0")
 	}
 	p.nc = recv(t, p.conns, "root OnConnect")
+	if p.emit = p.nc.Emit; p.cl != nil {
+		p.emit = p.cl.Emit
+	}
 	return p
 }
 
@@ -331,10 +335,10 @@ func TestBackpressureCloseDeliversQueue(t *testing.T) {
 func TestBackpressureCloseWritesOnDisconnectEmits(t *testing.T) {
 	sides(t, "SC", func(t *testing.T, side byte) {
 		var p *peer
-		p = start(t, side, hooks{disconnect: func(c Conn) {
-			c.Emit("a")
+		p = start(t, side, hooks{disconnect: func(Conn) {
+			p.emit("a")
 			require.Equal(t, ev("a"), recv(t, p.fc.out, "the first OnDisconnect Emit"))
-			c.Emit("b") // the writer has emptied the queue
+			p.emit("b") // the writer has emptied the queue
 		}})
 		require.NoError(t, p.Close())
 		require.Equal(t, ev("b"), recv(t, p.fc.out, "the second OnDisconnect Emit"))
@@ -353,7 +357,7 @@ func TestBackpressureCloseDropsLateAndOverflowingEmits(t *testing.T) {
 		p.fc.release <- struct{}{} // writes "first", then blocks on the next packet
 		require.Equal(t, ev("first"), recv(t, p.fc.out, "the first packet"))
 		recv(t, p.fc.held, "the writer to block on the second packet")
-		p.nc.Emit("after the seal") // the queue has room
+		p.emit("after the seal") // the queue has room
 		close(p.fc.release)
 		for i := 0; i < defaultWriteBufferSize; i++ {
 			require.Equal(t, ev("x", i), recv(t, p.fc.out, "an OnDisconnect Emit"))

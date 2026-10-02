@@ -148,8 +148,8 @@ func TestRedisBroadcastConcurrentRequests(t *testing.T) {
 	require.Empty(t, a.requests)
 }
 
-// Requests are answered on the dispatch goroutine from the local rooms while
-// connections join and leave on others.
+// Requests are answered on the dispatch goroutine, and messages are sent,
+// from the local rooms while connections join and leave on others.
 func TestRedisBroadcastRequestsReadRoomsUnderLock(t *testing.T) {
 	s := miniredis.RunT(t)
 	a := newTestRedisBroadcast(t, s)
@@ -178,6 +178,8 @@ func TestRedisBroadcastRequestsReadRoomsUnderLock(t *testing.T) {
 		for i := 0; i < 20; i++ {
 			a.Len("room")
 			a.Rooms(nil)
+			a.Send("room", "msg")
+			a.SendAll("msg")
 		}
 	}()
 	select {

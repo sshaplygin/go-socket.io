@@ -103,8 +103,7 @@ func (bc *broadcast) ForEach(room string, f EachFunc) {
 	}
 }
 
-// members returns the connections in room, so that Send, SendAll and ForEach
-// emit or call back without holding bc.lock.
+// members returns the connections in room, so that callers emit without holding bc.lock.
 func (bc *broadcast) members(room string) []Conn {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()

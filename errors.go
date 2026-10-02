@@ -30,7 +30,7 @@ var ErrWriteBufferFull = errors.New("write buffer full")
 
 type errorMessage struct {
 	namespace string
-	conn      *namespaceConn // nil if namespace is not connected
+	conn      *namespaceConn // nil if namespace has no OnError; see conn.errConn
 	done      chan struct{}  // closed once OnError returned
 
 	err error

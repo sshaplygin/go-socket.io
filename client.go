@@ -82,7 +82,6 @@ func (c *Client) Connect() error {
 	if dial == nil {
 		dial = func(url string) (engineio.Conn, error) { return dialer.Dial(url, nil) }
 	}
-
 	enginioCon, err := dial(c.url)
 	if err != nil {
 		return err

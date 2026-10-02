@@ -251,7 +251,7 @@ func (s *Server) serveConn(conn engineio.Conn) {
 
 	go c.serveError()
 	go c.serveWrite()
-	go s.serveRead(c)
+	go func() { c.serveRead(connectPacketHandler, disconnectPacketHandler); s.engine.Remove(c.Conn.ID()) }()
 }
 
 func (c *conn) serveError() {
@@ -295,11 +295,6 @@ func (c *conn) serveWrite() {
 			c.stop()
 		}
 	}
-}
-
-func (s *Server) serveRead(c *conn) {
-	c.serveRead(connectPacketHandler, disconnectPacketHandler)
-	s.engine.Remove(c.Conn.ID())
 }
 
 // serveRead dispatches packets until a close takes the namespaces.

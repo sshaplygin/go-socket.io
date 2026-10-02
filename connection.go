@@ -1,6 +1,7 @@
 package socketio
 
 import (
+	"cmp"
 	"io"
 	"log/slog"
 	"net"
@@ -62,7 +63,7 @@ type conn struct {
 	mu                           sync.Mutex
 	closing, seal, discard, done chan struct{}
 	draining, connecting         bool             // the first close is Close; until connected
-	overflow                     *namespaceConn   // the first close is its overflow
+	overflow                     *namespaceConn   // the first close is its overflow; see errConn
 	pending                      []*namespaceConn // OnDisconnect calls a library close owes
 	drainTimer                   *time.Timer
 	drainTimeout                 time.Duration // tests shorten it
@@ -113,11 +114,7 @@ func (c *conn) startClose() (ncs []*namespaceConn) {
 }
 
 // stop starts a library close, or ends a drain.
-func (c *conn) stop() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.stopLocked()
-}
+func (c *conn) stop() { c.mu.Lock(); defer c.mu.Unlock(); c.stopLocked() }
 
 func (c *conn) stopLocked() {
 	if !isDone(c.closing) {
@@ -195,8 +192,7 @@ func (c *conn) connect() error {
 	return err
 }
 
-// connected ends the connect before the goroutines start. A failure, err or an overflow, starts
-// the close at once, so later Emits are dropped; err, then the overflow, is reported, then closed.
+// connected ends the connect; a failure (err, or an overflow) starts the close, then is reported.
 func (c *conn) connected(err error) bool {
 	c.mu.Lock()
 	failed := err != nil || isDone(c.closing) && !c.draining
@@ -239,7 +235,7 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 	case len(c.writeChan) < cap(c.writeChan):
 		c.writeChan <- pkg
 	case !isDone(c.closing):
-		c.overflow, _ = c.namespaces.Get(header.Namespace)
+		c.overflow = c.errConn(header.Namespace)
 		if c.pending = c.startClose(); !c.connecting { // else serveConn reports first
 			c.stopLocked()
 		}
@@ -248,11 +244,19 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 
 // reportOverflow reports an overflow with conn, nil on a failed connect as in v1.4.
 func (c *conn) reportOverflow(conn Conn) {
-	if nc := c.overflow; nc != nil {
-		if nh := c.namespace(fmtNS(nc.namespace)); nh != nil && nh.onError != nil {
-			nh.onError(conn, ErrWriteBufferFull)
+	if c.overflow != nil {
+		c.namespace(fmtNS(c.overflow.namespace)).onError(conn, ErrWriteBufferFull)
+	}
+}
+
+// errConn returns the Conn to report an error of nsp with (new if nsp was disconnected), or nil.
+func (c *conn) errConn(nsp string) (nc *namespaceConn) {
+	if nh := c.namespace(nsp); nh != nil && nh.onError != nil {
+		if nc, _ = c.namespaces.Get(nsp); nc == nil {
+			nc = newNamespaceConn(c, cmp.Or(nsp, aliasRootNamespace), nh.broadcast)
 		}
 	}
+	return nc
 }
 
 // queueWriter starts no packet (its TEXT frame) once the queue is discarded.
@@ -280,7 +284,7 @@ func (c *conn) onError(namespace string, err error) {
 		return
 	}
 	msg := newErrorMessage(namespace, err)
-	msg.conn, _ = c.namespaces.Get(namespace)
+	msg.conn = c.errConn(namespace)
 	select {
 	case c.errorChan <- msg:
 		<-msg.done

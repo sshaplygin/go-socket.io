@@ -553,11 +553,15 @@ func TestBackpressureReportForDisconnectedNamespace(t *testing.T) {
 // Covers 1B-T18 (S).
 func TestBackpressureOverflowInOnConnect(t *testing.T) {
 	for _, connectErr := range []error{nil, errors.New("refused"), ErrWriteBufferFull} {
-		var p *peer
-		var late []bool // per report: made after the engine.io close or OnDisconnect
-		p = newPeer(t, 'S', hooks{
-			connect: func(c Conn) error { flood(c, defaultWriteBufferSize+1); return connectErr },
-			onError: func(Conn, error) { late = append(late, isDone(p.fc.closed) || len(p.discs) > 0) },
+		var cc *conn
+		var late []bool // per report: made after the discard, which precedes OnDisconnect
+		p := newPeer(t, 'S', hooks{
+			connect: func(c Conn) error {
+				cc = c.(*namespaceConn).conn
+				flood(c, defaultWriteBufferSize+1)
+				return connectErr
+			},
+			onError: func(Conn, error) { late = append(late, isDone(cc.discard)) },
 		})
 		p.connect(t)
 		require.True(t, isDone(p.conn().done), "serveConn did not close the connection itself")

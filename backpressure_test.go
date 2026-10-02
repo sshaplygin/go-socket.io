@@ -296,7 +296,8 @@ func TestBackpressureCloseWritesQueuedPackets(t *testing.T) {
 }
 
 // TestBackpressureCloseStalledWriterIsBounded checks that Close stops waiting
-// for queued packets once closeWait has passed.
+// for queued packets once closeWait has passed, also with a full queue: the
+// flush token takes the slot that write leaves free.
 func TestBackpressureCloseStalledWriterIsBounded(t *testing.T) {
 	srv := newBackpressureServer(t)
 	srv.OnConnect("/", func(c Conn) error {
@@ -308,9 +309,13 @@ func TestBackpressureCloseStalledWriterIsBounded(t *testing.T) {
 	nc := srv.serve(t, fc)
 
 	nc.Emit("msg")
-	nc.Emit("msg")
 	recv(t, fc.stalled, "the writer to take the first packet")
+	for i := 0; i < defaultWriteBufferSize; i++ {
+		nc.Emit("msg")
+	}
+	require.Len(t, nc.(*namespaceConn).writeChan, defaultWriteBufferSize)
 	recv(t, inBackground(func() { _ = nc.Close() }), "Close past the stalled writer")
+	require.Empty(t, srv.errs, "overflow reported")
 	recv(t, fc.closed, "engine.io close of "+fc.id)
 }
 

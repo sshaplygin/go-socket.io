@@ -6,9 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
-	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,12 +19,12 @@ import (
 	"github.com/googollee/go-socket.io/parser"
 )
 
-// fakeConn is an engineio.Conn driven by the test. The peer sends frames on
-// reads (unbuffered: a send returns once the previous frame is handled); each
-// written frame goes to out. While hold is set, NextWriter signals held and
-// blocks until a send on release, its close, or Close; after Close, or with
-// failWrite, it fails.
+// fakeConn is an engineio.Conn driven by the test. The peer sends frames on reads (unbuffered: a
+// send returns once the previous frame is handled); each written frame goes to out. While hold is
+// set, NextWriter signals held and blocks until a send on release, its close, or Close; after
+// Close, or with failWrite, it fails.
 type fakeConn struct {
+	engineio.Conn                   // methods the library does not call
 	reads, out                      chan string
 	hold, failWrite                 atomic.Bool
 	held, release, peerGone, closed chan struct{}
@@ -74,13 +71,8 @@ func (f *fakeConn) NextReader() (session.FrameType, io.ReadCloser, error) {
 
 func (f *fakeConn) Close() error { f.closeOnce.Do(func() { close(f.closed) }); return nil }
 
-func (f *fakeConn) ID() string                { return fmt.Sprintf("%p", f) }
-func (f *fakeConn) URL() url.URL              { return url.URL{} }
-func (f *fakeConn) LocalAddr() net.Addr       { return nil }
-func (f *fakeConn) RemoteAddr() net.Addr      { return nil }
-func (f *fakeConn) RemoteHeader() http.Header { return nil }
-func (f *fakeConn) SetContext(interface{})    {}
-func (f *fakeConn) Context() interface{}      { return nil }
+func (f *fakeConn) ID() string           { return fmt.Sprintf("%p", f) }
+func (f *fakeConn) Context() interface{} { return nil }
 
 type frameWriter struct {
 	bytes.Buffer
@@ -95,16 +87,11 @@ func inBackground(f func()) <-chan struct{} {
 	return done
 }
 
-func drain[T any](ch <-chan T) []T {
-	var got []T
-	for {
-		select {
-		case v := <-ch:
-			got = append(got, v)
-		default:
-			return got
-		}
+func drain[T any](ch <-chan T) (got []T) {
+	for len(ch) > 0 {
+		got = append(got, <-ch)
 	}
+	return got
 }
 
 // ev is the frame that Emit(name, args...) writes for the root namespace.
@@ -537,6 +524,28 @@ func TestBackpressureOverflow(t *testing.T) {
 		p.overflowReported(t, nc.Namespace())
 		p.disconnected(t, append(others, nc.Namespace())...)
 		require.Never(t, func() bool { return p.fc.texts.Load() != started }, 100*time.Millisecond, time.Millisecond, "the writer started a packet")
+	})
+}
+
+// An overflow, or an encode error, of a packet whose namespace the peer
+// disconnected is reported once, to that namespace's OnError.
+func TestBackpressureReportForDisconnectedNamespace(t *testing.T) {
+	sides(t, "SC", func(t *testing.T, side byte) {
+		for _, n := range []int{defaultWriteBufferSize + 1, 0} {
+			p := start(t, side, hooks{}, "/a")
+			nc, frame, others := p.sub(t)
+			p.send(t, frame)
+			require.Equal(t, nc.Namespace(), recv(t, p.discs, "OnDisconnect on the DISCONNECT"))
+			if p.stall(t, nc, n); n == 0 {
+				nc.Emit("bad", make(chan int)) // json cannot encode a channel
+				close(p.fc.release)
+			}
+			got := recv(t, p.errs, "the report")
+			require.Equal(t, nc.Namespace(), got.nsp)
+			require.Equal(t, n > 0, errors.Is(got.err, ErrWriteBufferFull), "an overflow report")
+			p.disconnected(t, others...)
+			require.Empty(t, drain(p.errs), "a second report")
+		}
 	})
 }
 

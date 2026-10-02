@@ -8,14 +8,18 @@ import (
 	"net/url"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/googollee/go-socket.io/engineio"
+	"github.com/googollee/go-socket.io/engineio/session"
 	"github.com/googollee/go-socket.io/parser"
 )
 
 // defaultWriteBufferSize is the number of outbound packets a connection
 // queues while its writer is busy; one more closes the connection.
 const defaultWriteBufferSize = 64
+
+const defaultCloseWriteTimeout = time.Minute // engine.io's default write deadline
 
 // Conn is a connection in go-socket.io
 type Conn interface {
@@ -48,20 +52,32 @@ type conn struct {
 
 	closeOnce    sync.Once
 	overflowOnce sync.Once
+
+	// mu orders write and flush: nothing is queued after the flush token.
+	mu        sync.Mutex
+	closing   bool
+	queued    bool          // a packet was queued, so flush has work
+	discard   bool          // the queue overflowed or no writer reads it
+	token     bool          // the flush token is in writeChan
+	written   chan struct{} // closed when the writer reaches the token
+	closeWait time.Duration
 }
 
 func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, log *slog.Logger) *conn {
-	return &conn{
+	c := &conn{
 		log:        log,
 		Conn:       engineConn,
-		encoder:    parser.NewEncoder(engineConn),
 		decoder:    parser.NewDecoder(engineConn),
 		errorChan:  make(chan error),
-		writeChan:  make(chan parser.Payload, defaultWriteBufferSize),
+		writeChan:  make(chan parser.Payload, defaultWriteBufferSize+1),
 		quitChan:   make(chan struct{}),
 		handlers:   handlers,
 		namespaces: newNamespaces(),
+		written:    make(chan struct{}),
+		closeWait:  defaultCloseWriteTimeout,
 	}
+	c.encoder = parser.NewEncoder(queueWriter{c})
+	return c
 }
 
 func (c *conn) Close() error {
@@ -75,6 +91,7 @@ func (c *conn) Close() error {
 			}
 			nc.LeaveAll()
 		})
+		c.flush()
 		err = c.Conn.Close()
 
 		close(c.quitChan)
@@ -109,6 +126,11 @@ func (c *conn) connect() error {
 	handler, ok := c.handlers.Get(header.Namespace)
 	if ok {
 		_, err := handler.dispatch(root, header)
+		if err != nil {
+			c.mu.Lock()
+			c.discard = true // serveConn closes c without starting its writer
+			c.mu.Unlock()
+		}
 		return err
 	}
 
@@ -133,25 +155,67 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 		Data:   data,
 	}
 
-	select {
-	case c.writeChan <- pkg:
-	case <-c.quitChan:
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	switch {
+	case c.closing:
+	case len(c.writeChan) < defaultWriteBufferSize: // one slot is left for the token
+		c.writeChan <- pkg
+		c.queued = true
 	default:
+		c.discard = true // an overflow close may discard the queue
 		c.overflowOnce.Do(func() { go c.closeOnOverflow(header.Namespace) })
 	}
 }
 
-// closeOnOverflow reports errWriteBufferFull to the OnError handler of
-// namespace and then closes only the engine.io connection. The read goroutine
-// (serveRead or clientRead) then fails to read and its deferred Close runs the
-// OnDisconnect handlers and leaves the rooms, after any handler running on it
-// has returned, so the handlers of a connection keep running on one
-// goroutine. closeOnOverflow runs on its own goroutine because the emitter
-// may be unable to wait for the report: an Emit from OnError runs on the
-// goroutine that receives it, and an Emit from OnDisconnect runs inside
-// Close. The report only hands the error to serveError, so OnError and
-// OnDisconnect run in no fixed order, and the report is dropped if the
-// connection quits first.
+// flush waits, at most closeWait, until the writer has written the packets
+// queued before Close: it queues a token behind them in the slot write leaves
+// free, and the writer takes writeChan in order.
+func (c *conn) flush() {
+	c.mu.Lock()
+	c.closing = true
+	if c.discard || !c.queued {
+		c.mu.Unlock()
+		return
+	}
+	c.writeChan <- parser.Payload{}
+	c.token = true
+	c.mu.Unlock()
+
+	timer := time.NewTimer(c.closeWait)
+	defer timer.Stop()
+	select {
+	case <-c.written:
+	case <-timer.C:
+	}
+}
+
+// queueWriter is the encoder's FrameWriter. A packet starts with a TEXT frame;
+// the one starting with writeChan empty after the token was queued is the token.
+type queueWriter struct{ c *conn }
+
+func (w queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
+	c := w.c
+	c.mu.Lock()
+	token := ft == session.TEXT && c.token && len(c.writeChan) == 0
+	c.token = c.token && !token // close written once
+	c.mu.Unlock()
+	if token {
+		close(c.written)
+		return discardWriter{io.Discard}, nil
+	}
+	return c.Conn.NextWriter(ft)
+}
+
+type discardWriter struct{ io.Writer }
+
+func (discardWriter) Close() error { return nil }
+
+// closeOnOverflow reports errWriteBufferFull to OnError of namespace, unless
+// the connection quits first, and closes only the engine.io connection; the
+// read goroutine then fails and its deferred Close runs OnDisconnect after its
+// running handler returns. It runs on its own goroutine, as the emitter may be
+// the goroutine that takes the report. OnError and OnDisconnect are unordered.
 func (c *conn) closeOnOverflow(namespace string) {
 	c.onError(namespace, errWriteBufferFull)
 

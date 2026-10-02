@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -287,4 +289,38 @@ func TestBackpressureCloseWritesQueuedPackets(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		require.Equal(t, fmt.Sprintf("2[\"msg\",%d]\n", i), <-fc.frames)
 	}
+}
+
+// TestBackpressureCloseStalledWriterIsBounded checks that Close stops waiting
+// for queued packets once closeWait has passed.
+func TestBackpressureCloseStalledWriterIsBounded(t *testing.T) {
+	srv := newBackpressureServer(t)
+	srv.OnConnect("/", func(c Conn) error {
+		c.(*namespaceConn).closeWait = 10 * time.Millisecond
+		srv.connected <- c
+		return nil
+	})
+	fc := newStallConn("stalled", 1)
+	nc := srv.serve(t, fc)
+
+	nc.Emit("msg")
+	nc.Emit("msg")
+	recv(t, fc.stalled, "the writer to take the first packet")
+	recv(t, inBackground(func() { _ = nc.Close() }), "Close past the stalled writer")
+	recv(t, fc.closed, "engine.io close of "+fc.id)
+}
+
+// TestBackpressureConnectErrorSkipsFlush checks that Close does not wait for
+// packets that OnConnect queued before it failed: no writer reads them.
+func TestBackpressureConnectErrorSkipsFlush(t *testing.T) {
+	srv := newBackpressureServer(t)
+	srv.OnConnect("/", func(c Conn) error {
+		c.Emit("msg")
+		return errors.New("refused")
+	})
+	fc := newStallConn("refused", -1)
+	t.Cleanup(func() { _ = fc.Close() })
+
+	recv(t, inBackground(func() { srv.serveConn(fc) }), "serveConn of a refused connection")
+	recv(t, fc.closed, "engine.io close of "+fc.id)
 }

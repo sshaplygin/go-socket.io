@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -112,4 +113,26 @@ func TestRedisBroadcastConcurrentPublish(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		expectEvent(t, b1, "msg []")
 	}
+}
+
+// Len and AllRooms register their request in bc.requests, which the dispatch
+// goroutine reads when a response arrives.
+func TestRedisBroadcastConcurrentRequests(t *testing.T) {
+	s := miniredis.RunT(t)
+	a := newTestRedisBroadcast(t, s)
+	newTestRedisBroadcast(t, s)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				assert.Equal(t, 0, a.Len("room"))
+				assert.Empty(t, a.AllRooms())
+			}
+		}()
+	}
+	wg.Wait()
+	require.Empty(t, a.requests)
 }

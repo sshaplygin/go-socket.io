@@ -246,13 +246,12 @@ func (s *Server) ForEach(namespace string, room string, f EachFunc) bool {
 func (s *Server) serveConn(conn engineio.Conn) {
 	c := newConn(conn, s.handlers, s.log.With("sid", conn.ID()))
 	if err := c.connect(); err != nil {
-		c.stop()
-		c.finish()
-		c.reportOverflow()
-		if root, ok := s.handlers.Get(rootNamespace); ok && root.onError != nil && err != ErrWriteBufferFull {
+		if root, ok := s.handlers.Get(rootNamespace); ok && root.onError != nil && !errors.Is(err, ErrWriteBufferFull) {
 			root.onError(nil, err)
 		}
-
+		c.reportOverflow(nil)
+		c.stop()
+		c.finish()
 		return
 	}
 
@@ -265,7 +264,7 @@ func (c *conn) serveError() {
 	for {
 		select {
 		case <-c.closing:
-			c.reportOverflow()
+			c.reportOverflow(c.overflow)
 			return
 		case err := <-c.errorChan:
 			var errMsg *errorMessage

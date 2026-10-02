@@ -64,7 +64,7 @@ type conn struct {
 	// namespaces. The channels close at those steps of the close.
 	mu                           sync.Mutex
 	closing, seal, discard, done chan struct{}
-	draining                     bool             // the first close is Close
+	draining, connecting         bool             // the first close is Close; serveConn runs connect
 	overflow                     *namespaceConn   // the first close is its overflow
 	pending                      []*namespaceConn // OnDisconnect calls a library close owes
 	drainTimer                   *time.Timer
@@ -173,6 +173,7 @@ func (c *conn) claim(nsp string) (*namespaceConn, bool) {
 }
 
 func (c *conn) connect() error {
+	c.connecting = true // before root joins a room, so no other goroutine sees it
 	rootHandler, ok := c.handlers.Get(rootNamespace)
 	if !ok {
 		return errUnavailableRootHandler
@@ -204,6 +205,7 @@ func (c *conn) connect() error {
 	if c.overflow != nil {
 		return ErrWriteBufferFull
 	}
+	c.connecting = false
 	return nil
 }
 
@@ -233,14 +235,17 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 		c.writeChan <- pkg
 	case !isDone(c.closing):
 		c.overflow, _ = c.namespaces.Get(header.Namespace)
-		c.stopLocked()
+		if c.pending = c.startClose(); !c.connecting { // else serveConn reports first
+			c.stopLocked()
+		}
 	}
 }
 
-func (c *conn) reportOverflow() {
+// reportOverflow reports an overflow with conn, nil on a failed connect as in v1.4.
+func (c *conn) reportOverflow(conn Conn) {
 	if nc := c.overflow; nc != nil {
 		if nh := c.namespace(fmtNS(nc.namespace)); nh != nil && nh.onError != nil {
-			nh.onError(nc, ErrWriteBufferFull)
+			nh.onError(conn, ErrWriteBufferFull)
 		}
 	}
 }

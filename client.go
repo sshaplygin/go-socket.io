@@ -91,13 +91,11 @@ func (c *Client) Connect() error {
 	c.conn = newConn(enginioCon, c.handlers, c.log.With("sid", enginioCon.ID()))
 
 	if err := c.conn.connectClient(); err != nil {
-		c.conn.stop()
-		c.conn.finish()
-		c.conn.reportOverflow()
 		if root, ok := c.handlers.Get(rootNamespace); ok && root.onError != nil {
 			root.onError(nil, err)
 		}
-
+		c.conn.stop()
+		c.conn.finish()
 		return err
 	}
 

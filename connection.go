@@ -19,7 +19,8 @@ import (
 // queues while its writer is busy; one more closes the connection.
 const defaultWriteBufferSize = 64
 
-const defaultCloseWriteTimeout = time.Minute // engine.io's default write deadline
+// defaultDrainTimeout bounds the drain of Close; see Conn.Close.
+const defaultDrainTimeout = time.Minute
 
 // Conn is a connection in go-socket.io
 type Conn interface {
@@ -47,35 +48,37 @@ type conn struct {
 	writeChan chan parser.Payload
 	errorChan chan error
 	quitChan  chan struct{}
+	done      chan struct{} // closed once the close has run every OnDisconnect it owes
 
 	log *slog.Logger
 
 	closeOnce sync.Once
 
 	// mu orders write and flush: nothing is queued after the flush token.
-	mu        sync.Mutex
-	closing   bool
-	queued    bool          // a packet was queued, so flush has work
-	discard   bool          // the queue overflowed or no writer reads it
-	token     bool          // the flush token is in writeChan
-	written   chan struct{} // closed when the writer reaches the token
-	draining  chan struct{} // closed by flush; onError then drops reports
-	closeWait time.Duration
+	mu           sync.Mutex
+	closing      bool
+	queued       bool          // a packet was queued, so flush has work
+	discard      bool          // the queue overflowed or no writer reads it
+	token        bool          // the flush token is in writeChan
+	written      chan struct{} // closed when the writer reaches the token
+	draining     chan struct{} // closed by flush; onError then drops reports
+	drainTimeout time.Duration // see Conn.Close; tests shorten it
 }
 
 func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, log *slog.Logger) *conn {
 	c := &conn{
-		log:        log,
-		Conn:       engineConn,
-		decoder:    parser.NewDecoder(engineConn),
-		errorChan:  make(chan error),
-		writeChan:  make(chan parser.Payload, defaultWriteBufferSize+1),
-		quitChan:   make(chan struct{}),
-		handlers:   handlers,
-		namespaces: newNamespaces(),
-		written:    make(chan struct{}),
-		draining:   make(chan struct{}),
-		closeWait:  defaultCloseWriteTimeout,
+		log:          log,
+		Conn:         engineConn,
+		decoder:      parser.NewDecoder(engineConn),
+		errorChan:    make(chan error),
+		writeChan:    make(chan parser.Payload, defaultWriteBufferSize+1),
+		quitChan:     make(chan struct{}),
+		done:         make(chan struct{}),
+		handlers:     handlers,
+		namespaces:   newNamespaces(),
+		written:      make(chan struct{}),
+		draining:     make(chan struct{}),
+		drainTimeout: defaultDrainTimeout,
 	}
 	c.encoder = parser.NewEncoder(queueWriter{c})
 	return c
@@ -96,6 +99,7 @@ func (c *conn) Close() error {
 		err = c.Conn.Close()
 
 		close(c.quitChan)
+		close(c.done)
 	})
 
 	return err
@@ -169,7 +173,7 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 	}
 }
 
-// flush waits, at most closeWait, until the writer has written the packets
+// flush waits, at most drainTimeout, until the writer has written the packets
 // queued before Close: it queues a token behind them in the slot write leaves
 // free, and the writer takes writeChan in order.
 func (c *conn) flush() {
@@ -184,7 +188,7 @@ func (c *conn) flush() {
 	c.token = true
 	c.mu.Unlock()
 
-	timer := time.NewTimer(c.closeWait)
+	timer := time.NewTimer(c.drainTimeout)
 	defer timer.Stop()
 	select {
 	case <-c.written:
@@ -213,12 +217,12 @@ type discardWriter struct{ io.Writer }
 
 func (discardWriter) Close() error { return nil }
 
-// closeOnOverflow reports errWriteBufferFull to OnError of namespace unless
+// closeOnOverflow reports ErrWriteBufferFull to OnError of namespace unless
 // Close starts draining first, then closes the engine.io connection; the read
 // goroutine fails and runs OnDisconnect, unordered with OnError, after its
 // handler returns. It runs off the emitter, which may take the report itself.
 func (c *conn) closeOnOverflow(namespace string) {
-	c.onError(namespace, errWriteBufferFull)
+	c.onError(namespace, ErrWriteBufferFull)
 
 	select {
 	case <-c.quitChan:

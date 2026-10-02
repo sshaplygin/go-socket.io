@@ -31,6 +31,8 @@ type Client struct {
 
 	opts *engineio.Options
 	log  *slog.Logger
+
+	dial func(url string) (engineio.Conn, error) // nil dials over polling; tests replace it
 }
 
 // NewClient returns a server
@@ -72,11 +74,12 @@ func fmtNS(ns string) string {
 }
 
 func (c *Client) Connect() error {
-	dialer := engineio.Dialer{
-		Transports: []transport.Transport{polling.Default},
+	dial := c.dial
+	if dial == nil {
+		dial = dialPolling
 	}
 
-	enginioCon, err := dialer.Dial(c.url, nil)
+	enginioCon, err := dial(c.url)
 	if err != nil {
 		return err
 	}
@@ -97,6 +100,14 @@ func (c *Client) Connect() error {
 	go c.clientRead()
 
 	return nil
+}
+
+func dialPolling(url string) (engineio.Conn, error) {
+	dialer := engineio.Dialer{
+		Transports: []transport.Transport{polling.Default},
+	}
+
+	return dialer.Dial(url, nil)
 }
 
 // Close closes server.

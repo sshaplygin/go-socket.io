@@ -158,7 +158,7 @@ func (srv *backpressureServer) expectOverflow(t *testing.T, fc *stallConn) {
 	t.Helper()
 	ev := recv(t, srv.errs, "OnError of "+fc.id)
 	require.Equal(t, fc.id, ev.id)
-	require.ErrorIs(t, ev.err, errWriteBufferFull)
+	require.ErrorIs(t, ev.err, ErrWriteBufferFull)
 	require.Equal(t, fc.id, recv(t, srv.disconnects, "OnDisconnect of "+fc.id))
 	recv(t, fc.closed, "engine.io close of "+fc.id)
 }
@@ -221,7 +221,7 @@ func TestBackpressureQueueCapacity(t *testing.T) {
 	recv(t, inBackground(func() { nc.Emit("msg"); nc.Emit("msg"); nc.Emit("msg") }), "the overflowing Emits")
 	srv.expectOverflow(t, fc)
 	for len(srv.errs) > 0 {
-		require.NotErrorIs(t, (<-srv.errs).err, errWriteBufferFull, "a second overflow report")
+		require.NotErrorIs(t, (<-srv.errs).err, ErrWriteBufferFull, "a second overflow report")
 	}
 }
 
@@ -232,7 +232,7 @@ func TestBackpressureQueueCapacity(t *testing.T) {
 func TestBackpressureOverflowInCloseFromOnError(t *testing.T) {
 	srv := newBackpressureServer(t)
 	srv.OnError("/", func(c Conn, err error) {
-		if c != nil && !errors.Is(err, errWriteBufferFull) {
+		if c != nil && !errors.Is(err, ErrWriteBufferFull) {
 			_ = c.Close()
 		}
 	})
@@ -299,12 +299,12 @@ func TestBackpressureCloseWritesQueuedPackets(t *testing.T) {
 }
 
 // TestBackpressureCloseStalledWriterIsBounded checks that Close stops waiting
-// for queued packets once closeWait has passed, also with a full queue: the
+// for queued packets once drainTimeout has passed, also with a full queue: the
 // flush token takes the slot that write leaves free.
 func TestBackpressureCloseStalledWriterIsBounded(t *testing.T) {
 	srv := newBackpressureServer(t)
 	srv.OnConnect("/", func(c Conn) error {
-		c.(*namespaceConn).closeWait = 10 * time.Millisecond
+		c.(*namespaceConn).drainTimeout = 10 * time.Millisecond
 		srv.connected <- c
 		return nil
 	})

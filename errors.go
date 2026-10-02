@@ -19,12 +19,12 @@ var (
 	errDecodeArgs = errors.New("decode args error")
 )
 
-// errWriteBufferFull is reported to OnError when a connection's outbound
+// ErrWriteBufferFull is reported to OnError when a connection's outbound
 // queue is full; the connection is then closed. If the queue overflows while
 // Close runs OnDisconnect, the report may or may not reach OnError and the
 // engine.io connection may be closed twice. Once Close has run OnDisconnect,
 // Emit drops packets without a report.
-var errWriteBufferFull = errors.New("write buffer full")
+var ErrWriteBufferFull = errors.New("write buffer full")
 
 type errorMessage struct {
 	namespace string

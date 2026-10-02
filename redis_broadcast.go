@@ -299,9 +299,7 @@ func (bc *redisBroadcast) Len(room string) int {
 // no connection is given, in case of a connection is given, it gives
 // list of all the rooms the connection is joined to.
 func (bc *redisBroadcast) Rooms(connection Conn) []string {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-
+	// AllRooms waits for this instance's own answer, which takes bc.lock.
 	if connection == nil {
 		return bc.AllRooms()
 	}
@@ -395,7 +393,7 @@ func (bc *redisBroadcast) onRequest(msg []byte) {
 		res = roomLenResponse{
 			RequestType: req["RequestType"],
 			RequestID:   req["RequestID"],
-			Connections: len(bc.rooms[req["Room"]]),
+			Connections: bc.roomLen(req["Room"]),
 		}
 		bc.publish(bc.resChannel, &res)
 
@@ -556,7 +554,17 @@ func (bc *redisBroadcast) allRooms() []string {
 	return rooms
 }
 
+func (bc *redisBroadcast) roomLen(room string) int {
+	bc.lock.RLock()
+	defer bc.lock.RUnlock()
+
+	return len(bc.rooms[room])
+}
+
 func (bc *redisBroadcast) getRoomsByConn(connection Conn) []string {
+	bc.lock.RLock()
+	defer bc.lock.RUnlock()
+
 	var rooms []string
 
 	for room, connections := range bc.rooms {

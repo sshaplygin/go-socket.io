@@ -192,17 +192,17 @@ func (c *conn) connect() error {
 	return err
 }
 
-// connected ends the connect; a failure (err, or an overflow) starts the close, then is reported.
+// connected ends the connect; a failure reports err first, so Emits from OnError queue, then closes.
 func (c *conn) connected(err error) bool {
+	if root := c.namespace(rootNamespace); err != nil && root != nil && root.onError != nil {
+		root.onError(nil, err)
+	}
 	c.mu.Lock()
 	failed := err != nil || isDone(c.closing) && !c.draining
 	if c.connecting = false; failed && !isDone(c.closing) {
 		c.pending = c.startClose()
 	}
 	c.mu.Unlock()
-	if root := c.namespace(rootNamespace); err != nil && root != nil && root.onError != nil {
-		root.onError(nil, err)
-	}
 	if failed {
 		c.reportOverflow(nil)
 		c.finish()

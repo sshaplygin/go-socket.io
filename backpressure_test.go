@@ -578,33 +578,20 @@ func TestBackpressureOverflowInOnConnect(t *testing.T) {
 	}
 }
 
-// A failed connect's close starts only after root OnError returns, so an Emit
-// made during that call (from it, a broadcast, or another goroutine) still
-// queues; into a full queue it overflows, reported once after the connect error.
+// A failed connect's close starts after root OnError returns, so an Emit during that call overflows.
 func TestBackpressureConnectFailureReportsOverflowFromOnError(t *testing.T) {
-	for _, late := range []func(*Server, Conn){
-		func(_ *Server, c Conn) { c.Emit("late") },
-		func(s *Server, _ Conn) { s.BroadcastToRoom("/", "r", "late") },
-		func(_ *Server, c Conn) { <-inBackground(func() { c.Emit("late") }) },
+	refused := errors.New("refused")
+	for _, late := range []func(*peer, Conn){
+		func(_ *peer, c Conn) { c.Emit("late") },
+		func(p *peer, _ Conn) { p.srv.BroadcastToRoom("/", "r", "late") },
+		func(_ *peer, c Conn) { <-inBackground(func() { c.Emit("late") }) },
 	} {
-		var p *peer
-		var kept Conn
-		refused := errors.New("refused")
+		p, kept := (*peer)(nil), Conn(nil)
 		p = newPeer(t, 'S', hooks{
-			connect: func(c Conn) error {
-				kept = c
-				c.Join("r")
-				flood(c, defaultWriteBufferSize) // the queue is full
-				return refused
-			},
-			onError: func(_ Conn, err error) {
-				if errors.Is(err, refused) {
-					late(p.srv, kept)
-				}
-			},
+			connect: func(c Conn) error { kept = c; c.Join("r"); flood(c, defaultWriteBufferSize); return refused },
+			onError: func(Conn, error) { late(p, kept) }, // after the overflow report, late is dropped
 		})
-		p.connect(t)
-		p.disconnected(t, "/")
+		p.connect(t).disconnected(t, "/")
 		require.Equal(t, []error{refused, ErrWriteBufferFull}, drain(p.nilErrs), "connect-failure reports")
 		require.Empty(t, drain(p.errs))
 		require.Empty(t, drain(p.fc.out), "a packet was written")

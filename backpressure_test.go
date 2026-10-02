@@ -412,7 +412,7 @@ func TestBackpressureDrainDeadline(t *testing.T) {
 }
 
 // Each trigger closes the connection, writer blocked, at once; OnDisconnect
-// overflows the queue without a report.
+// overflows the queue without a report. A read or write failure ends a drain.
 // Covers 1B-T7 (S, C).
 // Covers 1B-T8 (S, C).
 // Covers 1B-T9 (S, C).
@@ -430,6 +430,11 @@ func TestBackpressureLibraryCloseDiscards(t *testing.T) {
 			require.NoError(t, p.Close())
 			require.False(t, isDone(p.fc.closed), "the drain ended early")
 			close(p.fc.peerGone)
+		}},
+		{"write failure during a draining Close", func(t *testing.T, p *peer) {
+			require.NoError(t, p.Close())
+			p.fc.failWrite.Store(true)
+			p.fc.release <- struct{}{}
 		}},
 	}
 	sides(t, "SC", func(t *testing.T, side byte) {
@@ -595,12 +600,8 @@ func TestBackpressureOverflowInBroadcast(t *testing.T) {
 func TestBackpressureOverflowInOnError(t *testing.T) {
 	sides(t, "SC", func(t *testing.T, side byte) {
 		p := start(t, side, hooks{
-			events: map[string]interface{}{"boom": func(Conn) { panic("boom") }},
-			onError: func(c Conn, err error) {
-				if !errors.Is(err, ErrWriteBufferFull) {
-					flood(c, defaultWriteBufferSize+1)
-				}
-			},
+			events:  map[string]interface{}{"boom": func(Conn) { panic("boom") }},
+			onError: func(c Conn, _ error) { flood(c, defaultWriteBufferSize+1) }, // dropped once closing
 		})
 		p.stall(t, p.nc, 0)
 		p.send(t, `2["boom"]`)

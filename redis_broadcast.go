@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
@@ -23,9 +24,10 @@ type redisBroadcast struct {
 	sub     *redis.PubSubConn
 	subLock sync.Mutex
 	done    chan struct{}
-	// dial opens a connection to the server; pattern is the broadcast channel
-	// pattern the subscriber listens on.
-	dial    func() (redis.Conn, error)
+	// dial opens a connection to the server (atomic so tests can wrap it
+	// while the dispatcher runs); pattern is the broadcast channel pattern
+	// the subscriber listens on.
+	dial    atomic.Pointer[func() (redis.Conn, error)]
 	pattern string
 
 	nsp        string
@@ -131,7 +133,6 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 		requests:   make(map[string]interface{}),
 		done:       make(chan struct{}),
 		pub:        pub,
-		dial:       dial,
 		pattern:    fmt.Sprintf("%s#%s#*", opts.Prefix, nsp),
 		key:        fmt.Sprintf("%s#%s#%s", opts.Prefix, nsp, uid),
 		reqChannel: fmt.Sprintf("%s-request#%s", opts.Prefix, nsp),
@@ -139,6 +140,7 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 		nsp:        nsp,
 		uid:        uid,
 	}
+	rbc.dial.Store(&dial)
 
 	if rbc.sub, err = rbc.subscribe(); err != nil {
 		_ = pub.Close()
@@ -153,7 +155,7 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 // subscribe opens a subscriber connection to the broadcast pattern and the
 // request and response channels, and closes it again if that fails.
 func (bc *redisBroadcast) subscribe() (*redis.PubSubConn, error) {
-	c, err := bc.dial()
+	c, err := (*bc.dial.Load())()
 	if err != nil {
 		return nil, err
 	}

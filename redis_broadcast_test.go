@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -380,6 +381,27 @@ func TestRedisBroadcastReconnectBackoff(t *testing.T) {
 	// Doubling from 5 ms up to 50 ms allows about 8 attempts in 300 ms.
 	time.Sleep(300 * time.Millisecond)
 	require.LessOrEqual(t, s.TotalConnectionCount(), 12)
+}
+
+// TestRedisBroadcastReconnectBackoffWhileDown checks that the backoff also
+// grows across failed dials inside one reconnect, while the server is down:
+// doubling from 5 ms up to 50 ms allows about 8 dials in 300 ms, a fixed
+// 5 ms delay about 60.
+func TestRedisBroadcastReconnectBackoffWhileDown(t *testing.T) {
+	s := miniredis.RunT(t)
+	bc := newTestRedisBroadcast(t, s)
+	var dials atomic.Int32
+	orig := *bc.dial.Load()
+	wrapped := func() (redis.Conn, error) {
+		dials.Add(1)
+		return orig()
+	}
+	bc.dial.Store(&wrapped)
+
+	s.Close()
+	time.Sleep(300 * time.Millisecond)
+	require.GreaterOrEqual(t, dials.Load(), int32(2), "the subscriber must keep retrying")
+	require.LessOrEqual(t, dials.Load(), int32(12), "the delay must double between failed dials")
 }
 
 // Answers to a pending request with missing, mistyped or mismatched fields

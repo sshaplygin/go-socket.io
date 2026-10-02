@@ -578,24 +578,37 @@ func TestBackpressureOverflowInOnConnect(t *testing.T) {
 	}
 }
 
-// The close of a failed connect starts before its report, so an Emit made from
-// another goroutine during root OnError is dropped and cannot overflow.
-func TestBackpressureConnectFailureDropsConcurrentEmit(t *testing.T) {
-	late, refused := make(chan struct{}, 2), errors.New("refused")
-	var emitted <-chan struct{}
-	p := newPeer(t, 'S', hooks{
-		connect: func(c Conn) error {
-			flood(c, defaultWriteBufferSize) // the queue is full
-			emitted = inBackground(func() { <-late; c.Emit("late") })
-			return refused
-		},
-		onError: func(Conn, error) { late <- struct{}{}; time.Sleep(20 * time.Millisecond) },
-	}).connect(t)
-	recv(t, emitted, "the Emit during root OnError")
-	p.disconnected(t, "/")
-	require.Equal(t, []error{refused}, drain(p.nilErrs), "connect-failure reports")
-	require.Empty(t, drain(p.errs))
-	require.Empty(t, drain(p.fc.out), "a packet was written")
+// A failed connect's close starts only after root OnError returns, so an Emit
+// made during that call (from it, a broadcast, or another goroutine) still
+// queues; into a full queue it overflows, reported once after the connect error.
+func TestBackpressureConnectFailureReportsOverflowFromOnError(t *testing.T) {
+	for _, late := range []func(*Server, Conn){
+		func(_ *Server, c Conn) { c.Emit("late") },
+		func(s *Server, _ Conn) { s.BroadcastToRoom("/", "r", "late") },
+		func(_ *Server, c Conn) { <-inBackground(func() { c.Emit("late") }) },
+	} {
+		var p *peer
+		var kept Conn
+		refused := errors.New("refused")
+		p = newPeer(t, 'S', hooks{
+			connect: func(c Conn) error {
+				kept = c
+				c.Join("r")
+				flood(c, defaultWriteBufferSize) // the queue is full
+				return refused
+			},
+			onError: func(_ Conn, err error) {
+				if errors.Is(err, refused) {
+					late(p.srv, kept)
+				}
+			},
+		})
+		p.connect(t)
+		p.disconnected(t, "/")
+		require.Equal(t, []error{refused, ErrWriteBufferFull}, drain(p.nilErrs), "connect-failure reports")
+		require.Empty(t, drain(p.errs))
+		require.Empty(t, drain(p.fc.out), "a packet was written")
+	}
 }
 
 // Covers 1B-T19 (S).

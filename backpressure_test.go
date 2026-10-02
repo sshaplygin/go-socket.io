@@ -228,8 +228,7 @@ func TestBackpressureQueueCapacity(t *testing.T) {
 // TestBackpressureOverflowInCloseFromOnError checks that Close called from
 // OnError, whose OnDisconnect overflows the queue of a stalled writer, does not
 // deadlock. The overflow report waits for the goroutine that runs OnError, so
-// closeOnOverflow must not run on the emitter, and Close must not wait to
-// write a queue that overflowed.
+// closeOnOverflow must not run on the emitter.
 func TestBackpressureOverflowInCloseFromOnError(t *testing.T) {
 	srv := newBackpressureServer(t)
 	srv.OnError("/", func(c Conn, err error) {

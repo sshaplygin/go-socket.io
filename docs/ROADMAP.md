@@ -88,7 +88,7 @@ session constructor signature change must be called out in v1 migration notes;
 root `NewServer` and handler signatures stay unchanged. `gorilla/websocket` stays in v1; the
 transport swap happens in stage 2 where the transport is rewritten.
 
-Remaining tasks:
+Tasks:
 
 - **1.R Redis:** protect `requests` and room access; time out peer queries; propagate
   adapter construction errors through the 1I integration step; reconnect subscriptions with backoff after receive
@@ -105,25 +105,33 @@ Remaining tasks:
     the local option, not the server's handshake value. 1.B keeps it in an unexported
     per-connection field (tests set it); 1I wires it.
   - *Emit* never blocks. Emits from `OnConnect` are queued and written once the writer
-    starts.
-  - *First close decides:* a connection is closed at most once. The first close,
-    draining or discarding, fixes the mode; `OnDisconnect` runs exactly once per
-    connected namespace whatever the number and kind of closes; later `Close` calls
-    return `nil` and change nothing. A library-started close during a drain ends the
-    drain at once and discards the rest. Once any close has started, an `Emit` is
-    dropped silently, never blocks and is not reported, except that a draining close
-    still queues packets until its seal.
+    starts. Packets the library queues itself (ACK replies, namespace CONNECT replies)
+    follow the same rules as `Emit`, so the read goroutine never blocks on a full queue.
+  - *Connected namespace:* a namespace counts as connected from the moment it is
+    registered, before its `OnConnect` runs, as in v1.4. A namespace whose `OnConnect`
+    failed therefore gets its one `OnDisconnect` when the connection closes.
+  - *First close decides:* a connection is closed at most once. The first close fixes
+    which `OnDisconnect` calls run and whether Emits still queue; `OnDisconnect` runs
+    exactly once per connected namespace whatever the number and kind of closes, also
+    when a peer namespace DISCONNECT is being dispatched as the close starts; later
+    `Close` calls return `nil` and change nothing. A later library-started close can
+    only shorten a drain: it ends the drain at once and discards the rest. Once any
+    close has started, an `Emit` is dropped silently, never blocks and is not reported,
+    except that a draining close still queues packets until its seal.
   - *Overflow* (no close started): an Emit that finds the queue full marks the
     connection overflowed, drops that packet and every later one, and starts a
     discarding close without blocking the emitter. `OnDisconnect`, leaving the rooms
     and one `ErrWriteBufferFull` report (exported sentinel) run on the connection's
-    own goroutines, or synchronously on the connect-failure path if the overflow
-    happens before they start; the report goes to `OnError` of the namespace of the
-    overflowing packet and is delivered although the connection is closing; with no
-    `OnError` registered it is dropped (1.L logs it). Report and `OnDisconnect` have no
-    guaranteed order. After the overflow flag is set the socket.io writer starts no
-    further packet; a packet whose first frame was already started counts as in flight
-    together with its binary attachments. Engine.io control frames are out of scope.
+    own goroutines. An overflow before those goroutines start always takes the
+    connect-failure path, whatever `OnConnect` returned; an `OnConnect` error is
+    reported separately, as in v1.4. The report goes to `OnError` of the namespace of
+    the overflowing packet and is delivered although the connection is closing; with
+    no `OnError` registered it is dropped (1.L logs it). Report and `OnDisconnect` have
+    no guaranteed order. After the overflow flag is set the socket.io writer starts no
+    further packet. A packet has started once the writer called `NextWriter` for its
+    first frame; the overflow's engine.io close makes a blocked `NextWriter` fail. A
+    started packet counts as in flight together with its binary attachments.
+    Engine.io control frames are out of scope.
   - *Draining close:* only `Conn.Close` or `Client.Close` called by application code
     (including from handlers) drains. `Close` runs `OnDisconnect`; the queue is
     *sealed* when every `OnDisconnect` called by this `Close` has returned. Packets
@@ -134,13 +142,17 @@ Remaining tasks:
     whichever is first; remaining packets are discarded and the engine.io connection
     is closed. From the start of `Close` the read goroutine keeps reading, so engine.io
     pings are answered and a peer close is detected, but it dispatches no CONNECT,
-    EVENT, ACK or DISCONNECT packet. `Close` returns `nil` without waiting.
+    EVENT, ACK or DISCONNECT packet. `Close` returns `nil` without waiting. A `Close`
+    from root `OnConnect` that then returns nil is not a connect failure: the
+    goroutines start and the drain runs.
   - *Discarding closes:* every close started inside the library discards the queue and
     closes the engine.io connection at once: read or decode error, dispatch error,
-    encode error (reported to `OnError` of the packet's namespace first; in v1.4 the
-    connection stayed open), peer close (engine.io CLOSE or the transport closed or
-    failed from the peer side), ping timeout, overflow, and a connect failure before
-    the writer starts. v1 `Server.Close` does not close sessions.
+    encode error (any `Encode` failure, marshal or transport write, reported to
+    `OnError` of the packet's namespace first as in v1.4; in v1.4 the connection stayed
+    open), peer close (engine.io CLOSE or the transport closed or failed from the peer
+    side), ping timeout, overflow, and a connect failure before the writer starts.
+    Once any close has started, a writer failure is neither reported nor a new close.
+    v1 `Server.Close` does not close sessions.
   - *Namespace DISCONNECT:* a socket.io DISCONNECT from the peer ends only that
     namespace: its `OnDisconnect` runs once and its rooms are left; the engine.io
     connection and the queue stay as they are.
@@ -157,31 +169,66 @@ Remaining tasks:
     in-memory one. One copy per socket for `SendAll` is owned by 2.2; 1.B points the
     pinning comment in `lifecycle_test.go` at 2.2 only.
   - *Tests (1.B):* deterministic under `-race` with a fake `engineio.Conn` whose
-    writer can be blocked; every close test asserts the `OnDisconnect` call count.
-    For `Server` and for `Client`: one stalled member does not block another
-    (`Server`); a draining `Close` delivers N queued packets (N = 1 and N = 64),
-    returns while the writer is still blocked, writes Emits from `OnDisconnect`
-    including one made after the writer emptied the queue, and drops without report
-    an Emit after the seal and an Emit that finds the queue full during
-    `OnDisconnect`; after a draining `Close` an incoming EVENT runs no handler and an
-    incoming CONNECT runs no `OnConnect`; with `PingTimeout` 50 ms a stalled peer's
-    engine.io connection closes within `PingTimeout` + 1 s; a read-error, an
-    engine.io-CLOSE, a dispatch-error, an encode-error and a connect-failure close do
-    not drain and close at once, and a read-error close whose `OnDisconnect` emits
-    `WriteBufferSize`+1 packets reports nothing; a library close racing a draining
-    `Close` ends the drain and runs `OnDisconnect` once; an overflow reports
-    `ErrWriteBufferFull` exactly once to the right namespace and the writer starts no
-    packet after it (tested with a binary packet in flight); an overflow inside root
-    `OnConnect`, with `OnConnect` returning nil and returning an error, reports once
-    and writes nothing after it; overflow triggered inside `BroadcastToRoom`, inside
-    `ForEach` and by an Emit from an `OnError` handler does not deadlock; `Close` from
-    `OnError`, from `OnDisconnect` and twice concurrently does not deadlock; a
-    namespace DISCONNECT keeps the session and the other namespaces working.
-  - *Tests (1I):* the slow-client test against the Redis broadcast; `WriteBufferSize`
-    0, negative and a custom value; the drain deadline wired from `Options.PingTimeout`
-    (nil, 0, negative and a custom value) for `Server` and for `Client`.
-  - *Gate record:* the 1.B and 1I task reports map every bullet of both test lists to
-    a test name; the stage 1 DoD checks that mapping.
+    writer can be blocked; 1.B adds an unexported dial seam to `Client` so the `Client`
+    cases use the same fake. Every close case also asserts the `OnDisconnect` call
+    count. Side: S = `Server`, C = `Client` (root namespace only).
+    1. 1B-T1 (S): one stalled member does not block another member of its room.
+    2. 1B-T2 (S, C): a draining `Close` delivers N queued packets, N = 1 and N = 64,
+       and returns while the writer is still blocked.
+    3. 1B-T3 (S, C): a draining `Close` writes Emits from `OnDisconnect`, including one
+       made after the writer emptied the queue.
+    4. 1B-T4 (S, C): an Emit after the seal and an Emit that finds the queue full
+       during `OnDisconnect` are dropped without report.
+    5. 1B-T5 (S, C): after a draining `Close` an incoming EVENT runs no handler and an
+       incoming CONNECT runs no `OnConnect`.
+    6. 1B-T6 (S, C): with a 50 ms drain deadline a stalled peer's engine.io connection
+       closes within 50 ms + 1 s, and `OnError` is not called.
+    7. 1B-T7 (S, C): a read-error close discards and closes at once.
+    8. 1B-T8 (S, C): an engine.io-CLOSE close discards and closes at once.
+    9. 1B-T9 (S, C): a dispatch-error close discards and closes at once.
+    10. 1B-T10 (S, C): an encode error is reported once to `OnError` of the packet's
+        namespace, then the connection discards and closes at once.
+    11. 1B-T11 (S, C): a connect failure discards and closes at once.
+    12. 1B-T12 (S, C): a read-error close whose `OnDisconnect` emits
+        `WriteBufferSize`+1 packets reports nothing.
+    13. 1B-T13 (S, C): a library close racing a draining `Close` ends the drain.
+    14. 1B-T14 (S, C): a peer namespace DISCONNECT whose `OnDisconnect` is held on a
+        channel races `Close`; `OnDisconnect` runs once for that namespace and once for
+        each other connected namespace.
+    15. 1B-T15 (S, C): an overflow reports `ErrWriteBufferFull` exactly once, to the
+        namespace of the overflowing packet.
+    16. 1B-T16 (S, C): with a binary packet in flight (its `NextWriter` called and
+        blocked) an overflow lets the writer start no further packet.
+    17. 1B-T17 (S): an overflow inside root `OnConnect` returning nil takes the
+        connect-failure path, reports `ErrWriteBufferFull` once and writes nothing
+        after it.
+    18. 1B-T18 (S): the same with `OnConnect` returning an error; `ErrWriteBufferFull`
+        and the `OnConnect` error are each reported once.
+    19. 1B-T19 (S): an overflow triggered inside `BroadcastToRoom` does not deadlock.
+    20. 1B-T20 (S): an overflow triggered inside `ForEach` does not deadlock.
+    21. 1B-T21 (S, C): an overflow triggered by an Emit from an `OnError` handler does
+        not deadlock.
+    22. 1B-T22 (S, C): `Close` from `OnError` does not deadlock.
+    23. 1B-T23 (S, C): `Close` from `OnDisconnect` does not deadlock.
+    24. 1B-T24 (S, C): `Close` called twice concurrently does not deadlock.
+    25. 1B-T25 (S, C): a namespace DISCONNECT keeps the session open; on S the other
+        namespaces keep working.
+    26. 1B-T26 (S): a draining `Close` from root `OnConnect` returning nil delivers the
+        Emits queued before the seal and closes the engine.io connection within the
+        drain deadline.
+    27. 1B-T27 (S): an ACK reply that finds the queue full starts an overflow close and
+        the read goroutine does not block.
+  - *Tests (1I):*
+    1. 1I-T1 (S): 1B-T1 against the Redis broadcast.
+    2. 1I-T2 (S, C): `WriteBufferSize` 0 and negative give 64.
+    3. 1I-T3 (S, C): a custom `WriteBufferSize` is used.
+    4. 1I-T4 (S, C): nil options and `PingTimeout` 0 give a one-minute drain deadline.
+    5. 1I-T5 (S, C): a negative `PingTimeout` gives one minute, checked on the stored
+       per-connection value (engine.io sessions with a negative timeout expire at once).
+    6. 1I-T6 (S, C): a custom `PingTimeout` bounds a live drain.
+  - *Gate record:* a test covering a case names it in its doc comment, for example
+    `// Covers 1B-T3 (S, C).`; the stage 1 DoD checks that every (case, side) pair of
+    both lists is named by a passing test.
 - **1.S Runtime fixes (landed; its lifecycle tests stay a stage gate):** synchronous session registration before a second request can
   use its SID; `Manager.Count` uses `RLock`; correct EOF result from `Server.Serve`.
   Cover session lifecycle and root connect/event/ack/namespace/room/disconnect paths.
@@ -221,8 +268,8 @@ Boundary lines. The keys are a contract reused by stage 2.4.
 DoD: `make lint test-race` green on ubuntu/macos/windows for `stable` and `oldstable`;
 an additional Ubuntu job builds/tests the root on Go 1.22 with automatic toolchain
 upgrades disabled. From v2 this job covers every shipped runtime module;
-`govulncheck` clean; two-instance Redis test under `-race` passes; every 1.B and 1I
-test bullet maps to a passing named test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
+`govulncheck` clean; two-instance Redis test under `-race` passes; every (case, side)
+pair of the 1.B and 1I test lists is named by a passing test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
 package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses.
 Logging gate: `TestServerLoggerOption`, `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv`,
 `TestWrapOverridesHandlerLevel`, `TestTraceDisabledNoAlloc` and
@@ -385,6 +432,7 @@ Lifecycle contract, implemented in 2.1/2.3 and instrumented in 2.4:
   immediately. A socket or session close requested by the application drains the
   session's queued outbound messages within the session ping timeout, as v1
   `Conn.Close` does since 1.B; closes started inside the library discard, as in 1.B.
+  A peer namespace DISCONNECT ends only that socket and keeps the session queue, as in 1.B.
   The DoD below includes a disconnect-drain test; the v1 to v2 mapping is in 2.5.
   Application handlers must honor cancellation: Go cannot forcibly
   terminate them, and shutdown returns on its deadline even if one does not exit.

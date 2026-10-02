@@ -108,6 +108,9 @@ func (c *Client) Close() error {
 
 func (c *Client) Emit(event string, args ...interface{}) {
 	nsConn, ok := c.conn.namespaces.Get(c.namespace)
+	if !ok && isDone(c.conn.closing) { // a close took it; write queues or drops by the close rules
+		nsConn, ok = newNamespaceConn(c.conn, c.namespace, nil), true
+	}
 	if !ok {
 		c.log.Info("emit before namespace connected", "namespace", c.namespace, "event", event)
 		return

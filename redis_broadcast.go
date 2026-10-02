@@ -13,7 +13,10 @@ import (
 // redisBroadcast gives Join, Leave & BroadcastTO server API support to socket.io along with room management
 // map of rooms where each room contains a map of connection id to connections in that room
 type redisBroadcast struct {
-	pub *redis.PubSubConn
+	// pub serves PUBLISH and PUBSUB commands. A redigo connection allows only
+	// one concurrent caller, and these commands come from user goroutines and
+	// the dispatch goroutine, so each command takes its own pooled connection.
+	pub *redis.Pool
 	sub *redis.PubSubConn
 
 	nsp        string
@@ -88,7 +91,16 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 		redisOpts = append(redisOpts, redis.DialDatabase(opts.DB))
 	}
 
-	pub, err := redis.Dial(opts.Network, addr, redisOpts...)
+	pub := &redis.Pool{
+		MaxIdle: 4,
+		Dial: func() (redis.Conn, error) {
+			return redis.Dial(opts.Network, addr, redisOpts...)
+		},
+	}
+	// Dial the first publishing connection now to report an unreachable server.
+	first := pub.Get()
+	err := first.Err()
+	_ = first.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +111,6 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 	}
 
 	subConn := &redis.PubSubConn{Conn: sub}
-	pubConn := &redis.PubSubConn{Conn: pub}
 
 	if err = subConn.PSubscribe(fmt.Sprintf("%s#%s#*", opts.Prefix, nsp)); err != nil {
 		return nil, err
@@ -110,7 +121,7 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 		rooms:      make(map[string]map[string]Conn),
 		requests:   make(map[string]interface{}),
 		sub:        subConn,
-		pub:        pubConn,
+		pub:        pub,
 		key:        fmt.Sprintf("%s#%s#%s", opts.Prefix, nsp, uid),
 		reqChannel: fmt.Sprintf("%s-request#%s", opts.Prefix, nsp),
 		resChannel: fmt.Sprintf("%s-response#%s", opts.Prefix, nsp),
@@ -141,7 +152,7 @@ func (bc *redisBroadcast) AllRooms() []string {
 	req.done = make(chan bool, 1)
 
 	bc.requests[req.RequestID] = &req
-	_, err := bc.pub.Conn.Do("PUBLISH", bc.reqChannel, reqJSON)
+	_, err := bc.do("PUBLISH", bc.reqChannel, reqJSON)
 	if err != nil {
 		return []string{} // if error occurred,return empty
 	}
@@ -272,7 +283,7 @@ func (bc *redisBroadcast) Len(room string) int {
 	req.done = make(chan bool, 1)
 
 	bc.requests[req.RequestID] = &req
-	_, err = bc.pub.Conn.Do("PUBLISH", bc.reqChannel, reqJSON)
+	_, err = bc.do("PUBLISH", bc.reqChannel, reqJSON)
 	if err != nil {
 		return -1
 	}
@@ -337,9 +348,16 @@ func (bc *redisBroadcast) onMessage(channel string, msg []byte) error {
 	return nil
 }
 
+// do runs one command on a pooled publishing connection.
+func (bc *redisBroadcast) do(cmd string, args ...interface{}) (interface{}, error) {
+	c := bc.pub.Get()
+	defer func() { _ = c.Close() }()
+	return c.Do(cmd, args...)
+}
+
 // Get the number of subscribers of a channel.
 func (bc *redisBroadcast) getNumSub(channel string) (int, error) {
-	rs, err := bc.pub.Conn.Do("PUBSUB", "NUMSUB", channel)
+	rs, err := bc.do("PUBSUB", "NUMSUB", channel)
 	if err != nil {
 		return 0, err
 	}
@@ -393,7 +411,7 @@ func (bc *redisBroadcast) publish(channel string, msg interface{}) {
 		return
 	}
 
-	_, err = bc.pub.Conn.Do("PUBLISH", channel, resJSON)
+	_, err = bc.do("PUBLISH", channel, resJSON)
 	if err != nil {
 		return
 	}
@@ -495,7 +513,7 @@ func (bc *redisBroadcast) publishMessage(room string, event string, args ...inte
 		return
 	}
 
-	_, err = bc.pub.Conn.Do("PUBLISH", bc.key, bcMessageJSON)
+	_, err = bc.do("PUBLISH", bc.key, bcMessageJSON)
 	if err != nil {
 		return
 	}

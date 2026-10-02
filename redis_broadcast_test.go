@@ -280,3 +280,45 @@ func TestRedisBroadcastConstructionFailure(t *testing.T) {
 	_, err = newRedisBroadcast("/", opts)
 	require.Error(t, err)
 }
+
+func TestRedisBroadcastSkipsMalformedMessages(t *testing.T) {
+	s := miniredis.RunT(t)
+	a := newTestRedisBroadcast(t, s)
+	b := newTestRedisBroadcast(t, s)
+	a1 := newRedisTestConn("a1")
+	a.Join("room", a1)
+
+	for _, msg := range []string{"not json", "{}", `{"opts":[1,"msg"]}`} {
+		s.Publish("socket.io#/#peer", msg)
+	}
+	s.Publish("socket.io-response#/", "{}")
+	s.Publish("socket.io-response#/", `{"RequestID":1}`)
+
+	b.Send("room", "msg")
+	expectEvent(t, a1, "msg []")
+}
+
+func TestRedisBroadcastResubscribesAfterRestart(t *testing.T) {
+	s := miniredis.RunT(t)
+	a := newTestRedisBroadcast(t, s)
+	b := newTestRedisBroadcast(t, s)
+	a1 := newRedisTestConn("a1")
+	a.Join("room", a1)
+
+	s.Close()
+	require.NoError(t, s.Restart())
+	waitRedisSubscribers(t, s, 2)
+
+	// The first publish on a pooled connection opened before the restart
+	// fails; later ones dial again.
+	require.Eventually(t, func() bool {
+		b.Send("room", "msg")
+		select {
+		case <-a1.events:
+			return true
+		case <-time.After(50 * time.Millisecond):
+			return false
+		}
+	}, 2*time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return b.Len("room") == 1 }, 2*time.Second, time.Millisecond)
+}

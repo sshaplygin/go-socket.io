@@ -169,6 +169,9 @@ func (bc *redisBroadcast) subscribe() (*redis.PubSubConn, error) {
 }
 
 // AllRooms gives list of all rooms available for redisBroadcast.
+// It waits at most redisRequestTimeout for the answers of the instances
+// subscribed to the namespace and returns the union of the rooms received
+// by then, or an empty list when publishing the request fails.
 func (bc *redisBroadcast) AllRooms() []string {
 	req := allRoomRequest{
 		RequestType: allRoomReqType,
@@ -269,6 +272,9 @@ func (bc *redisBroadcast) ForEach(room string, f EachFunc) {
 }
 
 // Len gives number of connections in the room.
+// It waits at most redisRequestTimeout for the answers of the instances
+// subscribed to the namespace and returns the sum of the answers received
+// by then, or -1 when a Redis command fails.
 func (bc *redisBroadcast) Len(room string) int {
 	req := roomLenRequest{
 		RequestType: roomLenReqType,

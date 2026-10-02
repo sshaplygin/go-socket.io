@@ -30,10 +30,14 @@ type Conn interface {
 	// later, is dropped without a report. Then, or one minute after Close
 	// started, the rest is discarded and the engine.io connection is closed;
 	// Server.Count counts the session until then. Incoming packets are no
-	// longer dispatched. The library closes a connection on a read, decode,
-	// dispatch or encode error (an encode error is reported to OnError
-	// first), a peer close, a ping timeout, an overflow (see
-	// ErrWriteBufferFull) or a failed connect, discarding the queue at once.
+	// longer dispatched, and a read or write failure ends the drain at once.
+	// The library closes a connection on a read, decode, dispatch or encode
+	// error (an encode error used to leave it open), a peer close, a ping
+	// timeout, an overflow (see ErrWriteBufferFull) or a failed connect,
+	// discarding the queue at once. Other than an overflow, the error is
+	// reported to OnError before the close's effects run, so Emits from
+	// OnError still queue; a failed connect is reported to root OnError with
+	// a nil Conn. Failures after a close started are not reported.
 	Close() error
 	Namespace
 

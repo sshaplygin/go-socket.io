@@ -19,6 +19,10 @@ type redisBroadcast struct {
 	// the dispatch goroutine, so each command takes its own pooled connection.
 	pub *redis.Pool
 	sub *redis.PubSubConn
+	// dial opens a connection to the server; pattern is the broadcast channel
+	// pattern the subscriber listens on.
+	dial    func() (redis.Conn, error)
+	pattern string
 
 	nsp        string
 	uid        string
@@ -98,12 +102,10 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 		redisOpts = append(redisOpts, redis.DialDatabase(opts.DB))
 	}
 
-	pub := &redis.Pool{
-		MaxIdle: 4,
-		Dial: func() (redis.Conn, error) {
-			return redis.Dial(opts.Network, addr, redisOpts...)
-		},
+	dial := func() (redis.Conn, error) {
+		return redis.Dial(opts.Network, addr, redisOpts...)
 	}
+	pub := &redis.Pool{MaxIdle: 4, Dial: dial}
 	// Dial the first publishing connection now to report an unreachable server.
 	first := pub.Get()
 	err := first.Err()
@@ -112,23 +114,13 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 		return nil, err
 	}
 
-	sub, err := redis.Dial(opts.Network, addr, redisOpts...)
-	if err != nil {
-		return nil, err
-	}
-
-	subConn := &redis.PubSubConn{Conn: sub}
-
-	if err = subConn.PSubscribe(fmt.Sprintf("%s#%s#*", opts.Prefix, nsp)); err != nil {
-		return nil, err
-	}
-
 	uid := newV4UUID()
 	rbc := &redisBroadcast{
 		rooms:      make(map[string]map[string]Conn),
 		requests:   make(map[string]interface{}),
-		sub:        subConn,
 		pub:        pub,
+		dial:       dial,
+		pattern:    fmt.Sprintf("%s#%s#*", opts.Prefix, nsp),
 		key:        fmt.Sprintf("%s#%s#%s", opts.Prefix, nsp, uid),
 		reqChannel: fmt.Sprintf("%s-request#%s", opts.Prefix, nsp),
 		resChannel: fmt.Sprintf("%s-response#%s", opts.Prefix, nsp),
@@ -136,13 +128,32 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 		uid:        uid,
 	}
 
-	if err = subConn.Subscribe(rbc.reqChannel, rbc.resChannel); err != nil {
+	if rbc.sub, err = rbc.subscribe(); err != nil {
+		_ = pub.Close()
 		return nil, err
 	}
 
 	go rbc.dispatch()
 
 	return rbc, nil
+}
+
+// subscribe opens a subscriber connection to the broadcast pattern and the
+// request and response channels, and closes it again if that fails.
+func (bc *redisBroadcast) subscribe() (*redis.PubSubConn, error) {
+	c, err := bc.dial()
+	if err != nil {
+		return nil, err
+	}
+	sub := &redis.PubSubConn{Conn: c}
+	if err = sub.PSubscribe(bc.pattern); err == nil {
+		err = sub.Subscribe(bc.reqChannel, bc.resChannel)
+	}
+	if err != nil {
+		_ = sub.Close()
+		return nil, err
+	}
+	return sub, nil
 }
 
 // AllRooms gives list of all rooms available for redisBroadcast.

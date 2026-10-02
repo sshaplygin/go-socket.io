@@ -191,7 +191,8 @@ func TestBackpressureStalledMemberDoesNotBlockRoom(t *testing.T) {
 	}
 
 	srv.expectOverflow(t, stalled)
-	require.Equal(t, 1, srv.RoomLen("/", "r"))
+	// OnDisconnect runs before Close makes the connection leave its rooms.
+	require.Eventually(t, func() bool { return srv.RoomLen("/", "r") == 1 }, waitFor, time.Millisecond)
 	select {
 	case <-healthy.closed:
 		t.Fatal("the healthy member was closed")

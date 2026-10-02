@@ -7,9 +7,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -18,13 +20,15 @@ import (
 
 // stallConn is an engineio.Conn for Server.serveConn. The first allowed
 // frames are recorded on frames; every later NextWriter blocks until Close
-// (allowed < 0 never blocks). NextReader blocks until Close.
+// (allowed < 0 never blocks). NextReader returns the frames sent on reads and
+// blocks until Close when there are none.
 type stallConn struct {
 	id      string
 	allowed int32
 	writes  atomic.Int32
 
 	frames    chan string
+	reads     chan string
 	stalled   chan struct{}
 	stallOnce sync.Once
 	closed    chan struct{}
@@ -36,6 +40,7 @@ func newStallConn(id string, allowed int32) *stallConn {
 		id:      id,
 		allowed: allowed,
 		frames:  make(chan string, 256),
+		reads:   make(chan string, 1),
 		stalled: make(chan struct{}),
 		closed:  make(chan struct{}),
 	}
@@ -51,8 +56,12 @@ func (s *stallConn) NextWriter(session.FrameType) (io.WriteCloser, error) {
 }
 
 func (s *stallConn) NextReader() (session.FrameType, io.ReadCloser, error) {
-	<-s.closed
-	return session.TEXT, nil, io.EOF
+	select {
+	case frame := <-s.reads:
+		return session.TEXT, io.NopCloser(strings.NewReader(frame)), nil
+	case <-s.closed:
+		return session.TEXT, nil, io.EOF
+	}
 }
 
 func (s *stallConn) Close() error {
@@ -223,4 +232,40 @@ func TestBackpressureOverflowDuringClose(t *testing.T) {
 	recv(t, inBackground(func() { _ = nc.Close() }), "Close whose OnDisconnect overflows the queue")
 	require.Equal(t, fc.id, recv(t, srv.disconnects, "OnDisconnect of "+fc.id))
 	recv(t, fc.closed, "engine.io close of "+fc.id)
+}
+
+// TestBackpressureOverflowDisconnectsOnReadGoroutine checks that a handler
+// overflowing its own queue keeps the one-goroutine handler contract: the
+// engine.io connection is closed while the handler runs, but OnDisconnect
+// runs only after the handler has returned.
+func TestBackpressureOverflowDisconnectsOnReadGoroutine(t *testing.T) {
+	srv := newBackpressureServer(t)
+	var inHandler atomic.Bool
+	disconnectedInHandler := make(chan bool, 1)
+	srv.OnDisconnect("/", func(c Conn, _ string) {
+		_ = c.Context()
+		disconnectedInHandler <- inHandler.Load()
+	})
+	fc := newStallConn("stalled", 1)
+	srv.OnEvent("/", "flood", func(c Conn) {
+		inHandler.Store(true)
+		defer inHandler.Store(false)
+
+		for i := 0; i < defaultWriteBufferSize+2; i++ {
+			c.Emit("msg")
+		}
+		select {
+		case <-fc.closed:
+		case <-time.After(5 * time.Second):
+			t.Error("timed out waiting for the engine.io close of " + fc.id)
+		}
+		c.SetContext("after overflow")
+	})
+	srv.serve(t, fc)
+
+	fc.reads <- "2[\"flood\"]"
+	ev := recv(t, srv.errs, "OnError of "+fc.id)
+	require.ErrorIs(t, ev.err, errWriteBufferFull)
+	require.False(t, recv(t, disconnectedInHandler, "OnDisconnect of "+fc.id),
+		"OnDisconnect ran while the overflowing handler was still running")
 }

@@ -83,10 +83,7 @@ func (f *fakeConn) NextReader() (session.FrameType, io.ReadCloser, error) {
 	return session.TEXT, nil, io.EOF
 }
 
-func (f *fakeConn) Close() error {
-	f.closeOnce.Do(func() { close(f.closed) })
-	return nil
-}
+func (f *fakeConn) Close() error { f.closeOnce.Do(func() { close(f.closed) }); return nil }
 
 func (f *fakeConn) ID() string                { return fmt.Sprintf("%p", f) }
 func (f *fakeConn) URL() url.URL              { return url.URL{} }
@@ -101,17 +98,11 @@ type frameWriter struct {
 	out chan<- string
 }
 
-func (w *frameWriter) Close() error {
-	w.out <- w.String()
-	return nil
-}
+func (w *frameWriter) Close() error { w.out <- w.String(); return nil }
 
 func inBackground(f func()) <-chan struct{} {
 	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		f()
-	}()
+	go func() { defer close(done); f() }()
 	return done
 }
 
@@ -196,9 +187,9 @@ func newPeer(t *testing.T, side byte, h hooks, nsps ...string) *peer {
 		nh.OnError(func(c Conn, err error) {
 			if c == nil {
 				p.nilErrs <- err
-				return
+			} else {
+				p.errs <- nsErr{c.Namespace(), err}
 			}
-			p.errs <- nsErr{c.Namespace(), err}
 			if h.onError != nil {
 				h.onError(c, err)
 			}
@@ -492,10 +483,12 @@ func TestBackpressureEncodeErrorClosesAfterReport(t *testing.T) {
 // Covers 1B-T11 (S, C).
 func TestBackpressureConnectFailureDiscards(t *testing.T) {
 	sides(t, "SC", func(t *testing.T, side byte) {
-		p := newPeer(t, side, hooks{connect: func(c Conn) error {
-			c.Emit("q")
-			return errors.New("refused")
-		}})
+		var p *peer
+		reportsAtDisconnect := make(chan int, 1)
+		p = newPeer(t, side, hooks{
+			connect:    func(c Conn) error { c.Emit("q"); return errors.New("refused") },
+			disconnect: func(Conn) { reportsAtDisconnect <- len(p.nilErrs) },
+		})
 		if side == 'S' {
 			p.connect(t)
 		} else {
@@ -504,6 +497,7 @@ func TestBackpressureConnectFailureDiscards(t *testing.T) {
 		}
 		recv(t, p.fc.closed, "engine.io close of the failed connection")
 		p.disconnected(t, "/")
+		require.Equal(t, 1, recv(t, reportsAtDisconnect, "OnDisconnect"), "reports before OnDisconnect")
 		require.Len(t, drain(p.nilErrs), 1, "connect error reports")
 		require.Empty(t, drain(p.fc.out), "a packet was written")
 	})
@@ -559,18 +553,23 @@ func TestBackpressureOverflow(t *testing.T) {
 // Covers 1B-T18 (S).
 func TestBackpressureOverflowInOnConnect(t *testing.T) {
 	for _, connectErr := range []error{nil, errors.New("refused")} {
-		p := start(t, 'S', hooks{connect: func(c Conn) error {
-			flood(c, defaultWriteBufferSize+1)
-			return connectErr
-		}})
-		require.True(t, isDone(p.conn().done) && len(p.errs) == 1, "serveConn did not close the connection itself")
+		var p *peer
+		var late []bool // per report: made after the engine.io close or OnDisconnect
+		p = newPeer(t, 'S', hooks{
+			connect: func(c Conn) error { flood(c, defaultWriteBufferSize+1); return connectErr },
+			onError: func(Conn, error) { late = append(late, isDone(p.fc.closed) || len(p.discs) > 0) },
+		})
+		p.connect(t)
+		require.True(t, isDone(p.conn().done), "serveConn did not close the connection itself")
 		recv(t, p.fc.closed, "engine.io close of the failed connection")
 		p.disconnected(t, "/")
-		p.overflowReported(t, "/")
+		want := []error{ErrWriteBufferFull}
 		if connectErr != nil {
-			require.Equal(t, []error{connectErr}, drain(p.nilErrs))
+			want = []error{connectErr, ErrWriteBufferFull}
 		}
-		require.Empty(t, drain(p.nilErrs))
+		require.Equal(t, want, drain(p.nilErrs), "connect-failure reports, in order, with a nil Conn")
+		require.Equal(t, make([]bool, len(want)), late, "a report came after the close's effects")
+		require.Empty(t, drain(p.errs))
 		require.Empty(t, drain(p.fc.out), "a packet was written")
 	}
 }

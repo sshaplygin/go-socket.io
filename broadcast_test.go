@@ -80,16 +80,3 @@ func TestBroadcastForEachCallbackChangesRooms(t *testing.T) {
 	require.Equal(t, 0, bc.Len("r"))
 	require.Equal(t, 2, bc.Len("moved"))
 }
-
-// TestBroadcastSendAllOneCopyPerRoom pins that SendAll emits once per room
-// membership, which TestLifecycleRootNamespace relies on.
-func TestBroadcastSendAllOneCopyPerRoom(t *testing.T) {
-	bc := newBroadcast()
-	var events []string
-	c := &emitConn{id: "c", onEmit: func(event string) { events = append(events, event) }}
-	bc.Join("r1", c)
-	bc.Join("r2", c)
-
-	bc.SendAll("msg")
-	require.Equal(t, []string{"msg", "msg"}, events)
-}

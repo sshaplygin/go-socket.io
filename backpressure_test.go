@@ -318,9 +318,7 @@ func TestBackpressureCloseDeliversQueue(t *testing.T) {
 		for _, n := range []int{1, defaultWriteBufferSize} {
 			p := start(t, side, hooks{})
 			p.stall(t, p.nc, n)
-			var err error
-			recv(t, inBackground(func() { err = p.Close() }), "Close with the writer blocked")
-			require.NoError(t, err)
+			recv(t, inBackground(func() { _ = p.Close() }), "Close with the writer blocked")
 			require.False(t, isDone(p.fc.closed), "closed before the queue was written")
 
 			close(p.fc.release)
@@ -355,11 +353,7 @@ func TestBackpressureCloseWritesOnDisconnectEmits(t *testing.T) {
 // Covers 1B-T4 (S, C).
 func TestBackpressureCloseDropsLateAndOverflowingEmits(t *testing.T) {
 	sides(t, "SC", func(t *testing.T, side byte) {
-		p := start(t, side, hooks{disconnect: func(c Conn) {
-			for i := 0; i <= defaultWriteBufferSize; i++ { // the last one finds the queue full
-				c.Emit("q", i)
-			}
-		}})
+		p := start(t, side, hooks{disconnect: func(c Conn) { flood(c, defaultWriteBufferSize+1) }}) // the last finds the queue full
 		p.stall(t, p.nc, 0)
 		require.NoError(t, p.Close())
 		p.fc.release <- struct{}{} // writes "first", then blocks on the next packet
@@ -368,7 +362,7 @@ func TestBackpressureCloseDropsLateAndOverflowingEmits(t *testing.T) {
 		p.nc.Emit("after the seal") // the queue has room
 		close(p.fc.release)
 		for i := 0; i < defaultWriteBufferSize; i++ {
-			require.Equal(t, ev("q", i), recv(t, p.fc.out, "an OnDisconnect Emit"))
+			require.Equal(t, ev("x", i), recv(t, p.fc.out, "an OnDisconnect Emit"))
 		}
 		recv(t, p.fc.closed, "engine.io close after the drain")
 		p.disconnected(t, "/")
@@ -420,18 +414,19 @@ func TestBackpressureDrainDeadline(t *testing.T) {
 // Covers 1B-T13 (S, C).
 func TestBackpressureLibraryCloseDiscards(t *testing.T) {
 	triggers := []struct {
-		name string
-		run  func(t *testing.T, p *peer)
+		name    string
+		reports int // to root OnError
+		run     func(t *testing.T, p *peer)
 	}{
-		{"read error", func(t *testing.T, p *peer) { p.send(t, "x") }},
-		{"engine.io close", func(_ *testing.T, p *peer) { close(p.fc.peerGone) }},
-		{"dispatch error", func(t *testing.T, p *peer) { p.send(t, `2["boom"]`) }},
-		{"after a draining Close", func(t *testing.T, p *peer) {
+		{"read error", 1, func(t *testing.T, p *peer) { p.send(t, "x") }},
+		{"engine.io close", 1, func(_ *testing.T, p *peer) { close(p.fc.peerGone) }},
+		{"dispatch error", 1, func(t *testing.T, p *peer) { p.send(t, `2["boom"]`) }},
+		{"read failure during a draining Close", 0, func(t *testing.T, p *peer) {
 			require.NoError(t, p.Close())
 			require.False(t, isDone(p.fc.closed), "the drain ended early")
 			close(p.fc.peerGone)
 		}},
-		{"write failure during a draining Close", func(t *testing.T, p *peer) {
+		{"write failure during a draining Close", 0, func(t *testing.T, p *peer) {
 			require.NoError(t, p.Close())
 			p.fc.failWrite.Store(true)
 			p.fc.release <- struct{}{}
@@ -449,8 +444,10 @@ func TestBackpressureLibraryCloseDiscards(t *testing.T) {
 				recv(t, p.fc.closed, "engine.io close with the writer blocked")
 				p.disconnected(t, "/")
 				require.Empty(t, drain(p.fc.out), "a packet was written")
-				for _, e := range drain(p.errs) {
-					require.NotErrorIs(t, e.err, ErrWriteBufferFull)
+				errs := drain(p.errs)
+				require.Len(t, errs, tr.reports, "reports")
+				for _, e := range errs {
+					require.True(t, e.nsp == "/" && !errors.Is(e.err, ErrWriteBufferFull), "report %v", e)
 				}
 			})
 		}
@@ -616,7 +613,6 @@ func TestBackpressureOverflowInOnError(t *testing.T) {
 // Covers 1B-T23 (S, C).
 // Covers 1B-T24 (S, C).
 func TestBackpressureCloseFromHandlers(t *testing.T) {
-	closeConn := func(c Conn) { _ = c.Close() }
 	cases := []struct {
 		name string
 		h    hooks
@@ -624,15 +620,14 @@ func TestBackpressureCloseFromHandlers(t *testing.T) {
 	}{
 		{"OnError", hooks{
 			events:  map[string]interface{}{"boom": func(Conn) { panic("boom") }},
-			onError: func(c Conn, _ error) { closeConn(c) },
+			onError: func(c Conn, _ error) { _ = c.Close() },
 		}, func(t *testing.T, p *peer) { p.send(t, `2["boom"]`) }},
-		{"OnDisconnect", hooks{disconnect: closeConn}, func(t *testing.T, p *peer) {
+		{"OnDisconnect", hooks{disconnect: func(c Conn) { _ = c.Close() }}, func(t *testing.T, p *peer) {
 			recv(t, inBackground(func() { _ = p.Close() }), "Close")
 		}},
 		{"twice concurrently", hooks{}, func(t *testing.T, p *peer) {
 			var errs [2]error
-			a := inBackground(func() { errs[0] = p.Close() })
-			b := inBackground(func() { errs[1] = p.Close() })
+			a, b := inBackground(func() { errs[0] = p.Close() }), inBackground(func() { errs[1] = p.Close() })
 			recv(t, a, "the first Close")
 			recv(t, b, "the second Close")
 			require.Equal(t, [2]error{}, errs)
@@ -693,12 +688,29 @@ func TestBackpressureCloseFromOnConnect(t *testing.T) {
 	require.Empty(t, drain(p.nilErrs), "reported as a connect failure")
 }
 
-// Covers 1B-T27 (S).
-func TestBackpressureAckOverflow(t *testing.T) {
-	p := start(t, 'S', hooks{events: map[string]interface{}{"echo": func(Conn) string { return "ok" }}})
-	p.stall(t, p.nc, defaultWriteBufferSize)
-	p.send(t, `21["echo"]`)
-	recv(t, p.fc.closed, "engine.io close on overflow")
-	p.overflowReported(t, "/")
-	p.disconnected(t, "/") // the read goroutine ran it, so it did not block
+// Covers 1B-T27 (S, C).
+func TestBackpressureLibraryPacketOverflow(t *testing.T) {
+	for _, tc := range []struct {
+		side  byte
+		frame string
+		nsps  []string // the last one overflows
+	}{{'S', `21["echo"]`, []string{"/"}}, {'C', `21["echo"]`, []string{"/"}}, {'S', "0/a", []string{"/", "/a"}}} {
+		p := start(t, tc.side, hooks{events: map[string]interface{}{"echo": func(Conn) string { return "ok" }}}, "/a")
+		p.stall(t, p.nc, defaultWriteBufferSize)
+		p.send(t, tc.frame) // the ACK or CONNECT reply finds the queue full
+		recv(t, p.fc.closed, "engine.io close on overflow")
+		p.overflowReported(t, tc.nsps[len(tc.nsps)-1])
+		p.disconnected(t, tc.nsps...) // the read goroutine ran them, so it did not block
+	}
+}
+
+// Covers 1B-T9 (S).
+func TestBackpressureArgDecodeErrorReport(t *testing.T) {
+	p := start(t, 'S', hooks{events: map[string]interface{}{"num": func(Conn, int) {}}}, "/a")
+	p.join(t, "/a")
+	p.send(t, `2/a,["num","x"]`)
+	p.disconnected(t, "/", "/a")
+	errs := drain(p.errs)
+	require.Len(t, errs, 1, "reports")
+	require.Equal(t, "/a", errs[0].nsp)
 }

@@ -327,3 +327,23 @@ func TestBackpressureConnectErrorSkipsFlush(t *testing.T) {
 	recv(t, inBackground(func() { srv.serveConn(fc) }), "serveConn of a refused connection")
 	recv(t, fc.closed, "engine.io close of "+fc.id)
 }
+
+// TestBackpressureCloseFromOnErrorWhileWriterFails checks that Close called
+// from OnError returns while the writer fails on a queued packet: the writer
+// must not wait to report that failure to the goroutine running Close.
+func TestBackpressureCloseFromOnErrorWhileWriterFails(t *testing.T) {
+	srv := newBackpressureServer(t)
+	srv.OnError("/", func(c Conn, _ error) {
+		if c != nil {
+			_ = c.Close()
+		}
+	})
+	fc := newStallConn("failing", 1)
+	nc := srv.serve(t, fc)
+
+	nc.Emit("bad", make(chan int)) // both fail to encode
+	nc.Emit("bad", make(chan int))
+	recv(t, fc.stalled, "the writer to take the first packet")
+	close(fc.release)
+	recv(t, fc.closed, "engine.io close of "+fc.id)
+}

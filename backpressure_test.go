@@ -201,3 +201,26 @@ func TestBackpressureQueueCapacity(t *testing.T) {
 	recv(t, inBackground(func() { nc.Emit("msg") }), "the overflowing Emit")
 	srv.expectOverflow(t, fc)
 }
+
+// TestBackpressureOverflowDuringClose checks that a queue overflowing on the
+// goroutine that runs Close, here from OnDisconnect, does not deadlock Close:
+// closing on the emitting goroutine would re-enter Close.
+func TestBackpressureOverflowDuringClose(t *testing.T) {
+	srv := newBackpressureServer(t)
+	srv.OnDisconnect("/", func(c Conn, _ string) {
+		c.Emit("bye")
+		srv.disconnects <- c.ID()
+	})
+	fc := newStallConn("stalled", 1)
+	nc := srv.serve(t, fc)
+
+	nc.Emit("msg")
+	recv(t, fc.stalled, "the writer to take the first packet")
+	for i := 0; i < defaultWriteBufferSize; i++ {
+		nc.Emit("msg")
+	}
+
+	recv(t, inBackground(func() { _ = nc.Close() }), "Close whose OnDisconnect overflows the queue")
+	require.Equal(t, fc.id, recv(t, srv.disconnects, "OnDisconnect of "+fc.id))
+	recv(t, fc.closed, "engine.io close of "+fc.id)
+}

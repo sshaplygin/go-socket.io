@@ -97,7 +97,8 @@ Tasks:
   rules below apply to `Server` connections and to `Client` alike.
   - *Size:* temporary v1 `engineio.Options.WriteBufferSize` counts socket.io packets
     (unrelated to `websocket.Transport.WriteBufferSize`, which counts bytes); 0 and
-    negative values mean the default 64; no opt-out in v1. 1.B uses an unexported
+    negative values mean the default 64; no opt-out in v1. A packet the writer has
+    started (see *Overflow*) no longer counts toward it. 1.B uses an unexported
     default; 1I wires the option.
   - *Drain deadline:* `engineio.Options.PingTimeout` as passed to `NewServer` /
     `NewClient`; nil options, 0 and negative values mean one minute. It is read by the
@@ -115,7 +116,8 @@ Tasks:
     exactly once per connected namespace whatever the number and kind of closes, also
     when a peer namespace DISCONNECT is being dispatched as the close starts; later
     `Close` calls return `nil` and change nothing. A later library-started close can
-    only shorten a drain: it ends the drain at once and discards the rest. Once any
+    only shorten a drain: any read or writer failure during a drain, whatever its
+    cause, ends the drain at once and discards the rest, without a report. Once any
     close has started, an `Emit` is dropped silently, never blocks and is not reported,
     except that a draining close still queues packets until its seal.
   - *Overflow* (no close started): an Emit that finds the queue full marks the
@@ -148,18 +150,25 @@ Tasks:
     from root `OnConnect` that then returns nil is not a connect failure: the
     goroutines start and the drain runs.
   - *Discarding closes:* every close started inside the library discards the queue and
-    closes the engine.io connection at once: read or decode error, dispatch error,
-    encode error (any `Encode` failure, marshal or transport write; in v1.4 the
-    connection stayed open), peer close (engine.io CLOSE or the transport closed or
-    failed from the peer side), ping timeout, overflow, and a connect failure before
-    the writer starts. As in v1.4, a read or decode error is reported to root
-    `OnError`, a dispatch or encode error to `OnError` of the packet's namespace, and a
-    connect failure exactly once to root `OnError` with a nil `Conn`, whether it came
-    from `Encode` or from `OnConnect`. Such a report comes first: its `OnError` call
-    returns before the discarding close starts. Once any close has started, a read or
-    writer failure, including one caused by the library's own engine.io close, is
-    neither reported nor a new close; a peer close during a drain still ends the drain.
-    v1 `Server.Close` does not close sessions.
+    closes the engine.io connection at once: header read or decode error, argument
+    decode error, dispatch error, encode error (any `Encode` failure, marshal or
+    transport write; in v1.4 the connection stayed open), peer close (engine.io CLOSE
+    or the transport closed or failed from the peer side), ping timeout, overflow, and
+    a connect failure before the writer starts. Reports are routed as in v1.4: a
+    failure to read or decode a packet header goes to root `OnError`, and so do a peer
+    close and a ping timeout, which reach the reader as such a failure; an argument
+    decode, dispatch or encode error goes to `OnError` of the packet's namespace; a
+    connect failure goes exactly once to root `OnError` with a nil `Conn`, whether it
+    came from `Encode` or from `OnConnect`. A report of the close's own cause comes
+    first: the close starts only after its `OnError` call returns, so Emits from that
+    call still queue and can overflow. On the connect-failure path, where an overflow
+    may already have started the close, `serveConn` delivers the connect-failure
+    report, then the overflow report if any, and only then discards the queue, runs
+    `OnDisconnect` and closes engine.io (v1.4 closed first and reported after). Once any
+    close has started, a read or writer failure, including one caused by the library's
+    own engine.io close, is not reported and starts no new close; during a drain it
+    ends the drain (see *First close decides*). v1 `Server.Close` does not close
+    sessions.
   - *Namespace DISCONNECT:* a socket.io DISCONNECT from the peer ends only that
     namespace: its `OnDisconnect` runs once and its rooms are left; the engine.io
     connection and the queue stay as they are.
@@ -168,7 +177,7 @@ Tasks:
     *can* close a healthy client; that polling writes one engine.io frame per poll
     round trip (a packet with k binary attachments needs k+1), so polling clients
     overflow at much lower emit rates; that an encode error now closes the connection;
-    and that after `Close` returns the transport closes asynchronously, so
+    that a closing error is now reported before the close's effects run; and that after `Close` returns the transport closes asynchronously, so
     `Server.Count` still counts the session until then. The changelog states the
     changes and links to that godoc.
   - *Broadcasts:* `Send`, `SendAll` and `ForEach` emit or call back after releasing
@@ -191,20 +200,27 @@ Tasks:
     6. 1B-T6 (S, C): with a 50 ms drain deadline a stalled peer's engine.io connection
        closes within 50 ms + 1 s, and `OnError` is not called.
     7. 1B-T7 (S, C): a read-error close discards and closes at once.
-    8. 1B-T8 (S, C): an engine.io-CLOSE close discards and closes at once.
-    9. 1B-T9 (S, C): a dispatch-error close discards and closes at once.
+    8. 1B-T8 (S, C): an engine.io-CLOSE close discards, closes at once and is reported
+       exactly once to root `OnError`.
+    9. 1B-T9 (S, C): a dispatch-error close discards and closes at once; on S, an
+       argument decode error in a non-root namespace is reported to that namespace's
+       `OnError` and not to root.
     10. 1B-T10 (S, C): an encode error is reported once to `OnError` of the packet's
         namespace, then the connection discards and closes at once.
     11. 1B-T11 (S, C): a connect failure discards, closes at once and is reported
-        exactly once.
+        exactly once, before `OnDisconnect` runs. On C the trigger is the CONNECT
+        `Encode` failure and nothing can be queued; a Client `OnConnect` error is a
+        dispatch error (1B-T9).
     12. 1B-T12 (S, C): a read-error close whose `OnDisconnect` emits
         `WriteBufferSize`+1 packets reports no `ErrWriteBufferFull` and nothing for
         the dropped Emits.
-    13. 1B-T13 (S, C): a library close racing a draining `Close` ends the drain.
+    13. 1B-T13 (S, C): a read failure from the fake reader during a draining `Close`
+        ends the drain at once, unreported.
     14. 1B-T14 (S, C): a peer namespace DISCONNECT whose `OnDisconnect` is held on a
         channel races `Close`; `OnDisconnect` runs once for that namespace and once for
         each other connected namespace.
-    15. 1B-T15 (S, C): an overflow reports `ErrWriteBufferFull` exactly once, to the
+    15. 1B-T15 (S, C): with a packet in flight (its `NextWriter` called and blocked),
+        an overflow reports `ErrWriteBufferFull` exactly once, to the
         namespace of the overflowing packet.
     16. 1B-T16 (S, C): with a binary packet in flight (its `NextWriter` called and
         blocked) an overflow lets the writer start no further packet.
@@ -215,7 +231,8 @@ Tasks:
         and the `OnConnect` error are each reported once.
     19. 1B-T19 (S): an overflow triggered inside `BroadcastToRoom` does not deadlock.
     20. 1B-T20 (S): an overflow triggered inside `ForEach` does not deadlock.
-    21. 1B-T21 (S, C): with the writer blocked, a dispatch error whose `OnError`
+    21. 1B-T21 (S, C): with a packet in flight (its `NextWriter` called and blocked),
+        a dispatch error whose `OnError`
         emits `WriteBufferSize`+1 packets does not deadlock; `ErrWriteBufferFull` is
         reported once and `OnDisconnect` runs once.
     22. 1B-T22 (S, C): `Close` from `OnError` does not deadlock.
@@ -226,7 +243,8 @@ Tasks:
     26. 1B-T26 (S): a draining `Close` from root `OnConnect` returning nil delivers the
         Emits queued before the seal and closes the engine.io connection within the
         drain deadline.
-    27. 1B-T27 (S, C): an ACK reply that finds the queue full starts an overflow close
+    27. 1B-T27 (S, C): with a packet in flight, an ACK reply that finds the queue full
+        starts an overflow close
         and the read goroutine does not block; on S, the same for a namespace CONNECT
         reply.
   - *Tests (1I):*
@@ -237,8 +255,10 @@ Tasks:
        checked on the stored per-connection value.
     5. 1I-T5 (S, C): a negative `PingTimeout` gives one minute, checked on the stored
        per-connection value (engine.io sessions with a negative timeout expire at once).
-    6. 1I-T6 (S, C): a custom `PingTimeout` bounds a live drain: a stalled peer's
-       engine.io connection closes within that value + 1 s.
+    6. 1I-T6 (S, C): a custom `PingTimeout` becomes the drain deadline, checked on the
+       stored per-connection value. The live bound is 1B-T6: on a real session the
+       engine.io write deadline equals `PingTimeout`, so a live test could not tell the
+       two apart.
   - *Gate record:* a test covering a case names it in its doc comment, for example
     `// Covers 1B-T3 (S, C).`; the stage 1 DoD checks that every (case, side) pair of
     both lists is named by a passing test.

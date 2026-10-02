@@ -292,9 +292,9 @@ func (c *conn) serveWrite() {
 		case <-seal:
 			seal = nil
 		case pkg := <-c.writeChan:
-			if err := c.encoder.Encode(pkg.Header, pkg.Data); err != nil && !isDone(c.closing) {
-				c.onError(pkg.Header.Namespace, err)
-				c.stop()
+			if err := c.encoder.Encode(pkg.Header, pkg.Data); err != nil {
+				c.onError(pkg.Header.Namespace, err) // not once a close started
+				c.stop()                             // also ends a drain
 			}
 		}
 		if seal == nil && len(c.writeChan) == 0 {

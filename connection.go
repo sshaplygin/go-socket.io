@@ -50,8 +50,7 @@ type conn struct {
 
 	log *slog.Logger
 
-	closeOnce    sync.Once
-	overflowOnce sync.Once
+	closeOnce sync.Once
 
 	// mu orders write and flush: nothing is queued after the flush token.
 	mu        sync.Mutex
@@ -60,6 +59,7 @@ type conn struct {
 	discard   bool          // the queue overflowed or no writer reads it
 	token     bool          // the flush token is in writeChan
 	written   chan struct{} // closed when the writer reaches the token
+	draining  chan struct{} // closed by flush; onError then drops reports
 	closeWait time.Duration
 }
 
@@ -74,6 +74,7 @@ func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, log *slog.Lo
 		handlers:   handlers,
 		namespaces: newNamespaces(),
 		written:    make(chan struct{}),
+		draining:   make(chan struct{}),
 		closeWait:  defaultCloseWriteTimeout,
 	}
 	c.encoder = parser.NewEncoder(queueWriter{c})
@@ -162,9 +163,9 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 	case len(c.writeChan) < defaultWriteBufferSize: // one slot is left for the token
 		c.writeChan <- pkg
 		c.queued = true
-	default:
+	case !c.discard: // report the first overflow only
 		c.discard = true // an overflow close may discard the queue
-		c.overflowOnce.Do(func() { go c.closeOnOverflow(header.Namespace) })
+		go c.closeOnOverflow(header.Namespace)
 	}
 }
 
@@ -174,6 +175,7 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 func (c *conn) flush() {
 	c.mu.Lock()
 	c.closing = true
+	close(c.draining) // the writer must not wait for a goroutine in Close
 	if c.discard || !c.queued {
 		c.mu.Unlock()
 		return
@@ -211,11 +213,10 @@ type discardWriter struct{ io.Writer }
 
 func (discardWriter) Close() error { return nil }
 
-// closeOnOverflow reports errWriteBufferFull to OnError of namespace, unless
-// the connection quits first, and closes only the engine.io connection; the
-// read goroutine then fails and its deferred Close runs OnDisconnect after its
-// running handler returns. It runs on its own goroutine, as the emitter may be
-// the goroutine that takes the report. OnError and OnDisconnect are unordered.
+// closeOnOverflow reports errWriteBufferFull to OnError of namespace unless
+// Close starts draining first, then closes the engine.io connection; the read
+// goroutine fails and runs OnDisconnect, unordered with OnError, after its
+// handler returns. It runs off the emitter, which may take the report itself.
 func (c *conn) closeOnOverflow(namespace string) {
 	c.onError(namespace, errWriteBufferFull)
 
@@ -234,7 +235,7 @@ func (c *conn) onError(namespace string, err error) {
 	select {
 	case c.errorChan <- newErrorMessage(namespace, err):
 	case <-c.quitChan:
-		return
+	case <-c.draining:
 	}
 }
 

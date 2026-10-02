@@ -237,17 +237,22 @@ func TestBackpressureOverflowDuringClose(t *testing.T) {
 func TestBackpressureOverflowDisconnectsOnReadGoroutine(t *testing.T) {
 	srv := newBackpressureServer(t)
 	fc := newStallConn("stalled", 1)
+	var disconnected atomic.Bool
+	srv.OnDisconnect("/", func(c Conn, _ string) {
+		disconnected.Store(true)
+		srv.disconnects <- c.ID()
+	})
+	early := make(chan bool, 1)
 	srv.OnEvent("/", "flood", func(c Conn) {
 		for i := 0; i < defaultWriteBufferSize+2; i++ {
 			c.Emit("msg")
 		}
 		<-fc.closed // closed by the overflow or, on failure, by the test cleanup
-		if len(srv.disconnects) > 0 {
-			t.Error("OnDisconnect ran while the overflowing handler was running")
-		}
+		early <- disconnected.Load()
 	})
 	srv.serve(t, fc)
 
 	fc.reads <- `2["flood"]`
+	require.False(t, recv(t, early, "the overflowing handler"), "OnDisconnect ran while the overflowing handler was running")
 	srv.expectOverflow(t, fc)
 }

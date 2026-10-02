@@ -93,9 +93,14 @@ Remaining tasks:
   adapter construction errors through the 1I integration step; reconnect subscriptions with backoff after receive
   failures. Each fix has a regression test, including two-server tests under `-race`.
 - **1.B Backpressure:** add temporary v1 `engineio.Options.WriteBufferSize` (default
-  64); close the slow connection and report overflow via `OnError`. Snapshot room
-  members under lock; emit after releasing it. Test that one stalled member does not
-  block another.
+  64); `Emit` never blocks; on a full queue close the slow connection and report
+  overflow via `OnError`. On a normal (non-overflow) `Close`, packets already queued
+  are written before the engine.io connection closes, bounded by the write deadline;
+  an overflow close may discard them. A burst larger than `WriteBufferSize` therefore
+  closes even a healthy client; the `Emit` and `WriteBufferSize` godoc and the
+  changelog say so. Snapshot room members under lock; emit after releasing it. Test
+  that one stalled member does not block another and that a normal `Close` delivers
+  queued packets.
 - **1.S Runtime fixes:** synchronous session registration before a second request can
   use its SID; `Manager.Count` uses `RLock`; correct EOF result from `Server.Serve`.
   Cover session lifecycle and root connect/event/ack/namespace/room/disconnect paths.

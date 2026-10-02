@@ -335,3 +335,17 @@ func TestRedisBroadcastResubscribesAfterRestart(t *testing.T) {
 	time.Sleep(4 * redisReconnectMax)
 	require.Equal(t, 1, s.PubSubNumSub(testRedisReqChannel)[testRedisReqChannel])
 }
+
+// A server that accepts the connection but refuses the subscription, as on
+// NOAUTH or an ACL error, fails every reconnect after a successful dial.
+func TestRedisBroadcastReconnectBackoff(t *testing.T) {
+	s := miniredis.RunT(t)
+	newTestRedisBroadcast(t, s)
+	s.RequireAuth("pw")
+	s.Close()
+	require.NoError(t, s.Restart())
+
+	// Doubling from 5 ms up to 50 ms allows about 8 attempts in 300 ms.
+	time.Sleep(300 * time.Millisecond)
+	require.LessOrEqual(t, s.TotalConnectionCount(), 12)
+}

@@ -142,9 +142,13 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 }
 
 // closeOnOverflow reports errWriteBufferFull to the OnError handler of
-// namespace and closes the connection. It runs on its own goroutine: write
-// may be called with a broadcast lock held, and Close takes that lock to
-// leave the rooms.
+// namespace and closes the connection. It runs on its own goroutine because
+// the emitter may be unable to wait for either step: an Emit from
+// OnDisconnect runs inside Close, an Emit from OnError runs on the goroutine
+// that receives the report, and a broadcaster may hold a lock that Close
+// takes to leave the rooms. The report only hands the error to serveError,
+// so OnError and the OnDisconnect handlers run concurrently in no fixed
+// order, and the report is dropped if the connection quits first.
 func (c *conn) closeOnOverflow(namespace string) {
 	c.onError(namespace, errWriteBufferFull)
 

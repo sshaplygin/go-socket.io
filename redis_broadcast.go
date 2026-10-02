@@ -619,6 +619,7 @@ func (bc *redisBroadcast) getRoomsByConn(connection Conn) []string {
 // the subscriber connection is reopened.
 func (bc *redisBroadcast) dispatch() {
 	sub := bc.sub
+	delay := redisReconnectMin
 	for {
 		switch m := sub.Receive().(type) {
 		case redis.Message:
@@ -635,24 +636,28 @@ func (bc *redisBroadcast) dispatch() {
 			if m.Count == 0 {
 				return
 			}
+			// The server accepted the subscription, so the backoff starts over.
+			delay = redisReconnectMin
 
 		case error:
 			_ = sub.Close()
-			if sub = bc.resubscribe(); sub == nil {
+			if sub, delay = bc.resubscribe(delay); sub == nil {
 				return
 			}
 		}
 	}
 }
 
-// resubscribe opens a new subscriber connection, retrying with exponential
-// backoff from redisReconnectMin up to redisReconnectMax. It returns nil once
-// the broadcast is closed.
-func (bc *redisBroadcast) resubscribe() *redis.PubSubConn {
-	for delay := redisReconnectMin; ; delay = min(2*delay, redisReconnectMax) {
+// resubscribe opens a new subscriber connection, waiting delay before the
+// first attempt and doubling it up to redisReconnectMax after each attempt.
+// It returns the connection and the delay for the next reconnect, so the
+// backoff also grows when the server refuses each new subscription, or a
+// nil connection once the broadcast is closed.
+func (bc *redisBroadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.Duration) {
+	for ; ; delay = min(2*delay, redisReconnectMax) {
 		select {
 		case <-bc.done:
-			return nil
+			return nil, 0
 		case <-time.After(delay):
 		}
 
@@ -666,10 +671,10 @@ func (bc *redisBroadcast) resubscribe() *redis.PubSubConn {
 		select {
 		case <-bc.done:
 			_ = sub.Close()
-			return nil
+			return nil, 0
 		default:
 			bc.sub = sub
-			return sub
+			return sub, min(2*delay, redisReconnectMax)
 		}
 	}
 }

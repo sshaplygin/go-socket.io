@@ -90,12 +90,7 @@ func (c *Client) Connect() error {
 
 	c.conn = newConn(enginioCon, c.handlers, c.log.With("sid", enginioCon.ID()))
 
-	if err := c.conn.connectClient(); err != nil {
-		if root, ok := c.handlers.Get(rootNamespace); ok && root.onError != nil {
-			root.onError(nil, err)
-		}
-		c.conn.stop()
-		c.conn.finish()
+	if err := c.conn.connectClient(); !c.conn.connected(err) {
 		return err
 	}
 

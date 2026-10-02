@@ -15,29 +15,23 @@ import (
 	"github.com/googollee/go-socket.io/parser"
 )
 
-// defaultWriteBufferSize is the outbound queue size; see ErrWriteBufferFull.
-const defaultWriteBufferSize = 64
-
-const defaultDrainTimeout = time.Minute // see Conn.Close
+// The outbound queue size (see ErrWriteBufferFull) and drain deadline (see Conn.Close).
+const defaultWriteBufferSize, defaultDrainTimeout = 64, time.Minute
 
 // Conn is a connection in go-socket.io
 type Conn interface {
-	// Close closes the connection and returns nil; only the first close, by
-	// Close or by the library, has an effect. Close runs OnDisconnect for
-	// every connected namespace, leaves its rooms and returns without waiting.
-	// The packets queued until then, Emits from OnDisconnect included, are
-	// written in the background; an Emit that finds the queue full, or comes
-	// later, is dropped without a report. Then, or one minute after Close
-	// started, the rest is discarded and the engine.io connection is closed;
-	// Server.Count counts the session until then. Incoming packets are no
-	// longer dispatched, and a read or write failure ends the drain at once.
-	// The library closes a connection on a read, decode, dispatch or encode
-	// error (an encode error used to leave it open), a peer close, a ping
-	// timeout, an overflow (see ErrWriteBufferFull) or a failed connect,
-	// discarding the queue at once. Other than an overflow, the error is
-	// reported to OnError before the close's effects run, so Emits from
-	// OnError still queue; a failed connect is reported to root OnError with
-	// a nil Conn. Failures after a close started are not reported.
+	// Close closes the connection and returns nil; only the first close, by Close or by the library,
+	// has an effect. Close runs OnDisconnect for every connected namespace, leaves its rooms and
+	// returns without waiting. The packets queued until then, Emits from OnDisconnect included, are
+	// written in the background; an Emit that finds the queue full, or comes later, is dropped without
+	// a report. Then, or one minute after Close started, the rest is discarded and the engine.io
+	// connection is closed; Server.Count counts the session until then. Incoming packets are no longer
+	// dispatched, and a read or write failure ends the drain at once. The library closes a connection
+	// on a read, decode, dispatch or encode error (an encode error used to leave it open), a peer
+	// close, a ping timeout, an overflow (see ErrWriteBufferFull) or a failed connect, discarding the
+	// queue at once. Other than an overflow, the error is reported to OnError before the close's
+	// effects run, so Emits from OnError still queue; a failed connect is reported to root OnError
+	// with a nil Conn. Failures during a close are not reported.
 	Close() error
 	Namespace
 
@@ -64,11 +58,10 @@ type conn struct {
 
 	log *slog.Logger
 
-	// mu orders the close state against queueing packets and connecting
-	// namespaces. The channels close at those steps of the close.
+	// mu orders the close state, whose steps close the channels, against queueing and registering.
 	mu                           sync.Mutex
 	closing, seal, discard, done chan struct{}
-	draining, connecting         bool             // the first close is Close; serveConn runs connect
+	draining, connecting         bool             // the first close is Close; until connected
 	overflow                     *namespaceConn   // the first close is its overflow
 	pending                      []*namespaceConn // OnDisconnect calls a library close owes
 	drainTimer                   *time.Timer
@@ -89,7 +82,7 @@ func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, log *slog.Lo
 		discard:    make(chan struct{}),
 		done:       make(chan struct{}),
 	}
-	c.encoder, c.drainTimeout = parser.NewEncoder(queueWriter{c}), defaultDrainTimeout
+	c.encoder, c.drainTimeout, c.connecting = parser.NewEncoder(queueWriter{c}), defaultDrainTimeout, true
 	return c
 }
 
@@ -100,10 +93,8 @@ func (c *conn) Close() error {
 		return nil
 	}
 	ncs := c.startClose()
-	c.draining = true
-	c.drainTimer = time.AfterFunc(c.drainTimeout, c.stop)
+	c.draining, c.drainTimer = true, time.AfterFunc(c.drainTimeout, c.stop)
 	c.mu.Unlock()
-
 	c.disconnect(ncs)
 	c.mu.Lock()
 	close(c.seal)
@@ -141,8 +132,10 @@ func (c *conn) stopLocked() {
 	}
 }
 
+// finish ends the close: it discards, then runs the OnDisconnect calls a library close owes.
 func (c *conn) finish() {
 	c.mu.Lock()
+	c.stopLocked()
 	ncs := c.pending
 	c.mu.Unlock()
 	c.disconnect(ncs)
@@ -161,11 +154,10 @@ func (c *conn) disconnect(ncs []*namespaceConn) {
 func (c *conn) register(nsp string, nc *namespaceConn) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if isDone(c.closing) {
-		return false
+	if !isDone(c.closing) {
+		c.namespaces.Set(nsp, nc)
 	}
-	c.namespaces.Set(nsp, nc)
-	return true
+	return !isDone(c.closing)
 }
 
 func (c *conn) claim(nsp string) (*namespaceConn, bool) {
@@ -177,7 +169,6 @@ func (c *conn) claim(nsp string) (*namespaceConn, bool) {
 }
 
 func (c *conn) connect() error {
-	c.connecting = true // before root joins a room, so no other goroutine sees it
 	rootHandler, ok := c.handlers.Get(rootNamespace)
 	if !ok {
 		return errUnavailableRootHandler
@@ -200,17 +191,27 @@ func (c *conn) connect() error {
 		return err
 	}
 
-	if _, err := rootHandler.dispatch(root, header); err != nil {
-		return err
-	}
+	_, err := rootHandler.dispatch(root, header)
+	return err
+}
 
-	c.mu.Lock() // the goroutines start after this; an overflow before it fails the connect
-	defer c.mu.Unlock()
-	if c.overflow != nil {
-		return ErrWriteBufferFull
+// connected ends the connect before the goroutines start. A failure, err or an overflow, starts
+// the close at once, so later Emits are dropped; err, then the overflow, is reported, then closed.
+func (c *conn) connected(err error) bool {
+	c.mu.Lock()
+	failed := err != nil || isDone(c.closing) && !c.draining
+	if c.connecting = false; failed && !isDone(c.closing) {
+		c.pending = c.startClose()
 	}
-	c.connecting = false
-	return nil
+	c.mu.Unlock()
+	if root := c.namespace(rootNamespace); err != nil && root != nil && root.onError != nil {
+		root.onError(nil, err)
+	}
+	if failed {
+		c.reportOverflow(nil)
+		c.finish()
+	}
+	return !failed
 }
 
 func (c *conn) nextID() uint64 {

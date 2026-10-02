@@ -245,13 +245,7 @@ func (s *Server) ForEach(namespace string, room string, f EachFunc) bool {
 
 func (s *Server) serveConn(conn engineio.Conn) {
 	c := newConn(conn, s.handlers, s.log.With("sid", conn.ID()))
-	if err := c.connect(); err != nil {
-		if root, ok := s.handlers.Get(rootNamespace); ok && root.onError != nil && !errors.Is(err, ErrWriteBufferFull) {
-			root.onError(nil, err)
-		}
-		c.reportOverflow(nil)
-		c.stop()
-		c.finish()
+	if !c.connected(c.connect()) {
 		return
 	}
 
@@ -311,7 +305,6 @@ func (s *Server) serveRead(c *conn) {
 // serveRead dispatches packets until a close takes the namespaces.
 func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
 	defer c.finish()
-	defer c.stop()
 
 	var event string
 

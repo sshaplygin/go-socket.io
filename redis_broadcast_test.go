@@ -349,3 +349,40 @@ func TestRedisBroadcastReconnectBackoff(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	require.LessOrEqual(t, s.TotalConnectionCount(), 12)
 }
+
+// Answers to a pending request with missing, mistyped or mismatched fields
+// count as empty answers instead of stopping the dispatcher.
+func TestRedisBroadcastMalformedResponses(t *testing.T) {
+	s := miniredis.RunT(t)
+	a := newTestRedisBroadcast(t, s)
+	lenReq := &roomLenRequest{numSub: 3, done: make(chan bool, 1)}
+	roomsReq := &allRoomRequest{numSub: 3, rooms: map[string]bool{}, done: make(chan bool, 1)}
+	a.setRequest("len", lenReq)
+	a.setRequest("rooms", roomsReq)
+
+	for _, msg := range []string{
+		`{"RequestType":"2","RequestID":"rooms"}`,
+		`{"RequestType":"0","RequestID":"len","Connections":"x"}`,
+		`{"RequestType":"2","RequestID":"len","Rooms":["r"]}`,
+		`{"RequestType":"0","RequestID":"len","Connections":2}`,
+		`{"RequestType":"0","RequestID":"rooms","Connections":1}`,
+		`{"RequestType":"2","RequestID":"rooms","Rooms":[1,"r"]}`,
+	} {
+		s.Publish("socket.io-response#/", msg)
+	}
+
+	for _, done := range []chan bool{lenReq.done, roomsReq.done} {
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("request not completed")
+		}
+	}
+	lenReq.mutex.Lock()
+	defer lenReq.mutex.Unlock()
+	roomsReq.mutex.Lock()
+	defer roomsReq.mutex.Unlock()
+	require.Equal(t, []int{3, 2}, []int{lenReq.msgCount, lenReq.connections})
+	require.Equal(t, 3, roomsReq.msgCount)
+	require.Equal(t, map[string]bool{"r": true}, roomsReq.rooms)
+}

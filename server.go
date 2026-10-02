@@ -308,8 +308,7 @@ func (s *Server) serveRead(c *conn) {
 	s.engine.Remove(c.Conn.ID())
 }
 
-// serveRead dispatches packets; once a close took the namespaces, the
-// handlers find none.
+// serveRead dispatches packets until a close takes the namespaces.
 func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
 	defer c.finish()
 	defer c.stop()
@@ -330,6 +329,7 @@ func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
 		}
 
 		var err error
+		closed := isDone(c.closing) // then the handlers dispatch nothing and end no drain
 		switch header.Type {
 		case parser.Ack:
 			err = ackPacketHandler(c, header)
@@ -341,7 +341,7 @@ func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
 			err = eventPacketHandler(c, event, header)
 		}
 
-		if err != nil {
+		if err != nil && !closed {
 			c.log.Error("serve read", "err", err)
 
 			return

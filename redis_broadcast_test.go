@@ -166,6 +166,8 @@ func TestRedisBroadcastRequestsReadRoomsUnderLock(t *testing.T) {
 			default:
 				a.Join("room", c)
 				a.Leave("room", c)
+				// Pause so that the requests progress with GOMAXPROCS=1.
+				time.Sleep(time.Microsecond)
 			}
 		}
 	}()

@@ -1,7 +1,10 @@
 package socketio
 
 import (
+	"bufio"
 	"fmt"
+	"io"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -231,4 +234,49 @@ func TestRedisBroadcastRequestTimeout(t *testing.T) {
 		t.Fatal("Len and AllRooms did not return")
 	}
 	require.Empty(t, a.requests)
+}
+
+// The server accepts the first connection and refuses the AUTH of the second,
+// so construction fails after one connection is open.
+func TestRedisBroadcastConstructionFailure(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	firstClosed := make(chan struct{})
+	go func() {
+		for first := true; ; first = false {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(first bool) {
+				defer func() { _ = c.Close() }()
+				r := bufio.NewReader(c)
+				for i := 0; i < 5; i++ { // *2, $4, AUTH, $2, pw
+					if _, err := r.ReadString('\n'); err != nil {
+						return
+					}
+				}
+				if !first {
+					_, _ = c.Write([]byte("-ERR refused\r\n"))
+					return
+				}
+				_, _ = c.Write([]byte("+OK\r\n"))
+				_, _ = io.Copy(io.Discard, r)
+				close(firstClosed)
+			}(first)
+		}
+	}()
+
+	opts := &RedisAdapterOptions{Addr: ln.Addr().String(), Network: "tcp", Prefix: "socket.io", Password: "pw"}
+	_, err = newRedisBroadcast("/", opts)
+	require.Error(t, err)
+	select {
+	case <-firstClosed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the first connection was not closed")
+	}
+
+	require.NoError(t, ln.Close())
+	_, err = newRedisBroadcast("/", opts)
+	require.Error(t, err)
 }

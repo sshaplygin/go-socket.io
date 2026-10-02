@@ -220,43 +220,19 @@ func (bc *redisBroadcast) Clear(room string) {
 
 // Send sends given event & args to all the connections in the specified room.
 func (bc *redisBroadcast) Send(room, event string, args ...interface{}) {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-
-	connections, ok := bc.rooms[room]
-	if ok {
-		for _, connection := range connections {
-			connection.Emit(event, args...)
-		}
-	}
-
+	bc.send(room, event, args...)
 	bc.publishMessage(room, event, args...)
 }
 
 // SendAll sends given event & args to all the connections to all the rooms.
 func (bc *redisBroadcast) SendAll(event string, args ...interface{}) {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-
-	for _, connections := range bc.rooms {
-		for _, connection := range connections {
-			connection.Emit(event, args...)
-		}
-	}
+	bc.sendAll(event, args...)
 	bc.publishMessage("", event, args...)
 }
 
 // ForEach sends data returned by DataFunc, if room does not exits sends nothing.
 func (bc *redisBroadcast) ForEach(room string, f EachFunc) {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-
-	occupants, ok := bc.rooms[room]
-	if !ok {
-		return
-	}
-
-	for _, connection := range occupants {
+	for _, connection := range bc.members(room, false) {
 		f(connection)
 	}
 }
@@ -498,17 +474,30 @@ func (bc *redisBroadcast) clear(room string) {
 }
 
 func (bc *redisBroadcast) send(room string, event string, args ...interface{}) {
+	for _, connection := range bc.members(room, false) {
+		connection.Emit(event, args...)
+	}
+}
+
+// members returns the connections in room, or with all set the connections
+// of every room, once per room. Callers emit to them after bc.lock is
+// released, so a connection can leave its rooms while it is emitted to.
+func (bc *redisBroadcast) members(room string, all bool) []Conn {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
 
-	connections, ok := bc.rooms[room]
-	if !ok {
-		return
+	rooms := bc.rooms
+	if !all {
+		rooms = map[string]map[string]Conn{room: bc.rooms[room]}
 	}
 
-	for _, connection := range connections {
-		connection.Emit(event, args...)
+	var conns []Conn
+	for _, connections := range rooms {
+		for _, connection := range connections {
+			conns = append(conns, connection)
+		}
 	}
+	return conns
 }
 
 func (bc *redisBroadcast) publishMessage(room string, event string, args ...interface{}) {
@@ -532,13 +521,8 @@ func (bc *redisBroadcast) publishMessage(room string, event string, args ...inte
 }
 
 func (bc *redisBroadcast) sendAll(event string, args ...interface{}) {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-
-	for _, connections := range bc.rooms {
-		for _, connection := range connections {
-			connection.Emit(event, args...)
-		}
+	for _, connection := range bc.members("", true) {
+		connection.Emit(event, args...)
 	}
 }
 

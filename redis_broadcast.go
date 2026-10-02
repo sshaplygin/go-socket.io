@@ -25,7 +25,8 @@ type redisBroadcast struct {
 	reqChannel string
 	resChannel string
 
-	requests map[string]interface{}
+	requests    map[string]interface{}
+	requestLock sync.Mutex
 
 	rooms map[string]map[string]Conn
 
@@ -151,7 +152,8 @@ func (bc *redisBroadcast) AllRooms() []string {
 	req.numSub = numSub
 	req.done = make(chan bool, 1)
 
-	bc.requests[req.RequestID] = &req
+	bc.setRequest(req.RequestID, &req)
+	defer bc.setRequest(req.RequestID, nil)
 	_, err := bc.do("PUBLISH", bc.reqChannel, reqJSON)
 	if err != nil {
 		return []string{} // if error occurred,return empty
@@ -164,7 +166,6 @@ func (bc *redisBroadcast) AllRooms() []string {
 		rooms = append(rooms, room)
 	}
 
-	delete(bc.requests, req.RequestID)
 	return rooms
 }
 
@@ -282,7 +283,8 @@ func (bc *redisBroadcast) Len(room string) int {
 
 	req.done = make(chan bool, 1)
 
-	bc.requests[req.RequestID] = &req
+	bc.setRequest(req.RequestID, &req)
+	defer bc.setRequest(req.RequestID, nil)
 	_, err = bc.do("PUBLISH", bc.reqChannel, reqJSON)
 	if err != nil {
 		return -1
@@ -290,7 +292,6 @@ func (bc *redisBroadcast) Len(room string) int {
 
 	<-req.done
 
-	delete(bc.requests, req.RequestID)
 	return req.connections
 }
 
@@ -346,6 +347,17 @@ func (bc *redisBroadcast) onMessage(channel string, msg []byte) error {
 	}
 
 	return nil
+}
+
+// setRequest registers a pending request, or removes it when req is nil.
+func (bc *redisBroadcast) setRequest(id string, req interface{}) {
+	bc.requestLock.Lock()
+	defer bc.requestLock.Unlock()
+	if req == nil {
+		delete(bc.requests, id)
+	} else {
+		bc.requests[id] = req
+	}
 }
 
 // do runs one command on a pooled publishing connection.
@@ -426,7 +438,9 @@ func (bc *redisBroadcast) onResponse(msg []byte) {
 		return
 	}
 
+	bc.requestLock.Lock()
 	req, ok := bc.requests[res["RequestID"].(string)]
+	bc.requestLock.Unlock()
 	if !ok {
 		return
 	}

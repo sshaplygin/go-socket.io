@@ -1,0 +1,203 @@
+package socketio
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"sync"
+	"sync/atomic"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/googollee/go-socket.io/engineio/session"
+)
+
+// stallConn is an engineio.Conn for Server.serveConn. The first allowed
+// frames are recorded on frames; every later NextWriter blocks until Close
+// (allowed < 0 never blocks). NextReader blocks until Close.
+type stallConn struct {
+	id      string
+	allowed int32
+	writes  atomic.Int32
+
+	frames    chan string
+	stalled   chan struct{}
+	stallOnce sync.Once
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+func newStallConn(id string, allowed int32) *stallConn {
+	return &stallConn{
+		id:      id,
+		allowed: allowed,
+		frames:  make(chan string, 256),
+		stalled: make(chan struct{}),
+		closed:  make(chan struct{}),
+	}
+}
+
+func (s *stallConn) NextWriter(session.FrameType) (io.WriteCloser, error) {
+	if n := s.writes.Add(1); s.allowed >= 0 && n > s.allowed {
+		s.stallOnce.Do(func() { close(s.stalled) })
+		<-s.closed
+		return nil, io.EOF
+	}
+	return &frameWriter{out: s.frames}, nil
+}
+
+func (s *stallConn) NextReader() (session.FrameType, io.ReadCloser, error) {
+	<-s.closed
+	return session.TEXT, nil, io.EOF
+}
+
+func (s *stallConn) Close() error {
+	s.closeOnce.Do(func() { close(s.closed) })
+	return nil
+}
+
+func (s *stallConn) ID() string                { return s.id }
+func (s *stallConn) URL() url.URL              { return url.URL{} }
+func (s *stallConn) LocalAddr() net.Addr       { return nil }
+func (s *stallConn) RemoteAddr() net.Addr      { return nil }
+func (s *stallConn) RemoteHeader() http.Header { return nil }
+func (s *stallConn) SetContext(interface{})    {}
+func (s *stallConn) Context() interface{}      { return nil }
+
+type frameWriter struct {
+	bytes.Buffer
+	out chan<- string
+}
+
+func (w *frameWriter) Close() error {
+	w.out <- w.String()
+	return nil
+}
+
+type connErr struct {
+	id  string
+	err error
+}
+
+type backpressureServer struct {
+	*Server
+	connected   chan Conn
+	errs        chan connErr
+	disconnects chan string
+}
+
+// newBackpressureServer returns a server whose root handlers join every
+// connection to room "r" and record OnError and OnDisconnect without blocking.
+func newBackpressureServer(t *testing.T) *backpressureServer {
+	srv := &backpressureServer{
+		Server:      NewServer(nil),
+		connected:   make(chan Conn, 4),
+		errs:        make(chan connErr, 64),
+		disconnects: make(chan string, 4),
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+
+	srv.OnConnect("/", func(c Conn) error {
+		c.Join("r")
+		srv.connected <- c
+		return nil
+	})
+	srv.OnError("/", func(c Conn, err error) {
+		if c == nil {
+			return
+		}
+		select {
+		case srv.errs <- connErr{id: c.ID(), err: err}:
+		default:
+		}
+	})
+	srv.OnDisconnect("/", func(c Conn, _ string) {
+		select {
+		case srv.disconnects <- c.ID():
+		default:
+		}
+	})
+
+	return srv
+}
+
+// serve runs the socket.io connection over fc and waits for its connect packet.
+func (srv *backpressureServer) serve(t *testing.T, fc *stallConn) Conn {
+	t.Helper()
+	srv.serveConn(fc)
+	t.Cleanup(func() { _ = fc.Close() })
+
+	require.Equal(t, "0", recv(t, fc.frames, "connect packet of "+fc.id))
+	return recv(t, srv.connected, "OnConnect of "+fc.id)
+}
+
+// expectOverflow waits for the overflow error and the disconnect of fc.
+func (srv *backpressureServer) expectOverflow(t *testing.T, fc *stallConn) {
+	t.Helper()
+	ev := recv(t, srv.errs, "OnError of "+fc.id)
+	require.Equal(t, fc.id, ev.id)
+	require.ErrorIs(t, ev.err, errWriteBufferFull)
+	require.Equal(t, fc.id, recv(t, srv.disconnects, "OnDisconnect of "+fc.id))
+	recv(t, fc.closed, "engine.io close of "+fc.id)
+}
+
+func inBackground(f func()) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f()
+	}()
+	return done
+}
+
+// TestBackpressureStalledMemberDoesNotBlockRoom checks that a room member
+// whose transport never accepts a write neither delays the broadcast nor the
+// other member, and is closed once its queue overflows.
+func TestBackpressureStalledMemberDoesNotBlockRoom(t *testing.T) {
+	srv := newBackpressureServer(t)
+	stalled := newStallConn("stalled", 1)
+	healthy := newStallConn("healthy", -1)
+	srv.serve(t, stalled)
+	srv.serve(t, healthy)
+
+	// One packet held by the stalled writer, a full queue, and one more. Each
+	// broadcast waits for the healthy member's frame so that its own queue
+	// never fills up.
+	for i := 0; i < defaultWriteBufferSize+2; i++ {
+		recv(t, inBackground(func() { srv.BroadcastToRoom("/", "r", "msg", i) }), "broadcast past the stalled member")
+		require.Equal(t, fmt.Sprintf("2[\"msg\",%d]\n", i), recv(t, healthy.frames, "broadcast to the healthy member"))
+	}
+
+	srv.expectOverflow(t, stalled)
+	require.Equal(t, 1, srv.RoomLen("/", "r"))
+	select {
+	case <-healthy.closed:
+		t.Fatal("the healthy member was closed")
+	default:
+	}
+}
+
+// TestBackpressureQueueCapacity checks that exactly defaultWriteBufferSize
+// packets wait behind a stalled writer and the next one closes the connection.
+func TestBackpressureQueueCapacity(t *testing.T) {
+	srv := newBackpressureServer(t)
+	fc := newStallConn("stalled", 1)
+	nc := srv.serve(t, fc)
+
+	nc.Emit("msg")
+	recv(t, fc.stalled, "the writer to take the first packet")
+
+	recv(t, inBackground(func() {
+		for i := 0; i < defaultWriteBufferSize; i++ {
+			nc.Emit("msg")
+		}
+	}), "packets queued behind the stalled writer")
+	require.Len(t, nc.(*namespaceConn).writeChan, defaultWriteBufferSize)
+
+	recv(t, inBackground(func() { nc.Emit("msg") }), "the overflowing Emit")
+	srv.expectOverflow(t, fc)
+}

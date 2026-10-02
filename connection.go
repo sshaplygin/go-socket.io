@@ -13,6 +13,10 @@ import (
 	"github.com/googollee/go-socket.io/parser"
 )
 
+// defaultWriteBufferSize is the number of outbound packets a connection
+// queues while its writer is busy; one more closes the connection.
+const defaultWriteBufferSize = 64
+
 // Conn is a connection in go-socket.io
 type Conn interface {
 	io.Closer

@@ -123,9 +123,11 @@ Tasks:
     discarding close without blocking the emitter. `OnDisconnect`, leaving the rooms
     and one `ErrWriteBufferFull` report (exported sentinel) run on the connection's
     own goroutines. An overflow before those goroutines start always takes the
-    connect-failure path, whatever `OnConnect` returned; an `OnConnect` error is
-    reported separately, as in v1.4. The report goes to `OnError` of the namespace of
-    the overflowing packet and is delivered although the connection is closing; with
+    connect-failure path, whatever `OnConnect` returned; there `serveConn` runs them
+    synchronously and passes a nil `Conn` to the report, as v1.4 does for connect
+    failures, and an `OnConnect` error is reported separately. The report goes to
+    `OnError` of the namespace of the overflowing packet and is delivered although the
+    connection is closing; with
     no `OnError` registered it is dropped (1.L logs it). Report and `OnDisconnect` have
     no guaranteed order. After the overflow flag is set the socket.io writer starts no
     further packet. A packet has started once the writer called `NextWriter` for its
@@ -147,11 +149,16 @@ Tasks:
     goroutines start and the drain runs.
   - *Discarding closes:* every close started inside the library discards the queue and
     closes the engine.io connection at once: read or decode error, dispatch error,
-    encode error (any `Encode` failure, marshal or transport write, reported to
-    `OnError` of the packet's namespace first as in v1.4; in v1.4 the connection stayed
-    open), peer close (engine.io CLOSE or the transport closed or failed from the peer
-    side), ping timeout, overflow, and a connect failure before the writer starts.
-    Once any close has started, a writer failure is neither reported nor a new close.
+    encode error (any `Encode` failure, marshal or transport write; in v1.4 the
+    connection stayed open), peer close (engine.io CLOSE or the transport closed or
+    failed from the peer side), ping timeout, overflow, and a connect failure before
+    the writer starts. As in v1.4, a read or decode error is reported to root
+    `OnError`, a dispatch or encode error to `OnError` of the packet's namespace, and a
+    connect failure exactly once to root `OnError` with a nil `Conn`, whether it came
+    from `Encode` or from `OnConnect`. Such a report comes first: its `OnError` call
+    returns before the discarding close starts. Once any close has started, a read or
+    writer failure, including one caused by the library's own engine.io close, is
+    neither reported nor a new close; a peer close during a drain still ends the drain.
     v1 `Server.Close` does not close sessions.
   - *Namespace DISCONNECT:* a socket.io DISCONNECT from the peer ends only that
     namespace: its `OnDisconnect` runs once and its rooms are left; the engine.io
@@ -188,9 +195,11 @@ Tasks:
     9. 1B-T9 (S, C): a dispatch-error close discards and closes at once.
     10. 1B-T10 (S, C): an encode error is reported once to `OnError` of the packet's
         namespace, then the connection discards and closes at once.
-    11. 1B-T11 (S, C): a connect failure discards and closes at once.
+    11. 1B-T11 (S, C): a connect failure discards, closes at once and is reported
+        exactly once.
     12. 1B-T12 (S, C): a read-error close whose `OnDisconnect` emits
-        `WriteBufferSize`+1 packets reports nothing.
+        `WriteBufferSize`+1 packets reports no `ErrWriteBufferFull` and nothing for
+        the dropped Emits.
     13. 1B-T13 (S, C): a library close racing a draining `Close` ends the drain.
     14. 1B-T14 (S, C): a peer namespace DISCONNECT whose `OnDisconnect` is held on a
         channel races `Close`; `OnDisconnect` runs once for that namespace and once for
@@ -206,8 +215,9 @@ Tasks:
         and the `OnConnect` error are each reported once.
     19. 1B-T19 (S): an overflow triggered inside `BroadcastToRoom` does not deadlock.
     20. 1B-T20 (S): an overflow triggered inside `ForEach` does not deadlock.
-    21. 1B-T21 (S, C): an overflow triggered by an Emit from an `OnError` handler does
-        not deadlock.
+    21. 1B-T21 (S, C): with the writer blocked, a dispatch error whose `OnError`
+        emits `WriteBufferSize`+1 packets does not deadlock; `ErrWriteBufferFull` is
+        reported once and `OnDisconnect` runs once.
     22. 1B-T22 (S, C): `Close` from `OnError` does not deadlock.
     23. 1B-T23 (S, C): `Close` from `OnDisconnect` does not deadlock.
     24. 1B-T24 (S, C): `Close` called twice concurrently does not deadlock.
@@ -216,16 +226,19 @@ Tasks:
     26. 1B-T26 (S): a draining `Close` from root `OnConnect` returning nil delivers the
         Emits queued before the seal and closes the engine.io connection within the
         drain deadline.
-    27. 1B-T27 (S): an ACK reply that finds the queue full starts an overflow close and
-        the read goroutine does not block.
+    27. 1B-T27 (S, C): an ACK reply that finds the queue full starts an overflow close
+        and the read goroutine does not block; on S, the same for a namespace CONNECT
+        reply.
   - *Tests (1I):*
     1. 1I-T1 (S): 1B-T1 against the Redis broadcast.
     2. 1I-T2 (S, C): `WriteBufferSize` 0 and negative give 64.
     3. 1I-T3 (S, C): a custom `WriteBufferSize` is used.
-    4. 1I-T4 (S, C): nil options and `PingTimeout` 0 give a one-minute drain deadline.
+    4. 1I-T4 (S, C): nil options and `PingTimeout` 0 give a one-minute drain deadline,
+       checked on the stored per-connection value.
     5. 1I-T5 (S, C): a negative `PingTimeout` gives one minute, checked on the stored
        per-connection value (engine.io sessions with a negative timeout expire at once).
-    6. 1I-T6 (S, C): a custom `PingTimeout` bounds a live drain.
+    6. 1I-T6 (S, C): a custom `PingTimeout` bounds a live drain: a stalled peer's
+       engine.io connection closes within that value + 1 s.
   - *Gate record:* a test covering a case names it in its doc comment, for example
     `// Covers 1B-T3 (S, C).`; the stage 1 DoD checks that every (case, side) pair of
     both lists is named by a passing test.

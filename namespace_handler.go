@@ -1,7 +1,9 @@
 package socketio
 
 import (
+	"cmp"
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 
@@ -10,6 +12,7 @@ import (
 
 type namespaceHandler struct {
 	broadcast Broadcast
+	err       error // why broadcast is a nopBroadcast: the Redis broadcast could not be created
 
 	events     map[string]*funcHandler
 	eventsLock sync.RWMutex
@@ -20,18 +23,34 @@ type namespaceHandler struct {
 }
 
 func newNamespaceHandler(nsp string, adapterOpts *RedisAdapterOptions) *namespaceHandler {
-	var broadcast Broadcast
-	if adapterOpts == nil {
-		broadcast = newBroadcast()
-	} else {
-		broadcast, _ = newRedisBroadcast(nsp, adapterOpts)
-	}
-
-	return &namespaceHandler{
-		broadcast: broadcast,
+	nh := &namespaceHandler{
+		broadcast: nopBroadcast{},
 		events:    make(map[string]*funcHandler),
 	}
+	if adapterOpts == nil {
+		nh.broadcast = newBroadcast()
+	} else if bc, err := newRedisBroadcast(nsp, adapterOpts); err != nil {
+		nh.err = fmt.Errorf("socketio: redis broadcast of namespace %q: %w", cmp.Or(nsp, aliasRootNamespace), err)
+	} else {
+		nh.broadcast = bc
+	}
+	return nh
 }
+
+// nopBroadcast is the Broadcast of a namespace whose Redis broadcast could not be
+// created: it keeps no rooms and sends nothing.
+type nopBroadcast struct{}
+
+func (nopBroadcast) Join(string, Conn)                   {}
+func (nopBroadcast) Leave(string, Conn)                  {}
+func (nopBroadcast) LeaveAll(Conn)                       {}
+func (nopBroadcast) Clear(string)                        {}
+func (nopBroadcast) Send(string, string, ...interface{}) {}
+func (nopBroadcast) SendAll(string, ...interface{})      {}
+func (nopBroadcast) ForEach(string, EachFunc)            {}
+func (nopBroadcast) Len(string) int                      { return -1 }
+func (nopBroadcast) Rooms(Conn) []string                 { return nil }
+func (nopBroadcast) AllRooms() []string                  { return nil }
 
 func (nh *namespaceHandler) OnConnect(f func(Conn) error) {
 	nh.onConnect = f

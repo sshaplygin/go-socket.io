@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
@@ -281,24 +282,34 @@ func flood(c Conn, n int) {
 	}
 }
 
-// Covers 1B-T1 (S).
+// Covers 1B-T1 (S), with the in-memory broadcast.
+// Covers 1I-T1 (S), the same with the Redis broadcast.
 func TestBackpressureStalledMemberDoesNotBlockRoom(t *testing.T) {
-	p := start(t, 'S', hooks{connect: func(c Conn) error { c.Join("r"); return nil }})
-	healthy := newFakeConn(t)
-	p.srv.serveConn(healthy)
-	require.Equal(t, "0", recv(t, healthy.out, "the healthy member's CONNECT"))
-	recv(t, p.conns, "OnConnect of the healthy member")
+	for _, adapter := range []string{"memory", "redis"} {
+		t.Run(adapter, func(t *testing.T) {
+			h := hooks{connect: func(c Conn) error { c.Join("r"); return nil }}
+			if adapter == "redis" {
+				s := miniredis.RunT(t)
+				h.setup = func(srv *Server) { useRedis(t, srv, s.Addr()) }
+			}
+			p := start(t, 'S', h)
+			healthy := newFakeConn(t)
+			p.srv.serveConn(healthy)
+			require.Equal(t, "0", recv(t, healthy.out, "the healthy member's CONNECT"))
+			recv(t, p.conns, "OnConnect of the healthy member")
 
-	p.stall(t, p.nc, defaultWriteBufferSize)
-	for i := 0; i < 2; i++ { // the first broadcast overflows the stalled member
-		recv(t, inBackground(func() { p.srv.BroadcastToRoom("/", "r", "msg", i) }), "a broadcast past the stalled member")
-		require.Equal(t, ev("msg", i), recv(t, healthy.out, "the broadcast to the healthy member"))
+			p.stall(t, p.nc, defaultWriteBufferSize)
+			for i := 0; i < 2; i++ { // the first broadcast overflows the stalled member
+				recv(t, inBackground(func() { p.srv.BroadcastToRoom("/", "r", "msg", i) }), "a broadcast past the stalled member")
+				require.Equal(t, ev("msg", i), recv(t, healthy.out, "the broadcast to the healthy member"))
+			}
+			recv(t, p.fc.closed, "engine.io close of the stalled member")
+			p.overflowReported(t, "/")
+			p.disconnected(t, "/")
+			require.Equal(t, 1, p.srv.RoomLen("/", "r"))
+			require.False(t, isDone(healthy.closed), "the healthy member was closed")
+		})
 	}
-	recv(t, p.fc.closed, "engine.io close of the stalled member")
-	p.overflowReported(t, "/")
-	p.disconnected(t, "/")
-	require.Equal(t, 1, p.srv.RoomLen("/", "r"))
-	require.False(t, isDone(healthy.closed), "the healthy member was closed")
 }
 
 // Covers 1B-T2 (S, C).

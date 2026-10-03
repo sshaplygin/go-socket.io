@@ -41,6 +41,9 @@ All notable changes to this project are documented here. The format follows
 - CI: compare PR benchmarks against the base with `benchstat`, preserving reports
   and raw measurements; skip ordinary comment-only and documentation changes and
   remove the unconditional benchmark runs from the test matrix.
+- Benchmark reports use a Markdown timing table with percentage changes and
+  advisory ±20% markers; full `benchstat` results are available in a collapsible
+  section.
 - The v1 module and its internal imports use `github.com/sshaplygin/go-socket.io`.
   Consumers must change upstream-path imports and remove the old `replace`
   directive; README installation instructions use the fork directly. Examples

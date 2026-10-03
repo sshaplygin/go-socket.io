@@ -271,3 +271,28 @@ func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
 	}
 	require.ErrorContains(t, srv.getNamespace("/x").err, `"/x"`)
 }
+
+// TestRedisCloseStopsRacingRegistration checks that Close waits for a registration that
+// is building a Redis broadcast and stops that broadcast too. AUTH through the delayed
+// proxy keeps each of the registration's two dials waiting for 100 ms.
+func TestRedisCloseStopsRacingRegistration(t *testing.T) {
+	s := miniredis.RunT(t)
+	s.RequireAuth("secret")
+	srv := NewServer(nil)
+	ok, err := srv.Adapter(&RedisAdapterOptions{Addr: delayedProxy(t, s.Addr(), 100*time.Millisecond), Password: "secret"})
+	require.True(t, ok)
+	require.NoError(t, err)
+	go srv.OnConnect("/x", func(Conn) error { return nil })
+	require.Eventually(t, func() bool {
+		if srv.createMu.TryLock() {
+			srv.createMu.Unlock()
+			return false
+		}
+		return true
+	}, time.Second, time.Millisecond, "the registration holding the creation mutex")
+
+	require.NoError(t, srv.Close())
+	require.NotNil(t, srv.getNamespace("/x"), "Close returned before the registration finished")
+	require.Eventually(t, func() bool { return s.CurrentConnectionCount() == 0 && s.PubSubNumPat() == 0 },
+		time.Second, 5*time.Millisecond, "Redis connections of the racing registration left after Close")
+}

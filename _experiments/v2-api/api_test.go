@@ -3,11 +3,13 @@ package socketio_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
 	sio "github.com/sshaplygin/go-socket.io/experiments/v2-api"
 	"github.com/sshaplygin/go-socket.io/experiments/v2-api/client"
+	"github.com/sshaplygin/go-socket.io/experiments/v2-api/engineio"
 	"github.com/sshaplygin/go-socket.io/experiments/v2-api/parser"
 )
 
@@ -49,11 +51,11 @@ func TestBoundedDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := sio.Options{AckTimeout: 30 * time.Second, OutboundQueueGroups: 64, OutboundQueueBytes: 8 << 20, HandlerQueueEvents: 64, HandlerQueueBytes: 8 << 20, MaxPendingAcks: 128, MaxAttachments: 64, MaxEventBytes: 1 << 20, AttachmentTimeout: 10 * time.Second, MaxConcurrentConnects: 4, ConnectTimeout: 10 * time.Second}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("defaults: got %+v want %+v", got, want)
 	}
 	one := sio.Options{AckTimeout: time.Second, OutboundQueueGroups: 1, OutboundQueueBytes: 1, HandlerQueueEvents: 1, HandlerQueueBytes: 1, MaxPendingAcks: 1, MaxAttachments: 1, MaxEventBytes: 1, AttachmentTimeout: time.Second, MaxConcurrentConnects: 1, ConnectTimeout: time.Second}
-	if normalized, err := one.Normalize(); err != nil || normalized != one {
+	if normalized, err := one.Normalize(); err != nil || !reflect.DeepEqual(normalized, one) {
 		t.Fatalf("custom limits changed: %+v %v", normalized, err)
 	}
 	for _, invalid := range []sio.Options{
@@ -62,5 +64,17 @@ func TestBoundedDefaults(t *testing.T) {
 		if _, err := invalid.Normalize(); err == nil {
 			t.Errorf("accepted negative limit: %+v", invalid)
 		}
+	}
+}
+
+func TestComposedOptionsRejectInvalidPreviewLimit(t *testing.T) {
+	for _, limit := range []int{-1, 257} {
+		if _, err := (sio.Options{Engine: engineio.Options{PayloadPreviewBytes: limit}}).Normalize(); err == nil {
+			t.Fatalf("root configuration accepted invalid engine preview limit %d", limit)
+		}
+	}
+	var n *sio.Namespace
+	if n.Hooks() != nil || n.Logger() != nil {
+		t.Fatal("prototype metadata accessors imply configured runtime")
 	}
 }

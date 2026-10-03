@@ -1,7 +1,7 @@
 package socketio
 
 import (
-	"github.com/googollee/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 var emtpyFH = newAckFunc(func() {})
@@ -97,10 +97,18 @@ func connectPacketHandler(c *conn, header parser.Header) error {
 		return errFailedConnectNamespace
 	}
 
+	if handler.err != nil { // its Redis broadcast could not be created
+		c.log.Error("connect to namespace without broadcast", "namespace", header.Namespace, "err", handler.err)
+		c.onError(header.Namespace, handler.err)
+		return errHandleDispatch
+	}
+
 	conn, ok := c.namespaces.Get(header.Namespace)
 	if !ok {
 		conn = newNamespaceConn(c, header.Namespace, handler.broadcast)
-		c.namespaces.Set(header.Namespace, conn)
+		if !c.register(header.Namespace, conn) {
+			return nil // a close started
+		}
 		conn.Join(c.Conn.ID())
 	}
 
@@ -123,15 +131,13 @@ func disconnectPacketHandler(c *conn, header parser.Header) error {
 		return errDecodeArgs
 	}
 
-	conn, ok := c.namespaces.Get(header.Namespace)
+	conn, ok := c.claim(header.Namespace) // a close may have taken it
 	if !ok {
 		_ = c.decoder.DiscardLast()
 		return nil
 	}
 
 	conn.LeaveAll()
-
-	c.namespaces.Delete(header.Namespace)
 
 	handler, ok := c.handlers.Get(header.Namespace)
 	if !ok {
@@ -169,7 +175,9 @@ func clientConnectPacketHandler(c *conn, header parser.Header) error {
 	conn, ok := c.namespaces.Get(header.Namespace)
 	if !ok {
 		conn = newNamespaceConn(c, header.Namespace, handler.broadcast)
-		c.namespaces.Set(header.Namespace, conn)
+		if !c.register(header.Namespace, conn) {
+			return nil // a close started
+		}
 		conn.Join(c.Conn.ID())
 	}
 
@@ -190,15 +198,13 @@ func clientDisconnectPacketHandler(c *conn, header parser.Header) error {
 		return errDecodeArgs
 	}
 
-	conn, ok := c.namespaces.Get(header.Namespace)
+	conn, ok := c.claim(header.Namespace) // a close may have taken it
 	if !ok {
 		_ = c.decoder.DiscardLast()
 		return nil
 	}
 
 	conn.LeaveAll()
-
-	c.namespaces.Delete(header.Namespace)
 
 	handler, ok := c.handlers.Get(header.Namespace)
 	if !ok {

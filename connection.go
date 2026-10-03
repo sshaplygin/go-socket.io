@@ -189,6 +189,9 @@ func (c *conn) connect() error {
 	if !ok {
 		return errUnavailableRootHandler
 	}
+	if rootHandler.err != nil { // its Redis broadcast could not be created
+		return rootHandler.err
+	}
 
 	root := newNamespaceConn(c, aliasRootNamespace, rootHandler.broadcast)
 	c.namespaces.Set(rootNamespace, root)

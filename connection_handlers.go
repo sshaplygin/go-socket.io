@@ -97,6 +97,12 @@ func connectPacketHandler(c *conn, header parser.Header) error {
 		return errFailedConnectNamespace
 	}
 
+	if handler.err != nil { // its Redis broadcast could not be created
+		c.log.Error("connect to namespace without broadcast", "namespace", header.Namespace, "err", handler.err)
+		c.onError(header.Namespace, handler.err)
+		return errHandleDispatch
+	}
+
 	conn, ok := c.namespaces.Get(header.Namespace)
 	if !ok {
 		conn = newNamespaceConn(c, header.Namespace, handler.broadcast)

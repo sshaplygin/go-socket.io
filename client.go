@@ -7,10 +7,10 @@ import (
 	"path"
 	"strings"
 
-	"github.com/googollee/go-socket.io/engineio"
-	"github.com/googollee/go-socket.io/engineio/transport"
-	"github.com/googollee/go-socket.io/engineio/transport/polling"
-	"github.com/googollee/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
+	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 // ErrEmptyAddr is returned by NewClient when addr is empty.
@@ -29,8 +29,11 @@ type Client struct {
 	conn     *conn
 	handlers *namespaceHandlers
 
-	opts *engineio.Options
-	log  *slog.Logger
+	opts   *engineio.Options
+	limits connLimits
+	log    *slog.Logger
+
+	dial func(url string) (engineio.Conn, error) // nil dials over polling; tests replace it
 }
 
 // NewClient returns a server
@@ -59,6 +62,7 @@ func NewClient(addr string, opts *engineio.Options) (*Client, error) {
 		url:       u.String(),
 		handlers:  newNamespaceHandlers(),
 		opts:      opts,
+		limits:    newConnLimits(opts),
 		log:       loggerFrom(opts),
 	}, nil
 }
@@ -76,36 +80,39 @@ func (c *Client) Connect() error {
 		Transports: []transport.Transport{polling.Default},
 	}
 
-	enginioCon, err := dialer.Dial(c.url, nil)
+	dial := c.dial
+	if dial == nil {
+		dial = func(url string) (engineio.Conn, error) { return dialer.Dial(url, nil) }
+	}
+	enginioCon, err := dial(c.url)
 	if err != nil {
 		return err
 	}
 
-	c.conn = newConn(enginioCon, c.handlers, c.log.With("sid", enginioCon.ID()))
+	c.conn = newConn(enginioCon, c.handlers, c.limits, c.log.With("sid", enginioCon.ID()))
 
-	if err := c.conn.connectClient(); err != nil {
-		_ = c.Close()
-		if root, ok := c.handlers.Get(rootNamespace); ok && root.onError != nil {
-			root.onError(nil, err)
-		}
-
+	if err := c.conn.connectClient(); !c.conn.connected(err) {
 		return err
 	}
 
-	go c.clientError()
-	go c.clientWrite()
-	go c.clientRead()
+	go c.conn.serveError()
+	go c.conn.serveWrite()
+	go c.conn.serveRead(clientConnectPacketHandler, clientDisconnectPacketHandler)
 
 	return nil
 }
 
-// Close closes server.
+// Close closes the connection as Conn.Close does. The drain deadline is the PingTimeout
+// of the Options passed to NewClient, not the server's value.
 func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
 func (c *Client) Emit(event string, args ...interface{}) {
 	nsConn, ok := c.conn.namespaces.Get(c.namespace)
+	if !ok && isDone(c.conn.closing) { // a close took it; write queues or drops by the close rules
+		nsConn, ok = newNamespaceConn(c.conn, c.namespace, nil), true
+	}
 	if !ok {
 		c.log.Info("emit before namespace connected", "namespace", c.namespace, "event", event)
 		return
@@ -152,105 +159,6 @@ func (c *Client) OnEvent(event string, f interface{}) {
 	}
 
 	h.OnEvent(event, f)
-}
-
-func (c *Client) clientError() {
-	defer func() {
-		if err := c.Close(); err != nil {
-			c.log.Error("close connection", "err", err)
-		}
-	}()
-
-	for {
-		select {
-		case <-c.conn.quitChan:
-			return
-		case err := <-c.conn.errorChan:
-			c.log.Error("connection error", "err", err)
-
-			var errMsg *errorMessage
-			if !errors.As(err, &errMsg) {
-				continue
-			}
-
-			if handler := c.conn.namespace(errMsg.namespace); handler != nil {
-				if handler.onError != nil {
-					nsConn, ok := c.conn.namespaces.Get(errMsg.namespace)
-					if !ok {
-						continue
-					}
-					handler.onError(nsConn, errMsg.err)
-				}
-			}
-		}
-	}
-}
-
-func (c *Client) clientWrite() {
-	defer func() {
-		if err := c.Close(); err != nil {
-			c.log.Error("close connection", "err", err)
-		}
-
-	}()
-
-	for {
-		select {
-		case <-c.conn.quitChan:
-			c.log.Info("writer loop stopped")
-			return
-		case pkg := <-c.conn.writeChan:
-			if err := c.conn.encoder.Encode(pkg.Header, pkg.Data); err != nil {
-				c.conn.onError(pkg.Header.Namespace, err)
-			}
-		}
-	}
-}
-
-func (c *Client) clientRead() {
-	defer func() {
-		if err := c.Close(); err != nil {
-			c.log.Error("close connection", "err", err)
-		}
-	}()
-
-	var event string
-
-	for {
-		var header parser.Header
-
-		if err := c.conn.decoder.DecodeHeader(&header, &event); err != nil {
-			c.conn.onError(rootNamespace, err)
-
-			c.log.Error("decode packet header", "err", err)
-
-			return
-		}
-
-		if header.Namespace == aliasRootNamespace {
-			header.Namespace = rootNamespace
-		}
-
-		var err error
-		switch header.Type {
-		case parser.Ack:
-			err = ackPacketHandler(c.conn, header)
-		case parser.Connect:
-			err = clientConnectPacketHandler(c.conn, header)
-		case parser.Disconnect:
-			err = clientDisconnectPacketHandler(c.conn, header)
-		case parser.Event:
-			err = eventPacketHandler(c.conn, event, header)
-		default:
-
-		}
-
-		if err != nil {
-			c.log.Error("client read", "err", err)
-
-			return
-		}
-	}
 }
 
 func (c *Client) createNamespace(ns string) *namespaceHandler {

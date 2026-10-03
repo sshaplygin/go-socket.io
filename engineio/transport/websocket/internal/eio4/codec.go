@@ -12,8 +12,8 @@ import (
 	"errors"
 	"unicode/utf8"
 
-	"github.com/googollee/go-socket.io/engineio/frame"
-	"github.com/googollee/go-socket.io/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/engineio/packet"
 )
 
 var (

@@ -180,18 +180,23 @@ func delayedProxy(t *testing.T, addr string, d time.Duration) string {
 				return
 			}
 			go func() {
-				defer func() { _ = c.Close() }()
 				time.Sleep(d)
-				up, err := net.Dial("tcp", addr)
-				if err != nil {
-					return
-				}
-				go func() { _, _ = io.Copy(up, c); _ = up.Close() }()
-				_, _ = io.Copy(c, up)
+				forward(c, addr)
 			}()
 		}
 	}()
 	return ln.Addr().String()
+}
+
+// forward copies between c and a new connection to addr until either side closes.
+func forward(c net.Conn, addr string) {
+	defer func() { _ = c.Close() }()
+	up, err := net.Dial("tcp", addr)
+	if err != nil {
+		return
+	}
+	go func() { _, _ = io.Copy(up, c); _ = up.Close() }()
+	_, _ = io.Copy(c, up)
 }
 
 // TestRedisConcurrentRegistrationBuildsOneBroadcast checks that concurrent registrations on
@@ -270,6 +275,50 @@ func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
 		t.Fatal("Close still waits for a registration whose Redis server never answers AUTH")
 	}
 	require.ErrorContains(t, srv.getNamespace("/x").err, `"/x"`)
+}
+
+// TestRedisCloseDoesNotWaitForSilentSubscriber checks that the Redis dial timeout also
+// bounds the subscriber dial: the publishing connection reaches a Redis server that
+// requires AUTH, the subscriber connection is accepted and never answered, and Close
+// still returns while the registration waits; the registration records the failure and
+// closes the publishing connection.
+func TestRedisCloseDoesNotWaitForSilentSubscriber(t *testing.T) {
+	defer func(d time.Duration) { redisDialTimeout = d }(redisDialTimeout)
+	redisDialTimeout = 100 * time.Millisecond
+	s := miniredis.RunT(t)
+	s.RequireAuth("secret")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	silent := make(chan net.Conn, 4)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		go forward(c, s.Addr())
+		for c, err := ln.Accept(); err == nil; c, err = ln.Accept() {
+			silent <- c
+		}
+	}()
+	srv := NewServer(nil)
+	srv.redisAdapter = getOptions(&RedisAdapterOptions{Addr: ln.Addr().String(), Password: "secret"})
+	go srv.OnConnect("/x", func(Conn) error { return nil })
+	c := recv(t, silent, "the registration's subscriber dial")
+	t.Cleanup(func() { _ = c.Close() }) // at the latest, ends the subscriber dial
+	require.Equal(t, 1, s.TotalConnectionCount(), "publishing connections that reached Redis")
+
+	closed := make(chan error, 1)
+	go func() { closed <- srv.Close() }()
+	select {
+	case err := <-closed:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Close still waits for a registration whose Redis subscriber dial is never answered")
+	}
+	require.ErrorContains(t, srv.getNamespace("/x").err, `"/x"`)
+	require.Eventually(t, func() bool { return s.CurrentConnectionCount() == 0 }, time.Second, 5*time.Millisecond,
+		"the publishing connection left open after the failed construction")
 }
 
 // TestRedisCloseStopsRacingRegistration checks that Close waits for a registration that

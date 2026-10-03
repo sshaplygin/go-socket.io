@@ -34,7 +34,7 @@ jobs:
       - name: Test change detection
         run: go test ./.github/benchmarks
       - name: Test report rendering
-        run: python3 -B -m unittest discover -s .github/benchmarks -p 'test_*.py'
+        run: go test ./.github/benchmarks/report
       - name: Detect code changes
         id: changes
         env:
@@ -96,7 +96,7 @@ jobs:
           grep -Eq '^Benchmark[^[:space:]]*[[:space:]]+[0-9]+[[:space:]]' base.txt
           grep -Eq '^Benchmark[^[:space:]]*[[:space:]]+[0-9]+[[:space:]]' pr.txt
           benchstat base.txt pr.txt > comparison.txt
-          python3 pr/.github/benchmarks/report.py base.txt pr.txt comparison.txt \
+          go run pr/.github/benchmarks/report/main.go base.txt pr.txt comparison.txt \
             "$BASE_SHA" "$HEAD_SHA" > benchmark-report.md
           cat benchmark-report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Upload results

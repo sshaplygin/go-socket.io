@@ -1,6 +1,6 @@
 # Roadmap
 
-Scope approved: 2026-09-28. Updated: 2026-10-02. Owner: Sam Shaplygin.
+Scope approved: 2026-09-28. Updated: 2026-10-03. Owner: Sam Shaplygin.
 
 This file owns scope, dependencies, implementation contracts and release gates.
 Current implementation: [PROTOCOL.md](PROTOCOL.md). Completed changes:
@@ -25,7 +25,7 @@ Stage 2.1 owns its reuse and remaining integration work below.
 | Core | Own Engine.IO/Socket.IO core; no dependency on or rebase onto `zishang520/socket.io` | 2.0–2.3 |
 | Protocol | v2 supports Engine.IO v4 / Socket.IO protocol v5; old clients stay on `v1` | 2.1, 2.3 |
 | API | Generic `Event[T]` / `AckEvent[T, R]` from the first v2 implementation; explicit raw escape hatch; no reflection-based dispatch | 2.0, 2.3 |
-| Modules | v1 keeps its module path; v2 root is `github.com/sshaplygin/go-socket.io/v2`; adapters and contrib have separate modules | 2.5, 4b, 5 |
+| Modules | v1 root is `github.com/sshaplygin/go-socket.io`, independent of the upstream module; v2 root adds `/v2`; adapters and contrib have separate modules | 2.5, 4b, 5 |
 | Go | Go 1.22 minimum for runtime modules; compatible dependencies pinned and minimum tested; build tools may use stable Go | Stage 1 DoD, 2.5 |
 | Transport | `gobwas/ws` + `wsutil` on server and client; standard `http.Handler` integration | 2.1 |
 | Brokers | Redis `go-redis/v9`, Node non-sharded adapter wire compatibility; NATS core pub/sub, no JetStream | 4b |
@@ -274,7 +274,7 @@ Tasks:
   in v1; DEBUG never includes payloads.
 - **1.D Docs:** reduce `engineio/README.md` to purpose and root/protocol links, register
   it in the ownership map, remove `godoc.org` links, point CI badges at this fork.
-  Keep API links on the v1 module until 2.5.
+  Keep API links on the fork's v1 module until 2.5.
 
 Boundary lines. The keys are a contract reused by stage 2.4.
 
@@ -319,8 +319,9 @@ rg -n 'https?://godoc[.]org' -g '*.md' .
 ```
 
 Acceptance: `_examples/default-http` works unchanged against `socket.io-client` 2.x;
-`go get` of the fork at `v1.5.0` builds a consumer that previously used upstream (with a
-`replace` directive). Owner runs `SOCKETIO_LOG_LEVEL=debug go run .` in
+`go get` of the fork at `v1.5.0` builds a consumer that previously used upstream after
+updating its imports to the fork's v1 module, without an upstream-path `replace`
+directive. Owner runs `SOCKETIO_LOG_LEVEL=debug go run .` in
 `_examples/default-http`, opens the browser page, sends one event and closes the tab:
 the log shows session open, namespace connect and a disconnect with one `sid`.
 A client-sent CLOSE produces `reason="transport close"`; abrupt tab termination may
@@ -919,7 +920,7 @@ transport and codec errors, without calling `slog.SetDefault`.
 session close), `docs/PROTOCOL.md` update, `docs/OBSERVABILITY.md`,
 `contrib/otel/README.md`, module path `.../v2`, tag `v2.0.0` and
 `contrib/otel/v2.0.0` from the same commit; branch `v1` created from `v1.5.0`. After the
-module path changes: README GoDoc badge and API reference link, `go.mod` and imports of
+v2 module path changes: README GoDoc badge and API reference link, `go.mod` and imports of
 every `_examples/*`, links in `engineio/README.md`, and the import paths of
 `contrib/otel` and `adapters/*`. Task 2.5D migrates all non-Redis examples to
 `socket.io-client@4` and the generic API, pinning maintained framework versions

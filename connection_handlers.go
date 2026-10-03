@@ -1,7 +1,7 @@
 package socketio
 
 import (
-	"github.com/googollee/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 var emtpyFH = newAckFunc(func() {})

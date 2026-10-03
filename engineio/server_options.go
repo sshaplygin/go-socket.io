@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/googollee/go-socket.io/engineio/session"
-	"github.com/googollee/go-socket.io/engineio/transport"
-	"github.com/googollee/go-socket.io/engineio/transport/polling"
-	"github.com/googollee/go-socket.io/engineio/transport/websocket"
-	"github.com/googollee/go-socket.io/logger"
+	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
+	"github.com/sshaplygin/go-socket.io/logger"
 )
 
 // Options is options to create a server.

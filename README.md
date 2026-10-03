@@ -22,14 +22,16 @@ Details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Install
 
-The module path is still `github.com/googollee/go-socket.io` until v2. To use this fork,
-add a `replace` directive:
+Install the maintained fork directly:
 
 ```sh
-go get github.com/googollee/go-socket.io
-go mod edit -replace github.com/googollee/go-socket.io=github.com/sshaplygin/go-socket.io@master
-go mod tidy
+go get github.com/sshaplygin/go-socket.io@master
 ```
+
+Earlier tags use the upstream module path; use `@master` until a release with the
+fork's module path is tagged. Existing consumers must update their imports from
+`github.com/googollee/go-socket.io` to `github.com/sshaplygin/go-socket.io` and remove
+the former upstream-path `replace` directive, then run `go mod tidy`.
 
 ## Quick start
 
@@ -40,7 +42,7 @@ import (
     "log"
     "net/http"
 
-    socketio "github.com/googollee/go-socket.io"
+    socketio "github.com/sshaplygin/go-socket.io"
 )
 
 func main() {

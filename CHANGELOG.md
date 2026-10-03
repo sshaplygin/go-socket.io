@@ -38,6 +38,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The v1 module and its internal imports use `github.com/sshaplygin/go-socket.io`.
+  Consumers must change upstream-path imports and remove the old `replace`
+  directive; README installation instructions use the fork directly. Examples
+  now all build against the checked-out fork, including the Docker example.
 - `session.New` takes a trailing `*slog.Logger` parameter (nil accepted).
 - `logger.Error` accepts a nil error instead of panicking.
 - Connection-level errors that were printed with `log.Println` are now `slog` Error

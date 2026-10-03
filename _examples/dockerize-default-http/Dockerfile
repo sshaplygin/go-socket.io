@@ -1,27 +1,16 @@
-FROM golang:1.16-alpine as build
+FROM golang:1.27.1-alpine AS build
 
-ENV GO11MODULE=on \
-    CGO_ENABLED=0 \
-    GOOS=linux \
-    GOARCH=amd64 \
-    BASE_PATH=/go/src/app
+ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
+WORKDIR /src
 
-WORKDIR $BASE_PATH
-
+# The repository root is the build context so the example's local replace works.
 COPY . .
+RUN go build -C _examples/dockerize-default-http -o /app/main .
 
-RUN go mod download
-RUN go build -o main .
+FROM scratch AS run
 
-
-# Run section
-FROM scratch as run
-
-ENV BASE_PATH=/go/src/app
-
-COPY --from=build $BASE_PATH/main /app/main
-COPY --from=build $BASE_PATH/asset /asset
+COPY --from=build /app/main /app/main
+COPY --from=build /src/_examples/dockerize-default-http/asset /asset
 
 EXPOSE 8000
-
 ENTRYPOINT ["/app/main"]

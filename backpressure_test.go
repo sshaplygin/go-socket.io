@@ -106,6 +106,7 @@ type nsErr struct {
 }
 
 type hooks struct {
+	setup      func(*Server) // runs on S before the handlers are registered
 	connect    func(Conn) error
 	disconnect func(Conn)
 	onError    func(Conn, error)
@@ -132,6 +133,9 @@ func newPeer(t *testing.T, side byte, h hooks, nsps ...string) *peer {
 	var nhs []*namespaceHandler
 	if side == 'S' {
 		p.srv = NewServer(nil)
+		if h.setup != nil {
+			h.setup(p.srv)
+		}
 		for _, nsp := range append([]string{"/"}, nsps...) {
 			nhs = append(nhs, p.srv.createNamespace(nsp))
 		}

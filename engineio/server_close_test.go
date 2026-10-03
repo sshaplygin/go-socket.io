@@ -14,7 +14,9 @@ import (
 
 // TestServerCloseClosesUnacceptedSessions checks that Close closes and
 // removes the sessions nobody accepted: one in the hand-off buffer, one whose
-// sender waits, and one whose handshake completes after Close.
+// sender waits, and one whose handshake completes after Close. It checks them
+// before calling Accept, which would also drop a session it receives after
+// Close.
 //
 // Covers 1I-T11 (S).
 func TestServerCloseClosesUnacceptedSessions(t *testing.T) {
@@ -30,11 +32,10 @@ func TestServerCloseClosesUnacceptedSessions(t *testing.T) {
 		return c
 	}
 	clients := []Conn{dial(), dial()}
+	require.Eventually(t, func() bool { return len(svr.connChan) == 1 }, time.Second, time.Millisecond,
+		"a session in the hand-off buffer")
 	require.NoError(t, svr.Close())
 	clients = append(clients, dial())
-
-	_, err := svr.Accept()
-	require.ErrorIs(t, err, io.EOF)
 
 	deadline := time.After(time.Second)
 	errs := make(chan error, len(clients))
@@ -56,4 +57,7 @@ func TestServerCloseClosesUnacceptedSessions(t *testing.T) {
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
+
+	_, err := svr.Accept()
+	require.ErrorIs(t, err, io.EOF)
 }

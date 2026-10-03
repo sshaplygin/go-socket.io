@@ -8,7 +8,7 @@ This is a maintained fork of the archived `googollee/go-socket.io`. The modernis
 plan, including Socket.IO protocol v5 support, is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ![Build Status](https://github.com/sshaplygin/go-socket.io/workflows/CI/badge.svg)
-[![GoDoc](https://pkg.go.dev/badge/github.com/googollee/go-socket.io)](https://pkg.go.dev/github.com/googollee/go-socket.io)
+[![GoDoc](https://pkg.go.dev/badge/github.com/sshaplygin/go-socket.io.svg)](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
 ## Compatibility
@@ -68,7 +68,7 @@ func main() {
 ```
 
 Runnable examples for gin, echo, iris, gf, CORS, Redis and graceful shutdown are in
-[_examples/](_examples/README.md). API reference: [pkg.go.dev](https://pkg.go.dev/github.com/googollee/go-socket.io).
+[_examples/](_examples/README.md). API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master).
 
 ## Contributing
 

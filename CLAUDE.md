@@ -1,7 +1,8 @@
 # Working on go-socket.io
 
 Go implementation of a Socket.IO server (and an experimental client). Module path is
-`github.com/googollee/go-socket.io` until v2 (see [docs/ROADMAP.md](docs/ROADMAP.md)).
+`github.com/sshaplygin/go-socket.io` for v1; v2 adds `/v2` (see
+[docs/ROADMAP.md](docs/ROADMAP.md)).
 
 ## Layout
 

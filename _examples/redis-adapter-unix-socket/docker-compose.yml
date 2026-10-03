@@ -8,7 +8,9 @@ services:
       - /tmp/docker
 
   app:
-    build: .
+    build:
+      context: ../..
+      dockerfile: _examples/redis-adapter-unix-socket/Dockerfile
     container_name: app
     ports:
       - "8080:8080"

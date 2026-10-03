@@ -388,11 +388,13 @@ Tasks:
     caller. At the socket.io and parser layers every failure returned by engine.io
     `NextReader` or by the frame reader it returns, and every failure returned by
     `NextWriter` or by the frame writer it returns (`Close` included), is expected
-    closure (on `socketio.Server` the session has closed itself). Only a parser decode
-    error on a frame that was read completely, and a marshal error in `Encode`, are
-    other errors; socket.io tells write failures from marshal errors by wrapping the
-    frame writer it gives the encoder, unexported. Failures on an upgrade probe
-    connection log at most DEBUG: the session keeps its old transport. The polling POST log calls (unsupported
+    closure. Only a parser decode error that is not a failure returned by the frame
+    reader, and a marshal error in `Encode`, are other errors; socket.io tells them
+    apart by wrapping, unexported, the frame reader and writer it gives the decoder
+    and encoder. At the engine.io session layer, a failure of the session's own frame
+    reader or writer that the session reports as a close reason logs at most DEBUG.
+    Failures on an upgrade probe connection after its transport `Accept` succeeded log
+    at most DEBUG: the session keeps its old transport. The polling POST log calls (unsupported
     content type, `FeedIn`, writing the answer) log at most DEBUG: the client gets the
     400 answer or has gone. Every other existing log call that reports a failure no
     caller receives logs WARN. Failures v1 does not log today stay unlogged: the Redis
@@ -425,7 +427,8 @@ Tasks:
     `NextReader` and `NextWriter` and by the frame reader and writer they return, so
     it wraps those; `io.EOF` at the end of a frame is not a failure.
     `engineio.Server.Close` passes `server shutting down` to the session without new
-    exported API in `engineio/session`. `reason` is the first cause the session
+    exported API in `engineio/session` (an unexported hook in an `engineio/internal`
+    package). `reason` is the first cause the session
     observed: `transport close` (CLOSE packet from the client), `ping timeout` (a read
     or write failed after the deadline set from `PingTimeout` had passed),
     `transport error` (any other transport read or write failure, including EOF and a
@@ -437,8 +440,11 @@ Tasks:
     CONNECT handled for a `socketio.Server` connection, root included, after
     `OnConnect` returned or the connect failed; a connect failed by an overflow carries
     `ErrWriteBufferFull`, joined with the `OnConnect` error when there is one
-    (`errors.Is` holds for both); a CONNECT to a namespace without handlers gets no
-    record. *disconnect:* one per connected
+    (`errors.Is` holds for both); this applies to root, where an overflow takes the
+    1.B connect-failure path. For another namespace the record carries `err` only when
+    `OnConnect` fails or the namespace's broadcast failed (1I); an overflow during its
+    `OnConnect` is logged by the `OnError` or unhandled-error rule. A CONNECT to a
+    namespace without handlers gets no record. *disconnect:* one per connected
     namespace when its disconnect runs (1.B: exactly once per connected namespace),
     whether or not an `OnDisconnect` handler is registered; `reason` is `namespace disconnect` for a peer DISCONNECT of that namespace
     and `connection close` otherwise; text sent by the peer is never logged.
@@ -461,19 +467,25 @@ Tasks:
        `socketio: unhandled error` WARN; a CONNECT to a namespace without handlers
        logs one such WARN; an overflow with no `OnError` on the packet's namespace
        logs exactly one such WARN with `ErrWriteBufferFull` and that `nsp`; the 1B-T18
-       case without root `OnError` logs one such WARN for each of its two errors; a
-       ping timeout (`PingTimeout` 100 ms, on polling and on websocket, with no client
-       traffic after the handshake) without root `OnError` logs no WARN; an
-       argument decode error without `OnError` logs exactly one WARN in total.
+       case without root `OnError` logs one such WARN for each of its two errors; an
+       argument decode error without `OnError` logs exactly one WARN in total; an
+       Emit whose argument cannot be marshalled (a `chan`) without `OnError` on its
+       namespace logs exactly one such WARN with that `nsp`; a frame writer that fails
+       on `Write` or `Close` (fake `engineio.Conn`) without `OnError` logs no WARN; a
+       frame with an invalid packet type without root `OnError` logs exactly one such
+       WARN.
     9. 1L-T9 (S): each `request rejected` reason is logged once by its trigger,
        `unknown sid` at DEBUG and the others at WARN; `init` is triggered through a
        fault-injecting transport in `engineio.Options.Transports`, and that session
-       logs no open and no close.
+       logs no open and no close; a polling POST with an unsupported `Content-Type`
+       gets 400 and logs nothing above DEBUG.
     10. 1L-T10 (S): for `/` and `/chat`, `namespace connect` without `err` on success
         and with `err` when `OnConnect` fails; `disconnect` with `namespace
         disconnect` for a peer DISCONNECT that carries text (the text is not logged)
         and `connection close` when the connection closes, also for a connected
-       namespace without an `OnDisconnect` handler.
+       namespace without an `OnDisconnect` handler; in the 1B-T17 case the root record's
+       `err` matches `ErrWriteBufferFull`, and in the 1B-T18 case `errors.Is` holds for
+       both errors.
     11. 1L-T11 (S): `TestNoBadKeyAttrs` installs a checking handler as the server's
         `Options.Logger` and with `slog.SetDefault` (the scenario's Go client has no
         `Options.Logger`), sets `logger.Level` to `LevelTrace` and runs the
@@ -488,6 +500,9 @@ Tasks:
     12. 1L-T12 (S): `TestServerLoggerOption` asserts `socketio: unhandled error` with
         `nsp=/nope` for a CONNECT to a namespace without handlers, through the
         instance logger only.
+    13. 1L-T13 (P, W): a ping timeout (`PingTimeout` 100 ms, no client traffic after
+        the handshake) without root `OnError` logs no WARN; on polling it reaches
+        socket.io as a write failure on the 1.B connect-failure path.
   - *Docs:* the package `logger` godoc documents the variable, the levels, the
     message pattern and the keys. `CHANGELOG.md` entries cover the deprecation, the
     key renames, the level changes (ERROR and INFO to DEBUG and WARN) and the records.
@@ -727,7 +742,9 @@ porting; existing branch Go race tests passed during this roadmap review.
   clients use `pingInterval+pingTimeout` to detect a missing server ping. Add
   `maxPayload` and noop on upgrade. `engineio/server.go`: `EIO` check, JSON errors.
   The polling GET 500 and invalid-method 400 answers, unlogged in v1, log
-  `engineio: request rejected` with reasons `flush` and `bad method`.
+  `engineio: request rejected` with reasons `flush` and `bad method`; `flush` logs
+  DEBUG when the session or its payload has already closed or failed, WARN otherwise.
+  2.4 owns the full v2 `reason` list.
 - `engineio/transport/websocket` rewritten on `gobwas/ws`: `ws.UpgradeHTTP` hijacks the
   connection (HTTP/1.1 only); frames read with `wsutil.Reader` and written with
   `wsutil.Writer` so the `FrameReader`/`FrameWriter` contract is preserved; control
@@ -1022,10 +1039,12 @@ records 1.L left out of v1, with these keys:
 | socketio | `socketio: broadcast` | TRACE | `nsp`, `room`, `event`, `recipients` |
 | socketio | `socketio: handler error` | WARN | `sid`, `nsp`, `event`, `err` |
 
-In v2, `socketio: handler error` (WARN) replaces v1's `socketio: unhandled error` for a
-handler error with no error handler; with one registered it logs at most DEBUG. Every
-other v1 `socketio: unhandled error` trigger (decode errors, a CONNECT to an unknown
-namespace, an overflow) keeps that record and rule in v2.
+In v2, `socketio: handler error` (WARN) replaces v1's `socketio: unhandled error` for
+handler errors. Every other v1 trigger (decode errors, a marshal error, a CONNECT to an
+unknown namespace, an overflow) keeps `socketio: unhandled error`. v2 has no
+`OnError`: both records log WARN, unless the API frozen in 2.0 adds an error handler, in
+which case a registered handler lowers them to at most DEBUG. `docs/OBSERVABILITY.md`
+owns the full v2 `request rejected` reason list.
 On top of these it adds `rtt` on pong, `rooms`, `except` and `local` on broadcast, and
 `socketio: adapter publish` / `socketio: adapter receive` start/end lines at `TRACE`.
 Broadcast `recipients` means successful local enqueues; also log `published`.

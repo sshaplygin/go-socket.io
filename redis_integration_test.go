@@ -1,7 +1,10 @@
 package socketio
 
 import (
+	"fmt"
+	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -73,4 +76,73 @@ func TestRedisFailedNamespaceRoomMethods(t *testing.T) {
 	require.Nil(t, srv.Rooms("/f"))
 	require.False(t, srv.ForEach("/f", "r", func(Conn) { t.Error("ForEach called its function") }))
 	require.Empty(t, c.events)
+}
+
+// delayedProxy forwards each connection it accepts to addr after a delay of d.
+func delayedProxy(t *testing.T, addr string, d time.Duration) string {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = c.Close() }()
+				time.Sleep(d)
+				up, err := net.Dial("tcp", addr)
+				if err != nil {
+					return
+				}
+				go func() { _, _ = io.Copy(up, c); _ = up.Close() }()
+				_, _ = io.Copy(c, up)
+			}()
+		}
+	}()
+	return ln.Addr().String()
+}
+
+// TestRedisConcurrentRegistrationBuildsOneBroadcast checks that concurrent registrations on
+// one new namespace build one Redis broadcast.
+//
+// Covers 1I-T12 (S).
+func TestRedisConcurrentRegistrationBuildsOneBroadcast(t *testing.T) {
+	s := miniredis.RunT(t)
+	opts := &RedisAdapterOptions{Addr: delayedProxy(t, s.Addr(), 50*time.Millisecond), Prefix: "socket.io", Network: "tcp"}
+	settled := func() int { // the connections of the broadcasts built so far, once all reached Redis
+		t.Helper()
+		require.Eventually(t, func() bool { return s.PubSubNumPat() > 0 }, time.Second, 5*time.Millisecond)
+		time.Sleep(150 * time.Millisecond)
+		require.Equal(t, 1, s.PubSubNumPat(), "broadcasts subscribed")
+		return s.CurrentConnectionCount()
+	}
+	closed := func(what string) {
+		t.Helper()
+		require.Eventually(t, func() bool { return s.CurrentConnectionCount() == 0 }, time.Second, 5*time.Millisecond, what)
+	}
+	single, err := newRedisBroadcast("/single", opts)
+	require.NoError(t, err)
+	want := settled()
+	single.close()
+	closed("the connections of a single broadcast")
+
+	srv := NewServer(nil)
+	useRedis(t, srv, opts.Addr)
+	closed("the connection of Adapter")
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			srv.OnEvent("/x", fmt.Sprintf("e%d", i), func(Conn) {})
+		}()
+	}
+	close(start)
+	wg.Wait()
+	require.Equal(t, want, settled(), "Redis connections of the registered namespace")
+	require.Len(t, srv.getNamespace("/x").events, 8)
 }

@@ -1,9 +1,8 @@
 # Examples
 
-Each directory is a standalone Go module. All but `dockerize-default-http` and
-`redis-adapter-unix-socket` carry a `replace` directive pointing at the repository
-root, so they build against the checked-out library; those two pin an upstream
-release in their `go.mod`.
+Directories with a `go.mod` are standalone Go modules. Each carries a `replace`
+directive pointing at the repository root, so it builds against the checked-out
+fork. The `client` example uses the root module.
 
 ```sh
 cd _examples/<name>

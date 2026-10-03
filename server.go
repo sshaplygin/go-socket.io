@@ -5,12 +5,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
+	"sync/atomic"
 
 	"github.com/gomodule/redigo/redis"
 
-	"github.com/googollee/go-socket.io/engineio"
-	"github.com/googollee/go-socket.io/logger"
-	"github.com/googollee/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/sshaplygin/go-socket.io/logger"
+	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 // Server is a go-socket.io server.
@@ -20,8 +22,13 @@ type Server struct {
 	handlers *namespaceHandlers
 
 	redisAdapter *RedisAdapterOptions
+	createMu     sync.Mutex            // serialises handler creation, not dispatch; see createNamespace
+	closed       atomic.Bool           // set by Close; read under createMu by createNamespace
+	adapterErr   atomic.Pointer[error] // the first Redis construction error, read by Serve
+	served       chan struct{}         // tests set it; Serve closes it after its entry check
 
-	log *slog.Logger
+	limits connLimits
+	log    *slog.Logger
 }
 
 // NewServer returns a server.
@@ -29,6 +36,7 @@ func NewServer(opts *engineio.Options) *Server {
 	return &Server{
 		handlers: newNamespaceHandlers(),
 		engine:   engineio.NewServer(opts),
+		limits:   newConnLimits(opts),
 		log:      loggerFrom(opts),
 	}
 }
@@ -43,7 +51,17 @@ func loggerFrom(opts *engineio.Options) *slog.Logger {
 	return logger.Log
 }
 
-// Adapter sets redis broadcast adapter.
+// Adapter sets the Redis broadcast adapter for the namespaces registered after it. A
+// namespace builds its Redis broadcast when its first handler is registered; its two
+// Redis connections must be dialled, AUTH and SELECT included, within 10 seconds. If that
+// fails, the namespace keeps a no-op broadcast and the error, which names the namespace
+// and wraps the Redis error; registering more handlers does not retry. Serve, if called
+// before Close, returns the first such error recorded before it was called (see Serve).
+// The Server room methods of that namespace do nothing (RoomLen returns -1, Rooms nil,
+// the others false; ForEach does not call f). A connection to it fails before
+// OnConnect: for the root namespace the error goes to root OnError with a nil Conn and
+// nothing is written; for another namespace it goes to that namespace's OnError, whose
+// Conn has no rooms, and the connection closes as on a dispatch error.
 func (s *Server) Adapter(opts *RedisAdapterOptions) (bool, error) {
 	opts = getOptions(opts)
 	var redisOpts []redis.DialOption
@@ -64,9 +82,25 @@ func (s *Server) Adapter(opts *RedisAdapterOptions) (bool, error) {
 	return true, conn.Close()
 }
 
-// Close closes server.
+// Close closes the engine.io server, so Serve returns nil, and stops the Redis
+// connections of every namespace. It does not close the sessions already open, but their
+// broadcasts no longer reach other instances. Close waits for a handler registration
+// that is dialling Redis, up to the 10 seconds that dial may take. With Adapter set, a
+// namespace registered after Close has no broadcast, as if its construction failed, but
+// Serve does not return that error.
 func (s *Server) Close() error {
-	return s.engine.Close()
+	s.closed.Store(true)
+	err := s.engine.Close()
+
+	s.createMu.Lock() // waits for a registration that is building a broadcast
+	defer s.createMu.Unlock()
+	s.handlers.Range(func(h *namespaceHandler) {
+		if bc, ok := h.broadcast.(*redisBroadcast); ok {
+			bc.close()
+		}
+	})
+
+	return err
 }
 
 // ServeHTTP dispatches the request to the handler whose pattern most closely matches the request URL.
@@ -120,8 +154,21 @@ func (s *Server) OnEvent(namespace, event string, f interface{}) {
 	h.OnEvent(event, f)
 }
 
-// Serve serves go-socket.io server.
+// Serve accepts and serves connections until Close is called, then returns nil. If a
+// namespace's Redis broadcast could not be created before Serve was called (see Adapter)
+// and Close has not been called, Serve returns that error at once without accepting a
+// connection. The engine.io server then still completes handshakes, which nobody serves,
+// until Close is called.
 func (s *Server) Serve() error {
+	if s.closed.Load() {
+		return nil
+	}
+	if err := s.adapterErr.Load(); err != nil {
+		return *err
+	}
+	if s.served != nil {
+		close(s.served)
+	}
 	for {
 		conn, err := s.engine.Accept()
 		if errors.Is(err, io.EOF) {
@@ -136,89 +183,82 @@ func (s *Server) Serve() error {
 	}
 }
 
+// broadcastOf returns the broadcast of namespace, or nil when the namespace has no
+// handler or its Redis broadcast could not be created.
+func (s *Server) broadcastOf(namespace string) Broadcast {
+	if h := s.getNamespace(namespace); h != nil && h.err == nil {
+		return h.broadcast
+	}
+	return nil
+}
+
 // JoinRoom joins given connection to the room.
 func (s *Server) JoinRoom(namespace string, room string, connection Conn) bool {
-	nspHandler := s.getNamespace(namespace)
-	if nspHandler != nil {
-		nspHandler.broadcast.Join(room, connection)
-		return true
+	bc := s.broadcastOf(namespace)
+	if bc != nil {
+		bc.Join(room, connection)
 	}
-
-	return false
+	return bc != nil
 }
 
 // LeaveRoom leaves given connection from the room.
 func (s *Server) LeaveRoom(namespace string, room string, connection Conn) bool {
-	nspHandler := s.getNamespace(namespace)
-	if nspHandler != nil {
-		nspHandler.broadcast.Leave(room, connection)
-		return true
+	bc := s.broadcastOf(namespace)
+	if bc != nil {
+		bc.Leave(room, connection)
 	}
-
-	return false
+	return bc != nil
 }
 
 // LeaveAllRooms leaves the given connection from all rooms.
 func (s *Server) LeaveAllRooms(namespace string, connection Conn) bool {
-	nspHandler := s.getNamespace(namespace)
-	if nspHandler != nil {
-		nspHandler.broadcast.LeaveAll(connection)
-		return true
+	bc := s.broadcastOf(namespace)
+	if bc != nil {
+		bc.LeaveAll(connection)
 	}
-
-	return false
+	return bc != nil
 }
 
 // ClearRoom clears the room.
 func (s *Server) ClearRoom(namespace string, room string) bool {
-	nspHandler := s.getNamespace(namespace)
-	if nspHandler != nil {
-		nspHandler.broadcast.Clear(room)
-		return true
+	bc := s.broadcastOf(namespace)
+	if bc != nil {
+		bc.Clear(room)
 	}
-
-	return false
+	return bc != nil
 }
 
 // BroadcastToRoom broadcasts given event & args to all the connections in the room.
 func (s *Server) BroadcastToRoom(namespace string, room, event string, args ...interface{}) bool {
-	nspHandler := s.getNamespace(namespace)
-	if nspHandler != nil {
-		nspHandler.broadcast.Send(room, event, args...)
-		return true
+	bc := s.broadcastOf(namespace)
+	if bc != nil {
+		bc.Send(room, event, args...)
 	}
-
-	return false
+	return bc != nil
 }
 
 // BroadcastToNamespace broadcasts given event & args to all the connections in the same namespace.
 func (s *Server) BroadcastToNamespace(namespace string, event string, args ...interface{}) bool {
-	nspHandler := s.getNamespace(namespace)
-	if nspHandler != nil {
-		nspHandler.broadcast.SendAll(event, args...)
-		return true
+	bc := s.broadcastOf(namespace)
+	if bc != nil {
+		bc.SendAll(event, args...)
 	}
-
-	return false
+	return bc != nil
 }
 
 // RoomLen gives number of connections in the room.
 func (s *Server) RoomLen(namespace string, room string) int {
-	nspHandler := s.getNamespace(namespace)
-	if nspHandler != nil {
-		return nspHandler.broadcast.Len(room)
+	if bc := s.broadcastOf(namespace); bc != nil {
+		return bc.Len(room)
 	}
-
 	return -1
 }
 
 // Rooms gives list of all the rooms.
 func (s *Server) Rooms(namespace string) []string {
-	nspHandler := s.getNamespace(namespace)
-	if nspHandler != nil {
-		return nspHandler.broadcast.Rooms(nil)
+	if bc := s.broadcastOf(namespace); bc != nil {
+		return bc.Rooms(nil)
 	}
-
 	return nil
 }
 
@@ -234,43 +274,29 @@ func (s *Server) Remove(sid string) {
 
 // ForEach sends data by DataFunc, if room does not exit sends anything.
 func (s *Server) ForEach(namespace string, room string, f EachFunc) bool {
-	nspHandler := s.getNamespace(namespace)
-	if nspHandler != nil {
-		nspHandler.broadcast.ForEach(room, f)
-		return true
+	bc := s.broadcastOf(namespace)
+	if bc != nil {
+		bc.ForEach(room, f)
 	}
-
-	return false
+	return bc != nil
 }
 
 func (s *Server) serveConn(conn engineio.Conn) {
-	c := newConn(conn, s.handlers, s.log.With("sid", conn.ID()))
-	if err := c.connect(); err != nil {
-		_ = c.Close()
-		if root, ok := s.handlers.Get(rootNamespace); ok && root.onError != nil {
-			root.onError(nil, err)
-		}
-
+	c := newConn(conn, s.handlers, s.limits, s.log.With("sid", conn.ID()))
+	if !c.connected(c.connect()) {
 		return
 	}
 
-	go s.serveError(c)
-	go s.serveWrite(c)
-	go s.serveRead(c)
+	go c.serveError()
+	go c.serveWrite()
+	go func() { c.serveRead(connectPacketHandler, disconnectPacketHandler); s.engine.Remove(c.Conn.ID()) }()
 }
 
-func (s *Server) serveError(c *conn) {
-	defer func() {
-		if err := c.Close(); err != nil {
-			c.log.Error("close connection", "err", err)
-		}
-
-		s.engine.Remove(c.Conn.ID())
-	}()
-
+func (c *conn) serveError() {
 	for {
 		select {
-		case <-c.quitChan:
+		case <-c.closing:
+			c.reportOverflow(c.overflow)
 			return
 		case err := <-c.errorChan:
 			var errMsg *errorMessage
@@ -279,47 +305,39 @@ func (s *Server) serveError(c *conn) {
 			}
 
 			if handler := c.namespace(errMsg.namespace); handler != nil {
-				if handler.onError != nil {
-					nsConn, ok := c.namespaces.Get(errMsg.namespace)
-					if !ok {
-						continue
-					}
-					handler.onError(nsConn, errMsg.err)
+				if handler.onError != nil && errMsg.conn != nil {
+					handler.onError(errMsg.conn, errMsg.err)
 				}
 			}
+			close(errMsg.done)
 		}
 	}
 }
 
-func (s *Server) serveWrite(c *conn) {
-	defer func() {
-		if err := c.Close(); err != nil {
-			c.log.Error("close connection", "err", err)
-		}
-
-		s.engine.Remove(c.Conn.ID())
-	}()
-
+// serveWrite writes until the queue is discarded, or empty after the seal.
+func (c *conn) serveWrite() {
+	seal := c.seal
 	for {
 		select {
-		case <-c.quitChan:
+		case <-c.discard:
 			return
+		case <-seal:
+			seal = nil
 		case pkg := <-c.writeChan:
 			if err := c.encoder.Encode(pkg.Header, pkg.Data); err != nil {
-				c.onError(pkg.Header.Namespace, err)
+				c.onError(pkg.Header.Namespace, err) // not once a close started
+				c.stop()                             // also ends a drain
 			}
+		}
+		if seal == nil && len(c.writeChan) == 0 {
+			c.stop()
 		}
 	}
 }
 
-func (s *Server) serveRead(c *conn) {
-	defer func() {
-		if err := c.Close(); err != nil {
-			c.log.Error("close connection", "err", err)
-		}
-
-		s.engine.Remove(c.Conn.ID())
-	}()
+// serveRead dispatches packets until a close takes the namespaces.
+func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
+	defer c.finish()
 
 	var event string
 
@@ -337,18 +355,19 @@ func (s *Server) serveRead(c *conn) {
 		}
 
 		var err error
+		closed := isDone(c.closing) // then the handlers dispatch nothing and end no drain
 		switch header.Type {
 		case parser.Ack:
 			err = ackPacketHandler(c, header)
 		case parser.Connect:
-			err = connectPacketHandler(c, header)
+			err = connect(c, header)
 		case parser.Disconnect:
-			err = disconnectPacketHandler(c, header)
+			err = disconnect(c, header)
 		case parser.Event:
 			err = eventPacketHandler(c, event, header)
 		}
 
-		if err != nil {
+		if err != nil && !closed {
 			c.log.Error("serve read", "err", err)
 
 			return
@@ -356,12 +375,25 @@ func (s *Server) serveRead(c *conn) {
 	}
 }
 
+// createNamespace returns the handler of nsp, creating it if needed. Under createMu it
+// rechecks, builds, records the first construction error and only then stores the
+// handler, so one namespace never builds two broadcasts and dispatch, which reads
+// s.handlers, never waits for a Redis dial.
 func (s *Server) createNamespace(nsp string) *namespaceHandler {
-	if nsp == aliasRootNamespace {
-		nsp = rootNamespace
+	nsp = fmtNS(nsp)
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+	if handler, ok := s.handlers.Get(nsp); ok {
+		return handler
 	}
 
-	handler := newNamespaceHandler(nsp, s.redisAdapter)
+	var handler *namespaceHandler
+	if s.redisAdapter != nil && s.closed.Load() { // no Redis broadcast, and not recorded for Serve
+		handler = newNamespaceHandler(nsp, nil)
+		handler.broadcast, handler.err = nopBroadcast{}, errServerClosed
+	} else if handler = newNamespaceHandler(nsp, s.redisAdapter); handler.err != nil && s.adapterErr.Load() == nil {
+		s.adapterErr.Store(&handler.err)
+	}
 	s.handlers.Set(nsp, handler)
 
 	return handler

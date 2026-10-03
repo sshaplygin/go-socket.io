@@ -1,7 +1,8 @@
 # Working on go-socket.io
 
 Go implementation of a Socket.IO server (and an experimental client). Module path is
-`github.com/googollee/go-socket.io` until v2 (see [docs/ROADMAP.md](docs/ROADMAP.md)).
+`github.com/sshaplygin/go-socket.io` for v1; v2 adds `/v2` (see
+[docs/ROADMAP.md](docs/ROADMAP.md)).
 
 ## Layout
 
@@ -36,9 +37,32 @@ Requires Go 1.22+, golangci-lint v2 and govulncheck (`go install
 golang.org/x/vuln/cmd/govulncheck@latest`). Tests need no external services.
 
 CI (`.github/workflows/ci.yaml`) has three jobs: `lint` (tidy diff, mod verify, gofmt,
-vet, golangci-lint, govulncheck on ubuntu), `test` (race tests and benchmarks on
+vet, golangci-lint, govulncheck on ubuntu), `test` (race tests on
 ubuntu, macos and windows with `stable` and `oldstable` Go) and `examples`
 (`make examples`). Dependabot groups Go minor/patch and Actions updates weekly.
+
+Benchmarks (`.github/workflows/benchmarks.yml`) compare the PR base and head on
+one Ubuntu runner with the same stable Go toolchain. Each benchmark runs ten times;
+pinned `benchstat` reports timing and allocation deltas in the job summary, a
+14-day artifact and one updated PR comment (same-repository PRs except Dependabot).
+Forks and Dependabot retain the summary and artifact. Performance deltas are
+advisory; build and benchmark failures fail the check.
+
+The Go report formatter produces separate Markdown timing tables per package,
+with median values, percentage changes and advisory markers at ±20% (using the
+displayed, rounded percentage). The full
+`benchstat` output, including allocations and statistical comparisons, is in a
+collapsible section. Added/removed benchmarks and changes from a zero baseline
+are marked not comparable. Validate rendering with
+`go test ./.github/benchmarks/report`.
+
+A small detection job runs on every PR update. It compares the previous head on
+pushes, or the merge base on opening/reopening a PR (also the fallback if the
+previous head is unavailable). Ordinary Go comments and formatting, documentation,
+and `_examples/` changes skip the benchmark job. Go tokens, compiler/build/line
+directives, cgo comments, dependencies, native sources, test fixtures and benchmark
+automation changes trigger it. Cgo comments are retained conservatively because
+they can contain C code. Validate the detector with `go test ./.github/benchmarks`.
 
 ## Conventions
 

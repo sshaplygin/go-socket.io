@@ -1,11 +1,15 @@
 package socketio
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/gomodule/redigo/redis"
 )
@@ -13,8 +17,20 @@ import (
 // redisBroadcast gives Join, Leave & BroadcastTO server API support to socket.io along with room management
 // map of rooms where each room contains a map of connection id to connections in that room
 type redisBroadcast struct {
-	pub *redis.PubSubConn
-	sub *redis.PubSubConn
+	// pub serves PUBLISH and PUBSUB commands. A redigo connection allows only
+	// one concurrent caller, and these commands come from user goroutines and
+	// the dispatch goroutine, so each command takes its own pooled connection.
+	pub *redis.Pool
+	// sub is read by the dispatch goroutine and replaced by it after a
+	// receive error; subLock orders the replacement with close.
+	sub     *redis.PubSubConn
+	subLock sync.Mutex
+	done    chan struct{}
+	// dial opens a connection to the server (atomic so tests can wrap it
+	// while the dispatcher runs); pattern is the broadcast channel pattern
+	// the subscriber listens on.
+	dial    atomic.Pointer[func(context.Context) (redis.Conn, error)]
+	pattern string
 
 	nsp        string
 	uid        string
@@ -22,12 +38,32 @@ type redisBroadcast struct {
 	reqChannel string
 	resChannel string
 
-	requests map[string]interface{}
+	requests    map[string]interface{}
+	requestLock sync.Mutex
 
 	rooms map[string]map[string]Conn
 
 	lock sync.RWMutex
 }
+
+// redisRequestTimeout bounds how long Len and AllRooms wait for the answers
+// of the subscribers counted by PUBSUB NUMSUB; an instance that died or hangs
+// is still counted until Redis drops its connection.
+var redisRequestTimeout = 5 * time.Second
+
+// redisDialTimeout bounds the two dials that build a Redis broadcast, the
+// publishing and the subscriber connection together, including AUTH and
+// SELECT, and each later dial of the publishing pool. Registration holds the
+// creation mutex for that time, and Server.Close waits for it; tests shorten
+// it.
+var redisDialTimeout = 10 * time.Second
+
+// Backoff between attempts to reopen the subscriber connection after a
+// receive error; tests shorten it.
+var (
+	redisReconnectMin = 100 * time.Millisecond
+	redisReconnectMax = 5 * time.Second
+)
 
 // request types
 const (
@@ -88,20 +124,40 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 		redisOpts = append(redisOpts, redis.DialDatabase(opts.DB))
 	}
 
-	pub, err := redis.Dial(opts.Network, addr, redisOpts...)
-	if err != nil {
-		return nil, err
+	// redis.DialContext and Pool.DialContext are missing from
+	// redigo v2.0.0+incompatible, which gogf/gf v1 still selects, so ctx
+	// reaches the dial through DialNetDial: it bounds the TCP dial, and once
+	// ctx is done the connection is closed, which also ends AUTH and SELECT.
+	dial := func(ctx context.Context) (redis.Conn, error) {
+		stop := func() bool { return true }
+		netDial := func(network, address string) (net.Conn, error) {
+			// The timeouts redigo v1.8.9's own dialer uses when DialNetDial is not set.
+			d := net.Dialer{Timeout: 30 * time.Second, KeepAlive: 5 * time.Minute}
+			c, err := d.DialContext(ctx, network, address)
+			if err == nil {
+				stop = context.AfterFunc(ctx, func() { _ = c.Close() })
+			}
+			return c, err
+		}
+		c, err := redis.Dial(opts.Network, addr, append(redisOpts[:len(redisOpts):len(redisOpts)], redis.DialNetDial(netDial))...)
+		if !stop() && err == nil { // ctx ended as the dial finished: c is closed
+			_ = c.Close()
+			return nil, ctx.Err()
+		}
+		return c, err
 	}
-
-	sub, err := redis.Dial(opts.Network, addr, redisOpts...)
+	pub := &redis.Pool{MaxIdle: 4, Dial: func() (redis.Conn, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+		defer cancel()
+		return dial(ctx)
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+	defer cancel()
+	// Dial the first publishing connection now to report an unreachable server.
+	first := pub.Get()
+	err := first.Err()
+	_ = first.Close()
 	if err != nil {
-		return nil, err
-	}
-
-	subConn := &redis.PubSubConn{Conn: sub}
-	pubConn := &redis.PubSubConn{Conn: pub}
-
-	if err = subConn.PSubscribe(fmt.Sprintf("%s#%s#*", opts.Prefix, nsp)); err != nil {
 		return nil, err
 	}
 
@@ -109,16 +165,19 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 	rbc := &redisBroadcast{
 		rooms:      make(map[string]map[string]Conn),
 		requests:   make(map[string]interface{}),
-		sub:        subConn,
-		pub:        pubConn,
+		done:       make(chan struct{}),
+		pub:        pub,
+		pattern:    fmt.Sprintf("%s#%s#*", opts.Prefix, nsp),
 		key:        fmt.Sprintf("%s#%s#%s", opts.Prefix, nsp, uid),
 		reqChannel: fmt.Sprintf("%s-request#%s", opts.Prefix, nsp),
 		resChannel: fmt.Sprintf("%s-response#%s", opts.Prefix, nsp),
 		nsp:        nsp,
 		uid:        uid,
 	}
+	rbc.dial.Store(&dial)
 
-	if err = subConn.Subscribe(rbc.reqChannel, rbc.resChannel); err != nil {
+	if rbc.sub, err = rbc.subscribe(ctx); err != nil {
+		_ = pub.Close()
 		return nil, err
 	}
 
@@ -127,7 +186,29 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 	return rbc, nil
 }
 
+// subscribe opens a subscriber connection to the broadcast pattern and the
+// request and response channels, and closes it again if that fails. ctx bounds
+// only the dial.
+func (bc *redisBroadcast) subscribe(ctx context.Context) (*redis.PubSubConn, error) {
+	c, err := (*bc.dial.Load())(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sub := &redis.PubSubConn{Conn: c}
+	if err = sub.PSubscribe(bc.pattern); err == nil {
+		err = sub.Subscribe(bc.reqChannel, bc.resChannel)
+	}
+	if err != nil {
+		_ = sub.Close()
+		return nil, err
+	}
+	return sub, nil
+}
+
 // AllRooms gives list of all rooms available for redisBroadcast.
+// It waits at most redisRequestTimeout for the answers of the instances
+// subscribed to the namespace and returns the union of the rooms received
+// by then, or an empty list when publishing the request fails.
 func (bc *redisBroadcast) AllRooms() []string {
 	req := allRoomRequest{
 		RequestType: allRoomReqType,
@@ -140,20 +221,22 @@ func (bc *redisBroadcast) AllRooms() []string {
 	req.numSub = numSub
 	req.done = make(chan bool, 1)
 
-	bc.requests[req.RequestID] = &req
-	_, err := bc.pub.Conn.Do("PUBLISH", bc.reqChannel, reqJSON)
+	bc.setRequest(req.RequestID, &req)
+	defer bc.setRequest(req.RequestID, nil)
+	_, err := bc.do("PUBLISH", bc.reqChannel, reqJSON)
 	if err != nil {
 		return []string{} // if error occurred,return empty
 	}
 
-	<-req.done
+	waitAnswers(req.done)
 
+	req.mutex.Lock()
+	defer req.mutex.Unlock()
 	rooms := make([]string, 0, len(req.rooms))
 	for room := range req.rooms {
 		rooms = append(rooms, room)
 	}
 
-	delete(bc.requests, req.RequestID)
 	return rooms
 }
 
@@ -208,48 +291,27 @@ func (bc *redisBroadcast) Clear(room string) {
 
 // Send sends given event & args to all the connections in the specified room.
 func (bc *redisBroadcast) Send(room, event string, args ...interface{}) {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-
-	connections, ok := bc.rooms[room]
-	if ok {
-		for _, connection := range connections {
-			connection.Emit(event, args...)
-		}
-	}
-
+	bc.send(room, event, args...)
 	bc.publishMessage(room, event, args...)
 }
 
 // SendAll sends given event & args to all the connections to all the rooms.
 func (bc *redisBroadcast) SendAll(event string, args ...interface{}) {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-
-	for _, connections := range bc.rooms {
-		for _, connection := range connections {
-			connection.Emit(event, args...)
-		}
-	}
+	bc.sendAll(event, args...)
 	bc.publishMessage("", event, args...)
 }
 
 // ForEach sends data returned by DataFunc, if room does not exits sends nothing.
 func (bc *redisBroadcast) ForEach(room string, f EachFunc) {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-
-	occupants, ok := bc.rooms[room]
-	if !ok {
-		return
-	}
-
-	for _, connection := range occupants {
+	for _, connection := range bc.members(room, false) {
 		f(connection)
 	}
 }
 
 // Len gives number of connections in the room.
+// It waits at most redisRequestTimeout for the answers of the instances
+// subscribed to the namespace and returns the sum of the answers received
+// by then, or -1 when a Redis command fails.
 func (bc *redisBroadcast) Len(room string) int {
 	req := roomLenRequest{
 		RequestType: roomLenReqType,
@@ -271,15 +333,17 @@ func (bc *redisBroadcast) Len(room string) int {
 
 	req.done = make(chan bool, 1)
 
-	bc.requests[req.RequestID] = &req
-	_, err = bc.pub.Conn.Do("PUBLISH", bc.reqChannel, reqJSON)
+	bc.setRequest(req.RequestID, &req)
+	defer bc.setRequest(req.RequestID, nil)
+	_, err = bc.do("PUBLISH", bc.reqChannel, reqJSON)
 	if err != nil {
 		return -1
 	}
 
-	<-req.done
+	waitAnswers(req.done)
 
-	delete(bc.requests, req.RequestID)
+	req.mutex.Lock()
+	defer req.mutex.Unlock()
 	return req.connections
 }
 
@@ -287,9 +351,7 @@ func (bc *redisBroadcast) Len(room string) int {
 // no connection is given, in case of a connection is given, it gives
 // list of all the rooms the connection is joined to.
 func (bc *redisBroadcast) Rooms(connection Conn) []string {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-
+	// AllRooms waits for this instance's own answer, which takes bc.lock.
 	if connection == nil {
 		return bc.AllRooms()
 	}
@@ -317,6 +379,9 @@ func (bc *redisBroadcast) onMessage(channel string, msg []byte) error {
 
 	args := bcMessage["args"]
 	opts := bcMessage["opts"]
+	if len(opts) < 2 {
+		return errors.New("invalid broadcast message")
+	}
 
 	room, ok := opts[0].(string)
 	if !ok {
@@ -337,9 +402,27 @@ func (bc *redisBroadcast) onMessage(channel string, msg []byte) error {
 	return nil
 }
 
+// setRequest registers a pending request, or removes it when req is nil.
+func (bc *redisBroadcast) setRequest(id string, req interface{}) {
+	bc.requestLock.Lock()
+	defer bc.requestLock.Unlock()
+	if req == nil {
+		delete(bc.requests, id)
+	} else {
+		bc.requests[id] = req
+	}
+}
+
+// do runs one command on a pooled publishing connection.
+func (bc *redisBroadcast) do(cmd string, args ...interface{}) (interface{}, error) {
+	c := bc.pub.Get()
+	defer func() { _ = c.Close() }()
+	return c.Do(cmd, args...)
+}
+
 // Get the number of subscribers of a channel.
 func (bc *redisBroadcast) getNumSub(channel string) (int, error) {
-	rs, err := bc.pub.Conn.Do("PUBSUB", "NUMSUB", channel)
+	rs, err := bc.do("PUBSUB", "NUMSUB", channel)
 	if err != nil {
 		return 0, err
 	}
@@ -365,7 +448,7 @@ func (bc *redisBroadcast) onRequest(msg []byte) {
 		res = roomLenResponse{
 			RequestType: req["RequestType"],
 			RequestID:   req["RequestID"],
-			Connections: len(bc.rooms[req["Room"]]),
+			Connections: bc.roomLen(req["Room"]),
 		}
 		bc.publish(bc.resChannel, &res)
 
@@ -393,9 +476,30 @@ func (bc *redisBroadcast) publish(channel string, msg interface{}) {
 		return
 	}
 
-	_, err = bc.pub.Conn.Do("PUBLISH", channel, resJSON)
+	_, err = bc.do("PUBLISH", channel, resJSON)
 	if err != nil {
 		return
+	}
+}
+
+// waitAnswers waits until all answers to a request arrived or
+// redisRequestTimeout passed. On timeout the caller returns the answers
+// gathered so far.
+func waitAnswers(done <-chan bool) {
+	timer := time.NewTimer(redisRequestTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+	}
+}
+
+// notify signals done without blocking the dispatch goroutine when the
+// request already completed or its caller stopped waiting.
+func notify(done chan<- bool) {
+	select {
+	case done <- true:
+	default:
 	}
 }
 
@@ -408,44 +512,43 @@ func (bc *redisBroadcast) onResponse(msg []byte) {
 		return
 	}
 
-	req, ok := bc.requests[res["RequestID"].(string)]
+	id, _ := res["RequestID"].(string)
+	bc.requestLock.Lock()
+	req, ok := bc.requests[id]
+	bc.requestLock.Unlock()
 	if !ok {
 		return
 	}
 
-	switch res["RequestType"] {
-	case roomLenReqType:
-		roomLenReq := req.(*roomLenRequest)
+	// Fields of a malformed answer count as empty.
+	switch req := req.(type) {
+	case *roomLenRequest:
+		connections, _ := res["Connections"].(float64)
 
-		roomLenReq.mutex.Lock()
-		roomLenReq.msgCount++
-		roomLenReq.connections += int(res["Connections"].(float64))
-		roomLenReq.mutex.Unlock()
+		req.mutex.Lock()
+		req.msgCount++
+		req.connections += int(connections)
+		req.mutex.Unlock()
 
-		if roomLenReq.numSub == roomLenReq.msgCount {
-			roomLenReq.done <- true
+		if req.numSub == req.msgCount {
+			notify(req.done)
 		}
 
-	case allRoomReqType:
-		allRoomReq := req.(*allRoomRequest)
-		rooms, ok := res["Rooms"].([]interface{})
-		if !ok {
-			allRoomReq.done <- true
-			return
-		}
+	case *allRoomRequest:
+		rooms, _ := res["Rooms"].([]interface{})
 
-		allRoomReq.mutex.Lock()
-		allRoomReq.msgCount++
+		req.mutex.Lock()
+		req.msgCount++
 		for _, room := range rooms {
-			allRoomReq.rooms[room.(string)] = true
+			if name, ok := room.(string); ok {
+				req.rooms[name] = true
+			}
 		}
-		allRoomReq.mutex.Unlock()
+		req.mutex.Unlock()
 
-		if allRoomReq.numSub == allRoomReq.msgCount {
-			allRoomReq.done <- true
+		if req.numSub == req.msgCount {
+			notify(req.done)
 		}
-
-	default:
 	}
 }
 
@@ -468,17 +571,30 @@ func (bc *redisBroadcast) clear(room string) {
 }
 
 func (bc *redisBroadcast) send(room string, event string, args ...interface{}) {
+	for _, connection := range bc.members(room, false) {
+		connection.Emit(event, args...)
+	}
+}
+
+// members returns the connections in room, or with all set the connections
+// of every room, once per room. Callers emit to them after bc.lock is
+// released, so a connection can leave its rooms while it is emitted to.
+func (bc *redisBroadcast) members(room string, all bool) []Conn {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
 
-	connections, ok := bc.rooms[room]
-	if !ok {
-		return
+	rooms := bc.rooms
+	if !all {
+		rooms = map[string]map[string]Conn{room: bc.rooms[room]}
 	}
 
-	for _, connection := range connections {
-		connection.Emit(event, args...)
+	var conns []Conn
+	for _, connections := range rooms {
+		for _, connection := range connections {
+			conns = append(conns, connection)
+		}
 	}
+	return conns
 }
 
 func (bc *redisBroadcast) publishMessage(room string, event string, args ...interface{}) {
@@ -495,20 +611,15 @@ func (bc *redisBroadcast) publishMessage(room string, event string, args ...inte
 		return
 	}
 
-	_, err = bc.pub.Conn.Do("PUBLISH", bc.key, bcMessageJSON)
+	_, err = bc.do("PUBLISH", bc.key, bcMessageJSON)
 	if err != nil {
 		return
 	}
 }
 
 func (bc *redisBroadcast) sendAll(event string, args ...interface{}) {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-
-	for _, connections := range bc.rooms {
-		for _, connection := range connections {
-			connection.Emit(event, args...)
-		}
+	for _, connection := range bc.members("", true) {
+		connection.Emit(event, args...)
 	}
 }
 
@@ -524,7 +635,17 @@ func (bc *redisBroadcast) allRooms() []string {
 	return rooms
 }
 
+func (bc *redisBroadcast) roomLen(room string) int {
+	bc.lock.RLock()
+	defer bc.lock.RUnlock()
+
+	return len(bc.rooms[room])
+}
+
 func (bc *redisBroadcast) getRoomsByConn(connection Conn) []string {
+	bc.lock.RLock()
+	defer bc.lock.RUnlock()
+
 	var rooms []string
 
 	for room, connections := range bc.rooms {
@@ -536,30 +657,82 @@ func (bc *redisBroadcast) getRoomsByConn(connection Conn) []string {
 	return rooms
 }
 
+// dispatch handles the messages of the subscriber connection until the
+// broadcast is closed. Malformed messages are skipped; after a receive error
+// the subscriber connection is reopened.
 func (bc *redisBroadcast) dispatch() {
+	sub := bc.sub
+	delay := redisReconnectMin
 	for {
-		switch m := bc.sub.Receive().(type) {
+		switch m := sub.Receive().(type) {
 		case redis.Message:
-			if m.Channel == bc.reqChannel {
+			switch m.Channel {
+			case bc.reqChannel:
 				bc.onRequest(m.Data)
-				break
-			} else if m.Channel == bc.resChannel {
+			case bc.resChannel:
 				bc.onResponse(m.Data)
-				break
-			}
-
-			err := bc.onMessage(m.Channel, m.Data)
-			if err != nil {
-				return
+			default:
+				_ = bc.onMessage(m.Channel, m.Data)
 			}
 
 		case redis.Subscription:
 			if m.Count == 0 {
 				return
 			}
+			// The server accepted the subscription, so the backoff starts over.
+			delay = redisReconnectMin
 
 		case error:
-			return
+			_ = sub.Close()
+			if sub, delay = bc.resubscribe(delay); sub == nil {
+				return
+			}
 		}
 	}
+}
+
+// resubscribe opens a new subscriber connection, waiting delay before the
+// first attempt and doubling it up to redisReconnectMax after each attempt.
+// It returns the connection and the delay for the next reconnect, so the
+// backoff also grows when the server refuses each new subscription, or a
+// nil connection once the broadcast is closed.
+func (bc *redisBroadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.Duration) {
+	for ; ; delay = min(2*delay, redisReconnectMax) {
+		select {
+		case <-bc.done:
+			return nil, 0
+		case <-time.After(delay):
+		}
+
+		sub, err := bc.subscribe(context.Background())
+		if err != nil {
+			continue
+		}
+
+		bc.subLock.Lock()
+		defer bc.subLock.Unlock()
+		select {
+		case <-bc.done:
+			_ = sub.Close()
+			return nil, 0
+		default:
+			bc.sub = sub
+			return sub, min(2*delay, redisReconnectMax)
+		}
+	}
+}
+
+// close stops the dispatch goroutine and closes the connections.
+func (bc *redisBroadcast) close() {
+	bc.subLock.Lock()
+	defer bc.subLock.Unlock()
+	select {
+	case <-bc.done:
+		return
+	default:
+	}
+
+	close(bc.done)
+	_ = bc.sub.Close()
+	_ = bc.pub.Close()
 }

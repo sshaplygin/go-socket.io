@@ -84,39 +84,37 @@ func (bc *broadcast) Clear(room string) {
 
 // Send sends given event & args to all the connections in the specified room
 func (bc *broadcast) Send(room, event string, args ...interface{}) {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-
-	for _, connection := range bc.rooms[room] {
+	for _, connection := range bc.members(room) {
 		connection.Emit(event, args...)
 	}
 }
 
 // SendAll sends given event & args to all the connections to all the rooms
 func (bc *broadcast) SendAll(event string, args ...interface{}) {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-
-	for _, connections := range bc.rooms {
-		for _, connection := range connections {
-			connection.Emit(event, args...)
-		}
+	for _, room := range bc.AllRooms() {
+		bc.Send(room, event, args...)
 	}
 }
 
 // ForEach sends data returned by DataFunc, if room does not exits sends nothing
 func (bc *broadcast) ForEach(room string, f EachFunc) {
+	for _, connection := range bc.members(room) {
+		f(connection)
+	}
+}
+
+// members returns the connections in room, so that callers emit without holding bc.lock.
+func (bc *broadcast) members(room string) []Conn {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
 
-	occupants, ok := bc.rooms[room]
-	if !ok {
-		return
+	occupants := bc.rooms[room]
+	conns := make([]Conn, 0, len(occupants))
+	for _, connection := range occupants {
+		conns = append(conns, connection)
 	}
 
-	for _, connection := range occupants {
-		f(connection)
-	}
+	return conns
 }
 
 // Len gives number of connections in the room

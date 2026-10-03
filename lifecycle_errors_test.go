@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/googollee/go-socket.io/engineio"
+	"github.com/sshaplygin/go-socket.io/engineio"
 )
 
 // newTestServer starts srv behind httptest with a short pingTimeout, so a

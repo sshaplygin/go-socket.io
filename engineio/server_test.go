@@ -14,12 +14,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/googollee/go-socket.io/engineio/frame"
-	"github.com/googollee/go-socket.io/engineio/packet"
-	"github.com/googollee/go-socket.io/engineio/session"
-	"github.com/googollee/go-socket.io/engineio/transport"
-	"github.com/googollee/go-socket.io/engineio/transport/polling"
-	"github.com/googollee/go-socket.io/engineio/transport/websocket"
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
 func TestEnginePolling(t *testing.T) {
@@ -191,6 +191,22 @@ func TestEngineWebsocket(t *testing.T) {
 }
 
 func TestEngineUpgrade(t *testing.T) {
+	for _, delayed := range []bool{false, true} {
+		name := "polling active"
+		if delayed {
+			name = "polling starts after probe"
+		}
+		t.Run(name, func(t *testing.T) { testEngineUpgrade(t, delayed) })
+	}
+}
+
+// upgradeRoundTripper lets the upgrade test delay polling HTTP requests without
+// changing the transport or server implementation.
+type upgradeRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f upgradeRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 	should := assert.New(t)
 	must := require.New(t)
 
@@ -240,28 +256,34 @@ func TestEngineUpgrade(t *testing.T) {
 	query.Set("EIO", "3")
 	u.RawQuery = query.Encode()
 
-	p, err := polling.Default.Dial(u, nil)
+	// Open starts serveGet independently of the polling reader. Holding its
+	// requests until PONG reproduces a client whose first poll is scheduled late.
+	pollGate := make(chan struct{})
+	var releaseOnce sync.Once
+	releasePolling := func() { releaseOnce.Do(func() { close(pollGate) }) }
+	defer releasePolling()
+	if !delayedPolling {
+		releasePolling()
+	}
+	tr := &polling.Transport{Client: &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: upgradeRoundTripper(func(req *http.Request) (*http.Response, error) {
+			if req.Method == http.MethodGet && req.URL.Query().Get("sid") != "" {
+				select {
+				case <-pollGate:
+				case <-req.Context().Done():
+					return nil, req.Context().Err()
+				}
+			}
+			return http.DefaultTransport.RoundTrip(req)
+		}),
+	}}
+	p, err := tr.Dial(u, nil)
 	must.NoError(err)
+	defer func() { _ = p.Close() }()
 
 	params, err := p.(Opener).Open()
 	must.NoError(err)
-
-	pRead := make(chan int, 1)
-
-	go func() {
-		pRead <- 1
-
-		ft, pt, r, err := p.NextReader()
-		must.NoError(err)
-
-		should.Equal(frame.String, ft)
-		should.Equal(packet.NOOP, pt)
-		must.Nil(r.Close())
-
-		close(pRead)
-	}()
-
-	<-pRead
 
 	upU := *u
 	upU.Scheme = "ws"
@@ -271,6 +293,7 @@ func TestEngineUpgrade(t *testing.T) {
 
 	ws, err := websocket.Default.Dial(&upU, nil)
 	must.NoError(err)
+	defer func() { _ = ws.Close() }()
 
 	w, err := ws.NextWriter(frame.String, packet.PING)
 	must.NoError(err)
@@ -293,14 +316,36 @@ func TestEngineUpgrade(t *testing.T) {
 
 	must.NoError(r.Close())
 
+	// PONG only confirms the probe; it does not prove that a polling GET
+	// has reached the server. Read NOOP and stop polling before UPGRADE, or
+	// the server may reject that late GET and the reader may never signal done.
+	releasePolling()
+	pollDone := make(chan error, 1)
+	go func() {
+		ft, pt, r, err := p.NextReader()
+		if err != nil {
+			pollDone <- fmt.Errorf("read polling NOOP: %w", err)
+			return
+		}
+		closeErr := r.Close()
+		if ft != frame.String || pt != packet.NOOP {
+			pollDone <- fmt.Errorf("expected polling NOOP (%v, %v), got (%v, %v)", frame.String, packet.NOOP, ft, pt)
+			return
+		}
+		pollDone <- closeErr
+	}()
+	select {
+	case err := <-pollDone:
+		must.NoError(err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for polling NOOP before UPGRADE")
+	}
+	must.NoError(p.Close())
+
 	w, err = ws.NextWriter(frame.String, packet.UPGRADE)
 	must.NoError(err)
 
 	must.NoError(w.Close())
-
-	<-pRead
-
-	must.Nil(p.Close())
 
 	w, err = ws.NextWriter(frame.String, packet.MESSAGE)
 	must.NoError(err)

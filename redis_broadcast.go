@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -52,8 +53,9 @@ var redisRequestTimeout = 5 * time.Second
 
 // redisDialTimeout bounds the two dials that build a Redis broadcast, the
 // publishing and the subscriber connection together, including AUTH and
-// SELECT. Registration holds the creation mutex for that time, and
-// Server.Close waits for it; tests shorten it.
+// SELECT, and each later dial of the publishing pool. Registration holds the
+// creation mutex for that time, and Server.Close waits for it; tests shorten
+// it.
 var redisDialTimeout = 10 * time.Second
 
 // Backoff between attempts to reopen the subscriber connection after a
@@ -122,14 +124,38 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 		redisOpts = append(redisOpts, redis.DialDatabase(opts.DB))
 	}
 
+	// redis.DialContext and Pool.DialContext are missing from
+	// redigo v2.0.0+incompatible, which gogf/gf v1 still selects, so ctx
+	// reaches the dial through DialNetDial: it bounds the TCP dial, and once
+	// ctx is done the connection is closed, which also ends AUTH and SELECT.
 	dial := func(ctx context.Context) (redis.Conn, error) {
-		return redis.DialContext(ctx, opts.Network, addr, redisOpts...)
+		stop := func() bool { return true }
+		netDial := func(network, address string) (net.Conn, error) {
+			// The timeouts redigo v1.8.9's own dialer uses when DialNetDial is not set.
+			d := net.Dialer{Timeout: 30 * time.Second, KeepAlive: 5 * time.Minute}
+			c, err := d.DialContext(ctx, network, address)
+			if err == nil {
+				stop = context.AfterFunc(ctx, func() { _ = c.Close() })
+			}
+			return c, err
+		}
+		c, err := redis.Dial(opts.Network, addr, append(redisOpts[:len(redisOpts):len(redisOpts)], redis.DialNetDial(netDial))...)
+		if !stop() && err == nil { // ctx ended as the dial finished: c is closed
+			_ = c.Close()
+			return nil, ctx.Err()
+		}
+		return c, err
 	}
-	pub := &redis.Pool{MaxIdle: 4, DialContext: dial}
+	pub := &redis.Pool{MaxIdle: 4, Dial: func() (redis.Conn, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+		defer cancel()
+		return dial(ctx)
+	}}
 	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
 	defer cancel()
 	// Dial the first publishing connection now to report an unreachable server.
-	first, err := pub.GetContext(ctx)
+	first := pub.Get()
+	err := first.Err()
 	_ = first.Close()
 	if err != nil {
 		return nil, err

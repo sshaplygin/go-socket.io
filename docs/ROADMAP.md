@@ -380,13 +380,19 @@ Tasks:
     path are not failures after a close has started. An error delivered to a
     registered `OnError` logs at most DEBUG. Any other error whose namespace has no
     `OnError` logs exactly one `socketio: unhandled error` WARN with `sid`, `nsp` and
-    `err` (this is the record 1.B *Overflow* refers to); a CONNECT to a namespace
+    `err` (this is the record 1.B *Overflow* refers to; for an overflow `nsp` is the
+    overflowing packet's namespace, also when it has no `OnError`); a CONNECT to a namespace
     without handlers is such an error. Every other record of an error that is
     delivered to `OnError` or logged as `socketio: unhandled error`, before or after,
     logs at most DEBUG, and so does a log call whose error is also returned to its
-    caller. At the socket.io layer every failure returned by engine.io `NextReader` is
-    expected closure (the session has closed itself); only a parser decode error on a
-    frame that was read is another error. The polling POST log calls (unsupported
+    caller. At the socket.io and parser layers every failure returned by engine.io
+    `NextReader` or by the frame reader it returns, and every failure returned by
+    `NextWriter` or by the frame writer it returns (`Close` included), is expected
+    closure (on `socketio.Server` the session has closed itself). Only a parser decode
+    error on a frame that was read completely, and a marshal error in `Encode`, are
+    other errors; socket.io tells write failures from marshal errors by wrapping the
+    frame writer it gives the encoder, unexported. Failures on an upgrade probe
+    connection log at most DEBUG: the session keeps its old transport. The polling POST log calls (unsupported
     content type, `FeedIn`, writing the answer) log at most DEBUG: the client gets the
     400 answer or has gone. Every other existing log call that reports a failure no
     caller receives logs WARN. Failures v1 does not log today stay unlogged: the Redis
@@ -430,8 +436,9 @@ Tasks:
     *namespace connect:* one per namespace
     CONNECT handled for a `socketio.Server` connection, root included, after
     `OnConnect` returned or the connect failed; a connect failed by an overflow carries
-    `ErrWriteBufferFull`; a CONNECT to a namespace without handlers gets no record.
-    The overflowing packet's namespace is kept even when it has no `OnError`. *disconnect:* one per connected
+    `ErrWriteBufferFull`, joined with the `OnConnect` error when there is one
+    (`errors.Is` holds for both); a CONNECT to a namespace without handlers gets no
+    record. *disconnect:* one per connected
     namespace when its disconnect runs (1.B: exactly once per connected namespace),
     whether or not an `OnDisconnect` handler is registered; `reason` is `namespace disconnect` for a peer DISCONNECT of that namespace
     and `connection close` otherwise; text sent by the peer is never logged.
@@ -455,7 +462,8 @@ Tasks:
        logs one such WARN; an overflow with no `OnError` on the packet's namespace
        logs exactly one such WARN with `ErrWriteBufferFull` and that `nsp`; the 1B-T18
        case without root `OnError` logs one such WARN for each of its two errors; a
-       ping timeout (`PingTimeout` 100 ms) without root `OnError` logs no WARN; an
+       ping timeout (`PingTimeout` 100 ms, on polling and on websocket, with no client
+       traffic after the handshake) without root `OnError` logs no WARN; an
        argument decode error without `OnError` logs exactly one WARN in total.
     9. 1L-T9 (S): each `request rejected` reason is logged once by its trigger,
        `unknown sid` at DEBUG and the others at WARN; `init` is triggered through a
@@ -509,8 +517,8 @@ upgrades disabled. From v2 this job covers every shipped runtime module;
 `govulncheck` clean; two-instance Redis test under `-race` passes; every (case, side)
 pair of the 1.B, 1I and 1.L test lists is named by a passing test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
 package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses.
-Logging gate: `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv` (also asserting
-`msg="logger: invalid level ignored"` and `value=bogus`),
+Logging gate: `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv` (also asserting that
+stderr contains the message `logger: invalid level ignored` and `value=bogus`),
 `TestWrapOverridesHandlerLevel` and `TestTraceDisabledNoAlloc` pass; the package
 `logger` godoc documents the variable, the levels, the message pattern and the keys;
 `make lint` passes with the `Deprecated:` notices in place. Links: every badge in
@@ -524,7 +532,7 @@ git grep -nE '(^|[^[:alnum:]_])(log|fmt)\.Print' -- '*.go' ':(exclude)*_test.go'
 git grep -nE '\.(Error|Info)\("' -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' ':(exclude).github' ':(exclude)logger'
 git grep -nE 'https?://godoc[.]org' -- '*.md'
 git grep -nE '(pkg\.go\.dev/|go get )github\.com/sshaplygin/go-socket\.io(/[a-z_/]+)?([^@a-z_/]|$)' -- README.md engineio/README.md
-git grep -nE '\.(Debug|Warn)\("' -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' ':(exclude).github' | grep -vE '\.(Debug|Warn)\("(engineio|socketio|logger): [a-z][a-z0-9 ]*"'
+git grep -nE '\.(Debug|Warn)\("' -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' ':(exclude).github' | grep -vE '\.(Debug|Warn)\("(engineio|socketio|logger): [a-z][a-z0-9 ]*"[,)]'
 ```
 
 Acceptance: `_examples/default-http` works unchanged against `socket.io-client` 2.x;
@@ -718,6 +726,8 @@ porting; existing branch Go race tests passed during this roadmap review.
 - `engineio/session`: server ping ticker and `pingTimeout` to await each pong;
   clients use `pingInterval+pingTimeout` to detect a missing server ping. Add
   `maxPayload` and noop on upgrade. `engineio/server.go`: `EIO` check, JSON errors.
+  The polling GET 500 and invalid-method 400 answers, unlogged in v1, log
+  `engineio: request rejected` with reasons `flush` and `bad method`.
 - `engineio/transport/websocket` rewritten on `gobwas/ws`: `ws.UpgradeHTTP` hijacks the
   connection (HTTP/1.1 only); frames read with `wsutil.Reader` and written with
   `wsutil.Writer` so the `FrameReader`/`FrameWriter` contract is preserved; control
@@ -1013,7 +1023,9 @@ records 1.L left out of v1, with these keys:
 | socketio | `socketio: handler error` | WARN | `sid`, `nsp`, `event`, `err` |
 
 In v2, `socketio: handler error` (WARN) replaces v1's `socketio: unhandled error` for a
-handler error with no error handler; with one registered it logs at most DEBUG.
+handler error with no error handler; with one registered it logs at most DEBUG. Every
+other v1 `socketio: unhandled error` trigger (decode errors, a CONNECT to an unknown
+namespace, an overflow) keeps that record and rule in v2.
 On top of these it adds `rtt` on pong, `rooms`, `except` and `local` on broadcast, and
 `socketio: adapter publish` / `socketio: adapter receive` start/end lines at `TRACE`.
 Broadcast `recipients` means successful local enqueues; also log `published`.

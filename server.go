@@ -53,7 +53,7 @@ func loggerFrom(opts *engineio.Options) *slog.Logger {
 
 // Adapter sets the Redis broadcast adapter for the namespaces registered after it. A
 // namespace builds its Redis broadcast when its first handler is registered; its two
-// Redis connections, AUTH and SELECT included, must be ready within 10 seconds. If that
+// Redis connections must be dialled, AUTH and SELECT included, within 10 seconds. If that
 // fails, the namespace keeps a no-op broadcast and the error, which names the namespace
 // and wraps the Redis error; registering more handlers does not retry. Serve, if called
 // before Close, returns the first such error recorded before it was called (see Serve).

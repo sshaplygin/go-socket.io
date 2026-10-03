@@ -1331,12 +1331,16 @@ new revision IDs; release them separately. M7 closes the roadmap.
 | M0 | Stage 0 docs baseline | none |
 | M1 | Stage 1 | `v1.5.0` |
 | M1b | Stage 1b package layout | none (first commits after branch `v1`) |
-| M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance | branch `v2-dev` |
+| M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance | branch `v2-next` |
 | M3 | 2.2 + 2.3 + 2.4 + 2.5 | `v2.0.0`, `contrib/otel/v2.0.0` |
 | M4 | Stage 3: single-server chat | `v2.1.0` |
 | M5 | Stage 4b: adapters and cluster chat acceptance | root `v2.2.0` first, then `adapters/redis/v2.0.0`, `adapters/nats/v2.0.0` |
 | M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `contrib/admin/v2.0.0`; adapter minor releases |
 | M7 | Stage 6: final comparative benchmark report and reproducible artifacts | report/artifact revision; no runtime release required |
+
+Create `v2-next` only when M2 is accepted, from the reviewed `master` commit that
+satisfies its gates; record that exact SHA in the integration issue. Keep the
+legacy `v2-dev` branch unchanged. Topic PRs continue to target `master`.
 
 Re-estimate stage 2 after G2 and adapters after the shared codec/conformance fixtures.
 The earlier 15–25 working-day estimate for stage 5 is provisional; measure the

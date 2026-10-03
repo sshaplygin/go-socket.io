@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/googollee/go-socket.io/engineio/frame"
-	"github.com/googollee/go-socket.io/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/engineio/packet"
 )
 
 func TestBatchFixtures(t *testing.T) {

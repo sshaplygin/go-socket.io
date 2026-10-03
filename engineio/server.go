@@ -27,7 +27,8 @@ type Server struct {
 	requestChecker CheckerFunc
 	connInitor     ConnInitorFunc
 
-	connChan  chan Conn
+	connChan  chan *session.Session // hands sessions to Accept; never closed
+	closed    chan struct{}         // closed by Close
 	closeOnce sync.Once
 
 	log *slog.Logger
@@ -42,26 +43,57 @@ func NewServer(opts *Options) *Server {
 		requestChecker: opts.getRequestChecker(),
 		connInitor:     opts.getConnInitor(),
 		sessions:       session.NewManager(opts.getSessionIDGenerator()),
-		connChan:       make(chan Conn, 1),
+		connChan:       make(chan *session.Session, 1),
+		closed:         make(chan struct{}),
 		log:            opts.getLogger(),
 	}
 }
 
-// Close closes server.
+// Close closes server. Accept returns io.EOF from then on. Every session not yet
+// returned by Accept, and every session whose handshake completes later, is closed
+// and removed; sessions already accepted stay open.
 func (s *Server) Close() error {
 	s.closeOnce.Do(func() {
-		close(s.connChan)
+		close(s.closed)
+		s.dropUnaccepted()
 	})
 	return nil
 }
 
 // Accept accepts a connection.
 func (s *Server) Accept() (Conn, error) {
-	c := <-s.connChan
-	if c == nil {
-		return nil, io.EOF
+	select {
+	case c := <-s.connChan:
+		if !isClosed(s.closed) {
+			return c, nil
+		}
+		s.drop(c)
+	case <-s.closed:
 	}
-	return c, nil
+	return nil, io.EOF
+}
+
+// dropUnaccepted closes the session waiting in the hand-off buffer, if any.
+func (s *Server) dropUnaccepted() {
+	select {
+	case c := <-s.connChan:
+		s.drop(c)
+	default:
+	}
+}
+
+func (s *Server) drop(c *session.Session) {
+	_ = c.Close()
+	s.sessions.Remove(c.ID())
+}
+
+func isClosed(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) Addr() net.Addr {
@@ -175,7 +207,14 @@ func (s *Server) newSession(_ context.Context, conn transport.Conn, reqTransport
 			return
 		}
 
-		s.connChan <- newSession
+		select {
+		case s.connChan <- newSession:
+			if isClosed(s.closed) { // Close may have emptied the buffer before this send
+				s.dropUnaccepted()
+			}
+		case <-s.closed:
+			s.drop(newSession)
+		}
 	}(newSession)
 
 	return newSession, nil

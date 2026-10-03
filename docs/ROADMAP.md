@@ -381,12 +381,18 @@ Tasks:
     registered `OnError` logs at most DEBUG. Any other error whose namespace has no
     `OnError` logs exactly one `socketio: unhandled error` WARN with `sid`, `nsp` and
     `err` (this is the record 1.B *Overflow* refers to); a CONNECT to a namespace
-    without handlers is such an error. A record that repeats an error already
-    delivered to `OnError` or already logged as unhandled logs at most DEBUG. Every
-    other existing log call that reports a failure no caller receives logs WARN.
-    Failures v1 does not log today (the Redis broadcast's publish, decode and
-    resubscribe errors, and the polling transport's own 4xx/5xx answers) stay unlogged;
-    4b and 2.4 own them.
+    without handlers is such an error. Every other record of an error that is
+    delivered to `OnError` or logged as `socketio: unhandled error`, before or after,
+    logs at most DEBUG, and so does a log call whose error is also returned to its
+    caller. At the socket.io layer every failure returned by engine.io `NextReader` is
+    expected closure (the session has closed itself); only a parser decode error on a
+    frame that was read is another error. The polling POST log calls (unsupported
+    content type, `FeedIn`, writing the answer) log at most DEBUG: the client gets the
+    400 answer or has gone. Every other existing log call that reports a failure no
+    caller receives logs WARN. Failures v1 does not log today stay unlogged: the Redis
+    broadcast's publish, decode and resubscribe errors (4b) and the polling GET 500
+    answers and invalid-method 400 (2.1). Only the `socketio.Server` side of these
+    rules is tested in v1; `Client` shares the code.
   - *Boundary records:* engine.io rows come from sessions of `engineio.Server`,
     socket.io rows from `socketio.Server` connections. `Client` and the engine.io
     client emit none of them in v1. The keys are a contract reused by 2.4.
@@ -408,9 +414,12 @@ Tasks:
     error), `init` (session creation or `InitSession` failed) or `bad upgrade`
     (upgrade to an earlier transport). *session open:* once, after `InitSession`
     succeeded. *session close:* exactly once per session that logged open, when it
-    closes; a session that never logged open logs no close. The session classifies
-    failures returned by `NextReader` and `NextWriter` and by the frame reader and
-    writer they return, so it wraps those. `reason` is the first cause the session
+    closes; a session that never logged open logs no close. The session logs its own
+    open at the end of a successful `InitSession`. It classifies failures returned by
+    `NextReader` and `NextWriter` and by the frame reader and writer they return, so
+    it wraps those; `io.EOF` at the end of a frame is not a failure.
+    `engineio.Server.Close` passes `server shutting down` to the session without new
+    exported API in `engineio/session`. `reason` is the first cause the session
     observed: `transport close` (CLOSE packet from the client), `ping timeout` (a read
     or write failed after the deadline set from `PingTimeout` had passed),
     `transport error` (any other transport read or write failure, including EOF and a
@@ -420,7 +429,9 @@ Tasks:
     from session open, as `slog.Duration`; `err` is set only for `transport error`.
     *namespace connect:* one per namespace
     CONNECT handled for a `socketio.Server` connection, root included, after
-    `OnConnect` returned or the connect failed. *disconnect:* one per connected
+    `OnConnect` returned or the connect failed; a connect failed by an overflow carries
+    `ErrWriteBufferFull`; a CONNECT to a namespace without handlers gets no record.
+    The overflowing packet's namespace is kept even when it has no `OnError`. *disconnect:* one per connected
     namespace when its disconnect runs (1.B: exactly once per connected namespace),
     whether or not an `OnDisconnect` handler is registered; `reason` is `namespace disconnect` for a peer DISCONNECT of that namespace
     and `connection close` otherwise; text sent by the peer is never logged.
@@ -435,19 +446,21 @@ Tasks:
     6. 1L-T6 (P, W): a CLOSE packet followed by `Close` gives one record,
        `transport close`.
     7. 1L-T7 (P, W): every session-close record has a `duration` (> 0 for 1L-T3) and
-       no `err` except for `transport error`; a session whose `InitSession` fails
-       (through a fault-injecting transport in `engineio.Options.Transports`) logs no
-       open and no close.
+       no `err` except for `transport error`; a session that read a message before
+       `Close` still gives `forced close`.
     8. 1L-T8 (S): a peer close with no root `OnError` logs no WARN; an event handler
        that panics (recovered as an error) with `OnError` registered logs nothing
        above DEBUG; the same without `OnError` logs exactly one
        `socketio: unhandled error` WARN; a CONNECT to a namespace without handlers
        logs one such WARN; an overflow with no `OnError` on the packet's namespace
        logs exactly one such WARN with `ErrWriteBufferFull` and that `nsp`; the 1B-T18
-       case without root `OnError` logs one such WARN for each of its two errors.
+       case without root `OnError` logs one such WARN for each of its two errors; a
+       ping timeout (`PingTimeout` 100 ms) without root `OnError` logs no WARN; an
+       argument decode error without `OnError` logs exactly one WARN in total.
     9. 1L-T9 (S): each `request rejected` reason is logged once by its trigger,
        `unknown sid` at DEBUG and the others at WARN; `init` is triggered through a
-       fault-injecting transport in `engineio.Options.Transports`.
+       fault-injecting transport in `engineio.Options.Transports`, and that session
+       logs no open and no close.
     10. 1L-T10 (S): for `/` and `/chat`, `namespace connect` without `err` on success
         and with `err` when `OnConnect` fails; `disconnect` with `namespace
         disconnect` for a peer DISCONNECT that carries text (the text is not logged)
@@ -460,8 +473,10 @@ Tasks:
         code (by record PC), including keys added through `WithAttrs`, it fails on a
         message outside the pattern, a key outside the list, a `!BADKEY` attribute or
         an ERROR or INFO level. On the instance-logger handler it asserts one `sid`
-        on the server's session open, root namespace connect and disconnect. It does
-        not run in parallel and restores the default logger in `Cleanup`.
+        on the server's session open, root namespace connect and disconnect. Records
+        whose PC is in the deprecated `logger.Error` or `logger.Info` are skipped. It
+        does not run in parallel and restores the default logger and `logger.Level` in
+        `Cleanup`.
     12. 1L-T12 (S): `TestServerLoggerOption` asserts `socketio: unhandled error` with
         `nsp=/nope` for a CONNECT to a namespace without handlers, through the
         instance logger only.
@@ -494,16 +509,22 @@ upgrades disabled. From v2 this job covers every shipped runtime module;
 `govulncheck` clean; two-instance Redis test under `-race` passes; every (case, side)
 pair of the 1.B, 1I and 1.L test lists is named by a passing test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
 package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses.
-Logging gate: `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv`,
+Logging gate: `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv` (also asserting
+`msg="logger: invalid level ignored"` and `value=bogus`),
 `TestWrapOverridesHandlerLevel` and `TestTraceDisabledNoAlloc` pass; the package
 `logger` godoc documents the variable, the levels, the message pattern and the keys;
 `make lint` passes with the `Deprecated:` notices in place. Links: every badge in
 `README.md` shows the fork's status; `engineio/README.md` has no install or example
-code and `CLAUDE.md` has its row. Both commands below exit 1 with no output:
+code, links to `README.md`, `docs/PROTOCOL.md` and its godoc, and `CLAUDE.md` has its
+row; `logger/README.md` does not exist. Each of the first four commands below exits 1
+with no output, and the last pipeline prints nothing:
 
 ```sh
 git grep -nE '(^|[^[:alnum:]_])(log|fmt)\.Print' -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' ':(exclude).github'
+git grep -nE '\.(Error|Info)\("' -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' ':(exclude).github' ':(exclude)logger'
 git grep -nE 'https?://godoc[.]org' -- '*.md'
+git grep -nE '(pkg\.go\.dev/|go get )github\.com/sshaplygin/go-socket\.io(/[a-z_/]+)?([^@a-z_/]|$)' -- README.md engineio/README.md
+git grep -nE '\.(Debug|Warn)\("' -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' ':(exclude).github' | grep -vE '\.(Debug|Warn)\("(engineio|socketio|logger): [a-z][a-z0-9 ]*"'
 ```
 
 Acceptance: `_examples/default-http` works unchanged against `socket.io-client` 2.x;
@@ -991,6 +1012,8 @@ records 1.L left out of v1, with these keys:
 | socketio | `socketio: broadcast` | TRACE | `nsp`, `room`, `event`, `recipients` |
 | socketio | `socketio: handler error` | WARN | `sid`, `nsp`, `event`, `err` |
 
+In v2, `socketio: handler error` (WARN) replaces v1's `socketio: unhandled error` for a
+handler error with no error handler; with one registered it logs at most DEBUG.
 On top of these it adds `rtt` on pong, `rooms`, `except` and `local` on broadcast, and
 `socketio: adapter publish` / `socketio: adapter receive` start/end lines at `TRACE`.
 Broadcast `recipients` means successful local enqueues; also log `published`.
@@ -1218,9 +1241,11 @@ root and adapter consumers/tests against published versions without local replac
   client. Test with an embedded `nats-server/v2`, no Docker.
 - Both adapters report through `Namespace.Hooks()` (paired `AdapterPublishStart/End`
   and `AdapterReceiveStart/End`) and use `Namespace.Logger()` for other library-owned diagnostics.
-  The Redis adapter logs WARN `socketio: adapter publish failed`, `socketio: adapter bad
-  message` and `socketio: adapter subscriber lost` with `nsp`, `channel` and `err`; 4b
-  defines when each fires and tests them;
+  The Redis adapter logs WARN `socketio: adapter publish failed` on a PUBLISH error,
+  `socketio: adapter bad message` on a message it cannot decode, and
+  `socketio: adapter subscriber lost` once per lost subscription before the backoff
+  reconnect, with `nsp`, `channel` and `err`; `channel` joins the
+  `docs/OBSERVABILITY.md` key list and `TestRedisAdapterLogs` checks the three records;
   add isolation tests proving that two adapters attached to differently configured
   servers do not send logs to each other's handlers or the global fallback.
 - **`adaptertest`** package in the root module: conformance suite any adapter runs

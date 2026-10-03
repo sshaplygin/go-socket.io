@@ -78,6 +78,62 @@ func TestRedisFailedNamespaceRoomMethods(t *testing.T) {
 	require.Empty(t, c.events)
 }
 
+// serveWithRedis sets the Adapter of srv to addr, runs Serve and waits until Serve passed
+// its entry check, so that the handlers registered next fail only after it.
+func serveWithRedis(t *testing.T, srv *Server, addr string) {
+	t.Helper()
+	useRedis(t, srv, addr)
+	srv.served = make(chan struct{})
+	serveAsync(srv)
+	recv(t, srv.served, "Serve's entry check")
+}
+
+// TestRedisConstructionErrorFailsConnections checks that a connection to a namespace whose
+// Redis broadcast could not be created fails before the namespace is registered.
+//
+// Covers 1I-T8 (S).
+func TestRedisConstructionErrorFailsConnections(t *testing.T) {
+	var opErr *net.OpError
+	t.Run("root", func(t *testing.T) {
+		s := miniredis.RunT(t)
+		p := newPeer(t, 'S', hooks{setup: func(srv *Server) { serveWithRedis(t, srv, s.Addr()); s.Close() }})
+		p.srv.serveConn(p.fc)
+
+		require.ErrorAs(t, recv(t, p.nilErrs, "root OnError with a nil Conn"), &opErr)
+		recv(t, p.fc.closed, "engine.io close")
+		require.Zero(t, p.fc.texts.Load(), "socket.io packets written")
+		require.Empty(t, drain(p.conns), "OnConnect calls")
+		require.Empty(t, drain(p.discs), "OnDisconnect calls")
+		require.Empty(t, drain(p.nilErrs), "a second report")
+		require.Empty(t, drain(p.errs), "a report with a Conn")
+	})
+	t.Run("namespace", func(t *testing.T) {
+		s := miniredis.RunT(t)
+		p := start(t, 'S', hooks{setup: func(srv *Server) { serveWithRedis(t, srv, s.Addr()) }})
+		s.Close()
+		errs, rooms := make(chan error, 4), make(chan []string, 4)
+		p.srv.OnConnect("/a", func(Conn) error { t.Error("OnConnect of a failed namespace"); return nil })
+		p.srv.OnDisconnect("/a", func(Conn, string) { t.Error("OnDisconnect of a failed namespace") })
+		p.srv.OnError("/a", func(c Conn, err error) {
+			c.Join("r")
+			c.Leave("r")
+			c.LeaveAll()
+			errs <- err
+			rooms <- c.Rooms()
+		})
+		p.send(t, "0/a")
+
+		require.ErrorAs(t, recv(t, errs, "OnError of /a"), &opErr)
+		require.Nil(t, recv(t, rooms, "Rooms of /a"))
+		recv(t, p.fc.closed, "engine.io close")
+		p.disconnected(t, "/")
+		require.Empty(t, drain(p.fc.out), "a CONNECT reply for /a")
+		require.Empty(t, drain(errs), "a second report")
+		require.Empty(t, drain(p.errs), "a report to root OnError")
+		require.Empty(t, drain(p.nilErrs), "a report to root OnError")
+	})
+}
+
 // delayedProxy forwards each connection it accepts to addr after a delay of d.
 func delayedProxy(t *testing.T, addr string, d time.Duration) string {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

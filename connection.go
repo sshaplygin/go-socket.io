@@ -19,6 +19,25 @@ import (
 // The outbound queue size (see ErrWriteBufferFull) and drain deadline (see Conn.Close).
 const defaultWriteBufferSize, defaultDrainTimeout = 64, time.Minute
 
+// connLimits are the queue size and drain deadline of the connections a Server or Client creates.
+type connLimits struct {
+	writeBufferSize int
+	drainTimeout    time.Duration
+}
+
+// newConnLimits reads opts.WriteBufferSize and opts.PingTimeout; nil options, 0 and
+// negative values give the defaults.
+func newConnLimits(opts *engineio.Options) connLimits {
+	l := connLimits{defaultWriteBufferSize, defaultDrainTimeout}
+	if opts != nil && opts.WriteBufferSize > 0 {
+		l.writeBufferSize = opts.WriteBufferSize
+	}
+	if opts != nil && opts.PingTimeout > 0 {
+		l.drainTimeout = opts.PingTimeout
+	}
+	return l
+}
+
 // Conn is a connection in go-socket.io
 type Conn interface {
 	// Close closes the connection and returns nil; only the first close, by Close or by the library,
@@ -69,13 +88,13 @@ type conn struct {
 	drainTimeout                 time.Duration // tests shorten it
 }
 
-func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, log *slog.Logger) *conn {
+func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connLimits, log *slog.Logger) *conn {
 	c := &conn{
 		log:        log,
 		Conn:       engineConn,
 		decoder:    parser.NewDecoder(engineConn),
 		errorChan:  make(chan error),
-		writeChan:  make(chan parser.Payload, defaultWriteBufferSize),
+		writeChan:  make(chan parser.Payload, limits.writeBufferSize),
 		handlers:   handlers,
 		namespaces: newNamespaces(),
 		closing:    make(chan struct{}),
@@ -83,7 +102,7 @@ func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, log *slog.Lo
 		discard:    make(chan struct{}),
 		done:       make(chan struct{}),
 	}
-	c.encoder, c.drainTimeout, c.connecting = parser.NewEncoder(queueWriter{c}), defaultDrainTimeout, true
+	c.encoder, c.drainTimeout, c.connecting = parser.NewEncoder(queueWriter{c}), limits.drainTimeout, true
 	return c
 }
 

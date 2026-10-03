@@ -29,8 +29,9 @@ type Client struct {
 	conn     *conn
 	handlers *namespaceHandlers
 
-	opts *engineio.Options
-	log  *slog.Logger
+	opts   *engineio.Options
+	limits connLimits
+	log    *slog.Logger
 
 	dial func(url string) (engineio.Conn, error) // nil dials over polling; tests replace it
 }
@@ -61,6 +62,7 @@ func NewClient(addr string, opts *engineio.Options) (*Client, error) {
 		url:       u.String(),
 		handlers:  newNamespaceHandlers(),
 		opts:      opts,
+		limits:    newConnLimits(opts),
 		log:       loggerFrom(opts),
 	}, nil
 }
@@ -87,7 +89,7 @@ func (c *Client) Connect() error {
 		return err
 	}
 
-	c.conn = newConn(enginioCon, c.handlers, c.log.With("sid", enginioCon.ID()))
+	c.conn = newConn(enginioCon, c.handlers, c.limits, c.log.With("sid", enginioCon.ID()))
 
 	if err := c.conn.connectClient(); !c.conn.connected(err) {
 		return err

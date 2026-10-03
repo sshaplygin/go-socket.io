@@ -99,7 +99,9 @@ func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 		p := newPeer(t, 'S', hooks{setup: func(srv *Server) { serveWithRedis(t, srv, s.Addr()); s.Close() }})
 		p.srv.serveConn(p.fc)
 
-		require.ErrorAs(t, recv(t, p.nilErrs, "root OnError with a nil Conn"), &opErr)
+		err := recv(t, p.nilErrs, "root OnError with a nil Conn")
+		require.ErrorAs(t, err, &opErr)
+		require.ErrorContains(t, err, `namespace "/"`)
 		recv(t, p.fc.closed, "engine.io close")
 		require.Zero(t, p.fc.texts.Load(), "socket.io packets written")
 		require.Empty(t, drain(p.conns), "OnConnect calls")

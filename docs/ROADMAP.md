@@ -392,15 +392,17 @@ Tasks:
     error that is not a failure returned by the frame reader, and a marshal error in
     `Encode`, are other errors; socket.io tells them apart by wrapping, unexported,
     the frame reader and writer it gives the decoder and encoder. The wrappers record
-    where a failure came from without changing error values: the frame reader's
-    `io.EOF` passes through unchanged and `OnError` receives the same values as in
-    v1.4. An `io.EOF` that
+    where a failure came from, for the packet being decoded or encoded (cleared at
+    each `NextReader` and `NextWriter`), and do not change the error values passed to
+    `OnError`; the frame reader's `io.EOF` passes through unchanged. An `io.EOF` that
     the frame reader returns before the parser has finished a packet (an empty or
     truncated packet) is a parser decode error, not expected closure; the `io.EOF` in
     the expected-closure list is one returned by `NextReader` or `NextWriter`. At the engine.io
     session layer, a failure of the session's own frame reader or writer that the
     session reports as a close reason logs at most DEBUG, and so do the websocket
-    wrapper's "frame not closed" reminders. Other records of a failure that is logged
+    wrapper's "frame not closed" reminders and the transport-layer log calls
+    (`engineio/packet` included) made while returning a failure of the session's frame
+    writer. Other records of a failure that is logged
     as `request rejected` log at most DEBUG.
     Failures on an upgrade probe connection after its transport `Accept` succeeded log
     at most DEBUG: the session keeps its old transport. The polling POST log calls (unsupported
@@ -440,7 +442,10 @@ Tasks:
     (`transport error` unless the deadline had passed). Failures on an upgrade probe
     connection before the switch are not; after a switch the session sets the new
     connection's deadline again, so `ping timeout` uses the active connection's
-    deadline.
+    deadline; a failure to set it closes the session as `transport error`. 1.L also
+    makes the session-creation `Accept` path skip `http.Error` after a websocket
+    handshake error, as the upgrade path already does, so net/http no longer logs a
+    second `WriteHeader`.
     `engineio.Server.Close` passes `server shutting down` to the session without new
     exported API in `engineio/session` (a hook in an `engineio/internal` package,
     importable only by packages under `engineio/`). `reason` is the first cause the session
@@ -472,7 +477,8 @@ Tasks:
     reminder DEBUG limits are checked by review only.
     1. 1L-T1 (P, W): a CLOSE packet from the client gives `transport close`.
     2. 1L-T2 (W): the peer closing the websocket gives `transport error` with `err`.
-    3. 1L-T3 (P, W): no client traffic with `PingTimeout` 100 ms gives `ping timeout`.
+    3. 1L-T3 (P, W): no client traffic with `PingTimeout` 100 ms gives `ping timeout`;
+       on W also after a polling-to-websocket upgrade, with `transport=websocket`.
     4. 1L-T4 (P, W): `Close` by the application gives `forced close`.
     5. 1L-T5 (P): `engineio.Server.Close` with a session never accepted gives
        `server shutting down`.
@@ -481,7 +487,9 @@ Tasks:
     7. 1L-T7 (P, W): every session-close record has a `duration` (> 0 for 1L-T3) and
        no `err` except for `transport error`; a session that read a message before
        `Close` still gives `forced close`.
-    8. 1L-T8 (S): a peer close with no root `OnError` logs no WARN; an event handler
+    8. 1L-T8 (S): with root `OnError` registered, it receives `io.EOF` itself (`==`) for
+       an engine.io CLOSE, and a fake frame reader's sentinel error unchanged when it
+       fails mid-frame; a peer close with no root `OnError` logs no WARN; an event handler
        that panics (recovered as an error) with `OnError` registered logs nothing
        above DEBUG; the same without `OnError` logs exactly one
        `socketio: unhandled error` WARN; a CONNECT to a namespace without handlers
@@ -499,8 +507,10 @@ Tasks:
        `unknown sid` at DEBUG and the others at WARN; `init` is triggered through a
        fault-injecting transport in `engineio.Options.Transports`, and that session
        logs no open and no close; a polling POST with an unsupported `Content-Type`
-       gets 400 and logs nothing above DEBUG; each trigger logs no record above DEBUG
-       other than its `request rejected`.
+       gets 400 and logs nothing above DEBUG; each trigger logs no record from the
+       module's code (by record PC, as in 1L-T11) above DEBUG other than its
+       `request rejected`. `accept` is triggered by a websocket handshake error at
+       session creation, which also logs no net/http `superfluous WriteHeader` record.
     10. 1L-T10 (S): for `/` and `/chat`, `namespace connect` without `err` on success
         and with `err` when `OnConnect` fails; `disconnect` with `namespace
         disconnect` for a peer DISCONNECT that carries text (the text is not logged)
@@ -534,7 +544,9 @@ Tasks:
         `connection close`.
   - *Docs:* the package `logger` godoc documents the variable, the levels, the
     message pattern and the keys. `CHANGELOG.md` entries cover the deprecation, the
-    key renames, the level changes (ERROR and INFO to DEBUG and WARN) and the records.
+    key renames, the level changes (ERROR and INFO to DEBUG and WARN), the records, the
+    deadline reset after an upgrade switch and the session-creation handshake-error
+    answer.
     1.L edits no Markdown file other than `CHANGELOG.md`.
 - **1.D Docs.** Files: `README.md`, `engineio/README.md`, `logger/README.md`,
   `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`.
@@ -886,14 +898,15 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   have explicit codes; unexpected handler errors expose `internal_error` with a
   generic message and log the original error. Unknown events without a raw handler
   and typed decode failures produce `unknown_event`/`invalid_payload` when an ack
-  was requested, otherwise only the error hook/log; malformed protocol envelopes
+  was requested, otherwise only the error handler, if 2.0 defines one, or the log;
+  malformed protocol envelopes
   close with `parse error`. For valid known events, server and client use this table:
 
   | Descriptor | Incoming ACK ID | Handler and response |
   | --- | --- | --- |
-  | `Event[T]` | absent | run handler; errors go to hook/log only |
+  | `Event[T]` | absent | run handler; errors go to the error handler, if 2.0 defines one, or the log |
   | `Event[T]` | present | run handler; reply `[null]` on success or the typed error envelope |
-  | `AckEvent[T, R]` | absent | run handler, discard result; errors go to hook/log only |
+  | `AckEvent[T, R]` | absent | run handler, discard result; errors go to the error handler, if 2.0 defines one, or the log |
   | `AckEvent[T, R]` | present | run handler; reply using the typed ack convention above |
 
   Tests cover all four combinations with success/error, both Go/Node directions and
@@ -1073,8 +1086,9 @@ In v2, `socketio: handler error` (WARN) replaces v1's `socketio: unhandled error
 handler errors. Every other v1 trigger (decode errors, a marshal error, a CONNECT to an
 unknown namespace, an overflow) keeps `socketio: unhandled error`. v2 has no `OnError`;
 both records log WARN unless the API frozen in 2.0 adds an error handler, which then
-lowers them to at most DEBUG when registered. `LoggingHooks` and the OTel bridge do not
-count as a registered error handler.
+lowers them to at most DEBUG when registered. No `Hooks` field, chained or not
+(including `LoggingHooks`, the OTel bridge and `contrib/admin`), counts as a registered
+error handler.
 On top of these it adds `rtt` on pong, `rooms`, `except` and `local` on broadcast, and
 `socketio: adapter publish` / `socketio: adapter receive` start/end lines at `TRACE`.
 Broadcast `recipients` means successful local enqueues; also log `published`.

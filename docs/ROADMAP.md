@@ -48,7 +48,7 @@ workers submit changes to these files through that integrator.
 | Wave | Prerequisites | Independent work / write ownership | Join gate |
 | --- | --- | --- | --- |
 | 1A | landed infrastructure | 1.R Redis internals (`redis_broadcast.go`); 1.B queue and close internals (`connection.go`, `broadcast.go`, `errors.go`, the socket.io goroutines and close paths in `server.go` (`serveConn`, `serveRead`, `serveWrite`, `serveError`) and `client.go` (`Connect`, `Close`, `clientRead`, `clientWrite`, `clientError`), and the disconnect handlers in `connection_handlers.go`); 1.S session/server fixes (`engineio/session`, `engineio/server.go`, `server.go`; landed) | component regression tests pass |
-| 1I | 1A | integrator wires Redis construction errors through `namespace_handler.go` and `server.go`; wires `WriteBufferSize` and the drain deadline (`PingTimeout`) through `engineio/server_options.go`, `server.go` and `client.go`; runs the 1.B slow-client test against the Redis broadcast; also edits the connect-failure paths in `connection.go` and `connection_handlers.go`, `namespace_handlers.go`, the session hand-off in `engineio/server.go`, `namespace_conn.go` (godoc only) and `CHANGELOG.md`; contract in the 1I item | integrated bug tests (the 1I item's tests) and root build pass |
+| 1I | 1A | integrator wires Redis construction errors through `namespace_handler.go` and `server.go`; wires `WriteBufferSize` and the drain deadline (`PingTimeout`) through `engineio/server_options.go`, `connection.go`, `server.go` and `client.go`; runs the 1.B slow-client test against the Redis broadcast; also edits `connection.go` (connect-failure path, option wiring in `newConn`, `Conn.Close` godoc), the connect-failure path in `connection_handlers.go`, `namespace_handlers.go`, the session hand-off in `engineio/server.go`, `namespace_conn.go` (godoc only) and `CHANGELOG.md`; contract in the 1I item | integrated bug tests (the 1I item's tests) and root build pass |
 | 1B | 1I | 1.L logging call sites across layers; 1.D docs/links in Markdown | M1 checks and v1 compatibility |
 | 1b | M1, branch `v1` cut | one refactor owner; moves/merges applied sequentially | M1b regression checks |
 | 2A | M1b | 2.0 owner removes legacy root runtime/adapter consumers atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
@@ -167,8 +167,7 @@ Tasks:
     `OnDisconnect` and closes engine.io (v1.4 closed first and reported after). Once any
     close has started, a read or writer failure, including one caused by the library's
     own engine.io close, is not reported and starts no new close; during a drain it
-    ends the drain (see *First close decides*). v1 `Server.Close` does not close
-    sessions.
+    ends the drain (see *First close decides*). `Server.Close`: see 1I *Shutdown*.
   - *Namespace DISCONNECT:* a socket.io DISCONNECT from the peer ends only that
     namespace: its `OnDisconnect` runs once and its rooms are left; the engine.io
     connection and the queue stay as they are.
@@ -259,12 +258,15 @@ Tasks:
   - *Redis construction errors:* when the Redis broadcast of a namespace cannot be
     created, its handler holds a no-op broadcast together with the error, so no
     broadcast call can reach a nil value. The error wraps the Redis error with `%w`
-    and names the namespace. `createNamespace` gets or creates a handler under the
-    handlers lock, so one namespace never builds two broadcasts; the server records
-    the first construction error in registration order, and `Serve` reads it once on
-    entry and returns it without accepting a connection. The engine keeps answering
-    HTTP after that; the caller still calls `Close`. The error is kept: registering
-    more handlers does not rebuild the broadcast.
+    and names the namespace. Handler creation is serialised by a server-level
+    creation mutex, not by the handlers lock that packet dispatch reads: under it the
+    server rechecks, builds, records the first construction error in registration
+    order and only then stores the handler, so one namespace never builds two
+    broadcasts and a slow Redis dial never stalls dispatch. `Serve` reads the
+    recorded error once on entry and returns it without accepting a connection. The
+    engine keeps completing handshakes after that without serving them until the
+    caller calls `Close`. The error is kept: registering more handlers does not
+    rebuild the broadcast.
     A connection to such a namespace fails before the namespace is registered and
     before any CONNECT packet for it is encoded, so its `OnConnect` and `OnDisconnect`
     never run. For root this is a connect failure (1.B): nothing is written, no
@@ -276,27 +278,34 @@ Tasks:
     The `Server` room methods for such a namespace do nothing: `RoomLen` returns -1
     (as for an unknown namespace or a failed Redis query), `Rooms` nil, `ForEach`
     false without calling its function, and the other methods false.
-  - *Shutdown:* `Server.Close` closes engine.io, then stops the Redis subscriber and
-    publisher connections of every namespace (1.R's unexported `close`). A handler
-    registered after `Close` builds no Redis broadcast and keeps a "server closed"
-    error under the rule above. v1 `Server.Close` still does not close sessions; for
-    sessions still open, cross-instance broadcasts stop and the `Close` godoc says so.
-    Engine.io `Close` no longer closes the channel that hands sessions to `Accept`:
-    `Accept` returns `io.EOF` once `Close` was called, and a session whose handshake
-    completes after `Close` is closed instead of handed over, so no handshake can
-    panic with a send on a closed channel.
+  - *Shutdown:* `Server.Close` closes engine.io, then, under the creation mutex,
+    marks the server closed and stops the Redis subscriber and publisher connections
+    of every namespace (1.R's unexported `close`); a registration racing `Close` is
+    therefore either stopped or builds nothing. With `Adapter` set, a handler
+    registered after `Close` builds no Redis broadcast and holds the no-op broadcast
+    with an unexported "server closed" error; that error is not recorded for `Serve`,
+    which returns nil after `Close` (1.S). v1 `Server.Close` does not close sessions;
+    for sessions still open, cross-instance broadcasts stop and the `Close` godoc says
+    so. Engine.io `Close` no longer closes the channel that hands sessions to
+    `Accept`; `Accept` returns `io.EOF` once `Close` was called. Every session not yet
+    handed to `Accept` when `Close` is called (buffered, or its sender still waiting)
+    and every session whose handshake completes after `Close` is closed and removed
+    from the session manager, and its hand-off goroutine ends, so no handshake can
+    panic with a send on a closed channel or stay open unserved.
   - *Docs:* godoc of `engineio.Options.WriteBufferSize` and `Emit` as 1.B *Docs*
     says; the `Conn.Close` and `Client.Close` godoc name `PingTimeout` (for `Client`,
     its local option) as the drain deadline; the `Adapter`, `Serve` and `Close` godoc
-    state the rules above. `CHANGELOG.md` gets the 1.R, 1.B and 1I entries, written by
-    the integrator for the whole wave (an exception to the per-PR entry rule in
-    `CONTRIBUTING.md`): 1.R entries cite the line they fix, as the stage DoD asks;
-    1.B and 1I behaviour entries link to the godoc instead of repeating it.
-  - *Tests (1I):*
+    state the rules above, and the `Serve` godoc warns that after an error return
+    handshakes still complete unserved until `Close`. `CHANGELOG.md` gets the 1.R,
+    1.B and 1I entries, written by the integrator for the whole wave (an exception to
+    the per-PR entry rule in `CONTRIBUTING.md`): every fix entry cites the line or
+    issue it addresses, as the stage DoD asks, and 1.B and 1I behaviour entries also
+    link to the godoc instead of repeating it.
+  - *Tests (1I):* every C case uses the 1.B dial seam.
     1. 1I-T1 (S): 1B-T1 against the Redis broadcast.
     2. 1I-T2 (S, C): `WriteBufferSize` 0 and negative give 64.
     3. 1I-T3 (S, C): a custom `WriteBufferSize` is used, checked on the stored
-       per-connection value (on C through the 1.B dial seam).
+       per-connection value.
     4. 1I-T4 (S, C): nil options and `PingTimeout` 0 give a one-minute drain deadline,
        checked on the stored per-connection value.
     5. 1I-T5 (S, C): a negative `PingTimeout` gives one minute, checked on the stored
@@ -307,27 +316,37 @@ Tasks:
        two apart.
     7. 1I-T7 (S): with `Adapter` set and Redis stopped, two namespaces are registered
        in a known order; Redis is restarted and another handler is registered on the
-       first one. `Serve` returns at once an error that names the first namespace and
-       matches `*net.OpError` with `errors.As`; `RoomLen` on the first namespace still
-       returns -1.
+       first one. `Serve`, run in a goroutine, returns within 1 s an error that names
+       the first namespace and matches `*net.OpError` with `errors.As`; `RoomLen` on
+       the first namespace still returns -1.
     8. 1I-T8 (S): handlers are registered after `Serve` passed its entry check (the
        test waits on an unexported signal `Serve` gives after that check). A root
-       connection to a failed root namespace: no packet is written, `OnConnect` and
-       `OnDisconnect` are not called, and root `OnError` gets one error, with a nil
-       `Conn`, that matches `*net.OpError`. A CONNECT to a failed non-root namespace:
-       its `OnConnect` and `OnDisconnect` are not called, its `OnError` gets one such
-       error, `Join`, `Leave`, `LeaveAll` and `Rooms` on that `Conn` do not panic and
-       `Rooms` returns nil, root `OnDisconnect` runs once and the connection closes.
+       connection to a failed root namespace: no socket.io packet is written,
+       `OnConnect` and `OnDisconnect` are not called, root `OnError` gets one error,
+       with a nil `Conn`, that matches `*net.OpError`, and the engine.io connection
+       closes. A CONNECT to a failed non-root namespace: no CONNECT reply for it is
+       written, its `OnConnect` and `OnDisconnect` are not called, its `OnError` gets
+       one such error and root `OnError` none, `Join`, `Leave`, `LeaveAll` and `Rooms`
+       on that `Conn` do not panic and `Rooms` returns nil, root `OnDisconnect` runs
+       once and the connection closes.
     9. 1I-T9 (S): on a failed namespace, `JoinRoom`, `LeaveRoom`, `LeaveAllRooms`,
        `ClearRoom`, `BroadcastToRoom` and `BroadcastToNamespace` return false,
        `RoomLen` returns -1, `Rooms` returns nil, and `ForEach` returns false without
        calling its function.
-    10. 1I-T10 (S): with two working namespaces and one failed namespace, `Server.Close`
-        does not panic, and within 1 s Redis reports no subscriber on any namespace
-        channel and no client connection (miniredis `CurrentConnectionCount` is 0). A
-        handler registered after `Close` opens no Redis connection.
-    11. 1I-T11 (S): after `Close`, `Accept` returns `io.EOF`, and a client whose
-        handshake completes after `Close` gets no panic and its session is closed.
+    10. 1I-T10 (S): with two working namespaces and one failed namespace, and after
+        the working ones are subscribed again (PUBSUB NUMPAT > 0) with no broadcast in
+        flight, `Server.Close` does not panic, and within 1 s Redis reports no
+        subscriber on any namespace channel and no client connection (miniredis
+        `CurrentConnectionCount` is 0). A handler registered after `Close` opens no
+        Redis connection, its `RoomLen` returns -1, and `Serve` then returns nil.
+    11. 1I-T11 (S): with nothing calling `Accept`, two clients complete the handshake
+        (one session fills the hand-off buffer, the other's sender waits); then
+        `Close` is called and a third client completes its handshake. Nothing panics,
+        `Accept` returns `io.EOF`, the race detector reports nothing, and within 1 s
+        `Server.Count` is 0 and each of the three clients sees its transport close.
+    12. 1I-T12 (S): under `-race`, 8 goroutines register handlers on one new namespace
+        at once with `Adapter` set; after `Close`, miniredis `CurrentConnectionCount`
+        is 0 within 1 s (a second, unstopped broadcast would keep its connections).
 - **1.S Runtime fixes (landed; its lifecycle tests stay a stage gate):** synchronous session registration before a second request can
   use its SID; `Manager.Count` uses `RLock`; correct EOF result from `Server.Serve`.
   Cover session lifecycle and root connect/event/ack/namespace/room/disconnect paths.

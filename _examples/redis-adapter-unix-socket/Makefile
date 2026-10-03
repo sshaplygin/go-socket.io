@@ -8,7 +8,7 @@ run: build
 	docker-compose up -d
 
 build: clean_up
-	docker build . -t $(IMAGE_NAME)
+	docker build -f Dockerfile ../.. -t $(IMAGE_NAME)
 
 clean_up: stop
 	docker-compose down

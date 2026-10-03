@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/googollee/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
 )
 
 func TestEncoder(t *testing.T) {

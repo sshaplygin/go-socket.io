@@ -55,12 +55,13 @@ func loggerFrom(opts *engineio.Options) *slog.Logger {
 // namespace builds its Redis broadcast when its first handler is registered; its two
 // Redis connections, AUTH and SELECT included, must be ready within 10 seconds. If that
 // fails, the namespace keeps a no-op broadcast and the error, which names the namespace
-// and wraps the Redis error; registering more handlers does not retry, and Serve returns
-// the first such error. The Server room methods of that namespace do nothing (RoomLen
-// returns -1, Rooms nil, the others false; ForEach does not call f). A connection to it
-// fails before OnConnect: for the root namespace the error goes to root OnError with a
-// nil Conn and nothing is written; for another namespace it goes to that namespace's
-// OnError, whose Conn has no rooms, and the connection closes as on a dispatch error.
+// and wraps the Redis error; registering more handlers does not retry. Serve, if called
+// before Close, returns the first such error recorded before it was called (see Serve).
+// The Server room methods of that namespace do nothing (RoomLen returns -1, Rooms nil,
+// the others false; ForEach does not call f). A connection to it fails before
+// OnConnect: for the root namespace the error goes to root OnError with a nil Conn and
+// nothing is written; for another namespace it goes to that namespace's OnError, whose
+// Conn has no rooms, and the connection closes as on a dispatch error.
 func (s *Server) Adapter(opts *RedisAdapterOptions) (bool, error) {
 	opts = getOptions(opts)
 	var redisOpts []redis.DialOption

@@ -33,6 +33,8 @@ jobs:
           go-version: stable
       - name: Test change detection
         run: go test ./.github/benchmarks
+      - name: Test report rendering
+        run: go test ./.github/benchmarks/report
       - name: Detect code changes
         id: changes
         env:
@@ -94,18 +96,8 @@ jobs:
           grep -Eq '^Benchmark[^[:space:]]*[[:space:]]+[0-9]+[[:space:]]' base.txt
           grep -Eq '^Benchmark[^[:space:]]*[[:space:]]+[0-9]+[[:space:]]' pr.txt
           benchstat base.txt pr.txt > comparison.txt
-          {
-            echo '<!-- go-socket.io:benchmark-comparison -->'
-            echo '## Go benchmarks: base vs PR'
-            echo
-            printf 'Base `%s` → PR `%s`\n\n' "$BASE_SHA" "$HEAD_SHA"
-            echo 'Both revisions ran on the same runner and Go toolchain, with 10 samples each.'
-            echo 'Results are advisory: runner noise can affect timings; performance deltas do not fail CI.'
-            echo
-            echo '```text'
-            cat comparison.txt
-            echo '```'
-          } > benchmark-report.md
+          go run pr/.github/benchmarks/report/main.go base.txt pr.txt comparison.txt \
+            "$BASE_SHA" "$HEAD_SHA" > benchmark-report.md
           cat benchmark-report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Upload results
         if: always()

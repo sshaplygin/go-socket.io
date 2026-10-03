@@ -48,7 +48,7 @@ workers submit changes to these files through that integrator.
 | Wave | Prerequisites | Independent work / write ownership | Join gate |
 | --- | --- | --- | --- |
 | 1A | landed infrastructure | 1.R Redis internals (`redis_broadcast.go`); 1.B queue and close internals (`connection.go`, `broadcast.go`, `errors.go`, the socket.io goroutines and close paths in `server.go` (`serveConn`, `serveRead`, `serveWrite`, `serveError`) and `client.go` (`Connect`, `Close`, `clientRead`, `clientWrite`, `clientError`), and the disconnect handlers in `connection_handlers.go`); 1.S session/server fixes (`engineio/session`, `engineio/server.go`, `server.go`; landed) | component regression tests pass |
-| 1I | 1A | integrator wires Redis construction errors through `namespace_handler.go` and `server.go`; wires `WriteBufferSize` and the drain deadline (`PingTimeout`) through `engineio/server_options.go`, `server.go` and `client.go`; runs the 1.B slow-client test against the Redis broadcast | integrated bug tests (including the 1I wiring tests named in 1.B) and root build pass |
+| 1I | 1A | integrator wires Redis construction errors through `namespace_handler.go` and `server.go`; wires `WriteBufferSize` and the drain deadline (`PingTimeout`) through `engineio/server_options.go`, `server.go` and `client.go`; runs the 1.B slow-client test against the Redis broadcast; also edits `connection.go`, `connection_handlers.go`, `namespace_conn.go` (godoc) and `CHANGELOG.md`; contract in the 1I item | integrated bug tests (the 1I item's tests) and root build pass |
 | 1B | 1I | 1.L logging call sites across layers; 1.D docs/links in Markdown | M1 checks and v1 compatibility |
 | 1b | M1, branch `v1` cut | one refactor owner; moves/merges applied sequentially | M1b regression checks |
 | 2A | M1b | 2.0 owner removes legacy root runtime/adapter consumers atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
@@ -247,6 +247,30 @@ Tasks:
         starts an overflow close
         and the read goroutine does not block; on S, the same for a namespace CONNECT
         reply.
+  - *Gate record:* a test covering a case names it in its doc comment, for example
+    `// Covers 1B-T3 (S, C).`; the stage 1 DoD checks that every (case, side) pair of
+    the 1.B and 1I lists is named by a passing test.
+- **1I Integration** (the integrator, after 1.R and 1.B). The rules below complete
+  the 1.R and 1.B items; public signatures stay unchanged.
+  - *Options:* `NewServer` and `NewClient` pass `engineio.Options.WriteBufferSize`
+    and `PingTimeout` to every connection they create, normalised as 1.B *Size* and
+    *Drain deadline* say. Engine.io ignores `WriteBufferSize`, and its own handling of
+    `PingTimeout` does not change.
+  - *Redis construction errors:* when the Redis broadcast of a namespace cannot be
+    created, its handler keeps the error instead of a nil broadcast, and no call
+    panics. `Serve` returns the first such error recorded before it was called,
+    without accepting a connection. A connection to that namespace fails: for root it
+    is a connect failure (1.B), for another namespace a CONNECT dispatch error
+    reported to that namespace's `OnError`. The `Server` room methods for that
+    namespace do nothing and return false, 0 or nil. The error is kept: registering
+    more handlers does not rebuild the broadcast.
+  - *Shutdown:* `Server.Close` closes engine.io, then stops the Redis subscriber and
+    publisher connections of every namespace (1.R's unexported `close`). v1
+    `Server.Close` still does not close sessions.
+  - *Docs:* godoc of `engineio.Options.WriteBufferSize` and `Emit` as 1.B *Docs*
+    says; the `Conn.Close` godoc names `PingTimeout` as the drain deadline; the
+    `Adapter` and `Serve` godoc state the construction-error rule. `CHANGELOG.md` gets
+    the 1.R, 1.B and 1I entries, linking to that godoc.
   - *Tests (1I):*
     1. 1I-T1 (S): 1B-T1 against the Redis broadcast.
     2. 1I-T2 (S, C): `WriteBufferSize` 0 and negative give 64.
@@ -259,9 +283,16 @@ Tasks:
        stored per-connection value. The live bound is 1B-T6: on a real session the
        engine.io write deadline equals `PingTimeout`, so a live test could not tell the
        two apart.
-  - *Gate record:* a test covering a case names it in its doc comment, for example
-    `// Covers 1B-T3 (S, C).`; the stage 1 DoD checks that every (case, side) pair of
-    both lists is named by a passing test.
+    7. 1I-T7 (S): with `Adapter` set and Redis stopped before the first handler is
+       registered, `Serve` returns the construction error at once.
+    8. 1I-T8 (S): with the handlers registered after `Serve` started, so that `Serve`
+       keeps accepting, a root connection to such a namespace is a connect failure
+       reported once to root `OnError` with a nil `Conn`; a CONNECT to another such
+       namespace is reported once to its `OnError` and closes the connection.
+    9. 1I-T9 (S): every `Server` room method on such a namespace returns without
+       panicking and returns false, 0 or nil.
+    10. 1I-T10 (S): after `Server.Close`, Redis reports no subscriber left on the
+        namespace channels within 1 s.
 - **1.S Runtime fixes (landed; its lifecycle tests stay a stage gate):** synchronous session registration before a second request can
   use its SID; `Manager.Count` uses `RLock`; correct EOF result from `Server.Serve`.
   Cover session lifecycle and root connect/event/ack/namespace/room/disconnect paths.

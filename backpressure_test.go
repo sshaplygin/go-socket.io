@@ -553,8 +553,7 @@ func TestBackpressureReportForDisconnectedNamespace(t *testing.T) {
 // Covers 1B-T18 (S).
 func TestBackpressureOverflowInOnConnect(t *testing.T) {
 	for _, connectErr := range []error{nil, errors.New("refused"), ErrWriteBufferFull} {
-		var cc *conn
-		var late []bool // per report: made after the discard, which precedes OnDisconnect
+		cc, late := (*conn)(nil), []bool(nil) // late, per report: made after the discard, which precedes OnDisconnect
 		p := newPeer(t, 'S', hooks{
 			connect: func(c Conn) error {
 				cc = c.(*namespaceConn).conn
@@ -586,13 +585,14 @@ func TestBackpressureConnectFailureReportsOverflowFromOnError(t *testing.T) {
 		func(p *peer, _ Conn) { p.srv.BroadcastToRoom("/", "r", "late") },
 		func(_ *peer, c Conn) { <-inBackground(func() { c.Emit("late") }) },
 	} {
-		p, kept := (*peer)(nil), Conn(nil)
+		p, kept, discarded := (*peer)(nil), Conn(nil), []bool(nil) // late is dropped after the overflow report
 		p = newPeer(t, 'S', hooks{
 			connect: func(c Conn) error { kept = c; c.Join("r"); flood(c, defaultWriteBufferSize); return refused },
-			onError: func(Conn, error) { late(p, kept) }, // after the overflow report, late is dropped
+			onError: func(Conn, error) { discarded = append(discarded, isDone(kept.(*namespaceConn).discard)); late(p, kept) },
 		})
 		p.connect(t).disconnected(t, "/")
 		require.Equal(t, []error{refused, ErrWriteBufferFull}, drain(p.nilErrs), "connect-failure reports")
+		require.Equal(t, []bool{false, false}, discarded, "a report came after the discard")
 		require.Empty(t, drain(p.errs))
 		require.Empty(t, drain(p.fc.out), "a packet was written")
 	}

@@ -5,7 +5,7 @@ Override internal logger with:
 ```go
 import (
 	...
-    "github.com/googollee/go-socket.io/logger"
+    "github.com/sshaplygin/go-socket.io/logger"
 )
 
 func main() {

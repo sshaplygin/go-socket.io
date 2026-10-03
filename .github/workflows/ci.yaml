@@ -57,8 +57,6 @@ jobs:
         run: go version
       - name: Tests with race detector
         run: go test -race -count=1 ./...
-      - name: Benchmarks
-        run: go test -run '^$' -bench . -benchmem ./...
 
   examples:
     name: Build examples

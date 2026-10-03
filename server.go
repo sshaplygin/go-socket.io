@@ -23,6 +23,7 @@ type Server struct {
 
 	redisAdapter *RedisAdapterOptions
 	createMu     sync.Mutex            // serialises handler creation, not dispatch; see createNamespace
+	closed       atomic.Bool           // set by Close; read under createMu by createNamespace
 	adapterErr   atomic.Pointer[error] // the first Redis construction error, read by Serve
 	served       chan struct{}         // tests set it; Serve closes it after its entry check
 
@@ -73,7 +74,18 @@ func (s *Server) Adapter(opts *RedisAdapterOptions) (bool, error) {
 
 // Close closes server.
 func (s *Server) Close() error {
-	return s.engine.Close()
+	s.closed.Store(true)
+	err := s.engine.Close()
+
+	s.createMu.Lock() // waits for a registration that is building a broadcast
+	defer s.createMu.Unlock()
+	s.handlers.Range(func(h *namespaceHandler) {
+		if bc, ok := h.broadcast.(*redisBroadcast); ok {
+			bc.close()
+		}
+	})
+
+	return err
 }
 
 // ServeHTTP dispatches the request to the handler whose pattern most closely matches the request URL.
@@ -129,6 +141,9 @@ func (s *Server) OnEvent(namespace, event string, f interface{}) {
 
 // Serve serves go-socket.io server.
 func (s *Server) Serve() error {
+	if s.closed.Load() {
+		return nil
+	}
 	if err := s.adapterErr.Load(); err != nil {
 		return *err
 	}
@@ -353,8 +368,11 @@ func (s *Server) createNamespace(nsp string) *namespaceHandler {
 		return handler
 	}
 
-	handler := newNamespaceHandler(nsp, s.redisAdapter)
-	if handler.err != nil && s.adapterErr.Load() == nil {
+	var handler *namespaceHandler
+	if s.redisAdapter != nil && s.closed.Load() { // no Redis broadcast, and not recorded for Serve
+		handler = newNamespaceHandler(nsp, nil)
+		handler.broadcast, handler.err = nopBroadcast{}, errServerClosed
+	} else if handler = newNamespaceHandler(nsp, s.redisAdapter); handler.err != nil && s.adapterErr.Load() == nil {
 		s.adapterErr.Store(&handler.err)
 	}
 	s.handlers.Set(nsp, handler)

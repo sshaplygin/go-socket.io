@@ -10,6 +10,9 @@ var (
 	errUnavailableRootHandler = errors.New("root ('/') doesn't have a namespace handler")
 
 	errFailedConnectNamespace = errors.New("failed connect to namespace without handler")
+
+	// errServerClosed is the error of a namespace registered with an Adapter after Server.Close.
+	errServerClosed = errors.New("socketio: server closed")
 )
 
 // common connection dispatch errors.

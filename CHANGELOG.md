@@ -54,6 +54,10 @@ All notable changes to this project are documented here. The format follows
   (`namespace_handler.go:27` at `79a393c`, roadmap task 1I).
 - Concurrent handler registrations on one new namespace could each build a Redis
   broadcast and replace each other's handler (`server.go:346` at `79a393c`).
+- Building a namespace's Redis broadcast waited without a limit for a server that
+  accepted the connection and never answered AUTH or SELECT, which with 1I also kept
+  `Server.Close` waiting; both connections must now be ready within 10 s
+  (`redis_broadcast.go:119` at `79a393c`, roadmap task 1I).
 - `Server.Close` left the Redis connections and subscriber goroutine of every namespace
   running. See [`Server.Close`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#Server.Close)
   (`server.go:69` at `79a393c`, roadmap task 1I).

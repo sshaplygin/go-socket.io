@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -392,9 +393,9 @@ func TestRedisBroadcastReconnectBackoffWhileDown(t *testing.T) {
 	bc := newTestRedisBroadcast(t, s)
 	var dials atomic.Int32
 	orig := *bc.dial.Load()
-	wrapped := func() (redis.Conn, error) {
+	wrapped := func(ctx context.Context) (redis.Conn, error) {
 		dials.Add(1)
-		return orig()
+		return orig(ctx)
 	}
 	bc.dial.Store(&wrapped)
 

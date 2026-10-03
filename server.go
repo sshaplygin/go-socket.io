@@ -52,7 +52,8 @@ func loggerFrom(opts *engineio.Options) *slog.Logger {
 }
 
 // Adapter sets the Redis broadcast adapter for the namespaces registered after it. A
-// namespace builds its Redis broadcast when its first handler is registered. If that
+// namespace builds its Redis broadcast when its first handler is registered; its two
+// Redis connections, AUTH and SELECT included, must be ready within 10 seconds. If that
 // fails, the namespace keeps a no-op broadcast and the error, which names the namespace
 // and wraps the Redis error; registering more handlers does not retry, and Serve returns
 // the first such error. The Server room methods of that namespace do nothing (RoomLen
@@ -83,9 +84,9 @@ func (s *Server) Adapter(opts *RedisAdapterOptions) (bool, error) {
 // Close closes the engine.io server, so Serve returns nil, and stops the Redis
 // connections of every namespace. It does not close the sessions already open, but their
 // broadcasts no longer reach other instances. Close waits for a handler registration
-// that is dialling Redis, up to the Redis dial timeout. With Adapter set, a namespace
-// registered after Close has no broadcast, as if its construction failed, but Serve does
-// not return that error.
+// that is dialling Redis, up to the 10 seconds that dial may take. With Adapter set, a
+// namespace registered after Close has no broadcast, as if its construction failed, but
+// Serve does not return that error.
 func (s *Server) Close() error {
 	s.closed.Store(true)
 	err := s.engine.Close()

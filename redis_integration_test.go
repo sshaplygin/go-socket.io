@@ -238,10 +238,12 @@ func TestRedisConcurrentRegistrationBuildsOneBroadcast(t *testing.T) {
 	closed("Redis connections left after Close")
 }
 
-// TestRedisCloseDoesNotWaitForSilentRedis checks that Close returns while a handler
-// registration waits for a Redis server that accepted the connection and never answers
-// AUTH.
+// TestRedisCloseDoesNotWaitForSilentRedis checks that Close returns within the Redis dial
+// timeout while a handler registration waits for a Redis server that accepted the
+// connection and never answers AUTH, and that the registration records the failure.
 func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
+	defer func(d time.Duration) { redisDialTimeout = d }(redisDialTimeout)
+	redisDialTimeout = 100 * time.Millisecond
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ln.Close() })
@@ -265,4 +267,5 @@ func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Close still waits for a registration whose Redis server never answers AUTH")
 	}
+	require.ErrorContains(t, srv.getNamespace("/x").err, `"/x"`)
 }

@@ -1,6 +1,7 @@
 package socketio
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,7 +28,7 @@ type redisBroadcast struct {
 	// dial opens a connection to the server (atomic so tests can wrap it
 	// while the dispatcher runs); pattern is the broadcast channel pattern
 	// the subscriber listens on.
-	dial    atomic.Pointer[func() (redis.Conn, error)]
+	dial    atomic.Pointer[func(context.Context) (redis.Conn, error)]
 	pattern string
 
 	nsp        string
@@ -48,6 +49,12 @@ type redisBroadcast struct {
 // of the subscribers counted by PUBSUB NUMSUB; an instance that died or hangs
 // is still counted until Redis drops its connection.
 var redisRequestTimeout = 5 * time.Second
+
+// redisDialTimeout bounds the two dials that build a Redis broadcast, the
+// publishing and the subscriber connection together, including AUTH and
+// SELECT. Registration holds the creation mutex for that time, and
+// Server.Close waits for it; tests shorten it.
+var redisDialTimeout = 10 * time.Second
 
 // Backoff between attempts to reopen the subscriber connection after a
 // receive error; tests shorten it.
@@ -115,13 +122,14 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 		redisOpts = append(redisOpts, redis.DialDatabase(opts.DB))
 	}
 
-	dial := func() (redis.Conn, error) {
-		return redis.Dial(opts.Network, addr, redisOpts...)
+	dial := func(ctx context.Context) (redis.Conn, error) {
+		return redis.DialContext(ctx, opts.Network, addr, redisOpts...)
 	}
-	pub := &redis.Pool{MaxIdle: 4, Dial: dial}
+	pub := &redis.Pool{MaxIdle: 4, DialContext: dial}
+	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+	defer cancel()
 	// Dial the first publishing connection now to report an unreachable server.
-	first := pub.Get()
-	err := first.Err()
+	first, err := pub.GetContext(ctx)
 	_ = first.Close()
 	if err != nil {
 		return nil, err
@@ -142,7 +150,7 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 	}
 	rbc.dial.Store(&dial)
 
-	if rbc.sub, err = rbc.subscribe(); err != nil {
+	if rbc.sub, err = rbc.subscribe(ctx); err != nil {
 		_ = pub.Close()
 		return nil, err
 	}
@@ -153,9 +161,10 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 }
 
 // subscribe opens a subscriber connection to the broadcast pattern and the
-// request and response channels, and closes it again if that fails.
-func (bc *redisBroadcast) subscribe() (*redis.PubSubConn, error) {
-	c, err := (*bc.dial.Load())()
+// request and response channels, and closes it again if that fails. ctx bounds
+// only the dial.
+func (bc *redisBroadcast) subscribe(ctx context.Context) (*redis.PubSubConn, error) {
+	c, err := (*bc.dial.Load())(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -669,7 +678,7 @@ func (bc *redisBroadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, t
 		case <-time.After(delay):
 		}
 
-		sub, err := bc.subscribe()
+		sub, err := bc.subscribe(context.Background())
 		if err != nil {
 			continue
 		}

@@ -1,6 +1,7 @@
 package socketio
 
 import (
+	"cmp"
 	"io"
 	"log/slog"
 	"net"
@@ -8,14 +9,51 @@ import (
 	"net/url"
 	"reflect"
 	"sync"
+	"time"
 
-	"github.com/googollee/go-socket.io/engineio"
-	"github.com/googollee/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/sshaplygin/go-socket.io/parser"
 )
+
+// The outbound queue size (see ErrWriteBufferFull) and drain deadline (see Conn.Close).
+const defaultWriteBufferSize, defaultDrainTimeout = 64, time.Minute
+
+// connLimits are the queue size and drain deadline of the connections a Server or Client creates.
+type connLimits struct {
+	writeBufferSize int
+	drainTimeout    time.Duration
+}
+
+// newConnLimits reads opts.WriteBufferSize and opts.PingTimeout; nil options, 0 and
+// negative values give the defaults.
+func newConnLimits(opts *engineio.Options) connLimits {
+	l := connLimits{defaultWriteBufferSize, defaultDrainTimeout}
+	if opts != nil && opts.WriteBufferSize > 0 {
+		l.writeBufferSize = opts.WriteBufferSize
+	}
+	if opts != nil && opts.PingTimeout > 0 {
+		l.drainTimeout = opts.PingTimeout
+	}
+	return l
+}
 
 // Conn is a connection in go-socket.io
 type Conn interface {
-	io.Closer
+	// Close closes the connection and returns nil; only the first close, by Close or by the library,
+	// has an effect. Close runs OnDisconnect for every connected namespace, leaves its rooms and
+	// returns without waiting. The packets queued until then, Emits from OnDisconnect included, are
+	// written in the background; an Emit that finds the queue full, or comes later, is dropped without
+	// a report. Then, or engineio.Options.PingTimeout (one minute if not positive) after Close
+	// started, the rest is discarded and the engine.io connection is closed; Server.Count counts the
+	// session until then. Incoming packets are no longer dispatched, and a read or write failure ends
+	// the drain at once. The library closes a connection on a read, decode, dispatch or encode error
+	// (an encode error used to leave it open), a peer close, a ping timeout, an overflow (see
+	// ErrWriteBufferFull) or a failed connect, discarding the queue at once. Other than an overflow,
+	// the error is reported to OnError before the close's effects run, so Emits from OnError still
+	// queue; a failed connect is reported to root OnError with a nil Conn. Failures during a close are
+	// not reported.
+	Close() error
 	Namespace
 
 	// ID returns session id
@@ -38,50 +76,122 @@ type conn struct {
 
 	writeChan chan parser.Payload
 	errorChan chan error
-	quitChan  chan struct{}
 
 	log *slog.Logger
 
-	closeOnce sync.Once
+	// mu orders the close state, whose steps close the channels, against queueing and registering.
+	mu                           sync.Mutex
+	closing, seal, discard, done chan struct{}
+	draining, connecting         bool             // the first close is Close; until connected
+	overflow                     *namespaceConn   // the first close is its overflow; see errConn
+	pending                      []*namespaceConn // OnDisconnect calls a library close owes
+	drainTimer                   *time.Timer
+	drainTimeout                 time.Duration // tests shorten it
 }
 
-func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, log *slog.Logger) *conn {
-	return &conn{
+func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connLimits, log *slog.Logger) *conn {
+	c := &conn{
 		log:        log,
 		Conn:       engineConn,
-		encoder:    parser.NewEncoder(engineConn),
 		decoder:    parser.NewDecoder(engineConn),
 		errorChan:  make(chan error),
-		writeChan:  make(chan parser.Payload),
-		quitChan:   make(chan struct{}),
+		writeChan:  make(chan parser.Payload, limits.writeBufferSize),
 		handlers:   handlers,
 		namespaces: newNamespaces(),
+		closing:    make(chan struct{}),
+		seal:       make(chan struct{}),
+		discard:    make(chan struct{}),
+		done:       make(chan struct{}),
 	}
+	c.encoder, c.drainTimeout, c.connecting = parser.NewEncoder(queueWriter{c}), limits.drainTimeout, true
+	return c
 }
 
 func (c *conn) Close() error {
-	var err error
+	c.mu.Lock()
+	if isDone(c.closing) {
+		c.mu.Unlock()
+		return nil
+	}
+	ncs := c.startClose()
+	c.draining, c.drainTimer = true, time.AfterFunc(c.drainTimeout, c.stop)
+	c.mu.Unlock()
+	c.disconnect(ncs)
+	c.mu.Lock()
+	close(c.seal)
+	c.mu.Unlock()
+	return nil
+}
 
-	c.closeOnce.Do(func() {
-		// for each namespace, leave all rooms, and call the disconnect handler.
-		c.namespaces.Range(func(ns string, nc *namespaceConn) {
-			if nh, _ := c.handlers.Get(ns); nh != nil && nh.onDisconnect != nil {
-				nh.onDisconnect(nc, clientDisconnectMsg)
-			}
-			nc.LeaveAll()
-		})
-		err = c.Conn.Close()
+// startClose takes the connected namespaces; c.mu is held.
+func (c *conn) startClose() (ncs []*namespaceConn) {
+	close(c.closing)
+	c.namespaces.Range(func(_ string, nc *namespaceConn) { ncs = append(ncs, nc) })
+	for _, nc := range ncs {
+		c.namespaces.Delete(fmtNS(nc.namespace))
+	}
+	return ncs
+}
 
-		close(c.quitChan)
-	})
+// stop starts a library close, or ends a drain.
+func (c *conn) stop() { c.mu.Lock(); defer c.mu.Unlock(); c.stopLocked() }
 
-	return err
+func (c *conn) stopLocked() {
+	if !isDone(c.closing) {
+		c.pending = c.startClose()
+	}
+	if !isDone(c.discard) {
+		close(c.discard)
+		if c.drainTimer != nil {
+			c.drainTimer.Stop()
+		}
+		go func() { _ = c.Conn.Close() }() // the emitter of an overflow must not block
+	}
+}
+
+// finish ends the close: it discards, then runs the OnDisconnect calls a library close owes.
+func (c *conn) finish() {
+	c.mu.Lock()
+	c.stopLocked()
+	ncs := c.pending
+	c.mu.Unlock()
+	c.disconnect(ncs)
+	close(c.done)
+}
+
+func (c *conn) disconnect(ncs []*namespaceConn) {
+	for _, nc := range ncs {
+		if nh := c.namespace(fmtNS(nc.namespace)); nh != nil && nh.onDisconnect != nil {
+			nh.onDisconnect(nc, clientDisconnectMsg)
+		}
+		nc.LeaveAll()
+	}
+}
+
+func (c *conn) register(nsp string, nc *namespaceConn) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !isDone(c.closing) {
+		c.namespaces.Set(nsp, nc)
+	}
+	return !isDone(c.closing)
+}
+
+func (c *conn) claim(nsp string) (*namespaceConn, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	nc, ok := c.namespaces.Get(nsp)
+	c.namespaces.Delete(nsp)
+	return nc, ok
 }
 
 func (c *conn) connect() error {
 	rootHandler, ok := c.handlers.Get(rootNamespace)
 	if !ok {
 		return errUnavailableRootHandler
+	}
+	if rootHandler.err != nil { // its Redis broadcast could not be created
+		return rootHandler.err
 	}
 
 	root := newNamespaceConn(c, aliasRootNamespace, rootHandler.broadcast)
@@ -101,13 +211,26 @@ func (c *conn) connect() error {
 		return err
 	}
 
-	handler, ok := c.handlers.Get(header.Namespace)
-	if ok {
-		_, err := handler.dispatch(root, header)
-		return err
-	}
+	_, err := rootHandler.dispatch(root, header)
+	return err
+}
 
-	return nil
+// connected ends the connect; a failure reports err first, so Emits from OnError queue, then closes.
+func (c *conn) connected(err error) bool {
+	if root := c.namespace(rootNamespace); err != nil && root != nil && root.onError != nil {
+		root.onError(nil, err)
+	}
+	c.mu.Lock()
+	failed := err != nil || isDone(c.closing) && !c.draining
+	if c.connecting = false; failed && !isDone(c.closing) {
+		c.pending = c.startClose()
+	}
+	c.mu.Unlock()
+	if failed {
+		c.reportOverflow(nil)
+		c.finish()
+	}
+	return !failed
 }
 
 func (c *conn) nextID() uint64 {
@@ -128,18 +251,67 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 		Data:   data,
 	}
 
-	select {
-	case c.writeChan <- pkg:
-	case <-c.quitChan:
-		return
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	switch {
+	case isDone(c.closing) && (!c.draining || isDone(c.seal) || isDone(c.discard)):
+	case len(c.writeChan) < cap(c.writeChan):
+		c.writeChan <- pkg
+	case !isDone(c.closing):
+		c.overflow = c.errConn(header.Namespace)
+		if c.pending = c.startClose(); !c.connecting { // else serveConn reports first
+			c.stopLocked()
+		}
 	}
 }
 
-func (c *conn) onError(namespace string, err error) {
+// reportOverflow reports an overflow with conn, nil on a failed connect as in v1.4.
+func (c *conn) reportOverflow(conn Conn) {
+	if c.overflow != nil {
+		c.namespace(fmtNS(c.overflow.namespace)).onError(conn, ErrWriteBufferFull)
+	}
+}
+
+// errConn returns the Conn to report an error of nsp with (new if nsp was disconnected), or nil.
+func (c *conn) errConn(nsp string) (nc *namespaceConn) {
+	if nh := c.namespace(nsp); nh != nil && nh.onError != nil {
+		if nc, _ = c.namespaces.Get(nsp); nc == nil {
+			nc = newNamespaceConn(c, cmp.Or(nsp, aliasRootNamespace), nh.broadcast)
+		}
+	}
+	return nc
+}
+
+// queueWriter starts no packet (its TEXT frame) once the queue is discarded.
+type queueWriter struct{ c *conn }
+
+func (w queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
+	if ft == session.TEXT && isDone(w.c.discard) {
+		return nil, io.EOF
+	}
+	return w.c.Conn.NextWriter(ft)
+}
+
+func isDone(ch <-chan struct{}) bool {
 	select {
-	case c.errorChan <- newErrorMessage(namespace, err):
-	case <-c.quitChan:
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// onError reports err and waits for OnError, unless a close started.
+func (c *conn) onError(namespace string, err error) {
+	if isDone(c.closing) {
 		return
+	}
+	msg := newErrorMessage(namespace, err)
+	msg.conn = c.errConn(namespace)
+	select {
+	case c.errorChan <- msg:
+		<-msg.done
+	case <-c.closing:
 	}
 }
 

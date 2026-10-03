@@ -6,11 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/googollee/go-socket.io/logger"
 	"github.com/gorilla/websocket"
+	"github.com/sshaplygin/go-socket.io/logger"
 
-	"github.com/googollee/go-socket.io/engineio/frame"
-	"github.com/googollee/go-socket.io/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
 type wrapper struct {

@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/googollee/go-socket.io/logger"
+	"github.com/sshaplygin/go-socket.io/logger"
 )
 
 // TestOptionsLoggerWrapped checks that Options.Logger is passed through

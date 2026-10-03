@@ -1,6 +1,6 @@
 # Roadmap
 
-Scope approved: 2026-09-28. Updated: 2026-09-29. Owner: Sam Shaplygin.
+Scope approved: 2026-09-28. Updated: 2026-10-03. Owner: Sam Shaplygin.
 
 This file owns scope, dependencies, implementation contracts and release gates.
 Current implementation: [PROTOCOL.md](PROTOCOL.md). Completed changes:
@@ -25,7 +25,7 @@ Stage 2.1 owns its reuse and remaining integration work below.
 | Core | Own Engine.IO/Socket.IO core; no dependency on or rebase onto `zishang520/socket.io` | 2.0–2.3 |
 | Protocol | v2 supports Engine.IO v4 / Socket.IO protocol v5; old clients stay on `v1` | 2.1, 2.3 |
 | API | Generic `Event[T]` / `AckEvent[T, R]` from the first v2 implementation; explicit raw escape hatch; no reflection-based dispatch | 2.0, 2.3 |
-| Modules | v1 keeps its module path; v2 root is `github.com/sshaplygin/go-socket.io/v2`; adapters and contrib have separate modules | 2.5, 4b, 5 |
+| Modules | v1 root is `github.com/sshaplygin/go-socket.io`, independent of the upstream module; v2 root adds `/v2`; adapters and contrib have separate modules | 2.5, 4b, 5 |
 | Go | Go 1.22 minimum for runtime modules; compatible dependencies pinned and minimum tested; build tools may use stable Go | Stage 1 DoD, 2.5 |
 | Transport | `gobwas/ws` + `wsutil` on server and client; standard `http.Handler` integration | 2.1 |
 | Brokers | Redis `go-redis/v9`, Node non-sharded adapter wire compatibility; NATS core pub/sub, no JetStream | 4b |
@@ -47,8 +47,8 @@ workers submit changes to these files through that integrator.
 
 | Wave | Prerequisites | Independent work / write ownership | Join gate |
 | --- | --- | --- | --- |
-| 1A | landed infrastructure | 1.R Redis internals (`redis_broadcast.go`); 1.B queue internals (`connection.go`, `broadcast.go`); 1.S session/server fixes (`engineio/session`, `engineio/server.go`, `server.go`) | component regression tests pass |
-| 1I | 1A | integrator wires Redis construction errors through `namespace_handler.go` and `server.go`, and queue options through `engineio/server_options.go` and consumers | integrated bug tests and root build pass |
+| 1A | landed infrastructure | 1.R Redis internals (`redis_broadcast.go`); 1.B queue and close internals (`connection.go`, `broadcast.go`, `errors.go`, the socket.io goroutines and close paths in `server.go` (`serveConn`, `serveRead`, `serveWrite`, `serveError`) and `client.go` (`Connect`, `Close`, `clientRead`, `clientWrite`, `clientError`), and the disconnect handlers in `connection_handlers.go`); 1.S session/server fixes (`engineio/session`, `engineio/server.go`, `server.go`; landed) | component regression tests pass |
+| 1I | 1A | integrator wires Redis construction errors through `namespace_handler.go` and `server.go`; wires `WriteBufferSize` and the drain deadline (`PingTimeout`) through `engineio/server_options.go`, `server.go` and `client.go`; runs the 1.B slow-client test against the Redis broadcast; also edits `connection.go` (connect-failure path, option wiring in `newConn`, `Conn.Close` godoc), the connect-failure path in `connection_handlers.go`, `namespace_handlers.go`, the session hand-off in `engineio/server.go`, `namespace_conn.go` (godoc only) and `CHANGELOG.md`; contract in the 1I item | integrated bug tests (the 1I item's tests) and root build pass |
 | 1B | 1I | 1.L logging call sites across layers; 1.D docs/links in Markdown | M1 checks and v1 compatibility |
 | 1b | M1, branch `v1` cut | one refactor owner; moves/merges applied sequentially | M1b regression checks |
 | 2A | M1b | 2.0 owner removes legacy root runtime/adapter consumers atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
@@ -81,22 +81,280 @@ release history and implementation commands stay in their respective files.
 ## Stage 1. Infrastructure and known bugs (tag `v1.5.0`)
 
 No protocol changes. Allowed API changes are `engineio.Options.Logger`,
-`engineio.Options.WriteBufferSize` (temporary v1 placement), the logger exports
+`engineio.Options.WriteBufferSize` (temporary v1 placement), `socketio.ErrWriteBufferFull`,
+the logger exports
 listed in the changelog, and the already-landed session logger parameter. That
 session constructor signature change must be called out in v1 migration notes;
 root `NewServer` and handler signatures stay unchanged. `gorilla/websocket` stays in v1; the
 transport swap happens in stage 2 where the transport is rewritten.
 
-Remaining tasks:
+Tasks:
 
 - **1.R Redis:** protect `requests` and room access; time out peer queries; propagate
   adapter construction errors through the 1I integration step; reconnect subscriptions with backoff after receive
   failures. Each fix has a regression test, including two-server tests under `-race`.
-- **1.B Backpressure:** add temporary v1 `engineio.Options.WriteBufferSize` (default
-  64); close the slow connection and report overflow via `OnError`. Snapshot room
-  members under lock; emit after releasing it. Test that one stalled member does not
-  block another.
-- **1.S Runtime fixes:** synchronous session registration before a second request can
+- **1.B Backpressure:** each connection has a bounded queue of outbound packets. The
+  rules below apply to `Server` connections and to `Client` alike.
+  - *Size:* temporary v1 `engineio.Options.WriteBufferSize` counts socket.io packets
+    (unrelated to `websocket.Transport.WriteBufferSize`, which counts bytes); 0 and
+    negative values mean the default 64; no opt-out in v1. A packet the writer has
+    started (see *Overflow*) no longer counts toward it. 1.B uses an unexported
+    default; 1I wires the option.
+  - *Drain deadline:* `engineio.Options.PingTimeout` as passed to `NewServer` /
+    `NewClient`; nil options, 0 and negative values mean one minute. It is read by the
+    socket.io layer without changing the `engineio.Conn` interface. For `Client` it is
+    the local option, not the server's handshake value. 1.B keeps it in an unexported
+    per-connection field (tests set it); 1I wires it.
+  - *Emit* never blocks. Emits from `OnConnect` are queued and written once the writer
+    starts. Packets the library queues itself (ACK replies, namespace CONNECT replies)
+    follow the same rules as `Emit`, so the read goroutine never blocks on a full queue.
+  - *Connected namespace:* a namespace counts as connected from the moment it is
+    registered, before its `OnConnect` runs, as in v1.4. A namespace whose `OnConnect`
+    failed therefore gets its one `OnDisconnect` when the connection closes.
+  - *First close decides:* a connection is closed at most once. The first close fixes
+    which `OnDisconnect` calls run and whether Emits still queue; `OnDisconnect` runs
+    exactly once per connected namespace whatever the number and kind of closes, also
+    when a peer namespace DISCONNECT is being dispatched as the close starts; later
+    `Close` calls return `nil` and change nothing. A later library-started close can
+    only shorten a drain: any read or writer failure during a drain, whatever its
+    cause, ends the drain at once and discards the rest, without a report. Once any
+    close has started, an `Emit` is dropped silently, never blocks and is not reported,
+    except that a draining close still queues packets until its seal.
+  - *Overflow* (no close started): an Emit that finds the queue full marks the
+    connection overflowed, drops that packet and every later one, and starts a
+    discarding close without blocking the emitter. `OnDisconnect`, leaving the rooms
+    and one `ErrWriteBufferFull` report (exported sentinel) run on the connection's
+    own goroutines. An overflow before those goroutines start always takes the
+    connect-failure path, whatever `OnConnect` returned; there `serveConn` runs them
+    synchronously and passes a nil `Conn` to the report, as v1.4 does for connect
+    failures, and an `OnConnect` error is reported separately. The report goes to
+    `OnError` of the namespace of the overflowing packet and is delivered although the
+    connection is closing; with
+    no `OnError` registered it is dropped (1.L logs it). Report and `OnDisconnect` have
+    no guaranteed order. After the overflow flag is set the socket.io writer starts no
+    further packet. A packet has started once the writer called `NextWriter` for its
+    first frame; the overflow's engine.io close makes a blocked `NextWriter` fail. A
+    started packet counts as in flight together with its binary attachments.
+    Engine.io control frames are out of scope.
+  - *Draining close:* only `Conn.Close` or `Client.Close` called by application code
+    (including from handlers) drains. `Close` runs `OnDisconnect`; the queue is
+    *sealed* when every `OnDisconnect` called by this `Close` has returned. Packets
+    queued before the seal, including Emits from `OnDisconnect`, are written by the
+    writer goroutine in the background; an Emit that finds the queue full before the
+    seal is dropped silently and not reported. The drain ends when the queue is empty
+    after the seal, or at the drain deadline measured from the start of `Close`,
+    whichever is first; remaining packets are discarded and the engine.io connection
+    is closed. From the start of `Close` the read goroutine keeps reading, so engine.io
+    pings are answered and a peer close is detected, but it dispatches no CONNECT,
+    EVENT, ACK or DISCONNECT packet. `Close` returns `nil` without waiting. A `Close`
+    from root `OnConnect` that then returns nil is not a connect failure: the
+    goroutines start and the drain runs.
+  - *Discarding closes:* every close started inside the library discards the queue and
+    closes the engine.io connection at once: header read or decode error, argument
+    decode error, dispatch error, encode error (any `Encode` failure, marshal or
+    transport write; in v1.4 the connection stayed open), peer close (engine.io CLOSE
+    or the transport closed or failed from the peer side), ping timeout, overflow, and
+    a connect failure before the writer starts. Reports are routed as in v1.4: a
+    failure to read or decode a packet header goes to root `OnError`, and so do a peer
+    close and a ping timeout, which reach the reader as such a failure; an argument
+    decode, dispatch or encode error goes to `OnError` of the packet's namespace; a
+    connect failure goes exactly once to root `OnError` with a nil `Conn`, whether it
+    came from `Encode` or from `OnConnect`. A report of the close's own cause comes
+    first: the close starts only after its `OnError` call returns, so Emits from that
+    call still queue and can overflow. On the connect-failure path, where an overflow
+    may already have started the close, `serveConn` delivers the connect-failure
+    report, then the overflow report if any, and only then discards the queue, runs
+    `OnDisconnect` and closes engine.io (v1.4 closed first and reported after). Once any
+    close has started, a read or writer failure, including one caused by the library's
+    own engine.io close, is not reported and starts no new close; during a drain it
+    ends the drain (see *First close decides*). `Server.Close`: see 1I *Shutdown*.
+  - *Namespace DISCONNECT:* a socket.io DISCONNECT from the peer ends only that
+    namespace: its `OnDisconnect` runs once and its rooms are left; the engine.io
+    connection and the queue stay as they are.
+  - *Docs:* godoc of `WriteBufferSize`, `Emit` and `Close` states the rules above;
+    that more than `WriteBufferSize` packets queued faster than the writer drains them
+    *can* close a healthy client; that polling writes one engine.io frame per poll
+    round trip (a packet with k binary attachments needs k+1), so polling clients
+    overflow at much lower emit rates; that an encode error now closes the connection;
+    that a closing error is now reported before the close's effects run; and that after `Close` returns the transport closes asynchronously, so
+    `Server.Count` still counts the session until then. The changelog entry is
+    written in 1I.
+  - *Broadcasts:* `Send`, `SendAll` and `ForEach` emit or call back after releasing
+    the room lock. The Redis broadcast already does this (1.R); 1.B changes the
+    in-memory one. One copy per socket for `SendAll` is owned by 2.2; 1.B points the
+    pinning comment in `lifecycle_test.go` at 2.2 only.
+  - *Tests (1.B):* deterministic under `-race` with a fake `engineio.Conn` whose
+    writer can be blocked; 1.B adds an unexported dial seam to `Client` so the `Client`
+    cases use the same fake. Every close case also asserts the `OnDisconnect` call
+    count. Side: S = `Server`, C = `Client` (root namespace only).
+    1. 1B-T1 (S): one stalled member does not block another member of its room.
+    2. 1B-T2 (S, C): a draining `Close` delivers N queued packets, N = 1 and N = 64,
+       and returns while the writer is still blocked.
+    3. 1B-T3 (S, C): a draining `Close` writes Emits from `OnDisconnect`, including one
+       made after the writer emptied the queue.
+    4. 1B-T4 (S, C): an Emit after the seal and an Emit that finds the queue full
+       during `OnDisconnect` are dropped without report.
+    5. 1B-T5 (S, C): after a draining `Close` an incoming EVENT runs no handler and an
+       incoming CONNECT runs no `OnConnect`.
+    6. 1B-T6 (S, C): with a 50 ms drain deadline a stalled peer's engine.io connection
+       closes within 50 ms + 1 s, and `OnError` is not called.
+    7. 1B-T7 (S, C): a read-error close discards and closes at once.
+    8. 1B-T8 (S, C): an engine.io-CLOSE close discards, closes at once and is reported
+       exactly once to root `OnError`.
+    9. 1B-T9 (S, C): a dispatch-error close discards and closes at once; on S, an
+       argument decode error in a non-root namespace is reported to that namespace's
+       `OnError` and not to root.
+    10. 1B-T10 (S, C): an encode error is reported once to `OnError` of the packet's
+        namespace, then the connection discards and closes at once.
+    11. 1B-T11 (S, C): a connect failure discards, closes at once and is reported
+        exactly once, before `OnDisconnect` runs. On C the trigger is the CONNECT
+        `Encode` failure and nothing can be queued; a Client `OnConnect` error is a
+        dispatch error (1B-T9).
+    12. 1B-T12 (S, C): a read-error close whose `OnDisconnect` emits
+        `WriteBufferSize`+1 packets reports no `ErrWriteBufferFull` and nothing for
+        the dropped Emits.
+    13. 1B-T13 (S, C): a read failure from the fake reader during a draining `Close`
+        ends the drain at once, unreported.
+    14. 1B-T14 (S, C): a peer namespace DISCONNECT whose `OnDisconnect` is held on a
+        channel races `Close`; `OnDisconnect` runs once for that namespace and once for
+        each other connected namespace.
+    15. 1B-T15 (S, C): with a packet in flight (its `NextWriter` called and blocked),
+        an overflow reports `ErrWriteBufferFull` exactly once, to the
+        namespace of the overflowing packet.
+    16. 1B-T16 (S, C): with a binary packet in flight (its `NextWriter` called and
+        blocked) an overflow lets the writer start no further packet.
+    17. 1B-T17 (S): an overflow inside root `OnConnect` returning nil takes the
+        connect-failure path, reports `ErrWriteBufferFull` once and writes nothing
+        after it.
+    18. 1B-T18 (S): the same with `OnConnect` returning an error; `ErrWriteBufferFull`
+        and the `OnConnect` error are each reported once.
+    19. 1B-T19 (S): an overflow triggered inside `BroadcastToRoom` does not deadlock.
+    20. 1B-T20 (S): an overflow triggered inside `ForEach` does not deadlock.
+    21. 1B-T21 (S, C): with a packet in flight (its `NextWriter` called and blocked),
+        a dispatch error whose `OnError`
+        emits `WriteBufferSize`+1 packets does not deadlock; `ErrWriteBufferFull` is
+        reported once and `OnDisconnect` runs once.
+    22. 1B-T22 (S, C): `Close` from `OnError` does not deadlock.
+    23. 1B-T23 (S, C): `Close` from `OnDisconnect` does not deadlock.
+    24. 1B-T24 (S, C): `Close` called twice concurrently does not deadlock.
+    25. 1B-T25 (S, C): a namespace DISCONNECT keeps the session open; on S the other
+        namespaces keep working.
+    26. 1B-T26 (S): a draining `Close` from root `OnConnect` returning nil delivers the
+        Emits queued before the seal and closes the engine.io connection within the
+        drain deadline.
+    27. 1B-T27 (S, C): with a packet in flight, an ACK reply that finds the queue full
+        starts an overflow close
+        and the read goroutine does not block; on S, the same for a namespace CONNECT
+        reply.
+  - *Gate record:* a test covering a case names it in its doc comment, for example
+    `// Covers 1B-T3 (S, C).`; the stage 1 DoD checks that every (case, side) pair of
+    the 1.B and 1I lists is named by a passing test.
+- **1I Integration** (the integrator, after 1.R and 1.B). The rules below complete
+  the 1.R and 1.B items; public signatures stay unchanged.
+  - *Options:* `NewServer` and `NewClient` pass `engineio.Options.WriteBufferSize`
+    and `PingTimeout` to every connection they create, normalised as 1.B *Size* and
+    *Drain deadline* say. Engine.io ignores `WriteBufferSize`, and its own handling of
+    `PingTimeout` does not change.
+  - *Redis construction errors:* when the Redis broadcast of a namespace cannot be
+    created, its handler holds a no-op broadcast together with the error, so no
+    broadcast call can reach a nil value. The error wraps the Redis error with `%w`
+    and names the namespace (root as `/`). Handler creation is serialised by a server-level
+    creation mutex, not by the handlers lock that packet dispatch reads: under it the
+    server rechecks, builds, records the first construction error in registration
+    order and only then stores the handler, so one namespace never builds two
+    broadcasts and a slow Redis dial never stalls dispatch. `Serve` returns nil once
+    `Close` has been called, whether or not a construction error was recorded.
+    Otherwise it reads the recorded error once on entry, without taking the creation
+    mutex, and returns it without accepting a connection. The engine keeps completing
+    handshakes after that without serving them until the caller calls `Close`. The
+    error is kept: registering more handlers does not rebuild the broadcast.
+    A connection to such a namespace fails before the namespace is registered and
+    before any CONNECT packet for it is encoded, so its `OnConnect` and `OnDisconnect`
+    never run. For root this is a connect failure (1.B): nothing is written, no
+    namespace is connected, and the error is reported once to root `OnError` with a
+    nil `Conn`. For another namespace it is a CONNECT dispatch error (1.B): the error
+    is reported once to that namespace's `OnError`, whose `Conn` room methods do
+    nothing and whose `Rooms` returns nil; the other connected namespaces then get
+    their `OnDisconnect` by the 1.B dispatch-error close.
+    The `Server` room methods for such a namespace do nothing: `RoomLen` returns -1
+    (as for an unknown namespace or a failed Redis query), `Rooms` nil, `ForEach`
+    false without calling its function, and the other methods false.
+  - *Shutdown:* `Server.Close` closes engine.io, then, under the creation mutex,
+    marks the server closed and stops the Redis subscriber and publisher connections
+    of every namespace (1.R's unexported `close`); a registration racing `Close` is
+    therefore either stopped or builds nothing. With `Adapter` set, a handler
+    registered after `Close` builds no Redis broadcast and holds the no-op broadcast
+    with an unexported "server closed" error, which is not recorded for `Serve` (see
+    *Redis construction errors* for what `Serve` returns after `Close`). `Close` waits
+    for a registration already holding the creation mutex, up to the Redis dial
+    timeout. v1 `Server.Close` does not close sessions;
+    for sessions still open, cross-instance broadcasts stop and the `Close` godoc says
+    so. Engine.io `Close` no longer closes the channel that hands sessions to
+    `Accept`; `Accept` returns `io.EOF` once `Close` was called. Every session not yet
+    handed to `Accept` when `Close` is called (buffered, or its sender still waiting)
+    and every session whose handshake completes after `Close` is closed and removed
+    from the session manager, and its hand-off goroutine ends, so no handshake can
+    panic with a send on a closed channel or stay open unserved.
+  - *Docs:* godoc of `engineio.Options.WriteBufferSize` and `Emit` as 1.B *Docs*
+    says; the `Conn.Close` and `Client.Close` godoc name `PingTimeout` (for `Client`,
+    its local option) as the drain deadline; the `Adapter`, `Serve` and `Close` godoc
+    state the rules above; the `Serve` godoc warns that after an error return
+    handshakes still complete unserved until `Close`, and the `Close` godoc that it
+    can wait for a registration's Redis dial. `CHANGELOG.md` gets the 1.R,
+    1.B and 1I entries, written by the integrator for the whole wave (an exception to
+    the per-PR entry rule in `CONTRIBUTING.md`): fix entries follow the stage DoD's
+    changelog rule, and 1.B and 1I behaviour entries also link to the godoc instead of
+    repeating it.
+  - *Tests (1I):* every C case uses the 1.B dial seam.
+    1. 1I-T1 (S): 1B-T1 against the Redis broadcast.
+    2. 1I-T2 (S, C): `WriteBufferSize` 0 and negative give 64.
+    3. 1I-T3 (S, C): a custom `WriteBufferSize` is used, checked on the stored
+       per-connection value.
+    4. 1I-T4 (S, C): nil options and `PingTimeout` 0 give a one-minute drain deadline,
+       checked on the stored per-connection value.
+    5. 1I-T5 (S, C): a negative `PingTimeout` gives one minute, checked on the stored
+       per-connection value (engine.io sessions with a negative timeout expire at once).
+    6. 1I-T6 (S, C): a custom `PingTimeout` becomes the drain deadline, checked on the
+       stored per-connection value. The live bound is 1B-T6: on a real session the
+       engine.io write deadline equals `PingTimeout`, so a live test could not tell the
+       two apart.
+    7. 1I-T7 (S): with `Adapter` set and Redis stopped, two namespaces are registered
+       in a known order; Redis is restarted and another handler is registered on the
+       first one. `Serve`, run in a goroutine, returns within 1 s an error that names
+       the first namespace and matches `*net.OpError` with `errors.As`; `RoomLen` on
+       the first namespace still returns -1.
+    8. 1I-T8 (S): handlers are registered after `Serve` passed its entry check (the
+       test waits on an unexported signal `Serve` gives after that check). A root
+       connection to a failed root namespace: no socket.io packet is written,
+       `OnConnect` and `OnDisconnect` are not called, root `OnError` gets one error,
+       with a nil `Conn`, that matches `*net.OpError`, and the engine.io connection
+       closes. A CONNECT to a failed non-root namespace: no CONNECT reply for it is
+       written, its `OnConnect` and `OnDisconnect` are not called, its `OnError` gets
+       one such error and root `OnError` none, `Join`, `Leave`, `LeaveAll` and `Rooms`
+       on that `Conn` do not panic and `Rooms` returns nil, root `OnDisconnect` runs
+       once and the connection closes.
+    9. 1I-T9 (S): on a failed namespace, `JoinRoom`, `LeaveRoom`, `LeaveAllRooms`,
+       `ClearRoom`, `BroadcastToRoom` and `BroadcastToNamespace` return false,
+       `RoomLen` returns -1, `Rooms` returns nil, and `ForEach` returns false without
+       calling its function.
+    10. 1I-T10 (S): two working namespaces are registered, Redis is stopped, a third
+        namespace is registered and fails, and Redis is restarted. Once both working
+        namespaces are subscribed again (PUBSUB NUMPAT = 2) and no broadcast is in
+        flight, `Server.Close` does not panic, and within 1 s Redis reports no
+        subscriber on any namespace channel and no client connection (miniredis
+        `CurrentConnectionCount` is 0). A handler registered after `Close` opens no
+        Redis connection, its `RoomLen` returns -1, and `Serve` then returns nil.
+    11. 1I-T11 (S, on `engineio.Server`): with nothing calling `Accept`, two
+        websocket engine.io clients complete the handshake; then `Close` is called and
+        a third completes its handshake. Nothing panics, `Accept` returns `io.EOF`,
+        the race detector reports nothing, and within 1 s `engineio.Server.Count` is
+        0 and the `NextReader` of each of the three clients returns an error.
+    12. 1I-T12 (S): with `Adapter` set and Redis reached through a listener that
+        delays each accepted connection by 50 ms, 8 goroutines released by one barrier
+        call `OnEvent` with distinct event names on one new namespace, under `-race`.
+        Before `Close`, miniredis `CurrentConnectionCount` equals that of a single
+        namespace's broadcast; after `Close` it is 0 within 1 s.
+- **1.S Runtime fixes (landed; its lifecycle tests stay a stage gate):** synchronous session registration before a second request can
   use its SID; `Manager.Count` uses `RLock`; correct EOF result from `Server.Serve`.
   Cover session lifecycle and root connect/event/ack/namespace/room/disconnect paths.
 - **1.L Logging:** replace remaining `fmt.Printf`/`log.Print` library calls, normalize
@@ -108,7 +366,7 @@ Remaining tasks:
   in v1; DEBUG never includes payloads.
 - **1.D Docs:** reduce `engineio/README.md` to purpose and root/protocol links, register
   it in the ownership map, remove `godoc.org` links, point CI badges at this fork.
-  Keep API links on the v1 module until 2.5.
+  Keep API links on the fork's v1 module until 2.5.
 
 Boundary lines. The keys are a contract reused by stage 2.4.
 
@@ -135,8 +393,8 @@ Boundary lines. The keys are a contract reused by stage 2.4.
 DoD: `make lint test-race` green on ubuntu/macos/windows for `stable` and `oldstable`;
 an additional Ubuntu job builds/tests the root on Go 1.22 with automatic toolchain
 upgrades disabled. From v2 this job covers every shipped runtime module;
-`govulncheck` clean; two-instance Redis test under `-race` passes; slow-client test
-proves other room members keep receiving; `engineio/session` coverage ≥ 70%, root
+`govulncheck` clean; two-instance Redis test under `-race` passes; every (case, side)
+pair of the 1.B and 1I test lists is named by a passing test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
 package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses.
 Logging gate: `TestServerLoggerOption`, `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv`,
 `TestWrapOverridesHandlerLevel`, `TestTraceDisabledNoAlloc` and
@@ -153,8 +411,9 @@ rg -n 'https?://godoc[.]org' -g '*.md' .
 ```
 
 Acceptance: `_examples/default-http` works unchanged against `socket.io-client` 2.x;
-`go get` of the fork at `v1.5.0` builds a consumer that previously used upstream (with a
-`replace` directive). Owner runs `SOCKETIO_LOG_LEVEL=debug go run .` in
+`go get` of the fork at `v1.5.0` builds a consumer that previously used upstream after
+updating its imports to the fork's v1 module, without an upstream-path `replace`
+directive. Owner runs `SOCKETIO_LOG_LEVEL=debug go run .` in
 `_examples/default-http`, opens the browser page, sends one event and closes the tab:
 the log shows session open, namespace connect and a disconnect with one `sid`.
 A client-sent CLOSE produces `reason="transport close"`; abrupt tab termination may
@@ -296,13 +555,19 @@ Lifecycle contract, implemented in 2.1/2.3 and instrumented in 2.4:
 - `Shutdown(ctx)` rejects new handshakes/events, cancels socket/handler contexts and
   pending acks, drains already queued outbound messages until the deadline, then
   closes transports and owned adapter workers. It is idempotent; `Close()` aborts
-  immediately. Application handlers must honor cancellation: Go cannot forcibly
+  immediately. A socket or session close requested by the application drains the
+  session's queued outbound messages within the session ping timeout, as v1
+  `Conn.Close` does since 1.B; closes started inside the library discard, as in 1.B.
+  A peer namespace DISCONNECT ends only that socket and keeps the session queue, as in 1.B.
+  The DoD below includes a disconnect-drain test; the v1 to v2 mapping is in 2.5.
+  Application handlers must honor cancellation: Go cannot forcibly
   terminate them, and shutdown returns on its deadline even if one does not exit.
   Injected broker clients, loggers and OTel providers remain application-owned.
 
 DoD: compile fixtures pass on Go 1.22; runtime stages add tests for request-context
 independence, handler-initiated ack, ordering, concurrent close/ack/timeout, bounded
-queues and graceful/forced shutdown, all under `-race`. Include timeout of A, new
+queues, graceful/forced shutdown and an application close that drains within the ping
+timeout while a library close discards, all under `-race`. Include timeout of A, new
 request B and late ACK A: B must remain pending until its own terminal condition.
 
 ### 2.1 Engine.IO v4 and gobwas/ws
@@ -743,10 +1008,11 @@ transport and codec errors, without calling `slog.SetDefault`.
 
 ### 2.5 Docs and release
 
-`docs/MIGRATION.md`, `docs/PROTOCOL.md` update, `docs/OBSERVABILITY.md`,
+`docs/MIGRATION.md` (including how v1 `Conn.Close` draining maps to v2 socket and
+session close), `docs/PROTOCOL.md` update, `docs/OBSERVABILITY.md`,
 `contrib/otel/README.md`, module path `.../v2`, tag `v2.0.0` and
 `contrib/otel/v2.0.0` from the same commit; branch `v1` created from `v1.5.0`. After the
-module path changes: README GoDoc badge and API reference link, `go.mod` and imports of
+v2 module path changes: README GoDoc badge and API reference link, `go.mod` and imports of
 every `_examples/*`, links in `engineio/README.md`, and the import paths of
 `contrib/otel` and `adapters/*`. Task 2.5D migrates all non-Redis examples to
 `socket.io-client@4` and the generic API, pinning maintained framework versions

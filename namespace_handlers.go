@@ -27,3 +27,13 @@ func (h *namespaceHandlers) Get(nsp string) (*namespaceHandler, bool) {
 	handler, ok := h.handlers[nsp]
 	return handler, ok
 }
+
+// Range calls f for every handler; f must not register handlers.
+func (h *namespaceHandlers) Range(f func(handler *namespaceHandler)) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for _, handler := range h.handlers {
+		f(handler)
+	}
+}

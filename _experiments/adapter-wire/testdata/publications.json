@@ -1,0 +1,530 @@
+{
+  "formatVersion": 1,
+  "reference": "@socket.io/redis-adapter@8.3.0 + notepack.io@3.0.1",
+  "cases": [
+    {
+      "name": "broadcast-root",
+      "publications": [
+        {
+          "channel": "socket.io#/#",
+          "encoding": "msgpack",
+          "wireBase64": "k6pmaXh0dXJlLWlkg6R0eXBlAqRkYXRhkqdtZXNzYWdlpWhlbGxvo25zcKEvg6Vyb29tc5CmZXhjZXB0kKVmbGFnc4A=",
+          "value": [
+            "fixture-id",
+            {
+              "type": 2,
+              "data": [
+                "message",
+                "hello"
+              ],
+              "nsp": "/"
+            },
+            {
+              "rooms": [],
+              "except": [],
+              "flags": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "broadcast-room",
+      "publications": [
+        {
+          "channel": "socket.io#/chat#room-1#",
+          "encoding": "msgpack",
+          "wireBase64": "k6pmaXh0dXJlLWlkg6R0eXBlAqRkYXRhkqdtZXNzYWdlgaR0ZXh0p+KCrPCfmYKjbnNwpS9jaGF0g6Vyb29tc5Gmcm9vbS0xpmV4Y2VwdJClZmxhZ3OA",
+          "value": [
+            "fixture-id",
+            {
+              "type": 2,
+              "data": [
+                "message",
+                {
+                  "text": "€🙂"
+                }
+              ],
+              "nsp": "/chat"
+            },
+            {
+              "rooms": [
+                "room-1"
+              ],
+              "except": [],
+              "flags": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "broadcast-union-except",
+      "publications": [
+        {
+          "channel": "socket.io#/chat#",
+          "encoding": "msgpack",
+          "wireBase64": "k6pmaXh0dXJlLWlkg6R0eXBlAqRkYXRhkqdtZXNzYWdlpWhlbGxvo25zcKUvY2hhdIOlcm9vbXOSpnJvb20tMaZyb29tLTKmZXhjZXB0kadibG9ja2VkpWZsYWdzgqh2b2xhdGlsZcOoY29tcHJlc3PC",
+          "value": [
+            "fixture-id",
+            {
+              "type": 2,
+              "data": [
+                "message",
+                "hello"
+              ],
+              "nsp": "/chat"
+            },
+            {
+              "rooms": [
+                "room-1",
+                "room-2"
+              ],
+              "except": [
+                "blocked"
+              ],
+              "flags": {
+                "volatile": true,
+                "compress": false
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "broadcast-custom-prefix",
+      "publications": [
+        {
+          "channel": "app#/日本#room#one#",
+          "encoding": "msgpack",
+          "wireBase64": "k6pmaXh0dXJlLWlkg6R0eXBlAqRkYXRhkqdtZXNzYWdlpWhlbGxvo25zcKcv5pel5pysg6Vyb29tc5Gocm9vbSNvbmWmZXhjZXB0kKVmbGFnc4A=",
+          "value": [
+            "fixture-id",
+            {
+              "type": 2,
+              "data": [
+                "message",
+                "hello"
+              ],
+              "nsp": "/日本"
+            },
+            {
+              "rooms": [
+                "room#one"
+              ],
+              "except": [],
+              "flags": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "broadcast-binary",
+      "publications": [
+        {
+          "channel": "socket.io#/chat#",
+          "encoding": "msgpack",
+          "wireBase64": "k6pmaXh0dXJlLWlkg6R0eXBlAqRkYXRhkqVpbWFnZYGkZmlsZcQDAAT/o25zcKUvY2hhdIOlcm9vbXOQpmV4Y2VwdJClZmxhZ3OA",
+          "value": [
+            "fixture-id",
+            {
+              "type": 2,
+              "data": [
+                "image",
+                {
+                  "file": {
+                    "$binary": "AAT/"
+                  }
+                }
+              ],
+              "nsp": "/chat"
+            },
+            {
+              "rooms": [],
+              "except": [],
+              "flags": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "broadcast-empty-binary",
+      "publications": [
+        {
+          "channel": "socket.io#/chat#",
+          "encoding": "msgpack",
+          "wireBase64": "k6pmaXh0dXJlLWlkg6R0eXBlAqRkYXRhkqVpbWFnZcQAo25zcKUvY2hhdIOlcm9vbXOQpmV4Y2VwdJClZmxhZ3OA",
+          "value": [
+            "fixture-id",
+            {
+              "type": 2,
+              "data": [
+                "image",
+                {
+                  "$binary": ""
+                }
+              ],
+              "nsp": "/chat"
+            },
+            {
+              "rooms": [],
+              "except": [],
+              "flags": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "broadcast-local-no-publish",
+      "publications": []
+    },
+    {
+      "name": "broadcast-ack-request",
+      "publications": [
+        {
+          "channel": "socket.io-request#/chat#",
+          "encoding": "msgpack",
+          "wireBase64": "haN1aWSqZml4dHVyZS1pZKlyZXF1ZXN0SWSqZml4dHVyZS1pZKR0eXBlB6ZwYWNrZXSDpHR5cGUCpGRhdGGSpWltYWdlxAIA/6Nuc3ClL2NoYXSkb3B0c4Olcm9vbXORpnJvb20tMaZleGNlcHSQpWZsYWdzgad0aW1lb3V0AQ==",
+          "value": {
+            "uid": "fixture-id",
+            "requestId": "fixture-id",
+            "type": 7,
+            "packet": {
+              "type": 2,
+              "data": [
+                "image",
+                {
+                  "$binary": "AP8="
+                }
+              ],
+              "nsp": "/chat"
+            },
+            "opts": {
+              "rooms": [
+                "room-1"
+              ],
+              "except": [],
+              "flags": {
+                "timeout": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "join-request",
+      "publications": [
+        {
+          "channel": "socket.io-request#/chat#",
+          "encoding": "json",
+          "wireBase64": "eyJ1aWQiOiJmaXh0dXJlLWlkIiwidHlwZSI6Miwib3B0cyI6eyJyb29tcyI6WyJyb29tLTEiXSwiZXhjZXB0IjpbImJsb2NrZWQiXX0sInJvb21zIjpbIm5ldy1yb29tIl19",
+          "value": {
+            "uid": "fixture-id",
+            "type": 2,
+            "opts": {
+              "rooms": [
+                "room-1"
+              ],
+              "except": [
+                "blocked"
+              ]
+            },
+            "rooms": [
+              "new-room"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "leave-request",
+      "publications": [
+        {
+          "channel": "socket.io-request#/chat#",
+          "encoding": "json",
+          "wireBase64": "eyJ1aWQiOiJmaXh0dXJlLWlkIiwidHlwZSI6Mywib3B0cyI6eyJyb29tcyI6WyJyb29tLTEiXSwiZXhjZXB0IjpbXX0sInJvb21zIjpbIm9sZC1yb29tIl19",
+          "value": {
+            "uid": "fixture-id",
+            "type": 3,
+            "opts": {
+              "rooms": [
+                "room-1"
+              ],
+              "except": []
+            },
+            "rooms": [
+              "old-room"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "disconnect-request",
+      "publications": [
+        {
+          "channel": "socket.io-request#/chat#",
+          "encoding": "json",
+          "wireBase64": "eyJ1aWQiOiJmaXh0dXJlLWlkIiwidHlwZSI6NCwib3B0cyI6eyJyb29tcyI6W10sImV4Y2VwdCI6W119LCJjbG9zZSI6dHJ1ZX0=",
+          "value": {
+            "uid": "fixture-id",
+            "type": 4,
+            "opts": {
+              "rooms": [],
+              "except": []
+            },
+            "close": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "server-emit-request",
+      "publications": [
+        {
+          "channel": "socket.io-request#/chat#",
+          "encoding": "json",
+          "wireBase64": "eyJ1aWQiOiJmaXh0dXJlLWlkIiwidHlwZSI6NiwiZGF0YSI6WyJub3RpY2UiLHsiY291bnQiOjJ9XX0=",
+          "value": {
+            "uid": "fixture-id",
+            "type": 6,
+            "data": [
+              "notice",
+              {
+                "count": 2
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "server-emit-binary-json",
+      "publications": [
+        {
+          "channel": "socket.io-request#/chat#",
+          "encoding": "json",
+          "wireBase64": "eyJ1aWQiOiJmaXh0dXJlLWlkIiwidHlwZSI6NiwiZGF0YSI6WyJub3RpY2UiLHsidHlwZSI6IkJ1ZmZlciIsImRhdGEiOlswLDI1NV19XX0=",
+          "value": {
+            "uid": "fixture-id",
+            "type": 6,
+            "data": [
+              "notice",
+              {
+                "type": "Buffer",
+                "data": [
+                  0,
+                  255
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "server-emit-ack-request",
+      "publications": [
+        {
+          "channel": "socket.io-request#/chat#",
+          "encoding": "json",
+          "wireBase64": "eyJ1aWQiOiJmaXh0dXJlLWlkIiwicmVxdWVzdElkIjoiZml4dHVyZS1pZCIsInR5cGUiOjYsImRhdGEiOlsibm90aWNlIl19",
+          "value": {
+            "uid": "fixture-id",
+            "requestId": "fixture-id",
+            "type": 6,
+            "data": [
+              "notice"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "all-rooms-request",
+      "publications": [
+        {
+          "channel": "socket.io-request#/chat#",
+          "encoding": "json",
+          "wireBase64": "eyJ1aWQiOiJmaXh0dXJlLWlkIiwicmVxdWVzdElkIjoiZml4dHVyZS1pZCIsInR5cGUiOjF9",
+          "value": {
+            "uid": "fixture-id",
+            "requestId": "fixture-id",
+            "type": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "fetch-sockets-request",
+      "publications": [
+        {
+          "channel": "socket.io-request#/chat#",
+          "encoding": "json",
+          "wireBase64": "eyJ1aWQiOiJmaXh0dXJlLWlkIiwicmVxdWVzdElkIjoiZml4dHVyZS1pZCIsInR5cGUiOjUsIm9wdHMiOnsicm9vbXMiOlsicm9vbS0xIl0sImV4Y2VwdCI6WyJibG9ja2VkIl19fQ==",
+          "value": {
+            "uid": "fixture-id",
+            "requestId": "fixture-id",
+            "type": 5,
+            "opts": {
+              "rooms": [
+                "room-1"
+              ],
+              "except": [
+                "blocked"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "sockets-response",
+      "publications": [
+        {
+          "channel": "socket.io-response#/chat#",
+          "encoding": "json",
+          "wireBase64": "eyJyZXF1ZXN0SWQiOiJyZXEiLCJzb2NrZXRzIjpbInNvY2tldC0xIl19",
+          "value": {
+            "requestId": "req",
+            "sockets": [
+              "socket-1"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "all-rooms-response",
+      "publications": [
+        {
+          "channel": "socket.io-response#/chat#",
+          "encoding": "json",
+          "wireBase64": "eyJyZXF1ZXN0SWQiOiJyZXEiLCJyb29tcyI6WyJzb2NrZXQtMSIsInJvb20tMSJdfQ==",
+          "value": {
+            "requestId": "req",
+            "rooms": [
+              "socket-1",
+              "room-1"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "fetch-sockets-response",
+      "publications": [
+        {
+          "channel": "socket.io-response#/chat#",
+          "encoding": "json",
+          "wireBase64": "eyJyZXF1ZXN0SWQiOiJyZXEiLCJzb2NrZXRzIjpbeyJpZCI6InNvY2tldC0xIiwiaGFuZHNoYWtlIjp7ImhlYWRlcnMiOnsieC1leGFtcGxlIjoiZml4dHVyZSJ9LCJhdXRoIjp7InJvbGUiOiJyZWFkZXIifX0sInJvb21zIjpbInNvY2tldC0xIiwicm9vbS0xIl0sImRhdGEiOnsibmlja25hbWUiOiJhbGljZSJ9fV19",
+          "value": {
+            "requestId": "req",
+            "sockets": [
+              {
+                "id": "socket-1",
+                "handshake": {
+                  "headers": {
+                    "x-example": "fixture"
+                  },
+                  "auth": {
+                    "role": "reader"
+                  }
+                },
+                "rooms": [
+                  "socket-1",
+                  "room-1"
+                ],
+                "data": {
+                  "nickname": "alice"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "specific-fetch-response",
+      "publications": [
+        {
+          "channel": "socket.io-response#/chat#peer#",
+          "encoding": "json",
+          "wireBase64": "eyJyZXF1ZXN0SWQiOiJyZXEiLCJzb2NrZXRzIjpbeyJpZCI6InNvY2tldC0xIiwiaGFuZHNoYWtlIjp7ImhlYWRlcnMiOnsieC1leGFtcGxlIjoiZml4dHVyZSJ9LCJhdXRoIjp7InJvbGUiOiJyZWFkZXIifX0sInJvb21zIjpbInNvY2tldC0xIiwicm9vbS0xIl0sImRhdGEiOnsibmlja25hbWUiOiJhbGljZSJ9fV19",
+          "value": {
+            "requestId": "req",
+            "sockets": [
+              {
+                "id": "socket-1",
+                "handshake": {
+                  "headers": {
+                    "x-example": "fixture"
+                  },
+                  "auth": {
+                    "role": "reader"
+                  }
+                },
+                "rooms": [
+                  "socket-1",
+                  "room-1"
+                ],
+                "data": {
+                  "nickname": "alice"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "server-emit-response",
+      "publications": [
+        {
+          "channel": "socket.io-response#/chat#",
+          "encoding": "json",
+          "wireBase64": "eyJ0eXBlIjo2LCJyZXF1ZXN0SWQiOiJyZXEiLCJkYXRhIjp7ImFjY2VwdGVkIjp0cnVlfX0=",
+          "value": {
+            "type": 6,
+            "requestId": "req",
+            "data": {
+              "accepted": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "broadcast-ack-responses",
+      "publications": [
+        {
+          "channel": "socket.io-response#/chat#peer#",
+          "encoding": "json",
+          "wireBase64": "eyJ0eXBlIjo4LCJyZXF1ZXN0SWQiOiJyZXEiLCJjbGllbnRDb3VudCI6MX0=",
+          "value": {
+            "type": 8,
+            "requestId": "req",
+            "clientCount": 1
+          }
+        },
+        {
+          "channel": "socket.io-response#/chat#peer#",
+          "encoding": "msgpack",
+          "wireBase64": "g6R0eXBlCalyZXF1ZXN0SWSjcmVxpnBhY2tldMQCAP8=",
+          "value": {
+            "type": 9,
+            "requestId": "req",
+            "packet": {
+              "$binary": "AP8="
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

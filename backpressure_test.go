@@ -282,8 +282,11 @@ func flood(c Conn, n int) {
 	}
 }
 
-// Covers 1B-T1 (S), with the in-memory broadcast.
-// Covers 1I-T1 (S), the same with the Redis broadcast.
+// TestBackpressureStalledMemberDoesNotBlockRoom runs 1B-T1 with the in-memory
+// broadcast and, as 1I-T1, with the Redis broadcast.
+//
+// Covers 1B-T1 (S).
+// Covers 1I-T1 (S).
 func TestBackpressureStalledMemberDoesNotBlockRoom(t *testing.T) {
 	for _, adapter := range []string{"memory", "redis"} {
 		t.Run(adapter, func(t *testing.T) {

@@ -388,11 +388,17 @@ Tasks:
     caller. At the socket.io and parser layers every failure returned by engine.io
     `NextReader` or by the frame reader it returns, and every failure returned by
     `NextWriter` or by the frame writer it returns (`Close` included), is expected
-    closure. Only a parser decode error that is not a failure returned by the frame
-    reader, and a marshal error in `Encode`, are other errors; socket.io tells them
-    apart by wrapping, unexported, the frame reader and writer it gives the decoder
-    and encoder. At the engine.io session layer, a failure of the session's own frame
-    reader or writer that the session reports as a close reason logs at most DEBUG.
+    closure. Of the errors returned by the decoder and encoder, only a parser decode
+    error that is not a failure returned by the frame reader, and a marshal error in
+    `Encode`, are other errors; socket.io tells them apart by wrapping, unexported,
+    the frame reader and writer it gives the decoder and encoder. An `io.EOF` that
+    the frame reader returns before the parser has finished a packet (an empty or
+    truncated packet) is a parser decode error, not expected closure; the `io.EOF` in
+    the expected-closure list is one returned by `NextReader`. At the engine.io
+    session layer, a failure of the session's own frame reader or writer that the
+    session reports as a close reason logs at most DEBUG, and so do the websocket
+    wrapper's "frame not closed" reminders. Other records of a failure that is logged
+    as `request rejected` log at most DEBUG.
     Failures on an upgrade probe connection after its transport `Accept` succeeded log
     at most DEBUG: the session keeps its old transport. The polling POST log calls (unsupported
     content type, `FeedIn`, writing the answer) log at most DEBUG: the client gets the
@@ -425,10 +431,13 @@ Tasks:
     closes; a session that never logged open logs no close. The session logs its own
     open at the end of a successful `InitSession`. It classifies failures returned by
     `NextReader` and `NextWriter` and by the frame reader and writer they return, so
-    it wraps those; `io.EOF` at the end of a frame is not a failure.
+    it wraps those; `io.EOF` at the end of a frame is not a failure. Failures of the
+    frames the session reads or writes itself (ping and pong, CLOSE, unknown
+    packets) and of setting its deadlines are candidate first causes too
+    (`transport error` unless the deadline had passed).
     `engineio.Server.Close` passes `server shutting down` to the session without new
-    exported API in `engineio/session` (an unexported hook in an `engineio/internal`
-    package). `reason` is the first cause the session
+    exported API in `engineio/session` (a hook in an `engineio/internal` package, not
+    importable outside the module). `reason` is the first cause the session
     observed: `transport close` (CLOSE packet from the client), `ping timeout` (a read
     or write failed after the deadline set from `PingTimeout` had passed),
     `transport error` (any other transport read or write failure, including EOF and a
@@ -444,12 +453,17 @@ Tasks:
     1.B connect-failure path. For another namespace the record carries `err` only when
     `OnConnect` fails or the namespace's broadcast failed (1I); an overflow during its
     `OnConnect` is logged by the `OnError` or unhandled-error rule. A CONNECT to a
-    namespace without handlers gets no record. *disconnect:* one per connected
+    namespace without handlers gets no record, and neither does a CONNECT dropped
+    because a close has started. *disconnect:* one per connected
     namespace when its disconnect runs (1.B: exactly once per connected namespace),
     whether or not an `OnDisconnect` handler is registered; `reason` is `namespace disconnect` for a peer DISCONNECT of that namespace
     and `connection close` otherwise; text sent by the peer is never logged.
-  - *Tests (1.L):* side P = polling, W = websocket, S = `socketio.Server`. Gate record
-    as in 1.B.
+  - *Tests (1.L):* side P = polling, W = websocket, S = `socketio.Server`; a P or W case
+    that names socket.io behaviour runs on `socketio.Server` over that transport, the
+    others on `engineio.Server`. Gate record as in 1.B. Cases 1L-T8, 1L-T9 and 1L-T13
+    capture both the instance logger and `slog.Default` (not in parallel, restored in
+    `Cleanup`), and their counts cover both. The upgrade-probe, session-layer and
+    reminder DEBUG limits are checked by review only.
     1. 1L-T1 (P, W): a CLOSE packet from the client gives `transport close`.
     2. 1L-T2 (W): the peer closing the websocket gives `transport error` with `err`.
     3. 1L-T3 (P, W): no client traffic with `PingTimeout` 100 ms gives `ping timeout`.
@@ -473,7 +487,8 @@ Tasks:
        namespace logs exactly one such WARN with that `nsp`; a frame writer that fails
        on `Write` or `Close` (fake `engineio.Conn`) without `OnError` logs no WARN; a
        frame with an invalid packet type without root `OnError` logs exactly one such
-       WARN.
+       WARN; an empty message frame and an EVENT `2` with no data, each without root
+       `OnError`, log exactly one such WARN.
     9. 1L-T9 (S): each `request rejected` reason is logged once by its trigger,
        `unknown sid` at DEBUG and the others at WARN; `init` is triggered through a
        fault-injecting transport in `engineio.Options.Transports`, and that session
@@ -485,7 +500,10 @@ Tasks:
         and `connection close` when the connection closes, also for a connected
        namespace without an `OnDisconnect` handler; in the 1B-T17 case the root record's
        `err` matches `ErrWriteBufferFull`, and in the 1B-T18 case `errors.Is` holds for
-       both errors.
+       both errors; an overflow during a non-root `OnConnect` leaves that namespace's
+       record without `err` and logs one `socketio: unhandled error` WARN; with a 1I
+       failed broadcast, the root and the non-root record carry the construction
+       error.
     11. 1L-T11 (S): `TestNoBadKeyAttrs` installs a checking handler as the server's
         `Options.Logger` and with `slog.SetDefault` (the scenario's Go client has no
         `Options.Logger`), sets `logger.Level` to `LevelTrace` and runs the
@@ -501,8 +519,11 @@ Tasks:
         `nsp=/nope` for a CONNECT to a namespace without handlers, through the
         instance logger only.
     13. 1L-T13 (P, W): a ping timeout (`PingTimeout` 100 ms, no client traffic after
-        the handshake) without root `OnError` logs no WARN; on polling it reaches
-        socket.io as a write failure on the 1.B connect-failure path.
+        the handshake) without root `OnError` logs no WARN, and the session close
+        reason is `ping timeout`. On P it reaches socket.io as a write failure on the
+        1.B connect-failure path: root `OnConnect` is not called, the root
+        `namespace connect` record carries `err`, and root gets a `disconnect` with
+        `connection close`.
   - *Docs:* the package `logger` godoc documents the variable, the levels, the
     message pattern and the keys. `CHANGELOG.md` entries cover the deprecation, the
     key renames, the level changes (ERROR and INFO to DEBUG and WARN) and the records.
@@ -539,7 +560,8 @@ stderr contains the message `logger: invalid level ignored` and `value=bogus`),
 `make lint` passes with the `Deprecated:` notices in place. Links: every badge in
 `README.md` shows the fork's status; `engineio/README.md` has no install or example
 code, links to `README.md`, `docs/PROTOCOL.md` and its godoc, and `CLAUDE.md` has its
-row; `logger/README.md` does not exist. Each of the first four commands below exits 1
+row; `logger/README.md` does not exist; `CONTRIBUTING.md` has the `v1.5.0` link-switch
+release step. Each of the first four commands below exits 1
 with no output, and the last pipeline prints nothing:
 
 ```sh
@@ -744,7 +766,7 @@ porting; existing branch Go race tests passed during this roadmap review.
   The polling GET 500 and invalid-method 400 answers, unlogged in v1, log
   `engineio: request rejected` with reasons `flush` and `bad method`; `flush` logs
   DEBUG when the session or its payload has already closed or failed, WARN otherwise.
-  2.4 owns the full v2 `reason` list.
+  `docs/OBSERVABILITY.md` (2.4) owns the full v2 `reason` list.
 - `engineio/transport/websocket` rewritten on `gobwas/ws`: `ws.UpgradeHTTP` hijacks the
   connection (HTTP/1.1 only); frames read with `wsutil.Reader` and written with
   `wsutil.Writer` so the `FrameReader`/`FrameWriter` contract is preserved; control
@@ -1042,9 +1064,8 @@ records 1.L left out of v1, with these keys:
 In v2, `socketio: handler error` (WARN) replaces v1's `socketio: unhandled error` for
 handler errors. Every other v1 trigger (decode errors, a marshal error, a CONNECT to an
 unknown namespace, an overflow) keeps `socketio: unhandled error`. v2 has no
-`OnError`: both records log WARN, unless the API frozen in 2.0 adds an error handler, in
-which case a registered handler lowers them to at most DEBUG. `docs/OBSERVABILITY.md`
-owns the full v2 `request rejected` reason list.
+`OnError`; a registered error hook (2.3) takes its place: with one, both records log at
+most DEBUG, without one they log WARN.
 On top of these it adds `rtt` on pong, `rooms`, `except` and `local` on broadcast, and
 `socketio: adapter publish` / `socketio: adapter receive` start/end lines at `TRACE`.
 Broadcast `recipients` means successful local enqueues; also log `published`.
@@ -1117,7 +1138,7 @@ before creating metric attributes; raw names may remain in logs/spans. Session
 duration uses final transport; it does not represent duration per transport.
 
 **Documentation.** `docs/OBSERVABILITY.md` owns `SOCKETIO_LOG_LEVEL`, the levels, the
-log keys, the hook contract (goroutine, non-blocking, no `Emit`, no panic recovery),
+log keys, the full `request rejected` reason list, the hook contract (goroutine, non-blocking, no `Emit`, no panic recovery),
 the cardinality rule and the span and instrument catalogue. `CLAUDE.md` gets the
 ownership row and the `contrib/otel/` layout row; `README.md` gets one line linking
 to it. `TestObservabilityDocLists` (root) reflects over both `Hooks` structs and

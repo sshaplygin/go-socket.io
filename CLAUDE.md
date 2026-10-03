@@ -36,9 +36,24 @@ Requires Go 1.22+, golangci-lint v2 and govulncheck (`go install
 golang.org/x/vuln/cmd/govulncheck@latest`). Tests need no external services.
 
 CI (`.github/workflows/ci.yaml`) has three jobs: `lint` (tidy diff, mod verify, gofmt,
-vet, golangci-lint, govulncheck on ubuntu), `test` (race tests and benchmarks on
+vet, golangci-lint, govulncheck on ubuntu), `test` (race tests on
 ubuntu, macos and windows with `stable` and `oldstable` Go) and `examples`
 (`make examples`). Dependabot groups Go minor/patch and Actions updates weekly.
+
+Benchmarks (`.github/workflows/benchmarks.yml`) compare the PR base and head on
+one Ubuntu runner with the same stable Go toolchain. Each benchmark runs ten times;
+pinned `benchstat` reports timing and allocation deltas in the job summary, a
+14-day artifact and one updated PR comment (same-repository PRs except Dependabot).
+Forks and Dependabot retain the summary and artifact. Performance deltas are
+advisory; build and benchmark failures fail the check.
+
+A small detection job runs on every PR update. It compares the previous head on
+pushes, or the merge base on opening/reopening a PR (also the fallback if the
+previous head is unavailable). Ordinary Go comments and formatting, documentation,
+and `_examples/` changes skip the benchmark job. Go tokens, compiler/build/line
+directives, cgo comments, dependencies, native sources, test fixtures and benchmark
+automation changes trigger it. Cgo comments are retained conservatively because
+they can contain C code. Validate the detector with `go test ./.github/benchmarks`.
 
 ## Conventions
 

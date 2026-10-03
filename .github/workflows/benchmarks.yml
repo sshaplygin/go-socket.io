@@ -1,0 +1,152 @@
+name: Benchmarks
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmarks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  changes:
+    name: Detect benchmark-relevant changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.changes.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Test change detection
+        run: go test ./.github/benchmarks
+      - name: Detect code changes
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          change_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+          if [[ -n "$BEFORE_SHA" ]]; then
+            if git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null || git fetch origin "$BEFORE_SHA"; then
+              change_base=$BEFORE_SHA
+            fi
+          fi
+          go run ./.github/benchmarks "$change_base" "$HEAD_SHA" | tee -a "$GITHUB_OUTPUT"
+      - name: Explain skipped benchmarks
+        if: steps.changes.outputs.changed == 'false'
+        run: echo 'Benchmarks skipped because this update contains no benchmark-relevant code changes.' >> "$GITHUB_STEP_SUMMARY"
+
+  compare:
+    name: Go benchmarks, base vs PR
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - name: Check out base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - name: Check out PR
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache-dependency-path: |
+            base/go.sum
+            pr/go.sum
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@v0.0.0-20251023143056-3684bd442cc8
+      - name: Benchmark base
+        working-directory: base
+        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... | tee ../base.txt
+      - name: Benchmark PR
+        working-directory: pr
+        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... | tee ../pr.txt
+      - name: Render comparison
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          grep -Eq '^Benchmark[^[:space:]]*[[:space:]]+[0-9]+[[:space:]]' base.txt
+          grep -Eq '^Benchmark[^[:space:]]*[[:space:]]+[0-9]+[[:space:]]' pr.txt
+          benchstat base.txt pr.txt > comparison.txt
+          {
+            echo '<!-- go-socket.io:benchmark-comparison -->'
+            echo '## Go benchmarks: base vs PR'
+            echo
+            printf 'Base `%s` → PR `%s`\n\n' "$BASE_SHA" "$HEAD_SHA"
+            echo 'Both revisions ran on the same runner and Go toolchain, with 10 samples each.'
+            echo 'Results are advisory: runner noise can affect timings; performance deltas do not fail CI.'
+            echo
+            echo '```text'
+            cat comparison.txt
+            echo '```'
+          } > benchmark-report.md
+          cat benchmark-report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-benchmarks
+          path: |
+            base.txt
+            pr.txt
+            comparison.txt
+            benchmark-report.md
+          retention-days: 14
+
+  report:
+    name: Publish benchmark comparison
+    needs: compare
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: go-benchmarks
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('benchmark-report.md', 'utf8');
+            const marker = '<!-- go-socket.io:benchmark-comparison -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number,
+            });
+            const existing = comments.find(comment =>
+              comment.user.login === 'github-actions[bot]' && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

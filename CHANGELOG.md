@@ -38,6 +38,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- CI: compare PR benchmarks against the base with `benchstat`, preserving reports
+  and raw measurements; skip ordinary comment-only and documentation changes and
+  remove the unconditional benchmark runs from the test matrix.
 - `session.New` takes a trailing `*slog.Logger` parameter (nil accepted).
 - `logger.Error` accepts a nil error instead of panicking.
 - Connection-level errors that were printed with `log.Println` are now `slog` Error

@@ -29,7 +29,7 @@ Stage 2.1 owns its reuse and remaining integration work below.
 | Go | Go 1.22 minimum for runtime modules; compatible dependencies pinned and minimum tested; build tools may use stable Go | Stage 1 DoD, 2.5 |
 | Transport | `gobwas/ws` + `wsutil` on server and client; standard `http.Handler` integration | 2.1 |
 | Brokers | Redis `go-redis/v9`, Node non-sharded adapter wire compatibility; NATS core pub/sub, no JetStream | 4b |
-| Logging | Application `slog.Handler` through an injected logger; instance routing, process-wide level override | 2.4 |
+| Logging | Application `slog.Handler` through an injected logger; instance routing, process-wide level override | 1.L (v1 records), 2.4 |
 | Observability | Nil-able hooks and logging in root; OTel bridge in `contrib/otel`; no OTel dependency in root | 2.4 |
 | Admin UI | Required final product stage, separate `contrib/admin`, unchanged official UI; commands disabled by default | 5 |
 | Benchmarks | Final comparative campaign after all product features: our v2, existing Go and official JS/TS implementations | 6 |
@@ -49,7 +49,7 @@ workers submit changes to these files through that integrator.
 | --- | --- | --- | --- |
 | 1A | landed infrastructure | 1.R Redis internals (`redis_broadcast.go`); 1.B queue and close internals (`connection.go`, `broadcast.go`, `errors.go`, the socket.io goroutines and close paths in `server.go` (`serveConn`, `serveRead`, `serveWrite`, `serveError`) and `client.go` (`Connect`, `Close`, `clientRead`, `clientWrite`, `clientError`), and the disconnect handlers in `connection_handlers.go`); 1.S session/server fixes (`engineio/session`, `engineio/server.go`, `server.go`; landed) | component regression tests pass |
 | 1I | 1A | integrator wires Redis construction errors through `namespace_handler.go` and `server.go`; wires `WriteBufferSize` and the drain deadline (`PingTimeout`) through `engineio/server_options.go`, `server.go` and `client.go`; runs the 1.B slow-client test against the Redis broadcast; also edits `connection.go` (connect-failure path, option wiring in `newConn`, `Conn.Close` godoc), the connect-failure path in `connection_handlers.go`, `namespace_handlers.go`, the session hand-off in `engineio/server.go`, `namespace_conn.go` (godoc only) and `CHANGELOG.md`; contract in the 1I item | integrated bug tests (the 1I item's tests) and root build pass |
-| 1B | 1I | 1.L logging call sites across layers; 1.D docs/links in Markdown | M1 checks and v1 compatibility |
+| 1B | 1I | 1.L log call sites in Go files (no Markdown except `CHANGELOG.md`); 1.D `README.md`, `engineio/README.md`, `logger/README.md`, `CLAUDE.md`, `CONTRIBUTING.md`; each writes its own `CHANGELOG.md` entries | M1 checks and v1 compatibility |
 | 1b | M1, branch `v1` cut | one refactor owner; moves/merges applied sequentially | M1b regression checks |
 | 2A | M1b | 2.0 owner removes legacy root runtime/adapter consumers atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
@@ -83,7 +83,7 @@ release history and implementation commands stay in their respective files.
 No protocol changes. Allowed API changes are `engineio.Options.Logger`,
 `engineio.Options.WriteBufferSize` (temporary v1 placement), `socketio.ErrWriteBufferFull`,
 the logger exports
-listed in the changelog, and the already-landed session logger parameter. That
+listed in the changelog, `Deprecated:` notices on `logger.Error` and `logger.Info`, and the already-landed session logger parameter. That
 session constructor signature change must be called out in v1 migration notes;
 root `NewServer` and handler signatures stay unchanged. `gorilla/websocket` stays in v1; the
 transport swap happens in stage 2 where the transport is rewritten.
@@ -357,57 +357,128 @@ Tasks:
 - **1.S Runtime fixes (landed; its lifecycle tests stay a stage gate):** synchronous session registration before a second request can
   use its SID; `Manager.Count` uses `RLock`; correct EOF result from `Server.Serve`.
   Cover session lifecycle and root connect/event/ack/namespace/room/disconnect paths.
-- **1.L Logging:** replace remaining `fmt.Printf`/`log.Print` library calls, normalize
-  constant messages and `err`/`nsp` attributes, deprecate nil-safe `logger.Error/Info`.
-  Expected closure is DEBUG; swallowed failures are WARN. Emit the boundary records
-  below; one session-close record includes reason/duration. Existing logger level,
-  fallback and wrapping behaviour is specified once in 2.4. Lower layers using the
-  global fallback remain a v1 limitation. TRACE may include up to 256 payload bytes
-  in v1; DEBUG never includes payloads.
-- **1.D Docs:** reduce `engineio/README.md` to purpose and root/protocol links, register
-  it in the ownership map, remove `godoc.org` links, point CI badges at this fork.
-  Keep API links on the fork's v1 module until 2.5.
+- **1.L Logging (minimal v1).** Library code logs only through `slog`, by the rules
+  below. The other records of the original plan move to 2.4 (*Logging and overhead*).
+  - *Calls:* the remaining `fmt.Printf` is replaced. Every `logger.Error` and
+    `logger.Info` call site moves to a `*slog.Logger` call: the instance logger where
+    one is reachable, `logger.Log` otherwise. Both functions get `Deprecated:` notices
+    naming `logger.Log` and `engineio.Options.Logger`; `make lint` (staticcheck SA1019)
+    shows that no library code calls them, with no `//nolint` for SA1019.
+  - *Messages and keys:* every library record's message is a constant matching
+    `^(engineio|socketio|logger): [a-z][a-z0-9 ]*$`: `engineio` for `engineio/...`,
+    `socketio` for the root package, `parser` and the Redis broadcast, `logger` for
+    package `logger`. Attribute keys come only from `sid`, `nsp`, `err`, `transport`,
+    `remote_addr`, `reason`, `duration`, `event`, `ack_id`, `type` and `value`; the root
+    namespace is logged as `/`. The `SOCKETIO_LOG_LEVEL` warning becomes
+    `logger: invalid level ignored` with `value`. No record carries packet payloads.
+  - *Levels:* the library logs no ERROR or INFO records. Expected closure (`io.EOF`, a
+    closed connection, a peer close, a ping timeout, and any failure after a close of
+    that session or connection has started) logs at most DEBUG and never
+    `socketio: unhandled error`. An error delivered to a registered `OnError` logs at
+    most DEBUG. Any other error whose namespace has no `OnError` logs exactly one
+    `socketio: unhandled error` WARN with `sid`, `nsp` and `err`; a CONNECT to a
+    namespace without handlers is such an error. Any other failure that no caller
+    receives logs WARN.
+  - *Boundary records:* engine.io rows come from sessions of `engineio.Server`,
+    socket.io rows from `socketio.Server` connections. `Client` and the engine.io
+    client emit none of them in v1. The keys are a contract reused by 2.4.
 
-Boundary lines. The keys are a contract reused by stage 2.4.
+    | Message | Level | Keys |
+    | --- | --- | --- |
+    | `engineio: request rejected` | WARN; DEBUG for `unknown sid` | `transport`, `remote_addr`, `reason`, `err` |
+    | `engineio: session open` | DEBUG | `sid`, `transport`, `remote_addr` |
+    | `engineio: session close` | DEBUG | `sid`, `transport`, `reason`, `duration`, `err` |
+    | `socketio: namespace connect` | DEBUG | `sid`, `nsp`, `err` |
+    | `socketio: disconnect` | DEBUG | `sid`, `nsp`, `reason` |
 
-| Layer | Message | Level | Keys |
-| --- | --- | --- | --- |
-| engineio | `engineio: request rejected` | WARN | `transport`, `remote_addr`, `reason`, `err` |
-| engineio | `engineio: session open` | DEBUG | `sid`, `transport`, `remote_addr` |
-| engineio | `engineio: session close` | DEBUG | `sid`, `transport`, `reason`, `duration`, `err` |
-| engineio | `engineio: upgrade start`, `engineio: upgrade end` | DEBUG | `sid`, `from`, `to`, `err` |
-| engineio | `engineio: packet` | TRACE | `sid`, `dir` (`in`, `out`), `pkt_type`, `frame`, `bytes`, `payload` |
-| engineio | `engineio: ping`, `engineio: pong` | TRACE | `sid` |
-| socketio | `socketio: connection accepted` | DEBUG | `sid`, `remote_addr` |
-| socketio | `socketio: namespace connect` | DEBUG | `sid`, `nsp`, `err` |
-| socketio | `socketio: namespace missing` | WARN | `sid`, `nsp` |
-| socketio | `socketio: disconnect` | DEBUG | `sid`, `nsp`, `reason` |
-| socketio | `socketio: event` | TRACE | `sid`, `nsp`, `event`, `ack_id`, `handler_found`, `duration`, `err` |
-| socketio | `socketio: ack` | TRACE | `sid`, `nsp`, `ack_id`, `dir` |
-| socketio | `socketio: emit` | TRACE | `sid`, `nsp`, `event`, `ack_id` |
-| socketio | `socketio: broadcast` | TRACE | `nsp`, `room`, `event`, `recipients` |
-| socketio | `socketio: handler error` | WARN | `sid`, `nsp`, `event`, `err` |
-| socketio | `socketio: unhandled error` (no `OnError`) | WARN | `sid`, `nsp`, `err` |
-| redis | `redis: publish failed`, `redis: bad message`, `redis: subscriber stopped` | WARN | `nsp`, `channel`, `err` |
+    `err` is omitted when there is no error. *request rejected:* one record per
+    request `ServeHTTP` rejects. `reason` is `bad transport` (unknown transport),
+    `checker` (`RequestChecker` error), `unknown sid` (sid not found), `accept`
+    (transport `Accept` failed, on upgrade too, including a websocket handshake
+    error), `init` (session creation or `InitSession` failed) or `bad upgrade`
+    (upgrade to an earlier transport). *session open:* once, after `InitSession`
+    succeeded. *session close:* exactly once per session that logged open, when it
+    closes; a session that never logged open logs no close. `reason` is the first
+    cause the session observed: `transport close` (CLOSE packet from the client),
+    `ping timeout` (a read failed after the read deadline set from `PingTimeout` had
+    passed), `transport error` (any other transport read or write failure, including
+    EOF and a peer close; `err` carries it), `forced close` (`Close` called on the
+    session by the application or by socket.io) or `server shutting down`
+    (`engineio.Server.Close` closed a session never accepted, 1I). `duration` runs
+    from session open, as `slog.Duration`. *namespace connect:* one per namespace
+    CONNECT handled for a `socketio.Server` connection, root included, after
+    `OnConnect` returned or the connect failed. *disconnect:* one per `OnDisconnect`
+    call; `reason` is `namespace disconnect` for a peer DISCONNECT of that namespace
+    and `connection close` otherwise; text sent by the peer is never logged.
+  - *Tests (1.L):* side P = polling, W = websocket, S = `socketio.Server`. Gate record
+    as in 1.B.
+    1. 1L-T1 (P, W): a CLOSE packet from the client gives `transport close`.
+    2. 1L-T2 (W): the peer closing the websocket gives `transport error` with `err`.
+    3. 1L-T3 (P, W): no client traffic with `PingTimeout` 100 ms gives `ping timeout`.
+    4. 1L-T4 (P, W): `Close` by the application gives `forced close`.
+    5. 1L-T5 (P): `engineio.Server.Close` with a session never accepted gives
+       `server shutting down`.
+    6. 1L-T6 (P, W): a CLOSE packet followed by `Close` gives one record,
+       `transport close`.
+    7. 1L-T7 (P, W): every session-close record has `duration` > 0 and no `err`
+       except for `transport error`; a failed handshake logs no open and no close.
+    8. 1L-T8 (S): a peer close with no root `OnError` logs no WARN; an event handler
+       error with `OnError` registered logs nothing above DEBUG; the same without
+       `OnError` logs exactly one `socketio: unhandled error` WARN; a CONNECT to a
+       namespace without handlers logs one such WARN.
+    9. 1L-T9 (S): each `request rejected` reason is logged once by its trigger,
+       `unknown sid` at DEBUG and the others at WARN.
+    10. 1L-T10 (S): for `/` and `/chat`, `namespace connect` without `err` on success
+        and with `err` when `OnConnect` fails; `disconnect` with `namespace
+        disconnect` for a peer DISCONNECT that carries text (the text is not logged)
+        and `connection close` when the connection closes.
+    11. 1L-T11 (S): `TestNoBadKeyAttrs` installs a checking handler as the server's
+        `Options.Logger` and with `slog.SetDefault` (the scenario's Go client has no
+        `Options.Logger`), sets `logger.Level` to `LevelTrace` and runs the
+        `TestLifecycleRootNamespace` scenario. It fails on a message outside the
+        pattern, a key outside the list or a `!BADKEY` attribute, and asserts one
+        `sid` on the server's session open, root namespace connect and disconnect.
+    12. 1L-T12 (S): `TestServerLoggerOption` asserts `socketio: unhandled error` with
+        `nsp=/nope` for a CONNECT to a namespace without handlers, through the
+        instance logger only.
+  - *Docs:* the package `logger` godoc documents the variable, the levels, the
+    message pattern and the keys. `CHANGELOG.md` entries cover the deprecation, the
+    key renames, the level changes (ERROR and INFO to DEBUG and WARN) and the records.
+    1.L edits no Markdown file other than `CHANGELOG.md`.
+- **1.D Docs.** Files: `README.md`, `engineio/README.md`, `logger/README.md`,
+  `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`.
+  - `engineio/README.md` keeps a title, one paragraph saying what the package is,
+    and links to `README.md`, `docs/PROTOCOL.md` and its godoc; no install, examples
+    or API usage. Its `CLAUDE.md` map row: owns "what the engineio package is; links
+    to README.md, docs/PROTOCOL.md and its godoc"; must not contain "install,
+    examples, API usage".
+  - `logger/README.md` is deleted: it tells users to assign `logger.Log`, which
+    bypasses `logger.Wrap`, and the package godoc owns its subject (1.L).
+  - Link form: until `v1.5.0` is tagged, pkg.go.dev links and `go get` commands use
+    `@master`; the fork's `v1.4.x` tags carry the upstream module path, so unversioned
+    links would show them. `CONTRIBUTING.md` gets a release step: the `v1.5.0`
+    release commit switches the pkg.go.dev links in `README.md`,
+    `engineio/README.md` and the released `CHANGELOG.md` section to `@v1.5.0`, and
+    the README install command to `@v1.5.0`.
+  - Already satisfied at `9716ec0` and guarded by the DoD: no `godoc.org` links;
+    the README badges point at this fork.
 
 DoD: `make lint test-race` green on ubuntu/macos/windows for `stable` and `oldstable`;
 an additional Ubuntu job builds/tests the root on Go 1.22 with automatic toolchain
 upgrades disabled. From v2 this job covers every shipped runtime module;
 `govulncheck` clean; two-instance Redis test under `-race` passes; every (case, side)
-pair of the 1.B and 1I test lists is named by a passing test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
+pair of the 1.B, 1I and 1.L test lists is named by a passing test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
 package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses.
-Logging gate: `TestServerLoggerOption`, `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv`,
-`TestWrapOverridesHandlerLevel`, `TestTraceDisabledNoAlloc` and
-`TestSessionCloseReason` pass; `TestNoBadKeyAttrs` runs the root scenario from 1.S
-at `trace` through a handler that fails on any `!BADKEY` attribute or non-constant
-message, and asserts the same `sid` on session open, namespace connect, event and
-disconnect; the godoc of package `logger` documents the variable, the levels and the
-keys. Links: every badge in `README.md` shows the fork's status. Both greps below print
-nothing:
+Logging gate: `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv`,
+`TestWrapOverridesHandlerLevel` and `TestTraceDisabledNoAlloc` pass; the package
+`logger` godoc documents the variable, the levels, the message pattern and the keys;
+`make lint` passes with the `Deprecated:` notices in place. Links: every badge in
+`README.md` shows the fork's status; `engineio/README.md` has no install or example
+code and `CLAUDE.md` has its row. Both commands below print nothing:
 
 ```sh
-grep -rnE '\b(log|fmt)\.Print' --include='*.go' . | grep -v '_examples/\|_test.go\|\.github/'
-rg -n 'https?://godoc[.]org' -g '*.md' .
+git grep -nE '\b(log|fmt)\.Print' -- '*.go' ':!*_test.go' ':!_examples' ':!.github'
+git grep -nE 'https?://godoc[.]org' -- '*.md'
 ```
 
 Acceptance: `_examples/default-http` works unchanged against `socket.io-client` 2.x;
@@ -415,13 +486,12 @@ Acceptance: `_examples/default-http` works unchanged against `socket.io-client` 
 updating its imports to the fork's v1 module, without an upstream-path `replace`
 directive. Owner runs `SOCKETIO_LOG_LEVEL=debug go run .` in
 `_examples/default-http`, opens the browser page, sends one event and closes the tab:
-the log shows session open, namespace connect and a disconnect with one `sid`.
-A client-sent CLOSE produces `reason="transport close"`; abrupt tab termination may
-produce a transport error or ping timeout. With `trace`, the event, ping/pong and
-payload lines appear; unset, the application's handler controls the level;
-`SOCKETIO_LOG_LEVEL=bogus`
-prints one warning and behaves as unset. Every badge and link in `README.md` resolves
-on GitHub.
+with one `sid`, the log shows `engineio: session open`, `socketio: namespace connect`
+for `/` and `/chat`, `socketio: disconnect` for both and `engineio: session close`.
+Closing the tab gives `reason` `transport error` or `ping timeout`, because
+socket.io-client 1.x sends no CLOSE then; `transport close` is covered by 1L-T1.
+Unset, the application's handler controls the level; invalid values behave as 2.4
+specifies. Every badge and link in `README.md` resolves on GitHub.
 
 ## Stage 1b. Package layout (prerequisite to stage 2)
 
@@ -881,9 +951,24 @@ to each handler. Invalid environment values warn once and act as unset. TRACE is
 `slog.LevelDebug-4`, rendered by opt-in `logger.ReplaceAttr`. No logger backend
 dependency is added; injected broker-client internal logs remain application-owned.
 
-**Logging and overhead.** The inline stage 1 boundary records are removed where a
-hook now exists, and `LoggingHooks` emits the same messages and keys, plus `rtt` on
-pong, `bytes` on packet, `rooms`, `except` and `local` on broadcast, and
+**Logging and overhead.** The inline stage 1 boundary records (1.L) are removed where a
+hook now exists, and `LoggingHooks` emits the same messages and keys. It also emits the
+records 1.L left out of v1, with these keys:
+
+| Layer | Message | Level | Keys |
+| --- | --- | --- | --- |
+| engineio | `engineio: upgrade start`, `engineio: upgrade end` | DEBUG | `sid`, `from`, `to`, `err` |
+| engineio | `engineio: packet` | TRACE | `sid`, `dir` (`in`, `out`), `pkt_type`, `frame`, `bytes`, `payload` |
+| engineio | `engineio: ping`, `engineio: pong` | TRACE | `sid` |
+| socketio | `socketio: connection accepted` | DEBUG | `sid`, `remote_addr` |
+| socketio | `socketio: event` | TRACE | `sid`, `nsp`, `event`, `ack_id`, `handler_found`, `duration`, `err` |
+| socketio | `socketio: ack` | TRACE | `sid`, `nsp`, `ack_id`, `dir` |
+| socketio | `socketio: emit` | TRACE | `sid`, `nsp`, `event`, `ack_id` |
+| socketio | `socketio: broadcast` | TRACE | `nsp`, `room`, `event`, `recipients` |
+| socketio | `socketio: handler error` | WARN | `sid`, `nsp`, `event`, `err` |
+| redis | `redis: publish failed`, `redis: bad message`, `redis: subscriber stopped` | WARN | `nsp`, `channel`, `err` |
+
+On top of these it adds `rtt` on pong, `rooms`, `except` and `local` on broadcast, and
 `socketio: adapter publish` / `socketio: adapter receive` start/end lines at `TRACE`.
 Broadcast `recipients` means successful local enqueues; also log `published`.
 `TestHooksCoverEveryHookPoint` (root) reflects over both structs, runs one scenario
@@ -978,7 +1063,7 @@ instrument; `TestMetricAttributesBounded` fails on `sid`, `socket_id`, `ack_id`,
 `remote_addr` or an unregistered event in any metric attribute;
 `TestHandshakeParentsUnderMiddlewareSpan` puts a recording span in the request context
 and asserts the parent relation; `TestSlogHandlerAddsTraceID` passes.
-`TestNoBadKeyAttrs` from stage 1 still passes at `trace`.
+`TestNoBadKeyAttrs` from stage 1 is ported to the v2 scenario and passes at `trace`.
 Add `TestHandshakeEndsExactlyOnce`, `TestSessionGaugeAcrossUpgrade`,
 `TestMessageQueuedCountsOnce`, `TestAdapterSpanLifecycle` and
 `TestPreviewDisabledNoAlloc`; assert no negative or stranded active-session/pending-ack

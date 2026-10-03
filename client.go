@@ -7,10 +7,10 @@ import (
 	"path"
 	"strings"
 
-	"github.com/googollee/go-socket.io/engineio"
-	"github.com/googollee/go-socket.io/engineio/transport"
-	"github.com/googollee/go-socket.io/engineio/transport/polling"
-	"github.com/googollee/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
+	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 // ErrEmptyAddr is returned by NewClient when addr is empty.

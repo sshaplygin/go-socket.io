@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/googollee/go-socket.io/engineio"
-	"github.com/googollee/go-socket.io/engineio/session"
-	"github.com/googollee/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 // The outbound queue size (see ErrWriteBufferFull) and drain deadline (see Conn.Close).

@@ -134,6 +134,38 @@ func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 	})
 }
 
+// TestRedisServerCloseStopsBroadcasts checks that Server.Close stops the Redis connections of
+// every namespace and that a handler registered after Close builds no broadcast.
+//
+// Covers 1I-T10 (S).
+func TestRedisServerCloseStopsBroadcasts(t *testing.T) {
+	s := miniredis.RunT(t)
+	srv := NewServer(nil)
+	useRedis(t, srv, s.Addr())
+	srv.OnConnect("/one", func(Conn) error { return nil })
+	srv.OnConnect("/two", func(Conn) error { return nil })
+	s.Close()
+	srv.OnConnect("/three", func(Conn) error { return nil })
+	require.NoError(t, s.Restart())
+	require.Eventually(t, func() bool { return s.PubSubNumPat() == 2 }, 2*time.Second, 5*time.Millisecond)
+
+	require.NotPanics(t, func() { require.NoError(t, srv.Close()) })
+	require.Eventually(t, func() bool {
+		return s.CurrentConnectionCount() == 0 && s.PubSubNumPat() == 0 && len(s.PubSubChannels("")) == 0
+	}, time.Second, 5*time.Millisecond, "Redis connections or subscribers left after Close")
+
+	dials := s.TotalConnectionCount()
+	srv.OnConnect("/four", func(Conn) error { return nil })
+	require.Equal(t, dials, s.TotalConnectionCount(), "a handler registered after Close dialled Redis")
+	require.Equal(t, -1, srv.RoomLen("/four", "r"))
+	select {
+	case err := <-serveAsync(srv):
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Serve did not return after Close")
+	}
+}
+
 // delayedProxy forwards each connection it accepts to addr after a delay of d.
 func delayedProxy(t *testing.T, addr string, d time.Duration) string {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -161,7 +193,7 @@ func delayedProxy(t *testing.T, addr string, d time.Duration) string {
 }
 
 // TestRedisConcurrentRegistrationBuildsOneBroadcast checks that concurrent registrations on
-// one new namespace build one Redis broadcast.
+// one new namespace build one Redis broadcast, which Close stops.
 //
 // Covers 1I-T12 (S).
 func TestRedisConcurrentRegistrationBuildsOneBroadcast(t *testing.T) {
@@ -201,4 +233,7 @@ func TestRedisConcurrentRegistrationBuildsOneBroadcast(t *testing.T) {
 	wg.Wait()
 	require.Equal(t, want, settled(), "Redis connections of the registered namespace")
 	require.Len(t, srv.getNamespace("/x").events, 8)
+
+	require.NoError(t, srv.Close())
+	closed("Redis connections left after Close")
 }

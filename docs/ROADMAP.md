@@ -406,7 +406,7 @@ keys. Links: every badge in `README.md` shows the fork's status. Both greps belo
 nothing:
 
 ```sh
-grep -rnE '\b(log|fmt)\.Print' --include='*.go' . | grep -v '_examples/\|_test.go'
+grep -rnE '\b(log|fmt)\.Print' --include='*.go' . | grep -v '_examples/\|_test.go\|\.github/'
 rg -n 'https?://godoc[.]org' -g '*.md' .
 ```
 

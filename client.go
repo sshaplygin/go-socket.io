@@ -102,7 +102,8 @@ func (c *Client) Connect() error {
 	return nil
 }
 
-// Close closes server.
+// Close closes the connection as Conn.Close does. The drain deadline is the PingTimeout
+// of the Options passed to NewClient, not the server's value.
 func (c *Client) Close() error {
 	return c.conn.Close()
 }

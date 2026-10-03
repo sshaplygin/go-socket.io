@@ -44,14 +44,15 @@ type Conn interface {
 	// has an effect. Close runs OnDisconnect for every connected namespace, leaves its rooms and
 	// returns without waiting. The packets queued until then, Emits from OnDisconnect included, are
 	// written in the background; an Emit that finds the queue full, or comes later, is dropped without
-	// a report. Then, or one minute after Close started, the rest is discarded and the engine.io
-	// connection is closed; Server.Count counts the session until then. Incoming packets are no longer
-	// dispatched, and a read or write failure ends the drain at once. The library closes a connection
-	// on a read, decode, dispatch or encode error (an encode error used to leave it open), a peer
-	// close, a ping timeout, an overflow (see ErrWriteBufferFull) or a failed connect, discarding the
-	// queue at once. Other than an overflow, the error is reported to OnError before the close's
-	// effects run, so Emits from OnError still queue; a failed connect is reported to root OnError
-	// with a nil Conn. Failures during a close are not reported.
+	// a report. Then, or engineio.Options.PingTimeout (one minute if not positive) after Close
+	// started, the rest is discarded and the engine.io connection is closed; Server.Count counts the
+	// session until then. Incoming packets are no longer dispatched, and a read or write failure ends
+	// the drain at once. The library closes a connection on a read, decode, dispatch or encode error
+	// (an encode error used to leave it open), a peer close, a ping timeout, an overflow (see
+	// ErrWriteBufferFull) or a failed connect, discarding the queue at once. Other than an overflow,
+	// the error is reported to OnError before the close's effects run, so Emits from OnError still
+	// queue; a failed connect is reported to root OnError with a nil Conn. Failures during a close are
+	// not reported.
 	Close() error
 	Namespace
 

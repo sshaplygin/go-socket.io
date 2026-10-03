@@ -51,7 +51,15 @@ func loggerFrom(opts *engineio.Options) *slog.Logger {
 	return logger.Log
 }
 
-// Adapter sets redis broadcast adapter.
+// Adapter sets the Redis broadcast adapter for the namespaces registered after it. A
+// namespace builds its Redis broadcast when its first handler is registered. If that
+// fails, the namespace keeps a no-op broadcast and the error, which names the namespace
+// and wraps the Redis error; registering more handlers does not retry, and Serve returns
+// the first such error. The Server room methods of that namespace do nothing (RoomLen
+// returns -1, Rooms nil, the others false; ForEach does not call f). A connection to it
+// fails before OnConnect: for the root namespace the error goes to root OnError with a
+// nil Conn and nothing is written; for another namespace it goes to that namespace's
+// OnError, whose Conn has no rooms, and the connection closes as on a dispatch error.
 func (s *Server) Adapter(opts *RedisAdapterOptions) (bool, error) {
 	opts = getOptions(opts)
 	var redisOpts []redis.DialOption
@@ -72,7 +80,12 @@ func (s *Server) Adapter(opts *RedisAdapterOptions) (bool, error) {
 	return true, conn.Close()
 }
 
-// Close closes server.
+// Close closes the engine.io server, so Serve returns nil, and stops the Redis
+// connections of every namespace. It does not close the sessions already open, but their
+// broadcasts no longer reach other instances. Close waits for a handler registration
+// that is dialling Redis, up to the Redis dial timeout. With Adapter set, a namespace
+// registered after Close has no broadcast, as if its construction failed, but Serve does
+// not return that error.
 func (s *Server) Close() error {
 	s.closed.Store(true)
 	err := s.engine.Close()
@@ -139,7 +152,11 @@ func (s *Server) OnEvent(namespace, event string, f interface{}) {
 	h.OnEvent(event, f)
 }
 
-// Serve serves go-socket.io server.
+// Serve accepts and serves connections until Close is called, then returns nil. If a
+// namespace's Redis broadcast could not be created before Serve was called (see Adapter)
+// and Close has not been called, Serve returns that error at once without accepting a
+// connection. The engine.io server then still completes handshakes, which nobody serves,
+// until Close is called.
 func (s *Server) Serve() error {
 	if s.closed.Load() {
 		return nil

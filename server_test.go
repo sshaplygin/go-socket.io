@@ -100,6 +100,7 @@ func TestServerLoggerOption(t *testing.T) {
 
 	require.Eventually(t, func() bool { return custom.find("msg", "socketio: unhandled error")["nsp"] == "/nope" },
 		5*time.Second, 20*time.Millisecond, "custom logger did not receive the namespace error")
+	require.Equal(t, "WARN", custom.find("msg", "socketio: unhandled error")["level"])
 	require.False(t, fallback.hasAttr("nsp", "/nope"),
 		"error was also written to the package-level logger")
 }

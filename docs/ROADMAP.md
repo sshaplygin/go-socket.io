@@ -1,6 +1,6 @@
 # Roadmap
 
-Scope approved: 2026-09-28. Updated: 2026-10-03. Owner: Sam Shaplygin.
+Scope approved: 2026-09-28. Updated: 2026-10-07. Owner: Sam Shaplygin.
 
 This file owns scope, dependencies, implementation contracts and release gates.
 Current implementation: [PROTOCOL.md](PROTOCOL.md). Completed changes:
@@ -93,6 +93,31 @@ Tasks:
 - **1.R Redis:** protect `requests` and room access; time out peer queries; propagate
   adapter construction errors through the 1I integration step; reconnect subscriptions with backoff after receive
   failures. Each fix has a regression test, including two-server tests under `-race`.
+  - *Known limitations (`v1.5.0` ships them):* found while diagnosing the CI flake
+    that PR #18 fixed in the test only. Line numbers are `redis_broadcast.go` at
+    `b4dcb82`.
+    1. *Unconfirmed subscription:* `subscribe` (`:192-206`) sends PSUBSCRIBE and
+       SUBSCRIBE and returns without reading the confirmations, which `dispatch`
+       reads later (`:678`). `newRedisBroadcast` (`:117-187`), and with it the
+       handler registration that builds the broadcast, returns before Redis has
+       registered the instance. Until it has, broadcasts published by peers do not
+       reach the instance, peers' `Server.RoomLen` and `Server.Rooms` do not count
+       it, and its own can miss its local members too, because its own answer also
+       travels through Redis. Every resubscribe after a receive error (`:687`,
+       `:699-723`) opens the same window.
+    2. *Full wait for missing answers:* `Len` and `AllRooms` (`:315-348`,
+       `:212-241`) expect as many answers as PUBSUB NUMSUB reports for the request
+       channel (`AllRooms` uses 0 when NUMSUB fails, `:220`), and `onResponse`
+       signals only when the answer count equals it (`:533`, `:549`). When NUMSUB is
+       0, as in item 1, or an answer is missing, they wait the full
+       `redisRequestTimeout` (5 s) and return the answers received by then.
+
+    Stage 1 does not change them: reading the confirmations needs its own time bound
+    and changes when handler registration and `Server.Close` (which waits for a
+    registration) return, and the 1.R and 1I contracts promise neither registration
+    on return nor an early answer. Tests that rely on the subscription wait for it
+    (PUBSUB NUMSUB or NUMPAT), as PR #18 does. The v2 requirements are 2.2
+    *Readiness* and the `adapters/redis` item of stage 4b.
 - **1.B Backpressure:** each connection has a bounded queue of outbound packets. The
   rules below apply to `Server` connections and to `Client` alike.
   - *Size:* temporary v1 `engineio.Options.WriteBufferSize` counts socket.io packets
@@ -845,6 +870,13 @@ zero peers must not be confused with a proven empty cluster. `ServerSideEmit` ac
 publication without implying execution on peers. Order is per producer on a live
 connection, not global across nodes; disconnect gaps have no replay guarantee.
 `Close` releases adapter-owned subscriptions/workers, never injected broker clients.
+*Readiness:* an adapter returned by `AdapterFactory` already receives every cluster
+message for its namespace; a broker adapter returns only after the broker confirmed
+its subscriptions, or an error within a bound it documents, leaving nothing open.
+While a lost subscription is being restored, cluster queries return local data plus
+an error without waiting. Cluster queries count local sockets locally, never through
+the broker, and wait only for the peers expected to answer; with none expected they
+return at once. These rules fix the v1 limitations listed under 1.R.
 Conformance tests cover these semantics and concurrent join/leave/broadcast.
 
 ### 2.3 Socket.IO v5 and the generic API
@@ -1300,7 +1332,16 @@ root and adapter consumers/tests against published versions without local replac
   matching notepack output; supported request/response messages use Node's JSON
   encoding. Freeze fixtures for every supported operation, including
   `publishOnSpecificResponseChannel=true` and false. Inject `redis.UniversalClient`;
-  bound request time and reconnect subscriptions with backoff.
+  bound request time and reconnect subscriptions with backoff. For 2.2 *Readiness*,
+  construction and every resubscribe read the PSUBSCRIBE and SUBSCRIBE
+  confirmations, and the expected peers are PUBSUB NUMSUB of the request channel
+  minus this instance. Deterministic tests, with a miniredis pre-hook that holds
+  PSUBSCRIBE (as the v1 test helper `delayRedisSubscriptions` from PR #18 does): a
+  peer's broadcast published as soon as construction returns reaches the new
+  adapter, and a peer's `Sockets` counts it; a hold longer than the bound fails
+  construction and leaves no connection open; `Sockets` with no peer returns well
+  within the request timeout; a query after a forced subscriber loss and before the
+  new confirmation returns local data and an error without waiting.
 - **`adapters/nats`**: subjects `<prefix>.<encoded-nsp>.broadcast` and
   `<prefix>.<encoded-nsp>.room.<encoded-room>`. Encode each arbitrary UTF-8 name as
   `b` plus unpadded base64url of its bytes (empty name becomes `b`); dots, wildcards
@@ -1325,8 +1366,8 @@ root and adapter consumers/tests against published versions without local replac
   servers do not send logs to each other's handlers or the global fallback.
 - **`adaptertest`** package in the root module: conformance suite any adapter runs
   against itself (like `fstest.TestFS`): join/leave, broadcast to room, except, local
-  flag, fetch across two adapters, server-side emit, peer loss with timeout, and both
-  adapter hooks firing.
+  flag, fetch across two adapters, server-side emit, peer loss with timeout, 2.2
+  *Readiness* including a query with no peer, and both adapter hooks firing.
 - `docs/ADAPTERS.md`; `adapters/<name>/README.md` for backend options; chat example
   supports both backends.
 - Restore the migrated Redis examples and add the chat's two-server compose

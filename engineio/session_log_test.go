@@ -4,12 +4,15 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
@@ -53,11 +56,12 @@ func (h *recorder) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h *recorder) WithGroup(string) slog.Handler { return h }
 
+// find returns the records of msg, or all records if msg is empty.
 func (h *recorder) find(msg string) (out []map[string]string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, m := range *h.recs {
-		if m["msg"] == msg {
+		if msg == "" || m["msg"] == msg {
 			out = append(out, m)
 		}
 	}
@@ -220,4 +224,40 @@ func TestSessionCloseRecord(t *testing.T) {
 			})
 		}
 	}
+}
+
+// TestDialFailureRecords dials through two failing polling transports and an invalid URL
+// with slog.Default recording. The failure Dial does not return is one WARN; the errors
+// it returns and the polling client's request failures, which reach its reader, are
+// DEBUG; every message follows the 1.L pattern. Not parallel: it sets slog.Default.
+func TestDialFailureRecords(t *testing.T) {
+	rec := newRecorder()
+	prev := slog.Default()
+	slog.SetDefault(slog.New(rec))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "down", http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+	d := Dialer{Transports: []transport.Transport{polling.Default, polling.Default}}
+	_, err := d.Dial(ts.URL, nil)
+	require.Error(t, err)
+	_, err = d.Dial("http://[::1", nil)
+	require.Error(t, err)
+
+	pattern := regexp.MustCompile(`^(engineio|socketio|logger): [a-z][a-z0-9 ]*$`)
+	var loud []map[string]string
+	for _, m := range rec.find("") {
+		assert.Regexp(t, pattern, m["msg"])
+		if m["level"] != slog.LevelDebug.String() {
+			loud = append(loud, m)
+		}
+	}
+	require.Len(t, loud, 1)
+	assert.Equal(t, "engineio: transport dial failed", loud[0]["msg"])
+	assert.Equal(t, slog.LevelWarn.String(), loud[0]["level"])
+	assert.Equal(t, "polling", loud[0]["transport"])
+	assert.Len(t, rec.find("engineio: transport dial failed"), 2)
+	assert.Len(t, rec.find("engineio: parse url failed"), 1)
 }

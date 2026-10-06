@@ -121,10 +121,10 @@ All notable changes to this project are documented here. The format follows
   `io/ioutil` and ignored the errors of `NextReader`, `ReadAll` and `NextWriter`, are
   removed (roadmap task 1.D).
 - `logger/README.md` is removed. It told applications to assign `logger.Log`, which
-  replaces the handler that applies `logger.Level`, so `SOCKETIO_LOG_LEVEL` stopped
-  working for those records. Library logging is configured with
-  `engineio.Options.Logger` or `slog.SetDefault`; the `logger` package godoc documents
-  it (roadmap task 1.D).
+  replaces the handler that applies `logger.Level`, so `SOCKETIO_LOG_LEVEL` and
+  `logger.Level.Set` do not apply to records logged through it. Library logging is
+  configured with `engineio.Options.Logger` or `slog.SetDefault`; the `logger` package
+  godoc documents it (roadmap task 1.D).
 - Backpressure: `Emit` never blocks; it blocked until the writer took the packet
   (`connection.go:136` at `48cf0d2`). A connection whose queue overflows is closed
   without draining and reports `ErrWriteBufferFull`; more than `WriteBufferSize` packets

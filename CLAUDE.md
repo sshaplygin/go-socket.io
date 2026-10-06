@@ -96,6 +96,7 @@ owner below and put it there.
 | File | Owns | Must not contain |
 | --- | --- | --- |
 | `README.md` | what the library is, install, quick start, supported protocol/client versions, links | dev workflow, architecture, roadmap |
+| `engineio/README.md` | what the engineio package is; links to README.md, docs/PROTOCOL.md and its godoc | install, examples, API usage |
 | `CLAUDE.md` | repo layout, commands, conventions, this map | user-facing API docs, protocol details |
 | `CONTRIBUTING.md` | PR process, review rules, release and tagging procedure | commands (link here) |
 | `CHANGELOG.md` | released changes per tag | plans |

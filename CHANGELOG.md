@@ -116,6 +116,9 @@ All notable changes to this project are documented here. The format follows
   (`CLAUDE.md`, `docs/ROADMAP.md`, `docs/PROTOCOL.md`); `README.md` trimmed to
   purpose, compatibility, install and quick start; `upgrade workflow.md` merged into
   `docs/PROTOCOL.md`.
+- `engineio/README.md` only says what the package is and links to `README.md`,
+  `docs/PROTOCOL.md` and the godoc; its install command and its example, which used
+  `io/ioutil` and ignored every error, are removed (roadmap task 1.D).
 - Backpressure: `Emit` never blocks; it blocked until the writer took the packet
   (`connection.go:136` at `48cf0d2`). A connection whose queue overflows is closed
   without draining and reports `ErrWriteBufferFull`; more than `WriteBufferSize` packets

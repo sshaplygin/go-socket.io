@@ -108,12 +108,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	srvTransport, ok := s.transports.Get(reqTransport)
 	if !ok {
 		http.Error(w, fmt.Sprintf("invalid transport: %s", reqTransport), http.StatusBadRequest)
+		s.reject(reqTransport, r.RemoteAddr, "bad transport", nil)
 		return
 	}
 
 	header, err := s.requestChecker(r)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("request checker err: %s", err.Error()), http.StatusBadGateway)
+		s.reject(reqTransport, r.RemoteAddr, "checker", err)
 		return
 	}
 
@@ -127,18 +129,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		if sid != "" {
 			http.Error(w, fmt.Sprintf("invalid sid value: %s", sid), http.StatusBadRequest)
+			s.reject(reqTransport, r.RemoteAddr, "unknown sid", nil)
 			return
 		}
 
 		transportConn, err := srvTransport.Accept(w, r)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("transport accept err: %s", err.Error()), http.StatusBadGateway)
+			// as on upgrade: the websocket library answered a HandshakeError itself
+			if _, ok := err.(websocket.HandshakeError); !ok {
+				http.Error(w, fmt.Sprintf("transport accept err: %s", err.Error()), http.StatusBadGateway)
+			}
+			s.reject(reqTransport, r.RemoteAddr, "accept", err)
 			return
 		}
 
 		reqSession, err = s.newSession(r.Context(), transportConn, reqTransport)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("create new session err: %s", err.Error()), http.StatusBadRequest)
+			s.reject(reqTransport, r.RemoteAddr, "init", err)
 			return
 		}
 
@@ -149,6 +157,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if current := reqSession.Transport(); current != reqTransport {
 		if !s.canUpgrade(current, reqTransport) {
 			http.Error(w, fmt.Sprintf("invalid transport upgrade: %s to %s", current, reqTransport), http.StatusBadRequest)
+			s.reject(reqTransport, r.RemoteAddr, "bad upgrade", nil)
 			return
 		}
 
@@ -159,6 +168,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if _, ok := err.(websocket.HandshakeError); !ok {
 				http.Error(w, err.Error(), http.StatusBadGateway)
 			}
+			s.reject(reqTransport, r.RemoteAddr, "accept", err)
 			return
 		}
 
@@ -203,7 +213,7 @@ func (s *Server) newSession(_ context.Context, conn transport.Conn, reqTransport
 	go func(newSession *session.Session) {
 		if err := newSession.InitSession(); err != nil {
 			s.sessions.Remove(newSession.ID())
-			s.log.Error("init new session", "err", err)
+			s.reject(reqTransport, fmt.Sprint(conn.RemoteAddr()), "init", err)
 
 			return
 		}
@@ -219,6 +229,19 @@ func (s *Server) newSession(_ context.Context, conn transport.Conn, reqTransport
 	}(newSession)
 
 	return newSession, nil
+}
+
+// reject logs a request ServeHTTP rejects or a failed session initialisation: at DEBUG
+// for an unknown sid, at WARN otherwise.
+func (s *Server) reject(transport, addr, reason string, err error) {
+	level, args := slog.LevelWarn, []any{"transport", transport, "remote_addr", addr, "reason", reason}
+	if reason == "unknown sid" {
+		level = slog.LevelDebug
+	}
+	if err != nil {
+		args = append(args, "err", err)
+	}
+	s.log.Log(context.Background(), level, "engineio: request rejected", args...)
 }
 
 // canUpgrade reports whether a session on transport from may move to

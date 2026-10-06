@@ -67,6 +67,10 @@ All notable changes to this project are documented here. The format follows
   the session now sets the new connection's deadline again and closes as
   `transport error` if that fails (`engineio/session/session.go:483` at `1151bad`,
   roadmap task 1.L).
+- engineio: a websocket handshake error at session creation was answered twice: the
+  websocket library had already written its 400 and `http.Error` followed, so net/http
+  logged a superfluous `WriteHeader`. That path now skips `http.Error`, as the upgrade
+  path already did (`engineio/server.go:134` at `1151bad`, roadmap task 1.L).
 
 ### Added
 
@@ -90,6 +94,11 @@ All notable changes to this project are documented here. The format follows
   (CLOSE packet from the client), `ping timeout`, `transport error` (any other read or
   write failure, including a peer close), `forced close` (`Close`) or `server shutting
   down` (`engineio.Server.Close` before `Accept`) (roadmap task 1.L).
+- engineio: `engineio: request rejected` (WARN; DEBUG for `unknown sid`) with
+  `transport`, `remote_addr`, `reason` and `err`, once per request `ServeHTTP` rejects and
+  once per failed session initialisation. `reason` is `bad transport`, `checker`,
+  `unknown sid`, `accept`, `init` or `bad upgrade`; the failed initialisation was logged
+  as `init new session` at ERROR (roadmap task 1.L).
 - `engineio.Options.WriteBufferSize` (temporary v1 placement) and `ErrWriteBufferFull`:
   each connection queues at most that many outbound packets (default 64). See
   [`engineio.Options`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master/engineio#Options)
@@ -149,6 +158,11 @@ All notable changes to this project are documented here. The format follows
 - The warning for an invalid `SOCKETIO_LOG_LEVEL` is logged as
   `logger: invalid level ignored` with the value under `value`; it read
   `logger: invalid SOCKETIO_LOG_LEVEL, ignored` (`logger/logger.go:67` at `1151bad`,
+  roadmap task 1.L).
+- The polling transport logs a POST with an unsupported `Content-Type`, a failed payload
+  read and a failed answer at DEBUG instead of ERROR, and no longer prints the answer
+  failure with `fmt.Printf`: the client gets the 400 or has gone
+  (`engineio/transport/polling/server.go:131`, `:137`, `:144`, `:145` at `1151bad`,
   roadmap task 1.L).
 
 ## v1.4.2 and earlier

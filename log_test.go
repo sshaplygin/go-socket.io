@@ -285,7 +285,8 @@ func TestUnhandledErrorRecords(t *testing.T) {
 		{name: "EVENT without data", nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "2") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := captureLogs(t, &engineio.Options{})
+			rec := newAttrRecorder()
+			setDefault(t, rec) // the peer's NewServer(nil) logs through logger.Log, which follows slog.Default
 			p := newPeer(t, 'S', tc.h, "/a")
 			for _, nsp := range []string{"/", "/a"} {
 				if !tc.keep {

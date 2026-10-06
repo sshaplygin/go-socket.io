@@ -64,7 +64,7 @@ func init() {
 	}
 	lvl, valid := parseLevel(value)
 	if !valid {
-		Log.Warn("logger: invalid "+EnvLevel+", ignored", "value", value)
+		Log.Warn("logger: invalid level ignored", "value", value)
 		return
 	}
 	Level.Set(lvl)

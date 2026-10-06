@@ -134,6 +134,10 @@ All notable changes to this project are documented here. The format follows
   (`server.go:309` at `48cf0d2`).
 - The error that closes a connection is reported to `OnError` before the close's effects
   run; a failed connect was closed before it was reported (`server.go:249` at `48cf0d2`).
+- The warning for an invalid `SOCKETIO_LOG_LEVEL` is logged as
+  `logger: invalid level ignored` with the value under `value`; it read
+  `logger: invalid SOCKETIO_LOG_LEVEL, ignored` (`logger/logger.go:67` at `1151bad`,
+  roadmap task 1.L).
 
 ## v1.4.2 and earlier
 

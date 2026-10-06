@@ -293,6 +293,7 @@ func TestBackpressureStalledMemberDoesNotBlockRoom(t *testing.T) {
 			h := hooks{connect: func(c Conn) error { c.Join("r"); return nil }}
 			if adapter == "redis" {
 				s := miniredis.RunT(t)
+				delayRedisSubscriptions(t, s, 50*time.Millisecond)
 				h.setup = func(srv *Server) { useRedis(t, srv, s.Addr()) }
 			}
 			p := start(t, 'S', h)

@@ -185,6 +185,29 @@ All notable changes to this project are documented here. The format follows
   handler are WARN instead of INFO (`connection_handlers.go:27`-`:216`, `server.go:348`,
   `:371`, `client.go:117`, `parser/decoder.go:333`, `parser/encoder.go:31`-`:209` at
   `1151bad`, roadmap task 1.L).
+- engineio records: the session, the upgrade probe, the engine.io client and dialer,
+  the polling client, the packet encoder and the websocket wrapper logged through
+  `logger.Error` at ERROR with free-form messages such as `getOpen store 2:`. They now
+  log constant `engineio: ...` messages with an `err` key: DEBUG for failures after a
+  close started, session frame failures reported as close reasons, upgrade-probe
+  failures, errors also returned to a caller (including the polling client's stored
+  request failures) and the websocket "frame not closed" reminders, which no longer
+  carry a synthetic `ConnectionNotClosed` error; WARN for failures no caller receives:
+  the engine.io client's ping and reader failures, the dialer's and the polling
+  client's reader `Close` failures, and `engineio: transport dial failed` (with
+  `transport`) for a transport attempt whose error `Dial` does not return (the last
+  attempt is DEBUG) (`engineio/session/session.go:56`-`:507`, `engineio/client.go:70`-`:133`,
+  `engineio/dialer.go:23`-`:87`, `engineio/transport/polling/connect.go:38`-`:277`,
+  `engineio/packet/encoder.go:40`, `engineio/transport/websocket/wrapper.go:66`, `:131`
+  at `1151bad`, roadmap task 1.L).
+
+### Deprecated
+
+- `logger.Error` and `logger.Info`: the library no longer calls them. Use `slog`'s
+  methods on `logger.Log` or on the logger passed as `engineio.Options.Logger`. See
+  [`logger`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master/logger), whose
+  godoc now documents the levels, the message pattern and the attribute keys of library
+  records (roadmap task 1.L).
 
 ## v1.4.2 and earlier
 

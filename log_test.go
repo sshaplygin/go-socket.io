@@ -158,6 +158,8 @@ func TestRequestRejectedRecords(t *testing.T) {
 		return params.SID
 	}
 	wsSID, pollingSID := dial(websocket.Default), dial(polling.Default)
+	require.Eventually(t, func() bool { return len(only(rec.since(0), "engineio: session open")) == 2 },
+		waitFor, time.Millisecond, "a client can read OPEN before its session logs open")
 
 	for _, tc := range []struct {
 		reason, level string

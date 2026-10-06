@@ -274,6 +274,10 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			run: func(t *testing.T, p *peer) { p.send(t, `2["num","x"]`) }},
 		{name: "unmarshalable argument", nsps: []string{"/a"},
 			run: func(t *testing.T, p *peer) { p.join(t, "/a").Emit("bad", make(chan int)) }},
+		{name: "NextWriter fails after connect", run: func(t *testing.T, p *peer) {
+			p.fc.failWrite.Store(true)
+			p.nc.Emit("x")
+		}},
 		{name: "frame Write fails", fault: faultConn{writeErr: failed}},
 		{name: "frame Close fails", fault: faultConn{closeErr: failed}},
 		{name: "frame Close fails, then a handler panic", fault: faultConn{closeErr: failed}, h: hooks{events: boom},

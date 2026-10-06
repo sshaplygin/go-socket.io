@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "comparison": {
+    "regression_percent": 20,
+    "improvement_percent": 20,
+    "percent_decimals": 1,
+    "fail_on_regression": false,
+    "statistics": "benchstat"
+  },
+  "report": {
+    "title": "Go benchmarks: base vs PR",
+    "metrics": [
+      "time"
+    ],
+    "group_by": [
+      "package"
+    ],
+    "columns": [
+      "benchmark",
+      "base",
+      "head",
+      "change",
+      "signal"
+    ],
+    "sort": "name",
+    "unchanged": "show",
+    "missing": "show",
+    "max_rows": 0,
+    "units": "auto",
+    "sections": {
+      "metadata": true,
+      "summary": true,
+      "tables": true,
+      "benchstat": true
+    }
+  },
+  "outputs": {
+    "markdown": "report.md",
+    "json": "report.json"
+  },
+  "history": {
+    "enabled": false
+  }
+}

@@ -151,6 +151,14 @@ func TestSessionCloseRecord(t *testing.T) {
 			f.upgrade(t, conn)
 			require.Error(t, readAll(conn))
 		}},
+		{"peer close after upgrade", "P", "transport error", "websocket", func(t *testing.T, f *logFixture) {
+			start, conn := time.Now(), f.accept(t)
+			time.Sleep(200 * time.Millisecond) // of PingTimeout 400 ms
+			f.upgrade(t, conn)
+			time.Sleep(time.Until(start.Add(480 * time.Millisecond))) // past the handshake's deadline
+			require.NoError(t, f.cl.Close())
+			require.Error(t, readAll(conn))
+		}},
 		{"Close after a message", "PW", "forced close", "", func(t *testing.T, f *logFixture) {
 			conn := f.accept(t)
 			f.send(t, packet.MESSAGE, "hi")
@@ -173,9 +181,7 @@ func TestSessionCloseRecord(t *testing.T) {
 			t.Run(tc.name+"/"+tr, func(t *testing.T) {
 				rec := newRecorder()
 				opts := &Options{Logger: slog.New(rec)}
-				if tc.reason == "ping timeout" {
-					opts.PingTimeout = 100 * time.Millisecond
-				}
+				opts.PingTimeout = map[string]time.Duration{"ping timeout": 100 * time.Millisecond, "transport error": 400 * time.Millisecond}[tc.reason]
 				f := &logFixture{srv: NewServer(opts)}
 				ts := httptest.NewServer(f.srv)
 				t.Cleanup(ts.Close)

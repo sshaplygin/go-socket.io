@@ -37,7 +37,7 @@ func (e *Encoder) NextWriter(ft frame.Type, pt Type) (io.WriteCloser, error) {
 
 	if _, err := w.Write(b[:]); err != nil {
 		if closeErr := w.Close(); closeErr != nil {
-			logger.Error("close writer after write:", closeErr)
+			logger.Log.Debug("engineio: close writer failed", "err", closeErr)
 		}
 
 		return nil, err

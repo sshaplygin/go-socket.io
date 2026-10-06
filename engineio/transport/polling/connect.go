@@ -35,7 +35,7 @@ func (c *clientConn) Open() (transport.ConnParameters, error) {
 
 	if pt != packet.OPEN {
 		if err = r.Close(); err != nil {
-			logger.Error("close transport reader:", err)
+			logger.Log.Warn("engineio: close reader failed", "err", err)
 		}
 
 		return transport.ConnParameters{}, errors.New("invalid open")
@@ -44,7 +44,7 @@ func (c *clientConn) Open() (transport.ConnParameters, error) {
 	conn, err := transport.ReadConnParameters(r)
 	if err != nil {
 		if closeErr := r.Close(); closeErr != nil {
-			logger.Error("close transport reader:", err)
+			logger.Log.Debug("engineio: read open packet failed", "err", err)
 		}
 
 		return transport.ConnParameters{}, err
@@ -114,11 +114,11 @@ func (c *clientConn) servePost() {
 		resp, err := c.httpClient.Do(&req)
 		if err != nil {
 			if err = c.Payload.Store("post", err); err != nil {
-				logger.Error("store post:", err)
+				logger.Log.Debug("engineio: post request failed", "err", err)
 			}
 
 			if err = c.Close(); err != nil {
-				logger.Error("close client connect:", err)
+				logger.Log.Debug("engineio: close connection failed", "err", err)
 			}
 
 			return
@@ -129,11 +129,11 @@ func (c *clientConn) servePost() {
 		if resp.StatusCode != http.StatusOK {
 			err = c.Payload.Store("post", fmt.Errorf("invalid response: %s(%d)", resp.Status, resp.StatusCode))
 			if err != nil {
-				logger.Error("store post:", err)
+				logger.Log.Debug("engineio: post request failed", "err", err)
 			}
 
 			if err = c.Close(); err != nil {
-				logger.Error("close client connect:", err)
+				logger.Log.Debug("engineio: close connection failed", "err", err)
 			}
 
 			return
@@ -157,11 +157,11 @@ func (c *clientConn) getOpen() {
 	resp, err := c.httpClient.Do(&req)
 	if err != nil {
 		if err = c.Payload.Store("get", err); err != nil {
-			logger.Error("getOpen store 1:", err)
+			logger.Log.Debug("engineio: get request failed", "err", err)
 		}
 
 		if err = c.Close(); err != nil {
-			logger.Error("close client connect:", err)
+			logger.Log.Debug("engineio: close connection failed", "err", err)
 		}
 
 		return
@@ -180,17 +180,17 @@ func (c *clientConn) getOpen() {
 		mime := resp.Header.Get("Content-Type")
 		isSupportBinary, err = mimeIsSupportBinary(mime)
 		if err != nil {
-			logger.Error("check mime support binary:", err)
+			logger.Log.Debug("engineio: unsupported content type", "err", err)
 		}
 	}
 
 	if err != nil {
 		if err = c.Payload.Store("get", err); err != nil {
-			logger.Error("getOpen store 2:", err)
+			logger.Log.Debug("engineio: get request failed", "err", err)
 		}
 
 		if err = c.Close(); err != nil {
-			logger.Error("close client connect:", err)
+			logger.Log.Debug("engineio: close connection failed", "err", err)
 		}
 
 		return
@@ -199,7 +199,7 @@ func (c *clientConn) getOpen() {
 	c.remoteHeader.Store(resp.Header)
 
 	if err = c.Payload.FeedIn(resp.Body, isSupportBinary); err != nil {
-		logger.Error("payload feedin:", err)
+		logger.Log.Debug("engineio: get payload failed", "err", err)
 
 		return
 	}
@@ -220,11 +220,11 @@ func (c *clientConn) serveGet() {
 		resp, err := c.httpClient.Do(&req)
 		if err != nil {
 			if err = c.Payload.Store("get", err); err != nil {
-				logger.Error("serveGet store 1:", err)
+				logger.Log.Debug("engineio: get request failed", "err", err)
 			}
 
 			if err = c.Close(); err != nil {
-				logger.Error("close client connect:", err)
+				logger.Log.Debug("engineio: close connection failed", "err", err)
 			}
 
 			return
@@ -239,7 +239,7 @@ func (c *clientConn) serveGet() {
 			mime := resp.Header.Get("Content-Type")
 			isSupportBinary, err = mimeIsSupportBinary(mime)
 			if err != nil {
-				logger.Error("check mime support binary:", err)
+				logger.Log.Debug("engineio: unsupported content type", "err", err)
 			}
 		}
 
@@ -247,11 +247,11 @@ func (c *clientConn) serveGet() {
 			discardBody(resp.Body)
 
 			if err = c.Payload.Store("get", err); err != nil {
-				logger.Error("serveGet store 2:", err)
+				logger.Log.Debug("engineio: get request failed", "err", err)
 			}
 
 			if err = c.Close(); err != nil {
-				logger.Error("close client connect:", err)
+				logger.Log.Debug("engineio: close connection failed", "err", err)
 			}
 
 			return
@@ -270,10 +270,10 @@ func (c *clientConn) serveGet() {
 func discardBody(body io.ReadCloser) {
 	_, err := io.Copy(io.Discard, body)
 	if err != nil {
-		logger.Error("copy from body resp to discard:", err)
+		logger.Log.Debug("engineio: discard body failed", "err", err)
 	}
 
 	if err = body.Close(); err != nil {
-		logger.Error("body close:", err)
+		logger.Log.Debug("engineio: close body failed", "err", err)
 	}
 }

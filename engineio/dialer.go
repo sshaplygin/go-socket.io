@@ -1,8 +1,10 @@
 package engineio
 
 import (
+	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 
@@ -20,7 +22,7 @@ type Dialer struct {
 func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 	u, err := url.Parse(urlStr)
 	if err != nil {
-		logger.Error("parse url str:", err)
+		logger.Log.Debug("engineio: parse url failed", "err", err)
 
 		return nil, err
 	}
@@ -34,7 +36,7 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 	for i := len(d.Transports) - 1; i >= 0; i-- {
 		if conn != nil {
 			if closeErr := conn.Close(); closeErr != nil {
-				logger.Error("close connect:", closeErr)
+				logger.Log.Debug("engineio: close connection failed", "err", closeErr)
 			}
 		}
 
@@ -42,7 +44,7 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 
 		conn, err = t.Dial(u, requestHeader)
 		if err != nil {
-			logger.Error("transport dial:", err)
+			dialFailed(i, t.Name(), err)
 
 			continue
 		}
@@ -51,7 +53,7 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 		if p, ok := conn.(Opener); ok {
 			params, err = p.Open()
 			if err != nil {
-				logger.Error("open transport connect:", err)
+				dialFailed(i, t.Name(), err)
 
 				continue
 			}
@@ -67,7 +69,7 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 			func() {
 				defer func() {
 					if closeErr := r.Close(); closeErr != nil {
-						logger.Error("close connect reader:", closeErr)
+						logger.Log.Warn("engineio: close reader failed", "err", closeErr)
 					}
 				}()
 
@@ -84,7 +86,7 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 			}()
 		}
 		if err != nil {
-			logger.Error("transport dialer:", err)
+			dialFailed(i, t.Name(), err)
 
 			continue
 		}
@@ -102,4 +104,15 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 	}
 
 	return nil, err
+}
+
+// dialFailed logs a failed attempt with transport name: at DEBUG for the last
+// transport tried (i == 0), whose error Dial returns, and at WARN for the others,
+// whose errors no caller receives.
+func dialFailed(i int, name string, err error) {
+	level := slog.LevelWarn
+	if i == 0 {
+		level = slog.LevelDebug
+	}
+	logger.Log.Log(context.Background(), level, "engineio: transport dial failed", "transport", name, "err", err)
 }

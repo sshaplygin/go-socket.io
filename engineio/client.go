@@ -67,7 +67,7 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 
 		case packet.CLOSE:
 			if err = c.Close(); err != nil {
-				logger.Error("close client with packet close:", err)
+				logger.Log.Debug("engineio: close connection failed", "err", err)
 			}
 
 			return 0, nil, io.EOF
@@ -77,7 +77,7 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 		}
 
 		if err = r.Close(); err != nil {
-			logger.Error("close reader:", err)
+			logger.Log.Warn("engineio: close reader failed", "err", err)
 		}
 	}
 }
@@ -105,7 +105,7 @@ func (c *client) RemoteHeader() http.Header {
 func (c *client) serve() {
 	defer func() {
 		if closeErr := c.conn.Close(); closeErr != nil {
-			logger.Error("close connect:", closeErr)
+			logger.Log.Debug("engineio: close connection failed", "err", closeErr)
 		}
 	}()
 
@@ -118,19 +118,19 @@ func (c *client) serve() {
 
 		w, err := c.conn.NextWriter(frame.String, packet.PING)
 		if err != nil {
-			logger.Error("get next writer with string frame and packet ping:", err)
+			logger.Log.Warn("engineio: ping failed", "err", err)
 
 			return
 		}
 
 		if err = w.Close(); err != nil {
-			logger.Error("close writer:", err)
+			logger.Log.Warn("engineio: ping failed", "err", err)
 
 			return
 		}
 
 		if err = c.conn.SetWriteDeadline(time.Now().Add(c.params.PingInterval + c.params.PingTimeout)); err != nil {
-			logger.Error("set writer deadline:", err)
+			logger.Log.Warn("engineio: ping failed", "err", err)
 		}
 	}
 }

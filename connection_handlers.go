@@ -97,8 +97,9 @@ func connectPacketHandler(c *conn, header parser.Header) error {
 		return errFailedConnectNamespace
 	}
 
-	if handler.err != nil { // its Redis broadcast could not be created
+	if handler.err != nil && !isDone(c.closing) { // its Redis broadcast could not be created
 		c.log.Debug("socketio: connect without broadcast", nspAttr(header.Namespace), "err", handler.err)
+		c.connectRecord(header.Namespace, handler.err)
 		c.onError(header.Namespace, handler.err)
 		return errHandleDispatch
 	}
@@ -113,7 +114,7 @@ func connectPacketHandler(c *conn, header parser.Header) error {
 	}
 
 	_, err := handler.dispatch(conn, header)
-	if err != nil {
+	if c.connectRecord(header.Namespace, err); err != nil {
 		c.log.Debug("socketio: connect handler failed", nspAttr(header.Namespace), "err", err)
 		c.onError(header.Namespace, err)
 		return errHandleDispatch
@@ -138,6 +139,7 @@ func disconnectPacketHandler(c *conn, header parser.Header) error {
 	}
 
 	conn.LeaveAll()
+	c.log.Debug("socketio: disconnect", nspAttr(header.Namespace), "reason", "namespace disconnect")
 
 	handler, ok := c.handlers.Get(header.Namespace)
 	if !ok {

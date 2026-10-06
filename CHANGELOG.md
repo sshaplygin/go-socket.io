@@ -105,6 +105,12 @@ All notable changes to this project are documented here. The format follows
   namespace), was dropped silently. It is logged once unless it is expected closure: a
   failure of the engine.io frame reader or writer, a peer close or a ping timeout, or any
   failure after a close started (roadmap task 1.L).
+- `socketio.Server` connections log `socketio: namespace connect` (DEBUG, `sid`, `nsp`, and
+  `err` when `OnConnect` or the connect failed; an overflow during root `OnConnect` gives
+  `ErrWriteBufferFull`, joined with the `OnConnect` error) and, once per connected
+  namespace, `socketio: disconnect` (DEBUG, `sid`, `nsp`, `reason` `namespace disconnect`
+  or `connection close`; text sent by the peer is not logged). `Client` logs neither
+  (roadmap task 1.L).
 - `engineio.Options.WriteBufferSize` (temporary v1 placement) and `ErrWriteBufferFull`:
   each connection queues at most that many outbound packets (default 64). See
   [`engineio.Options`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master/engineio#Options)

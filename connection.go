@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"cmp"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -79,7 +80,8 @@ type conn struct {
 	writeChan chan parser.Payload
 	errorChan chan error
 
-	log *slog.Logger
+	log      *slog.Logger
+	boundary bool // log the namespace connect and disconnect records (Server only)
 
 	// mu orders the close state, whose steps close the channels, against queueing and registering.
 	mu                           sync.Mutex
@@ -168,6 +170,18 @@ func (c *conn) disconnect(ncs []*namespaceConn) {
 			nh.onDisconnect(nc, clientDisconnectMsg)
 		}
 		nc.LeaveAll()
+		if c.boundary {
+			c.log.Debug("socketio: disconnect", nspAttr(nc.namespace), "reason", "connection close")
+		}
+	}
+}
+
+// connectRecord logs the namespace connect record of nsp, with err unless it is nil.
+func (c *conn) connectRecord(nsp string, err error) {
+	if args := []any{nspAttr(nsp)}; err == nil {
+		c.log.Debug("socketio: namespace connect", args...)
+	} else {
+		c.log.Debug("socketio: namespace connect", append(args, "err", err)...)
 	}
 }
 
@@ -231,6 +245,12 @@ func (c *conn) connected(err error) bool {
 		c.pending = c.startClose()
 	}
 	c.mu.Unlock()
+	if failed && c.overflow != nil { // final: no overflow once a close started
+		err = errors.Join(ErrWriteBufferFull, err)
+	}
+	if c.boundary {
+		c.connectRecord(rootNamespace, err)
+	}
 	if failed {
 		c.reportOverflow(nil)
 		c.finish()

@@ -283,6 +283,7 @@ func (s *Server) ForEach(namespace string, room string, f EachFunc) bool {
 
 func (s *Server) serveConn(conn engineio.Conn) {
 	c := newConn(conn, s.handlers, s.limits, s.log.With("sid", conn.ID()))
+	c.boundary = true
 	if !c.connected(c.connect()) {
 		return
 	}

@@ -118,7 +118,8 @@ All notable changes to this project are documented here. The format follows
   `docs/PROTOCOL.md`.
 - `engineio/README.md` only says what the package is and links to `README.md`,
   `docs/PROTOCOL.md` and the godoc; its install command and its example, which used
-  `io/ioutil` and ignored every error, are removed (roadmap task 1.D).
+  `io/ioutil` and ignored the errors of `NextReader`, `ReadAll` and `NextWriter`, are
+  removed (roadmap task 1.D).
 - `logger/README.md` is removed. It told applications to assign `logger.Log`, which
   replaces the handler that applies `logger.Level`, so `SOCKETIO_LOG_LEVEL` stopped
   working for those records. Library logging is configured with

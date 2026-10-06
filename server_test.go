@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http/httptest"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -114,8 +115,11 @@ func newAttrRecorder() *attrRecorder {
 
 func (h *attrRecorder) Enabled(context.Context, slog.Level) bool { return true }
 
+// Handle keeps the message, the level, the function that logged (by record PC) and the
+// attributes.
 func (h *attrRecorder) Handle(_ context.Context, r slog.Record) error {
-	m := map[string]string{"msg": r.Message}
+	f, _ := runtime.CallersFrames([]uintptr{r.PC}).Next()
+	m := map[string]string{"msg": r.Message, "level": r.Level.String(), "func": f.Function}
 	for _, a := range h.attrs {
 		m[a.Key] = a.Value.String()
 	}

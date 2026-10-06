@@ -236,7 +236,7 @@ func (c *conn) connect() error {
 func (c *conn) connected(err error) bool {
 	if root := c.namespace(rootNamespace); err != nil && root != nil && root.onError != nil {
 		root.onError(nil, err)
-	} else if err != nil && !c.writer.failed {
+	} else if err != nil && !expected(err, c.writer.failed) {
 		c.unhandled(rootNamespace, err)
 	}
 	c.mu.Lock()
@@ -324,19 +324,20 @@ func (c *conn) errConn(nsp string) (nc *namespaceConn) {
 	return nc
 }
 
-// queueWriter starts no packet (its TEXT frame) once the queue is discarded. failed tells
-// whether NextWriter or the frame writer it returned failed since the last NextWriter.
+// queueWriter starts no packet (its TEXT frame) once the queue is discarded. failed is the
+// first failure of NextWriter or of the frame writer it returned since the last NextWriter.
 type queueWriter struct {
 	c      *conn
-	failed bool
+	failed error
 }
 
 func (w *queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
-	if w.failed = ft == session.TEXT && isDone(w.c.discard); w.failed {
+	if ft == session.TEXT && isDone(w.c.discard) {
+		w.failed = io.EOF
 		return nil, io.EOF
 	}
 	fw, err := w.c.Conn.NextWriter(ft)
-	if w.failed = err != nil; err != nil {
+	if w.failed = err; err != nil {
 		return nil, err
 	}
 	return frameIO{w: fw, c: fw, failed: &w.failed}, nil
@@ -345,28 +346,28 @@ func (w *queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
 // frameReader is queueWriter's counterpart for the decoder.
 type frameReader struct {
 	parser.FrameReader
-	failed bool
+	failed error
 }
 
 func (r *frameReader) NextReader() (session.FrameType, io.ReadCloser, error) {
 	ft, fr, err := r.FrameReader.NextReader()
-	if r.failed = err != nil; err != nil {
+	if r.failed = err; err != nil {
 		return ft, fr, err
 	}
 	return ft, frameIO{r: fr, c: fr, failed: &r.failed}, nil
 }
 
-// frameIO is a frame reader or writer that sets *failed when it fails; io.EOF from Read
-// ends the frame. It returns the errors unchanged.
+// frameIO is a frame reader or writer that records its first failure in *failed; io.EOF
+// from Read ends the frame. It returns the errors unchanged.
 type frameIO struct {
 	r      io.Reader
 	w      io.Writer
 	c      io.Closer
-	failed *bool
+	failed *error
 }
 
 func (f frameIO) mark(err error) error {
-	*f.failed = *f.failed || err != nil
+	*f.failed = cmp.Or(*f.failed, err)
 	return err
 }
 
@@ -385,6 +386,10 @@ func (f frameIO) Write(p []byte) (int, error) {
 
 func (f frameIO) Close() error { return f.mark(f.c.Close()) }
 
+// expected tells whether err is the frame failure failed, which the decoder or encoder
+// returned: an error that follows a frame failure the parser ignored is not.
+func expected(err, failed error) bool { return failed != nil && errors.Is(err, failed) }
+
 func isDone(ch <-chan struct{}) bool {
 	select {
 	case <-ch:
@@ -395,20 +400,20 @@ func isDone(ch <-chan struct{}) bool {
 }
 
 // onError reports err of the packet being read (see report); a failure of the frame
-// reader is expected closure.
+// reader that the decoder returned is expected closure.
 func (c *conn) onError(namespace string, err error) {
 	c.report(namespace, err, c.reader.failed)
 }
 
 // report delivers err to OnError of namespace and waits for it, unless a close started.
-// Without OnError, err is logged as unhandled unless it is expected closure.
-func (c *conn) report(namespace string, err error, expected bool) {
+// Without OnError, err is logged as unhandled unless it is the frame failure failed.
+func (c *conn) report(namespace string, err, failed error) {
 	if isDone(c.closing) {
 		return
 	}
 	msg := newErrorMessage(namespace, err)
 	if msg.conn = c.errConn(namespace); msg.conn == nil {
-		if !expected {
+		if !expected(err, failed) {
 			c.unhandled(namespace, err)
 		}
 		return

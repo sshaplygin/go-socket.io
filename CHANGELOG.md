@@ -103,8 +103,8 @@ All notable changes to this project are documented here. The format follows
   receives, such as a CONNECT to a namespace without handlers, a decode or dispatch
   error, a marshal error in `Encode` or an overflow (`nsp` is the overflowing packet's
   namespace), was dropped silently. It is logged once unless it is expected closure: a
-  failure of the engine.io frame reader or writer, a peer close or a ping timeout, or any
-  failure after a close started (roadmap task 1.L).
+  failure of the engine.io frame reader or writer that the parser returned, a peer close
+  or a ping timeout, or any failure after a close started (roadmap task 1.L).
 - `socketio.Server` connections log `socketio: namespace connect` (DEBUG, `sid`, `nsp`, and
   `err` when `OnConnect` or the connect failed; an overflow during root `OnConnect` gives
   `ErrWriteBufferFull`, joined with the `OnConnect` error) and, once per connected

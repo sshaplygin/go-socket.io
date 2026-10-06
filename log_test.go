@@ -14,6 +14,7 @@ import (
 	"testing/iotest"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
@@ -29,11 +30,31 @@ import (
 // must not run in parallel; Cleanup restores the default logger.
 func captureLogs(t *testing.T, opts *engineio.Options) *attrRecorder {
 	rec := newAttrRecorder()
-	prev, prevOut, prevFlags := slog.Default(), log.Writer(), log.Flags()
-	slog.SetDefault(slog.New(rec))
-	t.Cleanup(func() { slog.SetDefault(prev); log.SetOutput(prevOut); log.SetFlags(prevFlags) })
+	setDefault(t, rec)
 	opts.Logger = slog.New(rec)
 	return rec
+}
+
+// setDefault makes h the default handler until Cleanup; the test must not run in parallel.
+func setDefault(t *testing.T, h slog.Handler) {
+	prev, prevOut, prevFlags := slog.Default(), log.Writer(), log.Flags()
+	slog.SetDefault(slog.New(h))
+	t.Cleanup(func() { slog.SetDefault(prev); log.SetOutput(prevOut); log.SetFlags(prevFlags) })
+}
+
+// byNsp maps the nsp of each record msg to the value of its attribute key (nil if absent).
+func (h *recordingHandler) byNsp(msg, key string) map[string]any {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := map[string]any{}
+	for _, r := range h.recs {
+		m := map[string]slog.Value{}
+		r.Attrs(func(a slog.Attr) bool { m[a.Key] = a.Value; return true })
+		if r.Message == msg {
+			out[m["nsp"].String()] = m[key].Any()
+		}
+	}
+	return out
 }
 
 // since returns the records kept after the first n.
@@ -277,6 +298,131 @@ func TestUnhandledErrorRecords(t *testing.T) {
 				nsps = append(nsps, m["nsp"])
 			}
 			require.Equal(t, tc.nsps, nsps)
+		})
+	}
+}
+
+// Covers 1L-T10 (S).
+func TestNamespaceRecords(t *testing.T) {
+	refused := errors.New("refused")
+	fail := func(nsp string, n int, err error) hooks { // OnConnect of nsp emits n packets and returns err
+		return hooks{connect: func(c Conn) error {
+			if c.Namespace() == nsp {
+				flood(c, n)
+				return err
+			}
+			return nil
+		}}
+	}
+	for _, tc := range []struct {
+		name        string
+		h           hooks
+		run         func(t *testing.T, p *peer)
+		connects    map[string]error // the err of each namespace connect record
+		disconnects map[string]any   // the reason of each disconnect record
+	}{
+		{"connect and disconnect", hooks{}, func(t *testing.T, p *peer) {
+			p.connect(t).join(t, "/chat")
+			p.join(t, "/b")
+			p.send(t, `1/chat,["bye"]`)
+			recv(t, p.discs, "OnDisconnect of /chat")
+			close(p.fc.peerGone)
+			p.disconnected(t, "/") // /b has no OnDisconnect
+		}, map[string]error{"/": nil, "/chat": nil, "/b": nil},
+			map[string]any{"/": "connection close", "/chat": "namespace disconnect", "/b": "connection close"}},
+		{"root OnConnect fails", fail("/", 0, refused), func(t *testing.T, p *peer) {
+			p.connect(t).disconnected(t, "/")
+		}, map[string]error{"/": refused}, map[string]any{"/": "connection close"}},
+		{"OnConnect of /chat fails", fail("/chat", 0, refused), func(t *testing.T, p *peer) {
+			p.connect(t).send(t, "0/chat")
+			p.disconnected(t, "/", "/chat")
+		}, map[string]error{"/": nil, "/chat": refused},
+			map[string]any{"/": "connection close", "/chat": "connection close"}},
+		{"overflow in root OnConnect", fail("/", defaultWriteBufferSize+1, nil), func(t *testing.T, p *peer) {
+			p.connect(t).disconnected(t, "/")
+		}, map[string]error{"/": ErrWriteBufferFull}, map[string]any{"/": "connection close"}},
+		{"overflow in a failing root OnConnect", fail("/", defaultWriteBufferSize+1, refused), func(t *testing.T, p *peer) {
+			p.connect(t).disconnected(t, "/")
+		}, map[string]error{"/": errors.Join(ErrWriteBufferFull, refused)}, map[string]any{"/": "connection close"}},
+		{"overflow in OnConnect of /chat", fail("/chat", defaultWriteBufferSize+1, nil), func(t *testing.T, p *peer) {
+			p.connect(t).stall(t, p.nc, 0) // so that the writer cannot drain the queue
+			p.send(t, "0/chat")
+			p.disconnected(t, "/", "/chat")
+		}, map[string]error{"/": nil, "/chat": nil}, map[string]any{"/": "connection close", "/chat": "connection close"}},
+		{"CONNECT after a draining Close", hooks{}, func(t *testing.T, p *peer) {
+			p.connect(t).stall(t, p.nc, 0) // the drain waits for the writer
+			require.NoError(t, p.Close())
+			p.send(t, "0/chat")
+			p.send(t, ev("x")) // returns once the CONNECT is handled
+		}, map[string]error{"/": nil}, map[string]any{"/": "connection close"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &recordingHandler{}
+			setDefault(t, rec)
+			p := newPeer(t, 'S', tc.h, "/chat", "/b")
+			p.srv.getNamespace("/b").onDisconnect = nil
+			p.srv.getNamespace("/chat").onError = nil
+			tc.run(t, p)
+
+			connects := rec.byNsp("socketio: namespace connect", "err")
+			require.Len(t, connects, len(tc.connects))
+			for nsp, want := range tc.connects {
+				err, _ := connects[nsp].(error)
+				require.Equal(t, want == nil, err == nil, nsp)
+				for _, w := range []error{refused, ErrWriteBufferFull} {
+					require.Equal(t, errors.Is(want, w), errors.Is(err, w), "%s: %v", nsp, err)
+				}
+			}
+			require.Equal(t, tc.disconnects, rec.byNsp("socketio: disconnect", "reason"))
+			rec.mu.Lock()
+			for _, r := range rec.recs {
+				r.Attrs(func(a slog.Attr) bool { return assert.NotContains(t, a.Value.String(), "bye", "peer text") })
+			}
+			rec.mu.Unlock()
+			if tc.name == "overflow in OnConnect of /chat" {
+				require.Eventually(t, func() bool { return len(rec.byNsp("socketio: unhandled error", "err")) == 1 },
+					waitFor, time.Millisecond)
+				require.Contains(t, rec.byNsp("socketio: unhandled error", "err"), "/chat")
+			}
+		})
+	}
+}
+
+// Covers 1L-T13 (P, W).
+func TestPingTimeoutRecords(t *testing.T) {
+	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
+		t.Run(tr.Name(), func(t *testing.T) {
+			opts := &engineio.Options{PingTimeout: 100 * time.Millisecond}
+			rec := captureLogs(t, opts)
+			srv := NewServer(opts)
+			connected := make(chan Conn, 1)
+			srv.OnConnect("/", func(c Conn) error { connected <- c; return nil })
+			go func() { _ = srv.Serve() }()
+			t.Cleanup(func() { _ = srv.Close() })
+			ts := httptest.NewServer(srv)
+			t.Cleanup(ts.Close)
+
+			if tr == polling.Default { // only the handshake request
+				resp, err := http.Get(ts.URL + "/?EIO=3&transport=polling")
+				require.NoError(t, err)
+				require.NoError(t, resp.Body.Close())
+			} else {
+				u, err := url.Parse(ts.URL + "/?EIO=3")
+				require.NoError(t, err)
+				c, err := tr.Dial(u, nil)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = c.Close() })
+			}
+			require.Eventually(t, func() bool {
+				return len(only(rec.since(0), "engineio: session close")) == 1 && len(only(rec.since(0), "socketio: disconnect")) == 1
+			}, waitFor, time.Millisecond)
+			recs := rec.since(0)
+			require.Empty(t, loud(recs, ""))
+			require.Equal(t, "ping timeout", only(recs, "engineio: session close")[0]["reason"])
+			require.Equal(t, "connection close", only(recs, "socketio: disconnect")[0]["reason"])
+			_, hasErr := only(recs, "socketio: namespace connect")[0]["err"]
+			require.Equal(t, tr == polling.Default, hasErr, "a namespace connect err")
+			require.Equal(t, tr == polling.Default, len(connected) == 0, "root OnConnect calls")
 		})
 	}
 }

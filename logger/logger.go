@@ -2,6 +2,14 @@
 // library and the fallback logger for packages that cannot reach
 // engineio.Options.Logger.
 //
+// # Variables
+//
+// Log is the fallback logger: the parser, the transports, engineio/packet and
+// the client dialer log through it, and it writes to whatever slog.Default()
+// is when a record is logged. Level is the library log level described below.
+// To route library records, pass a logger as engineio.Options.Logger or call
+// slog.SetDefault; assigning Log bypasses Wrap.
+//
 // # Runtime level
 //
 // The environment variable SOCKETIO_LOG_LEVEL is read once at program start.
@@ -9,19 +17,52 @@
 // is set, Level decides which library records are enabled, regardless of the
 // level configured on the application's handler, so an operator can turn on
 // debug output of a running deployment without a rebuild. When it is unset,
-// the application's handler decides. An invalid value logs one WARN and
-// behaves as unset. Applications can change Level at runtime with Level.Set,
-// with or without the variable; Level.Set(LevelUnset) hands the decision back
-// to the application's handler.
+// the application's handler decides. An invalid value logs one WARN,
+// "logger: invalid level ignored" with the value under value, and behaves as
+// unset. Applications can change Level at runtime with Level.Set, with or
+// without the variable; Level.Set(LevelUnset) hands the decision back to the
+// application's handler.
 //
 // engineio.Options.Logger chooses where records go; it never chooses the
 // level. Every logger the library uses is passed through Wrap.
 //
 // # Levels
 //
-// The library logs at slog's ERROR, WARN, INFO and DEBUG, plus LevelTrace for
-// per-packet and ping/pong lines. Trace records are always guarded by
-// Enabled, so disabled trace logging does not allocate.
+// The library logs WARN and DEBUG records only; it logs no ERROR or INFO
+// record. WARN marks a failure no caller receives, such as
+// "socketio: unhandled error" or a rejected request. Expected closure (EOF, a
+// closed connection, a peer close, a ping timeout and any failure after a close
+// started), errors also returned to a caller or delivered to an OnError handler,
+// and the boundary records (session open and close, namespace connect,
+// disconnect) are DEBUG. LevelTrace is for per-packet and ping/pong lines,
+// which are guarded by Enabled so that disabled trace logging does not
+// allocate. Records an application logs through the deprecated Error and Info
+// are its own.
+//
+// # Messages and keys
+//
+// Every library record has a constant message matching
+//
+//	^(engineio|socketio|logger): [a-z][a-z0-9 ]*$
+//
+// prefixed engineio for the engineio packages, socketio for the root package,
+// the parser and the Redis broadcast, and logger for this package. Attribute
+// keys come only from this list:
+//
+//   - sid: the engine.io session id
+//   - nsp: the namespace; the root namespace is "/"
+//   - err: the error
+//   - transport: the transport name, following upgrades
+//   - remote_addr: the peer address
+//   - reason: why a request was rejected, a session closed or a namespace
+//     disconnected
+//   - duration: how long a session was open
+//   - event: the event name
+//   - ack_id: the acknowledgement id
+//   - type: the packet type
+//   - value: an invalid setting, such as SOCKETIO_LOG_LEVEL
+//
+// No record carries packet payloads.
 package logger
 
 import (
@@ -184,11 +225,17 @@ func (h *defaultHandler) WithGroup(name string) slog.Handler {
 }
 
 // Error logs msg with err at ERROR through Log. A nil err is logged as such.
+//
+// Deprecated: the library no longer calls Error. Use slog's methods on
+// logger.Log or on the logger passed as engineio.Options.Logger instead.
 func Error(msg string, err error) {
 	Log.Error(msg, "err", err)
 }
 
 // Info logs msg with args at INFO through Log.
+//
+// Deprecated: the library no longer calls Info. Use slog's methods on
+// logger.Log or on the logger passed as engineio.Options.Logger instead.
 func Info(msg string, args ...interface{}) {
 	Log.Info(msg, args...)
 }

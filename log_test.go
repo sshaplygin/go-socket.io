@@ -42,8 +42,9 @@ func setDefault(t *testing.T, h slog.Handler) {
 	t.Cleanup(func() { slog.SetDefault(prev); log.SetOutput(prevOut); log.SetFlags(prevFlags) })
 }
 
-// byNsp maps the nsp of each record msg to the value of its attribute key (nil if absent).
-func (h *recordingHandler) byNsp(msg, key string) map[string]any {
+// byNsp maps the nsp of each record msg to the value of its attribute key (nil if absent);
+// a second record of msg for one nsp, or one at a level other than lvl, fails t.
+func (h *recordingHandler) byNsp(t *testing.T, msg, key string, lvl slog.Level) map[string]any {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	out := map[string]any{}
@@ -51,6 +52,8 @@ func (h *recordingHandler) byNsp(msg, key string) map[string]any {
 		m := map[string]slog.Value{}
 		r.Attrs(func(a slog.Attr) bool { m[a.Key] = a.Value; return true })
 		if r.Message == msg {
+			assert.NotContains(t, out, m["nsp"].String(), "a second %q record", msg)
+			assert.Equal(t, lvl, r.Level, msg)
 			out[m["nsp"].String()] = m[key].Any()
 		}
 	}
@@ -374,7 +377,7 @@ func TestNamespaceRecords(t *testing.T) {
 			p.srv.getNamespace("/chat").onError = nil
 			tc.run(t, p)
 
-			connects := rec.byNsp("socketio: namespace connect", "err")
+			connects := rec.byNsp(t, "socketio: namespace connect", "err", slog.LevelDebug)
 			require.Len(t, connects, len(tc.connects))
 			for nsp, want := range tc.connects {
 				err, _ := connects[nsp].(error)
@@ -383,16 +386,18 @@ func TestNamespaceRecords(t *testing.T) {
 					require.Equal(t, errors.Is(want, w), errors.Is(err, w), "%s: %v", nsp, err)
 				}
 			}
-			require.Equal(t, tc.disconnects, rec.byNsp("socketio: disconnect", "reason"))
+			require.Equal(t, tc.disconnects, rec.byNsp(t, "socketio: disconnect", "reason", slog.LevelDebug))
 			rec.mu.Lock()
 			for _, r := range rec.recs {
 				r.Attrs(func(a slog.Attr) bool { return assert.NotContains(t, a.Value.String(), "bye", "peer text") })
 			}
 			rec.mu.Unlock()
-			if tc.name == "overflow in OnConnect of /chat" {
-				require.Eventually(t, func() bool { return len(rec.byNsp("socketio: unhandled error", "err")) == 1 },
-					waitFor, time.Millisecond)
-				require.Contains(t, rec.byNsp("socketio: unhandled error", "err"), "/chat")
+			if unhandled := func() map[string]any { // exactly one, at WARN
+				return rec.byNsp(t, "socketio: unhandled error", "err", slog.LevelWarn)
+			}; tc.name == "overflow in OnConnect of /chat" {
+				require.Eventually(t, func() bool { return len(unhandled()) == 1 }, waitFor, time.Millisecond)
+				time.Sleep(20 * time.Millisecond) // a second record would come now
+				require.ErrorIs(t, unhandled()["/chat"].(error), ErrWriteBufferFull)
 			}
 		})
 	}

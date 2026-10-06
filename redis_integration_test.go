@@ -3,6 +3,7 @@ package socketio
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"testing"
@@ -110,7 +111,7 @@ func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 		require.Empty(t, drain(p.discs), "OnDisconnect calls")
 		require.Empty(t, drain(p.nilErrs), "a second report")
 		require.Empty(t, drain(p.errs), "a report with a Conn")
-		require.Equal(t, map[string]any{"/": err}, rec.byNsp("socketio: namespace connect", "err"))
+		require.Equal(t, map[string]any{"/": err}, rec.byNsp(t, "socketio: namespace connect", "err", slog.LevelDebug))
 	})
 	t.Run("namespace", func(t *testing.T) {
 		s, rec := miniredis.RunT(t), &recordingHandler{}
@@ -138,7 +139,7 @@ func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 		require.Empty(t, drain(errs), "a second report")
 		require.Empty(t, drain(p.errs), "a report to root OnError")
 		require.Empty(t, drain(p.nilErrs), "a report to root OnError")
-		require.Equal(t, err, rec.byNsp("socketio: namespace connect", "err")["/a"])
+		require.Equal(t, err, rec.byNsp(t, "socketio: namespace connect", "err", slog.LevelDebug)["/a"])
 	})
 }
 

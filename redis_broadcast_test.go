@@ -53,14 +53,15 @@ func newTestRedisBroadcast(t *testing.T, s *miniredis.Miniredis) *redisBroadcast
 	bc, err := newRedisBroadcast("/", &RedisAdapterOptions{Addr: s.Addr(), Prefix: "socket.io", Network: "tcp"})
 	require.NoError(t, err)
 	t.Cleanup(bc.close)
-	waitRedisSubscribers(t, s, before+1)
+	waitRedisSubscribers(t, s, testRedisReqChannel, before+1)
 	return bc
 }
 
-func waitRedisSubscribers(t *testing.T, s *miniredis.Miniredis, n int) {
+// waitRedisSubscribers waits until channel has n subscribers on s.
+func waitRedisSubscribers(t *testing.T, s *miniredis.Miniredis, channel string, n int) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		return s.PubSubNumSub(testRedisReqChannel)[testRedisReqChannel] == n
+		return s.PubSubNumSub(channel)[channel] == n
 	}, 2*time.Second, 5*time.Millisecond)
 }
 
@@ -228,7 +229,7 @@ func TestRedisBroadcastRequestTimeout(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = silent.Close() })
 	require.NoError(t, redis.PubSubConn{Conn: silent}.Subscribe(testRedisReqChannel))
-	waitRedisSubscribers(t, s, 2)
+	waitRedisSubscribers(t, s, testRedisReqChannel, 2)
 	a.Join("room", newRedisTestConn("a1"))
 
 	done := make(chan struct{})
@@ -318,7 +319,7 @@ func TestRedisBroadcastResubscribesAfterRestart(t *testing.T) {
 	s.Close()
 	time.Sleep(3 * redisReconnectMax)
 	require.NoError(t, s.Restart())
-	waitRedisSubscribers(t, s, 2)
+	waitRedisSubscribers(t, s, testRedisReqChannel, 2)
 
 	// The first publish on a pooled connection opened before the restart
 	// fails; later ones dial again.
@@ -335,7 +336,7 @@ func TestRedisBroadcastResubscribesAfterRestart(t *testing.T) {
 
 	// close stops the dispatcher instead of making it subscribe again.
 	a.close()
-	waitRedisSubscribers(t, s, 1)
+	waitRedisSubscribers(t, s, testRedisReqChannel, 1)
 	time.Sleep(4 * redisReconnectMax)
 	require.Equal(t, 1, s.PubSubNumSub(testRedisReqChannel)[testRedisReqChannel])
 }
@@ -358,14 +359,14 @@ func TestRedisBroadcastCloseDuringResubscribe(t *testing.T) {
 	a.subLock.Lock()
 	s.Close()
 	require.NoError(t, s.Restart())
-	waitRedisSubscribers(t, s, 1)
+	waitRedisSubscribers(t, s, testRedisReqChannel, 1)
 	// The steps of close, which would wait for subLock.
 	close(a.done)
 	_ = a.sub.Close()
 	_ = a.pub.Close()
 	a.subLock.Unlock()
 
-	waitRedisSubscribers(t, s, 0)
+	waitRedisSubscribers(t, s, testRedisReqChannel, 0)
 	time.Sleep(4 * redisReconnectMax)
 	require.Equal(t, 0, s.PubSubNumSub(testRedisReqChannel)[testRedisReqChannel])
 }

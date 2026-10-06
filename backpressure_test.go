@@ -283,7 +283,9 @@ func flood(c Conn, n int) {
 }
 
 // TestBackpressureStalledMemberDoesNotBlockRoom runs 1B-T1 with the in-memory
-// broadcast and, as 1I-T1, with the Redis broadcast.
+// broadcast and, as 1I-T1, with the Redis broadcast. The Redis subscription registers
+// 50 ms late, and the test waits for it: RoomLen counts only the instances subscribed
+// when it asks.
 //
 // Covers 1B-T1 (S).
 // Covers 1I-T1 (S).
@@ -291,11 +293,16 @@ func TestBackpressureStalledMemberDoesNotBlockRoom(t *testing.T) {
 	for _, adapter := range []string{"memory", "redis"} {
 		t.Run(adapter, func(t *testing.T) {
 			h := hooks{connect: func(c Conn) error { c.Join("r"); return nil }}
+			var s *miniredis.Miniredis
 			if adapter == "redis" {
-				s := miniredis.RunT(t)
+				s = miniredis.RunT(t)
+				delayRedisSubscriptions(t, s, 50*time.Millisecond)
 				h.setup = func(srv *Server) { useRedis(t, srv, s.Addr()) }
 			}
 			p := start(t, 'S', h)
+			if s != nil { // RoomLen asks the instances subscribed to the root namespace
+				waitRedisSubscribers(t, s, "socket.io-request#", 1)
+			}
 			healthy := newFakeConn(t)
 			p.srv.serveConn(healthy)
 			require.Equal(t, "0", recv(t, healthy.out, "the healthy member's CONNECT"))

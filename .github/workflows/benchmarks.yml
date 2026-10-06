@@ -59,6 +59,8 @@ jobs:
     if: needs.changes.outputs.changed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      gate: ${{ steps.generate.outputs.gate }}
     env:
       GOTOOLCHAIN: local
     steps:
@@ -80,65 +82,88 @@ jobs:
           cache-dependency-path: |
             base/go.sum
             pr/go.sum
-      - name: Install benchstat
-        run: go install golang.org/x/perf/cmd/benchstat@v0.0.0-20251023143056-3684bd442cc8
       - name: Benchmark base
         working-directory: base
         run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... | tee ../base.txt
       - name: Benchmark PR
         working-directory: pr
         run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... | tee ../pr.txt
-      - name: Render comparison
+      - name: Record completed inputs
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           grep -Eq '^Benchmark[^[:space:]]*[[:space:]]+[0-9]+[[:space:]]' base.txt
           grep -Eq '^Benchmark[^[:space:]]*[[:space:]]+[0-9]+[[:space:]]' pr.txt
-          benchstat base.txt pr.txt > comparison.txt
-          go run pr/.github/benchmarks/report/main.go base.txt pr.txt comparison.txt \
-            "$BASE_SHA" "$HEAD_SHA" > benchmark-report.md
-          cat benchmark-report.md >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload results
-        if: always()
-        uses: actions/upload-artifact@v4
+          toolchain=$(go env GOVERSION)
+          goos=$(go env GOOS)
+          goarch=$(go env GOARCH)
+          command="go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./..."
+          for side in base head; do
+            revision=$BASE_SHA
+            file=base.txt
+            if [[ "$side" == head ]]; then revision=$HEAD_SHA; file=pr.txt; fi
+            jq -n --arg revision "$revision" --arg file "$file" \
+              --arg toolchain "$toolchain" --arg os "$goos" --arg arch "$goarch" --arg command "$command" \
+              '{schema_version:1,revision:$revision,
+                environment:{toolchain:$toolchain,os:$os,arch:$arch,runner:"github-hosted:ubuntu-24.04"},
+                expected_suites:["go"],suites:[{id:"go",parser:{name:"go",version:"1"},command:$command,files:[$file]}]}' \
+              > "$side-manifest.json"
+          done
+      - name: Generate report and offline replay bundle
+        id: generate
+        uses: sshaplygin/benchmark-report/report@f71129f2bebcf57f953b27607b7d8bb8c23afae9 # v0.1.0
+        with:
+          parser: go
+          base-manifest: base-manifest.json
+          head-manifest: head-manifest.json
+          config: pr/.github/benchmarks/benchmark-report.json
+          comment-header: go-socket.io-benchmarks
+      - name: Upload complete report bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: go-benchmarks
+          path: ${{ steps.generate.outputs.artifact-path }}
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve raw logs on benchmark or generation failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: go-benchmark-failed-logs
           path: |
             base.txt
             pr.txt
-            comparison.txt
-            benchmark-report.md
+          if-no-files-found: warn
           retention-days: 14
 
   report:
     name: Publish benchmark comparison
     needs: compare
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+    if: ${{ !cancelled() && needs.compare.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       actions: read
       pull-requests: write
     steps:
-      - uses: actions/download-artifact@v4
+      # This job executes no PR checkout, benchmark code, or artifact executable.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: go-benchmarks
-      - uses: actions/github-script@v7
+          path: bundle
+      - name: Summarize complete results for every PR
+        uses: sshaplygin/benchmark-report@f71129f2bebcf57f953b27607b7d8bb8c23afae9 # v0.1.0
         with:
-          script: |
-            const fs = require('fs');
-            const body = fs.readFileSync('benchmark-report.md', 'utf8');
-            const marker = '<!-- go-socket.io:benchmark-comparison -->';
-            const { owner, repo } = context.repo;
-            const issue_number = context.issue.number;
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner, repo, issue_number,
-            });
-            const existing = comments.find(comment =>
-              comment.user.login === 'github-actions[bot]' && comment.body.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-            } else {
-              await github.rest.issues.createComment({ owner, repo, issue_number, body });
-            }
+          report-path: bundle/report.md
+          header: go-socket.io-benchmarks
+          publish: 'false'
+      - name: Publish bounded comment when eligible
+        uses: sshaplygin/benchmark-report@f71129f2bebcf57f953b27607b7d8bb8c23afae9 # v0.1.0
+        with:
+          report-path: bundle/comment.md
+          header: go-socket.io-benchmarks
+          summary: 'false'
+      - name: Apply regression gate after upload and publication
+        if: needs.compare.outputs.gate == 'failed'
+        run: exit 1

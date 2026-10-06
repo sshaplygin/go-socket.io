@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -18,6 +19,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -44,9 +46,11 @@ func (h *attrRecorder) since(n int) []map[string]string {
 func (h *attrRecorder) len() int { return len(h.since(0)) }
 
 // loud returns the records that the module's code logged above DEBUG, other than msg.
+// Function names escape the dot of the root package path as %2e.
 func loud(recs []map[string]string, msg string) (out []map[string]string) {
 	for _, m := range recs {
-		if strings.HasPrefix(m["func"], "github.com/sshaplygin/go-socket.io") && m["msg"] != msg &&
+		fn := strings.ReplaceAll(m["func"], "%2e", ".")
+		if strings.HasPrefix(fn, "github.com/sshaplygin/go-socket.io") && m["msg"] != msg &&
 			m["level"] != slog.LevelDebug.String() && m["level"] != "DEBUG-4" {
 			out = append(out, m)
 		}
@@ -167,5 +171,112 @@ func TestRequestRejectedRecords(t *testing.T) {
 		for _, m := range recs {
 			require.NotContains(t, m["msg"], "superfluous", tc.reason)
 		}
+	}
+}
+
+// faultConn is a fakeConn whose first frame read fails after "2" with readErr, and whose
+// frame writers fail on Write with writeErr or on Close with closeErr.
+type faultConn struct {
+	*fakeConn
+	readErr, writeErr, closeErr error
+}
+
+func (c faultConn) NextReader() (session.FrameType, io.ReadCloser, error) {
+	if c.readErr == nil {
+		return c.fakeConn.NextReader()
+	}
+	return session.TEXT, io.NopCloser(io.MultiReader(strings.NewReader("2"), iotest.ErrReader(c.readErr))), nil
+}
+
+func (c faultConn) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
+	if c.writeErr == nil && c.closeErr == nil {
+		return c.fakeConn.NextWriter(ft)
+	}
+	return faultWriter{c}, nil
+}
+
+type faultWriter struct{ c faultConn }
+
+func (w faultWriter) Write(p []byte) (int, error) {
+	if w.c.writeErr != nil {
+		return 0, w.c.writeErr
+	}
+	return len(p), nil
+}
+
+func (w faultWriter) Close() error { return w.c.closeErr }
+
+// Covers 1L-T8 (S).
+func TestUnhandledErrorRecords(t *testing.T) {
+	failed, refused := errors.New("frame failed"), errors.New("refused")
+	boom := map[string]interface{}{"boom": func(Conn) { panic("boom") }, "num": func(Conn, int) {}}
+	for _, tc := range []struct {
+		name  string
+		keep  bool // OnError stays registered
+		fault faultConn
+		h     hooks
+		nsps  []string // of the expected "socketio: unhandled error" WARNs
+		run   func(t *testing.T, p *peer)
+	}{
+		{name: "peer close reaches OnError as io.EOF", keep: true, run: func(t *testing.T, p *peer) {
+			close(p.fc.peerGone)
+			require.True(t, recv(t, p.errs, "the report").err == io.EOF)
+		}},
+		{name: "peer close", run: func(t *testing.T, p *peer) { close(p.fc.peerGone) }},
+		{name: "mid-frame failure reaches OnError unchanged", keep: true, fault: faultConn{readErr: failed},
+			run: func(t *testing.T, p *peer) { require.True(t, recv(t, p.errs, "the report").err == failed) }},
+		{name: "handler panic with OnError", keep: true, h: hooks{events: boom}, run: func(t *testing.T, p *peer) {
+			p.send(t, ev("boom"))
+			recv(t, p.errs, "the report")
+		}},
+		{name: "handler panic", h: hooks{events: boom}, nsps: []string{"/"},
+			run: func(t *testing.T, p *peer) { p.send(t, ev("boom")) }},
+		{name: "connect without handlers", nsps: []string{"/nope"},
+			run: func(t *testing.T, p *peer) { p.send(t, "0/nope") }},
+		{name: "overflow", nsps: []string{"/a"}, run: func(t *testing.T, p *peer) {
+			p.stall(t, p.join(t, "/a"), defaultWriteBufferSize+1)
+		}},
+		{name: "overflow in a failing OnConnect", nsps: []string{"/", "/"}, h: hooks{connect: func(c Conn) error {
+			flood(c, defaultWriteBufferSize+1)
+			return refused
+		}}},
+		{name: "argument decode error", h: hooks{events: boom}, nsps: []string{"/"},
+			run: func(t *testing.T, p *peer) { p.send(t, `2["num","x"]`) }},
+		{name: "unmarshalable argument", nsps: []string{"/a"},
+			run: func(t *testing.T, p *peer) { p.join(t, "/a").Emit("bad", make(chan int)) }},
+		{name: "frame Write fails", fault: faultConn{writeErr: failed}},
+		{name: "frame Close fails", fault: faultConn{closeErr: failed}},
+		{name: "invalid packet type", nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "9") }},
+		{name: "empty frame", nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "") }},
+		{name: "EVENT without data", nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "2") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := captureLogs(t, &engineio.Options{})
+			p := newPeer(t, 'S', tc.h, "/a")
+			for _, nsp := range []string{"/", "/a"} {
+				if !tc.keep {
+					p.srv.getNamespace(nsp).onError = nil
+				}
+			}
+			tc.fault.fakeConn = p.fc
+			p.srv.serveConn(tc.fault)
+			if tc.run != nil {
+				p.nc = recv(t, p.conns, "root OnConnect")
+				tc.run(t, p)
+				recv(t, p.conn().done, "the close") // except with closeErr, where nothing closes
+			}
+			var got []map[string]string
+			require.Eventually(t, func() bool { got = loud(rec.since(0), ""); return len(got) >= len(tc.nsps) },
+				waitFor, time.Millisecond)
+			time.Sleep(20 * time.Millisecond) // a second record would come now
+			got = loud(rec.since(0), "")
+			var nsps []string
+			for _, m := range got {
+				require.Equal(t, "socketio: unhandled error", m["msg"])
+				require.Equal(t, "WARN", m["level"])
+				nsps = append(nsps, m["nsp"])
+			}
+			require.Equal(t, tc.nsps, nsps)
+		})
 	}
 }

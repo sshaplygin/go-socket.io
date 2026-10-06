@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/iotest"
 	"time"
@@ -208,9 +209,11 @@ func TestRequestRejectedRecords(t *testing.T) {
 
 // faultConn is a fakeConn whose first frame read fails after "2" with readErr, whose
 // frame writers fail on Write with writeErr, and whose frames fail on Close with closeErr.
+// With armed set, its writers fail only once armed is true.
 type faultConn struct {
 	*fakeConn
 	readErr, writeErr, closeErr error
+	armed                       *atomic.Bool
 }
 
 func (c faultConn) NextReader() (session.FrameType, io.ReadCloser, error) {
@@ -225,7 +228,7 @@ func (c faultConn) NextReader() (session.FrameType, io.ReadCloser, error) {
 }
 
 func (c faultConn) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
-	if c.writeErr == nil && c.closeErr == nil {
+	if c.writeErr == nil && c.closeErr == nil || c.armed != nil && !c.armed.Load() {
 		return c.fakeConn.NextWriter(ft)
 	}
 	return faultWriter{c}, nil
@@ -246,6 +249,7 @@ func (w faultWriter) Close() error { return w.c.closeErr }
 func TestUnhandledErrorRecords(t *testing.T) {
 	failed, refused := errors.New("frame failed"), errors.New("refused")
 	boom := map[string]interface{}{"boom": func(Conn) { panic("boom") }, "num": func(Conn, int) {}}
+	armed := new(atomic.Bool)
 	for _, tc := range []struct {
 		name  string
 		keep  bool // OnError stays registered
@@ -285,6 +289,8 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			p.nc.Emit("x")
 		}},
 		{name: "frame Write fails", fault: faultConn{writeErr: failed}},
+		{name: "frame Write fails after connect", fault: faultConn{writeErr: failed, armed: armed},
+			run: func(t *testing.T, p *peer) { armed.Store(true); p.nc.Emit("x") }},
 		{name: "frame Close fails", fault: faultConn{closeErr: failed}},
 		{name: "frame Close fails, then a handler panic", fault: faultConn{closeErr: failed}, h: hooks{events: boom},
 			nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, ev("boom")) }},

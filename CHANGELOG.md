@@ -99,6 +99,12 @@ All notable changes to this project are documented here. The format follows
   once per failed session initialisation. `reason` is `bad transport`, `checker`,
   `unknown sid`, `accept`, `init` or `bad upgrade`; the failed initialisation was logged
   as `init new session` at ERROR (roadmap task 1.L).
+- `socketio: unhandled error` (WARN, `sid`, `nsp`, `err`): an error that no `OnError`
+  receives, such as a CONNECT to a namespace without handlers, a decode or dispatch
+  error, a marshal error in `Encode` or an overflow (`nsp` is the overflowing packet's
+  namespace), was dropped silently. It is logged once unless it is expected closure: a
+  failure of the engine.io frame reader or writer, a peer close or a ping timeout, or any
+  failure after a close started (roadmap task 1.L).
 - `engineio.Options.WriteBufferSize` (temporary v1 placement) and `ErrWriteBufferFull`:
   each connection queues at most that many outbound packets (default 64). See
   [`engineio.Options`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master/engineio#Options)
@@ -164,6 +170,15 @@ All notable changes to this project are documented here. The format follows
   failure with `fmt.Printf`: the client gets the 400 or has gone
   (`engineio/transport/polling/server.go:131`, `:137`, `:144`, `:145` at `1151bad`,
   roadmap task 1.L).
+- socket.io and parser records: messages are constants such as
+  `socketio: event decode failed`; the `namespace` key is `nsp` (the root namespace is
+  `/`), `id` is `ack_id` and `argTypes` is no longer logged. Records of an error that is
+  also reported to `OnError`, logged as unhandled or returned, and the parser's frame
+  failures, are DEBUG instead of ERROR or INFO; an emit before the client's namespace is
+  connected, an ACK callback of the wrong type and an EVENT for a namespace without
+  handler are WARN instead of INFO (`connection_handlers.go:27`-`:216`, `server.go:348`,
+  `:371`, `client.go:117`, `parser/decoder.go:333`, `parser/encoder.go:31`-`:209` at
+  `1151bad`, roadmap task 1.L).
 
 ## v1.4.2 and earlier
 

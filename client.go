@@ -114,7 +114,7 @@ func (c *Client) Emit(event string, args ...interface{}) {
 		nsConn, ok = newNamespaceConn(c.conn, c.namespace, nil), true
 	}
 	if !ok {
-		c.log.Info("emit before namespace connected", "namespace", c.namespace, "event", event)
+		c.log.Warn("socketio: emit before connect", nspAttr(c.namespace), "event", event)
 		return
 	}
 

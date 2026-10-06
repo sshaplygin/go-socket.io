@@ -325,8 +325,8 @@ func (c *conn) serveWrite() {
 			seal = nil
 		case pkg := <-c.writeChan:
 			if err := c.encoder.Encode(pkg.Header, pkg.Data); err != nil {
-				c.onError(pkg.Header.Namespace, err) // not once a close started
-				c.stop()                             // also ends a drain
+				c.report(pkg.Header.Namespace, err, c.writer.failed) // not once a close started
+				c.stop()                                             // also ends a drain
 			}
 		}
 		if seal == nil && len(c.writeChan) == 0 {
@@ -345,7 +345,7 @@ func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
 		var header parser.Header
 
 		if err := c.decoder.DecodeHeader(&header, &event); err != nil {
-			c.log.Error("decode packet header", "err", err)
+			c.log.Debug("socketio: header decode failed", "err", err)
 			c.onError(rootNamespace, err)
 			return
 		}
@@ -368,7 +368,7 @@ func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
 		}
 
 		if err != nil && !closed {
-			c.log.Error("serve read", "err", err)
+			c.log.Debug("socketio: read stopped", "err", err)
 
 			return
 		}

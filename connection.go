@@ -73,6 +73,8 @@ type conn struct {
 
 	encoder *parser.Encoder
 	decoder *parser.Decoder
+	reader  *frameReader // tells the decoder's transport failures apart
+	writer  *queueWriter // tells the encoder's transport failures apart
 
 	writeChan chan parser.Payload
 	errorChan chan error
@@ -83,7 +85,7 @@ type conn struct {
 	mu                           sync.Mutex
 	closing, seal, discard, done chan struct{}
 	draining, connecting         bool             // the first close is Close; until connected
-	overflow                     *namespaceConn   // the first close is its overflow; see errConn
+	overflow                     *namespaceConn   // the first close is its overflow, in this namespace
 	pending                      []*namespaceConn // OnDisconnect calls a library close owes
 	drainTimer                   *time.Timer
 	drainTimeout                 time.Duration // tests shorten it
@@ -93,7 +95,6 @@ func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connL
 	c := &conn{
 		log:        log,
 		Conn:       engineConn,
-		decoder:    parser.NewDecoder(engineConn),
 		errorChan:  make(chan error),
 		writeChan:  make(chan parser.Payload, limits.writeBufferSize),
 		handlers:   handlers,
@@ -103,7 +104,9 @@ func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connL
 		discard:    make(chan struct{}),
 		done:       make(chan struct{}),
 	}
-	c.encoder, c.drainTimeout, c.connecting = parser.NewEncoder(queueWriter{c}), limits.drainTimeout, true
+	c.reader, c.writer = &frameReader{FrameReader: engineConn}, &queueWriter{c: c}
+	c.decoder, c.encoder = parser.NewDecoder(c.reader), parser.NewEncoder(c.writer)
+	c.drainTimeout, c.connecting = limits.drainTimeout, true
 	return c
 }
 
@@ -219,6 +222,8 @@ func (c *conn) connect() error {
 func (c *conn) connected(err error) bool {
 	if root := c.namespace(rootNamespace); err != nil && root != nil && root.onError != nil {
 		root.onError(nil, err)
+	} else if err != nil && !c.writer.failed {
+		c.unhandled(rootNamespace, err)
 	}
 	c.mu.Lock()
 	failed := err != nil || isDone(c.closing) && !c.draining
@@ -258,7 +263,9 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 	case len(c.writeChan) < cap(c.writeChan):
 		c.writeChan <- pkg
 	case !isDone(c.closing):
-		c.overflow = c.errConn(header.Namespace)
+		if c.overflow = c.errConn(header.Namespace); c.overflow == nil { // reported as unhandled
+			c.overflow = &namespaceConn{conn: c, namespace: header.Namespace}
+		}
 		if c.pending = c.startClose(); !c.connecting { // else serveConn reports first
 			c.stopLocked()
 		}
@@ -267,9 +274,24 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 
 // reportOverflow reports an overflow with conn, nil on a failed connect as in v1.4.
 func (c *conn) reportOverflow(conn Conn) {
-	if c.overflow != nil {
-		c.namespace(fmtNS(c.overflow.namespace)).onError(conn, ErrWriteBufferFull)
+	if c.overflow == nil {
+		return
 	}
+	if nh := c.namespace(fmtNS(c.overflow.namespace)); nh != nil && nh.onError != nil {
+		nh.onError(conn, ErrWriteBufferFull)
+	} else {
+		c.unhandled(c.overflow.namespace, ErrWriteBufferFull)
+	}
+}
+
+// unhandled logs err, which no OnError receives and which is not expected closure.
+func (c *conn) unhandled(nsp string, err error) {
+	c.log.Warn("socketio: unhandled error", nspAttr(nsp), "err", err)
+}
+
+// nspAttr is the nsp attribute of namespace nsp; the root namespace is "/".
+func nspAttr(nsp string) slog.Attr {
+	return slog.String("nsp", cmp.Or(nsp, aliasRootNamespace))
 }
 
 // errConn returns the Conn to report an error of nsp with (new if nsp was disconnected), or nil.
@@ -282,15 +304,66 @@ func (c *conn) errConn(nsp string) (nc *namespaceConn) {
 	return nc
 }
 
-// queueWriter starts no packet (its TEXT frame) once the queue is discarded.
-type queueWriter struct{ c *conn }
+// queueWriter starts no packet (its TEXT frame) once the queue is discarded. failed tells
+// whether NextWriter or the frame writer it returned failed since the last NextWriter.
+type queueWriter struct {
+	c      *conn
+	failed bool
+}
 
-func (w queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
-	if ft == session.TEXT && isDone(w.c.discard) {
+func (w *queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
+	if w.failed = ft == session.TEXT && isDone(w.c.discard); w.failed {
 		return nil, io.EOF
 	}
-	return w.c.Conn.NextWriter(ft)
+	fw, err := w.c.Conn.NextWriter(ft)
+	if w.failed = err != nil; err != nil {
+		return nil, err
+	}
+	return frameIO{w: fw, c: fw, failed: &w.failed}, nil
 }
+
+// frameReader is queueWriter's counterpart for the decoder.
+type frameReader struct {
+	parser.FrameReader
+	failed bool
+}
+
+func (r *frameReader) NextReader() (session.FrameType, io.ReadCloser, error) {
+	ft, fr, err := r.FrameReader.NextReader()
+	if r.failed = err != nil; err != nil {
+		return ft, fr, err
+	}
+	return ft, frameIO{r: fr, c: fr, failed: &r.failed}, nil
+}
+
+// frameIO is a frame reader or writer that sets *failed when it fails; io.EOF from Read
+// ends the frame. It returns the errors unchanged.
+type frameIO struct {
+	r      io.Reader
+	w      io.Writer
+	c      io.Closer
+	failed *bool
+}
+
+func (f frameIO) mark(err error) error {
+	*f.failed = *f.failed || err != nil
+	return err
+}
+
+func (f frameIO) Read(p []byte) (int, error) {
+	n, err := f.r.Read(p)
+	if err == io.EOF {
+		return n, err
+	}
+	return n, f.mark(err)
+}
+
+func (f frameIO) Write(p []byte) (int, error) {
+	n, err := f.w.Write(p)
+	return n, f.mark(err)
+}
+
+func (f frameIO) Close() error { return f.mark(f.c.Close()) }
 
 func isDone(ch <-chan struct{}) bool {
 	select {
@@ -301,13 +374,25 @@ func isDone(ch <-chan struct{}) bool {
 	}
 }
 
-// onError reports err and waits for OnError, unless a close started.
+// onError reports err of the packet being read (see report); a failure of the frame
+// reader is expected closure.
 func (c *conn) onError(namespace string, err error) {
+	c.report(namespace, err, c.reader.failed)
+}
+
+// report delivers err to OnError of namespace and waits for it, unless a close started.
+// Without OnError, err is logged as unhandled unless it is expected closure.
+func (c *conn) report(namespace string, err error, expected bool) {
 	if isDone(c.closing) {
 		return
 	}
 	msg := newErrorMessage(namespace, err)
-	msg.conn = c.errConn(namespace)
+	if msg.conn = c.errConn(namespace); msg.conn == nil {
+		if !expected {
+			c.unhandled(namespace, err)
+		}
+		return
+	}
 	select {
 	case c.errorChan <- msg:
 		<-msg.done

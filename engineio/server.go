@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/sshaplygin/go-socket.io/engineio/internal"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
@@ -83,7 +84,7 @@ func (s *Server) dropUnaccepted() {
 }
 
 func (s *Server) drop(c *session.Session) {
-	_ = c.Close()
+	_ = internal.Shutdown(c)
 	s.sessions.Remove(c.ID())
 }
 

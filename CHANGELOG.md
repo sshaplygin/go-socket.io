@@ -62,6 +62,11 @@ All notable changes to this project are documented here. The format follows
 - `Server.Close` left the Redis connections and subscriber goroutine of every namespace
   running. See [`Server.Close`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#Server.Close)
   (`server.go:69` at `79a393c`, roadmap task 1I).
+- engineio: after an upgrade switch the session kept the deadline set for the upgrade
+  probe on the new connection, so `PingTimeout` ran from the probe instead of the switch;
+  the session now sets the new connection's deadline again and closes as
+  `transport error` if that fails (`engineio/session/session.go:483` at `1151bad`,
+  roadmap task 1.L).
 
 ### Added
 
@@ -78,6 +83,13 @@ All notable changes to this project are documented here. The format follows
   also carry the current `transport`, updated on upgrade (roadmap stage 1.2a).
 - `logger.Log` writes to whatever `slog.Default()` is at log time, so an application's
   `slog.SetDefault` in `main` applies to library records.
+- engineio: each session of `engineio.Server` logs `engineio: session open` (DEBUG,
+  `sid`, `transport`, `remote_addr`) after its handshake and, exactly once, `engineio:
+  session close` (DEBUG, `sid`, `transport`, `reason`, `duration`, and `err` for a
+  transport error). `reason` is the first cause the session observed: `transport close`
+  (CLOSE packet from the client), `ping timeout`, `transport error` (any other read or
+  write failure, including a peer close), `forced close` (`Close`) or `server shutting
+  down` (`engineio.Server.Close` before `Accept`) (roadmap task 1.L).
 - `engineio.Options.WriteBufferSize` (temporary v1 placement) and `ErrWriteBufferFull`:
   each connection queues at most that many outbound packets (default 64). See
   [`engineio.Options`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master/engineio#Options)

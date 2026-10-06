@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/alicebob/miniredis/v2/server"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,6 +20,25 @@ func useRedis(t *testing.T, srv *Server, addr string) {
 	require.True(t, ok)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = srv.Close() })
+}
+
+// delayRedisSubscriptions holds each PSUBSCRIBE that reaches s, and the commands queued behind it
+// on the same connection, until d after the call. A broadcast subscribes with PSUBSCRIBE first,
+// so its subscription registers late while commands on other connections complete, as a loaded
+// Redis server may do. Call it after miniredis.RunT, so the hold ends before s closes.
+func delayRedisSubscriptions(t *testing.T, s *miniredis.Miniredis, d time.Duration) {
+	t.Helper()
+	release := make(chan struct{})
+	var once sync.Once
+	stop := func() { once.Do(func() { close(release) }) }
+	timer := time.AfterFunc(d, stop)
+	t.Cleanup(func() { timer.Stop(); stop() })
+	s.Server().SetPreHook(func(_ *server.Peer, cmd string, _ ...string) bool {
+		if cmd == "PSUBSCRIBE" {
+			<-release
+		}
+		return false
+	})
 }
 
 // serveAsync runs Serve in a goroutine and returns its result channel.

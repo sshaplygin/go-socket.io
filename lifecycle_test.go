@@ -31,8 +31,11 @@ func recv[T any](t *testing.T, ch <-chan T, what string) T {
 // TestLifecycleRootNamespace drives one Go client through connect, an event
 // with an acknowledgement, room membership and broadcasts, and a
 // server-initiated disconnect.
-func TestLifecycleRootNamespace(t *testing.T) {
-	srv := NewServer(nil)
+func TestLifecycleRootNamespace(t *testing.T) { lifecycleRootNamespace(t, nil) }
+
+// lifecycleRootNamespace runs the TestLifecycleRootNamespace scenario on NewServer(opts).
+func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) {
+	srv := NewServer(opts)
 	connected := make(chan Conn, 1)
 	disconnected := make(chan string, 1)
 	srv.OnConnect("/", func(s Conn) error {

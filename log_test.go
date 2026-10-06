@@ -1,7 +1,9 @@
 package socketio
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"log/slog"
@@ -9,7 +11,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"testing/iotest"
 	"time"
@@ -24,6 +29,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
+	"github.com/sshaplygin/go-socket.io/logger"
 )
 
 // captureLogs sends the records of opts.Logger and of slog.Default to one recorder. It
@@ -445,4 +451,108 @@ func TestPingTimeoutRecords(t *testing.T) {
 			require.Equal(t, tr == polling.Default, len(connected) == 0, "root OnConnect calls")
 		})
 	}
+}
+
+// keyCheck collects the module's records that break the 1.L contract and, per message,
+// the number of sid attributes of each record.
+type keyCheck struct {
+	mu       sync.Mutex
+	problems []string
+	sids     map[string][]int
+}
+
+// keyChecker is the slog.Handler over a keyCheck; WithAttrs keeps the added attributes.
+type keyChecker struct {
+	*keyCheck
+	attrs []slog.Attr
+}
+
+var (
+	msgPattern  = regexp.MustCompile(`^(engineio|socketio|logger): [a-z][a-z0-9 ]*$`)
+	allowedKeys = map[string]bool{"sid": true, "nsp": true, "err": true, "transport": true,
+		"remote_addr": true, "reason": true, "duration": true, "event": true, "ack_id": true,
+		"type": true, "value": true}
+)
+
+func newKeyChecker() *keyChecker {
+	return &keyChecker{keyCheck: &keyCheck{sids: map[string][]int{}}}
+}
+
+func (h *keyChecker) Enabled(context.Context, slog.Level) bool { return true }
+
+// Handle checks the records whose PC is in the module, except in the deprecated
+// logger.Error and logger.Info. A !BADKEY attribute is a key outside the list.
+func (h *keyChecker) Handle(_ context.Context, r slog.Record) error {
+	f, _ := runtime.CallersFrames([]uintptr{r.PC}).Next()
+	fn := strings.ReplaceAll(f.Function, "%2e", ".")
+	const mod = "github.com/sshaplygin/go-socket.io"
+	if !strings.HasPrefix(fn, mod) || fn == mod+"/logger.Error" || fn == mod+"/logger.Info" {
+		return nil
+	}
+	attrs := append([]slog.Attr(nil), h.attrs...)
+	r.Attrs(func(a slog.Attr) bool { attrs = append(attrs, a); return true })
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	bad := func(what string) { h.problems = append(h.problems, fmt.Sprintf("%s: %q from %s", what, r.Message, fn)) }
+	if !msgPattern.MatchString(r.Message) {
+		bad("message outside the pattern")
+	}
+	if r.Level != slog.LevelWarn && r.Level > slog.LevelDebug {
+		bad("level " + r.Level.String())
+	}
+	sids := 0
+	for _, a := range attrs {
+		if !allowedKeys[a.Key] {
+			bad("key " + a.Key)
+		}
+		if a.Key == "sid" {
+			sids++
+		}
+	}
+	h.sids[r.Message] = append(h.sids[r.Message], sids)
+	return nil
+}
+
+func (h *keyChecker) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &keyChecker{keyCheck: h.keyCheck, attrs: append(append([]slog.Attr(nil), h.attrs...), attrs...)}
+}
+
+func (h *keyChecker) WithGroup(string) slog.Handler { return h }
+
+func (h *keyCheck) result(msg string) (problems []string, sids []int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append(problems, h.problems...), append(sids, h.sids[msg]...)
+}
+
+// TestNoBadKeyAttrs runs the TestLifecycleRootNamespace scenario at trace with checking
+// handlers on Options.Logger and slog.Default.
+//
+// Covers 1L-T11 (S).
+func TestNoBadKeyAttrs(t *testing.T) {
+	inst, def := newKeyChecker(), newKeyChecker()
+	setDefault(t, def)
+	prev := logger.Level.Level()
+	logger.Level.Set(logger.LevelTrace)
+	t.Cleanup(func() { logger.Level.Set(prev) })
+
+	lifecycleRootNamespace(t, &engineio.Options{Logger: slog.New(inst)})
+	require.Eventually(t, func() bool {
+		_, sids := inst.result("socketio: disconnect")
+		return len(sids) > 0
+	}, waitFor, 10*time.Millisecond)
+
+	// The Go client's CONNECT to / follows the server's own root connect: two records.
+	for _, msg := range []string{"engineio: session open", "socketio: namespace connect", "socketio: disconnect"} {
+		_, sids := inst.result(msg)
+		assert.NotEmpty(t, sids, msg)
+		for _, n := range sids {
+			assert.Equal(t, 1, n, "sid attributes of %q", msg)
+		}
+	}
+	problems, _ := inst.result("")
+	assert.Empty(t, problems, "instance logger")
+	problems, _ = def.result("")
+	assert.Empty(t, problems, "slog.Default")
 }

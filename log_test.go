@@ -197,8 +197,8 @@ func TestRequestRejectedRecords(t *testing.T) {
 	}
 }
 
-// faultConn is a fakeConn whose first frame read fails after "2" with readErr, and whose
-// frame writers fail on Write with writeErr or on Close with closeErr.
+// faultConn is a fakeConn whose first frame read fails after "2" with readErr, whose
+// frame writers fail on Write with writeErr, and whose frames fail on Close with closeErr.
 type faultConn struct {
 	*fakeConn
 	readErr, writeErr, closeErr error
@@ -206,7 +206,11 @@ type faultConn struct {
 
 func (c faultConn) NextReader() (session.FrameType, io.ReadCloser, error) {
 	if c.readErr == nil {
-		return c.fakeConn.NextReader()
+		ft, r, err := c.fakeConn.NextReader()
+		return ft, struct {
+			io.Reader
+			io.Closer
+		}{r, faultWriter{c}}, err
 	}
 	return session.TEXT, io.NopCloser(io.MultiReader(strings.NewReader("2"), iotest.ErrReader(c.readErr))), nil
 }
@@ -269,6 +273,10 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			run: func(t *testing.T, p *peer) { p.join(t, "/a").Emit("bad", make(chan int)) }},
 		{name: "frame Write fails", fault: faultConn{writeErr: failed}},
 		{name: "frame Close fails", fault: faultConn{closeErr: failed}},
+		{name: "frame Close fails, then a handler panic", fault: faultConn{closeErr: failed}, h: hooks{events: boom},
+			nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, ev("boom")) }},
+		{name: "frame Close fails, then OnConnect fails", fault: faultConn{closeErr: failed}, nsps: []string{"/"},
+			h: hooks{connect: func(Conn) error { return refused }}},
 		{name: "invalid packet type", nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "9") }},
 		{name: "empty frame", nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "") }},
 		{name: "EVENT without data", nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "2") }},

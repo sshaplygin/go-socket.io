@@ -1,7 +1,10 @@
 package engineio
 
 import (
+	"context"
+	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -10,6 +13,7 @@ import (
 
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/logger"
@@ -118,19 +122,41 @@ func (c *client) serve() {
 
 		w, err := c.conn.NextWriter(frame.String, packet.PING)
 		if err != nil {
-			logger.Log.Warn("engineio: ping failed", "err", err)
+			c.pingFailed(err)
 
 			return
 		}
 
 		if err = w.Close(); err != nil {
-			logger.Log.Warn("engineio: ping failed", "err", err)
+			c.pingFailed(err)
 
 			return
 		}
 
 		if err = c.conn.SetWriteDeadline(time.Now().Add(c.params.PingInterval + c.params.PingTimeout)); err != nil {
-			logger.Log.Warn("engineio: ping failed", "err", err)
+			c.pingFailed(err)
 		}
 	}
+}
+
+// pingFailed logs a failure of the ping loop, which then closes the connection. By the
+// 1.L Levels rule it is DEBUG when it is expected closure: a Close the client started,
+// io.EOF or a closed connection, a *net.OpError (a peer close, reset or passed deadline),
+// or a polling *payload.OpError that is not temporary (the transport stores a request
+// failure and closes itself before a writer sees it, or the deadline passed). It is WARN
+// otherwise: no caller receives it.
+func (c *client) pingFailed(err error) {
+	level := slog.LevelWarn
+	var netErr *net.OpError
+	var payloadErr *payload.OpError
+	select {
+	case <-c.close:
+		level = slog.LevelDebug
+	default:
+		if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.As(err, &netErr) ||
+			(errors.As(err, &payloadErr) && !payloadErr.Temporary()) {
+			level = slog.LevelDebug
+		}
+	}
+	logger.Log.Log(context.Background(), level, "engineio: ping failed", "err", err)
 }

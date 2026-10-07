@@ -10,7 +10,7 @@ RUN go build -C _examples/dockerize-default-http -o /app/main .
 FROM scratch AS run
 
 COPY --from=build /app/main /app/main
-COPY --from=build /src/_examples/dockerize-default-http/asset /asset
+COPY --from=build /src/_examples/asset /asset
 
 EXPOSE 8000
 ENTRYPOINT ["/app/main"]

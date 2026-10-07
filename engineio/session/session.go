@@ -607,7 +607,7 @@ func (s *Session) switchTransport(t string, conn transport.Conn) bool {
 	if s.closed {
 		s.upgradeLocker.Unlock()
 		if err := conn.Close(); err != nil {
-			s.logger().Debug("engineio: session close failed", "err", err)
+			s.logger().Debug("engineio: close connection failed", "err", err)
 		}
 		return false
 	}

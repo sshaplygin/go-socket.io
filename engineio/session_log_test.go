@@ -268,3 +268,35 @@ func TestDialFailureRecords(t *testing.T) {
 	assert.Len(t, rec.find("engineio: transport dial failed"), 2)
 	assert.Len(t, rec.find("engineio: parse url failed"), 1)
 }
+
+// TestClientPeerCloseRecords closes the accepted session of an engineio.Dialer client
+// that does not close itself, reads the client until NextReader fails and waits for its
+// ping to fail, with slog.Default recording: the 1.L Levels rule makes a ping failure
+// after a peer close expected closure, so no record is above DEBUG. Not parallel.
+//
+// Covers the 1.L Levels rule on the engine.io client (P, W); no 1L-T case.
+func TestClientPeerCloseRecords(t *testing.T) {
+	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
+		t.Run(tr.Name(), func(t *testing.T) {
+			rec := newRecorder()
+			setDefault(t, rec)
+			srv := NewServer(&Options{PingInterval: 50 * time.Millisecond, Transports: []transport.Transport{tr}})
+			defer func() { _ = srv.Close() }()
+			ts := httptest.NewServer(srv)
+			defer ts.Close()
+
+			cl, err := (&Dialer{Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
+			require.NoError(t, err)
+			defer func() { _ = cl.Close() }()
+			conn, err := srv.Accept()
+			require.NoError(t, err)
+			require.NoError(t, conn.Close())
+			require.Error(t, readAll(cl))
+			require.Eventually(t, func() bool { return len(rec.find("engineio: ping failed")) > 0 },
+				5*time.Second, time.Millisecond)
+			for _, m := range rec.find("") {
+				assert.Equal(t, slog.LevelDebug.String(), m["level"], "%v", m)
+			}
+		})
+	}
+}

@@ -70,8 +70,8 @@ func loggerFrom(opts *engineio.Options) *slog.Logger {
 // instances publish, and only then do their RoomLen and Rooms count it. Its own RoomLen
 // and Rooms can miss its local connections until then too, because this instance
 // answers its own requests through Redis. When the subscriber connection is lost, the
-// broadcast reopens the subscription after a growing delay, and the same holds again
-// until Redis has registered the reopened subscription.
+// broadcast reopens the subscription after a delay that grows while attempts fail, and
+// the same holds again until Redis has registered the reopened subscription.
 func (s *Server) Adapter(opts *RedisAdapterOptions) (bool, error) {
 	opts = getOptions(opts)
 	var redisOpts []redis.DialOption
@@ -257,19 +257,21 @@ func (s *Server) BroadcastToNamespace(namespace string, event string, args ...in
 }
 
 // RoomLen returns the number of connections in room of namespace, or -1 when the
-// namespace has no handler, its Redis broadcast could not be created (see Adapter) or a
-// Redis command fails.
+// namespace has no handler, its Redis broadcast could not be created (see Adapter), it
+// was registered after Close with Adapter set (see Close) or a Redis command fails.
 //
 // For a namespace registered after Adapter, RoomLen publishes a request that every
 // instance subscribed to the namespace, this one included, answers through Redis with
-// its own count, and returns the sum of the answers. It returns once the answers reach
-// the number of subscribers that Redis counted before the request, and otherwise after
-// 5 seconds with the answers received by then. It waits the full 5 seconds when this
-// instance has not yet registered its subscription (see Adapter), because the answers
-// do not reach it, or when an instance that Redis counts does not answer. An instance
-// that has not registered its subscription is not counted and does not receive the
-// request, so RoomLen returns without its connections. In each of these cases RoomLen
-// can return fewer connections than the room has.
+// its own count, and returns the sum of the answers. It returns when an answer brings
+// the number of answers to the number of subscribers that Redis counted before the
+// request, and otherwise after 5 seconds with the answers received by then. It waits
+// the full 5 seconds when this instance has not yet registered its subscription (see
+// Adapter), because the answers do not reach it, or when an instance that Redis counts
+// does not answer. An instance that has not registered its subscription is not counted
+// and does not receive the request, so RoomLen returns without its connections. An
+// instance that registers between that count and the request answers without being
+// counted, so RoomLen can return before a counted instance has answered. In each of
+// these cases RoomLen can return fewer connections than the room has.
 func (s *Server) RoomLen(namespace string, room string) int {
 	if bc := s.broadcastOf(namespace); bc != nil {
 		return bc.Len(room)
@@ -278,19 +280,22 @@ func (s *Server) RoomLen(namespace string, room string) int {
 }
 
 // Rooms returns the rooms of namespace that have connections, or nil when the namespace
-// has no handler or its Redis broadcast could not be created (see Adapter).
+// has no handler, its Redis broadcast could not be created (see Adapter) or it was
+// registered after Close with Adapter set (see Close).
 //
 // For a namespace registered after Adapter, Rooms publishes a request that every
 // instance subscribed to the namespace, this one included, answers through Redis with
 // its own rooms, and returns the union of the answers, or an empty list when publishing
-// the request fails. It returns once the answers reach the number of subscribers that
-// Redis counted before the request, and otherwise after 5 seconds with the answers
-// received by then. It waits the full 5 seconds when this instance has not yet
-// registered its subscription (see Adapter), because the answers do not reach it, when
-// an instance that Redis counts does not answer, or when Redis cannot report that
-// count. An instance that has not registered its subscription is not counted and does
-// not receive the request, so Rooms returns without its rooms. In each of these cases
-// Rooms can omit rooms that have connections.
+// the request fails. It returns when an answer brings the number of answers to the
+// number of subscribers that Redis counted before the request, and otherwise after 5
+// seconds with the answers received by then. It waits the full 5 seconds when this
+// instance has not yet registered its subscription (see Adapter), because the answers
+// do not reach it, when an instance that Redis counts does not answer, or when Redis
+// cannot report that count. An instance that has not registered its subscription is not
+// counted and does not receive the request, so Rooms returns without its rooms. An
+// instance that registers between that count and the request answers without being
+// counted, so Rooms can return before a counted instance has answered. In each of these
+// cases Rooms can omit rooms that have connections.
 func (s *Server) Rooms(namespace string) []string {
 	if bc := s.broadcastOf(namespace); bc != nil {
 		return bc.Rooms(nil)

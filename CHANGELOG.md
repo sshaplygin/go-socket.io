@@ -228,7 +228,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Known limitations
 
-- Redis broadcast: handler registration returns before Redis has registered the
+- Redis broadcast: handler registration does not wait until Redis has registered the
   namespace's subscription, and a lost subscription is reopened later, so until Redis
   has registered it the namespace on that instance misses other instances' broadcasts
   and room requests, and room queries on every instance, its own included, leave out

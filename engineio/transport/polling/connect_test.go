@@ -156,3 +156,109 @@ func testDialOpen(t *testing.T, delayedPOST bool) {
 		t.Fatal("timed out waiting for polling POST body before teardown")
 	}
 }
+
+// closeNotifyBody reports when the client closes a response body.
+type closeNotifyBody struct {
+	io.Reader
+	once   sync.Once
+	closed chan struct{}
+}
+
+func (b *closeNotifyBody) Close() error {
+	b.once.Do(func() { close(b.closed) })
+	return nil
+}
+
+// TestDialOpenFirstPollAfterOpenResponse checks that the first poll is fed to
+// the payload only after the open response has been read completely.
+//
+// Payload.FeedIn calls must not overlap. getOpen's FeedIn holds the payload
+// until every packet of the open response has been read, so a MESSAGE that
+// follows OPEN in the same response keeps it busy after Open returns. If
+// serveGet feeds its first poll during that time, FeedIn fails with "read:
+// overlap" and the client stops polling without an error.
+func TestDialOpenFirstPollAfterOpenResponse(t *testing.T) {
+	should := assert.New(t)
+	must := require.New(t)
+
+	cp := transport.ConnParameters{
+		PingInterval: time.Second,
+		PingTimeout:  time.Minute,
+		SID:          "abcdefg",
+		Upgrades:     []string{"polling"},
+	}
+	buf := bytes.NewBuffer(nil)
+	_, err := cp.WriteTo(buf)
+	must.NoError(err)
+
+	stop := make(chan struct{})
+	defer close(stop)
+	firstPoll := &closeNotifyBody{Reader: bytes.NewReader([]byte("7:4second")), closed: make(chan struct{})}
+	var polls int
+	var pollsMu sync.Mutex
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: dialOpenRoundTripper(func(r *http.Request) (*http.Response, error) {
+			var body io.ReadCloser
+			switch {
+			case r.Method == http.MethodGet && r.URL.Query().Get("sid") == "":
+				body = io.NopCloser(bytes.NewReader([]byte(fmt.Sprintf("%d:0%s6:4first", buf.Len()+1, buf.String()))))
+			case r.Method == http.MethodGet:
+				pollsMu.Lock()
+				polls++
+				n := polls
+				pollsMu.Unlock()
+				if n == 1 {
+					body = firstPoll
+					break
+				}
+				fallthrough
+			default:
+				// Later requests stay open until the test ends.
+				select {
+				case <-stop:
+				case <-r.Context().Done():
+				}
+				return nil, io.ErrUnexpectedEOF
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/plain; charset=utf-8"}},
+				Body:       body,
+				Request:    r,
+			}, nil
+		}),
+	}
+
+	u, err := url.Parse("http://polling.test/engine.io/?b64=1")
+	must.NoError(err)
+	cc, err := dial(client, u, nil)
+	must.NoError(err)
+	defer func() {
+		should.NoError(cc.Close())
+	}()
+
+	params, err := cc.Open()
+	must.NoError(err)
+	should.Equal(cp, params)
+
+	// The open response still holds "first" here. Give serveGet up to 250 ms
+	// to poll in this window; a client that waits for the open response first
+	// does not poll at all until "first" is read.
+	select {
+	case <-firstPoll.closed:
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	must.NoError(cc.SetReadDeadline(time.Now().Add(2 * time.Second)))
+	for _, want := range []string{"first", "second"} {
+		ft, pt, r, err := cc.NextReader()
+		must.NoError(err, "reading %q", want)
+		should.Equal(frame.String, ft)
+		should.Equal(packet.MESSAGE, pt)
+		b, err := io.ReadAll(r)
+		must.NoError(err)
+		must.NoError(r.Close())
+		should.Equal(want, string(b))
+	}
+}

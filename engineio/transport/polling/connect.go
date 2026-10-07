@@ -26,7 +26,14 @@ type clientConn struct {
 }
 
 func (c *clientConn) Open() (transport.ConnParameters, error) {
-	go c.getOpen()
+	// Payload.FeedIn calls must not overlap. getOpen's FeedIn returns only
+	// after the whole open response has been read, which can be after Open
+	// returns, so serveGet waits for it before its first poll.
+	opened := make(chan struct{})
+	go func() {
+		defer close(opened)
+		c.getOpen()
+	}()
 
 	_, pt, r, err := c.NextReader()
 	if err != nil {
@@ -58,7 +65,7 @@ func (c *clientConn) Open() (transport.ConnParameters, error) {
 	query.Set("sid", conn.SID)
 	c.request.URL.RawQuery = query.Encode()
 
-	go c.serveGet()
+	go c.serveGet(opened)
 	go c.servePost()
 
 	return conn, nil
@@ -87,7 +94,7 @@ func (c *clientConn) RemoteHeader() http.Header {
 func (c *clientConn) Resume() {
 	c.Payload.Resume()
 
-	go c.serveGet()
+	go c.serveGet(nil)
 	go c.servePost()
 }
 
@@ -205,7 +212,13 @@ func (c *clientConn) getOpen() {
 	}
 }
 
-func (c *clientConn) serveGet() {
+// serveGet polls until a request fails or the payload is closed or paused. If
+// after is not nil, the first poll is sent after it is closed.
+func (c *clientConn) serveGet(after <-chan struct{}) {
+	if after != nil {
+		<-after
+	}
+
 	req := c.request
 	reqUrl := *req.URL
 

@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- engineio: the polling client could send its first poll while the open response was
+  still being fed to the payload; that poll failed with "read: overlap", and the client
+  stopped polling without an error, so reads waited until their deadline. The first poll
+  now waits until the open response has been read
+  (`engineio/transport/polling/connect.go:61`, `:260` at `7a7a71d`).
 - engineio: a new session is registered before its OPEN packet is written, so a
   client that reuses the sid immediately no longer gets HTTP 400 "invalid sid";
   a session whose handshake fails is removed again (`engineio/server.go:173` at

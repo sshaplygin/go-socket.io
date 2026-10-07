@@ -536,6 +536,23 @@ func (h *keyCheck) result(msg string) (problems, sids []string) {
 	return append(problems, h.problems...), append(sids, h.sids[msg]...)
 }
 
+// moduleGoroutines returns the IDs of the goroutines with a frame in a non-test file of
+// the module.
+func moduleGoroutines() map[string]bool {
+	_, file, _, _ := runtime.Caller(0)
+	dir := "\t" + file[:strings.LastIndex(file, "/")+1]
+	buf := make([]byte, 1<<22)
+	ids := map[string]bool{}
+	for _, g := range strings.Split(string(buf[:runtime.Stack(buf, true)]), "\n\n") {
+		for _, line := range strings.Split(g, "\n") {
+			if f, _, _ := strings.Cut(line, ":"); strings.HasPrefix(f, dir) && !strings.HasSuffix(f, "_test.go") {
+				ids[strings.Fields(g)[1]] = true
+			}
+		}
+	}
+	return ids
+}
+
 // TestNoBadKeyAttrs runs the TestLifecycleRootNamespace scenario at trace with checking
 // handlers on Options.Logger and slog.Default.
 //
@@ -547,10 +564,17 @@ func TestNoBadKeyAttrs(t *testing.T) {
 	logger.Level.Set(logger.LevelTrace)
 	t.Cleanup(func() { logger.Level.Set(prev) })
 
+	before := moduleGoroutines()
 	sid := lifecycleRootNamespace(t, &engineio.Options{Logger: slog.New(inst)})
+	// Check the records only once the goroutines the scenario started, which include the
+	// Go client's polling goroutines after Close, have all returned.
 	require.Eventually(t, func() bool {
-		_, sids := inst.result("socketio: disconnect")
-		return len(sids) > 0
+		for id := range moduleGoroutines() {
+			if !before[id] {
+				return false
+			}
+		}
+		return true
 	}, waitFor, 10*time.Millisecond)
 
 	// The Go client's CONNECT to / follows the server's own root connect: two records.

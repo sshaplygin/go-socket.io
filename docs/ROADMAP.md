@@ -1,6 +1,6 @@
 # Roadmap
 
-Scope approved: 2026-09-28. Updated: 2026-10-03. Owner: Sam Shaplygin.
+Scope approved: 2026-09-28. Updated: 2026-10-07. Owner: Sam Shaplygin.
 
 This file owns scope, dependencies, implementation contracts and release gates.
 Current implementation: [PROTOCOL.md](PROTOCOL.md). Completed changes:
@@ -50,6 +50,7 @@ workers submit changes to these files through that integrator.
 | 1A | landed infrastructure | 1.R Redis internals (`redis_broadcast.go`); 1.B queue and close internals (`connection.go`, `broadcast.go`, `errors.go`, the socket.io goroutines and close paths in `server.go` (`serveConn`, `serveRead`, `serveWrite`, `serveError`) and `client.go` (`Connect`, `Close`, `clientRead`, `clientWrite`, `clientError`), and the disconnect handlers in `connection_handlers.go`); 1.S session/server fixes (`engineio/session`, `engineio/server.go`, `server.go`; landed) | component regression tests pass |
 | 1I | 1A | integrator wires Redis construction errors through `namespace_handler.go` and `server.go`; wires `WriteBufferSize` and the drain deadline (`PingTimeout`) through `engineio/server_options.go`, `server.go` and `client.go`; runs the 1.B slow-client test against the Redis broadcast; also edits `connection.go` (connect-failure path, option wiring in `newConn`, `Conn.Close` godoc), the connect-failure path in `connection_handlers.go`, `namespace_handlers.go`, the session hand-off in `engineio/server.go`, `namespace_conn.go` (godoc only) and `CHANGELOG.md`; contract in the 1I item | integrated bug tests (the 1I item's tests) and root build pass |
 | 1B | 1I | 1.L Go files (logging, session close reasons, `logger` godoc; no Markdown except `CHANGELOG.md`); 1.D `README.md`, `engineio/README.md`, `logger/README.md`, `CLAUDE.md`, `CONTRIBUTING.md`; each writes its own `CHANGELOG.md` entries | M1 checks and v1 compatibility |
+| 1C | 1B | 1.K known-limitation notes: the godoc of `Server.Adapter`, `RoomLen` and `Rooms` in `server.go` and the `### Known limitations` subsection of `CHANGELOG.md`; contract in the 1.K item | 1.K check, then M1 checks |
 | 1b | M1, branch `v1` cut | one refactor owner; moves/merges applied sequentially | M1b regression checks |
 | 2A | M1b | 2.0 owner removes legacy root runtime/adapter consumers atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
@@ -93,6 +94,48 @@ Tasks:
 - **1.R Redis:** protect `requests` and room access; time out peer queries; propagate
   adapter construction errors through the 1I integration step; reconnect subscriptions with backoff after receive
   failures. Each fix has a regression test, including two-server tests under `-race`.
+  - *Known limitations (`v1.5.0` ships them):* found while diagnosing the CI flake
+    that PR #18 (`511d973`) fixed in the test only. Line numbers are
+    `redis_broadcast.go` at `82aa740`.
+    1. *Unconfirmed subscription:* `subscribe` (`:192-206`) sends PSUBSCRIBE and
+       SUBSCRIBE and returns without reading the confirmations, which `dispatch`
+       reads later (`:678`). `newRedisBroadcast` (`:117-187`), and with it the
+       handler registration that builds the broadcast (`createNamespace`,
+       `server.go:382`), returns without waiting until Redis has registered the
+       instance. Until it has, broadcasts and `Server.ClearRoom` requests published
+       by peers do not reach the instance, peers' `Server.RoomLen` and
+       `Server.Rooms` do not count it, and its own can miss its local members too,
+       because its own answer also travels through Redis. Every resubscribe after
+       a receive error (`:687`, `:699-723`) opens the same window.
+    2. *Full wait for missing answers:* `Len` and `AllRooms` (`:315-348`,
+       `:212-241`) expect as many answers as PUBSUB NUMSUB reports for the request
+       channel (`AllRooms` uses 0 when NUMSUB fails, `:220`), and `onResponse`
+       signals only when the answer count equals it (`:533`, `:549`). When NUMSUB is
+       0, as in item 1, or an answer is missing, they wait the full
+       `redisRequestTimeout` (5 s, `:52`) and return the answers received by then.
+
+    Stage 1 does not change them, and the 1.R and 1I contracts promise neither
+    registration on return nor an early answer. Reading the confirmations changes
+    when handler registration and `Server.Close` (which waits for a registration,
+    `server.go:87-88`) return, and needs its own deadline: the dial context's close
+    hook has stopped once the dial returns (`:143`). redigo's `ReceiveWithTimeout`
+    exists in v1.8.9 and in the v2.0.0+incompatible that `_examples/gf` resolves.
+    Returning early when NUMSUB is 0 is not a safe fix for item 2: NUMSUB and
+    PUBLISH are separate commands (`:220`, `:226`; `:327`, `:338`), so an instance
+    that registers between them answers, and v1 counts local members through Redis.
+    Counting the receivers that PUBLISH reports instead would end the wait at once
+    when nobody can answer; the full wait while the requester itself is unregistered
+    (its answers on the response channel are lost) still needs item 1, and a counted
+    peer that never answers still costs the full wait. Tests that rely on peer
+    requests or answers wait until NUMSUB of the request channel counts the
+    instance, which also covers the PSUBSCRIBE sent before it on the same
+    connection. Tests that rely only on broadcasts may wait on NUMPAT only with
+    miniredis, whose NUMPAT counts each client's patterns; Redis 7 and later count
+    unique patterns, which every instance of a namespace shares. PR #18 applies
+    this rule (`waitRedisSubscribers`) and adds `delayRedisSubscriptions`, which
+    holds PSUBSCRIBE with a miniredis pre-hook and releases it after a set time. 1.K
+    carries the limitations into the `v1.5.0` release notes and godoc; the v2
+    requirement is 2.2 *Subscription readiness*.
 - **1.B Backpressure:** each connection has a bounded queue of outbound packets. The
   rules below apply to `Server` connections and to `Client` alike.
   - *Size:* temporary v1 `engineio.Options.WriteBufferSize` counts socket.io packets
@@ -566,6 +609,37 @@ Tasks:
     use `@master` until a release is tagged.
   - Already satisfied at `9716ec0` and guarded by the DoD: no `godoc.org` links;
     the README badges point at this fork.
+- **1.K Known limitations** (wave 1C, after wave 1B has merged, so no other task
+  edits these files at the same time). Files: the godoc of `Server.Adapter`,
+  `RoomLen` and `Rooms` in `server.go`, and a `### Known limitations` subsection in
+  the `## Unreleased` section of `CHANGELOG.md`, which becomes `v1.5.0`. No code,
+  test or other documentation change.
+  - The godoc states the behaviour; from the tag it, not 1.R, records the two 1.R
+    *Known limitations*. The subsection names each limitation in one sentence,
+    without line numbers, and links the pkg.go.dev godoc of `Server.Adapter`,
+    `Server.RoomLen` and `Server.Rooms` in the existing `@master` form, which the
+    1.D release step switches to `@v1.5.0`. It adds no entry under `### Fixed` or
+    `### Changed`.
+  - The `Server.Adapter` godoc says that a namespace receives peers' broadcasts and
+    requests and is counted by them only once Redis has registered its
+    subscription, which handler registration does not wait for, and again only once
+    a lost subscription has been reopened. The `RoomLen` and `Rooms` godoc say, for a
+    namespace registered after `Adapter`, that they wait the full 5 s when this
+    instance has not yet registered its subscription or an instance that Redis
+    counts does not answer (`Rooms` also when Redis cannot report that count); that
+    an instance that has not registered is not counted, so they return without its
+    rooms; and that in each case `RoomLen` can undercount and `Rooms` can omit rooms.
+  - *Check (1C join gate, and again on the `v1.5.0` release commit):* `make lint`
+    passes; `CHANGELOG.md` has exactly one `### Known limitations` heading in all of
+    the `## Unreleased` section and, on the release commit, the `v1.5.0` section
+    (whatever date suffix its heading carries; an empty `## Unreleased` may stay
+    above it), so
+    `awk '/^## /{s=$0} s ~ /^## \[?(Unreleased|v1\.5\.0)\]?( |$)/ && /^### Known limitations$/{c++} END{exit c!=1}' CHANGELOG.md`
+    exits 0 (at `82aa740` it exits 1);
+    `for m in Server.Adapter Server.RoomLen Server.Rooms; do go doc . $m | grep -q subscription || echo $m; done`
+    prints nothing (a case-sensitive substring match; at `82aa740` it prints all
+    three). The grep shows only that each comment was edited; the content check is
+    the owner's review of the subsection and the three godoc comments against 1.R.
 
 DoD: `make lint test-race` green on ubuntu/macos/windows for `stable` and `oldstable`;
 an additional Ubuntu job builds/tests the root on Go 1.22 with automatic toolchain
@@ -573,6 +647,7 @@ upgrades disabled. From v2 this job covers every shipped runtime module;
 `govulncheck` clean; two-instance Redis test under `-race` passes; every (case, side)
 pair of the 1.B, 1I and 1.L test lists is named by a passing test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
 package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses.
+The 1.K check passes (1.K says when it runs).
 Logging gate: `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv` (also asserting that
 stderr contains the message `logger: invalid level ignored` and `value=bogus`),
 `TestWrapOverridesHandlerLevel` and `TestTraceDisabledNoAlloc` pass; the package
@@ -846,6 +921,22 @@ publication without implying execution on peers. Order is per producer on a live
 connection, not global across nodes; disconnect gaps have no replay guarantee.
 `Close` releases adapter-owned subscriptions/workers, never injected broker clients.
 Conformance tests cover these semantics and concurrent join/leave/broadcast.
+
+*Subscription readiness (open; the 2.0 owner resolves it when freezing `Adapter`).*
+The v1 Redis broadcast returns from namespace creation without waiting until Redis
+has registered its subscription, and can wait the full request timeout for answers
+that never arrive (found with PR #18; recorded in 1.R and, from `v1.5.0`, in the
+godoc that its `CHANGELOG.md` *Known limitations* links). Before the freeze this
+section specifies when a broker adapter's construction and each resubscribe count as
+subscribed, what a cluster query returns within which bound when no peer is
+expected to answer, and a deterministic test that holds the subscribe commands
+until the test releases them: for the Redis adapter a miniredis pre-hook, the hold
+mechanism of `delayRedisSubscriptions` from PR #18 (which releases on a timer); for
+NATS the freeze names the equivalent hold. The answer can change `AdapterFactory`
+(for example, a context for the wait), so while this item is open `AdapterFactory`
+counts as an unresolved API signature under G2.
+[Draft PR #20](https://github.com/sshaplygin/go-socket.io/pull/20) holds an
+unvalidated proposal; nothing in it is part of this plan.
 
 ### 2.3 Socket.IO v5 and the generic API
 
@@ -1300,7 +1391,8 @@ root and adapter consumers/tests against published versions without local replac
   matching notepack output; supported request/response messages use Node's JSON
   encoding. Freeze fixtures for every supported operation, including
   `publishOnSpecificResponseChannel=true` and false. Inject `redis.UniversalClient`;
-  bound request time and reconnect subscriptions with backoff.
+  bound request time and reconnect subscriptions with backoff. Subscription
+  readiness and the wait when no peer answers follow 2.2 *Subscription readiness*.
 - **`adapters/nats`**: subjects `<prefix>.<encoded-nsp>.broadcast` and
   `<prefix>.<encoded-nsp>.room.<encoded-room>`. Encode each arbitrary UTF-8 name as
   `b` plus unpadded base64url of its bytes (empty name becomes `b`); dots, wildcards

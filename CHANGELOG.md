@@ -124,6 +124,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- CI: a `min-go` job builds and race-tests the root module on Ubuntu with Go 1.22
+  and `GOTOOLCHAIN=local`, so a `go.mod` or dependency that requires a newer Go
+  fails CI instead of downloading a newer toolchain (stage 1 DoD).
 - CI: compare PR benchmarks against the base with `benchstat`, preserving reports
   and raw measurements; skip ordinary comment-only and documentation changes and
   remove the unconditional benchmark runs from the test matrix.

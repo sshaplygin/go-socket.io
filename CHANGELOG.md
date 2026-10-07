@@ -226,6 +226,21 @@ All notable changes to this project are documented here. The format follows
   godoc now documents the levels, the message pattern and the attribute keys of library
   records (roadmap task 1.L).
 
+### Known limitations
+
+- Redis broadcast: handler registration returns before Redis has registered the
+  namespace's subscription, and a lost subscription is reopened later, so until Redis
+  has registered it the namespace on that instance misses other instances' broadcasts
+  and room requests, and room queries on every instance, its own included, leave out
+  its connections (see
+  [`Server.Adapter`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#Server.Adapter)).
+- Redis broadcast: `Server.RoomLen` and `Server.Rooms` wait the full 5 s and return the
+  answers received by then when the requesting instance has not yet registered its
+  subscription or an instance that Redis counts does not answer (`Rooms` also when Redis
+  cannot report that count), so they can undercount or omit rooms (see
+  [`Server.RoomLen`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#Server.RoomLen)
+  and [`Server.Rooms`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#Server.Rooms)).
+
 ## v1.4.2 and earlier
 
 See the upstream release notes at

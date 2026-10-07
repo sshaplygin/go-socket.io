@@ -33,3 +33,6 @@ cover:
 .PHONY: examples
 examples:
 	@set -e; for d in $(EXAMPLES); do echo "==> $$d"; (cd $$d && go build -o /dev/null ./...); done
+	go build -o /dev/null ./_examples/client
+	@set -e; for d in $(EXAMPLES); do cmp $$d/chat.go _examples/default-http/chat.go; done
+	cd _examples/default-http && go test -race -count=1 ./...

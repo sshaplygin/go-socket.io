@@ -356,6 +356,28 @@ func (c *brokenConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error
 
 func (c *brokenConn) SetReadDeadline(time.Time) error { return nil }
 
+func (c *brokenConn) NextWriter(frame.Type, packet.Type) (io.WriteCloser, error) {
+	return nil, errBroken
+}
+
+func (c *brokenConn) Close() error { return nil }
+
+// TestClientPingFailureRecord: a ping failure that is not expected closure (NextWriter
+// fails with errBroken while the client is open) is one WARN record, since no caller
+// receives it. Not parallel: it sets slog.Default.
+//
+// Covers the 1.L Levels rule on the engine.io client; no 1L-T case.
+func TestClientPingFailureRecord(t *testing.T) {
+	rec := newRecorder()
+	setDefault(t, rec)
+	params := transport.ConnParameters{PingInterval: time.Millisecond}
+	(&client{conn: &brokenConn{}, params: params, close: make(chan struct{})}).serve()
+	recs := rec.find("engineio: ping failed")
+	require.Len(t, recs, 1)
+	assert.Equal(t, slog.LevelWarn.String(), recs[0]["level"])
+	assert.Equal(t, errBroken.Error(), recs[0]["err"])
+}
+
 // TestClientReaderCloseRecord: a failing reader Close in the engine.io client's
 // NextReader, whose failure NextReader then returns, logs nothing above DEBUG under the
 // 1.L Levels rule. Not parallel: it sets slog.Default.

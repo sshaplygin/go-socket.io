@@ -51,7 +51,7 @@ workers submit changes to these files through that integrator.
 | 1I | 1A | integrator wires Redis construction errors through `namespace_handler.go` and `server.go`; wires `WriteBufferSize` and the drain deadline (`PingTimeout`) through `engineio/server_options.go`, `server.go` and `client.go`; runs the 1.B slow-client test against the Redis broadcast; also edits `connection.go` (connect-failure path, option wiring in `newConn`, `Conn.Close` godoc), the connect-failure path in `connection_handlers.go`, `namespace_handlers.go`, the session hand-off in `engineio/server.go`, `namespace_conn.go` (godoc only) and `CHANGELOG.md`; contract in the 1I item | integrated bug tests (the 1I item's tests) and root build pass |
 | 1B | 1I | 1.L Go files (logging, session close reasons, `logger` godoc; no Markdown except `CHANGELOG.md`); 1.D `README.md`, `engineio/README.md`, `logger/README.md`, `CLAUDE.md`, `CONTRIBUTING.md`; each writes its own `CHANGELOG.md` entries | M1 checks and v1 compatibility |
 | 1C | 1B | 1.K known-limitation notes: the godoc of `Server.Adapter`, `RoomLen` and `Rooms` in `server.go` and the `### Known limitations` subsection of `CHANGELOG.md`; contract in the 1.K item | 1.K check, then M1 checks |
-| 1b | M1, branch `v1` cut | one refactor owner; moves/merges applied sequentially | M1b regression checks |
+| 1b | M1; `v1.5.0` release commit recorded and branch `v1` cut (1b step 0) | one refactor owner; moves/merges applied sequentially | M1b regression checks |
 | 2A | M1b | 2.0 owner removes legacy root runtime/adapter consumers atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
 | 2C | 2B | 2.3S server/namespace runtime (root socket files); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests pass; dispatch baseline recorded |
@@ -66,6 +66,9 @@ workers submit changes to these files through that integrator.
 | 6A | M6 | benchmark owner freezes versions, workload matrix, resource budgets and result schema | comparison contract and correctness checks pass |
 | 6B | 6A | our-v2, existing-Go and official-Node runners in separate directories; shared load generator owned by integrator | runners produce equivalent traffic/results |
 | 6C | 6B | measurements sequentially on reserved hosts; analysis/report follows complete raw results | M7 reproducibility and report acceptance |
+
+Rows 1A and 1I, and the Stage 1 items, name files by their pre-1b paths; the Stage 1b
+source-to-target map owns the new names.
 
 Mocks permit development against frozen contracts; they do not satisfy integration
 or release gates. A contract change updates its owning section and fixtures before
@@ -945,7 +948,7 @@ the root files `server.go`, `namespace.go`, `socket.go`, `packet_handlers.go`,
 ### 2.0 Generic API and lifecycle contract
 
 The 2.0 owner atomically removes the legacy root server/client/namespace/handler
-runtime, its v1-specific tests, temporary `adapter`/`adapter/redis`, compatibility
+runtime, its v1-specific tests, temporary `adapter`/`adapter/redis`/`internal/redisdial`, compatibility
 aliases, `Server.Adapter` and redigo dependency while introducing the v2 skeleton.
 Preserve v1 on its branch; carry applicable regression scenarios into v2 fixtures.
 Engine.IO/parser packages remain buildable until their replacements in 2B. Legacy
@@ -1038,9 +1041,10 @@ porting; existing branch Go race tests passed during this roadmap review.
 
 - Replace the legacy `engineio/payload`/`pauser` transport integration using these
   codecs; complete the session lifecycle work rather than rewriting codecs again.
-- `engineio/session`: server ping ticker and `pingTimeout` to await each pong;
-  clients use `pingInterval+pingTimeout` to detect a missing server ping. Add
-  `maxPayload` and noop on upgrade. `engineio/server.go`: `EIO` check, JSON errors.
+- `engineio/session`: server ping ticker and `pingTimeout` to await each pong. Add
+  `maxPayload` and noop on upgrade. `engineio/client` (`client.go`, `dialer.go` since
+  1b): the client uses `pingInterval+pingTimeout` to detect a missing server ping, and
+  `dialer.go` sends `EIO=4` instead of the fixed `EIO=3`. `engineio/server.go`: `EIO` check, JSON errors.
   The polling GET 500 and invalid-method 400 answers, unlogged in v1, log
   `engineio: request rejected` with reasons `flush` and `bad method`; `flush` logs
   DEBUG when the session or its payload has already closed or failed, WARN otherwise.
@@ -1049,8 +1053,8 @@ porting; existing branch Go race tests passed during this roadmap review.
   connection (HTTP/1.1 only); frames read with `wsutil.Reader` and written with
   `wsutil.Writer` so the `FrameReader`/`FrameWriter` contract is preserved; control
   frames handled by `wsutil.ControlFrameHandler`; one write mutex per connection;
-  `CheckOrigin`, `ReadBufferSize`, `WriteBufferSize` options kept. Client side uses
-  `ws.Dialer`. `gorilla/websocket` removed from `go.mod`. Both `engineio.Server` and
+  `CheckOrigin`, `ReadBufferSize`, `WriteBufferSize` options kept. The client
+  (`engineio/client`) uses `ws.Dialer`. `gorilla/websocket` removed from `go.mod`. Both `engineio.Server` and
   `socketio.Server` assert `var _ http.Handler`; a wrapped `ResponseWriter` without
   `http.Hijacker` is answered with HTTP 501 and an `engineio: request rejected` line with
   `reason="no hijacker"`, never a panic.
@@ -1216,7 +1220,8 @@ context, typed events, `AckTimeout`). Tracing and metrics go through two hook st
 the root module with no external dependency; the OpenTelemetry bridge is the separate
 module `contrib/otel`. The stage-1 boundary records are produced by
 `LoggingHooks`. Every hook must have an exercised fire point and a corresponding log
-record; the coverage test verifies both.
+record; the coverage test verifies both. The Engine.IO hook types are defined in
+`engineio/hooks.go`:
 
 ```go
 package engineio
@@ -1489,9 +1494,9 @@ transport and codec errors, without calling `slog.SetDefault`.
 ### 2.5 Docs and release
 
 `docs/MIGRATION.md` (including how v1 `Conn.Close` draining maps to v2 socket and
-session close), `docs/PROTOCOL.md` update, `docs/OBSERVABILITY.md`,
+session close, and the breaking changes recorded in Stage 1b), `docs/PROTOCOL.md` update, `docs/OBSERVABILITY.md`,
 `contrib/otel/README.md`, module path `.../v2`, tag `v2.0.0` and
-`contrib/otel/v2.0.0` from the same commit; branch `v1` created from `v1.5.0`. After the
+`contrib/otel/v2.0.0` from the same commit; branch `v1` already exists (Stage 1b). After the
 v2 module path changes: README GoDoc badge and API reference link, `go.mod` and imports of
 every `_examples/*`, links in `engineio/README.md`, and the import paths of
 `contrib/otel` and `adapters/*`. Task 2.5D migrates all non-Redis examples to

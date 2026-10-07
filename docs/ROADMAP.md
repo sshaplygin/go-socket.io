@@ -773,6 +773,7 @@ at their path are described in the steps, not here.
 3 adapter_options.go adapter/redis/options.go
 3 helpers.go adapter/redis/uuid.go
 3 - adapter_compat.go
+3 - adapter/redis/options_test.go
 3 - redis_helpers_test.go
 3 - internal/redisdial/redisdial.go
 4 connection_handlers.go packet_handlers.go
@@ -852,9 +853,13 @@ at their path are described in the steps, not here.
    the root (it tests `Server.Adapter`, `Close` and `Serve`) and uses `redis.New`,
    `Close`, `redis.Normalize`; the root keeps a copy of the two helpers in
    `redis_helpers_test.go` for it and `backpressure_test.go`. The root `init()` is not
-   needed: the root Redis tests pass without it. New test `TestServerForEach` visits
+   needed: the root Redis tests pass without it. New tests: `TestServerForEach` visits
    `*namespaceConn` values through the memory and the Redis broadcast, and skips a
-   foreign `adapter.Conn` without a panic.
+   foreign `adapter.Conn` without a panic; `TestPing` (`adapter/redis/options_test.go`,
+   miniredis) covers `Ping` with a password, with a DB and against a closed port, the
+   branches `Server.Adapter` no longer reaches because it passes normalised options.
+   The split adds statements to the root coverage group (`Normalize`, `Ping`, the
+   `ForEach` wrapper, `nopBroadcast`), so these two tests are what keeps it at its floor.
 4. **Root file names by role.** Files per the map: `namespaces.go` joins `namespace.go`
    because it is the registry of `*namespaceConn`, `namespace_handlers.go` joins
    `namespace_handler.go`. `CLAUDE.md` edits made by this step: one layout row per
@@ -901,18 +906,20 @@ ids() { (cd $1 && grep -rhoE '(1B|1I|1L)-T[0-9]+[A-Za-z]*' --include='*_test.go'
 test "$(ids $BASE)" = "$(ids .)"   # 52 ids at the base
 asserts() { (cd $1 && grep -rhoE '\b(assert|require)\.[A-Za-z]+\(|\bt\.(Fatal|Error)f?\(' --include='*_test.go' . | wc -l); }
 test "$(asserts .)" -ge "$(asserts $BASE)"   # a proxy; the diff review stays
-# coverage not below the pre-1b numbers (tests of a split package are measured together)
-cover() { f=$1; shift; go test -count=1 -coverpkg="$(echo $* | tr ' ' ,)" -coverprofile=c.out "$@" >/dev/null && go tool cover -func=c.out | awk -v f=$f '/^total:/{gsub("%","",$3); exit !($3+0>=f)}'; }
-cover 75.8 ./engineio ./engineio/client
-cover 92.4 . ./adapter ./adapter/redis
-cover 74.8 ./engineio/session
-cover 78.8 ./parser
+# coverage not below the pre-1b numbers: same -coverpkg method on both trees
+cov() { d=$1; shift; (cd $d && go test -count=1 -coverpkg="$(echo $* | tr ' ' ,)" -coverprofile=$T/c.out "$@" >/dev/null && go tool cover -func=$T/c.out | awk '/^total:/{print $3+0}'); }
+ge() { awk -v a=$1 -v b=$2 'BEGIN{exit !(a!="" && a+0>=b+0)}'; }   # an empty figure fails
+ge $(cov . ./engineio ./engineio/client) 75.8
+ge $(cov . . ./adapter ./adapter/redis) $(cov $BASE .)
+ge $(cov . ./engineio/session) $(cov $BASE ./engineio/session)
+ge $(cov . ./parser) $(cov $BASE ./parser)
 ```
 
-The floors are the numbers of `master` before 1b (`go test -cover` of `engineio`, `.`,
-`engineio/session`, `parser`, Go 1.25.5). `engineio` varies between runs (75.8% in two
-of three, 76.7% in one), so its floor is the lower value; re-measure all four at `$V1`
-with the old packages and use the lower of the two numbers.
+A floor is the figure `cov` gives on `$V1` for the package that held the code before 1b
+(at `7a7a71d`, Go 1.25.5: root 92.4%, `engineio/session` 74.8%, `parser` 78.8%); `HEAD` is
+measured over the new packages together with the same `-coverpkg` method. `engineio` alone
+varies between runs (75.8% in two of three, 76.7% in one), so its floor is the literal
+lower value.
 
 The `v1` and release gates. Each runs at the stated moment, not later, because `v1`
 receives `v1.5.x` patches afterwards:

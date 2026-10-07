@@ -80,8 +80,9 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 			return session.FrameType(ft), r, nil
 		}
 
+		// Transports keep a read failure, so the next NextReader returns it: DEBUG.
 		if err = r.Close(); err != nil {
-			logger.Log.Warn("engineio: close reader failed", "err", err)
+			logger.Log.Debug("engineio: close reader failed", "err", err)
 		}
 	}
 }

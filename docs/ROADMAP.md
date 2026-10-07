@@ -1,6 +1,6 @@
 # Roadmap
 
-Scope approved: 2026-09-28. Updated: 2026-10-07. Owner: Sam Shaplygin.
+Scope approved: 2026-09-28. Updated: 2026-10-08. Owner: Sam Shaplygin.
 
 This file owns scope, dependencies, implementation contracts and release gates.
 Current implementation: [PROTOCOL.md](PROTOCOL.md). Completed changes:
@@ -681,76 +681,259 @@ specifies. Every badge and link in `README.md` resolves on GitHub.
 
 ## Stage 1b. Package layout (prerequisite to stage 2)
 
-The first commits on `master` after `v1` is branched from `v1.5.0`; no tag. Structural
-refactoring only: moves, explicit file merges, import rewrites and the minimal
-interface adaptations listed below; no behaviour change or new features.
+Structural refactoring only: moves, explicit file merges, import rewrites and the API
+changes listed below; no behaviour change or new features. Keep the cyclic v1 root core
+together until the atomic transition in 2.0. Tests follow their files (same rename).
+Step 0 and steps 1–4 are separate PRs, merged in this order with
+`make lint test-race examples` green on `master` after each: step 2 edits the files step
+1 creates, and step 3 changes `server.go`, `connection_handlers.go` and
+`namespace_handler.go`, which step 4 renames or merges. Commit subjects and PR titles
+are `refactor(1b.<step>): ...`. Within a PR, pure `git mv` commits (no content edit)
+come first, then merges into a target file, then content edits; intermediate commits
+may not build, the head of each PR does. Steps 1–4 are merged with their commits kept
+(an exception to the squash rule in `CONTRIBUTING.md`), otherwise the squash commit
+mixes moves and edits and rename detection is lost.
 
-Keep the cyclic v1 root core together until the atomic transition in 2.0.
+**Base and branch `v1` (this section owns the cut; no other section creates it).**
+`$V1` is the `v1.5.0` release commit (1.D). Tag `v1.5.0` is created only after every
+pre-release change has landed; until then the SHA of that commit, recorded in the body
+of every 1b PR, stands in for the tag, and afterwards `git rev-parse v1.5.0^{commit}`
+must equal it. Step 0 precedes any 1b commit on `master`:
 
-Target tree (root module unless noted):
+- 0a. `git branch v1 $V1 && git push origin v1`.
+- 0b. One PR into `v1`, `.github/` only: `ci.yaml` (`push`, `pull_request`) and
+  `benchmarks.yml` (`pull_request`) list `branches: [v1]`. Workflow files are read from
+  the branch under test, so `master`'s copies do not apply to `v1`.
+- 0c. One PR into `master`, `.github/dependabot.yml` only: a second `gomod` and a
+  second `github-actions` entry, otherwise identical, with `target-branch: v1` (Dependabot
+  reads its configuration from the default branch). The weekly CI cron runs on `master` only.
+
+After the first 1b commit `master` is never tagged `v1.x`; the tagging rules are in
+[`CONTRIBUTING.md`](../CONTRIBUTING.md#releases). Between `$V1` and the end of 1b only
+1b commits change non-test Go files on `master`.
+
+**Breaking changes on `master` (`v1` keeps the old API; no aliases).** Recorded for
+`docs/MIGRATION.md` (2.5): `engineio.Dialer` and `engineio.Opener` are removed in favour
+of `engineio/client` (an alias in `engineio` would import `engineio/client` and restore
+the import cycle); `session.FrameType`, `session.TEXT` and `session.BINARY` are removed
+in favour of `frame.Type`, `frame.String` and `frame.Binary`; `NextReader` and `NextWriter`
+of `engineio.Conn` and `session.Session` take and return `frame.Type`, which breaks every
+external `engineio.Conn` implementation. Consumers of `go get ...@master` break, which is
+why `master` is not tagged `v1.x`. The root `socketio` surface changes only by the two
+deprecated aliases of step 3.
+
+Target tree (root module; rows added after 1b are marked):
 
 | Path | Package | Holds |
 | --- | --- | --- |
-| `.` | `socketio` | public API; v2 adds `Socket`, `Event[T]`, `AckEvent[T, R]`, `Options`, `Adapter` and in-memory adapter; legacy root runtime removed in 2.0 |
-| `adapter/` | `adapter` | temporary v1 `Broadcast`, `EachFunc`, `Conn` and `NewMemory`; removed in 2.0; `adapter/codec` added in 2.2 |
-| `adapter/codec/` | `codec` | 2.2, shared msgpack encoding |
-| `adapter/redis/` | `redis` | temporary v1 Redis broadcast; removed in 2.0 and replaced by the v2 module `adapters/redis` in 4b |
-| `adaptertest/` | `adaptertest` | 4b |
-| `client/` | `client` | Socket.IO client rewritten in 2.3; v1 root client removed in 2.0 |
-| `contrib/otel/` | own module | 2.4 |
-| `engineio/` | `engineio` | server side: `server.go`, `options.go` (from `server_options.go` and `types.go`), `conn.go` (from `connect.go`), `hooks.go` (2.4) |
-| `engineio/client/` | `client` | `client.go`, `dialer.go` (`Dialer`, `Opener`); depends on `engineio.Conn` only |
-| `engineio/session/` | `session` | `session.go`, `manager.go`, `id_generator.go`; `base.go` removed in favour of `frame.Type` |
-| `engineio/frame`, `packet`, `payload`, `transport/...`, `internal/...` | unchanged | `internal` holds the 1.L shutdown hook |
-| `parser/`, `logger/` | unchanged | |
+| `.` | `socketio` | public API; legacy root runtime removed in 2.0 |
+| `adapter/` | `adapter` | temporary v1 `Conn`, `EachFunc`, `Broadcast`, `NewMemory`; the directory is deleted in 2.0, and 2.2 creates `adapter/codec/` (package `codec`) anew |
+| `adapter/redis/` | `redis` | temporary v1 Redis broadcast; removed in 2.0 and replaced by the module `adapters/redis` in 4b |
+| `internal/redisdial/` | `redisdial` | test seam for the Redis dial timeout; removed with `adapter/redis` |
+| `engineio/` | `engineio` | server side: `Server`, `Conn`, options; `hooks.go` in 2.4 |
+| `engineio/client/` | `client` | Engine.IO client: `Dialer`, `Opener`; imports `engineio` for `engineio.Conn` only |
+| `engineio/internal/logtest/` | `logtest` | log recorder shared by the `engineio` and `engineio/client` tests |
+| `engineio/session`, `frame`, `packet`, `payload`, `transport/...`, `internal`, `parser/`, `logger/` | unchanged packages | `engineio/internal` holds the 1.L shutdown hook |
+| `adaptertest/` (4b), `client/` (2.3, root client removed in 2.0), `contrib/otel/` (2.4) | later | not present at 1b |
 
-1. **`engineio/client`**. Move `engineio/client.go` and `engineio/dialer.go` to
-   `engineio/client/`; `engineio.Dialer` becomes `client.Dialer`;
-   `engineio/server_test.go` becomes package `engineio_test` importing
-   `engineio/client`; the root `client.go` and `engineio/_examples` are updated.
-2. **engineio file names and frame type**. `connect.go` → `conn.go`; `types.go`
-   merged into `options.go` (renamed from `server_options.go`); `session/base.go`
-   removed, and `session.FrameType`, `session.TEXT`, `session.BINARY` are replaced by
-   `frame.Type`, `frame.String`, `frame.Binary` in `engineio`, `engineio/client`,
-   `parser` and root tests; `session_manager.go` → `manager.go`,
-   `session_id_generator.go` → `id_generator.go`; the four `engineio/packet/fake_*.go`
-   test doubles are merged into `engineio/packet/fake.go`.
-3. **`adapter` and `adapter/redis`**. `broadcast.go` → `adapter/memory.go`
-   (`adapter.Broadcast`, `adapter.EachFunc`, `adapter.NewMemory`);
-   `redis_broadcast.go`, `adapter_options.go` and `helpers.go` → `adapter/redis/`;
-   the Redis dial in `Server.Adapter` moves to `redis.Ping`. The root keeps
-   `type Broadcast = adapter.Broadcast` and
-   `type RedisAdapterOptions = redis.Options` as deprecated aliases and keeps
-   `Server.Adapter`; all three are removed in 2.0. `Server.ForEach` wraps the callback
-   so the public `EachFunc func(Conn)` is unchanged.
-4. **Root file names by role**. `connection_handlers.go` →
-   `packet_handlers.go`; `namespace_handlers.go` merged into `namespace_handler.go`;
-   `namespaces.go` merged into `connection.go`; `namespace_conn.go` → `namespace.go`;
-   `handler.go` → `event_handler.go`; tests follow their files. The `CLAUDE.md` layout
-   table is updated and stage 2 paths in this file point at the new tree.
+Source-to-target map. Its owner is this block; the PR body of each step repeats the
+rows of that step. `-` means no old path (a file the step creates) or no new path (a
+deleted file); rows that merge several files list each old path. Test files that stay
+at their path are described in the steps, not here.
 
-DoD: `make lint test-race examples` green; `go vet ./...` clean;
-review `git diff -M --stat v1.5.0..HEAD -- '*.go'` against a source-to-target map,
-including merged files; rename detection is informative, not an acceptance gate.
-Existing behaviour/regression tests pass without weakening assertions;
-no root `*.go` file imports `gomodule/redigo`; `engineio/client` imports nothing from
-`engineio` except `engineio.Conn`, and `engineio` does not import `engineio/client`
-outside tests. Each command below prints nothing:
-
-```sh
-grep -l 'gomodule/redigo' *.go
-grep -rn 'session\.\(FrameType\|TEXT\|BINARY\)' --include='*.go' .
-# prefix rule: no directory has more than two non-test files sharing a <prefix>_
-for d in $(git ls-files '*.go' | grep -v '^_examples/' | xargs -n1 dirname | sort -u); do
-  find "$d" -maxdepth 1 -name '*.go' ! -name '*_test.go' -exec basename {} \; |
-    sed -n 's/^\([a-z]*\)_.*/\1/p' | sort | uniq -c | awk -v d="$d" '$1>2{print d, $2, $1}'
-done
+```map
+1 engineio/client.go engineio/client/client.go
+1 engineio/dialer.go engineio/client/dialer.go
+1 - engineio/client/client_log_test.go
+1 - engineio/export_test.go
+1 - engineio/internal/logtest/logtest.go
+2 engineio/connect.go engineio/conn.go
+2 engineio/server_options.go engineio/options.go
+2 engineio/types.go engineio/options.go
+2 engineio/server_options_test.go engineio/options_test.go
+2 engineio/session/base.go -
+2 engineio/session/session_manager.go engineio/session/manager.go
+2 engineio/session/session_manager_test.go engineio/session/manager_test.go
+2 engineio/session/session_id_generator.go engineio/session/id_generator.go
+2 engineio/packet/fake_discarder.go engineio/packet/fake.go
+2 engineio/packet/fake_frame.go engineio/packet/fake.go
+2 engineio/packet/fake_reader.go engineio/packet/fake.go
+2 engineio/packet/fake_writer.go engineio/packet/fake.go
+3 broadcast.go adapter/memory.go
+3 - adapter/memory_test.go
+3 redis_broadcast.go adapter/redis/broadcast.go
+3 redis_broadcast_test.go adapter/redis/broadcast_test.go
+3 adapter_options.go adapter/redis/options.go
+3 helpers.go adapter/redis/uuid.go
+3 - adapter_compat.go
+3 - redis_helpers_test.go
+3 - internal/redisdial/redisdial.go
+4 connection_handlers.go packet_handlers.go
+4 connection_handlers_test.go packet_handlers_test.go
+4 namespace_handlers.go namespace_handler.go
+4 namespace_conn.go namespace.go
+4 namespaces.go namespace.go
+4 handler.go event_handler.go
+4 handler_test.go event_handler_test.go
 ```
 
-Acceptance: owner compares the `CLAUDE.md` layout table with `ls -R` of the module and
-finds they match; `_examples/default-http` and `_examples/redis-adapter` build and run
-with no source change other than import paths; `go doc ./adapter` and
-`go doc ./engineio/client` show the moved API.
+1. **`engineio/client`.** `Dialer` and `Opener` move with `client.go` and `dialer.go` to
+   package `client`. Root files import it as `eioclient` (root `client.go`,
+   `lifecycle_test.go`, `server_test.go`, `log_test.go` for `Opener`), because locals
+   and the 2.3 package `client/` would clash with `client`. An in-package `engineio`
+   test cannot import `engineio/client` (import cycle), so only external `engineio_test`
+   files may. Tests: `server_test.go`, `server_close_test.go` and the server-side
+   `TestSessionCloseRecord` with `logFixture` (from `session_log_test.go`) become package
+   `engineio_test`, and `f.cl.(Opener)` becomes `f.cl.(client.Opener)`;
+   `engineio/export_test.go` exposes `ConnChanLen(*Server) int` for the two checks of
+   `Server.connChan`. `TestDialFailureRecords`, `TestClientPeerCloseRecords`,
+   `TestClientPingFailureRecord`, `TestClientReaderCloseRecord`, `brokenConn` and
+   `brokenReader` move to `engineio/client/client_log_test.go` (package `client`; they
+   need only `engineio.NewServer`). `recorder` and `setDefault` move to
+   `engineio/internal/logtest` as `Recorder` and `SetDefault` (imports `log/slog` only, so
+   in-package `engineio` tests may use it too); `readAll` is defined locally in each of
+   the two test packages. `engineio/_examples` needs no edit.
+2. **Names and frame type.** Files per the map; `fake.go` stays a non-test file because
+   `NewFakeConnReader`, `NewFakeConnWriter`, `NewFakeConstReader` and `FakeDiscardWriter`
+   are exported. `session.FrameType`, `TEXT` and `BINARY` become `frame.Type`,
+   `frame.String` and `frame.Binary` in every user: root `connection.go`
+   (`queueWriter.NextWriter`, `frameReader.NextReader`), `engineio/conn.go` and
+   `engineio/client/client.go`, `parser/decoder.go`, `parser/encoder.go`, and the tests
+   `backpressure_test.go`, `connection_handlers_test.go`, `lifecycle_test.go`,
+   `log_test.go`, `server_test.go`, `engineio/server_test.go`, `parser/decoder_test.go`,
+   `parser/encoder_test.go`; inside `engineio/session` the unqualified uses in `session.go`
+   (`NextReader`, `NextWriter`) and `session_lifecycle_test.go`. Root test locals named
+   `frame` shadow the package: rename every one to `msg` in files that import
+   `engineio/frame` (`backpressure_test.go:65` fails to compile otherwise). Test
+   expectations keep the typed `frame.Type` values.
+3. **`adapter` and `adapter/redis`.** Exported API (`adapter/redis` imports redigo as
+   `redigo`; both packages compile without importing the root):
+
+   ```go
+   package adapter // memory.go
+   type Conn interface{ ID() string; Emit(event string, v ...interface{}) }
+   type EachFunc func(Conn)
+   type Broadcast interface { /* the ten methods of today's Broadcast, on Conn and EachFunc above */ }
+   func NewMemory() Broadcast
+
+   package redis // broadcast.go, options.go, uuid.go
+   type Options struct{ Host, Port, Addr, Prefix, Network, Password string; DB int } // as RedisAdapterOptions
+   func Normalize(o *Options) *Options        // getOptions: defaulted copy, nil gives defaults
+   func Ping(o *Options) (bool, error)        // the dial in Server.Adapter: ok is true after a dial, err is the Close error
+   type Broadcast struct{ /* unexported */ }  // implements adapter.Broadcast
+   func New(nsp string, o *Options) (*Broadcast, error) // newRedisBroadcast; o is normalised
+   func (*Broadcast) Close() error            // close(); always nil
+   ```
+
+   Root: `adapter_compat.go` holds `// Deprecated:` `type Broadcast = adapter.Broadcast`
+   and `type RedisAdapterOptions = redis.Options`, removed in 2.0 with `Server.Adapter`.
+   `EachFunc` stays a separate defined type `func(Conn)` in `server.go`; it cannot be an
+   alias. `Server.ForEach` wraps the callback with a comma-ok assertion
+   `c.(Conn)` and skips a connection that is not a root `Conn`, never panics.
+   `namespaceHandler.broadcast` is an `adapter.Broadcast`; `nopBroadcast` implements it
+   with `adapter.EachFunc`; `newNamespaceHandler` calls `adapter.NewMemory` or
+   `redis.New`. `Server.Adapter` calls `redis.Normalize` and `redis.Ping` and records
+   the options as before. `Server.Close` asserts `io.Closer` on each broadcast, not
+   `*redisBroadcast`. The dial timeout becomes `internal/redisdial.Timeout` (default
+   10 s), read by `redis.New` and set by the two root tests that now set
+   `redisDialTimeout`; `redisRequestTimeout` and `redisReconnectMin`/`Max` stay
+   unexported in `adapter/redis`. Tests: `redis_broadcast_test.go` (its `init()`, which
+   shortens those timers, `redisTestConn` embedding `adapter.Conn`, `newRedisTestConn`,
+   `waitRedisSubscribers`) moves to `adapter/redis`; `TestBroadcastDoesNotHoldLockWhileEmitting`
+   and `TestBroadcastForEachCallbackChangesRooms` move from `backpressure_test.go` to
+   `adapter/memory_test.go` and call `NewMemory`; `redis_integration_test.go` stays in
+   the root (it tests `Server.Adapter`, `Close` and `Serve`) and uses `redis.New`,
+   `Close`, `redis.Normalize`; the root keeps a copy of the two helpers in
+   `redis_helpers_test.go` for it and `backpressure_test.go`. The root `init()` is not
+   needed: the root Redis tests pass without it. New test `TestServerForEach` visits
+   `*namespaceConn` values through the memory and the Redis broadcast, and skips a
+   foreign `adapter.Conn` without a panic.
+4. **Root file names by role.** Files per the map: `namespaces.go` joins `namespace.go`
+   because it is the registry of `*namespaceConn`, `namespace_handlers.go` joins
+   `namespace_handler.go`. `CLAUDE.md` edits made by this step: one layout row per
+   directory the layout check lists (`adapter/`, `adapter/redis/`, `internal/redisdial/`,
+   `engineio/client/`, `engineio/internal/logtest/` and every other package directory),
+   the root row without "in-memory and Redis broadcast", the `engineio/` row without
+   "and client", the `logger/` row naming `engineio/client` in place of "client dialer",
+   and `handler.go` → `event_handler.go` in Conventions. Stage 2 paths already match.
+
+DoD (every line exits 0 and prints nothing; run on the committed tree, `BASE` a
+worktree of `$V1`):
+
+```sh
+V1=<recorded SHA>; BASE=<git worktree add ../base $V1>; FIRST=<first 1b commit>; MOD=$(go list -m)
+make lint test-race examples
+go build ./_examples/client ./engineio/_examples
+go test -count=1 ./.github/benchmarks ./.github/benchmarks/report
+go test -run '^$' -bench . -benchtime=1x ./... >/dev/null   # the benchmark job's input still compiles and runs
+# layering; the root still reaches redigo through adapter/redis until 2.0
+test -z "$(go list -f '{{join .Deps "\n"}}{{"\n"}}{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}' ./engineio | grep "^$MOD/engineio/client$")"
+test "$(cat $(ls engineio/client/*.go | grep -v _test.go) | grep -o 'engineio\.[A-Za-z]*' | sort -u)" = engineio.Conn
+test -z "$(go list -f '{{join .Deps "\n"}}{{"\n"}}{{join .TestImports "\n"}}{{"\n"}}{{join .XTestImports "\n"}}' ./adapter ./adapter/redis | grep -x "$MOD")"
+test -z "$(go list -deps ./adapter | grep redigo)"
+test -z "$(go list -f '{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}{{"\n"}}{{join .XTestImports "\n"}}' . | grep redigo)"
+# removed API stays removed
+test ! -e engineio/session/base.go
+test -z "$(go doc -all ./engineio/session | grep -E '\b(FrameType|TEXT|BINARY)\b')"
+! go doc ./engineio Dialer >/dev/null 2>&1 && ! go doc ./engineio Opener >/dev/null 2>&1
+! grep -rn 'session\.\(FrameType\|TEXT\|BINARY\)' --include='*.go' .
+# map: old paths gone, new paths present, no other non-test Go file added or deleted
+awk '/^```map$/{m=1;next} /^```$/{m=0} m{print $2, $3}' docs/ROADMAP.md >map.txt
+test -z "$(while read o n; do { [ "$o" = - ] || [ ! -e "$o" ]; } && { [ "$n" = - ] || [ -e "$n" ]; } || echo "map: $o $n"; done <map.txt)"
+chg() { git diff --no-renames --name-only --diff-filter=$1 $V1 HEAD -- '*.go' ':(exclude)*_test.go' ':(exclude)_examples' | sort; }
+test -z "$(comm -13 <(awk '{print $2}' map.txt | sort -u) <(chg A))"
+test -z "$(comm -13 <(awk '{print $1}' map.txt | sort -u) <(chg D))"
+test -z "$(git log --format=%s $V1..origin/master -- '*.go' | grep -v '^refactor(1b\.')"
+# prefix rule: no directory has more than two non-test files sharing a <prefix>_
+pkgdirs() { find . \( -name _examples -o -name .github -o -name .git \) -prune -o -name '*.go' ! -name '*_test.go' -print | xargs -n1 dirname | sort -u; }
+test -z "$(for d in $(pkgdirs); do ls $d/*.go | grep -v _test.go | xargs -n1 basename | sed -n 's/^\([A-Za-z0-9]*\)_.*/\1/p' | sort | uniq -c | awk -v d=$d '$1>2{print d,$2,$1}'; done)"
+# regression: no test name, Covers id or assertion lost
+names() { (cd $1 && go test -list '.*' ./... | grep -E '^(Test|Benchmark|Fuzz|Example)' | sort -u); }
+test -z "$(comm -23 <(names $BASE) <(names .))"
+ids() { (cd $1 && grep -rhoE '(1B|1I|1L)-T[0-9]+[A-Za-z]*' --include='*_test.go' . | sort -u); }
+test "$(ids $BASE)" = "$(ids .)"   # 52 ids at the base
+asserts() { (cd $1 && grep -rhoE '\b(assert|require)\.[A-Za-z]+\(|\bt\.(Fatal|Error)f?\(' --include='*_test.go' . | wc -l); }
+test "$(asserts .)" -ge "$(asserts $BASE)"   # a proxy; the diff review stays
+# coverage not below the pre-1b numbers (tests of a split package are measured together)
+cover() { f=$1; shift; go test -count=1 -coverpkg="$(echo $* | tr ' ' ,)" -coverprofile=c.out "$@" >/dev/null && go tool cover -func=c.out | awk -v f=$f '/^total:/{gsub("%","",$3); exit !($3+0>=f)}'; }
+cover 75.8 ./engineio ./engineio/client
+cover 92.4 . ./adapter ./adapter/redis
+cover 74.8 ./engineio/session
+cover 78.8 ./parser
+```
+
+The floors are the numbers of `master` before 1b (`go test -cover` of `engineio`, `.`,
+`engineio/session`, `parser`, Go 1.25.5). `engineio` varies between runs (75.8% in two
+of three, 76.7% in one), so its floor is the lower value; re-measure all four at `$V1`
+with the old packages and use the lower of the two numbers. The `v1` and release gates:
+
+```sh
+git merge-base --is-ancestor $V1 origin/master && git merge-base --is-ancestor $V1 origin/v1
+test -z "$(git diff --name-only $V1 origin/v1 | grep -v '^\.github/')"
+test "$(git show origin/v1:.github/workflows/ci.yaml | grep -c 'branches: \[v1\]')" -eq 2
+test "$(git show origin/v1:.github/workflows/benchmarks.yml | grep -c 'branches: \[v1\]')" -eq 1
+test "$(grep -c 'target-branch: v1' .github/dependabot.yml)" -eq 2
+test "$(gh run list --branch v1 --workflow CI --limit 1 --json conclusion --jq '.[0].conclusion')" = success
+test -z "$(git tag -l 'v1.*' --contains $FIRST)"
+```
+
+Acceptance (all commands exit 0 and print nothing, except `go doc`):
+
+```sh
+test -z "$(git diff $V1 HEAD -- _examples)"   # no source change; _examples/redis-adapter-unix-socket is the one using RedisAdapterOptions
+go doc . Broadcast | grep -q Deprecated && go doc . RedisAdapterOptions | grep -q Deprecated
+go doc ./adapter; go doc ./adapter/redis; go doc ./engineio/client   # show the API above
+# root exported surface: only the two aliases differ (expected: 2 changed lines)
+S() { (cd $1 && go doc -all . | grep -E '^(func|type|const|var) '); }
+test "$(diff <(S $BASE) <(S .) | grep -c '^[<>]')" -eq 4
+# CLAUDE.md layout: every package directory has a row, every row path exists
+test -z "$(for d in $(pkgdirs | grep -v '^\.$'); do grep -q "\`${d#./}/\`" CLAUDE.md || echo "no row: $d"; done)"
+test -z "$(awk -F'|' '/^\| Path/{t=1;next} t&&/^$/{exit} t{print $2}' CLAUDE.md | grep -o '`[^`]*`' | tr -d '`' | grep '/$' | while read p; do [ -e "$p" ] || echo "no path: $p"; done)"
+```
+
+Owner smoke once after step 4: `_examples/default-http` serves its page and one event
+round-trips. The Redis code paths run in the miniredis tests of `make test-race`; no
+Redis server is needed.
 
 ## Stage 2. Socket.IO protocol v5 over Engine.IO protocol v4 (tag `v2.0.0`)
 

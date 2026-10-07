@@ -28,16 +28,16 @@
 //
 // # Levels
 //
-// The library logs WARN and DEBUG records only; it logs no ERROR or INFO
-// record. WARN marks a failure no caller receives, such as
-// "socketio: unhandled error" or a rejected request. Expected closure (EOF, a
-// closed connection, a peer close, a ping timeout and any failure after a close
-// started), errors also returned to a caller or delivered to an OnError handler,
-// and the boundary records (session open and close, namespace connect,
-// disconnect) are DEBUG. LevelTrace is for per-packet and ping/pong lines,
-// which are guarded by Enabled so that disabled trace logging does not
-// allocate. Records an application logs through the deprecated Error and Info
-// are its own.
+// The library logs WARN, DEBUG and LevelTrace records only; it logs no ERROR or
+// INFO record. WARN marks a failure no caller receives, such as
+// "socketio: unhandled error" or a rejected request (DEBUG for an unknown sid).
+// Expected closure (EOF, a closed connection, a peer close, a ping timeout and
+// any failure after a close started), errors also returned to a caller or
+// delivered to an OnError handler, and the boundary records (session open and
+// close, namespace connect, disconnect) are DEBUG. LevelTrace is for
+// per-packet and ping/pong lines, which are guarded by Enabled so that disabled
+// trace logging does not allocate. Records an application logs through the
+// deprecated Error and Info are its own.
 //
 // # Messages and keys
 //

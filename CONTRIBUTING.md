@@ -8,17 +8,22 @@ planned and in which order: [docs/ROADMAP.md](docs/ROADMAP.md).
 1. Open an issue first for anything larger than a bug fix, so the change can be
    matched against the roadmap.
 2. Branch from `master`, one topic per branch, named `<area>/<short-topic>`
-   (for example `engineio/payload-v4`, `redis/request-timeout`).
+   (for example `engineio/payload-v4`, `redis/request-timeout`). A `v1.5.x` fix branches
+   from `v1` and targets `v1` (see Releases).
 3. Every PR: `make lint test` green locally, a test for each fix, `CHANGELOG.md`
    entry under `Unreleased`, docs updated in their owner file only.
 4. Commit messages and PR descriptions state the problem, the change, and what was
    verified with which command. No generated footers or trailers.
-5. Squash-merge. The PR title becomes the commit subject.
+5. Squash-merge. The PR title becomes the commit subject. The Stage 1b refactoring PRs
+   (steps 1–4 in [docs/ROADMAP.md](docs/ROADMAP.md)) keep their commits instead, so
+   that renames stay pure moves.
 
 ## Releases
 
-- Tags follow SemVer. `v1.x` tags are cut from `master` until v2 lands; after that
-  `master` is v2 and the `v1` branch receives fixes only.
+- Tags follow SemVer. `v1.x` tags are cut from `master` up to `v1.5.0` and from the
+  branch `v1` afterwards. Stage 1b cuts `v1` from the `v1.5.0` release commit; `v1.5.x`
+  patches land on `v1` only, and from the first Stage 1b commit `master` is never tagged
+  `v1.x` (its API breaks v1 consumers). `v2.x` tags are cut from `master`.
 - Sub-modules under `adapters/` are tagged as `adapters/<name>/vX.Y.Z`.
 - Before tagging: move the `Unreleased` section of `CHANGELOG.md` under the new
   version with the date, run the full CI matrix, and record benchmark numbers the

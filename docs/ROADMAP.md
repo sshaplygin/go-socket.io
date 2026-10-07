@@ -614,8 +614,10 @@ Tasks:
     instance, this one included, has not yet registered its subscription or does
     not answer.
   - *Check (1C join gate):* `make lint` passes; `CHANGELOG.md` has exactly one
-    `### Known limitations` heading, inside the section that becomes `v1.5.0`; the
-    owner reviews the subsection and the three godoc comments against 1.R.
+    `### Known limitations` heading, inside the section that becomes `v1.5.0`;
+    `go doc . Server.Adapter`, `go doc . Server.RoomLen` and `go doc . Server.Rooms`
+    each print the word `subscription`; the owner reviews the subsection and the
+    three godoc comments against 1.R.
 
 DoD: `make lint test-race` green on ubuntu/macos/windows for `stable` and `oldstable`;
 an additional Ubuntu job builds/tests the root on Go 1.22 with automatic toolchain
@@ -751,7 +753,8 @@ emit, ack, room broadcast, `Args2` and binary data; negative fixtures must rejec
 wrong handler argument, ack return type or emitted payload. Keep these fixtures in
 CI. Freeze the shared types consumed by parallel work: `Endpoint`, client registration
 interface, `Options`, packet/argument codecs, `Adapter`, both hook structs and result
-enums. Publish a method-signature inventory and acyclic package graph. No placeholder
+enums. Publish a method-signature inventory, including the namespace-creating call
+and the statements 2.2 *Readiness* requires with it, and an acyclic package graph. No placeholder
 `any` handler, unresolved signature or TODO in these interfaces passes G2. Runtime
 work is assigned to 2.1–2.4; the skeleton contains no claimed runtime implementation.
 
@@ -914,7 +917,10 @@ timing cases.
   packet dispatch reads. Concurrent creations of one namespace call the factory
   once; the other callers wait for that call and get its namespace or error. On a
   factory error the namespace is not registered and the creating call returns the
-  error wrapped with `%w`, naming the namespace. A returned adapter already
+  error wrapped with `%w`, naming the namespace. A creating call for a registered
+  namespace returns it without calling the factory. The factory context is the
+  server's; if the creating call takes a context, that context bounds only its
+  caller's wait and never cancels a factory call. A returned adapter already
   receives every cluster message for its namespace: a broker adapter returns only
   after the broker confirmed its subscriptions, or with an error within a bound it
   documents as an option, leaving nothing of its own open.
@@ -1406,13 +1412,18 @@ timeout is 5 s and *at once* means within 100 ms.
   `redis.UniversalClient` must send every command to one Redis master, so only a
   `*redis.Client` (from `redis.NewClient` or `redis.NewFailoverClient`) is accepted;
   any other implementation, such as `*redis.ClusterClient` or `*redis.Ring`, is
-  rejected at construction with a documented error (see Out of scope). A
-  `*redis.Client` that routes to a replica (`FailoverOptions.ReplicaOnly`, or
-  `NewClient` addressed to a replica) is unsupported, and the constructor godoc
-  says so: a PUBLISH or PUBSUB NUMSUB on a replica reaches only that replica's
-  subscribers, and go-redis v9 exposes no way to detect such a client (the
-  read-only flag of `redis.Options` is unexported; `ReplicaOnly` only selects the
-  failover dialer). Bound request time and reconnect subscriptions with backoff.
+  rejected at construction with a documented error: counting peers on a Cluster
+  needs PUBSUB NUMSUB summed over every master, as redis-adapter 8.3.0
+  `lib/util.ts` does, and a Ring sends subscriptions and keyless PUBLISH and PUBSUB
+  to different shards. A `*redis.Client` that routes to a replica
+  (`FailoverOptions.ReplicaOnly`, or `NewClient` addressed to a replica) is
+  unsupported, and the constructor godoc says so: a PUBLISH or PUBSUB NUMSUB on a
+  replica reaches only that replica's subscribers, and go-redis v9 exposes no
+  client-side way to detect such a client (the read-only flag of `redis.Options`
+  is unexported; `ReplicaOnly` only selects the failover dialer). The adapter does
+  not ask the server for its role: miniredis, which the deterministic tests use,
+  has no ROLE command. Bound request time and reconnect subscriptions with
+  backoff; the backoff's initial and maximum delays are documented options.
   For 2.2 *Readiness*, construction and every resubscribe read the PSUBSCRIBE and
   SUBSCRIBE confirmations within the `SubscribeTimeout` option (default 10 s),
   construction also stopping when the factory context ends; an
@@ -1440,17 +1451,21 @@ timeout is 5 s and *at once* means within 100 ms.
     leaving nothing.
   - 4R-T4: `Sockets` with no peer returns the local sockets and nil at once; with
     NUMSUB failing (pre-hook error), the local sockets and an error at once.
-  - 4R-T5: the injected client's `Dialer` records each connection it dials. With
-    the hold installed, the test closes every recorded connection; once the
-    `subscriber lost` record is logged, `Sockets` returns the local sockets and an
-    error at once. miniredis is not restarted: `Restart` builds a new server without
-    the pre-hook, which a resubscribe could reach first. With `SubscribeTimeout`
-    200 ms, the hold stays until the pre-hook has held three resubscribe attempts;
-    sampled every 50 ms meanwhile, `CurrentConnectionCount` never exceeds its value
-    when construction returned by more than one. After the hold is released and
-    NUMSUB of the request channel counts the instance again, `Sockets` returns
-    without an error within 1 s, and a broadcast from a second adapter on the same
-    miniredis reaches the adapter's socket within 1 s.
+  - 4R-T5: the injected client's `Dialer` wraps each connection it dials and
+    records its dial and its `Close`. With the hold installed, the test closes every
+    recorded connection; once the `subscriber lost` record is logged, `Sockets`
+    returns the local sockets and an error at once. miniredis is not restarted:
+    `Restart` builds a new server without the pre-hook, which a resubscribe could
+    reach first. With `SubscribeTimeout` 200 ms and backoff delays of 50 ms initial
+    and 200 ms maximum, the hold stays until the pre-hook has held three
+    resubscribe attempts; sampled every 50 ms meanwhile, at most two connections
+    dialed after the test closed the recorded ones are not yet closed by the client
+    (the current attempt and at most one pool connection). miniredis counts are not
+    compared while commands are held, because a held peer stays counted until the
+    hold is released. After the release, `Sockets`, retried every 50 ms, returns
+    the local sockets and nil within 2 s. A second adapter, constructed only then
+    with its own client on the same miniredis, broadcasts, and the broadcast reaches
+    the adapter's socket within 1 s.
   - 4R-T6: construction with a `*redis.ClusterClient` or a two-shard `*redis.Ring`
     returns the documented error.
 - **`adapters/nats`**: subjects `<prefix>.<encoded-nsp>.broadcast` and
@@ -1723,10 +1738,7 @@ snapshot/Node interoperability prototype before treating it as a delivery commit
 ## Out of scope
 
 EIO=3 in v2; connection state recovery; WebTransport; permessage-deflate; sharded Redis
-adapter (Redis 7 sharded pub/sub); Redis Cluster and Ring (client-sharded) clients for
-`adapters/redis` (counting peers needs PUBSUB NUMSUB summed over every master, as
-redis-adapter 8.3.0 `lib/util.ts` does; a Ring sends subscriptions and keyless PUBLISH
-and PUBSUB to different shards); replica-routed Redis clients
-(`FailoverOptions.ReplicaOnly`); cluster broadcast-with-ack; NATS JetStream persistence;
+adapter (Redis 7 sharded pub/sub); Redis Cluster, Ring and replica-routed clients for
+`adapters/redis` (see 4b `adapters/redis`); cluster broadcast-with-ack; NATS JetStream persistence;
 framework-specific integration packages (gin, echo, iris, gf use `http.Handler`); trace
 context propagation through the Redis adapter.

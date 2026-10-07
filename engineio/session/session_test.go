@@ -104,6 +104,28 @@ func TestNewNilLoggerDefaults(t *testing.T) {
 	require.ErrorIs(t, err, deadlineErr)
 }
 
+// TestSwitchTransportAfterCloseRecord switches a closed session to an upgrade connection
+// whose Close fails: the failure is that connection's, not the session's, so it is the
+// DEBUG record "engineio: close connection failed" with err, as on the other upgrade
+// probe paths.
+//
+// Covers the 1.L Levels rule on the upgrade switch (W); no 1L-T case.
+func TestSwitchTransportAfterCloseRecord(t *testing.T) {
+	h := &recordingHandler{}
+	s, err := New(failingConn{}, "sid", "polling", transport.ConnParameters{PingTimeout: time.Second}, slog.New(h))
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	closeErr := errors.New("close failed")
+	require.False(t, s.switchTransport("websocket", failingConn{closeErr: closeErr}))
+	h.mu.Lock()
+	last := h.recs[len(h.recs)-1]
+	h.mu.Unlock()
+	require.Equal(t, "engineio: close connection failed", last.Message)
+	require.Equal(t, slog.LevelDebug, last.Level)
+	require.Equal(t, []string{closeErr.Error()}, h.errValues())
+}
+
 // attrHandler records every record together with the attributes added
 // through With, keyed by attribute name.
 type attrHandler struct {

@@ -22,7 +22,11 @@ planned and in which order: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 - Tags follow SemVer. `v1.x` tags are cut from `master` up to `v1.5.0` and from the
   branch `v1` afterwards; `master` is not tagged `v1.x` after that. `v1.5.x` patches
-  land on `v1` only. `v2.x` tags are cut from `master`.
+  land on `v1` only. A `v1` fix that also applies to `master` is forward-ported by its
+  author in a separate PR to `master`, written against `master`'s layout, with its own
+  test and the subject suffix `(forward-port of #<N>)`; the roadmap may hold
+  forward-ports while a refactoring that renames files is in flight. `v2.x` tags are
+  cut from `master`.
 - Sub-modules under `adapters/` are tagged as `adapters/<name>/vX.Y.Z`.
 - Before tagging: move the `Unreleased` section of `CHANGELOG.md` under the new
   version with the date, run the full CI matrix, and record benchmark numbers the

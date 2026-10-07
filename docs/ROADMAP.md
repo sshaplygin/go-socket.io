@@ -700,7 +700,10 @@ commits kept ([`CONTRIBUTING.md`](../CONTRIBUTING.md) rule 5).
 `$V1` is the `v1.5.0` release commit (1.D). Tag `v1.5.0` is created only after every
 pre-release change has landed; until then the SHA of that commit, recorded in the body
 of every 1b PR, stands in for the tag, and afterwards `git rev-parse v1.5.0^{commit}`
-must equal it. Step 0 precedes any 1b commit on `master`:
+must equal it. Between `$V1` and the merge of step 4 only `refactor(1b.` commits change
+Go files (tests included) on `master`: a `v1.5.x` fix is made on `v1` and forward-ported
+after step 4 (rule in [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases)), so it never
+conflicts with a rename. Step 0 precedes any 1b commit on `master`:
 
 - 0a. `git branch v1 $V1 && git push origin v1`.
 - 0b. One PR into `v1`, `.github/` only: `ci.yaml` (`push`, `pull_request`) and

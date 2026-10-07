@@ -1,75 +1,9 @@
-# go-engine.io
+# engineio
 
-[![GoDoc](https://pkg.go.dev/badge/github.com/sshaplygin/go-socket.io/engineio.svg)](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master/engineio)
+Package `engineio` is the Engine.IO layer of go-socket.io: the server and client,
+sessions, the long-polling and websocket transports and the payload codec. The
+Socket.IO server runs on it.
 
-go-engine.io is the implement of engine.io in golang, which is transport-based cross-browser/cross-device bi-directional communication layer for [go-socket.io](https://github.com/sshaplygin/go-socket.io).
-
-It is compatible with node.js implement, and supported long-polling and websocket transport.
-
-## Install
-
-Install the package with:
-
-```bash
-go get github.com/sshaplygin/go-socket.io/engineio@master
-```
-
-Import it with:
-
-```go
-import "github.com/sshaplygin/go-socket.io/engineio"
-```
-
-and use `engineio` as the package name inside the code.
-
-## Example
-
-Please check example folder for details.
-
-```go
-package main
-
-import (
-	"io/ioutil"
-	"log"
-	"net/http"
-
-	"github.com/sshaplygin/go-socket.io/engineio"
-)
-
-func main() {
-	server := engineio.NewServer(nil)
-
-	go func() {
-		for {
-			conn, err := server.Accept()
-			if err != nil {
-				log.Fatalln("accept error:", err)
-			}
-			
-			go func() {
-				defer conn.Close()
-				
-				for {
-					t, r, _ := conn.NextReader()
-					b, _ := ioutil.ReadAll(r)
-					r.Close()
-
-					w, _ := conn.NextWriter(t)
-					w.Write(b)
-					w.Close()
-				}
-			}()
-		}
-	}()
-
-	http.Handle("/engine.io/", server)
-	log.Println("Serving at localhost:5000...")
-	
-	log.Fatal(http.ListenAndServe(":5000", nil))
-}
-```
-
-## License
-
-The 3-clause BSD License  - see [LICENSE](https://opensource.org/licenses/BSD-3-Clause) for more details
+- Install and supported clients: [README.md](../README.md)
+- Implemented protocol and deviations: [docs/PROTOCOL.md](../docs/PROTOCOL.md)
+- API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master/engineio)

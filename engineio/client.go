@@ -1,15 +1,21 @@
 package engineio
 
 import (
+	"context"
+	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/logger"
@@ -67,7 +73,7 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 
 		case packet.CLOSE:
 			if err = c.Close(); err != nil {
-				logger.Error("close client with packet close:", err)
+				logger.Log.Debug("engineio: close connection failed", "err", err)
 			}
 
 			return 0, nil, io.EOF
@@ -76,8 +82,9 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 			return session.FrameType(ft), r, nil
 		}
 
+		// Transports keep a read failure, so the next NextReader returns it: DEBUG.
 		if err = r.Close(); err != nil {
-			logger.Error("close reader:", err)
+			logger.Log.Debug("engineio: close reader failed", "err", err)
 		}
 	}
 }
@@ -105,7 +112,7 @@ func (c *client) RemoteHeader() http.Header {
 func (c *client) serve() {
 	defer func() {
 		if closeErr := c.conn.Close(); closeErr != nil {
-			logger.Error("close connect:", closeErr)
+			logger.Log.Debug("engineio: close connection failed", "err", closeErr)
 		}
 	}()
 
@@ -118,19 +125,44 @@ func (c *client) serve() {
 
 		w, err := c.conn.NextWriter(frame.String, packet.PING)
 		if err != nil {
-			logger.Error("get next writer with string frame and packet ping:", err)
+			c.pingFailed(err)
 
 			return
 		}
 
 		if err = w.Close(); err != nil {
-			logger.Error("close writer:", err)
+			c.pingFailed(err)
 
 			return
 		}
 
 		if err = c.conn.SetWriteDeadline(time.Now().Add(c.params.PingInterval + c.params.PingTimeout)); err != nil {
-			logger.Error("set writer deadline:", err)
+			c.pingFailed(err)
 		}
 	}
+}
+
+// pingFailed logs a failure of the ping loop. By the 1.L Levels rule it is DEBUG when
+// it is expected closure: a Close the client started, io.EOF or a closed connection, a
+// *net.OpError (a peer close, reset or passed deadline), a websocket close frame from
+// the peer (websocket.ErrCloseSent after the reply to it, or a *websocket.CloseError),
+// or a polling *payload.OpError that is not temporary (the transport stores a request
+// failure and closes itself before a writer sees it, or the deadline passed). It is WARN
+// otherwise: no caller receives it.
+func (c *client) pingFailed(err error) {
+	level := slog.LevelWarn
+	var netErr *net.OpError
+	var payloadErr *payload.OpError
+	var closeErr *websocket.CloseError
+	select {
+	case <-c.close:
+		level = slog.LevelDebug
+	default:
+		if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.As(err, &netErr) ||
+			errors.Is(err, websocket.ErrCloseSent) || errors.As(err, &closeErr) ||
+			(errors.As(err, &payloadErr) && !payloadErr.Temporary()) {
+			level = slog.LevelDebug
+		}
+	}
+	logger.Log.Log(context.Background(), level, "engineio: ping failed", "err", err)
 }

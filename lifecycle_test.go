@@ -31,8 +31,12 @@ func recv[T any](t *testing.T, ch <-chan T, what string) T {
 // TestLifecycleRootNamespace drives one Go client through connect, an event
 // with an acknowledgement, room membership and broadcasts, and a
 // server-initiated disconnect.
-func TestLifecycleRootNamespace(t *testing.T) {
-	srv := NewServer(nil)
+func TestLifecycleRootNamespace(t *testing.T) { lifecycleRootNamespace(t, nil) }
+
+// lifecycleRootNamespace runs the TestLifecycleRootNamespace scenario on NewServer(opts)
+// and returns the session's ID.
+func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
+	srv := NewServer(opts)
 	connected := make(chan Conn, 1)
 	disconnected := make(chan string, 1)
 	srv.OnConnect("/", func(s Conn) error {
@@ -115,6 +119,7 @@ func TestLifecycleRootNamespace(t *testing.T) {
 	// ("client namespace disconnect") although the server closed the connection.
 	cl.Emit("bye")
 	require.Equal(t, clientDisconnectMsg, recv(t, disconnected, "OnDisconnect"))
+	return sc.ID()
 }
 
 // rawClient is an engine.io connection that speaks socket.io packets as text.

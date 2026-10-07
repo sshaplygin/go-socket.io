@@ -3,6 +3,7 @@ package socketio
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"testing"
@@ -112,10 +113,12 @@ func serveWithRedis(t *testing.T, srv *Server, addr string) {
 // Redis broadcast could not be created fails before the namespace is registered.
 //
 // Covers 1I-T8 (S).
+// Covers 1L-T10 (S).
 func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 	var opErr *net.OpError
 	t.Run("root", func(t *testing.T) {
-		s := miniredis.RunT(t)
+		s, rec := miniredis.RunT(t), &recordingHandler{}
+		setDefault(t, rec)
 		p := newPeer(t, 'S', hooks{setup: func(srv *Server) { serveWithRedis(t, srv, s.Addr()); s.Close() }})
 		p.srv.serveConn(p.fc)
 
@@ -128,9 +131,11 @@ func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 		require.Empty(t, drain(p.discs), "OnDisconnect calls")
 		require.Empty(t, drain(p.nilErrs), "a second report")
 		require.Empty(t, drain(p.errs), "a report with a Conn")
+		require.Equal(t, map[string]any{"/": err}, rec.byNsp(t, "socketio: namespace connect", "err", slog.LevelDebug))
 	})
 	t.Run("namespace", func(t *testing.T) {
-		s := miniredis.RunT(t)
+		s, rec := miniredis.RunT(t), &recordingHandler{}
+		setDefault(t, rec)
 		p := start(t, 'S', hooks{setup: func(srv *Server) { serveWithRedis(t, srv, s.Addr()) }})
 		s.Close()
 		errs, rooms := make(chan error, 4), make(chan []string, 4)
@@ -145,7 +150,8 @@ func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 		})
 		p.send(t, "0/a")
 
-		require.ErrorAs(t, recv(t, errs, "OnError of /a"), &opErr)
+		err := recv(t, errs, "OnError of /a")
+		require.ErrorAs(t, err, &opErr)
 		require.Nil(t, recv(t, rooms, "Rooms of /a"))
 		recv(t, p.fc.closed, "engine.io close")
 		p.disconnected(t, "/")
@@ -153,6 +159,7 @@ func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 		require.Empty(t, drain(errs), "a second report")
 		require.Empty(t, drain(p.errs), "a report to root OnError")
 		require.Empty(t, drain(p.nilErrs), "a report to root OnError")
+		require.Equal(t, err, rec.byNsp(t, "socketio: namespace connect", "err", slog.LevelDebug)["/a"])
 	})
 }
 

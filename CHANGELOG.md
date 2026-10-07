@@ -62,6 +62,15 @@ All notable changes to this project are documented here. The format follows
 - `Server.Close` left the Redis connections and subscriber goroutine of every namespace
   running. See [`Server.Close`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#Server.Close)
   (`server.go:69` at `79a393c`, roadmap task 1I).
+- engineio: after an upgrade switch the session kept the deadline set for the upgrade
+  probe on the new connection, so `PingTimeout` ran from the probe instead of the switch;
+  the session now sets the new connection's deadline again and closes as
+  `transport error` if that fails (`engineio/session/session.go:483` at `1151bad`,
+  roadmap task 1.L).
+- engineio: a websocket handshake error at session creation was answered twice: the
+  websocket library had already written its 400 and `http.Error` followed, so net/http
+  logged a superfluous `WriteHeader`. That path now skips `http.Error`, as the upgrade
+  path already did (`engineio/server.go:134` at `1151bad`, roadmap task 1.L).
 
 ### Added
 
@@ -78,6 +87,30 @@ All notable changes to this project are documented here. The format follows
   also carry the current `transport`, updated on upgrade (roadmap stage 1.2a).
 - `logger.Log` writes to whatever `slog.Default()` is at log time, so an application's
   `slog.SetDefault` in `main` applies to library records.
+- engineio: each session of `engineio.Server` logs `engineio: session open` (DEBUG,
+  `sid`, `transport`, `remote_addr`) after its handshake and, exactly once, `engineio:
+  session close` (DEBUG, `sid`, `transport`, `reason`, `duration`, and `err` for a
+  transport error). `reason` is the first cause the session observed: `transport close`
+  (CLOSE packet from the client), `ping timeout`, `transport error` (any other read or
+  write failure, including a peer close), `forced close` (`Close`) or `server shutting
+  down` (`engineio.Server.Close` before `Accept`) (roadmap task 1.L).
+- engineio: `engineio: request rejected` (WARN; DEBUG for `unknown sid`) with
+  `transport`, `remote_addr`, `reason` and `err`, once per request `ServeHTTP` rejects and
+  once per failed session initialisation. `reason` is `bad transport`, `checker`,
+  `unknown sid`, `accept`, `init` or `bad upgrade`; the failed initialisation was logged
+  as `init new session` at ERROR (roadmap task 1.L).
+- `socketio: unhandled error` (WARN, `sid`, `nsp`, `err`): an error that no `OnError`
+  receives, such as a CONNECT to a namespace without handlers, a decode or dispatch
+  error, a marshal error in `Encode` or an overflow (`nsp` is the overflowing packet's
+  namespace), was dropped silently. It is logged once unless it is expected closure: a
+  failure of the engine.io frame reader or writer that the parser returned, a peer close
+  or a ping timeout, or any failure after a close started (roadmap task 1.L).
+- `socketio.Server` connections log `socketio: namespace connect` (DEBUG, `sid`, `nsp`, and
+  `err` when `OnConnect` or the connect failed; an overflow during root `OnConnect` gives
+  `ErrWriteBufferFull`, joined with the `OnConnect` error) and, once per connected
+  namespace, `socketio: disconnect` (DEBUG, `sid`, `nsp`, `reason` `namespace disconnect`
+  or `connection close`; text sent by the peer is not logged). `Client` logs neither
+  (roadmap task 1.L).
 - `engineio.Options.WriteBufferSize` (temporary v1 placement) and `ErrWriteBufferFull`:
   each connection queues at most that many outbound packets (default 64). See
   [`engineio.Options`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master/engineio#Options)
@@ -146,6 +179,52 @@ All notable changes to this project are documented here. The format follows
   (`server.go:309` at `48cf0d2`).
 - The error that closes a connection is reported to `OnError` before the close's effects
   run; a failed connect was closed before it was reported (`server.go:249` at `48cf0d2`).
+- The warning for an invalid `SOCKETIO_LOG_LEVEL` is logged as
+  `logger: invalid level ignored` with the value under `value`; it read
+  `logger: invalid SOCKETIO_LOG_LEVEL, ignored` (`logger/logger.go:67` at `1151bad`,
+  roadmap task 1.L).
+- The polling transport logs a POST with an unsupported `Content-Type`, a failed payload
+  read and a failed answer at DEBUG instead of ERROR, and no longer prints the answer
+  failure with `fmt.Printf`: the client gets the 400 or has gone
+  (`engineio/transport/polling/server.go:131`, `:137`, `:144`, `:145` at `1151bad`,
+  roadmap task 1.L).
+- socket.io and parser records: messages are constants such as
+  `socketio: event decode failed`; the `namespace` key is `nsp` (the root namespace is
+  `/`), `id` is `ack_id` and `argTypes` is no longer logged. Records of an error that is
+  also reported to `OnError`, logged as unhandled or returned, and the parser's frame
+  failures, are DEBUG instead of ERROR or INFO; an emit before the client's namespace is
+  connected, an ACK callback of the wrong type and an EVENT for a namespace without
+  handler are WARN instead of INFO (`connection_handlers.go:27`-`:216`, `server.go:348`,
+  `:371`, `client.go:117`, `parser/decoder.go:333`, `parser/encoder.go:31`-`:209` at
+  `1151bad`, roadmap task 1.L).
+- engineio records: the session, the upgrade probe, the engine.io client and dialer,
+  the polling client, the packet encoder and the websocket wrapper logged through
+  `logger.Error` at ERROR with free-form messages such as `getOpen store 2:`. They now
+  log constant `engineio: ...` messages with an `err` key: DEBUG for failures after a
+  close started, session frame failures reported as close reasons, upgrade-probe
+  failures, errors also returned to a caller (including the polling client's stored
+  request failures and the engine.io client's reader `Close` failures, which its next
+  `NextReader` returns), the engine.io client's ping failures that are expected closure
+  (its `Close` has started, `io.EOF`, a closed or lost connection, a websocket close
+  frame from the peer, or a polling request failure after which the transport closed
+  itself) and the websocket "frame not
+  closed" reminders, which no longer carry a synthetic `ConnectionNotClosed` error;
+  WARN for failures no caller receives: the engine.io client's other ping failures,
+  the dialer's and the polling client's reader `Close` failures during the handshake,
+  and `engineio: transport dial failed` (with
+  `transport`) for a transport attempt whose error `Dial` does not return (the last
+  attempt is DEBUG) (`engineio/session/session.go:56`-`:507`, `engineio/client.go:70`-`:133`,
+  `engineio/dialer.go:23`-`:87`, `engineio/transport/polling/connect.go:38`-`:277`,
+  `engineio/packet/encoder.go:40`, `engineio/transport/websocket/wrapper.go:66`, `:131`
+  at `1151bad`, roadmap task 1.L).
+
+### Deprecated
+
+- `logger.Error` and `logger.Info`: the library no longer calls them. Use `slog`'s
+  methods on `logger.Log` or on the logger passed as `engineio.Options.Logger`. See
+  [`logger`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master/logger), whose
+  godoc now documents the levels, the message pattern and the attribute keys of library
+  records (roadmap task 1.L).
 
 ## v1.4.2 and earlier
 

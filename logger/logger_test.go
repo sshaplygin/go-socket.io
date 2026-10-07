@@ -82,7 +82,8 @@ func TestLogLevelInvalidEnv(t *testing.T) {
 	out, errOut := runHelper(t, "bogus", true)
 	require.Equal(t, "false UNSET", out, "invalid value must behave as unset")
 	require.Equal(t, 1, strings.Count(errOut, "WARN"), "exactly one warning: %q", errOut)
-	require.Contains(t, errOut, "bogus")
+	require.Contains(t, errOut, "logger: invalid level ignored")
+	require.Contains(t, errOut, "value=bogus")
 }
 
 // setOverride sets Level for one test, as an application or the environment

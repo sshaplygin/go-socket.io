@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/engineio/internal"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
@@ -32,8 +34,30 @@ type Session struct {
 
 	context interface{}
 
-	upgradeLocker sync.RWMutex // guards conn, transport and closed
+	upgradeLocker sync.RWMutex // guards conn, transport, closed and opened
 	closed        bool         // set by Close; a closed session is never upgraded
+	opened        time.Time    // set by InitSession; a session never opened logs no close
+
+	cause    atomic.Pointer[closeCause] // the first close cause observed
+	deadline atomic.Int64               // UnixNano of the PingTimeout deadline of conn
+}
+
+// The reasons of the "engineio: session close" record.
+const (
+	reasonTransportClose = "transport close"
+	reasonPingTimeout    = "ping timeout"
+	reasonTransportError = "transport error"
+	reasonForcedClose    = "forced close"
+	reasonShutdown       = "server shutting down"
+)
+
+type closeCause struct {
+	reason string
+	err    error // set for reasonTransportError only
+}
+
+func init() {
+	internal.Shutdown = func(s io.Closer) error { return s.(*Session).close(reasonShutdown) }
 }
 
 // New creates a session over conn. log receives errors the session cannot
@@ -53,7 +77,7 @@ func New(conn transport.Conn, sid, transport string, params transport.ConnParame
 
 	if err := ses.setDeadline(); err != nil {
 		if closeErr := ses.Close(); closeErr != nil {
-			ses.logger().Error("session close", "err", closeErr)
+			ses.logger().Debug("engineio: session close failed", "err", closeErr)
 		}
 
 		return nil, err
@@ -81,14 +105,74 @@ func (s *Session) Transport() string {
 	return s.transport
 }
 
+// Close closes the session. Its close record names the first cause observed, or
+// "forced close".
 func (s *Session) Close() error {
+	return s.close(reasonForcedClose)
+}
+
+func (s *Session) close(reason string) error {
+	s.observe(reason, nil)
 	s.upgradeLocker.Lock()
+	first, opened := !s.closed, s.opened
 	s.closed = true
 	conn := s.conn
 	s.upgradeLocker.Unlock()
 
+	if first && !opened.IsZero() {
+		c := s.cause.Load()
+		args := []any{"reason", c.reason, slog.Duration("duration", time.Since(opened))}
+		if c.err != nil {
+			args = append(args, "err", c.err)
+		}
+		s.logger().Debug("engineio: session close", args...)
+	}
 	return conn.Close()
 }
+
+// observe records reason as the close cause unless one was observed before.
+func (s *Session) observe(reason string, err error) {
+	s.cause.CompareAndSwap(nil, &closeCause{reason, err})
+}
+
+// fail observes a non-nil err of a transport read or write as "ping timeout" once the
+// PingTimeout deadline has passed, as "transport error" before, and returns it.
+func (s *Session) fail(err error) error {
+	if err != nil && time.Now().UnixNano() >= s.deadline.Load() {
+		s.observe(reasonPingTimeout, nil)
+	} else if err != nil {
+		s.observe(reasonTransportError, err)
+	}
+	return err
+}
+
+// frameReader and frameWriter observe the failures of a frame; io.EOF ends a frame.
+type frameReader struct {
+	io.ReadCloser
+	s *Session
+}
+
+func (r frameReader) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
+	if err == io.EOF {
+		return n, err
+	}
+	return n, r.s.fail(err)
+}
+
+func (r frameReader) Close() error { return r.s.fail(r.ReadCloser.Close()) }
+
+type frameWriter struct {
+	io.WriteCloser
+	s *Session
+}
+
+func (w frameWriter) Write(p []byte) (int, error) {
+	n, err := w.WriteCloser.Write(p)
+	return n, w.s.fail(err)
+}
+
+func (w frameWriter) Close() error { return w.s.fail(w.WriteCloser.Close()) }
 
 // NextReader attempts to obtain a ReadCloser from the session's connection.
 // When finished writing, the caller MUST Close the ReadCloser to unlock the
@@ -97,8 +181,9 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 	for {
 		ft, pt, r, err := s.nextReader()
 		if err != nil {
+			_ = s.fail(err)
 			if closeErr := s.Close(); closeErr != nil {
-				s.logger().Error("close session after next reader", "err", closeErr)
+				s.logger().Debug("engineio: session close failed", "err", closeErr)
 			}
 
 			return 0, nil, err
@@ -115,42 +200,43 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 				// echo
 				_, err = io.Copy(w, r)
 				// unlocks the wrapped connection's FrameWriter
-				if closeErr := w.Close(); closeErr != nil {
-					s.logger().Error("close writer after write pong packet", "err", closeErr)
+				if closeErr := s.fail(w.Close()); closeErr != nil {
+					s.logger().Debug("engineio: close writer failed", "err", closeErr)
 				}
 
 				// unlocks the wrapped connection's FrameReader
-				if closeErr := r.Close(); closeErr != nil {
-					s.logger().Error("close reader", "err", closeErr)
+				if closeErr := s.fail(r.Close()); closeErr != nil {
+					s.logger().Debug("engineio: close reader failed", "err", closeErr)
 				}
 
 				return err
 			}()
 
-			if err != nil {
+			if s.fail(err) != nil {
 				if closeErr := s.Close(); closeErr != nil {
-					s.logger().Error("close session", "err", closeErr)
+					s.logger().Debug("engineio: session close failed", "err", closeErr)
 				}
 
 				return 0, nil, err
 			}
 			// Read another frame.
-			if err := s.setDeadline(); err != nil {
+			if err := s.fail(s.setDeadline()); err != nil {
 				if closeErr := s.Close(); closeErr != nil {
-					s.logger().Error("close session after set deadline", "err", closeErr)
+					s.logger().Debug("engineio: session close failed", "err", closeErr)
 				}
 
 				return 0, nil, err
 			}
 
 		case packet.CLOSE:
+			s.observe(reasonTransportClose, nil)
 			// unlocks the wrapped connection's FrameReader
 			if err = r.Close(); err != nil {
-				s.logger().Error("close reader on packet close", "err", err)
+				s.logger().Debug("engineio: close reader failed", "err", err)
 			}
 
 			if err = s.Close(); err != nil {
-				s.logger().Error("close session on packet close", "err", err)
+				s.logger().Debug("engineio: session close failed", "err", err)
 			}
 
 			return 0, nil, io.EOF
@@ -158,12 +244,12 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 		case packet.MESSAGE:
 			// Caller must Close the ReadCloser to unlock the connection's
 			// FrameReader when finished reading.
-			return FrameType(ft), r, nil
+			return FrameType(ft), frameReader{r, s}, nil
 
 		default:
 			// Unknown packet type. Close reader and try again.
-			if err = r.Close(); err != nil {
-				s.logger().Error("close reader on unknown packet", "err", err)
+			if err = s.fail(r.Close()); err != nil {
+				s.logger().Debug("engineio: close reader failed", "err", err)
 			}
 		}
 	}
@@ -201,7 +287,11 @@ func (s *Session) RemoteHeader() http.Header {
 // When finished writing, the caller MUST Close the WriteCloser to unlock the
 // connection's FrameWriter.
 func (s *Session) NextWriter(typ FrameType) (io.WriteCloser, error) {
-	return s.nextWriter(frame.Type(typ), packet.MESSAGE)
+	w, err := s.nextWriter(frame.Type(typ), packet.MESSAGE)
+	if s.fail(err) != nil {
+		return nil, err
+	}
+	return frameWriter{w, s}, nil
 }
 
 func (s *Session) Upgrade(transport string, conn transport.Conn) {
@@ -212,7 +302,7 @@ func (s *Session) InitSession() error {
 	w, err := s.nextWriter(frame.String, packet.OPEN)
 	if err != nil {
 		if closeErr := s.Close(); closeErr != nil {
-			s.logger().Error("close session with string frame and packet open", "err", closeErr)
+			s.logger().Debug("engineio: session close failed", "err", closeErr)
 		}
 
 		return err
@@ -220,11 +310,11 @@ func (s *Session) InitSession() error {
 
 	if _, err := s.params.WriteTo(w); err != nil {
 		if closeErr := w.Close(); closeErr != nil {
-			s.logger().Error("close writer", "err", closeErr)
+			s.logger().Debug("engineio: close writer failed", "err", closeErr)
 		}
 
 		if closeErr := s.Close(); closeErr != nil {
-			s.logger().Error("close session", "err", closeErr)
+			s.logger().Debug("engineio: session close failed", "err", closeErr)
 		}
 
 		return err
@@ -232,12 +322,20 @@ func (s *Session) InitSession() error {
 
 	if err := w.Close(); err != nil {
 		if closeErr := s.Close(); closeErr != nil {
-			s.logger().Error("close session", "err", closeErr)
+			s.logger().Debug("engineio: session close failed", "err", closeErr)
 		}
 
 		return err
 	}
 
+	// The open record is logged under the lock: close reads opened under it, so a
+	// concurrent close cannot log the session's close record before its open record.
+	s.upgradeLocker.Lock()
+	defer s.upgradeLocker.Unlock()
+	if !s.closed {
+		s.opened = time.Now()
+		s.logger().Debug("engineio: session open", "remote_addr", fmt.Sprint(s.conn.RemoteAddr()))
+	}
 	return nil
 }
 
@@ -301,6 +399,7 @@ func (s *Session) setDeadline() error {
 	defer s.upgradeLocker.RUnlock()
 
 	deadline := time.Now().Add(s.params.PingTimeout)
+	s.deadline.Store(deadline.UnixNano())
 
 	err := s.conn.SetReadDeadline(deadline)
 	if err != nil {
@@ -314,10 +413,10 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	// Read a ping from the client.
 	err := conn.SetReadDeadline(time.Now().Add(s.params.PingTimeout))
 	if err != nil {
-		s.logger().Error("set read deadline", "err", err)
+		s.logger().Debug("engineio: upgrade probe failed", "err", err)
 
 		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Error("close connect after set read deadline", "err", closeErr)
+			s.logger().Debug("engineio: close connection failed", "err", closeErr)
 		}
 
 		return
@@ -325,10 +424,10 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 
 	ft, pt, r, err := conn.NextReader()
 	if err != nil {
-		s.logger().Error("get next reader", "err", err)
+		s.logger().Debug("engineio: upgrade probe failed", "err", err)
 
 		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Error("close connect after get next reader", "err", closeErr)
+			s.logger().Debug("engineio: close connection failed", "err", closeErr)
 		}
 
 		return
@@ -336,11 +435,11 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 
 	if pt != packet.PING {
 		if err := r.Close(); err != nil {
-			s.logger().Error("close reader", "err", err)
+			s.logger().Debug("engineio: close reader failed", "err", err)
 		}
 
 		if err := conn.Close(); err != nil {
-			s.logger().Error("close connect", "err", err)
+			s.logger().Debug("engineio: close connection failed", "err", err)
 		}
 
 		return
@@ -350,14 +449,14 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	// Sent a pong in reply.
 	err = conn.SetWriteDeadline(time.Now().Add(s.params.PingTimeout))
 	if err != nil {
-		s.logger().Error("set write deadline", "err", err)
+		s.logger().Debug("engineio: upgrade probe failed", "err", err)
 
 		if closeErr := r.Close(); closeErr != nil {
-			s.logger().Error("close reader", "err", closeErr)
+			s.logger().Debug("engineio: close reader failed", "err", closeErr)
 		}
 
 		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Error("close connect", "err", closeErr)
+			s.logger().Debug("engineio: close connection failed", "err", closeErr)
 		}
 
 		return
@@ -365,14 +464,14 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 
 	w, err := conn.NextWriter(ft, packet.PONG)
 	if err != nil {
-		s.logger().Error("get next writer with pong packet", "err", err)
+		s.logger().Debug("engineio: upgrade probe failed", "err", err)
 
 		if closeErr := r.Close(); closeErr != nil {
-			s.logger().Error("close reader", "err", closeErr)
+			s.logger().Debug("engineio: close reader failed", "err", closeErr)
 		}
 
 		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Error("close connect", "err", closeErr)
+			s.logger().Debug("engineio: close connection failed", "err", closeErr)
 		}
 
 		return
@@ -380,42 +479,42 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 
 	// echo
 	if _, err = io.Copy(w, r); err != nil {
-		s.logger().Error("copy from reader to writer", "err", err)
+		s.logger().Debug("engineio: upgrade probe failed", "err", err)
 
 		if closeErr := w.Close(); closeErr != nil {
-			s.logger().Error("close writer", "err", closeErr)
+			s.logger().Debug("engineio: close writer failed", "err", closeErr)
 		}
 
 		if closeErr := r.Close(); closeErr != nil {
-			s.logger().Error("close reader", "err", closeErr)
+			s.logger().Debug("engineio: close reader failed", "err", closeErr)
 		}
 
 		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Error("close connect", "err", closeErr)
+			s.logger().Debug("engineio: close connection failed", "err", closeErr)
 		}
 
 		return
 	}
 
 	if err = r.Close(); err != nil {
-		s.logger().Error("close reader", "err", err)
+		s.logger().Debug("engineio: close reader failed", "err", err)
 
 		if closeErr := w.Close(); closeErr != nil {
-			s.logger().Error("close writer", "err", closeErr)
+			s.logger().Debug("engineio: close writer failed", "err", closeErr)
 		}
 
 		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Error("close connect", "err", closeErr)
+			s.logger().Debug("engineio: close connection failed", "err", closeErr)
 		}
 
 		return
 	}
 
 	if err = w.Close(); err != nil {
-		s.logger().Error("close writer", "err", err)
+		s.logger().Debug("engineio: close writer failed", "err", err)
 
 		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Error("close connect", "err", closeErr)
+			s.logger().Debug("engineio: close connection failed", "err", closeErr)
 		}
 
 		return
@@ -430,7 +529,7 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	if !ok {
 		// old transport doesn't support upgrading
 		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Error("close connect after get pauser", "err", closeErr)
+			s.logger().Debug("engineio: close connection failed", "err", closeErr)
 		}
 
 		return
@@ -448,10 +547,10 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	// Check for upgrade packet from the client.
 	_, pt, r, err = conn.NextReader()
 	if err != nil {
-		s.logger().Error("get next reader", "err", err)
+		s.logger().Debug("engineio: upgrade probe failed", "err", err)
 
 		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Error("close connect", "err", closeErr)
+			s.logger().Debug("engineio: close connection failed", "err", closeErr)
 		}
 
 		return
@@ -459,21 +558,21 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 
 	if pt != packet.UPGRADE {
 		if closeErr := r.Close(); closeErr != nil {
-			s.logger().Error("close reader", "err", closeErr)
+			s.logger().Debug("engineio: close reader failed", "err", closeErr)
 		}
 
 		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Error("close connect", "err", closeErr)
+			s.logger().Debug("engineio: close connection failed", "err", closeErr)
 		}
 
 		return
 	}
 
 	if err = r.Close(); err != nil {
-		s.logger().Error("close reader", "err", err)
+		s.logger().Debug("engineio: close reader failed", "err", err)
 
 		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Error("close connect", "err", closeErr)
+			s.logger().Debug("engineio: close connection failed", "err", closeErr)
 		}
 
 		return
@@ -485,9 +584,13 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	}
 
 	p = nil
+	if err := s.setDeadline(); err != nil { // PingTimeout now runs on conn
+		s.observe(reasonTransportError, err)
+		_ = s.Close()
+	}
 
 	if closeErr := old.Close(); closeErr != nil {
-		s.logger().Error("close old connection", "err", closeErr)
+		s.logger().Debug("engineio: close connection failed", "err", closeErr)
 	}
 }
 
@@ -504,7 +607,7 @@ func (s *Session) switchTransport(t string, conn transport.Conn) bool {
 	if s.closed {
 		s.upgradeLocker.Unlock()
 		if err := conn.Close(); err != nil {
-			s.logger().Error("close upgrade connection of a closed session", "err", err)
+			s.logger().Debug("engineio: close connection failed", "err", err)
 		}
 		return false
 	}

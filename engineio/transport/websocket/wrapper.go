@@ -1,7 +1,6 @@
 package websocket
 
 import (
-	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -63,7 +62,7 @@ func newRcWrapper(l *sync.Mutex, r io.Reader) rcWrapper {
 		select {
 		case <-q:
 		case <-timer.C:
-			logger.Error("Did you forget to Close() the ReadCloser from NextReader?", fmt.Errorf("ConnectionNotClosed"))
+			logger.Log.Debug("engineio: frame reader not closed")
 		}
 	}()
 
@@ -128,7 +127,7 @@ func newWcWrapper(l *sync.Mutex, w io.WriteCloser) wcWrapper {
 		select {
 		case <-chQuit:
 		case <-timer.C:
-			logger.Error("Did you forget to Close() the WriteCloser from NextWriter?", fmt.Errorf("ConnectionNotClosed"))
+			logger.Log.Debug("engineio: frame writer not closed")
 		}
 	}()
 

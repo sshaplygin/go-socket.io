@@ -2,7 +2,6 @@ package polling
 
 import (
 	"bytes"
-	"fmt"
 	"html/template"
 	"net"
 	"net/http"
@@ -128,21 +127,20 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		mime := r.Header.Get("Content-Type")
 		isSupportBinary, err := mimeIsSupportBinary(mime)
 		if err != nil {
-			logger.Error("Polling Transport MethodPost mimeIsSupportBinary", err)
+			logger.Log.Debug("engineio: unsupported content type", "err", err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		if err := c.Payload.FeedIn(r.Body, isSupportBinary); err != nil {
-			logger.Error("Polling Transport MethodPost FeedIn", err)
+			logger.Log.Debug("engineio: post payload failed", "err", err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		_, err = w.Write([]byte("ok"))
 		if err != nil {
-			logger.Error("Polling Transport MethodPost Write", err)
-			fmt.Printf("ack post err=%s\n", err.Error())
+			logger.Log.Debug("engineio: post answer failed", "err", err)
 		}
 
 	default:

@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http/httptest"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -60,8 +61,10 @@ func (h *recordingHandler) hasAttr(key, val string) bool {
 // TestServerLoggerOption checks that a server created with
 // engineio.Options.Logger reports connection errors through that logger and
 // not through the package-level default.
+//
+// Covers 1L-T12 (S).
 func TestServerLoggerOption(t *testing.T) {
-	custom := &recordingHandler{}
+	custom := newAttrRecorder()
 	fallback := &recordingHandler{}
 	// logger.Log follows slog.Default(); swap the default atomically instead of
 	// assigning the package variable, which goroutines left by earlier tests
@@ -83,7 +86,7 @@ func TestServerLoggerOption(t *testing.T) {
 	defer ts.Close()
 
 	// A raw engine.io client sends a CONNECT for a namespace that has no
-	// handler; the server logs the failure with namespace=/nope.
+	// handler; the server logs it as an unhandled error with nsp=/nope.
 	dialer := engineio.Dialer{Transports: []transport.Transport{polling.Default}}
 	conn, err := dialer.Dial(ts.URL, nil)
 	require.NoError(t, err)
@@ -95,9 +98,10 @@ func TestServerLoggerOption(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, w.Close())
 
-	require.Eventually(t, func() bool { return custom.hasAttr("namespace", "/nope") },
+	require.Eventually(t, func() bool { return custom.find("msg", "socketio: unhandled error")["nsp"] == "/nope" },
 		5*time.Second, 20*time.Millisecond, "custom logger did not receive the namespace error")
-	require.False(t, fallback.hasAttr("namespace", "/nope"),
+	require.Equal(t, "WARN", custom.find("msg", "socketio: unhandled error")["level"])
+	require.False(t, fallback.hasAttr("nsp", "/nope"),
 		"error was also written to the package-level logger")
 }
 
@@ -114,8 +118,11 @@ func newAttrRecorder() *attrRecorder {
 
 func (h *attrRecorder) Enabled(context.Context, slog.Level) bool { return true }
 
+// Handle keeps the message, the level, the function that logged (by record PC) and the
+// attributes.
 func (h *attrRecorder) Handle(_ context.Context, r slog.Record) error {
-	m := map[string]string{"msg": r.Message}
+	f, _ := runtime.CallersFrames([]uintptr{r.PC}).Next()
+	m := map[string]string{"msg": r.Message, "level": r.Level.String(), "func": f.Function}
 	for _, a := range h.attrs {
 		m[a.Key] = a.Value.String()
 	}
@@ -181,7 +188,7 @@ func TestConnLogWrappedWithSid(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, w.Close())
 
-	require.Eventually(t, func() bool { return rec.find("namespace", "/nope") != nil },
+	require.Eventually(t, func() bool { return rec.find("nsp", "/nope") != nil },
 		5*time.Second, 20*time.Millisecond)
-	require.Equal(t, conn.ID(), rec.find("namespace", "/nope")["sid"])
+	require.Equal(t, conn.ID(), rec.find("nsp", "/nope")["sid"])
 }

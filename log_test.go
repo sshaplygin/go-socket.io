@@ -460,11 +460,11 @@ func TestPingTimeoutRecords(t *testing.T) {
 }
 
 // keyCheck collects the module's records that break the 1.L contract and, per message,
-// the number of sid attributes of each record.
+// the sid of each record ("" unless it has exactly one sid attribute).
 type keyCheck struct {
 	mu       sync.Mutex
 	problems []string
-	sids     map[string][]int
+	sids     map[string][]string
 }
 
 // keyChecker is the slog.Handler over a keyCheck; WithAttrs keeps the added attributes.
@@ -481,7 +481,7 @@ var (
 )
 
 func newKeyChecker() *keyChecker {
-	return &keyChecker{keyCheck: &keyCheck{sids: map[string][]int{}}}
+	return &keyChecker{keyCheck: &keyCheck{sids: map[string][]string{}}}
 }
 
 func (h *keyChecker) Enabled(context.Context, slog.Level) bool { return true }
@@ -507,16 +507,20 @@ func (h *keyChecker) Handle(_ context.Context, r slog.Record) error {
 	if r.Level != slog.LevelWarn && r.Level > slog.LevelDebug {
 		bad("level " + r.Level.String())
 	}
-	sids := 0
+	var sids []string
 	for _, a := range attrs {
 		if !allowedKeys[a.Key] {
 			bad("key " + a.Key)
 		}
 		if a.Key == "sid" {
-			sids++
+			sids = append(sids, a.Value.String())
 		}
 	}
-	h.sids[r.Message] = append(h.sids[r.Message], sids)
+	sid := ""
+	if len(sids) == 1 {
+		sid = sids[0]
+	}
+	h.sids[r.Message] = append(h.sids[r.Message], sid)
 	return nil
 }
 
@@ -526,7 +530,7 @@ func (h *keyChecker) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h *keyChecker) WithGroup(string) slog.Handler { return h }
 
-func (h *keyCheck) result(msg string) (problems []string, sids []int) {
+func (h *keyCheck) result(msg string) (problems, sids []string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return append(problems, h.problems...), append(sids, h.sids[msg]...)
@@ -543,18 +547,19 @@ func TestNoBadKeyAttrs(t *testing.T) {
 	logger.Level.Set(logger.LevelTrace)
 	t.Cleanup(func() { logger.Level.Set(prev) })
 
-	lifecycleRootNamespace(t, &engineio.Options{Logger: slog.New(inst)})
+	sid := lifecycleRootNamespace(t, &engineio.Options{Logger: slog.New(inst)})
 	require.Eventually(t, func() bool {
 		_, sids := inst.result("socketio: disconnect")
 		return len(sids) > 0
 	}, waitFor, 10*time.Millisecond)
 
 	// The Go client's CONNECT to / follows the server's own root connect: two records.
+	// Each record carries exactly one sid, the session's.
 	for _, msg := range []string{"engineio: session open", "socketio: namespace connect", "socketio: disconnect"} {
 		_, sids := inst.result(msg)
 		assert.NotEmpty(t, sids, msg)
-		for _, n := range sids {
-			assert.Equal(t, 1, n, "sid attributes of %q", msg)
+		for _, v := range sids {
+			assert.Equal(t, sid, v, "sid of %q", msg)
 		}
 	}
 	problems, _ := inst.result("")

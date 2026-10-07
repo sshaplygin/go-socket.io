@@ -693,9 +693,8 @@ Step 0 and steps 1–4 are separate PRs, merged in this order with
 `namespace_handler.go`, which step 4 renames or merges. Commit subjects and PR titles
 are `refactor(1b.<step>): ...`. Within a PR, pure `git mv` commits (no content edit)
 come first, then merges into a target file, then content edits; intermediate commits
-may not build, the head of each PR does. Steps 1–4 are merged with their commits kept
-(an exception to the squash rule in `CONTRIBUTING.md`), otherwise the squash commit
-mixes moves and edits and rename detection is lost.
+may not build, the head of each PR does. Steps 1–4 are the PRs merged with their
+commits kept ([`CONTRIBUTING.md`](../CONTRIBUTING.md) rule 5).
 
 **Base and branch `v1` (this section owns the cut; no other section creates it).**
 `$V1` is the `v1.5.0` release commit (1.D). Tag `v1.5.0` is created only after every
@@ -711,18 +710,14 @@ must equal it. Step 0 precedes any 1b commit on `master`:
   second `github-actions` entry, otherwise identical, with `target-branch: v1` (Dependabot
   reads its configuration from the default branch). The weekly CI cron runs on `master` only.
 
-After the first 1b commit `master` is never tagged `v1.x`; the tagging rules are in
-[`CONTRIBUTING.md`](../CONTRIBUTING.md#releases). Between `$V1` and the end of 1b only
-1b commits change non-test Go files on `master`.
-
 **Breaking changes on `master` (`v1` keeps the old API; no aliases).** Recorded for
 `docs/MIGRATION.md` (2.5): `engineio.Dialer` and `engineio.Opener` are removed in favour
 of `engineio/client` (an alias in `engineio` would import `engineio/client` and restore
 the import cycle); `session.FrameType`, `session.TEXT` and `session.BINARY` are removed
 in favour of `frame.Type`, `frame.String` and `frame.Binary`; `NextReader` and `NextWriter`
 of `engineio.Conn` and `session.Session` take and return `frame.Type`, which breaks every
-external `engineio.Conn` implementation. Consumers of `go get ...@master` break, which is
-why `master` is not tagged `v1.x`. The root `socketio` surface changes only by the two
+external `engineio.Conn` implementation. Consumers of `go get ...@master` break
+(`master` is not tagged `v1.x`, see [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases)). The root `socketio` surface changes only by the two
 deprecated aliases of step 3.
 
 Target tree (root module; rows added after 1b are marked):

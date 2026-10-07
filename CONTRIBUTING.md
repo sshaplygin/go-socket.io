@@ -14,16 +14,15 @@ planned and in which order: [docs/ROADMAP.md](docs/ROADMAP.md).
    entry under `Unreleased`, docs updated in their owner file only.
 4. Commit messages and PR descriptions state the problem, the change, and what was
    verified with which command. No generated footers or trailers.
-5. Squash-merge. The PR title becomes the commit subject. The Stage 1b refactoring PRs
-   (steps 1–4 in [docs/ROADMAP.md](docs/ROADMAP.md)) keep their commits instead, so
-   that renames stay pure moves.
+5. Squash-merge. The PR title becomes the commit subject. A PR is merged with its
+   commits kept only when [docs/ROADMAP.md](docs/ROADMAP.md) names it, for a series of
+   moves and edits whose separate commits must survive (rename detection).
 
 ## Releases
 
 - Tags follow SemVer. `v1.x` tags are cut from `master` up to `v1.5.0` and from the
-  branch `v1` afterwards. Stage 1b cuts `v1` from the `v1.5.0` release commit; `v1.5.x`
-  patches land on `v1` only, and from the first Stage 1b commit `master` is never tagged
-  `v1.x` (its API breaks v1 consumers). `v2.x` tags are cut from `master`.
+  branch `v1` afterwards; `master` is not tagged `v1.x` after that. `v1.5.x` patches
+  land on `v1` only. `v2.x` tags are cut from `master`.
 - Sub-modules under `adapters/` are tagged as `adapters/<name>/vX.Y.Z`.
 - Before tagging: move the `Unreleased` section of `CHANGELOG.md` under the new
   version with the date, run the full CI matrix, and record benchmark numbers the

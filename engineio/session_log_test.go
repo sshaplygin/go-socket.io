@@ -3,6 +3,7 @@ package engineio
 import (
 	"context"
 	"io"
+	"log"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -55,6 +56,14 @@ func (h *recorder) WithAttrs(attrs []slog.Attr) slog.Handler {
 }
 
 func (h *recorder) WithGroup(string) slog.Handler { return h }
+
+// setDefault makes h the default handler until Cleanup, which also restores the log
+// package's output and flags that slog.SetDefault changes; not for parallel tests.
+func setDefault(t *testing.T, h slog.Handler) {
+	prev, prevOut, prevFlags := slog.Default(), log.Writer(), log.Flags()
+	slog.SetDefault(slog.New(h))
+	t.Cleanup(func() { slog.SetDefault(prev); log.SetOutput(prevOut); log.SetFlags(prevFlags) })
+}
 
 // find returns the records of msg, or all records if msg is empty.
 func (h *recorder) find(msg string) (out []map[string]string) {
@@ -232,9 +241,7 @@ func TestSessionCloseRecord(t *testing.T) {
 // DEBUG; every message follows the 1.L pattern. Not parallel: it sets slog.Default.
 func TestDialFailureRecords(t *testing.T) {
 	rec := newRecorder()
-	prev := slog.Default()
-	slog.SetDefault(slog.New(rec))
-	t.Cleanup(func() { slog.SetDefault(prev) })
+	setDefault(t, rec)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "down", http.StatusInternalServerError)

@@ -328,6 +328,8 @@ func (s *Session) InitSession() error {
 		return err
 	}
 
+	// The open record is logged under the lock: close reads opened under it, so a
+	// concurrent close cannot log the session's close record before its open record.
 	s.upgradeLocker.Lock()
 	defer s.upgradeLocker.Unlock()
 	if !s.closed {

@@ -869,16 +869,21 @@ at their path are described in the steps, not here.
    "and client", the `logger/` row naming `engineio/client` in place of "client dialer",
    and `handler.go` → `event_handler.go` in Conventions. Stage 2 paths already match.
 
-DoD (every line exits 0 and prints nothing; run on the committed tree, `BASE` a
-worktree of `$V1`):
+DoD, run with `bash` and `set -e` on the committed head of step 4 (M1b closure). The
+build, test and `go doc` lines print their usual output; every other line, the `test`
+and `ge` lines included, exits 0 and prints nothing. No line uses `!`, which `set -e`
+ignores. Scratch files live in `$T`, outside the tree:
 
 ```sh
-V1=<recorded SHA>; BASE=<git worktree add ../base $V1>; FIRST=<first 1b commit>; MOD=$(go list -m)
+V1=${V1:?the SHA recorded in the PR bodies}; MOD=$(go list -m); T=$(mktemp -d); BASE=$T/base
+git worktree add --detach $BASE $V1
+FIRST=$(git log --reverse --format='%H %s' $V1..HEAD | awk '/ refactor\(1b\./{print $1; exit}')
 make lint test-race examples
 go build ./_examples/client ./engineio/_examples
 go test -count=1 ./.github/benchmarks ./.github/benchmarks/report
 go test -run '^$' -bench . -benchtime=1x ./... >/dev/null   # the benchmark job's input still compiles and runs
 # layering; the root still reaches redigo through adapter/redis until 2.0
+go list ./adapter ./adapter/redis ./engineio/client >/dev/null   # the packages exist: go list errors are not read as empty output
 test -z "$(go list -f '{{join .Deps "\n"}}{{"\n"}}{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}' ./engineio | grep "^$MOD/engineio/client$")"
 test "$(cat $(ls engineio/client/*.go | grep -v _test.go) | grep -o 'engineio\.[A-Za-z]*' | sort -u)" = engineio.Conn
 test -z "$(go list -f '{{join .Deps "\n"}}{{"\n"}}{{join .TestImports "\n"}}{{"\n"}}{{join .XTestImports "\n"}}' ./adapter ./adapter/redis | grep -x "$MOD")"
@@ -887,15 +892,15 @@ test -z "$(go list -f '{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}{
 # removed API stays removed
 test ! -e engineio/session/base.go
 test -z "$(go doc -all ./engineio/session | grep -E '\b(FrameType|TEXT|BINARY)\b')"
-! go doc ./engineio Dialer >/dev/null 2>&1 && ! go doc ./engineio Opener >/dev/null 2>&1
-! grep -rn 'session\.\(FrameType\|TEXT\|BINARY\)' --include='*.go' .
+test -z "$(go doc ./engineio Dialer 2>/dev/null)$(go doc ./engineio Opener 2>/dev/null)"
+test -z "$(grep -rn 'session\.\(FrameType\|TEXT\|BINARY\)' --include='*.go' .)"
 # map: old paths gone, new paths present, no other non-test Go file added or deleted
-awk '/^```map$/{m=1;next} /^```$/{m=0} m{print $2, $3}' docs/ROADMAP.md >map.txt
-test -z "$(while read o n; do { [ "$o" = - ] || [ ! -e "$o" ]; } && { [ "$n" = - ] || [ -e "$n" ]; } || echo "map: $o $n"; done <map.txt)"
+awk '/^```map$/{m=1;next} /^```$/{m=0} m{print $2, $3}' docs/ROADMAP.md >$T/map.txt
+test -z "$(while read o n; do { [ "$o" = - ] || [ ! -e "$o" ]; } && { [ "$n" = - ] || [ -e "$n" ]; } || echo "map: $o $n"; done <$T/map.txt)"
 chg() { git diff --no-renames --name-only --diff-filter=$1 $V1 HEAD -- '*.go' ':(exclude)*_test.go' ':(exclude)_examples' | sort; }
-test -z "$(comm -13 <(awk '{print $2}' map.txt | sort -u) <(chg A))"
-test -z "$(comm -13 <(awk '{print $1}' map.txt | sort -u) <(chg D))"
-test -z "$(git log --format=%s $V1..origin/master -- '*.go' | grep -v '^refactor(1b\.')"
+test -z "$(comm -13 <(awk '{print $2}' $T/map.txt | sort -u) <(chg A))"
+test -z "$(comm -13 <(awk '{print $1}' $T/map.txt | sort -u) <(chg D))"
+test -z "$(git log --format=%s $V1..HEAD -- '*.go' | grep -v '^refactor(1b\.')"
 # prefix rule: no directory has more than two non-test files sharing a <prefix>_
 pkgdirs() { find . \( -name _examples -o -name .github -o -name .git \) -prune -o -name '*.go' ! -name '*_test.go' -print | xargs -n1 dirname | sort -u; }
 test -z "$(for d in $(pkgdirs); do ls $d/*.go | grep -v _test.go | xargs -n1 basename | sed -n 's/^\([A-Za-z0-9]*\)_.*/\1/p' | sort | uniq -c | awk -v d=$d '$1>2{print d,$2,$1}'; done)"
@@ -922,8 +927,8 @@ measured over the new packages together with the same `-coverpkg` method. `engin
 varies between runs (75.8% in two of three, 76.7% in one), so its floor is the literal
 lower value.
 
-The `v1` and release gates. Each runs at the stated moment, not later, because `v1`
-receives `v1.5.x` patches afterwards:
+The `v1` and release gates (variables as in the DoD). Each runs at the stated moment, not
+later, because `v1` receives `v1.5.x` patches afterwards:
 
 ```sh
 # every 1b PR: the body records $V1; $V1 is the release commit; the tag is absent or equals it
@@ -943,7 +948,7 @@ test "$(gh run list --branch v1 --workflow CI --commit "$(git rev-parse origin/v
 test -z "$(git tag -l 'v1.*' --contains $FIRST)"
 ```
 
-Acceptance (all commands exit 0 and print nothing, except `go doc`):
+Acceptance (same shell and rules as the DoD):
 
 ```sh
 test -z "$(git diff $V1 HEAD -- _examples)"   # no source change; _examples/redis-adapter-unix-socket is the one using RedisAdapterOptions
@@ -957,6 +962,7 @@ test -z "$(diff <(cd $BASE; go doc -all . Broadcast | grep -E $'^\t') <(go doc -
 # CLAUDE.md layout: every package directory has a row, every row path exists
 test -z "$(for d in $(pkgdirs | grep -v '^\.$'); do grep -q "\`${d#./}/\`" CLAUDE.md || echo "no row: $d"; done)"
 test -z "$(awk -F'|' '/^\| Path/{t=1;next} t&&/^$/{exit} t{print $2}' CLAUDE.md | grep -o '`[^`]*`' | tr -d '`' | grep '/$' | while read p; do [ -e "$p" ] || echo "no path: $p"; done)"
+git worktree remove --force $BASE
 ```
 
 Owner smoke once after step 4: `_examples/default-http` serves its page and one event

@@ -2,6 +2,7 @@ package engineio
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -298,5 +300,43 @@ func TestClientPeerCloseRecords(t *testing.T) {
 				assert.Equal(t, slog.LevelDebug.String(), m["level"], "%v", m)
 			}
 		})
+	}
+}
+
+// brokenConn is a transport.Conn whose first reader is a PONG that fails to close with
+// errBroken, the failure its next NextReader returns, as transports keep read failures.
+type brokenConn struct {
+	transport.Conn
+	reads int
+}
+
+var errBroken = errors.New("broken")
+
+type brokenReader struct{ io.Reader }
+
+func (brokenReader) Close() error { return errBroken }
+
+func (c *brokenConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+	if c.reads++; c.reads == 1 {
+		return frame.String, packet.PONG, brokenReader{strings.NewReader("")}, nil
+	}
+	return 0, 0, nil, errBroken
+}
+
+func (c *brokenConn) SetReadDeadline(time.Time) error { return nil }
+
+// TestClientReaderCloseRecord: a failing reader Close in the engine.io client's
+// NextReader, whose failure NextReader then returns, logs nothing above DEBUG under the
+// 1.L Levels rule. Not parallel: it sets slog.Default.
+//
+// Covers the 1.L Levels rule on the engine.io client; no 1L-T case.
+func TestClientReaderCloseRecord(t *testing.T) {
+	rec := newRecorder()
+	setDefault(t, rec)
+	_, _, err := (&client{conn: &brokenConn{}, close: make(chan struct{})}).NextReader()
+	require.ErrorIs(t, err, errBroken)
+	require.Len(t, rec.find("engineio: close reader failed"), 1)
+	for _, m := range rec.find("") {
+		assert.Equal(t, slog.LevelDebug.String(), m["level"], "%v", m)
 	}
 }

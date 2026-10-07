@@ -205,8 +205,9 @@ All notable changes to this project are documented here. The format follows
   failures, errors also returned to a caller (including the polling client's stored
   request failures and the engine.io client's reader `Close` failures, which its next
   `NextReader` returns), the engine.io client's ping failures that are expected closure
-  (its `Close` has started, `io.EOF`, a closed or lost connection, or a polling request
-  failure after which the transport closed itself) and the websocket "frame not
+  (its `Close` has started, `io.EOF`, a closed or lost connection, a websocket close
+  frame from the peer, or a polling request failure after which the transport closed
+  itself) and the websocket "frame not
   closed" reminders, which no longer carry a synthetic `ConnectionNotClosed` error;
   WARN for failures no caller receives: the engine.io client's other ping failures,
   the dialer's and the polling client's reader `Close` failures during the handshake,

@@ -623,19 +623,23 @@ Tasks:
   - The `Server.Adapter` godoc says that a namespace receives peers' broadcasts and
     requests and is counted by them only once Redis has registered its
     subscription, which handler registration does not wait for, and again only once
-    a lost subscription has been reopened. The `RoomLen` and `Rooms` godoc say that,
-    with `Adapter` set, they can wait the full 5 s when an instance, this one
-    included, has not yet registered its subscription or does not answer, and that
-    `RoomLen` can then undercount and `Rooms` can omit rooms.
+    a lost subscription has been reopened. The `RoomLen` and `Rooms` godoc say, for a
+    namespace registered after `Adapter`, that they wait the full 5 s when this
+    instance has not yet registered its subscription or an instance that Redis
+    counts does not answer (`Rooms` also when Redis cannot report that count); that
+    an instance that has not registered is not counted, so they return without its
+    rooms; and that in each case `RoomLen` can undercount and `Rooms` can omit rooms.
   - *Check (1C join gate, and again on the `v1.5.0` release commit):* `make lint`
-    passes; `CHANGELOG.md` has exactly one `### Known limitations` heading inside
-    its topmost version section (`## Unreleased`, or `## v1.5.0` on the release
-    commit), so
-    `awk '/^## /{n++} n==1 && /^### Known limitations$/{c++} END{exit c!=1}' CHANGELOG.md`
-    exits 0; `for m in Server.Adapter Server.RoomLen Server.Rooms; do go doc . $m | grep -q subscription || echo $m; done`
+    passes; `CHANGELOG.md` has exactly one `### Known limitations` heading in all of
+    the `## Unreleased` section and, on the release commit, the `v1.5.0` section
+    (whatever date suffix its heading carries; an empty `## Unreleased` may stay
+    above it), so
+    `awk '/^## /{s=$0} s ~ /^## \[?(Unreleased|v1\.5\.0)\]?( |$)/ && /^### Known limitations$/{c++} END{exit c!=1}' CHANGELOG.md`
+    exits 0 (at `82aa740` it exits 1);
+    `for m in Server.Adapter Server.RoomLen Server.Rooms; do go doc . $m | grep -q subscription || echo $m; done`
     prints nothing (a case-sensitive substring match; at `82aa740` it prints all
-    three); the owner reviews the subsection and the three godoc comments against
-    1.R.
+    three). The grep shows only that each comment was edited; the content check is
+    the owner's review of the subsection and the three godoc comments against 1.R.
 
 DoD: `make lint test-race` green on ubuntu/macos/windows for `stable` and `oldstable`;
 an additional Ubuntu job builds/tests the root on Go 1.22 with automatic toolchain
@@ -643,7 +647,7 @@ upgrades disabled. From v2 this job covers every shipped runtime module;
 `govulncheck` clean; two-instance Redis test under `-race` passes; every (case, side)
 pair of the 1.B, 1I and 1.L test lists is named by a passing test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
 package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses.
-The 1.K check passes (1C join gate; the 1B join gate runs the other M1 checks).
+The 1.K check passes (1.K says when it runs).
 Logging gate: `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv` (also asserting that
 stderr contains the message `logger: invalid level ignored` and `value=bogus`),
 `TestWrapOverridesHandlerLevel` and `TestTraceDisabledNoAlloc` pass; the package
@@ -920,10 +924,10 @@ Conformance tests cover these semantics and concurrent join/leave/broadcast.
 
 *Subscription readiness (open; the 2.0 owner resolves it when freezing `Adapter`).*
 The v1 Redis broadcast returns from namespace creation without waiting until Redis
-has registered its subscription, and waits the full request timeout when no peer
-answers (found with PR #18; recorded in 1.R and, from `v1.5.0`, in the godoc that
-its `CHANGELOG.md` *Known limitations* links). Before the freeze this section
-specifies when a broker adapter's construction and each resubscribe count as
+has registered its subscription, and can wait the full request timeout for answers
+that never arrive (found with PR #18; recorded in 1.R and, from `v1.5.0`, in the
+godoc that its `CHANGELOG.md` *Known limitations* links). Before the freeze this
+section specifies when a broker adapter's construction and each resubscribe count as
 subscribed, what a cluster query returns within which bound when no peer is
 expected to answer, and a deterministic test that holds the subscribe commands
 until the test releases them: for the Redis adapter a miniredis pre-hook, the hold

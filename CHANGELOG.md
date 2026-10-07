@@ -149,6 +149,18 @@ All notable changes to this project are documented here. The format follows
   (`CLAUDE.md`, `docs/ROADMAP.md`, `docs/PROTOCOL.md`); `README.md` trimmed to
   purpose, compatibility, install and quick start; `upgrade workflow.md` merged into
   `docs/PROTOCOL.md`.
+- `engineio/README.md` only says what the package is and links to `README.md`,
+  `docs/PROTOCOL.md` and the godoc; its install command and its example, which used
+  `io/ioutil` and ignored the errors of `NextReader`, `ReadAll` and `NextWriter`, are
+  removed (roadmap task 1.D).
+- `logger/README.md` is removed. It told applications to assign `logger.Log`, which
+  replaces the handler that applies `logger.Level`, so `SOCKETIO_LOG_LEVEL` and
+  `logger.Level.Set` do not apply to records logged through it.
+  `engineio.Options.Logger` routes the records of the socket.io server, client and
+  connections and of the Engine.IO server and its sessions; the parser, the
+  transports, `engineio/packet` and the client dialer log through `logger.Log`, which
+  follows `slog.SetDefault`. The `logger` package godoc documents it (roadmap task
+  1.D).
 - Backpressure: `Emit` never blocks; it blocked until the writer took the packet
   (`connection.go:136` at `48cf0d2`). A connection whose queue overflows is closed
   without draining and reports `ErrWriteBufferFull`; more than `WriteBufferSize` packets

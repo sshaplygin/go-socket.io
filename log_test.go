@@ -207,6 +207,23 @@ func TestRequestRejectedRecords(t *testing.T) {
 	}
 }
 
+// The lifecycle tests end while their last session still waits for its 500 ms ping
+// timeout, so the session logs its close when a later test may already have installed a
+// capture (CI run 37599816484 saw it in TestRequestRejectedRecords). Their servers must
+// therefore keep their records off slog.Default. The record of the session below arrives
+// about 500 ms after its handshake, long before the end of the wait.
+func TestLifecycleServersKeepOffDefaultLogger(t *testing.T) {
+	rec := newAttrRecorder()
+	setDefault(t, rec)
+	ts := newTestServer(t, func(srv *Server) {
+		srv.OnConnect("/", func(Conn) error { return nil })
+	})
+	c := dialRaw(t, ts.URL)
+	require.Equal(t, "0", c.read(), "root namespace CONNECT from the server")
+	require.Never(t, func() bool { return len(only(rec.since(0), "engineio: session close")) > 0 },
+		1500*time.Millisecond, 10*time.Millisecond, "a session of a finished test logged to slog.Default")
+}
+
 // faultConn is a fakeConn whose first frame read fails after "2" with readErr, whose
 // frame writers fail on Write with writeErr, and whose frames fail on Close with closeErr.
 // With armed set, its writers fail only once armed is true.

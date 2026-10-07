@@ -168,7 +168,7 @@ func (c *rawClient) read() string {
 func TestLifecycleNamespace(t *testing.T) {
 	// The engine.io client sends no CLOSE packet, so the server holds its
 	// last long poll until pingTimeout; keep that short for teardown.
-	srv := NewServer(&engineio.Options{PingTimeout: 500 * time.Millisecond, PingInterval: 200 * time.Millisecond})
+	srv := NewServer(shortPingOptions())
 	nspConnected := make(chan string, 1)
 	nspDisconnected := make(chan string, 1)
 	srv.OnConnect("/", func(Conn) error { return nil })

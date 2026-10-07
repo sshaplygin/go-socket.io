@@ -2,6 +2,8 @@ package socketio
 
 import (
 	"errors"
+	"io"
+	"log/slog"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -12,11 +14,23 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio"
 )
 
-// newTestServer starts srv behind httptest with a short pingTimeout, so a
-// raw engine.io client (which never sends CLOSE) does not hold teardown.
+// shortPingOptions returns engine.io options with a short pingTimeout, so a raw
+// engine.io client (which never sends CLOSE) does not hold teardown. The last session
+// of such a test closes by ping timeout around or after the end of the test, so its
+// records go to a discarding logger: with the default one they would reach the
+// slog.Default capture of whichever test runs next.
+func shortPingOptions() *engineio.Options {
+	return &engineio.Options{
+		PingTimeout:  500 * time.Millisecond,
+		PingInterval: 200 * time.Millisecond,
+		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+}
+
+// newTestServer starts srv behind httptest with shortPingOptions.
 func newTestServer(t *testing.T, setup func(*Server)) *httptest.Server {
 	t.Helper()
-	srv := NewServer(&engineio.Options{PingTimeout: 500 * time.Millisecond, PingInterval: 200 * time.Millisecond})
+	srv := NewServer(shortPingOptions())
 	setup(srv)
 	go func() { _ = srv.Serve() }()
 	ts := httptest.NewServer(srv)
@@ -163,7 +177,7 @@ type rawServer struct {
 
 func newRawServer(t *testing.T) *rawServer {
 	t.Helper()
-	eio := engineio.NewServer(&engineio.Options{PingTimeout: 500 * time.Millisecond, PingInterval: 200 * time.Millisecond})
+	eio := engineio.NewServer(shortPingOptions())
 	ts := httptest.NewServer(eio)
 	rs := &rawServer{t: t, conn: make(chan engineio.Conn, 1), url: ts.URL}
 	go func() {

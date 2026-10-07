@@ -435,6 +435,31 @@ func TestPayloadInOutPause(t *testing.T) {
 }
 
 func TestPayloadNextClosePause(t *testing.T) {
+	tests := []struct {
+		name string
+		// mainDelay delays the main goroutine after its "let next run"
+		// sleep, as a stalled runner does.
+		mainDelay time.Duration
+		// nextWriterDelay delays the NextWriter call of the writer
+		// goroutine.
+		nextWriterDelay time.Duration
+	}{
+		{name: "on time"},
+		// Pause starts about 400ms into the workers' 500ms hold, so it
+		// returns about 100ms later after waiting for both closes.
+		{name: "main wakes late", mainDelay: time.Second * 3 / 10},
+		// NextWriter is called about 50ms after Pause started, when
+		// FlushOut has already returned on the pausing trigger.
+		{name: "writer asks late", nextWriterDelay: time.Second * 3 / 20},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testPayloadNextClosePause(t, tt.mainDelay, tt.nextWriterDelay)
+		})
+	}
+}
+
+func testPayloadNextClosePause(t *testing.T, mainDelay, nextWriterDelay time.Duration) {
 	should := assert.New(t)
 
 	p := New(true)
@@ -486,6 +511,8 @@ func TestPayloadNextClosePause(t *testing.T) {
 		should := assert.New(t)
 		must := require.New(t)
 
+		time.Sleep(nextWriterDelay)
+
 		w, err := p.NextWriter(frame.Binary, packet.OPEN)
 		must.NoError(err)
 
@@ -502,6 +529,7 @@ func TestPayloadNextClosePause(t *testing.T) {
 
 	// let next run
 	time.Sleep(time.Second / 10)
+	time.Sleep(mainDelay)
 
 	begin := time.Now()
 	p.Pause()

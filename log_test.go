@@ -577,8 +577,9 @@ func TestNoBadKeyAttrs(t *testing.T) {
 		return true
 	}, waitFor, 10*time.Millisecond)
 
-	// The Go client's CONNECT to / follows the server's own root connect: two records.
-	// Each record carries exactly one sid, the session's.
+	// The Go client's CONNECT to / follows the server's own root connect, so namespace
+	// connect may appear more than once (1L-T10 owns the count). Each record carries
+	// exactly one sid, the session's.
 	for _, msg := range []string{"engineio: session open", "socketio: namespace connect", "socketio: disconnect"} {
 		_, sids := inst.result(msg)
 		assert.NotEmpty(t, sids, msg)

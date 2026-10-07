@@ -226,6 +226,8 @@ All notable changes to this project are documented here. The format follows
   `engineio/dialer.go:23`-`:87`, `engineio/transport/polling/connect.go:38`-`:277`,
   `engineio/packet/encoder.go:40`, `engineio/transport/websocket/wrapper.go:66`, `:131`
   at `1151bad`, roadmap task 1.L).
+- Examples: the old `notice`/`msg`/`bye`/`echo` demo is replaced in every example by a port of the
+  Socket.IO chat example (`socket.io-client` 2.5.0 page in `_examples/asset/`, server logic in `chat.go`).
 
 ### Deprecated
 

@@ -29,7 +29,7 @@ make test-race  # the same with -race; what CI runs
 make bench      # benchmarks only, no tests
 make vuln       # govulncheck ./...
 make cover      # coverage profile + HTML report
-make examples   # go build in every _examples/*/ module
+make examples   # build every _examples/*/ module and the Go client, check that every chat.go is identical, race-test default-http
 make all        # go install ./...
 ```
 

@@ -191,10 +191,14 @@ All notable changes to this project are documented here. The format follows
   log constant `engineio: ...` messages with an `err` key: DEBUG for failures after a
   close started, session frame failures reported as close reasons, upgrade-probe
   failures, errors also returned to a caller (including the polling client's stored
-  request failures) and the websocket "frame not closed" reminders, which no longer
-  carry a synthetic `ConnectionNotClosed` error; WARN for failures no caller receives:
-  the engine.io client's ping and reader failures, the dialer's and the polling
-  client's reader `Close` failures, and `engineio: transport dial failed` (with
+  request failures and the engine.io client's reader `Close` failures, which its next
+  `NextReader` returns), the engine.io client's ping failures that are expected closure
+  (its `Close` has started, `io.EOF`, a closed or lost connection, or a polling request
+  failure after which the transport closed itself) and the websocket "frame not
+  closed" reminders, which no longer carry a synthetic `ConnectionNotClosed` error;
+  WARN for failures no caller receives: the engine.io client's other ping failures,
+  the dialer's and the polling client's reader `Close` failures during the handshake,
+  and `engineio: transport dial failed` (with
   `transport`) for a transport attempt whose error `Dial` does not return (the last
   attempt is DEBUG) (`engineio/session/session.go:56`-`:507`, `engineio/client.go:70`-`:133`,
   `engineio/dialer.go:23`-`:87`, `engineio/transport/polling/connect.go:38`-`:277`,

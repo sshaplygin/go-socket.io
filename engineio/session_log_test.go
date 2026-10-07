@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	gorilla "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -272,9 +273,10 @@ func TestDialFailureRecords(t *testing.T) {
 }
 
 // TestClientPeerCloseRecords closes the accepted session of an engineio.Dialer client
-// that does not close itself, reads the client until NextReader fails and waits for its
-// ping to fail, with slog.Default recording: the 1.L Levels rule makes a ping failure
-// after a peer close expected closure, so no record is above DEBUG. Not parallel.
+// that does not close itself, or has a websocket peer send a close frame after OPEN,
+// reads the client until NextReader fails and waits for its ping to fail, with
+// slog.Default recording: the 1.L Levels rule makes a ping failure after a peer close
+// expected closure, so no record is above DEBUG. Not parallel.
 //
 // Covers the 1.L Levels rule on the engine.io client (P, W); no 1L-T case.
 func TestClientPeerCloseRecords(t *testing.T) {
@@ -301,6 +303,35 @@ func TestClientPeerCloseRecords(t *testing.T) {
 			}
 		})
 	}
+	t.Run("websocket close frame", func(t *testing.T) {
+		rec := newRecorder()
+		setDefault(t, rec)
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			c, err := (&gorilla.Upgrader{}).Upgrade(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer func() { _ = c.Close() }()
+			open := `0{"sid":"x","upgrades":[],"pingInterval":50,"pingTimeout":5000}`
+			_ = c.WriteMessage(gorilla.TextMessage, []byte(open))
+			msg := gorilla.FormatCloseMessage(gorilla.CloseNormalClosure, "")
+			_ = c.WriteControl(gorilla.CloseMessage, msg, time.Now().Add(time.Second))
+			for err == nil {
+				_, _, err = c.NextReader()
+			}
+		}))
+		defer ts.Close()
+
+		cl, err := (&Dialer{Transports: []transport.Transport{websocket.Default}}).Dial(ts.URL, nil)
+		require.NoError(t, err)
+		defer func() { _ = cl.Close() }()
+		require.Error(t, readAll(cl))
+		require.Eventually(t, func() bool { return len(rec.find("engineio: ping failed")) > 0 },
+			5*time.Second, time.Millisecond)
+		for _, m := range rec.find("") {
+			assert.Equal(t, slog.LevelDebug.String(), m["level"], "%v", m)
+		}
+	})
 }
 
 // brokenConn is a transport.Conn whose first reader is a PONG that fails to close with

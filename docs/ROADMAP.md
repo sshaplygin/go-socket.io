@@ -716,14 +716,18 @@ Step 0 precedes any 1b commit on `master`:
   reads its configuration from the default branch). The weekly CI cron runs on `master` only.
 
 **Breaking changes on `master` (`v1` keeps the old API; no aliases).** Recorded for
-`docs/MIGRATION.md` (2.5): `engineio.Dialer` and `engineio.Opener` are removed in favour
-of `engineio/client` (an alias in `engineio` would import `engineio/client` and restore
-the import cycle); `session.FrameType`, `session.TEXT` and `session.BINARY` are removed
-in favour of `frame.Type`, `frame.String` and `frame.Binary`; `NextReader` and `NextWriter`
-of `engineio.Conn` and `session.Session` take and return `frame.Type`, which breaks every
-external `engineio.Conn` implementation. Consumers of `go get ...@master` break
-(`master` is not tagged `v1.x`, see [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases)). The root `socketio` surface changes only by the two
-deprecated aliases of step 3.
+`docs/MIGRATION.md` (2.5). The `api` block is the complete list of exported-signature
+changes: a gate pattern, then what it means. The DoD diffs the exported API of every
+package against `$V1` and allows only lines that match a pattern. Consumers of
+`go get ...@master` break (`master` is not tagged `v1.x`, see
+[`CONTRIBUTING.md`](../CONTRIBUTING.md#releases)).
+
+```api
+^> /(adapter|adapter/redis|engineio/client): # new packages of steps 1 and 3
+Dialer|Opener # engineio.Dialer and engineio.Opener move to engineio/client; an alias in engineio would import it and restore the cycle
+FrameType|frame\.Type|session: const # session.FrameType, TEXT and BINARY give way to frame.Type, frame.String and frame.Binary; NextReader and NextWriter of engineio.Conn, session.Session, parser.FrameReader and parser.FrameWriter take frame.Type, which breaks every external implementer and every caller of parser.NewDecoder and parser.NewEncoder with its own reader or writer
+: type (Broadcast|RedisAdapterOptions) # become aliases of adapter.Broadcast and redis.Options; the methods of Broadcast take adapter.Conn and adapter.EachFunc, which breaks an external implementer and a func(socketio.Conn) callback passed to its ForEach
+```
 
 Target tree (root module; rows added after 1b are marked):
 
@@ -937,9 +941,11 @@ Acceptance (all commands exit 0 and print nothing, except `go doc`):
 test -z "$(git diff $V1 HEAD -- _examples)"   # no source change; _examples/redis-adapter-unix-socket is the one using RedisAdapterOptions
 go doc . Broadcast | grep -q Deprecated && go doc . RedisAdapterOptions | grep -q Deprecated
 go doc ./adapter; go doc ./adapter/redis; go doc ./engineio/client   # show the API above
-# root exported surface: only the two aliases differ (expected: 2 changed lines)
-S() { (cd $1 && go doc -all . | grep -E '^(func|type|const|var) '); }
-test "$(diff <(S $BASE) <(S .) | grep -c '^[<>]')" -eq 4
+# exported API of every package against $V1: only the `api` block of Stage 1b may differ
+api() { (cd $1 && for p in $(go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./...); do go doc -all $p | awk -v p="${p#$MOD}" '/^(\t\t|    |\t\/\/|[})]|[A-Z]+$)/{next} /^[^\t ]/{c=$0; print p": "$0; next} /^\t/{print p": "c" | "$0}'; done | sort); }
+ALLOWED=$(awk -F' # ' '/^```api$/{m=1;next} /^```$/{m=0} m{print $1}' docs/ROADMAP.md | paste -sd'|' -)
+test -z "$(diff <(api $BASE) <(api .) | grep '^[<>]' | grep -vE "$ALLOWED")"
+test -z "$(diff <(cd $BASE; go doc -all . Broadcast | grep -E $'^\t') <(go doc -all ./adapter Broadcast | grep -E $'^\t'))"   # same method set, now on adapter.Conn
 # CLAUDE.md layout: every package directory has a row, every row path exists
 test -z "$(for d in $(pkgdirs | grep -v '^\.$'); do grep -q "\`${d#./}/\`" CLAUDE.md || echo "no row: $d"; done)"
 test -z "$(awk -F'|' '/^\| Path/{t=1;next} t&&/^$/{exit} t{print $2}' CLAUDE.md | grep -o '`[^`]*`' | tr -d '`' | grep '/$' | while read p; do [ -e "$p" ] || echo "no path: $p"; done)"

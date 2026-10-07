@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -436,30 +435,24 @@ func TestPayloadInOutPause(t *testing.T) {
 }
 
 func TestPayloadNextClosePause(t *testing.T) {
-	tests := []struct {
-		name string
-		// mainDelay delays the main goroutine before it calls Pause, as a
-		// stalled runner does.
-		mainDelay time.Duration
-		// nextWriterDelay delays the NextWriter call of the writer
-		// goroutine.
-		nextWriterDelay time.Duration
-	}{
-		{name: "on time"},
-		{name: "main wakes late", mainDelay: time.Second * 3 / 10},
-		{name: "writer asks late", nextWriterDelay: time.Second * 3 / 20},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			testPayloadNextClosePause(t, tt.mainDelay, tt.nextWriterDelay)
-		})
-	}
+	t.Run("reader closed first", func(t *testing.T) {
+		testPayloadNextClosePause(t, true)
+	})
+	t.Run("writer closed first", func(t *testing.T) {
+		testPayloadNextClosePause(t, false)
+	})
 }
 
-// testPayloadNextClosePause checks that Pause waits until the reader and
-// the writer returned by NextReader and NextWriter are closed. It orders
-// the goroutines with channels, not with sleeps.
-func testPayloadNextClosePause(t *testing.T, mainDelay, nextWriterDelay time.Duration) {
+// stillOpenWindow is how long the test watches a Pause that must keep
+// waiting. A correct Pause cannot return within it, so it only bounds how
+// quickly a Pause that stops waiting too early is caught.
+const stillOpenWindow = time.Second / 10
+
+// testPayloadNextClosePause checks that Pause does not return while the
+// reader returned by NextReader or the writer returned by NextWriter is
+// still open. It releases them one at a time, readerFirst picking the
+// order, and orders the goroutines with channels, not with sleeps.
+func testPayloadNextClosePause(t *testing.T, readerFirst bool) {
 	should := assert.New(t)
 	must := require.New(t)
 
@@ -470,13 +463,24 @@ func testPayloadNextClosePause(t *testing.T, mainDelay, nextWriterDelay time.Dur
 	// have returned, so FeedIn and FlushOut are both still working.
 	readerOpen := make(chan struct{})
 	writerOpen := make(chan struct{})
-	// release lets the reader and writer goroutines close them.
-	release := make(chan struct{})
-	var readerClosed, writerClosed atomic.Bool
+	// releaseReader and releaseWriter let the goroutines close them;
+	// the deferred calls free the goroutines if the test fails early.
+	releaseReader := make(chan struct{})
+	releaseWriter := make(chan struct{})
+	var releaseReaderOnce, releaseWriterOnce sync.Once
+	doReleaseReader := func() { releaseReaderOnce.Do(func() { close(releaseReader) }) }
+	doReleaseWriter := func() { releaseWriterOnce.Do(func() { close(releaseWriter) }) }
+	defer doReleaseReader()
+	defer doReleaseWriter()
+	// feedInDone and flushOutDone are closed when FeedIn and FlushOut
+	// return, which Close of the reader and of the writer causes.
+	feedInDone := make(chan struct{})
+	flushOutDone := make(chan struct{})
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer close(feedInDone)
 
 		must := require.New(t)
 		err := p.FeedIn(bytes.NewReader([]byte("1:0")), false)
@@ -494,8 +498,7 @@ func testPayloadNextClosePause(t *testing.T, mainDelay, nextWriterDelay time.Dur
 		must.NoError(err)
 		close(readerOpen)
 
-		<-release
-		readerClosed.Store(true)
+		<-releaseReader
 		must.Nil(r.Close())
 
 		_, _, _, err = p.NextReader()
@@ -507,6 +510,7 @@ func testPayloadNextClosePause(t *testing.T, mainDelay, nextWriterDelay time.Dur
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer close(flushOutDone)
 
 		must := require.New(t)
 		err := p.FlushOut(io.Discard)
@@ -520,14 +524,11 @@ func testPayloadNextClosePause(t *testing.T, mainDelay, nextWriterDelay time.Dur
 		should := assert.New(t)
 		must := require.New(t)
 
-		time.Sleep(nextWriterDelay)
-
 		w, err := p.NextWriter(frame.Binary, packet.OPEN)
 		must.NoError(err)
 		close(writerOpen)
 
-		<-release
-		writerClosed.Store(true)
+		<-releaseWriter
 		err = w.Close()
 		must.NoError(err)
 
@@ -539,7 +540,6 @@ func testPayloadNextClosePause(t *testing.T, mainDelay, nextWriterDelay time.Dur
 
 	waitClosed(t, readerOpen, "NextReader")
 	waitClosed(t, writerOpen, "NextWriter")
-	time.Sleep(mainDelay)
 
 	paused := make(chan struct{})
 	go func() {
@@ -555,10 +555,28 @@ func testPayloadNextClosePause(t *testing.T, mainDelay, nextWriterDelay time.Dur
 	p.pauser.l.Unlock()
 	must.Equal(statusPausing, status, "Pause finished with a reader and a writer open")
 
-	close(release)
+	// Close one side and wait until its FeedIn or FlushOut has returned.
+	// Pause must still wait for the other side.
+	if readerFirst {
+		doReleaseReader()
+		waitClosed(t, feedInDone, "FeedIn to return")
+		select {
+		case <-paused:
+			t.Fatal("Pause returned with the writer open")
+		case <-time.After(stillOpenWindow):
+		}
+		doReleaseWriter()
+	} else {
+		doReleaseWriter()
+		waitClosed(t, flushOutDone, "FlushOut to return")
+		select {
+		case <-paused:
+			t.Fatal("Pause returned with the reader open")
+		case <-time.After(stillOpenWindow):
+		}
+		doReleaseReader()
+	}
 	waitClosed(t, paused, "Pause to return")
-	should.True(readerClosed.Load(), "Pause returned before the reader was closed")
-	should.True(writerClosed.Load(), "Pause returned before the writer was closed")
 
 	wg.Wait()
 

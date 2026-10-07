@@ -58,6 +58,29 @@ jobs:
       - name: Tests with race detector
         run: go test -race -count=1 ./...
 
+  min-go:
+    name: Test ubuntu-latest Go 1.22 (GOTOOLCHAIN=local)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Never download a newer toolchain: fail if go.mod or a dependency
+      # requires a Go version newer than the installed 1.22.
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+      - name: Go version
+        run: |
+          go version
+          go version | grep -q ' go1\.22\.'
+      - name: Build
+        run: go build ./...
+      - name: Tests with race detector
+        run: go test -race -count=1 ./...
+
   examples:
     name: Build examples
     runs-on: ubuntu-latest

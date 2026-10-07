@@ -101,12 +101,12 @@ Tasks:
        SUBSCRIBE and returns without reading the confirmations, which `dispatch`
        reads later (`:678`). `newRedisBroadcast` (`:117-187`), and with it the
        handler registration that builds the broadcast (`createNamespace`,
-       `server.go:382`), returns before Redis has registered the instance. Until it
-       has, broadcasts and `Server.ClearRoom` requests published by peers do not
-       reach the instance, peers' `Server.RoomLen` and `Server.Rooms` do not count
-       it, and its own can miss its local members too, because its own answer also
-       travels through Redis. Every resubscribe after a receive error (`:687`,
-       `:699-723`) opens the same window.
+       `server.go:382`), returns without waiting until Redis has registered the
+       instance. Until it has, broadcasts and `Server.ClearRoom` requests published
+       by peers do not reach the instance, peers' `Server.RoomLen` and
+       `Server.Rooms` do not count it, and its own can miss its local members too,
+       because its own answer also travels through Redis. Every resubscribe after
+       a receive error (`:687`, `:699-723`) opens the same window.
     2. *Full wait for missing answers:* `Len` and `AllRooms` (`:315-348`,
        `:212-241`) expect as many answers as PUBSUB NUMSUB reports for the request
        channel (`AllRooms` uses 0 when NUMSUB fails, `:220`), and `onResponse`
@@ -120,13 +120,20 @@ Tasks:
     `server.go:87-88`) return, and needs its own deadline: the dial context's close
     hook has stopped once the dial returns (`:143`). redigo's `ReceiveWithTimeout`
     exists in v1.8.9 and in the v2.0.0+incompatible that `_examples/gf` resolves.
-    Item 2 cannot be fixed safely without item 1: v1 counts local members through
-    Redis, so returning early when NUMSUB is 0 would turn a slow correct answer into
-    a wrong one. Tests that rely on peer requests or answers wait until NUMSUB of the
-    request channel counts the instance, which also covers the PSUBSCRIBE sent
-    before it on the same connection; tests that rely only on broadcasts may wait on
-    NUMPAT. PR #18 applies this rule (`waitRedisSubscribers`) and adds
-    `delayRedisSubscriptions`, which holds PSUBSCRIBE with a miniredis pre-hook. 1.K
+    Returning early when NUMSUB is 0 is not a safe fix for item 2: NUMSUB and
+    PUBLISH are separate commands (`:220`, `:226`; `:327`, `:338`), so an instance
+    that registers between them answers, and v1 counts local members through Redis.
+    Counting the receivers that PUBLISH reports instead would end the wait at once
+    when nobody can answer; the full wait while the requester itself is unregistered
+    (its answers on the response channel are lost) still needs item 1, and a counted
+    peer that never answers still costs the full wait. Tests that rely on peer
+    requests or answers wait until NUMSUB of the request channel counts the
+    instance, which also covers the PSUBSCRIBE sent before it on the same
+    connection. Tests that rely only on broadcasts may wait on NUMPAT only with
+    miniredis, whose NUMPAT counts each client's patterns; Redis 7 and later count
+    unique patterns, which every instance of a namespace shares. PR #18 applies
+    this rule (`waitRedisSubscribers`) and adds `delayRedisSubscriptions`, which
+    holds PSUBSCRIBE with a miniredis pre-hook and releases it after a set time. 1.K
     carries the limitations into the `v1.5.0` release notes and godoc; the v2
     requirement is 2.2 *Subscription readiness*.
 - **1.B Backpressure:** each connection has a bounded queue of outbound packets. The
@@ -607,20 +614,28 @@ Tasks:
   `RoomLen` and `Rooms` in `server.go`, and a `### Known limitations` subsection in
   the `## Unreleased` section of `CHANGELOG.md`, which becomes `v1.5.0`. No code,
   test or other documentation change.
-  - The subsection states the two 1.R *Known limitations* for users, without line
-    numbers; from the tag it, not 1.R, records them. It adds no entry under
-    `### Fixed` or `### Changed`.
+  - The godoc states the behaviour; from the tag it, not 1.R, records the two 1.R
+    *Known limitations*. The subsection names each limitation in one sentence,
+    without line numbers, and links the pkg.go.dev godoc of `Server.Adapter`,
+    `Server.RoomLen` and `Server.Rooms` in the existing `@master` form, which the
+    1.D release step switches to `@v1.5.0`. It adds no entry under `### Fixed` or
+    `### Changed`.
   - The `Server.Adapter` godoc says that a namespace receives peers' broadcasts and
     requests and is counted by them only once Redis has registered its
     subscription, which handler registration does not wait for, and again only once
-    a lost subscription has been reopened; the `RoomLen` and `Rooms` godoc say they
-    can wait the full 5 s, and can undercount, when an instance, this one included,
-    has not yet registered its subscription or does not answer.
-  - *Check (1C join gate):* `make lint` passes; `CHANGELOG.md` has exactly one
-    `### Known limitations` heading, inside the `## Unreleased` section;
-    `go doc . Server.Adapter`, `go doc . Server.RoomLen` and `go doc . Server.Rooms`
-    each print the word `subscription` (none does at `82aa740`); the owner reviews
-    the subsection and the three godoc comments against 1.R.
+    a lost subscription has been reopened. The `RoomLen` and `Rooms` godoc say that,
+    with `Adapter` set, they can wait the full 5 s when an instance, this one
+    included, has not yet registered its subscription or does not answer, and that
+    `RoomLen` can then undercount and `Rooms` can omit rooms.
+  - *Check (1C join gate, and again on the `v1.5.0` release commit):* `make lint`
+    passes; `CHANGELOG.md` has exactly one `### Known limitations` heading inside
+    its topmost version section (`## Unreleased`, or `## v1.5.0` on the release
+    commit), so
+    `awk '/^## /{n++} n==1 && /^### Known limitations$/{c++} END{exit c!=1}' CHANGELOG.md`
+    exits 0; `for m in Server.Adapter Server.RoomLen Server.Rooms; do go doc . $m | grep -q subscription || echo $m; done`
+    prints nothing (a case-sensitive substring match; at `82aa740` it prints all
+    three); the owner reviews the subsection and the three godoc comments against
+    1.R.
 
 DoD: `make lint test-race` green on ubuntu/macos/windows for `stable` and `oldstable`;
 an additional Ubuntu job builds/tests the root on Go 1.22 with automatic toolchain
@@ -628,7 +643,7 @@ upgrades disabled. From v2 this job covers every shipped runtime module;
 `govulncheck` clean; two-instance Redis test under `-race` passes; every (case, side)
 pair of the 1.B, 1I and 1.L test lists is named by a passing test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
 package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses.
-The 1.K check passes; it is the 1C join gate and is not part of the 1B join gate.
+The 1.K check passes (1C join gate; the 1B join gate runs the other M1 checks).
 Logging gate: `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv` (also asserting that
 stderr contains the message `logger: invalid level ignored` and `value=bogus`),
 `TestWrapOverridesHandlerLevel` and `TestTraceDisabledNoAlloc` pass; the package
@@ -903,16 +918,19 @@ connection, not global across nodes; disconnect gaps have no replay guarantee.
 `Close` releases adapter-owned subscriptions/workers, never injected broker clients.
 Conformance tests cover these semantics and concurrent join/leave/broadcast.
 
-*Subscription readiness (open; resolved when 2.0 freezes `Adapter`).* The v1 Redis
-broadcast returns from namespace creation before Redis has registered its
-subscription, and waits the full request timeout when no peer answers (found with
-PR #18; recorded in 1.R and, from `v1.5.0`, in its `CHANGELOG.md` *Known
-limitations*). Before the freeze this section specifies when a broker adapter's
-construction and each resubscribe count as subscribed, what a cluster query returns
-within which bound when no peer is expected to answer, and a deterministic test that
-holds the broker's subscribe commands with a miniredis pre-hook, as
-`delayRedisSubscriptions` from PR #18 does. The answer can change `AdapterFactory`
-(for example, a context for the wait), so G2 does not pass while this item is open.
+*Subscription readiness (open; the 2.0 owner resolves it when freezing `Adapter`).*
+The v1 Redis broadcast returns from namespace creation without waiting until Redis
+has registered its subscription, and waits the full request timeout when no peer
+answers (found with PR #18; recorded in 1.R and, from `v1.5.0`, in the godoc that
+its `CHANGELOG.md` *Known limitations* links). Before the freeze this section
+specifies when a broker adapter's construction and each resubscribe count as
+subscribed, what a cluster query returns within which bound when no peer is
+expected to answer, and a deterministic test that holds the subscribe commands
+until the test releases them: for the Redis adapter a miniredis pre-hook, the hold
+mechanism of `delayRedisSubscriptions` from PR #18 (which releases on a timer); for
+NATS the freeze names the equivalent hold. The answer can change `AdapterFactory`
+(for example, a context for the wait), so while this item is open `AdapterFactory`
+counts as an unresolved API signature under G2.
 [Draft PR #20](https://github.com/sshaplygin/go-socket.io/pull/20) holds an
 unvalidated proposal; nothing in it is part of this plan.
 

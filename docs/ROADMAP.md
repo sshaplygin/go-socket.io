@@ -899,13 +899,14 @@ test -z "$(git log --format=%s $V1..origin/master -- '*.go' | grep -v '^refactor
 # prefix rule: no directory has more than two non-test files sharing a <prefix>_
 pkgdirs() { find . \( -name _examples -o -name .github -o -name .git \) -prune -o -name '*.go' ! -name '*_test.go' -print | xargs -n1 dirname | sort -u; }
 test -z "$(for d in $(pkgdirs); do ls $d/*.go | grep -v _test.go | xargs -n1 basename | sed -n 's/^\([A-Za-z0-9]*\)_.*/\1/p' | sort | uniq -c | awk -v d=$d '$1>2{print d,$2,$1}'; done)"
-# regression: no test name, Covers id or assertion lost
-names() { (cd $1 && go test -list '.*' ./... | grep -E '^(Test|Benchmark|Fuzz|Example)' | sort -u); }
-test -z "$(comm -23 <(names $BASE) <(names .))"
-ids() { (cd $1 && grep -rhoE '(1B|1I|1L)-T[0-9]+[A-Za-z]*' --include='*_test.go' . | sort -u); }
-test "$(ids $BASE)" = "$(ids .)"   # 52 ids at the base
-asserts() { (cd $1 && grep -rhoE '\b(assert|require)\.[A-Za-z]+\(|\bt\.(Fatal|Error)f?\(' --include='*_test.go' . | wc -l); }
-test "$(asserts .)" -ge "$(asserts $BASE)"   # a proxy; the diff review stays
+# regression: no test or subtest result, (test, Covers id, sides) triple or per-test assertion lost
+res() { (cd $1 && go test -count=1 -v ./... | awk '$1=="---" && $2~/^(PASS|SKIP):/{gsub(/0x[0-9a-f]+/,"0x"); print $2,$3}'; go test -list '^(Benchmark|Fuzz|Example)' ./... | grep -E '^(Benchmark|Fuzz|Example)') | sort; }
+test -z "$(comm -23 <(res $BASE) <(res .))"   # a multiset: a name in two packages counts twice
+tests() { (cd $1 && find . -name '*_test.go' -not -path './_examples/*' | xargs awk "$2" | sort); }
+covers='FNR==1{n=0} /^\/\/ Covers /{sub(/^\/\/ Covers /,""); k[n++]=$0} /^func /{split($2,f,"("); for(i=0;i<n;i++)print f[1],k[i]; n=0}'
+test -z "$(comm -23 <(tests $BASE "$covers") <(tests . "$covers"))"   # 52 ids and 4 free-text markers at 7a7a71d
+asserts='/^func /{split($2,f,"("); fn=f[1]} {c[fn]+=gsub(/(assert|require)\.[A-Za-z]+\(|t\.(Fatal|Error)f?\(/,"&")} END{for(k in c)if(k~/^Test/)print k,c[k]}'
+test -z "$(join <(tests $BASE "$asserts") <(tests . "$asserts") | awk '$3<$2')"   # per test; the diff review stays
 # coverage not below the pre-1b numbers: same -coverpkg method on both trees
 cov() { d=$1; shift; (cd $d && go test -count=1 -coverpkg="$(echo $* | tr ' ' ,)" -coverprofile=$T/c.out "$@" >/dev/null && go tool cover -func=$T/c.out | awk '/^total:/{print $3+0}'); }
 ge() { awk -v a=$1 -v b=$2 'BEGIN{exit !(a!="" && a+0>=b+0)}'; }   # an empty figure fails

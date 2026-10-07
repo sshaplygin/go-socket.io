@@ -49,7 +49,8 @@ workers submit changes to these files through that integrator.
 | --- | --- | --- | --- |
 | 1A | landed infrastructure | 1.R Redis internals (`redis_broadcast.go`); 1.B queue and close internals (`connection.go`, `broadcast.go`, `errors.go`, the socket.io goroutines and close paths in `server.go` (`serveConn`, `serveRead`, `serveWrite`, `serveError`) and `client.go` (`Connect`, `Close`, `clientRead`, `clientWrite`, `clientError`), and the disconnect handlers in `connection_handlers.go`); 1.S session/server fixes (`engineio/session`, `engineio/server.go`, `server.go`; landed) | component regression tests pass |
 | 1I | 1A | integrator wires Redis construction errors through `namespace_handler.go` and `server.go`; wires `WriteBufferSize` and the drain deadline (`PingTimeout`) through `engineio/server_options.go`, `server.go` and `client.go`; runs the 1.B slow-client test against the Redis broadcast; also edits `connection.go` (connect-failure path, option wiring in `newConn`, `Conn.Close` godoc), the connect-failure path in `connection_handlers.go`, `namespace_handlers.go`, the session hand-off in `engineio/server.go`, `namespace_conn.go` (godoc only) and `CHANGELOG.md`; contract in the 1I item | integrated bug tests (the 1I item's tests) and root build pass |
-| 1B | 1I | 1.L Go files (logging, session close reasons, `logger` godoc; no Markdown except `CHANGELOG.md`; not the `server.go` godoc 1.D owns); 1.D `README.md`, `engineio/README.md`, `logger/README.md`, `CLAUDE.md`, `CONTRIBUTING.md` and the godoc of `Server.Adapter`, `RoomLen` and `Rooms` in `server.go`; each writes its own `CHANGELOG.md` entries | M1 checks and v1 compatibility |
+| 1B | 1I | 1.L Go files (logging, session close reasons, `logger` godoc; no Markdown except `CHANGELOG.md`); 1.D `README.md`, `engineio/README.md`, `logger/README.md`, `CLAUDE.md`, `CONTRIBUTING.md`; each writes its own `CHANGELOG.md` entries | M1 checks and v1 compatibility |
+| 1C | 1B | 1.K known-limitation notes: the godoc of `Server.Adapter`, `RoomLen` and `Rooms` in `server.go` and the `### Known limitations` subsection of `CHANGELOG.md`; contract in the 1.K item | 1.K check, then M1 checks |
 | 1b | M1, branch `v1` cut | one refactor owner; moves/merges applied sequentially | M1b regression checks |
 | 2A | M1b | 2.0 owner removes legacy root runtime/adapter consumers atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
@@ -123,7 +124,7 @@ Tasks:
     peer requests or answers wait until NUMSUB of the request channel counts the
     instance, which also covers the PSUBSCRIBE sent before it on the same
     connection; tests that rely only on broadcasts may wait on NUMPAT. PR #18
-    (`511d973` on `master`) applies this rule. 1.D carries the limitations into the
+    (`511d973` on `master`) applies this rule. 1.K carries the limitations into the
     `v1.5.0` release notes and godoc; the v2 requirements are 2.2 *Readiness* and
     the `adapters/redis` item of stage 4b.
 - **1.B Backpressure:** each connection has a bounded queue of outbound packets. The
@@ -582,7 +583,7 @@ Tasks:
     answer.
     1.L edits no Markdown file other than `CHANGELOG.md`.
 - **1.D Docs.** Files: `README.md`, `engineio/README.md`, `logger/README.md`,
-  `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, and godoc in `server.go`.
+  `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`.
   - `engineio/README.md` keeps a title, one paragraph saying what the package is,
     and links to `README.md`, `docs/PROTOCOL.md` and its godoc; no install, examples
     or API usage. Its `CLAUDE.md` map row: owns "what the engineio package is; links
@@ -597,24 +598,32 @@ Tasks:
     `engineio/README.md` and the released `CHANGELOG.md` section to `@v1.5.0`, the
     README install command to `@v1.5.0`, and removes the README sentence saying to
     use `@master` until a release is tagged.
-  - *Known limitations:* the `CHANGELOG.md` section that becomes `v1.5.0` gets a
-    `### Known limitations` subsection stating the two 1.R items for users, without
-    line numbers; from the tag it, not 1.R, records them. The `Server.Adapter` godoc
-    says that a namespace receives peers' broadcasts and requests and is counted by
-    them only once Redis has registered its subscription, which registration does
-    not wait for; the `RoomLen` and `Rooms` godoc say they can wait the full 5 s, and
-    can undercount, when an instance, this one included, has not yet registered its
-    subscription or does not answer.
   - Already satisfied at `9716ec0` and guarded by the DoD: no `godoc.org` links;
     the README badges point at this fork.
+- **1.K Known limitations** (wave 1C, after 1.L and 1.D have merged, so no other task
+  edits these files at the same time). Files: the godoc of `Server.Adapter`,
+  `RoomLen` and `Rooms` in `server.go`, and a `### Known limitations` subsection in
+  the `CHANGELOG.md` section that becomes `v1.5.0`. No code, test or other
+  documentation change.
+  - The subsection states the two 1.R *Known limitations* for users, without line
+    numbers; from the tag it, not 1.R, records them.
+  - The `Server.Adapter` godoc says that a namespace receives peers' broadcasts and
+    requests and is counted by them only once Redis has registered its
+    subscription, which handler registration does not wait for; the `RoomLen` and
+    `Rooms` godoc say they can wait the full 5 s, and can undercount, when an
+    instance, this one included, has not yet registered its subscription or does
+    not answer.
+  - *Check (1C join gate):* `make lint` passes; `CHANGELOG.md` has exactly one
+    `### Known limitations` heading, inside the section that becomes `v1.5.0`; the
+    owner reviews the subsection and the three godoc comments against 1.R.
 
 DoD: `make lint test-race` green on ubuntu/macos/windows for `stable` and `oldstable`;
 an additional Ubuntu job builds/tests the root on Go 1.22 with automatic toolchain
 upgrades disabled. From v2 this job covers every shipped runtime module;
 `govulncheck` clean; two-instance Redis test under `-race` passes; every (case, side)
 pair of the 1.B, 1I and 1.L test lists is named by a passing test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
-package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses
-and has the 1.D *Known limitations* subsection, whose godoc sentences are in place.
+package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses.
+The 1.K check passes; it is the 1C join gate and is not part of the 1B join gate.
 Logging gate: `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv` (also asserting that
 stderr contains the message `logger: invalid level ignored` and `value=bogus`),
 `TestWrapOverridesHandlerLevel` and `TestTraceDisabledNoAlloc` pass; the package
@@ -887,36 +896,43 @@ zero peers must not be confused with a proven empty cluster. `ServerSideEmit` ac
 publication without implying execution on peers. Order is per producer on a live
 connection, not global across nodes; disconnect gaps have no replay guarantee.
 `Close` releases adapter-owned subscriptions/workers, never injected broker clients.
-*Readiness:* a namespace is created by one call that returns an error (the G2
-signature inventory names it), or by a client CONNECT to a dynamic namespace (2.4).
-The server calls `AdapterFactory` from it, outside every lock that packet dispatch
-reads. Concurrent creations of one namespace call the factory once; the other
-callers wait for that call and get its namespace or error. On a factory error the
-namespace is not registered and the creating call returns the error wrapped with
-`%w`, naming the namespace. A returned adapter already receives every cluster
-message for its namespace: a broker adapter returns only after the broker confirmed
-its subscriptions, or with an error within a bound it documents as an option,
-leaving nothing of its own open. `Shutdown` and `Close` cancel the factory context
-when they begin; `Shutdown` waits for factory calls in progress until its deadline,
-`Close` does not wait. Once either has begun, the creating call returns an error
-matching `ErrNamespaceClosed` whatever the factory returns: the server closes a
-returned adapter, a factory error is wrapped alongside with a second `%w`, and a
-creation that begins after shutdown does not call the factory. A CONNECT that
-creates a namespace waits for it within the 10 s CONNECT task deadline (2.3
-*Resource limits*) and is answered CONNECT_ERROR on any creation error or when the
-deadline passes first. A broker adapter
-is *restoring* from the moment it observes the loss of a subscription (a receive or
-connection error) until the broker confirms the new one; before it observes the
-loss, queries can undercount without an error, an accepted gap like the missed
-messages above. Cluster queries count local sockets locally, never through the
-broker, and wait only for the peers expected to answer. With none expected they
-return the local data and a nil error at once; while restoring, or when the expected
-peers cannot be determined, the local data and an error at once. These rules fix
-the v1 Redis limitations found with PR #18, recorded in 1.R and, from `v1.5.0`, in
-its `CHANGELOG.md` *Known limitations*.
-Conformance tests cover these semantics and concurrent join/leave/broadcast. 2.3S
-implements the server side of *Readiness* and owns its root test; backend suites in
-4b reproduce the broker timing cases.
+Conformance tests cover these semantics and concurrent join/leave/broadcast.
+
+*Readiness.* These rules fix the v1 Redis limitations found with PR #18, recorded in
+1.R and, from `v1.5.0`, in its `CHANGELOG.md` *Known limitations*. 2.3S implements
+the server side and owns its root test; backend suites in 4b reproduce the broker
+timing cases.
+
+- *Creation:* a namespace is created only by one call that returns an error; the
+  G2 signature inventory names it and states whether server construction creates
+  `/` with it. The namespace is registered only when that call returns it. A
+  CONNECT never creates a namespace: a CONNECT to a namespace that is not
+  registered, including one whose creation is in progress, is rejected as unknown
+  (2.4 logs it as a CONNECT to an unknown namespace). v2 specifies no dynamic
+  namespaces; a stage that adds them defines how a CONNECT waits for a creation.
+  The server calls `AdapterFactory` from the creating call, outside every lock that
+  packet dispatch reads. Concurrent creations of one namespace call the factory
+  once; the other callers wait for that call and get its namespace or error. On a
+  factory error the namespace is not registered and the creating call returns the
+  error wrapped with `%w`, naming the namespace. A returned adapter already
+  receives every cluster message for its namespace: a broker adapter returns only
+  after the broker confirmed its subscriptions, or with an error within a bound it
+  documents as an option, leaving nothing of its own open.
+- *Shutdown:* `Shutdown` and `Close` cancel the factory context when they begin;
+  `Shutdown` waits for factory calls in progress until its deadline, `Close` does
+  not wait. Once either has begun, the creating call returns an error matching
+  `ErrNamespaceClosed` whatever the factory returns: the server closes a returned
+  adapter before the creating call returns, a factory error is wrapped alongside
+  with a second `%w`, and a creation that begins after shutdown does not call the
+  factory.
+- *Restoring:* a broker adapter is restoring from the moment it observes the loss
+  of a subscription (a receive or connection error) until the broker confirms the
+  new one; before it observes the loss, queries can undercount without an error,
+  an accepted gap like the disconnect gaps above.
+- *Queries:* cluster queries count local sockets locally, never through the broker,
+  and wait only for the peers expected to answer. With none expected they return
+  the local data and a nil error at once; while restoring, or when the expected
+  peers cannot be determined, the local data and an error at once.
 
 ### 2.3 Socket.IO v5 and the generic API
 
@@ -1005,15 +1021,18 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   baseline.
 - Rewrite `Client` on the same generic API with websocket over `gobwas/ws`.
 - 2.3S implements the server side of 2.2 *Readiness*. Its root test, part of the 2C
-  join gate, uses a factory that is held until its context ends: when it then returns
-  an adapter, `Close` during the call returns within 100 ms, `Shutdown` returns once
-  the factory has, the creating call's error matches `ErrNamespaceClosed` and the
-  late adapter is closed once; when it returns `ctx.Err()`, the error matches both
-  `ErrNamespaceClosed` and `context.Canceled`. A creation after `Close` returns
-  `ErrNamespaceClosed` without calling the factory; eight concurrent creations of one
-  namespace under `-race`, with the factory held for 100 ms, call it once and get the
-  same namespace; a CONNECT to a
-  dynamic namespace whose factory fails is answered CONNECT_ERROR.
+  join gate, holds the factory until its context ends. When the factory then returns
+  an adapter at once, `Close` during the call returns within 100 ms, the creating
+  call's error matches `ErrNamespaceClosed`, and the late adapter has been closed
+  exactly once when the creating call returns; when it returns `ctx.Err()`, the
+  error matches both `ErrNamespaceClosed` and `context.Canceled`. When the factory
+  returns an adapter 100 ms after its context ends, `Shutdown` with a 1 s deadline
+  does not return before the factory does, and `Shutdown` with a 20 ms deadline
+  returns before the factory does. A creation after `Close` returns
+  `ErrNamespaceClosed` without calling the factory; eight concurrent creations of
+  one namespace under `-race`, with the factory held for 100 ms, call it once and
+  get the same namespace. While a creation is held, a CONNECT to its namespace is
+  answered CONNECT_ERROR within 100 ms and does not call the factory.
 - Example migration is owned by 2.5D after runtime and observability gates pass.
 
 ### 2.4 Observability
@@ -1237,9 +1256,10 @@ Instruments (Prometheus names replace dots with `_` and add unit suffixes):
 `MessageQueued` has a TRACE log and is the sole source of sent-event counts;
 broadcasts do not add another count on top of per-recipient enqueues. `Emit`
 describes a fire-and-forget attempt, not delivery. Normalize raw/unregistered
-event names to `_unknown` and dynamic namespaces to their registered pattern
-before creating metric attributes; raw names may remain in logs/spans. Session
-duration uses final transport; it does not represent duration per transport.
+event names to `_unknown` (and, if a later stage adds dynamic namespaces, each
+to its registered pattern; see 2.2 *Readiness*) before creating metric attributes;
+raw names may remain in logs/spans. Session duration uses final transport; it does
+not represent duration per transport.
 
 **Documentation.** `docs/OBSERVABILITY.md` owns `SOCKETIO_LOG_LEVEL`, the levels, the
 log keys, the full `request rejected` reason list, the hook contract (goroutine, non-blocking, no `Emit`, no panic recovery),
@@ -1383,16 +1403,24 @@ timeout is 5 s and *at once* means within 100 ms.
   matching notepack output; supported request/response messages use Node's JSON
   encoding. Freeze fixtures for every supported operation, including
   `publishOnSpecificResponseChannel=true` and false. The injected
-  `redis.UniversalClient` must send every command to one Redis server, so only a
+  `redis.UniversalClient` must send every command to one Redis master, so only a
   `*redis.Client` (from `redis.NewClient` or `redis.NewFailoverClient`) is accepted;
   any other implementation, such as `*redis.ClusterClient` or `*redis.Ring`, is
-  rejected at construction with a documented error (see Out of scope). Bound
-  request time and reconnect subscriptions with backoff. For 2.2 *Readiness*,
-  construction and every resubscribe read the PSUBSCRIBE and
+  rejected at construction with a documented error (see Out of scope). A
+  `*redis.Client` that routes to a replica (`FailoverOptions.ReplicaOnly`, or
+  `NewClient` addressed to a replica) is unsupported, and the constructor godoc
+  says so: a PUBLISH or PUBSUB NUMSUB on a replica reaches only that replica's
+  subscribers, and go-redis v9 exposes no way to detect such a client (the
+  read-only flag of `redis.Options` is unexported; `ReplicaOnly` only selects the
+  failover dialer). Bound request time and reconnect subscriptions with backoff.
+  For 2.2 *Readiness*, construction and every resubscribe read the PSUBSCRIBE and
   SUBSCRIBE confirmations within the `SubscribeTimeout` option (default 10 s),
   construction also stopping when the factory context ends; an
   unconfirmed resubscribe is a failed attempt that closes its connection and grows
-  the backoff. The adapter becomes restoring before it logs
+  the backoff. Each attempt uses a new `PubSub`, and the adapter closes a failed one
+  as soon as it observes the error: after a connection error a go-redis `PubSub`
+  redials and resends its subscriptions inside `Receive`, outside the backoff. The
+  adapter becomes restoring before it logs
   `socketio: adapter subscriber lost`. The expected peers are PUBSUB NUMSUB of the
   request channel minus this instance, floored at 0; when NUMSUB fails they cannot
   be determined. Deterministic tests run on miniredis with a pre-hook, installed on
@@ -1402,19 +1430,27 @@ timeout is 5 s and *at once* means within 100 ms.
   *nothing left* means all of them are back to those values within 1 s of releasing
   the hold, and the injected client still answers PING.
   - 4R-T1: the hold is released after 200 ms and construction returns only then; a
-    peer's broadcast published as soon as it returns reaches the new adapter, and a
-    peer's `Sockets` counts it.
+    peer's broadcast published as soon as it returns reaches the new adapter within
+    1 s (the `adaptertest` readiness case), and a peer's `Sockets` counts it.
   - 4R-T2: with `SubscribeTimeout` 200 ms and a longer hold, construction returns an
     error within 1 s, leaving nothing.
-  - 4R-T3: server `Close` while a namespace creation is held returns at once, and
-    the creating call's error matches `ErrNamespaceClosed`, leaving nothing.
+  - 4R-T3: server `Close` while a namespace creation is held returns at once; with
+    the hold still in place, the creating call returns within 100 ms of `Close`
+    with an error matching `ErrNamespaceClosed`. The hold is released only then,
+    leaving nothing.
   - 4R-T4: `Sockets` with no peer returns the local sockets and nil at once; with
     NUMSUB failing (pre-hook error), the local sockets and an error at once.
   - 4R-T5: the injected client's `Dialer` records each connection it dials. With
     the hold installed, the test closes every recorded connection; once the
     `subscriber lost` record is logged, `Sockets` returns the local sockets and an
     error at once. miniredis is not restarted: `Restart` builds a new server without
-    the pre-hook, which a resubscribe could reach first.
+    the pre-hook, which a resubscribe could reach first. With `SubscribeTimeout`
+    200 ms, the hold stays until the pre-hook has held three resubscribe attempts;
+    sampled every 50 ms meanwhile, `CurrentConnectionCount` never exceeds its value
+    when construction returned by more than one. After the hold is released and
+    NUMSUB of the request channel counts the instance again, `Sockets` returns
+    without an error within 1 s, and a broadcast from a second adapter on the same
+    miniredis reaches the adapter's socket within 1 s.
   - 4R-T6: construction with a `*redis.ClusterClient` or a two-shard `*redis.Ring`
     returns the documented error.
 - **`adapters/nats`**: subjects `<prefix>.<encoded-nsp>.broadcast` and
@@ -1452,10 +1488,11 @@ timeout is 5 s and *at once* means within 100 ms.
   flag, fetch across two adapters, server-side emit, peer loss with timeout, both
   adapter hooks firing, and the generic 2.2 *Readiness* cases: for a backend with
   peers, a peer's broadcast issued as soon as construction returns gets a nil error
-  with `Published` true and reaches the new adapter's socket; a query with no peer,
-  issued after the backend's documented discovery delay (none for Redis, one
-  heartbeat interval for NATS), returns the local data and nil at once. Held subscriptions and subscriber
-  loss need a backend harness and stay in the backend suites (4R, 4N).
+  with `Published` true and reaches the new adapter's socket within 1 s; a query
+  with no peer, issued after the backend's documented discovery delay (none for
+  Redis, one heartbeat interval for NATS), returns the local data and nil at once.
+  Held subscriptions and subscriber loss need a backend harness and stay in the
+  backend suites (4R, 4N).
 - `docs/ADAPTERS.md`; `adapters/<name>/README.md` for backend options; chat example
   supports both backends.
 - Restore the migrated Redis examples and add the chat's two-server compose
@@ -1689,6 +1726,7 @@ EIO=3 in v2; connection state recovery; WebTransport; permessage-deflate; sharde
 adapter (Redis 7 sharded pub/sub); Redis Cluster and Ring (client-sharded) clients for
 `adapters/redis` (counting peers needs PUBSUB NUMSUB summed over every master, as
 redis-adapter 8.3.0 `lib/util.ts` does; a Ring sends subscriptions and keyless PUBLISH
-and PUBSUB to different shards); cluster broadcast-with-ack; NATS JetStream persistence;
+and PUBSUB to different shards); replica-routed Redis clients
+(`FailoverOptions.ReplicaOnly`); cluster broadcast-with-ack; NATS JetStream persistence;
 framework-specific integration packages (gin, echo, iris, gf use `http.Handler`); trace
 context propagation through the Redis adapter.

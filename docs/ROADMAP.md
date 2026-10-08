@@ -51,7 +51,7 @@ workers submit changes to these files through that integrator.
 | 1I | 1A | integrator wires Redis construction errors through `namespace_handler.go` and `server.go`; wires `WriteBufferSize` and the drain deadline (`PingTimeout`) through `engineio/server_options.go`, `server.go` and `client.go`; runs the 1.B slow-client test against the Redis broadcast; also edits `connection.go` (connect-failure path, option wiring in `newConn`, `Conn.Close` godoc), the connect-failure path in `connection_handlers.go`, `namespace_handlers.go`, the session hand-off in `engineio/server.go`, `namespace_conn.go` (godoc only) and `CHANGELOG.md`; contract in the 1I item | integrated bug tests (the 1I item's tests) and root build pass |
 | 1B | 1I | 1.L Go files (logging, session close reasons, `logger` godoc; no Markdown except `CHANGELOG.md`); 1.D `README.md`, `engineio/README.md`, `logger/README.md`, `CLAUDE.md`, `CONTRIBUTING.md`; each writes its own `CHANGELOG.md` entries | M1 checks and v1 compatibility |
 | 1C | 1B | 1.K known-limitation notes: the godoc of `Server.Adapter`, `RoomLen` and `Rooms` in `server.go` and the `### Known limitations` subsection of `CHANGELOG.md`; contract in the 1.K item | 1.K check, then M1 checks |
-| 1b | M1 (tag `v1.5.0` on the release commit `$V1`, which 1b records); branch `v1` cut (1b step 0) | one refactor owner; moves/merges applied sequentially | M1b regression checks |
+| 1b | M1 (stage 1 and the 1.D link-form commit merged, `master` green: the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner; moves/merges applied sequentially | M1b regression checks |
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
 | 2C | 2B | 2.3S server/namespace runtime (root socket files); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests pass; dispatch baseline recorded |
@@ -700,29 +700,34 @@ come first, then merges into a target file, then content edits; intermediate com
 may not build, the head of each PR does. Steps 1–3 are the PRs merged with their
 commits kept ([`CONTRIBUTING.md`](../CONTRIBUTING.md) rule 5).
 
-**Base and branch `v1` (this section owns the release commit, the tag and the cut; no
-other section creates the branch).** `$V1` is the `v1.5.0` release commit (1.D), the last
-pre-release change. The owner tags it `v1.5.0` as soon as it has landed with CI green
-(M1); that is the event that ends the stand-in period, and it precedes step 0a. A 1b PR
-opened earlier records `V1=<sha>` on its own line of the PR body, and the gates accept an
-absent tag or one equal to `$V1`, never another commit. Between `$V1` and the merge of
-step 3 only `refactor(1b.` commits change Go files (tests included) on `master`: a
-`v1.5.x` fix is made on `v1` and forward-ported after step 3 (rule in
+**Base and branch `v1.x` (this section owns the cut; no other section creates the
+branch).** The branch is `v1.x`, not `v1`: `go list -m <module>@v1` is a semver prefix
+query that resolves the tag `v1.4.2` and ignores branches, while `@v1.x` resolves the
+branch tip as a pseudo-version (checked with a local VCS repository holding the tag and
+both branches). `$CUT` is the last `master` commit with CI green once the pre-cut PRs have
+merged: every stage 1 task and the 1.D link-form commit (`@master` becomes `@v1.x`, so
+both branches carry it). The branch is cut from `$CUT` without a tag, before the first 1b
+commit. The tag `v1.5.0` is made later, on branch `v1.x` and only on the owner's command,
+at M4 (Milestones); until then consumers use `@v1.x`. `$CUT` replaces the tag as the
+base of the DoD diffs; each 1b PR records `CUT=<sha>` on its own line of the body (the
+issue #2 ledger holds the same line). Between `$CUT` and the merge of step 3 only
+`refactor(1b.` commits change Go files (tests included) on `master`: a `v1.x` fix is made
+on `v1.x` and forward-ported after step 3 (rule in
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases)), so it never conflicts with a rename.
 Step 0 precedes any 1b commit on `master`:
 
-- 0a. `git branch v1 $V1 && git push origin v1`.
-- 0b. One PR into `v1`, `.github/` only: `ci.yaml` (`push`, `pull_request`) and
-  `benchmarks.yml` (`pull_request`) list `branches: [v1]`. Workflow files are read from
-  the branch under test, so `master`'s copies do not apply to `v1`.
+- 0a. `git branch v1.x $CUT && git push origin v1.x`; no tag.
+- 0b. One PR into `v1.x`, `.github/` only: `ci.yaml` (`push`, `pull_request`) and
+  `benchmarks.yml` (`pull_request`) list `branches: [v1.x]`. Workflow files are read from
+  the branch under test, so `master`'s copies do not apply to `v1.x`.
 - 0c. One PR into `master`, `.github/dependabot.yml` only: a second `gomod` and a
-  second `github-actions` entry, otherwise identical, with `target-branch: v1` (Dependabot
+  second `github-actions` entry, otherwise identical, with `target-branch: v1.x` (Dependabot
   reads its configuration from the default branch). The weekly CI cron runs on `master` only.
 
-**Breaking changes on `master` (`v1` keeps the old API; no aliases).** Recorded for
+**Breaking changes on `master` (`v1.x` keeps the old API; no aliases).** Recorded for
 `docs/MIGRATION.md` (2.5). The `api` block is the complete list of exported-signature
 changes: a gate pattern, then what it means. The DoD diffs the exported API of every
-package against `$V1` and allows only lines that match a pattern. Consumers of
+package against `$CUT` and allows only lines that match a pattern. Consumers of
 `go get ...@master` break (`master` is not tagged `v1.x`, see
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases)).
 
@@ -817,9 +822,9 @@ and `ge` lines included, exits 0 and prints nothing. No line uses `!`, which `se
 ignores. Scratch files live in `$T`, outside the tree:
 
 ```sh
-V1=${V1:?the SHA recorded in the PR bodies}; MOD=$(go list -m); T=$(mktemp -d); BASE=$T/base
-git worktree add --detach $BASE $V1
-FIRST=$(git log --reverse --format='%H %s' $V1..HEAD | awk '/ refactor\(1b\./{print $1; exit}')
+CUT=${CUT:?the SHA recorded in the PR bodies}; MOD=$(go list -m); T=$(mktemp -d); BASE=$T/base
+git worktree add --detach $BASE $CUT
+FIRST=$(git log --reverse --format='%H %s' $CUT..HEAD | awk '/ refactor\(1b\./{print $1; exit}')
 make lint test-race examples
 go build ./_examples/client ./engineio/_examples
 go test -count=1 ./.github/benchmarks ./.github/benchmarks/report
@@ -836,10 +841,10 @@ test -z "$(grep -rn 'session\.\(FrameType\|TEXT\|BINARY\)' --include='*.go' .)"
 # map: old paths gone, new paths present, no other non-test Go file added or deleted
 awk '/^```map$/{m=1;next} /^```$/{m=0} m{print $2, $3}' docs/ROADMAP.md >$T/map.txt
 test -z "$(while read o n; do { [ "$o" = - ] || [ ! -e "$o" ]; } && { [ "$n" = - ] || [ -e "$n" ]; } || echo "map: $o $n"; done <$T/map.txt)"
-chg() { git diff --no-renames --name-only --diff-filter=$1 $V1 HEAD -- '*.go' ':(exclude)*_test.go' ':(exclude)_examples' | sort; }
+chg() { git diff --no-renames --name-only --diff-filter=$1 $CUT HEAD -- '*.go' ':(exclude)*_test.go' ':(exclude)_examples' | sort; }
 test -z "$(comm -13 <(awk '{print $2}' $T/map.txt | sort -u) <(chg A))"
 test -z "$(comm -13 <(awk '{print $1}' $T/map.txt | sort -u) <(chg D))"
-test -z "$(git log --format=%s $V1..HEAD -- '*.go' | grep -v '^refactor(1b\.')"
+test -z "$(git log --format=%s $CUT..HEAD -- '*.go' | grep -v '^refactor(1b\.')"
 # prefix rule: no directory has more than two non-test files sharing a <prefix>_
 pkgdirs() { find . \( -name _examples -o -name .github -o -name .git \) -prune -o -name '*.go' ! -name '*_test.go' -print | xargs -n1 dirname | sort -u; }
 test -z "$(for d in $(pkgdirs); do ls $d/*.go | grep -v _test.go | xargs -n1 basename | sed -n 's/^\([A-Za-z0-9]*\)_.*/\1/p' | sort | uniq -c | awk -v d=$d '$1>2{print d,$2,$1}'; done)"
@@ -860,39 +865,41 @@ ge $(cov . ./engineio/session) $(cov $BASE ./engineio/session)
 ge $(cov . ./parser) $(cov $BASE ./parser)
 ```
 
-A floor is the figure `cov` gives on `$V1` for the package that held the code before 1b
+A floor is the figure `cov` gives on `$CUT` for the package that held the code before 1b
 (at `7a7a71d`, Go 1.25.5: root 92.4%, `engineio/session` 74.8%, `parser` 78.8%); `HEAD` is
 measured over the new packages together with the same `-coverpkg` method. `engineio` alone
 varies between runs (75.8% in two of three, 76.7% in one), so its floor is the literal
 lower value.
 
-The `v1` and release gates (variables as in the DoD). Each runs at the stated moment, not
-later, because `v1` receives `v1.5.x` patches afterwards:
+The `v1.x` gates (variables as in the DoD). Each runs at the stated moment, not later,
+because `v1.x` receives patches afterwards:
 
 ```sh
-# every 1b PR: the body records $V1; $V1 is the release commit; the tag is absent or equals it
-gh pr view --json body --jq .body | grep -qx "V1=$V1"
-git show $V1:README.md | grep -q '@v1\.5\.0' && git show $V1:CHANGELOG.md | grep -q '^## v1\.5\.0'
-T1=$(git rev-parse -q --verify 'v1.5.0^{commit}' || true); [ -z "$T1" ] || [ "$T1" = "$V1" ]
-# before step 0a (M1 closed): the tag exists
-test "$(git rev-parse 'v1.5.0^{commit}')" = "$V1"
-# after step 0b merged, before the first v1.5.x patch: v1 differs from $V1 in .github/ only
-git merge-base --is-ancestor $V1 origin/master && git merge-base --is-ancestor $V1 origin/v1
-test -z "$(git diff --name-only $V1 origin/v1 | grep -v '^\.github/')"
-# at M1b closure: triggers, Dependabot and the CI run of the current v1 head
-test "$(git show origin/v1:.github/workflows/ci.yaml | grep -c 'branches: \[v1\]')" -eq 2
-test "$(git show origin/v1:.github/workflows/benchmarks.yml | grep -c 'branches: \[v1\]')" -eq 1
-test "$(grep -c 'target-branch: v1' .github/dependabot.yml)" -eq 2
-test "$(gh run list --branch v1 --workflow CI --commit "$(git rev-parse origin/v1)" --json conclusion --jq '.[0].conclusion')" = success
+# every 1b PR: the body records $CUT; $CUT carries the branch link form and had CI green
+gh pr view --json body --jq .body | grep -qx "CUT=$CUT"
+test -z "$(for f in README.md engineio/README.md CHANGELOG.md; do git show $CUT:$f; done | grep '@master')"
+git show $CUT:README.md | grep -q '@v1\.x'
+test "$(gh run list --branch master --workflow CI --commit $CUT --json conclusion --jq '.[0].conclusion')" = success
+# before step 0b merges: the branch is at $CUT, and no v1.5 tag exists (it is made at M4)
+test "$(git rev-parse origin/v1.x)" = "$CUT"
+test -z "$(git tag -l 'v1.5.*')"
+# after step 0b merged, before the first v1.x patch: v1.x differs from $CUT in .github/ only
+git merge-base --is-ancestor $CUT origin/master && git merge-base --is-ancestor $CUT origin/v1.x
+test -z "$(git diff --name-only $CUT origin/v1.x | grep -v '^\.github/')"
+# at M1b closure: triggers, Dependabot and the CI run of the current v1.x head
+test "$(git show origin/v1.x:.github/workflows/ci.yaml | grep -c 'branches: \[v1\.x\]')" -eq 2
+test "$(git show origin/v1.x:.github/workflows/benchmarks.yml | grep -c 'branches: \[v1\.x\]')" -eq 1
+test "$(grep -c 'target-branch: v1\.x' .github/dependabot.yml)" -eq 2
+test "$(gh run list --branch v1.x --workflow CI --commit "$(git rev-parse origin/v1.x)" --json conclusion --jq '.[0].conclusion')" = success
 test -z "$(git tag -l 'v1.*' --contains $FIRST)"
 ```
 
 Acceptance (same shell and rules as the DoD):
 
 ```sh
-test -z "$(git diff $V1 HEAD -- _examples)"   # no source change
+test -z "$(git diff $CUT HEAD -- _examples)"   # no source change
 go doc ./engineio/client   # shows Dialer and Opener
-# exported API of every package against $V1: only the `api` block of Stage 1b may differ
+# exported API of every package against $CUT: only the `api` block of Stage 1b may differ
 api() { (cd $1 && for p in $(go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./...); do go doc -all $p | awk -v p="${p#$MOD}" '/^(\t\t|    |\t\/\/|[})]|[A-Z]+$)/{next} /^[^\t ]/{c=$0; print p": "$0; next} /^\t/{print p": "c" | "$0}'; done | sort); }
 ALLOWED=$(awk -F' # ' '/^```api$/{m=1;next} /^```$/{m=0} m{print $1}' docs/ROADMAP.md | paste -sd'|' -)
 test -z "$(diff <(api $BASE) <(api .) | grep '^[<>]' | grep -vE "$ALLOWED")"

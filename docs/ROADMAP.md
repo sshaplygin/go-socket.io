@@ -766,7 +766,9 @@ Step 0 precedes any 1b commit on `master`:
   the branch under test, so `master`'s copies do not apply to `v1.x`.
 - 0c. One PR into `master`, `.github/dependabot.yml` only: a second `gomod` and a
   second `github-actions` entry, otherwise identical, with `target-branch: v1.x` (Dependabot
-  reads its configuration from the default branch). The weekly CI cron runs on `master` only.
+  reads its configuration from the default branch). The weekly CI cron runs on `master`
+  only, so `v1.x` has no scheduled vulnerability scan: Dependabot's `target-branch` PRs and
+  the Stage 1 `govulncheck` gate, which the owner runs on `v1.x` before the M4 tag, cover it.
 - 0d. One PR into `master`, `CHANGELOG.md` only: the `## Unreleased` section that `v1.x`
   carries is renamed `## v1.5.0 (unreleased, branch v1.x)` and an empty `## Unreleased`
   is added above it, so that master's own entries never share a section with the entries

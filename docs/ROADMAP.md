@@ -650,7 +650,12 @@ Tasks:
 DoD: `make lint test-race` green on ubuntu/macos/windows for `stable` and `oldstable`;
 an additional Ubuntu job builds/tests the root on Go 1.22 with automatic toolchain
 upgrades disabled. From v2 this job covers every shipped runtime module;
-`govulncheck` clean; two-instance Redis test under `-race` passes; every (case, side)
+`govulncheck` clean: with the newest stable Go release and a `govulncheck` built by that
+same Go (`go install golang.org/x/vuln/cmd/govulncheck@latest` under that toolchain),
+`govulncheck ./...` exits 0 in the root module and
+`for d in _examples/*/go.mod; do (cd "$(dirname "$d")" && govulncheck ./...) || echo "$d"; done`
+prints nothing; a standard-library finding is cleared by the toolchain, not by code;
+two-instance Redis test under `-race` passes; every (case, side)
 pair of the 1.B, 1I and 1.L test lists is named by a passing test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
 package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses.
 The 1.K check passes (1.K says when it runs).

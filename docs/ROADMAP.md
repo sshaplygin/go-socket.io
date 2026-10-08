@@ -910,6 +910,7 @@ test -z "$(go doc ./engineio Dialer 2>/dev/null)$(go doc ./engineio Opener 2>/de
 test -z "$(grep -rn 'session\.\(FrameType\|TEXT\|BINARY\)' --include='*.go' .)"
 # map: old paths gone, new paths present, no other non-test Go file added or deleted
 awk '/^```map$/{m=1;next} /^```$/{m=0} m{print $2, $3}' docs/ROADMAP.md >$T/map.txt
+test -s $T/map.txt   # an empty map would make the checks below vacuous
 test -z "$(while read o n; do { [ "$o" = - ] || [ ! -e "$o" ]; } && { [ "$n" = - ] || [ -e "$n" ]; } || echo "map: $o $n"; done <$T/map.txt)"
 chg() { git diff --no-renames --name-only --diff-filter=$1 $CUT HEAD -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' | sort; }
 test -z "$(comm -13 <(awk '{print $2}' $T/map.txt | sort -u) <(chg A))"
@@ -981,6 +982,7 @@ test "$(go doc ./engineio/client | grep -cE '^type (Dialer|Opener) ')" -eq 2
 # exported API of every package against $CUT: only the `api` block of Stage 1b may differ; the awk keeps the package clause and drops the package comment (unindented text up to the first section header)
 api() { (cd $1 && for p in $(go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./...); do go doc -all $p | awk -v p="${p#$MOD}" 'NR==1{print p": "$0; h=1; next} h&&/^(CONSTANTS|VARIABLES|FUNCTIONS|TYPES)$/{h=0; next} h{next} /^(\t\t|    |\t\/\/|[})]|[A-Z]+$)/{next} /^[^\t ]/{c=$0; print p": "$0; next} /^\t/{print p": "c" | "$0}'; done | sort); }
 ALLOWED=$(awk -F' # ' '/^```api$/{m=1;next} /^```$/{m=0} m{print $1}' docs/ROADMAP.md | paste -sd'|' -)
+test -n "$ALLOWED"   # an empty pattern list would make the next line drop every diff line
 test -z "$(diff <(api $BASE) <(api .) | grep '^[<>]' | grep -vE "$ALLOWED")"
 test -z "$(diff <(api $BASE | grep '^: ') <(api . | grep '^: '))"   # the root exported surface is unchanged: root lines have an empty package prefix
 # CLAUDE.md layout: every package directory has a row, every row path exists

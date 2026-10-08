@@ -10,7 +10,7 @@ RUN go build -C _examples/redis-adapter-unix-socket -o /app/main .
 FROM scratch AS run
 
 COPY --from=build /app/main /app/main
-COPY --from=build /src/_examples/redis-adapter-unix-socket/asset /asset
+COPY --from=build /src/_examples/asset /asset
 
 EXPOSE 8000
 ENTRYPOINT ["/app/main"]

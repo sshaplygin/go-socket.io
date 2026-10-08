@@ -717,7 +717,7 @@ test -n "$K2"
 test -z "$(cd $TAG; eval "$K2")"
 git worktree remove --force $TAG
 # consumer build; the same function takes v1.x before the tag
-consumer() ( mkdir -p $T/c; cd $T/c; go mod init example.com/consumer; printf 'package main\n\nimport _ "github.com/sshaplygin/go-socket.io"\n\nfunc main() {}\n' >main.go; GOPROXY=direct go get github.com/sshaplygin/go-socket.io@$1; go build ./... )
+consumer() ( d=$(mktemp -d $T/c.XXXXXX); cd $d; go mod init example.com/consumer; printf 'package main\n\nimport _ "github.com/sshaplygin/go-socket.io"\n\nfunc main() {}\n' >main.go; GOPROXY=direct go get github.com/sshaplygin/go-socket.io@$1; go build ./... )
 consumer v1.5.0
 ```
 
@@ -957,7 +957,8 @@ test "$(git show origin/v1.x:.github/workflows/benchmarks.yml | grep -c 'branche
 test "$(grep -c 'target-branch: v1\.x' .github/dependabot.yml)" -eq 2
 test "$(gh run list --branch v1.x --workflow CI --commit "$(git rev-parse origin/v1.x)" --json conclusion --jq '.[0].conclusion')" = success
 test -z "$(git tag -l 'v1.*' --contains $FIRST)"
-consumer v1.x   # defined in the Stage 1 tag-time gates; T as there, with the function pasted into this shell
+eval "$(grep '^consumer() ' docs/ROADMAP.md)"   # the one definition, in the Stage 1 tag-time gates; an empty match makes the next line fail
+consumer v1.x
 ```
 
 Acceptance (same shell and rules as the DoD):

@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- engineio: when the write deadline passed (or the payload was closed) while the session
+  writer was writing a polling response, `Payload.FlushOut` returned at once and the GET
+  handler answered with `http.Error` on the same `http.ResponseWriter` the writer was
+  still using, a data race under `-race` that could also append a second response to a
+  partial one. `FlushOut` now returns only after the write in progress ends and rejects
+  later writes, `FlushOut` also returns when the payload is closed instead of waiting for
+  the deadline, and the handler no longer calls `http.Error` once the response has
+  started (`engineio/transport/polling/server.go:121`, `engineio/payload/encoder.go:85`
+  at `7ca5ca3`).
 - engineio: the polling client could send its first poll while the open response was
   still being fed to the payload; that poll failed with "read: overlap", and the client
   stopped polling without an error, so reads waited until their deadline. The first poll
@@ -226,6 +235,8 @@ All notable changes to this project are documented here. The format follows
   `engineio/dialer.go:23`-`:87`, `engineio/transport/polling/connect.go:38`-`:277`,
   `engineio/packet/encoder.go:40`, `engineio/transport/websocket/wrapper.go:66`, `:131`
   at `1151bad`, roadmap task 1.L).
+- Examples: the old `notice`/`msg`/`bye`/`echo` demo is replaced in every example by a port of the
+  Socket.IO chat example (`socket.io-client` 2.5.0 page in `_examples/asset/`, server logic in `chat.go`).
 
 ### Deprecated
 

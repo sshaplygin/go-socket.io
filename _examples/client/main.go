@@ -1,6 +1,10 @@
+// Command client joins the chat served by any of the other examples with the experimental Go
+// client: it adds a user, sends one message, prints every chat event it receives for a second
+// and closes.
 package main
 
 import (
+	"flag"
 	"log"
 	"time"
 
@@ -8,29 +12,42 @@ import (
 )
 
 func main() {
-	// Simple client to talk to default-http example
-	uri := "http://127.0.0.1:8000"
+	addr := flag.String("addr", "http://127.0.0.1:8000", "address of the server")
+	name := flag.String("name", "go-client", "user name")
+	message := flag.String("message", "hello from the Go client", "message to send")
+	flag.Parse()
 
-	client, err := socketio.NewClient(uri, nil)
+	client, err := socketio.NewClient(*addr, nil)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
-	// Handle an incoming event
-	client.OnEvent("reply", func(s socketio.Conn, msg string) {
-		log.Println("Receive Message /reply: ", "reply", msg)
+	loggedIn := make(chan struct{})
+	client.OnEvent("login", func(_ socketio.Conn, data map[string]interface{}) {
+		log.Printf("login: %v", data)
+		close(loggedIn)
 	})
-
-	err = client.Connect()
-	if err != nil {
-		panic(err)
+	for _, event := range []string{"user joined", "user left", "new message", "typing", "stop typing"} {
+		client.OnEvent(event, func(_ socketio.Conn, data map[string]interface{}) {
+			log.Printf("%s: %v", event, data)
+		})
 	}
 
-	client.Emit("notice", "hello")
+	if err := client.Connect(); err != nil {
+		log.Fatal(err)
+	}
 
-	time.Sleep(1 * time.Second)
-	err = client.Close()
-	if err != nil {
-		panic(err)
+	client.Emit("add user", *name)
+	select {
+	case <-loggedIn:
+	case <-time.After(5 * time.Second):
+		log.Fatal("no login event within 5s")
+	}
+
+	client.Emit("new message", *message)
+	time.Sleep(time.Second) // listen for other users
+
+	if err := client.Close(); err != nil {
+		log.Fatal(err)
 	}
 }

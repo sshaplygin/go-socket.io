@@ -1,6 +1,7 @@
 package payload
 
 import (
+	"errors"
 	"io"
 	"math"
 	"sync"
@@ -53,6 +54,30 @@ func New(supportBinary bool) *Payload {
 	ret.encoder.supportBinary = supportBinary
 	ret.encoder.feeder = ret
 	return ret
+}
+
+// flushWriter is the io.Writer that FlushOut hands to the session writer. detach waits
+// for a Write in progress and fails every later one with errDetached, so once FlushOut
+// has returned nothing is written to, or still running against, the caller's writer.
+type flushWriter struct {
+	mu   sync.Mutex
+	w    io.Writer
+	gone bool
+}
+
+func (f *flushWriter) Write(b []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.gone {
+		return 0, errDetached
+	}
+	return f.w.Write(b)
+}
+
+func (f *flushWriter) detach() {
+	f.mu.Lock()
+	f.gone = true
+	f.mu.Unlock()
 }
 
 // FeedIn feeds in a new reader for NextReader.
@@ -144,6 +169,11 @@ func (p *Payload) FlushOut(w io.Writer) error {
 	}
 	defer p.pauser.Done()
 
+	// FlushOut may return, on a timeout or Close, while the session writer is still
+	// writing; detach makes that return wait for the Write in progress.
+	fw := &flushWriter{w: w}
+	defer fw.detach()
+
 	for {
 		after, ok := p.writeTimeout()
 		if !ok {
@@ -160,7 +190,7 @@ func (p *Payload) FlushOut(w io.Writer) error {
 			_, err := w.Write(p.encoder.NOOP())
 			return err
 
-		case p.writerChan <- w:
+		case p.writerChan <- fw:
 		}
 		break
 	}
@@ -171,6 +201,8 @@ func (p *Payload) FlushOut(w io.Writer) error {
 			return p.Store("write", errTimeout)
 		}
 		select {
+		case <-p.close:
+			return p.load()
 		case <-after:
 			// it may changed during wait, need check again
 		case err := <-p.writeError:
@@ -370,6 +402,9 @@ func (p *Payload) getWriter() (io.Writer, error) {
 }
 
 func (p *Payload) putWriter(err error) error {
+	if errors.Is(err, errDetached) {
+		return err // FlushOut has returned; nobody waits for this result
+	}
 	select {
 	case <-p.close:
 		return p.load()

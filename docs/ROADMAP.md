@@ -678,7 +678,8 @@ Acceptance: `_examples/default-http` works unchanged against `socket.io-client` 
 Owner runs `SOCKETIO_LOG_LEVEL=debug go run .` in
 `_examples/default-http`, opens the browser page, sends one event and closes the tab:
 with one `sid`, the log shows `engineio: session open`, `socketio: namespace connect`
-for `/` and `/chat`, `socketio: disconnect` for both and `engineio: session close`.
+for `/`, `socketio: disconnect` for `/` and `engineio: session close` (the pre-chat
+example the release commit was accepted on also connected `/chat`).
 Closing the tab gives `reason` `transport error` or `ping timeout`, because
 socket.io-client 1.x and 2.x send no CLOSE then; `transport close` is covered by 1L-T1.
 Unset, the application's handler controls the level; invalid values behave as 2.4
@@ -1557,8 +1558,8 @@ is allowed); all stage-2 examples build and run against
 recorded; `docs/PROTOCOL.md` lists every unimplemented item; the stage 2.4 DoD holds at
 the tag. Router integration: the `examples` CI job starts `_examples/default-http`,
 `gin-gonic`, `go-echo`, `iris` and `gf`, and `TestFrameworkSmoke` in `_examples/smoke`
-(own `go.mod`) completes a websocket handshake and one event with ack through each with
-the Go client; a test in `engineio` with a `ResponseWriter` that hides `http.Hijacker`
+(own `go.mod`) completes a websocket handshake and an `add user` event answered by `login` through
+each with the Go client; a test in `engineio` with a `ResponseWriter` that hides `http.Hijacker`
 gets HTTP 501. Links: `pkg.go.dev/github.com/sshaplygin/go-socket.io/v2` renders the
 tagged version, and the grep below has no active v2 code/module imports of the old
 path; historical v1 decisions, migration examples and changelog entries are allowed:
@@ -1568,7 +1569,7 @@ grep -rn 'googollee' --include='*.md' --include='go.mod' --include='*.go' .
 ```
 
 Acceptance: a browser page on `socket.io-client@4` from CDN connects to
-`_examples/default-http`, joins `/chat`, receives a typed ack, and the server logs a
+`_examples/default-http`, adds a user, receives `login`, and the server logs a
 clean disconnect on an explicit client disconnect. `docs/MIGRATION.md` is enough to port
 `_examples/gin-gonic` without reading library code. A handler with a wrong payload type
 fails at compile time. Every badge and link in `README.md` resolves to the v2 module.

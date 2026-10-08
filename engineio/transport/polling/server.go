@@ -3,6 +3,7 @@ package polling
 import (
 	"bytes"
 	"html/template"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -84,6 +85,17 @@ func (c *serverConn) SetHeaders(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// progressWriter records whether a write to w was attempted.
+type progressWriter struct {
+	w     io.Writer
+	wrote bool
+}
+
+func (p *progressWriter) Write(b []byte) (int, error) {
+	p.wrote = true
+	return p.w.Write(b)
+}
+
 func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodOptions:
@@ -117,7 +129,14 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/plain; charset=UTF-8")
 		}
 
-		if err := c.Payload.FlushOut(w); err != nil {
+		// FlushOut has returned, so the session writer no longer uses w. If it had
+		// already started the response, a second one would corrupt it.
+		pw := &progressWriter{w: w}
+		if err := c.Payload.FlushOut(pw); err != nil {
+			if pw.wrote {
+				logger.Log.Debug("engineio: poll response failed after it was started", "err", err)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 

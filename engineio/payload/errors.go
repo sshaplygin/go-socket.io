@@ -55,3 +55,5 @@ var errTimeout = errors.New("timeout")
 var errInvalidPayload = errors.New("invalid payload")
 
 var errOverlap = errors.New("overlap")
+
+var errDetached = errors.New("writer detached")

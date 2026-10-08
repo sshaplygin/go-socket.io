@@ -683,10 +683,42 @@ Closing the tab gives `reason` `transport error` or `ping timeout`, because
 socket.io-client 1.x and 2.x send no CLOSE then; `transport close` is covered by 1L-T1.
 Unset, the application's handler controls the level; invalid values behave as 2.4
 specifies. Every badge and link in `README.md` resolves on GitHub.
-Tag-time check (M4, on the tagged `v1.5.0`; not part of the stage 1 gate): `go get` of the
-fork at `v1.5.0` builds a consumer that previously used upstream after updating its
-imports to the fork's v1 module, without an upstream-path `replace` directive. After
-the cut the same consumer builds at `@v1.x`.
+Tag-time gates (M4; run once, after the owner ordered the tag and the `v1.5.0` release
+commit of [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases) is tagged and pushed; `bash`
+and `set -e`, rules as in the Stage 1b DoD; not part of the stage 1 gate). The block
+proves that the tag sits on `v1.x` and not on `master`, that the released files carry
+`@v1.5.0` and no `@v1.x`, that the 1.K check passes on the tagged tree, and that a
+consumer that previously used upstream builds against the fork at the tag after
+updating its imports, without an upstream-path `replace` directive. Stage 1b runs
+`consumer v1.x` from the same definition at M1b closure:
+
+```sh
+T=$(mktemp -d); TAG=$T/tag
+git fetch --tags origin
+git merge-base --is-ancestor v1.5.0 origin/v1.x
+test -z "$(git tag --merged origin/master -l 'v1.5.*')"   # earlier v1.4.x tags stay reachable from master
+rel() { git show v1.5.0:CHANGELOG.md | awk '/^## /{s=($0 ~ /^## v1\.5\.0( |$)/)} s'; }
+test -n "$(rel)"
+test -z "$({ git show v1.5.0:README.md; git show v1.5.0:engineio/README.md; rel; } | grep -F '@v1.x')"
+git show v1.5.0:README.md | grep -q '@v1\.5\.0'
+git show v1.5.0:engineio/README.md | grep -q '@v1\.5\.0'
+rel | grep -q '@v1\.5\.0'
+git show v1.5.0:CHANGELOG.md | grep -q '^## v1\.5\.0 - '
+test -z "$(git show v1.5.0:CHANGELOG.md | awk '/^## /{s=$0} s ~ /^## Unreleased/ && /^### /')"   # no Unreleased entries remain
+test -z "$(git show v1.5.0:README.md | grep -F 'until a release')"
+# the 1.K check on the tagged tree: its two commands are read from the tagged copy of this file
+git worktree add --detach $TAG v1.5.0
+K1=$(sed -En 's/^ *`(awk .*CHANGELOG\.md)`$/\1/p' $TAG/docs/ROADMAP.md)
+K2=$(sed -En 's/^ *`(for m in .*done)`$/\1/p' $TAG/docs/ROADMAP.md)
+test -n "$K1"
+test -n "$K2"
+(cd $TAG; eval "$K1")
+test -z "$(cd $TAG; eval "$K2")"
+git worktree remove --force $TAG
+# consumer build; the same function takes v1.x before the tag
+consumer() ( mkdir -p $T/c; cd $T/c; go mod init example.com/consumer; printf 'package main\n\nimport _ "github.com/sshaplygin/go-socket.io"\n\nfunc main() {}\n' >main.go; GOPROXY=direct go get github.com/sshaplygin/go-socket.io@$1; go build ./... )
+consumer v1.5.0
+```
 
 ## Stage 1b. Package layout (prerequisite to stage 2)
 
@@ -919,6 +951,7 @@ test "$(git show origin/v1.x:.github/workflows/benchmarks.yml | grep -c 'branche
 test "$(grep -c 'target-branch: v1\.x' .github/dependabot.yml)" -eq 2
 test "$(gh run list --branch v1.x --workflow CI --commit "$(git rev-parse origin/v1.x)" --json conclusion --jq '.[0].conclusion')" = success
 test -z "$(git tag -l 'v1.*' --contains $FIRST)"
+consumer v1.x   # defined in the Stage 1 tag-time gates; T as there, with the function pasted into this shell
 ```
 
 Acceptance (same shell and rules as the DoD):
@@ -1829,7 +1862,7 @@ new revision IDs; release them separately. M7 closes the roadmap.
 | M1b | Stage 1b package layout | none (first commits after the cut commit `$CUT`) |
 | M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance | branch `v2-dev` |
 | M3 | 2.2 + 2.3 + 2.4 + 2.5 | `v2.0.0`, `contrib/otel/v2.0.0` |
-| M4 | Stage 3: single-server chat (parity of the upstream chat example on v2 for a single server) | root `v2.1.0`; additionally, on the owner's command, `v1.5.0` on branch `v1.x` (release commit per `CONTRIBUTING.md`, tag-time check in Stage 1 Acceptance) |
+| M4 | Stage 3: single-server chat (parity of the upstream chat example on v2 for a single server) | root `v2.1.0`; additionally, on the owner's command, `v1.5.0` on branch `v1.x` (release commit per `CONTRIBUTING.md`, tag-time gates in Stage 1 Acceptance) |
 | M5 | Stage 4b: adapters and cluster chat acceptance | root `v2.2.0` first, then `adapters/redis/v2.0.0`, `adapters/nats/v2.0.0` |
 | M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `contrib/admin/v2.0.0`; adapter minor releases |
 | M7 | Stage 6: final comparative benchmark report and reproducible artifacts | report/artifact revision; no runtime release required |

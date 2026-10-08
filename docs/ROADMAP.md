@@ -807,10 +807,8 @@ at their path are described in the steps, not here.
 3. **Root file names by role.** Files per the map: `namespaces.go` joins `namespace.go`
    because it is the registry of `*namespaceConn`, `namespace_handlers.go` joins
    `namespace_handler.go`. `CLAUDE.md` edits made by this step: one layout row per
-   directory the layout check lists (`adapter/`, `adapter/redis/`, `internal/redisdial/`,
-   `engineio/client/`, `engineio/internal/logtest/` and every other package directory),
-   the root row without "in-memory and Redis broadcast", the `engineio/` row without
-   "and client", the `logger/` row naming `engineio/client` in place of "client dialer",
+   directory the layout check lists (`engineio/client/`, `engineio/internal/logtest/`
+   and every other package directory), the `engineio/` row without "and client", the `logger/` row naming `engineio/client` in place of "client dialer",
    and `handler.go` → `event_handler.go` in Conventions. Stage 2 paths already match.
 
 DoD, run with `bash` and `set -e` on the committed head of step 3 (M1b closure). The
@@ -826,13 +824,10 @@ make lint test-race examples
 go build ./_examples/client ./engineio/_examples
 go test -count=1 ./.github/benchmarks ./.github/benchmarks/report
 go test -run '^$' -bench . -benchtime=1x ./... >/dev/null   # the benchmark job's input still compiles and runs
-# layering; the root still reaches redigo through adapter/redis until 2.0
-go list ./adapter ./adapter/redis ./engineio/client >/dev/null   # the packages exist: go list errors are not read as empty output
+# layering
+go list ./engineio/client >/dev/null   # the package exists: go list errors are not read as empty output
 test -z "$(go list -f '{{join .Deps "\n"}}{{"\n"}}{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}' ./engineio | grep "^$MOD/engineio/client$")"
 test "$(cat $(ls engineio/client/*.go | grep -v _test.go) | grep -o 'engineio\.[A-Za-z]*' | sort -u)" = engineio.Conn
-test -z "$(go list -f '{{join .Deps "\n"}}{{"\n"}}{{join .TestImports "\n"}}{{"\n"}}{{join .XTestImports "\n"}}' ./adapter ./adapter/redis | grep -x "$MOD")"
-test -z "$(go list -deps ./adapter | grep redigo)"
-test -z "$(go list -f '{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}{{"\n"}}{{join .XTestImports "\n"}}' . | grep redigo)"
 # removed API stays removed
 test ! -e engineio/session/base.go
 test -z "$(go doc -all ./engineio/session | grep -E '\b(FrameType|TEXT|BINARY)\b')"
@@ -860,7 +855,7 @@ test -z "$(join <(tests $BASE "$asserts") <(tests . "$asserts") | awk '$3<$2')" 
 cov() { d=$1; shift; (cd $d && go test -count=1 -coverpkg="$(echo $* | tr ' ' ,)" -coverprofile=$T/c.out "$@" >/dev/null && go tool cover -func=$T/c.out | awk '/^total:/{print $3+0}'); }
 ge() { awk -v a=$1 -v b=$2 'BEGIN{exit !(a!="" && a+0>=b+0)}'; }   # an empty figure fails
 ge $(cov . ./engineio ./engineio/client) 75.8
-ge $(cov . . ./adapter ./adapter/redis) $(cov $BASE .)
+ge $(cov . .) $(cov $BASE .)
 ge $(cov . ./engineio/session) $(cov $BASE ./engineio/session)
 ge $(cov . ./parser) $(cov $BASE ./parser)
 ```
@@ -895,14 +890,13 @@ test -z "$(git tag -l 'v1.*' --contains $FIRST)"
 Acceptance (same shell and rules as the DoD):
 
 ```sh
-test -z "$(git diff $V1 HEAD -- _examples)"   # no source change; _examples/redis-adapter-unix-socket is the one using RedisAdapterOptions
-go doc . Broadcast | grep -q Deprecated && go doc . RedisAdapterOptions | grep -q Deprecated
-go doc ./adapter; go doc ./adapter/redis; go doc ./engineio/client   # show the API above
+test -z "$(git diff $V1 HEAD -- _examples)"   # no source change
+go doc ./engineio/client   # shows Dialer and Opener
 # exported API of every package against $V1: only the `api` block of Stage 1b may differ
 api() { (cd $1 && for p in $(go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./...); do go doc -all $p | awk -v p="${p#$MOD}" '/^(\t\t|    |\t\/\/|[})]|[A-Z]+$)/{next} /^[^\t ]/{c=$0; print p": "$0; next} /^\t/{print p": "c" | "$0}'; done | sort); }
 ALLOWED=$(awk -F' # ' '/^```api$/{m=1;next} /^```$/{m=0} m{print $1}' docs/ROADMAP.md | paste -sd'|' -)
 test -z "$(diff <(api $BASE) <(api .) | grep '^[<>]' | grep -vE "$ALLOWED")"
-test -z "$(diff <(cd $BASE; go doc -all . Broadcast | grep -E $'^\t') <(go doc -all ./adapter Broadcast | grep -E $'^\t'))"   # same method set, now on adapter.Conn
+test -z "$(diff <(api $BASE | grep '^: ') <(api . | grep '^: '))"   # the root exported surface is unchanged: root lines have an empty package prefix
 # CLAUDE.md layout: every package directory has a row, every row path exists
 test -z "$(for d in $(pkgdirs | grep -v '^\.$'); do grep -q "\`${d#./}/\`" CLAUDE.md || echo "no row: $d"; done)"
 test -z "$(awk -F'|' '/^\| Path/{t=1;next} t&&/^$/{exit} t{print $2}' CLAUDE.md | grep -o '`[^`]*`' | tr -d '`' | grep '/$' | while read p; do [ -e "$p" ] || echo "no path: $p"; done)"

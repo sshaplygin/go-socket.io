@@ -893,7 +893,7 @@ prints. Scratch files live in `$T`, outside the tree:
 
 ```sh
 CUT=${CUT:?the SHA recorded in the PR bodies}; MOD=$(go list -m); T=$(mktemp -d); BASE=$T/base
-git worktree add --detach $BASE $CUT
+git worktree add -q --detach $BASE $CUT
 FIRST=$(git log --reverse --format='%H %s' $CUT..HEAD | awk '/ refactor\(1b\./{print $1; exit}')
 make lint test-race examples
 go build ./engineio/_examples   # belongs to the root module; make examples does not build it (it builds ./_examples/client and the example modules)

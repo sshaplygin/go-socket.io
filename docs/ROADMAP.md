@@ -903,7 +903,8 @@ go test -run '^$' -bench . -benchtime=1x ./... >/dev/null   # the benchmark job'
 go list ./engineio/client >/dev/null   # the package exists: go list errors are not read as empty output
 DEPS=$(go list -f '{{join .Deps "\n"}}{{"\n"}}{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}' ./engineio)   # a go list error (an import cycle included) stops the shell here
 test -z "$(echo "$DEPS" | grep "^$MOD/engineio/client$")"
-test "$(cat $(ls engineio/client/*.go | grep -v _test.go) | grep -o 'engineio\.[A-Za-z]*' | sort -u)" = engineio.Conn
+test "$(cat $(ls engineio/client/*.go | grep -v _test.go) | sed 's,//.*,,' | grep -o 'engineio\.[A-Za-z]*' | sort -u)" = engineio.Conn   # code only: a comment that names engineio.Server does not count
+test -z "$(grep -rn --exclude='*_test.go' "[A-Za-z_.] \"$MOD/engineio\"" engineio/client)"   # no aliased or dot import, which the line above would not see
 # removed API stays removed
 test ! -e engineio/session/base.go
 test -z "$(go doc -all ./engineio/session | grep -E '\b(FrameType|TEXT|BINARY)\b')"

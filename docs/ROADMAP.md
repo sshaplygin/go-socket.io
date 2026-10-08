@@ -769,7 +769,9 @@ Step 0 precedes any 1b commit on `master`:
 
 **Breaking changes on `master` (`v1.x` keeps the old API; no aliases).** Recorded for
 `docs/MIGRATION.md` (2.5). The `api` block is the complete list of exported-signature
-changes: a gate pattern, then what it means. The DoD diffs the exported API of every
+changes: a gate pattern, then what it means. Each pattern is anchored to the diff side
+and the package (`^[<>] /engineio/session: `) and names its symbol, so the same word in
+another package, or an extra symbol in a listed one, is a diff. The DoD diffs the exported API of every
 package against `$CUT` and allows only lines that match a pattern. Consumers of
 `go get ...@master` break. The 1b PRs write no `CHANGELOG.md` entry (the exemption
 that [`CONTRIBUTING.md`](../CONTRIBUTING.md) rule 3 allows): the `api` block and the map
@@ -779,10 +781,13 @@ entries) name the tree at `$CUT`, which is the `v1.x` tree, and are not rewritte
 `master`: they sit in the `v1.5.0` section as history.
 
 ```api
-^> /engineio/client: # new package of step 1
+^> /engineio/client: (package client // import |type Dialer struct \{( \| [[:space:]]Transports \[\]transport\.Transport)?$|type Opener interface \{( \| [[:space:]]Open\(\) \(transport\.ConnParameters, error\))?$|func \(d \*Dialer\) Dial\(urlStr string, requestHeader http\.Header\) \(engineio\.Conn, error\)$) # new package of step 1: exactly the package clause, `Dialer` with its `Transports` field and `Dial`, and `Opener` with `Open`; any other exported symbol there is a diff
 ^> /engineio/internal/logtest: (package logtest|type Recorder struct|func NewRecorder\(|func SetDefault\(|func \([a-z]+ \*?Recorder\) (Find|Enabled|Handle|WithAttrs|WithGroup)\() # new test-support package of step 1: exactly `Recorder`, `NewRecorder`, `SetDefault` and the methods `Find`, `Enabled`, `Handle`, `WithAttrs`, `WithGroup` (the `slog.Handler` methods); any other exported symbol there is a diff
-Dialer|Opener # engineio.Dialer and engineio.Opener move to engineio/client; an alias in engineio would import it and restore the cycle
-FrameType|frame\.Type|session: const # session.FrameType, TEXT and BINARY give way to frame.Type, frame.String and frame.Binary; NextReader and NextWriter of engineio.Conn, session.Session, parser.FrameReader and parser.FrameWriter take frame.Type, which breaks every external implementer and every caller of parser.NewDecoder and parser.NewEncoder with its own reader or writer
+^< /engineio: (type (Dialer struct|Opener interface) \{|func \(d \*Dialer\) Dial\() # engineio.Dialer, Dialer.Dial and engineio.Opener leave engineio for engineio/client (removal side only); an alias in engineio would import it and restore the cycle
+^[<>] /engineio: type Conn interface \{ \| [[:space:]]Next(Reader|Writer)\(.*(session\.FrameType|frame\.Type) # engineio.Conn.NextReader and NextWriter, session.FrameType to frame.Type; breaks every external implementer of Conn
+^[<>] /parser: type Frame(Reader|Writer) interface \{ \| [[:space:]]Next(Reader|Writer)\(.*(session\.FrameType|frame\.Type) # parser.FrameReader.NextReader and parser.FrameWriter.NextWriter, same change; breaks every caller of parser.NewDecoder and parser.NewEncoder with its own reader or writer
+^[<>] /engineio/session: func \(s \*Session\) Next(Reader|Writer)\(.*(FrameType|frame\.Type) # session.Session.NextReader and NextWriter, same change
+^< /engineio/session: (const \(|type FrameType frame\.Type$) # session.FrameType, TEXT and BINARY give way to frame.Type, frame.String and frame.Binary (removal side only)
 ```
 
 Target tree (root module; rows added after 1b are marked):

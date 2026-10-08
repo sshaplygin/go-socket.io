@@ -603,13 +603,17 @@ Tasks:
     examples, API usage".
   - `logger/README.md` is deleted: it tells users to assign `logger.Log`, which
     bypasses `logger.Wrap`, and the package godoc owns its subject (1.L).
-  - Link form: until `v1.5.0` is tagged, pkg.go.dev links and `go get` commands use
-    `@master`; the fork's `v1.4.x` tags carry the upstream module path, so unversioned
-    links would show them. `CONTRIBUTING.md` gets a release step: the `v1.5.0`
-    release commit switches the pkg.go.dev links in `README.md`,
-    `engineio/README.md` and the released `CHANGELOG.md` section to `@v1.5.0`, the
-    README install command to `@v1.5.0`, and removes the README sentence saying to
-    use `@master` until a release is tagged.
+  - Link form (1.D owns it): until `v1.5.0` is tagged, pkg.go.dev links and `go get`
+    commands use `@v1.x`, the branch cut in 1b step 0; the fork's `v1.4.x` tags carry
+    the upstream module path, so unversioned links would show them, and `master` becomes
+    v2 work. 1.D replaces every `@master` in `README.md`, `engineio/README.md` and
+    `CHANGELOG.md` with `@v1.x` in a commit on `master` before the cut, so both branches
+    carry it. `CONTRIBUTING.md` gets a release step for the tag, made later on `v1.x` at
+    M4: the `v1.5.0` release commit renames the `CHANGELOG.md` heading `Unreleased` to
+    `v1.5.0`, switches `@v1.x` to `@v1.5.0` in the pkg.go.dev links of `README.md`,
+    `engineio/README.md` and the released `CHANGELOG.md` section and in the README
+    install command, and removes the README sentence saying to use the branch until a
+    release is tagged.
   - Already satisfied at `9716ec0` and guarded by the DoD: no `godoc.org` links;
     the README badges point at this fork.
 - **1.K Known limitations** (wave 1C, after wave 1B has merged, so no other task
@@ -620,8 +624,8 @@ Tasks:
   - The godoc states the behaviour; from the tag it, not 1.R, records the two 1.R
     *Known limitations*. The subsection names each limitation in one sentence,
     without line numbers, and links the pkg.go.dev godoc of `Server.Adapter`,
-    `Server.RoomLen` and `Server.Rooms` in the existing `@master` form, which the
-    1.D release step switches to `@v1.5.0`. It adds no entry under `### Fixed` or
+    `Server.RoomLen` and `Server.Rooms` in the `@v1.x` form, which the tag-time
+    release commit (1.D) switches to `@v1.5.0`. It adds no entry under `### Fixed` or
     `### Changed`.
   - The `Server.Adapter` godoc says that a namespace receives peers' broadcasts and
     requests and is counted by them only once Redis has registered its
@@ -632,7 +636,7 @@ Tasks:
     counts does not answer (`Rooms` also when Redis cannot report that count); that
     an instance that has not registered is not counted, so they return without its
     rooms; and that in each case `RoomLen` can undercount and `Rooms` can omit rooms.
-  - *Check (1C join gate, and again on the `v1.5.0` release commit):* `make lint`
+  - *Check (1C join gate, and again on the `v1.5.0` release commit at tag time):* `make lint`
     passes; `CHANGELOG.md` has exactly one `### Known limitations` heading in all of
     the `## Unreleased` section and, on the release commit, the `v1.5.0` section
     (whatever date suffix its heading carries; an empty `## Unreleased` may stay
@@ -659,7 +663,7 @@ stderr contains the message `logger: invalid level ignored` and `value=bogus`),
 `README.md` shows the fork's status; `engineio/README.md` has no install or example
 code, links to `README.md`, `docs/PROTOCOL.md` and its godoc, and `CLAUDE.md` has its
 row; `logger/README.md` does not exist; `CONTRIBUTING.md` has the `v1.5.0` link-switch
-release step. Each of the first four commands below exits 1
+release step. Each of the first five commands below exits 1
 with no output, and the last pipeline prints nothing:
 
 ```sh
@@ -667,13 +671,12 @@ git grep -nE '(^|[^[:alnum:]_])(log|fmt)\.Print' -- '*.go' ':(exclude)*_test.go'
 git grep -nE '\.(Error|Info)\("' -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' ':(exclude).github' ':(exclude)logger'
 git grep -nE 'https?://godoc[.]org' -- '*.md'
 git grep -nE '(pkg\.go\.dev/|go get )github\.com/sshaplygin/go-socket\.io(/[a-z_/]+)?([^@a-z_/]|$)' -- README.md engineio/README.md
+git grep -n '@master' -- README.md engineio/README.md CHANGELOG.md
 git grep -nE '\.(Debug|Warn)\("' -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' ':(exclude).github' | grep -vE '\.(Debug|Warn)\("(engineio|socketio|logger): [a-z][a-z0-9 ]*"[,)]'
 ```
 
-Acceptance: `_examples/default-http` works unchanged against `socket.io-client` 2.x;
-`go get` of the fork at `v1.5.0` builds a consumer that previously used upstream after
-updating its imports to the fork's v1 module, without an upstream-path `replace`
-directive. Owner runs `SOCKETIO_LOG_LEVEL=debug go run .` in
+Acceptance: `_examples/default-http` works unchanged against `socket.io-client` 2.x.
+Owner runs `SOCKETIO_LOG_LEVEL=debug go run .` in
 `_examples/default-http`, opens the browser page, sends one event and closes the tab:
 with one `sid`, the log shows `engineio: session open`, `socketio: namespace connect`
 for `/` and `/chat`, `socketio: disconnect` for both and `engineio: session close`.
@@ -681,6 +684,10 @@ Closing the tab gives `reason` `transport error` or `ping timeout`, because
 socket.io-client 1.x and 2.x send no CLOSE then; `transport close` is covered by 1L-T1.
 Unset, the application's handler controls the level; invalid values behave as 2.4
 specifies. Every badge and link in `README.md` resolves on GitHub.
+Tag-time check (M4, on the tagged `v1.5.0`; not part of the stage 1 gate): `go get` of the
+fork at `v1.5.0` builds a consumer that previously used upstream after updating its
+imports to the fork's v1 module, without an upstream-path `replace` directive. After
+the cut the same consumer builds at `@v1.x`.
 
 ## Stage 1b. Package layout (prerequisite to stage 2)
 

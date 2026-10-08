@@ -3,7 +3,6 @@ package main
 import (
 	"net/http/httptest"
 	"sort"
-	"sync"
 	"testing"
 	"time"
 
@@ -24,12 +23,10 @@ type chatClient struct {
 // newChatServer serves the chat the way main does, without the page.
 func newChatServer(t *testing.T) (*socketio.Server, *httptest.Server) {
 	t.Helper()
-
 	// The Go client sends no close packet, so the server detects a closed client only when its
 	// pings stop; keep the timeouts short.
 	server := socketio.NewServer(&engineio.Options{PingInterval: 200 * time.Millisecond, PingTimeout: 2 * time.Second})
 	registerChat(server)
-
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -43,14 +40,12 @@ func newChatServer(t *testing.T) (*socketio.Server, *httptest.Server) {
 		ts.CloseClientConnections() // the long polls of closed clients are still open
 		ts.Close()
 	})
-
 	return server, ts
 }
 
 // connectChat connects a client that records every chat event it receives.
 func connectChat(t *testing.T, url string) *chatClient {
 	t.Helper()
-
 	cl, err := socketio.NewClient(url, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +53,6 @@ func connectChat(t *testing.T, url string) *chatClient {
 
 	c := &chatClient{Client: cl, events: make(chan chatEvent, 64)}
 	for _, name := range []string{"login", "user joined", "user left", "new message", "typing", "stop typing"} {
-		name := name
 		cl.OnEvent(name, func(_ socketio.Conn, data map[string]interface{}) {
 			c.events <- chatEvent{name: name, data: data}
 		})
@@ -72,54 +66,46 @@ func connectChat(t *testing.T, url string) *chatClient {
 	return c
 }
 
-// expect fails the test unless the client's next event is the named one and its payload
-// has the given key and value pairs.
-func (c *chatClient) expect(t *testing.T, name string, kv ...interface{}) {
+// recv returns the client's next chat event.
+func (c *chatClient) recv(t *testing.T) chatEvent {
 	t.Helper()
-	c.next(t, name, kv...)
-}
-
-// next is expect that also returns the payload.
-func (c *chatClient) next(t *testing.T, name string, kv ...interface{}) map[string]interface{} {
-	t.Helper()
-
 	select {
 	case ev := <-c.events:
-		if ev.name != name {
-			t.Fatalf("got event %q %v, want %q", ev.name, ev.data, name)
-		}
-		for i := 0; i < len(kv); i += 2 {
-			if ev.data[kv[i].(string)] != kv[i+1] {
-				t.Fatalf("%q payload %v: %v is not %v", name, ev.data, kv[i], kv[i+1])
-			}
-		}
-		return ev.data
+		return ev
 	case <-time.After(5 * time.Second):
-		t.Fatalf("no %q event within 5s", name)
+		t.Fatal("no chat event within 5s")
 	}
-	return nil
+	return chatEvent{}
 }
 
-// login returns the payload of the next "login" event, skipping the other users' joins.
-func (c *chatClient) login(t *testing.T) map[string]interface{} {
+// expect fails the test unless the client's next event is the named one and its payload
+// has the given key and value pairs. It returns the payload.
+func (c *chatClient) expect(t *testing.T, name string, kv ...interface{}) map[string]interface{} {
 	t.Helper()
+	ev := c.recv(t)
+	if ev.name != name {
+		t.Fatalf("got event %q %v, want %q", ev.name, ev.data, name)
+	}
+	for i := 0; i < len(kv); i += 2 {
+		if ev.data[kv[i].(string)] != kv[i+1] {
+			t.Fatalf("%q payload %v: %v is not %v", name, ev.data, kv[i], kv[i+1])
+		}
+	}
+	return ev.data
+}
 
+// login returns numUsers of the next "login" event, skipping the other users' joins.
+func (c *chatClient) login(t *testing.T) float64 {
+	t.Helper()
 	for {
-		select {
-		case ev := <-c.events:
-			if ev.name == "login" {
-				return ev.data
-			}
-		case <-time.After(5 * time.Second):
-			t.Error("no login event within 5s")
-			return map[string]interface{}{"numUsers": 0.0}
+		if ev := c.recv(t); ev.name == "login" {
+			return ev.data["numUsers"].(float64)
 		}
 	}
 }
 
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-
 	deadline := time.Now().Add(5 * time.Second)
 	for !cond() {
 		if time.Now().After(deadline) {
@@ -177,38 +163,25 @@ func TestChatEmptyUsername(t *testing.T) {
 	waitFor(t, "two connections in the room", func() bool { return server.RoomLen("/", chatRoom) == 2 })
 
 	// A has no name: its payloads carry no username key at all.
-	a.Emit("typing")
-	if data := b.next(t, "typing"); len(data) != 0 {
-		t.Fatalf("typing payload of an unnamed user = %v, want {}", data)
-	}
-	a.Emit("stop typing")
-	if data := b.next(t, "stop typing"); len(data) != 0 {
-		t.Fatalf("stop typing payload of an unnamed user = %v, want {}", data)
+	for _, name := range []string{"typing", "stop typing"} {
+		a.Emit(name)
+		if data := b.expect(t, name); len(data) != 0 {
+			t.Fatalf("%s payload of an unnamed user = %v, want {}", name, data)
+		}
 	}
 
 	// An empty name counts as a user and is reported as "", not dropped.
 	b.Emit("add user", "")
-	if got := b.next(t, "login")["numUsers"]; got != 1.0 {
-		t.Fatalf("login numUsers for an empty name = %v, want 1", got)
-	}
-	if data := a.next(t, "user joined", "numUsers", 1.0); data["username"] != "" {
-		t.Fatalf("user joined payload = %v, want username \"\"", data)
-	}
-
+	b.expect(t, "login", "numUsers", 1.0)
+	a.expect(t, "user joined", "username", "", "numUsers", 1.0)
 	b.Emit("typing")
-	if data := a.next(t, "typing"); data["username"] != "" {
-		t.Fatalf("typing payload of an empty name = %v, want username \"\"", data)
-	}
+	a.expect(t, "typing", "username", "")
 	b.Emit("new message", "hi")
-	if data := a.next(t, "new message", "message", "hi"); data["username"] != "" {
-		t.Fatalf("new message payload of an empty name = %v, want username \"\"", data)
-	}
+	a.expect(t, "new message", "username", "", "message", "hi")
 
 	// The empty name was counted, so its disconnect is announced and decrements.
 	_ = b.Close()
-	if data := a.next(t, "user left", "numUsers", 0.0); data["username"] != "" {
-		t.Fatalf("user left payload = %v, want username \"\"", data)
-	}
+	a.expect(t, "user left", "username", "", "numUsers", 0.0)
 }
 
 // TestChatNumUsersConcurrent adds users from many connections at once: every login must
@@ -224,21 +197,17 @@ func TestChatNumUsersConcurrent(t *testing.T) {
 	}
 	waitFor(t, "all connections in the room", func() bool { return server.RoomLen("/", chatRoom) == n })
 
-	counts := make([]int, n)
-	var wg sync.WaitGroup
-	for i, c := range clients {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			c.Emit("add user", "user")
-			counts[i] = int(c.login(t)["numUsers"].(float64))
-		}()
+	for _, c := range clients {
+		go c.Emit("add user", "user")
 	}
-	wg.Wait()
 
-	sort.Ints(counts)
+	counts := make([]float64, n)
+	for i, c := range clients {
+		counts[i] = c.login(t)
+	}
+	sort.Float64s(counts)
 	for i, got := range counts {
-		if got != i+1 {
+		if got != float64(i+1) {
 			t.Fatalf("login counts = %v, want 1..%d", counts, n)
 		}
 	}
@@ -251,7 +220,5 @@ func TestChatNumUsersConcurrent(t *testing.T) {
 
 	again := connectChat(t, ts.URL)
 	again.Emit("add user", "again")
-	if got := again.login(t)["numUsers"]; got != 1.0 {
-		t.Fatalf("login numUsers after all users left = %v, want 1", got)
-	}
+	again.expect(t, "login", "numUsers", 1.0)
 }

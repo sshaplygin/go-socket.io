@@ -758,6 +758,9 @@ issue #2 ledger holds the same line). Between `$CUT` and the merge of step 3 onl
 their build gate: a `v1.x` fix is made
 on `v1.x` and forward-ported after step 3 (rule in
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases)), so it never conflicts with a rename.
+A flaky test that fails on `master` during the freeze is re-run by the integrator; one that
+stays red stops the 1b merges and goes to the owner, and a fix the owner allows travels in
+the next step's PR under its `refactor(1b.<step>)` subject, with the reason in the body.
 Step 0 precedes any 1b commit on `master`:
 
 - 0a. `git branch v1.x $CUT && git push origin v1.x`; no tag.

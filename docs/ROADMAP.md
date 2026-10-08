@@ -850,8 +850,8 @@ at their path are described in the steps, not here.
    `recorder.find` and `setDefault` move to `engineio/internal/logtest` as `Recorder`,
    `NewRecorder`, `Recorder.Find` and `SetDefault`; the `slog.Handler` methods of the
    recorder (`Enabled`, `Handle`, `WithAttrs`, `WithGroup`) become exported with it, which
-   the `api` block lists. The package imports `log/slog` only, so in-package `engineio`
-   tests may use it too; `readAll` is defined locally in each of the two test packages. `engineio/_examples` builds (DoD) and takes no change other
+   the `api` block lists. The package imports no package of this repository, so in-package `engineio`
+   tests may use it without an import cycle; `readAll` is defined locally in each of the two test packages. `engineio/_examples` builds (DoD) and takes no change other
    than the import-path edits that the Acceptance filter below allows.
 2. **Names and frame type.** Files per the map; `fake.go` stays a non-test file because
    `NewFakeConnReader`, `NewFakeConnWriter`, `NewFakeConstReader` and `FakeDiscardWriter`

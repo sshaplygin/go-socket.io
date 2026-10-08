@@ -720,7 +720,9 @@ commit. The tag `v1.5.0` is made later, on branch `v1.x` and only on the owner's
 at M4 (Milestones); until then consumers use `@v1.x`. `$CUT` replaces the tag as the
 base of the DoD diffs; each 1b PR records `CUT=<sha>` on its own line of the body (the
 issue #2 ledger holds the same line). Between `$CUT` and the merge of step 3 only
-`refactor(1b.` commits change Go files (tests included) on `master`: a `v1.x` fix is made
+`refactor(1b.` commits change Go files (tests included) on `master`; Go files under
+`_examples/` and `engineio/_examples/` are outside the freeze, and `make examples` is
+their build gate: a `v1.x` fix is made
 on `v1.x` and forward-ported after step 3 (rule in
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases)), so it never conflicts with a rename.
 Step 0 precedes any 1b commit on `master`:
@@ -857,10 +859,10 @@ test -z "$(grep -rn 'session\.\(FrameType\|TEXT\|BINARY\)' --include='*.go' .)"
 # map: old paths gone, new paths present, no other non-test Go file added or deleted
 awk '/^```map$/{m=1;next} /^```$/{m=0} m{print $2, $3}' docs/ROADMAP.md >$T/map.txt
 test -z "$(while read o n; do { [ "$o" = - ] || [ ! -e "$o" ]; } && { [ "$n" = - ] || [ -e "$n" ]; } || echo "map: $o $n"; done <$T/map.txt)"
-chg() { git diff --no-renames --name-only --diff-filter=$1 $CUT HEAD -- '*.go' ':(exclude)*_test.go' ':(exclude)_examples' | sort; }
+chg() { git diff --no-renames --name-only --diff-filter=$1 $CUT HEAD -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' | sort; }
 test -z "$(comm -13 <(awk '{print $2}' $T/map.txt | sort -u) <(chg A))"
 test -z "$(comm -13 <(awk '{print $1}' $T/map.txt | sort -u) <(chg D))"
-test -z "$(git log --format=%s $CUT..HEAD -- '*.go' | grep -v '^refactor(1b\.')"
+test -z "$(git log --format=%s $CUT..HEAD -- '*.go' ':(exclude,glob)**/_examples/**' | grep -v '^refactor(1b\.')"
 # prefix rule: no directory has more than two non-test files sharing a <prefix>_
 pkgdirs() { find . \( -name _examples -o -name .github -o -name .git \) -prune -o -name '*.go' ! -name '*_test.go' -print | xargs -n1 dirname | sort -u; }
 test -z "$(for d in $(pkgdirs); do ls $d/*.go | grep -v _test.go | xargs -n1 basename | sed -n 's/^\([A-Za-z0-9]*\)_.*/\1/p' | sort | uniq -c | awk -v d=$d '$1>2{print d,$2,$1}'; done)"
@@ -915,8 +917,8 @@ test -z "$(git tag -l 'v1.*' --contains $FIRST)"
 Acceptance (same shell and rules as the DoD):
 
 ```sh
-# every example builds (make examples, DoD); a changed line in _examples or engineio/_examples is an import-path edit for a moved identifier
-test -z "$(git diff -U0 $CUT HEAD -- _examples engineio/_examples | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE 'engineio/(client|frame|session)"|engineio\.(Dialer|Opener)|eioclient\.|session\.(FrameType|TEXT|BINARY)|frame\.(Type|String|Binary)')"
+# every example builds (make examples, DoD); a line changed in _examples or engineio/_examples by a refactor(1b. commit is an import-path edit for a moved identifier (other commits are not examined here)
+test -z "$(git log -p -U0 --format= --grep='^refactor(1b\.' $CUT..HEAD -- _examples engineio/_examples | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE 'engineio/(client|frame|session)"|engineio\.(Dialer|Opener)|eioclient\.|session\.(FrameType|TEXT|BINARY)|frame\.(Type|String|Binary)')"
 go doc ./engineio/client   # shows Dialer and Opener
 # exported API of every package against $CUT: only the `api` block of Stage 1b may differ
 api() { (cd $1 && for p in $(go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./...); do go doc -all $p | awk -v p="${p#$MOD}" '/^(\t\t|    |\t\/\/|[})]|[A-Z]+$)/{next} /^[^\t ]/{c=$0; print p": "$0; next} /^\t/{print p": "c" | "$0}'; done | sort); }

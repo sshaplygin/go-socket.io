@@ -871,11 +871,11 @@ asserts='/^func /{split($2,f,"("); fn=f[1]} {c[fn]+=gsub(/(assert|require)\.[A-Z
 test -z "$(join <(tests $BASE "$asserts") <(tests . "$asserts") | awk '$3<$2')"   # per test; the diff review stays
 # coverage not below the pre-1b numbers: same -coverpkg method on both trees
 cov() { d=$1; shift; (cd $d && go test -count=1 -coverpkg="$(echo $* | tr ' ' ,)" -coverprofile=$T/c.out "$@" >/dev/null && go tool cover -func=$T/c.out | awk '/^total:/{print $3+0}'); }
-ge() { awk -v a=$1 -v b=$2 'BEGIN{exit !(a!="" && a+0>=b+0)}'; }   # an empty figure fails
-ge $(cov . ./engineio ./engineio/client) 75.8
-ge $(cov . .) $(cov $BASE .)
-ge $(cov . ./engineio/session) $(cov $BASE ./engineio/session)
-ge $(cov . ./parser) $(cov $BASE ./parser)
+ge() { awk -v n=$# -v a="$1" -v b="$2" 'BEGIN{exit !(n==2 && a~/^[0-9]+(\.[0-9]+)?$/ && b~/^[0-9]+(\.[0-9]+)?$/ && a+0>=b+0)}'; }   # exactly two numeric figures, else it fails
+ge "$(cov . ./engineio ./engineio/client)" 75.8   # every operand is quoted: a failed or empty cov is an empty argument, which ge rejects
+ge "$(cov . .)" "$(cov $BASE .)"
+ge "$(cov . ./engineio/session)" "$(cov $BASE ./engineio/session)"
+ge "$(cov . ./parser)" "$(cov $BASE ./parser)"
 ```
 
 A floor is the figure `cov` gives on `$CUT` for the package that held the code before 1b

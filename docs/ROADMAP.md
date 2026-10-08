@@ -804,7 +804,8 @@ at their path are described in the steps, not here.
    need only `engineio.NewServer`). `recorder` and `setDefault` move to
    `engineio/internal/logtest` as `Recorder` and `SetDefault` (imports `log/slog` only, so
    in-package `engineio` tests may use it too); `readAll` is defined locally in each of
-   the two test packages. `engineio/_examples` needs no edit.
+   the two test packages. `engineio/_examples` builds (DoD) and takes no change other
+   than the import-path edits that the Acceptance filter below allows.
 2. **Names and frame type.** Files per the map; `fake.go` stays a non-test file because
    `NewFakeConnReader`, `NewFakeConnWriter`, `NewFakeConstReader` and `FakeDiscardWriter`
    are exported. `session.FrameType`, `TEXT` and `BINARY` become `frame.Type`,
@@ -835,7 +836,7 @@ CUT=${CUT:?the SHA recorded in the PR bodies}; MOD=$(go list -m); T=$(mktemp -d)
 git worktree add --detach $BASE $CUT
 FIRST=$(git log --reverse --format='%H %s' $CUT..HEAD | awk '/ refactor\(1b\./{print $1; exit}')
 make lint test-race examples
-go build ./_examples/client ./engineio/_examples
+go build ./_examples/client ./engineio/_examples   # these two belong to the root module; make examples builds the others
 go test -count=1 ./.github/benchmarks ./.github/benchmarks/report
 go test -run '^$' -bench . -benchtime=1x ./... >/dev/null   # the benchmark job's input still compiles and runs
 # layering
@@ -906,7 +907,8 @@ test -z "$(git tag -l 'v1.*' --contains $FIRST)"
 Acceptance (same shell and rules as the DoD):
 
 ```sh
-test -z "$(git diff $CUT HEAD -- _examples)"   # no source change
+# every example builds (make examples, DoD); a changed line in _examples or engineio/_examples is an import-path edit for a moved identifier
+test -z "$(git diff -U0 $CUT HEAD -- _examples engineio/_examples | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE 'engineio/(client|frame|session)"|engineio\.(Dialer|Opener)|eioclient\.|session\.(FrameType|TEXT|BINARY)|frame\.(Type|String|Binary)')"
 go doc ./engineio/client   # shows Dialer and Opener
 # exported API of every package against $CUT: only the `api` block of Stage 1b may differ
 api() { (cd $1 && for p in $(go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./...); do go doc -all $p | awk -v p="${p#$MOD}" '/^(\t\t|    |\t\/\/|[})]|[A-Z]+$)/{next} /^[^\t ]/{c=$0; print p": "$0; next} /^\t/{print p": "c" | "$0}'; done | sort); }
@@ -919,8 +921,8 @@ test -z "$(awk -F'|' '/^\| Path/{t=1;next} t&&/^$/{exit} t{print $2}' CLAUDE.md 
 git worktree remove --force $BASE
 ```
 
-Owner smoke once after step 3: `_examples/default-http` serves its page and one event
-round-trips.
+Owner smoke once after step 3: `_examples/default-http` starts, serves its page, and a
+browser client completes one event round trip.
 
 ## Stage 2. Socket.IO protocol v5 over Engine.IO protocol v4 (tag `v2.0.0`)
 

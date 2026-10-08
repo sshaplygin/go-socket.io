@@ -11,8 +11,8 @@ planned and in which order: [docs/ROADMAP.md](docs/ROADMAP.md).
    (for example `engineio/payload-v4`, `redis/request-timeout`). A fix for the v1 line
    branches from `v1.x` and targets `v1.x` once that branch exists (see Releases).
 3. Every PR: `make lint test` green locally, a test for each fix, `CHANGELOG.md`
-   entry under `Unreleased` (unless the roadmap exempts the PR and names where its
-   change is recorded), docs updated in their owner file only.
+   entry under `Unreleased` (unless the roadmap, or the forward-port rule in Releases,
+   exempts the PR and names where its change is recorded), docs updated in their owner file only.
 4. Commit messages and PR descriptions state the problem, the change, and what was
    verified with which command. No generated footers or trailers.
 5. Squash-merge. The PR title becomes the commit subject. A PR is merged with its

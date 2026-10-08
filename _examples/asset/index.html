@@ -2,9 +2,11 @@
 <!--
   Copied from https://github.com/socketio/socket.io (examples/chat/public/index.html)
   at commit 7a70f63499e2be66b072543db8ebf928b6923633, MIT license: see LICENSE-socket.io-chat.
-  Changes: the socket.io-client script is loaded from a CDN pinned to 2.5.0, because the
-  Go server does not serve /socket.io/socket.io.js, and main.js is loaded by a relative
-  path so that the page also works when it is mounted below a prefix such as /public/.
+  Changes: the socket.io-client script is loaded from jsDelivr (the npm package
+  socket.io-client@2.5.0, with a Subresource Integrity hash) because the Go server does not
+  serve /socket.io/socket.io.js and https://cdn.socket.io/socket.io-2.5.0.js answers 404;
+  main.js is loaded by a relative path so that the page also works when it is mounted
+  below a prefix such as /public/.
 -->
 <html lang="en">
 <head>

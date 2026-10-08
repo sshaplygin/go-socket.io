@@ -21,8 +21,8 @@ only in what it demonstrates: mounting, CORS, pprof, shutdown, Redis or Docker.
 - **Page.** `asset/` holds the upstream `index.html`, `main.js` and `style.css`
   (license: `asset/LICENSE-socket.io-chat`), which the browser examples mount as
   `../asset`; the Docker images copy it from the repository root. The page loads
-  `socket.io-client` 2.5.0 from a CDN, because this server speaks Engine.IO v3, so it
-  needs network access. Open <http://localhost:8000> in two tabs after starting a server.
+  `socket.io-client` 2.5.0 from jsDelivr with an integrity hash (this server speaks
+  Engine.IO v3; cdn.socket.io has no 2.5.0 file), so it needs network access. Open <http://localhost:8000> in two tabs after starting a server.
 - **Test.** `default-http/chat_test.go` checks the chat logic with the Go client;
   `make examples` runs it with `-race`.
 

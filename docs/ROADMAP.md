@@ -1599,6 +1599,13 @@ Go version. Redis examples and cluster acceptance are explicitly deferred to 4b.
   `Typing`, `History` (ring buffer of 50 per room), `Presence` on join/leave; direct
   messages via the socket-id room; binary image attachment; graceful shutdown;
   `/metrics` through `contrib/otel` and `otel/exporters/prometheus`.
+- **Upstream parity**: the upstream chat connects with `io()`, so the parity check runs
+  against the default namespace `/` and coexists with the richer `/chat` namespace on
+  the same server; the two share no state (the default namespace has its own user
+  counter, no rooms, no history, no `Auth`). Pinned source: `socketio/socket.io`
+  commit `1eaa582d3b453e3e6f522300ed05b10da0a0799b`, directory
+  `examples/chat/public` (`index.html`, `main.js`, `style.css`), vendored in
+  `_examples/chat/upstream/`.
 - **Clients**: `index.html` with no build step on a pinned `socket.io-client@4` from
   CDN; Go CLI on `client/` and generic event descriptors; `cmd/load` (N Go clients,
   p50/p99 ack latency), with the documented error-first typed ack convention.
@@ -1613,9 +1620,22 @@ one client reaches another in the same room; `cmd/load` with 500 clients at 10 m
 reports p99 ack latency and no write-buffer overflow; integration test green in CI;
 `_examples/chat/README.md` documents only how to run it.
 
+DoD (upstream chat parity; the `v1.5.0` tag trigger): the vendored upstream client is
+byte-identical to the pinned commit except the one `socket.io-client` script tag, which
+points to a pinned `socket.io-client` 4.x build, and it works against the Stage 3
+server on the default namespace with the upstream names and payloads: client to server
+`add user`, `new message`, `typing`, `stop typing`; server to client `login`
+`{numUsers}`, `user joined` and `user left` `{username,numUsers}`, `new message`
+`{username,message}`, `typing` and `stop typing` `{username}`; the sender is excluded
+from every broadcast. A CI test in the `examples` job (two Go clients, or a Node
+`socket.io-client` 4.x script) asserts this and diffs the vendored files against the
+pinned commit.
+
 Acceptance: owner runs the single-server compose stack, opens two browser tabs,
 exchanges messages, sees typing and presence, uploads an image and verifies graceful
-shutdown. Define the load rate as per-client (5000 messages/s total), fix message
+shutdown; the owner also opens the vendored upstream client on the default namespace
+in two tabs and sees login count, join/leave, messages and typing as the upstream demo
+shows them, and confirms the parity CI test is green (the parity DoD line). Define the load rate as per-client (5000 messages/s total), fix message
 size, room/fan-out distribution and run duration, and record host/Go settings with
 latency, errors, queue peaks and memory; do not use an unspecified workload as a gate.
 
@@ -1882,7 +1902,7 @@ new revision IDs; release them separately. M7 closes the roadmap.
 | M1b | Stage 1b closed: step 0 done (branch `v1.x` cut) and steps 1–3 merged, with the Stage 1b DoD, `v1.x` gates and Acceptance blocks passing on `master` | none (first commits after the cut commit `$CUT`) |
 | M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance | branch `v2-dev` |
 | M3 | 2.2 + 2.3 + 2.4 + 2.5 | `v2.0.0`, `contrib/otel/v2.0.0` |
-| M4 | Stage 3: single-server chat (parity of the upstream chat example on v2 for a single server) | root `v2.1.0`; additionally, on the owner's command, `v1.5.0` on branch `v1.x` (release commit per `CONTRIBUTING.md`, tag-time gates in Stage 1 Acceptance) |
+| M4 | Stage 3: single-server chat | root `v2.1.0`; `v1.5.0` is tagged on branch `v1.x` when the Stage 3 upstream-chat parity DoD line passes (release commit per `CONTRIBUTING.md`, tag-time gates in Stage 1 Acceptance) |
 | M5 | Stage 4b: adapters and cluster chat acceptance | root `v2.2.0` first, then `adapters/redis/v2.0.0`, `adapters/nats/v2.0.0` |
 | M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `contrib/admin/v2.0.0`; adapter minor releases |
 | M7 | Stage 6: final comparative benchmark report and reproducible artifacts | report/artifact revision; no runtime release required |

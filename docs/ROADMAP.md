@@ -623,8 +623,8 @@ Tasks:
   - The godoc states the behaviour; from the tag it, not 1.R, records the two 1.R
     *Known limitations*. The subsection names each limitation in one sentence,
     without line numbers, and links the pkg.go.dev godoc of `Server.Adapter`,
-    `Server.RoomLen` and `Server.Rooms` in the `@v1.x` form, which the tag-time
-    release commit (`CONTRIBUTING.md`) switches to `@v1.5.0`. It adds no entry under `### Fixed` or
+    `Server.RoomLen` and `Server.Rooms` in the form 1.D owns (a link merged as `@master` is converted
+    to `@v1.x` by the 1.D link-form commit), which the tag-time release commit (`CONTRIBUTING.md`) switches to `@v1.5.0`. It adds no entry under `### Fixed` or
     `### Changed`.
   - The `Server.Adapter` godoc says that a namespace receives peers' broadcasts and
     requests and is counted by them only once Redis has registered its
@@ -736,7 +736,7 @@ redigo and `Server.Adapter` stay in the root package unchanged until 2.0 removes
 with the legacy runtime; nothing Redis-related is built before M4 (stage 4b). Tests
 follow their files (same rename).
 Step 0a is a branch push; steps 0b to 0d and steps 1–3 are separate PRs, merged in this order with
-`make lint test-race examples` green on `master` after each: step 2 edits the files step
+`make lint test-race examples` green on the target branch after each: step 2 edits the files step
 1 creates, and step 3 renames or merges root files whose tests step 2 edits
 (`connection_handlers_test.go`). Commit subjects and PR titles
 are `refactor(1b.<step>): ...`. Within a PR, pure `git mv` commits (no content edit)

@@ -52,7 +52,7 @@ workers submit changes to these files through that integrator.
 | 1B | 1I | 1.L Go files (logging, session close reasons, `logger` godoc; no Markdown except `CHANGELOG.md`); 1.D `README.md`, `engineio/README.md`, `logger/README.md`, `CLAUDE.md`, `CONTRIBUTING.md`; each writes its own `CHANGELOG.md` entries | M1 checks and v1 compatibility |
 | 1C | 1B | 1.K known-limitation notes: the godoc of `Server.Adapter`, `RoomLen` and `Rooms` in `server.go` and the `### Known limitations` subsection of `CHANGELOG.md`; contract in the 1.K item | 1.K check, then M1 checks |
 | 1b | M1 (tag `v1.5.0` on the release commit `$V1`, which 1b records); branch `v1` cut (1b step 0) | one refactor owner; moves/merges applied sequentially | M1b regression checks |
-| 2A | M1b | 2.0 owner removes legacy root runtime/adapter consumers atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
+| 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
 | 2C | 2B | 2.3S server/namespace runtime (root socket files); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
@@ -916,8 +916,10 @@ the root files `server.go`, `namespace.go`, `socket.go`, `packet_handlers.go`,
 ### 2.0 Generic API and lifecycle contract
 
 The 2.0 owner atomically removes the legacy root server/client/namespace/handler
-runtime, its v1-specific tests, temporary `adapter`/`adapter/redis`/`internal/redisdial`, compatibility
-aliases, `Server.Adapter` and redigo dependency while introducing the v2 skeleton.
+runtime, its v1-specific tests, the v1 memory and Redis broadcast (`broadcast.go`,
+`redis_broadcast.go`, `adapter_options.go`, `helpers.go` and their tests, which stage 1b
+leaves in the root), `Server.Adapter` and the redigo dependency while introducing the v2
+skeleton. No `adapter/` directory exists until 2.2 creates `adapter/codec/`.
 Preserve v1 on its branch; carry applicable regression scenarios into v2 fixtures.
 Engine.IO/parser packages remain buildable until their replacements in 2B. Legacy
 application examples are excluded from v2 build jobs until migrated in 2.5D; Redis
@@ -1057,7 +1059,7 @@ type AdapterFactory func(nsp *Namespace) (Adapter, error)
 ```
 
 `Adapter`, related types and the in-memory implementation live in root `socketio`;
-`adapter/codec` depends on parser/wire types, never on root `socketio`. External
+`adapter/codec` (created here) depends on parser/wire types, never on root `socketio`. External
 adapters import the root; the root never imports them. This avoids a cycle through
 `AdapterFactory(*Namespace)`. The memory adapter is the v2 default; legacy removal belongs to 2.0. The v2.0
 release and its example build job require only the memory adapter.

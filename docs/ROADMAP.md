@@ -799,7 +799,7 @@ Target tree (root module; rows added after 1b are marked):
 | `engineio/` | `engineio` | server side: `Server`, `Conn`, options; `hooks.go` in 2.4 |
 | `engineio/client/` | `client` | Engine.IO client: `Dialer`, `Opener`; imports `engineio` for `engineio.Conn` only |
 | `engineio/internal/logtest/` | `logtest` | log recorder shared by the `engineio` and `engineio/client` tests: `Recorder`, `NewRecorder`, `Recorder.Find`, `SetDefault` and the `slog.Handler` methods |
-| `engineio/session`, `frame`, `packet`, `payload`, `transport/...`, `internal`, `parser/`, `logger/` | unchanged packages | `engineio/internal` holds the 1.L shutdown hook |
+| `engineio/session`, `frame`, `packet`, `payload`, `transport/...`, `internal`, `parser/`, `logger/` | same packages; only the file changes in the map (`session`, `packet`) and the signatures in the `api` block (`session`, `parser`) differ | `engineio/internal` holds the 1.L shutdown hook |
 | `adapter/codec/` (2.2), `adaptertest/` (4b), `client/` (2.3, root client removed in 2.0), `contrib/otel/` (2.4) | later | not present at 1b; no `adapter/` directory exists before 2.2 |
 
 Source-to-target map. Its owner is this block; the PR body of each step repeats the

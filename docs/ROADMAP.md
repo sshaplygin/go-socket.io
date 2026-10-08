@@ -901,7 +901,8 @@ go test -count=1 ./.github/benchmarks ./.github/benchmarks/report
 go test -run '^$' -bench . -benchtime=1x ./... >/dev/null   # the benchmark job's input still compiles and runs
 # layering
 go list ./engineio/client >/dev/null   # the package exists: go list errors are not read as empty output
-test -z "$(go list -f '{{join .Deps "\n"}}{{"\n"}}{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}' ./engineio | grep "^$MOD/engineio/client$")"
+DEPS=$(go list -f '{{join .Deps "\n"}}{{"\n"}}{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}' ./engineio)   # a go list error (an import cycle included) stops the shell here
+test -z "$(echo "$DEPS" | grep "^$MOD/engineio/client$")"
 test "$(cat $(ls engineio/client/*.go | grep -v _test.go) | grep -o 'engineio\.[A-Za-z]*' | sort -u)" = engineio.Conn
 # removed API stays removed
 test ! -e engineio/session/base.go

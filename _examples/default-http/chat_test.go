@@ -76,6 +76,12 @@ func connectChat(t *testing.T, url string) *chatClient {
 // has the given key and value pairs.
 func (c *chatClient) expect(t *testing.T, name string, kv ...interface{}) {
 	t.Helper()
+	c.next(t, name, kv...)
+}
+
+// next is expect that also returns the payload.
+func (c *chatClient) next(t *testing.T, name string, kv ...interface{}) map[string]interface{} {
+	t.Helper()
 
 	select {
 	case ev := <-c.events:
@@ -87,9 +93,11 @@ func (c *chatClient) expect(t *testing.T, name string, kv ...interface{}) {
 				t.Fatalf("%q payload %v: %v is not %v", name, ev.data, kv[i], kv[i+1])
 			}
 		}
+		return ev.data
 	case <-time.After(5 * time.Second):
 		t.Fatalf("no %q event within 5s", name)
 	}
+	return nil
 }
 
 // login returns the payload of the next "login" event, skipping the other users' joins.
@@ -157,6 +165,50 @@ func TestChat(t *testing.T) {
 
 	_ = b.Close()
 	a.expect(t, "user left", "username", "bob", "numUsers", 1.0)
+}
+
+// TestChatEmptyUsername checks the two username states upstream tells apart: JSON.stringify drops
+// the username of a socket that never sent "add user" (undefined), but keeps an empty one.
+func TestChatEmptyUsername(t *testing.T) {
+	server, ts := newChatServer(t)
+
+	a := connectChat(t, ts.URL)
+	b := connectChat(t, ts.URL)
+	waitFor(t, "two connections in the room", func() bool { return server.RoomLen("/", chatRoom) == 2 })
+
+	// A has no name: its payloads carry no username key at all.
+	a.Emit("typing")
+	if data := b.next(t, "typing"); len(data) != 0 {
+		t.Fatalf("typing payload of an unnamed user = %v, want {}", data)
+	}
+	a.Emit("stop typing")
+	if data := b.next(t, "stop typing"); len(data) != 0 {
+		t.Fatalf("stop typing payload of an unnamed user = %v, want {}", data)
+	}
+
+	// An empty name counts as a user and is reported as "", not dropped.
+	b.Emit("add user", "")
+	if got := b.next(t, "login")["numUsers"]; got != 1.0 {
+		t.Fatalf("login numUsers for an empty name = %v, want 1", got)
+	}
+	if data := a.next(t, "user joined", "numUsers", 1.0); data["username"] != "" {
+		t.Fatalf("user joined payload = %v, want username \"\"", data)
+	}
+
+	b.Emit("typing")
+	if data := a.next(t, "typing"); data["username"] != "" {
+		t.Fatalf("typing payload of an empty name = %v, want username \"\"", data)
+	}
+	b.Emit("new message", "hi")
+	if data := a.next(t, "new message", "message", "hi"); data["username"] != "" {
+		t.Fatalf("new message payload of an empty name = %v, want username \"\"", data)
+	}
+
+	// The empty name was counted, so its disconnect is announced and decrements.
+	_ = b.Close()
+	if data := a.next(t, "user left", "numUsers", 0.0); data["username"] != "" {
+		t.Fatalf("user left payload = %v, want username \"\"", data)
+	}
 }
 
 // TestChatNumUsersConcurrent adds users from many connections at once: every login must

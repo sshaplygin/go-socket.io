@@ -16,26 +16,27 @@ const chatRoom = "chat"
 
 // chatUser is the connection context. Its fields are guarded by the mutex of registerChat.
 type chatUser struct {
-	name  string
-	added bool // the connection sent "add user"
+	name  *string // nil until "add user"; like upstream, "" is a defined name
+	added bool    // the connection sent "add user"
 }
 
-// userPayload is the payload of "typing" and "stop typing". Like upstream, a connection that
-// has not added a user name sends no username.
+// userPayload is the payload of "typing" and "stop typing". Like upstream, where JSON.stringify
+// drops only an undefined username, a connection that has not added a user name sends no
+// username, while an empty name is sent as "".
 type userPayload struct {
-	Username string `json:"username,omitempty"`
+	Username *string `json:"username,omitempty"`
 }
 
 // countPayload is the payload of "login", "user joined" and "user left".
 type countPayload struct {
-	Username string `json:"username,omitempty"`
-	NumUsers int    `json:"numUsers"`
+	Username *string `json:"username,omitempty"`
+	NumUsers int     `json:"numUsers"`
 }
 
 // messagePayload is the payload of "new message".
 type messagePayload struct {
-	Username string `json:"username,omitempty"`
-	Message  string `json:"message"`
+	Username *string `json:"username,omitempty"`
+	Message  string  `json:"message"`
 }
 
 // registerChat registers the chat handlers on namespace "/".
@@ -83,11 +84,11 @@ func registerChat(server *socketio.Server) {
 		if u.added {
 			return
 		}
-		u.name, u.added = name, true
+		u.name, u.added = &name, true
 		numUsers++
 
 		s.Emit("login", countPayload{NumUsers: numUsers})
-		others(s, "user joined", countPayload{Username: name, NumUsers: numUsers})
+		others(s, "user joined", countPayload{Username: &name, NumUsers: numUsers})
 	})
 
 	server.OnEvent("/", "new message", func(s socketio.Conn, message string) {

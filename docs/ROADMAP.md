@@ -831,8 +831,11 @@ at their path are described in the steps, not here.
 
 DoD, run with `bash` and `set -e` on the committed head of step 3 (M1b closure). The
 build, test and `go doc` lines print their usual output; every other line, the `test`
-and `ge` lines included, exits 0 and prints nothing. No line uses `!`, which `set -e`
-ignores. Scratch files live in `$T`, outside the tree:
+and `ge` lines included, exits 0 and prints nothing. Every gate line in the DoD, `v1.x`,
+Acceptance and tag-time blocks is one command or one `test`: none starts with `!` and
+none is an `&&` or `||` list, because `set -e` ignores both (a failing non-final member
+of a list does not stop the shell); a chain inside `$(...)` is judged by the output it
+prints. Scratch files live in `$T`, outside the tree:
 
 ```sh
 CUT=${CUT:?the SHA recorded in the PR bodies}; MOD=$(go list -m); T=$(mktemp -d); BASE=$T/base
@@ -884,8 +887,9 @@ measured over the new packages together with the same `-coverpkg` method. `engin
 varies between runs (75.8% in two of three, 76.7% in one), so its floor is the literal
 lower value.
 
-The `v1.x` gates (variables as in the DoD). Each runs at the stated moment, not later,
-because `v1.x` receives patches afterwards:
+The `v1.x` gates (variables as in the DoD; run with `bash` and `set -e`, rules as in the
+DoD). Each group runs at the stated moment, not later, because `v1.x` receives patches
+afterwards:
 
 ```sh
 # every 1b PR: the body records $CUT; $CUT carries the branch link form and had CI green
@@ -897,7 +901,8 @@ test "$(gh run list --branch master --workflow CI --commit $CUT --json conclusio
 test "$(git rev-parse origin/v1.x)" = "$CUT"
 test -z "$(git tag -l 'v1.5.*')"
 # after step 0b merged, before the first v1.x patch: v1.x differs from $CUT in .github/ only
-git merge-base --is-ancestor $CUT origin/master && git merge-base --is-ancestor $CUT origin/v1.x
+git merge-base --is-ancestor $CUT origin/master
+git merge-base --is-ancestor $CUT origin/v1.x
 test -z "$(git diff --name-only $CUT origin/v1.x | grep -v '^\.github/')"
 # at M1b closure: triggers, Dependabot and the CI run of the current v1.x head
 test "$(git show origin/v1.x:.github/workflows/ci.yaml | grep -c 'branches: \[v1\.x\]')" -eq 2

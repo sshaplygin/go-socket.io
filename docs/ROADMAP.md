@@ -988,8 +988,9 @@ test -n "$ALLOWED"   # an empty pattern list would make the next line drop every
 test -z "$(diff <(api $BASE) <(api .) | grep '^[<>]' | grep -vE "$ALLOWED")"
 test -z "$(diff <(api $BASE | grep '^: ') <(api . | grep '^: '))"   # the root exported surface is unchanged: root lines have an empty package prefix
 # CLAUDE.md layout: every package directory has a row, every row path exists
-test -z "$(for d in $(pkgdirs | grep -v '^\.$'); do grep -q "\`${d#./}/\`" CLAUDE.md || echo "no row: $d"; done)"
-test -z "$(awk -F'|' '/^\| Path/{t=1;next} t&&/^$/{exit} t{print $2}' CLAUDE.md | grep -o '`[^`]*`' | tr -d '`' | grep '/$' | while read p; do [ -e "$p" ] || echo "no path: $p"; done)"
+rows() { awk -F'|' '/^\| Path/{t=1;next} t&&/^$/{exit} t{print $2}' CLAUDE.md | grep -o '`[^`]*`' | tr -d '`'; }   # the code spans of the Path column only: prose does not count as a row
+test -z "$(for d in $(pkgdirs | grep -v '^\.$'); do rows | grep -qx "${d#./}/" || echo "no row: $d"; done)"
+test -z "$(rows | grep '/$' | while read p; do [ -e "$p" ] || echo "no path: $p"; done)"
 git worktree remove --force $BASE
 ```
 

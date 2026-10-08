@@ -21,9 +21,9 @@ planned and in which order: [docs/ROADMAP.md](docs/ROADMAP.md).
 ## Releases
 
 - Tags follow SemVer. The v1 line lives on the branch `v1.x`, cut from `master`
-  without a tag (see the roadmap, Stage 1b). The branch is not named `v1`: `go list -m
-  <module>@v1` is a semver prefix query that resolves the tag `v1.4.2` and ignores
-  branches, while `@v1.x` resolves the branch tip. `v1.x` tags, `v1.5.0` first, are cut
+  without a tag (see the roadmap, Stage 1b). The branch is not named `v1`:
+  `go list -m <module>@v1` is a semver prefix query that resolves the tag `v1.4.2` and
+  ignores branches, while `@v1.x` resolves the branch tip. `v1.x` tags, `v1.5.0` first, are cut
   from `v1.x` only, on the owner's command; `master` is not tagged `v1.x`. Fixes for the
   v1 line land on `v1.x` only. A `v1.x` fix that also applies to `master` is
   forward-ported by its author in a separate PR to `master`, written against `master`'s

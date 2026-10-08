@@ -12,7 +12,7 @@ Current implementation: [PROTOCOL.md](PROTOCOL.md). Completed changes:
 The starting fork of `googollee/go-socket.io` supports Socket.IO protocol v4 over
 Engine.IO v3. Stage 0, toolchain/CI work and logger tasks 1.2/1.2a have landed;
 remaining work starts at stage 1 below. Existing application APIs stay on branch
-`v1`; v2 is a new core/API in this repository.
+`v1.x` (cut in Stage 1b); v2 is a new core/API in this repository.
 
 Preparation exists on `codex/eio4-payload`, inspected at
 `ee682282997b19309036e9c6fef6e248e06bc230`; it is not merged into this baseline.
@@ -23,7 +23,7 @@ Stage 2.1 owns its reuse and remaining integration work below.
 | Area | Decision | Contract owner |
 | --- | --- | --- |
 | Core | Own Engine.IO/Socket.IO core; no dependency on or rebase onto `zishang520/socket.io` | 2.0–2.3 |
-| Protocol | v2 supports Engine.IO v4 / Socket.IO protocol v5; old clients stay on `v1` | 2.1, 2.3 |
+| Protocol | v2 supports Engine.IO v4 / Socket.IO protocol v5; old clients stay on branch `v1.x` | 2.1, 2.3 |
 | API | Generic `Event[T]` / `AckEvent[T, R]` from the first v2 implementation; explicit raw escape hatch; no reflection-based dispatch | 2.0, 2.3 |
 | Modules | v1 root is `github.com/sshaplygin/go-socket.io`, independent of the upstream module; v2 root adds `/v2`; adapters and contrib have separate modules | 2.5, 4b, 5 |
 | Go | Go 1.22 minimum for runtime modules; compatible dependencies pinned and minimum tested; build tools may use stable Go | Stage 1 DoD, 2.5 |
@@ -39,6 +39,8 @@ Stage 2.1 owns its reuse and remaining integration work below.
 
 Execution order: **1 → 1b → 2 → 3 → 4b → 5 → 6**. Admin UI remains the last
 product stage and starts after M5; the final benchmark campaign starts after M6.
+Branch `v1.x` is cut between stages 1 and 1b (1b step 0); the `v1.5.0` tag waits for
+the owner's command at M4 and does not gate any stage.
 Numbers identify scope, not permission to start before a dependency passes.
 A prerequisite marked as a gate means its tests and integration must pass, not only
 that a draft API exists. Tasks in the same row may run concurrently in separate
@@ -51,7 +53,7 @@ workers submit changes to these files through that integrator.
 | 1I | 1A | integrator wires Redis construction errors through `namespace_handler.go` and `server.go`; wires `WriteBufferSize` and the drain deadline (`PingTimeout`) through `engineio/server_options.go`, `server.go` and `client.go`; runs the 1.B slow-client test against the Redis broadcast; also edits `connection.go` (connect-failure path, option wiring in `newConn`, `Conn.Close` godoc), the connect-failure path in `connection_handlers.go`, `namespace_handlers.go`, the session hand-off in `engineio/server.go`, `namespace_conn.go` (godoc only) and `CHANGELOG.md`; contract in the 1I item | integrated bug tests (the 1I item's tests) and root build pass |
 | 1B | 1I | 1.L Go files (logging, session close reasons, `logger` godoc; no Markdown except `CHANGELOG.md`); 1.D `README.md`, `engineio/README.md`, `logger/README.md`, `CLAUDE.md`, `CONTRIBUTING.md`; each writes its own `CHANGELOG.md` entries | M1 checks and v1 compatibility |
 | 1C | 1B | 1.K known-limitation notes: the godoc of `Server.Adapter`, `RoomLen` and `Rooms` in `server.go` and the `### Known limitations` subsection of `CHANGELOG.md`; contract in the 1.K item | 1.K check, then M1 checks |
-| 1b | M1 (stage 1 and the 1.D link-form commit merged, `master` green: the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner; moves/merges applied sequentially | M1b regression checks |
+| 1b | stage 1 and the 1.D link-form commit merged, `master` green (the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner; moves/merges applied sequentially | M1b regression checks |
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
 | 2C | 2B | 2.3S server/namespace runtime (root socket files); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests pass; dispatch baseline recorded |
@@ -82,7 +84,7 @@ replace unresolved findings with optimistic estimates.
 Landed. Maintain the documentation ownership map in CLAUDE.md; protocol facts,
 release history and implementation commands stay in their respective files.
 
-## Stage 1. Infrastructure and known bugs (tag `v1.5.0`)
+## Stage 1. Infrastructure and known bugs (released as `v1.5.0` at M4)
 
 No protocol changes. Allowed API changes are `engineio.Options.Logger`,
 `engineio.Options.WriteBufferSize` (temporary v1 placement), `socketio.ErrWriteBufferFull`,
@@ -934,7 +936,7 @@ runtime, its v1-specific tests, the v1 memory and Redis broadcast (`broadcast.go
 `redis_broadcast.go`, `adapter_options.go`, `helpers.go` and their tests, which stage 1b
 leaves in the root), `Server.Adapter` and the redigo dependency while introducing the v2
 skeleton. No `adapter/` directory exists until 2.2 creates `adapter/codec/`.
-Preserve v1 on its branch; carry applicable regression scenarios into v2 fixtures.
+Preserve v1 on branch `v1.x`; carry applicable regression scenarios into v2 fixtures.
 Engine.IO/parser packages remain buildable until their replacements in 2B. Legacy
 application examples are excluded from v2 build jobs until migrated in 2.5D; Redis
 examples return in 4b. This transition must build/test the entire root module before G2.
@@ -1480,7 +1482,7 @@ transport and codec errors, without calling `slog.SetDefault`.
 `docs/MIGRATION.md` (including how v1 `Conn.Close` draining maps to v2 socket and
 session close, and the breaking changes recorded in Stage 1b), `docs/PROTOCOL.md` update, `docs/OBSERVABILITY.md`,
 `contrib/otel/README.md`, module path `.../v2`, tag `v2.0.0` and
-`contrib/otel/v2.0.0` from the same commit; branch `v1` already exists (Stage 1b). After the
+`contrib/otel/v2.0.0` from the same commit; branch `v1.x` already exists and is not created here (Stage 1b). After the
 v2 module path changes: README GoDoc badge and API reference link, `go.mod` and imports of
 every `_examples/*`, links in `engineio/README.md`, and the import paths of
 `contrib/otel` and `adapters/*`. Task 2.5D migrates all non-Redis examples to
@@ -1804,11 +1806,11 @@ new revision IDs; release them separately. M7 closes the roadmap.
 | Milestone | Content | Tag |
 | --- | --- | --- |
 | M0 | Stage 0 docs baseline | none |
-| M1 | Stage 1 | `v1.5.0` |
-| M1b | Stage 1b package layout | none (first commits after branch `v1`) |
+| M1 | Stage 1 complete, the 1.D link-form commit merged and branch `v1.x` cut (1b step 0) | none |
+| M1b | Stage 1b package layout | none (first commits after the cut commit `$CUT`) |
 | M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance | branch `v2-dev` |
 | M3 | 2.2 + 2.3 + 2.4 + 2.5 | `v2.0.0`, `contrib/otel/v2.0.0` |
-| M4 | Stage 3: single-server chat | `v2.1.0` |
+| M4 | Stage 3: single-server chat (parity of the upstream chat example on v2 for a single server) | root `v2.1.0`; additionally, on the owner's command, `v1.5.0` on branch `v1.x` (release commit per `CONTRIBUTING.md`, tag-time check in Stage 1 Acceptance) |
 | M5 | Stage 4b: adapters and cluster chat acceptance | root `v2.2.0` first, then `adapters/redis/v2.0.0`, `adapters/nats/v2.0.0` |
 | M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `contrib/admin/v2.0.0`; adapter minor releases |
 | M7 | Stage 6: final comparative benchmark report and reproducible artifacts | report/artifact revision; no runtime release required |

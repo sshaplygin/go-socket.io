@@ -846,7 +846,7 @@ at their path are described in the steps, not here.
    test cannot import `engineio/client` (import cycle), so only external `engineio_test`
    files may. Tests: `server_test.go`, `server_close_test.go` and the server-side
    `TestSessionCloseRecord` with `logFixture` (from `session_log_test.go`) become package
-   `engineio_test`, and `f.cl.(Opener)` becomes `f.cl.(client.Opener)`;
+   `engineio_test`, and every `Opener` assertion in them (`f.cl.(Opener)`, `p.(Opener)`) becomes `client.Opener`;
    `engineio/export_test.go` exposes `ConnChanLen(*Server) int` for the two checks of
    `Server.connChan`. `TestDialFailureRecords`, `TestClientPeerCloseRecords`,
    `TestClientPingFailureRecord`, `TestClientReaderCloseRecord`, `brokenConn` and

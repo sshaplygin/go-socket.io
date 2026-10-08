@@ -742,6 +742,7 @@ package against `$CUT` and allows only lines that match a pattern. Consumers of
 
 ```api
 ^> /engineio/client: # new package of step 1
+^> /engineio/internal/logtest: (package logtest|type Recorder struct|func NewRecorder\(|func SetDefault\(|func \([a-z]+ \*?Recorder\) (Find|Enabled|Handle|WithAttrs|WithGroup)\() # new test-support package of step 1: exactly `Recorder`, `NewRecorder`, `SetDefault` and the methods `Find`, `Enabled`, `Handle`, `WithAttrs`, `WithGroup` (the `slog.Handler` methods); any other exported symbol there is a diff
 Dialer|Opener # engineio.Dialer and engineio.Opener move to engineio/client; an alias in engineio would import it and restore the cycle
 FrameType|frame\.Type|session: const # session.FrameType, TEXT and BINARY give way to frame.Type, frame.String and frame.Binary; NextReader and NextWriter of engineio.Conn, session.Session, parser.FrameReader and parser.FrameWriter take frame.Type, which breaks every external implementer and every caller of parser.NewDecoder and parser.NewEncoder with its own reader or writer
 ```
@@ -753,7 +754,7 @@ Target tree (root module; rows added after 1b are marked):
 | `.` | `socketio` | public API; the legacy root runtime, including the memory and Redis broadcast, `Server.Adapter` and redigo, is removed in 2.0 |
 | `engineio/` | `engineio` | server side: `Server`, `Conn`, options; `hooks.go` in 2.4 |
 | `engineio/client/` | `client` | Engine.IO client: `Dialer`, `Opener`; imports `engineio` for `engineio.Conn` only |
-| `engineio/internal/logtest/` | `logtest` | log recorder shared by the `engineio` and `engineio/client` tests |
+| `engineio/internal/logtest/` | `logtest` | log recorder shared by the `engineio` and `engineio/client` tests: `Recorder`, `NewRecorder`, `Recorder.Find`, `SetDefault` and the `slog.Handler` methods |
 | `engineio/session`, `frame`, `packet`, `payload`, `transport/...`, `internal`, `parser/`, `logger/` | unchanged packages | `engineio/internal` holds the 1.L shutdown hook |
 | `adapter/codec/` (2.2), `adaptertest/` (4b), `client/` (2.3, root client removed in 2.0), `contrib/otel/` (2.4) | later | not present at 1b; no `adapter/` directory exists before 2.2 |
 
@@ -801,10 +802,12 @@ at their path are described in the steps, not here.
    `Server.connChan`. `TestDialFailureRecords`, `TestClientPeerCloseRecords`,
    `TestClientPingFailureRecord`, `TestClientReaderCloseRecord`, `brokenConn` and
    `brokenReader` move to `engineio/client/client_log_test.go` (package `client`; they
-   need only `engineio.NewServer`). `recorder` and `setDefault` move to
-   `engineio/internal/logtest` as `Recorder` and `SetDefault` (imports `log/slog` only, so
-   in-package `engineio` tests may use it too); `readAll` is defined locally in each of
-   the two test packages. `engineio/_examples` builds (DoD) and takes no change other
+   need `engineio.NewServer` and `engineio.Options`). `recorder`, `newRecorder`,
+   `recorder.find` and `setDefault` move to `engineio/internal/logtest` as `Recorder`,
+   `NewRecorder`, `Recorder.Find` and `SetDefault`; the `slog.Handler` methods of the
+   recorder (`Enabled`, `Handle`, `WithAttrs`, `WithGroup`) become exported with it, which
+   the `api` block lists. The package imports `log/slog` only, so in-package `engineio`
+   tests may use it too; `readAll` is defined locally in each of the two test packages. `engineio/_examples` builds (DoD) and takes no change other
    than the import-path edits that the Acceptance filter below allows.
 2. **Names and frame type.** Files per the map; `fake.go` stays a non-test file because
    `NewFakeConnReader`, `NewFakeConnWriter`, `NewFakeConstReader` and `FakeDiscardWriter`

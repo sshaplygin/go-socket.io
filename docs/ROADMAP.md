@@ -942,7 +942,7 @@ afterwards:
 
 ```sh
 # every 1b PR: the body records $CUT; $CUT carries the branch link form and had CI green
-gh pr view --json body --jq .body | grep -qx "CUT=$CUT"
+gh pr view --json body --jq .body | tr -d '\r' | grep -qx "CUT=$CUT"
 test -z "$(for f in README.md engineio/README.md CHANGELOG.md; do git show $CUT:$f; done | grep '@master')"
 git show $CUT:README.md | grep -q '@v1\.x'
 git show $CUT:README.md | grep -q 'until a release'   # the sentence the tag-time absence check relies on (1.D)

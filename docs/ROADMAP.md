@@ -891,7 +891,7 @@ CUT=${CUT:?the SHA recorded in the PR bodies}; MOD=$(go list -m); T=$(mktemp -d)
 git worktree add --detach $BASE $CUT
 FIRST=$(git log --reverse --format='%H %s' $CUT..HEAD | awk '/ refactor\(1b\./{print $1; exit}')
 make lint test-race examples
-go build ./_examples/client ./engineio/_examples   # these two belong to the root module; make examples builds the others
+go build ./engineio/_examples   # belongs to the root module; make examples does not build it (it builds ./_examples/client and the example modules)
 go test -count=1 ./.github/benchmarks ./.github/benchmarks/report
 go test -run '^$' -bench . -benchtime=1x ./... >/dev/null   # the benchmark job's input still compiles and runs
 # layering

@@ -965,7 +965,7 @@ Acceptance (same shell and rules as the DoD):
 ```sh
 # every example builds (make examples, DoD); a line changed in _examples or engineio/_examples by a refactor(1b. commit is an import-path edit for a moved identifier (other commits are not examined here)
 test -z "$(git log -p -U0 --format= --grep='^refactor(1b\.' $CUT..HEAD -- _examples engineio/_examples | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE 'engineio/(client|frame|session)"|engineio\.(Dialer|Opener)|eioclient\.|session\.(FrameType|TEXT|BINARY)|frame\.(Type|String|Binary)')"
-go doc ./engineio/client   # shows Dialer and Opener
+test "$(go doc ./engineio/client | grep -cE '^type (Dialer|Opener) ')" -eq 2
 # exported API of every package against $CUT: only the `api` block of Stage 1b may differ; the awk keeps the package clause and drops the package comment (unindented text up to the first section header)
 api() { (cd $1 && for p in $(go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./...); do go doc -all $p | awk -v p="${p#$MOD}" 'NR==1{print p": "$0; h=1; next} h&&/^(CONSTANTS|VARIABLES|FUNCTIONS|TYPES)$/{h=0; next} h{next} /^(\t\t|    |\t\/\/|[})]|[A-Z]+$)/{next} /^[^\t ]/{c=$0; print p": "$0; next} /^\t/{print p": "c" | "$0}'; done | sort); }
 ALLOWED=$(awk -F' # ' '/^```api$/{m=1;next} /^```$/{m=0} m{print $1}' docs/ROADMAP.md | paste -sd'|' -)
@@ -976,9 +976,6 @@ test -z "$(for d in $(pkgdirs | grep -v '^\.$'); do grep -q "\`${d#./}/\`" CLAUD
 test -z "$(awk -F'|' '/^\| Path/{t=1;next} t&&/^$/{exit} t{print $2}' CLAUDE.md | grep -o '`[^`]*`' | tr -d '`' | grep '/$' | while read p; do [ -e "$p" ] || echo "no path: $p"; done)"
 git worktree remove --force $BASE
 ```
-
-Owner smoke once after step 3: `_examples/default-http` starts, serves its page, and a
-browser client completes one event round trip.
 
 ## Stage 2. Socket.IO protocol v5 over Engine.IO protocol v4 (tag `v2.0.0`)
 

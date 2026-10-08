@@ -940,6 +940,7 @@ afterwards:
 gh pr view --json body --jq .body | grep -qx "CUT=$CUT"
 test -z "$(for f in README.md engineio/README.md CHANGELOG.md; do git show $CUT:$f; done | grep '@master')"
 git show $CUT:README.md | grep -q '@v1\.x'
+git show $CUT:README.md | grep -q 'until a release'   # the sentence the tag-time absence check relies on (1.D)
 test "$(gh run list --branch master --workflow CI --commit $CUT --json conclusion --jq '.[0].conclusion')" = success
 # before step 0b merges: the branch is at $CUT, and no v1.5 tag exists (it is made at M4)
 test "$(git rev-parse origin/v1.x)" = "$CUT"

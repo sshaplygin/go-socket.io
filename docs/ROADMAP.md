@@ -606,16 +606,13 @@ Tasks:
   - `logger/README.md` is deleted: it tells users to assign `logger.Log`, which
     bypasses `logger.Wrap`, and the package godoc owns its subject (1.L).
   - Link form (1.D owns it): until `v1.5.0` is tagged, pkg.go.dev links and `go get`
-    commands use `@v1.x`, the branch cut in 1b step 0; the fork's `v1.4.x` tags carry
-    the upstream module path, so unversioned links would show them, and `master` becomes
-    v2 work. 1.D replaces every `@master` in `README.md`, `engineio/README.md` and
-    `CHANGELOG.md` with `@v1.x` in a commit on `master` before the cut, so both branches
-    carry it. `CONTRIBUTING.md` gets a release step for the tag, made later on `v1.x` at
-    M4: the `v1.5.0` release commit renames the `CHANGELOG.md` heading `Unreleased` to
-    `v1.5.0`, switches `@v1.x` to `@v1.5.0` in the pkg.go.dev links of `README.md`,
-    `engineio/README.md` and the released `CHANGELOG.md` section and in the README
-    install command, and removes the README sentence saying to use the branch until a
-    release is tagged.
+    commands use `@v1.x`, the branch cut in 1b step 0. 1.D replaces every `@master` in
+    `README.md`, `engineio/README.md` and `CHANGELOG.md` with `@v1.x` in a commit on
+    `master` before the cut, so both branches carry it, and writes into `README.md` one
+    sentence containing the words `until a release` that tells users to use the branch
+    until a release is tagged. The tag-time release commit and the reason for the branch
+    name are owned by [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases); the tag-time
+    gates are in the Stage 1 Acceptance.
   - Already satisfied at `9716ec0` and guarded by the DoD: no `godoc.org` links;
     the README badges point at this fork.
 - **1.K Known limitations** (wave 1C, after wave 1B has merged, so no other task
@@ -627,7 +624,7 @@ Tasks:
     *Known limitations*. The subsection names each limitation in one sentence,
     without line numbers, and links the pkg.go.dev godoc of `Server.Adapter`,
     `Server.RoomLen` and `Server.Rooms` in the `@v1.x` form, which the tag-time
-    release commit (1.D) switches to `@v1.5.0`. It adds no entry under `### Fixed` or
+    release commit (`CONTRIBUTING.md`) switches to `@v1.5.0`. It adds no entry under `### Fixed` or
     `### Changed`.
   - The `Server.Adapter` godoc says that a namespace receives peers' broadcasts and
     requests and is counted by them only once Redis has registered its
@@ -710,14 +707,12 @@ may not build, the head of each PR does. Steps 1–3 are the PRs merged with the
 commits kept ([`CONTRIBUTING.md`](../CONTRIBUTING.md) rule 5).
 
 **Base and branch `v1.x` (this section owns the cut; no other section creates the
-branch).** The branch is `v1.x`, not `v1`: `go list -m <module>@v1` is a semver prefix
-query that resolves the tag `v1.4.2` and ignores branches, while `@v1.x` resolves the
-branch tip as a pseudo-version (checked with a local VCS repository holding the tag and
-both branches). `$CUT` is the last `master` commit with CI green once the pre-cut PRs have
+branch).** The branch is `v1.x`; why it is not `v1`, the tagging rule and the release
+commit are in [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases). `$CUT` is the last `master` commit with CI green once the pre-cut PRs have
 merged: every stage 1 task and the 1.D link-form commit (`@master` becomes `@v1.x`, so
 both branches carry it). The branch is cut from `$CUT` without a tag, before the first 1b
-commit. The tag `v1.5.0` is made later, on branch `v1.x` and only on the owner's command,
-at M4 (Milestones); until then consumers use `@v1.x`. `$CUT` replaces the tag as the
+commit. The tag `v1.5.0` is made later on `v1.x`, only on the owner's command, at M4
+(Milestones). `$CUT` replaces the tag as the
 base of the DoD diffs; each 1b PR records `CUT=<sha>` on its own line of the body (the
 issue #2 ledger holds the same line). Between `$CUT` and the merge of step 3 only
 `refactor(1b.` commits change Go files (tests included) on `master`; Go files under
@@ -734,13 +729,22 @@ Step 0 precedes any 1b commit on `master`:
 - 0c. One PR into `master`, `.github/dependabot.yml` only: a second `gomod` and a
   second `github-actions` entry, otherwise identical, with `target-branch: v1.x` (Dependabot
   reads its configuration from the default branch). The weekly CI cron runs on `master` only.
+- 0d. One PR into `master`, `CHANGELOG.md` only: the `## Unreleased` section that `v1.x`
+  carries is renamed `## v1.5.0 (unreleased, branch v1.x)` and an empty `## Unreleased`
+  is added above it, so that master's own entries never share a section with the entries
+  of the v1 release (rule in [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases)). `v1.x`
+  keeps `## Unreleased`.
 
 **Breaking changes on `master` (`v1.x` keeps the old API; no aliases).** Recorded for
 `docs/MIGRATION.md` (2.5). The `api` block is the complete list of exported-signature
 changes: a gate pattern, then what it means. The DoD diffs the exported API of every
 package against `$CUT` and allows only lines that match a pattern. Consumers of
-`go get ...@master` break (`master` is not tagged `v1.x`, see
-[`CONTRIBUTING.md`](../CONTRIBUTING.md#releases)).
+`go get ...@master` break. The 1b PRs write no `CHANGELOG.md` entry (the exemption
+that [`CONTRIBUTING.md`](../CONTRIBUTING.md) rule 3 allows): the `api` block and the map
+are their record, and 2.5 carries it into `docs/MIGRATION.md`. Path:line references to
+pre-1b files in `CHANGELOG.md` (the `engineio/client.go` and `engineio/dialer.go`
+entries) name the tree at `$CUT`, which is the `v1.x` tree, and are not rewritten on
+`master`: they sit in the `v1.5.0` section as history.
 
 ```api
 ^> /engineio/client: # new package of step 1
@@ -906,7 +910,10 @@ test -z "$(git tag -l 'v1.5.*')"
 git merge-base --is-ancestor $CUT origin/master
 git merge-base --is-ancestor $CUT origin/v1.x
 test -z "$(git diff --name-only $CUT origin/v1.x | grep -v '^\.github/')"
-# at M1b closure: triggers, Dependabot and the CI run of the current v1.x head
+# at M1b closure: step 0d on master (v1.x keeps Unreleased), triggers, Dependabot and the CI run of the current v1.x head
+test "$(git show origin/master:CHANGELOG.md | grep -c '^## v1\.5\.0 (unreleased, branch v1\.x)$')" -eq 1
+test "$(git show origin/master:CHANGELOG.md | grep -c '^## Unreleased$')" -eq 1
+test "$(git show origin/v1.x:CHANGELOG.md | grep -c '^## Unreleased$')" -eq 1
 test "$(git show origin/v1.x:.github/workflows/ci.yaml | grep -c 'branches: \[v1\.x\]')" -eq 2
 test "$(git show origin/v1.x:.github/workflows/benchmarks.yml | grep -c 'branches: \[v1\.x\]')" -eq 1
 test "$(grep -c 'target-branch: v1\.x' .github/dependabot.yml)" -eq 2

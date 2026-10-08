@@ -727,25 +727,21 @@ package against `$V1` and allows only lines that match a pattern. Consumers of
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases)).
 
 ```api
-^> /(adapter|adapter/redis|engineio/client): # new packages of steps 1 and 3
+^> /engineio/client: # new package of step 1
 Dialer|Opener # engineio.Dialer and engineio.Opener move to engineio/client; an alias in engineio would import it and restore the cycle
 FrameType|frame\.Type|session: const # session.FrameType, TEXT and BINARY give way to frame.Type, frame.String and frame.Binary; NextReader and NextWriter of engineio.Conn, session.Session, parser.FrameReader and parser.FrameWriter take frame.Type, which breaks every external implementer and every caller of parser.NewDecoder and parser.NewEncoder with its own reader or writer
-: type (Broadcast|RedisAdapterOptions) # become aliases of adapter.Broadcast and redis.Options; the methods of Broadcast take adapter.Conn and adapter.EachFunc, which breaks an external implementer and a func(socketio.Conn) callback passed to its ForEach
 ```
 
 Target tree (root module; rows added after 1b are marked):
 
 | Path | Package | Holds |
 | --- | --- | --- |
-| `.` | `socketio` | public API; legacy root runtime removed in 2.0 |
-| `adapter/` | `adapter` | temporary v1 `Conn`, `EachFunc`, `Broadcast`, `NewMemory`; the directory is deleted in 2.0, and 2.2 creates `adapter/codec/` (package `codec`) anew |
-| `adapter/redis/` | `redis` | temporary v1 Redis broadcast; removed in 2.0 and replaced by the module `adapters/redis` in 4b |
-| `internal/redisdial/` | `redisdial` | test seam for the Redis dial timeout; removed with `adapter/redis` |
+| `.` | `socketio` | public API; the legacy root runtime, including the memory and Redis broadcast, `Server.Adapter` and redigo, is removed in 2.0 |
 | `engineio/` | `engineio` | server side: `Server`, `Conn`, options; `hooks.go` in 2.4 |
 | `engineio/client/` | `client` | Engine.IO client: `Dialer`, `Opener`; imports `engineio` for `engineio.Conn` only |
 | `engineio/internal/logtest/` | `logtest` | log recorder shared by the `engineio` and `engineio/client` tests |
 | `engineio/session`, `frame`, `packet`, `payload`, `transport/...`, `internal`, `parser/`, `logger/` | unchanged packages | `engineio/internal` holds the 1.L shutdown hook |
-| `adaptertest/` (4b), `client/` (2.3, root client removed in 2.0), `contrib/otel/` (2.4) | later | not present at 1b |
+| `adapter/codec/` (2.2), `adaptertest/` (4b), `client/` (2.3, root client removed in 2.0), `contrib/otel/` (2.4) | later | not present at 1b; no `adapter/` directory exists before 2.2 |
 
 Source-to-target map. Its owner is this block; the PR body of each step repeats the
 rows of that step. `-` means no old path (a file the step creates) or no new path (a
@@ -770,23 +766,13 @@ at their path are described in the steps, not here.
 2 engineio/packet/fake_frame.go engineio/packet/fake.go
 2 engineio/packet/fake_reader.go engineio/packet/fake.go
 2 engineio/packet/fake_writer.go engineio/packet/fake.go
-3 broadcast.go adapter/memory.go
-3 - adapter/memory_test.go
-3 redis_broadcast.go adapter/redis/broadcast.go
-3 redis_broadcast_test.go adapter/redis/broadcast_test.go
-3 adapter_options.go adapter/redis/options.go
-3 helpers.go adapter/redis/uuid.go
-3 - adapter_compat.go
-3 - adapter/redis/options_test.go
-3 - redis_helpers_test.go
-3 - internal/redisdial/redisdial.go
-4 connection_handlers.go packet_handlers.go
-4 connection_handlers_test.go packet_handlers_test.go
-4 namespace_handlers.go namespace_handler.go
-4 namespace_conn.go namespace.go
-4 namespaces.go namespace.go
-4 handler.go event_handler.go
-4 handler_test.go event_handler_test.go
+3 connection_handlers.go packet_handlers.go
+3 connection_handlers_test.go packet_handlers_test.go
+3 namespace_handlers.go namespace_handler.go
+3 namespace_conn.go namespace.go
+3 namespaces.go namespace.go
+3 handler.go event_handler.go
+3 handler_test.go event_handler_test.go
 ```
 
 1. **`engineio/client`.** `Dialer` and `Opener` move with `client.go` and `dialer.go` to

@@ -686,14 +686,18 @@ specifies. Every badge and link in `README.md` resolves on GitHub.
 
 Structural refactoring only: moves, explicit file merges, import rewrites and the API
 changes listed below; no behaviour change or new features. Keep the cyclic v1 root core
-together until the atomic transition in 2.0. Tests follow their files (same rename).
-Step 0 and steps 1–4 are separate PRs, merged in this order with
+together until the atomic transition in 2.0: the memory and Redis broadcast
+(`broadcast.go`, `redis_broadcast.go`, `adapter_options.go`, `helpers.go`), their tests,
+redigo and `Server.Adapter` stay in the root package unchanged until 2.0 removes them
+with the legacy runtime; nothing Redis-related is built before M4 (stage 4b). Tests
+follow their files (same rename).
+Step 0 and steps 1–3 are separate PRs, merged in this order with
 `make lint test-race examples` green on `master` after each: step 2 edits the files step
-1 creates, and step 3 changes `server.go`, `connection_handlers.go` and
-`namespace_handler.go`, which step 4 renames or merges. Commit subjects and PR titles
+1 creates, and step 3 renames or merges root files whose tests step 2 edits
+(`connection_handlers_test.go`). Commit subjects and PR titles
 are `refactor(1b.<step>): ...`. Within a PR, pure `git mv` commits (no content edit)
 come first, then merges into a target file, then content edits; intermediate commits
-may not build, the head of each PR does. Steps 1–4 are the PRs merged with their
+may not build, the head of each PR does. Steps 1–3 are the PRs merged with their
 commits kept ([`CONTRIBUTING.md`](../CONTRIBUTING.md) rule 5).
 
 **Base and branch `v1` (this section owns the release commit, the tag and the cut; no
@@ -702,8 +706,8 @@ pre-release change. The owner tags it `v1.5.0` as soon as it has landed with CI 
 (M1); that is the event that ends the stand-in period, and it precedes step 0a. A 1b PR
 opened earlier records `V1=<sha>` on its own line of the PR body, and the gates accept an
 absent tag or one equal to `$V1`, never another commit. Between `$V1` and the merge of
-step 4 only `refactor(1b.` commits change Go files (tests included) on `master`: a
-`v1.5.x` fix is made on `v1` and forward-ported after step 4 (rule in
+step 3 only `refactor(1b.` commits change Go files (tests included) on `master`: a
+`v1.5.x` fix is made on `v1` and forward-ported after step 3 (rule in
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases)), so it never conflicts with a rename.
 Step 0 precedes any 1b commit on `master`:
 
@@ -814,53 +818,7 @@ at their path are described in the steps, not here.
    `frame` shadow the package: rename every one to `msg` in files that import
    `engineio/frame` (`backpressure_test.go:65` fails to compile otherwise). Test
    expectations keep the typed `frame.Type` values.
-3. **`adapter` and `adapter/redis`.** Exported API (`adapter/redis` imports redigo as
-   `redigo`; both packages compile without importing the root):
-
-   ```go
-   package adapter // memory.go
-   type Conn interface{ ID() string; Emit(event string, v ...interface{}) }
-   type EachFunc func(Conn)
-   type Broadcast interface { /* the ten methods of today's Broadcast, on Conn and EachFunc above */ }
-   func NewMemory() Broadcast
-
-   package redis // broadcast.go, options.go, uuid.go
-   type Options struct{ Host, Port, Addr, Prefix, Network, Password string; DB int } // as RedisAdapterOptions
-   func Normalize(o *Options) *Options        // getOptions: defaulted copy, nil gives defaults
-   func Ping(o *Options) (bool, error)        // the dial in Server.Adapter: ok is true after a dial, err is the Close error
-   type Broadcast struct{ /* unexported */ }  // implements adapter.Broadcast
-   func New(nsp string, o *Options) (*Broadcast, error) // newRedisBroadcast; o is normalised
-   func (*Broadcast) Close() error            // close(); always nil
-   ```
-
-   Root: `adapter_compat.go` holds `// Deprecated:` `type Broadcast = adapter.Broadcast`
-   and `type RedisAdapterOptions = redis.Options`, removed in 2.0 with `Server.Adapter`.
-   `EachFunc` stays a separate defined type `func(Conn)` in `server.go`; it cannot be an
-   alias. `Server.ForEach` wraps the callback with a comma-ok assertion
-   `c.(Conn)` and skips a connection that is not a root `Conn`, never panics.
-   `namespaceHandler.broadcast` is an `adapter.Broadcast`; `nopBroadcast` implements it
-   with `adapter.EachFunc`; `newNamespaceHandler` calls `adapter.NewMemory` or
-   `redis.New`. `Server.Adapter` calls `redis.Normalize` and `redis.Ping` and records
-   the options as before. `Server.Close` asserts `io.Closer` on each broadcast, not
-   `*redisBroadcast`. The dial timeout becomes `internal/redisdial.Timeout` (default
-   10 s), read by `redis.New` and set by the two root tests that now set
-   `redisDialTimeout`; `redisRequestTimeout` and `redisReconnectMin`/`Max` stay
-   unexported in `adapter/redis`. Tests: `redis_broadcast_test.go` (its `init()`, which
-   shortens those timers, `redisTestConn` embedding `adapter.Conn`, `newRedisTestConn`,
-   `waitRedisSubscribers`) moves to `adapter/redis`; `TestBroadcastDoesNotHoldLockWhileEmitting`
-   and `TestBroadcastForEachCallbackChangesRooms` move from `backpressure_test.go` to
-   `adapter/memory_test.go` and call `NewMemory`; `redis_integration_test.go` stays in
-   the root (it tests `Server.Adapter`, `Close` and `Serve`) and uses `redis.New`,
-   `Close`, `redis.Normalize`; the root keeps a copy of the two helpers in
-   `redis_helpers_test.go` for it and `backpressure_test.go`. The root `init()` is not
-   needed: the root Redis tests pass without it. New tests: `TestServerForEach` visits
-   `*namespaceConn` values through the memory and the Redis broadcast, and skips a
-   foreign `adapter.Conn` without a panic; `TestPing` (`adapter/redis/options_test.go`,
-   miniredis) covers `Ping` with a password, with a DB and against a closed port, the
-   branches `Server.Adapter` no longer reaches because it passes normalised options.
-   The split adds statements to the root coverage group (`Normalize`, `Ping`, the
-   `ForEach` wrapper, `nopBroadcast`), so these two tests are what keeps it at its floor.
-4. **Root file names by role.** Files per the map: `namespaces.go` joins `namespace.go`
+3. **Root file names by role.** Files per the map: `namespaces.go` joins `namespace.go`
    because it is the registry of `*namespaceConn`, `namespace_handlers.go` joins
    `namespace_handler.go`. `CLAUDE.md` edits made by this step: one layout row per
    directory the layout check lists (`adapter/`, `adapter/redis/`, `internal/redisdial/`,
@@ -869,7 +827,7 @@ at their path are described in the steps, not here.
    "and client", the `logger/` row naming `engineio/client` in place of "client dialer",
    and `handler.go` → `event_handler.go` in Conventions. Stage 2 paths already match.
 
-DoD, run with `bash` and `set -e` on the committed head of step 4 (M1b closure). The
+DoD, run with `bash` and `set -e` on the committed head of step 3 (M1b closure). The
 build, test and `go doc` lines print their usual output; every other line, the `test`
 and `ge` lines included, exits 0 and prints nothing. No line uses `!`, which `set -e`
 ignores. Scratch files live in `$T`, outside the tree:
@@ -965,9 +923,8 @@ test -z "$(awk -F'|' '/^\| Path/{t=1;next} t&&/^$/{exit} t{print $2}' CLAUDE.md 
 git worktree remove --force $BASE
 ```
 
-Owner smoke once after step 4: `_examples/default-http` serves its page and one event
-round-trips. The Redis code paths run in the miniredis tests of `make test-race`; no
-Redis server is needed.
+Owner smoke once after step 3: `_examples/default-http` serves its page and one event
+round-trips.
 
 ## Stage 2. Socket.IO protocol v5 over Engine.IO protocol v4 (tag `v2.0.0`)
 

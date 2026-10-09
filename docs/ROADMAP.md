@@ -1263,7 +1263,9 @@ owns its root test; 4b reproduces the broker cases.
   broadcast right after construction can be missed there (4b `adapters/nats`).
 - *Shutdown:* `Shutdown` and `Close` cancel the factory context when they begin;
   `Shutdown` waits for factory calls in progress, callers or not, until its deadline,
-  `Close` does not wait. A creation that ends after either has begun returns an error
+  `Close` does not wait. The server decides between registering and closing a returned
+  adapter under the lock that sets the shutdown flag. A creation whose factory returns
+  after either has begun returns an error
   matching `ErrNamespaceClosed` whatever the factory returns: the server closes a
   returned adapter exactly once (before the call returns when a caller waits) and wraps
   a factory error alongside with a second `%w`. The cancellation also reaches built
@@ -1818,7 +1820,9 @@ timeout is 5 s.
   SUBSCRIBE confirmations within the `SubscribeTimeout` option (default 10 s). Every read
   is bounded by the time left, and construction also stops when the factory context ends:
   a go-redis `ReceiveTimeout` reads without that context, so the adapter closes the
-  attempt's `PubSub` from `context.AfterFunc`, stopped once the attempt is confirmed. An
+  attempt's `PubSub` from `context.AfterFunc`, stopped once the attempt is confirmed; when the stop reports that
+  the function already started, construction fails with the context error instead of
+  returning the adapter. An
   unconfirmed resubscribe is a failed attempt that closes its connection and grows the
   backoff. Each attempt uses a new `PubSub`, and the adapter closes a failed one as soon
   as it observes the error: after a connection error a go-redis `PubSub` redials and

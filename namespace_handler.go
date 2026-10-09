@@ -130,3 +130,39 @@ func getDispatchMessage(args ...reflect.Value) string {
 
 	return msg
 }
+
+type namespaceHandlers struct {
+	handlers map[string]*namespaceHandler
+	mu       sync.RWMutex
+}
+
+func newNamespaceHandlers() *namespaceHandlers {
+	return &namespaceHandlers{
+		handlers: make(map[string]*namespaceHandler),
+	}
+}
+
+func (h *namespaceHandlers) Set(namespace string, handler *namespaceHandler) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.handlers[namespace] = handler
+}
+
+func (h *namespaceHandlers) Get(nsp string) (*namespaceHandler, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	handler, ok := h.handlers[nsp]
+	return handler, ok
+}
+
+// Range calls f for every handler; f must not register handlers.
+func (h *namespaceHandlers) Range(f func(handler *namespaceHandler)) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for _, handler := range h.handlers {
+		f(handler)
+	}
+}

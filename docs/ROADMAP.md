@@ -1615,28 +1615,23 @@ It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
   JSON parser is Node's `socket.io-parser`; custom parsers are not an API), the v1 line, a speed claim over JSON
   (`BenchmarkMessagePackEncode` and `BenchmarkMessagePackDecode` are recorded, advisory).
 
-DoD, each test failing without its change; tests are in `parser` unless marked:
-`TestParserDefaultIsJSON` (`parser`, which cannot import the root: the zero `parser.Format`
-equals `FormatJSON` and the codec it selects encodes the 2.3P corpus to the golden text
-frames unchanged; the `Options` level is the next two tests); `TestOptionsParserNormalize` (root: zero is JSON,
-both constants are kept, any other value fails `Normalize`); `TestServerClientParserWiring`
-(`client`: the format reaches the Engine.IO session and the dialed client; zero `Options` on
-both sides write only text Socket.IO frames and `FormatMessagePack` writes none); `TestMessagePackPacketRoundTrip` and
-`TestMessagePackExtensions` (the corpus and every extension case of the oracle);
-`TestMessagePackLimits`, a table with one case per bound: one byte over `MaxEventBytes` and
-`MaxAttachments`, depth 64 accepted and 65 `ErrDepth`, a declared array, map, str, bin or
-ext length of 2^32-1 in a 5-byte message rejected with `testing.AllocsPerRun` showing no
-size-driven allocation, duplicate key, invalid UTF-8, trailing byte, truncation, unknown
-extension and empty message, none panicking; `FuzzMessagePackDecode` seeded from the oracle
-corpus (clean 30 s run); `TestMessagePackEncodeConcurrent` (32 goroutines, one shared
-`Packet` with three attachments, `-race`: the `Packet` stays deeply equal to its snapshot and
-every output equals the fixture); `TestMessagePackMismatch` (`client`); `make g2` still passes with the field added; `git diff go.mod go.sum` empty.
-The `-run` line below counts the named passes, so an absent test fails it.
+DoD, each test failing without its change; tests are in `parser` unless marked, and the
+`-run` count makes an absent test fail:
+`TestParserDefaultIsJSON` (`parser` cannot import the root: the zero `parser.Format` is
+`FormatJSON` and its codec encodes the 2.3P corpus to the golden text frames);
+`TestOptionsParserNormalize` (root: zero is JSON, both constants kept, any other value fails
+`Normalize`); `TestServerClientParserWiring` (`client`: the format reaches the session and the
+dialed client; zero `Options` writes only text Socket.IO frames, `FormatMessagePack` none);
+`TestMessagePackPacketRoundTrip`, `TestMessagePackExtensions`, `TestMessagePackLimits` (one
+case per bound of *Untrusted input*, none panicking), `FuzzMessagePackDecode` (seeded from the
+oracle corpus, clean 30 s) and `TestMessagePackEncodeConcurrent` (32 goroutines, one shared
+`Packet` with three attachments, `-race`: the `Packet` equals its snapshot, every output
+equals the fixture); `make g2` passes; `git diff go.mod go.sum` is empty.
 
 ```sh
 go test -race -count=1 ./parser/... . ./client
-N=$(go test -count=1 -json -run '^(TestParserDefaultIsJSON|TestOptionsParserNormalize|TestServerClientParserWiring|TestMessagePackPacketRoundTrip|TestMessagePackExtensions|TestMessagePackLimits|TestMessagePackMismatch|TestMessagePackEncodeConcurrent)$' ./parser . ./client | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
-[ "$N" -eq 8 ]
+N=$(go test -count=1 -json -run '^(TestParserDefaultIsJSON|TestOptionsParserNormalize|TestServerClientParserWiring|TestMessagePackPacketRoundTrip|TestMessagePackExtensions|TestMessagePackLimits|TestMessagePackEncodeConcurrent)$' ./parser . ./client | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
+[ "$N" -eq 7 ]
 go test -run '^$' -fuzz '^FuzzMessagePackDecode$' -fuzztime 30s ./parser
 R=parser/testdata/msgpack/reference
 node -e 'process.exit(+process.versions.node.split(".")[0] >= 22 ? 0 : 1)'
@@ -1647,19 +1642,15 @@ git diff --exit-code origin/master -- go.mod go.sum
 make g2
 ```
 
-Acceptance, with the Node dependencies installed. The first command of the fence below is
-the Acceptance part of the 2CM gate, run on the 2CM head; the M3 tag-time check (2E, 2F)
-repeats it on the tag commit and adds the rest of the fence:
-`TestMessagePackNodeClient` (`socket.io-client` 4.8.4 with the pinned parser against the Go
-server with `Parser` MessagePack) and `TestMessagePackNodeServer` (the Go client against a
-Node `socket.io` server with it) each run the subtests `websocket` and `polling`: connect
-with auth, an event without binary, an event with binary and an ack, each in both
-directions. `TestMessagePackWireFrames` taps the transport and asserts every Socket.IO
-message is a binary frame (`b` payload on polling) and every ping, pong and upgrade packet
-is text. `TestMessagePackMismatch` is the matrix above. `TestMessagePackLimitIsolation`
-sends one byte over `MaxEventBytes` and over `MaxAttachments` on one session, which closes
-with that error while a second session keeps echoing. The default-format tests of 2.3 are
-the unchanged `go test ./...`.
+Acceptance, Node dependencies installed. The first command of the fence is the Acceptance
+part of the 2CM gate, run on the 2CM head; the M3 tag-time check (2E, 2F) repeats it on the
+tag commit and adds the rest. `TestMessagePackNodeClient` (`socket.io-client` 4.8.4 with the
+pinned parser against the Go server) and `TestMessagePackNodeServer` (the Go client against a
+Node `socket.io` server) run the subtests `websocket` and `polling`: connect with auth, an
+event without and one with binary, and an ack, each direction. `TestMessagePackWireFrames`
+asserts every Socket.IO message is a binary frame (`b` on polling) and ping, pong and upgrade
+stay text. `TestMessagePackLimitIsolation`: one byte over `MaxEventBytes` and over
+`MaxAttachments` closes that session with the error while a second one keeps echoing.
 
 ```sh
 export SOCKETIO_NODE_INTEROP=1

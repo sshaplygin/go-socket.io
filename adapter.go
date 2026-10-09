@@ -37,6 +37,21 @@ type Adapter interface {
 // Adapter.Close.
 type AdapterFactory func(ctx context.Context, nsp *Namespace) (Adapter, error)
 
+// LocalSockets is the seam through which an adapter reaches the sockets of its own
+// server. A namespace hands it out through Namespace.LocalSockets; an adapter that
+// receives a broadcast from a peer selects local recipients from its own room
+// membership and calls Deliver for each. The memory adapter takes it as a constructor
+// argument, so its conformance tests run against a test double before the runtime exists.
+type LocalSockets interface {
+	// Deliver queues pkt on the local socket sid and returns nil only when it was
+	// enqueued; BroadcastResult.LocalRecipients counts those successes. A socket that
+	// is gone yields an error matching ErrSocketClosed, a full queue ErrWriteBufferFull.
+	Deliver(ctx context.Context, sid SocketID, pkt parser.Packet) error
+	// Snapshot returns the RemoteSocket of the local socket sid, with the Handshake
+	// already redacted as the RemoteSocket godoc requires; false when the socket is gone.
+	Snapshot(sid SocketID) (RemoteSocket, bool)
+}
+
 // BroadcastOptions selects the recipients of Adapter.Broadcast and FetchSockets.
 type BroadcastOptions struct {
 	Rooms, Except []Room

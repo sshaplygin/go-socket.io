@@ -52,6 +52,7 @@ from the declaration, and `make graph` checks the package graph.
 | `namespace.go` | `Namespace.OnRaw` | `(*Namespace) OnRaw(RawHandler) error` |
 | `namespace.go` | `Namespace.To` | `(*Namespace) To(...Room) BroadcastOperator` |
 | `namespace.go` | `Namespace.Hooks` | `(*Namespace) Hooks() *Hooks`; nil-safe, for adapters in other modules |
+| `namespace.go` | `Namespace.LocalSockets` | `(*Namespace) LocalSockets() LocalSockets`; nil-safe, the adapter's seam to local sockets |
 | `namespace.go` | `Namespace.Logger` | `(*Namespace) Logger() *slog.Logger`; nil-safe |
 | `namespace.go` | `Namespace` | namespace type |
 | `namespace.go` | `Middleware` | `func(ctx, *Socket, json.RawMessage) error` |
@@ -69,6 +70,7 @@ from the declaration, and `make graph` checks the package graph.
 | `socket.go` | `Room` | `type Room string` |
 | `socket.go` | `SocketID` | `type SocketID = Room`, so `nsp.To("room").Except(s.ID())` compiles |
 | `adapter.go` | `Adapter` | `AddAll(SocketID, []Room)`; `Del(SocketID, Room)`; `DelAll(SocketID)`; `Broadcast(ctx, parser.Packet, BroadcastOptions) (BroadcastResult, error)`; `Sockets(ctx, []Room) ([]SocketID, error)`; `SocketRooms(SocketID) []Room`; `FetchSockets(ctx, BroadcastOptions) ([]RemoteSocket, error)`; `ServerSideEmit(ctx, string, ...any) error`; `Close() error` |
+| `adapter.go` | `LocalSockets` | `Deliver(ctx, SocketID, parser.Packet) error`; `Snapshot(SocketID) (RemoteSocket, bool)` |
 | `adapter.go` | `AdapterFactory` | `func(ctx, nsp *Namespace) (Adapter, error)` |
 | `adapter.go` | `BroadcastOptions` | `{Rooms, Except []Room; Flags BroadcastFlags}` |
 | `adapter.go` | `BroadcastFlags` | `{Local bool}`; other flags are later additive fields, so literals use field names |
@@ -147,7 +149,8 @@ Recorded by the G2 review of the 2A owner. The decision on each item and its rea
 
 Every declaration in the inventory above is frozen as written, with these points settled:
 
-- `Adapter`, `AdapterFactory`, `BroadcastOptions`, `BroadcastResult`, both `Hooks` structs
+- `Adapter`, `AdapterFactory`, `LocalSockets` with `Namespace.LocalSockets` (how an adapter
+  delivers to local sockets), `BroadcastOptions`, `BroadcastResult`, both `Hooks` structs
   with their information and result types and constants (16 and 11 fields).
 - `RemoteSocket`: the four fields. `Handshake` is a JSON object with Node's key names. The guarantee
   is exactly: no `auth` key, and no `authorization`, `cookie` or `proxy-authorization` entry
@@ -181,7 +184,7 @@ defined by the stage named; all are additions to the frozen declarations.
 | Stream encoder and decoder, placeholder validation and wire errors of `parser` | 2.3P |
 | Binding a codec to an event descriptor; constructors without handler reflection | 2.3S |
 | Lifecycle context of `Socket` and `Namespace`, socket disconnect, connection callbacks, `Socket.Data` and handshake accessors | 2.3S |
-| The namespace API an external adapter uses to reach local sockets and deliver a received broadcast | 2.2, before root `v2.2.0` |
+| Delivery of a received `ServerSideEmit` to application handlers, and acknowledgements of server-side emits | 4b, additively, with 2.3S for the namespace side |
 | Further broadcast flags: volatile, compress, timeout | a later stage, additive |
 | Upgrade results, request-rejection reasons, disconnect reasons and adapter results as constants | 2.4 (`docs/OBSERVABILITY.md`) |
 | Behaviour of `ChainHooks` and `LoggingHooks`, and every hook fire point | 2.4E and 2.4S |

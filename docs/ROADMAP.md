@@ -56,8 +56,8 @@ workers submit changes to these files through that integrator.
 | 1C | 1B | 1.K known-limitation notes: the godoc of `Server.Adapter`, `RoomLen` and `Rooms` in `server.go` and the `### Known limitations` subsection of `CHANGELOG.md`; contract in the 1.K item | 1.K check, then M1 checks |
 | 1b | stage 1 and the 1.D link-form commit merged, `master` green (the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner, who is also the integrator for the CI, Dependabot and `CHANGELOG.md` files of steps 0b to 0d; moves/merges applied sequentially | M1b: the Stage 1b DoD, `v1.x` gates and Acceptance blocks |
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures; evidence: `make g2` (2.0 *G2 record*) |
-| 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
-| 2C | 2B | 2.3S server/namespace runtime (root socket files); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
+| 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
+| 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets`); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
 | 2E | 2D | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
 | 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 pre-release gate, then publication verification |
@@ -1147,7 +1147,8 @@ frozen declaration. API.md (*Frozen contract*) lists the result; this table owns
 | `ChainHooks`, `LoggingHooks` | settled: signatures declared in both packages as in 2.4, returning nil | the signatures are fixed by 2.4; the behaviour needs the fire points | 2.4E, 2.4S |
 | `Server.ServeHTTP` | settled: declared, the skeleton answers 501 | the signature is `http.Handler`, asserted by 2.1 | 2.1, 2.3S |
 | Lifecycle context of `Socket` and `Namespace`, disconnect, connection callbacks, `Socket.Data`, descriptor codec binding | moved out | they need the runtime design; each is an added method | 2.3S |
-| Namespace API for external adapters (local sockets, local delivery of a received broadcast) | moved out | the memory adapter is its first user and 2B writes it; 4A needs it only for the broker adapters | 2.2, before root `v2.2.0` |
+| Namespace API for external adapters (local sockets, local delivery of a received broadcast) | settled: `LocalSockets` (`Deliver`, `Snapshot`) in `adapter.go` and `Namespace.LocalSockets()` in `namespace.go`, with a fixture and a negative fixture | the memory adapter is its first user and 2B writes it in parallel with the runtime of 2C, so the seam must exist before either starts; a broker adapter calls the same two methods for a received broadcast. 2A owns both declarations; 2.2 never edits `namespace.go`; 2.3S fills the body and may not change the signatures | body: 2.3S (2C) |
+| Received `ServerSideEmit` (delivery to application handlers, acks of server-side emits) | moved out | no memory-adapter or 2B consumer: a single node has no peer to receive from | 4b, additively, with 2.3S |
 
 The gate evidence is `make g2`: `make graph` (package graph), `make freeze` (`TestFrozenContract`:
 none of `TODO`, `FIXME`, `proposed`, `unreviewed`, `not yet frozen`, `open before G2` or a
@@ -1275,8 +1276,17 @@ here, `adaptertest` in 4b for every broker adapter) decodes a peer snapshot that
 the first two groups are gone and the other two are unchanged. `Data` is the slot
 of `socket.data`: nil, or valid JSON; binary values are not representable, and a producer
 that cannot encode it returns the entries it can with an error. `BroadcastFlags` is `{Local bool}`; volatile, compress and timeout are later
-additive fields. The adapter-facing `Namespace` API (reaching local sockets and delivering a
-broadcast received from a broker) is defined by this stage before root `v2.2.0`, additively.
+additive fields. The adapter-facing seam is `LocalSockets`, frozen at G2: `Deliver(ctx, sid,
+pkt)` queues a packet on one local socket (success counts in `LocalRecipients`) and
+`Snapshot(sid)` returns its `RemoteSocket`; a namespace hands it out through
+`Namespace.LocalSockets()`. Ownership: 2A declared both (`adapter.go`, `namespace.go`), this
+stage writes the memory adapter in `adapter.go` and never edits `namespace.go`, 2.3S (2C)
+implements the accessor body. Before the runtime exists the memory adapter is built from a
+`LocalSockets` value, not from a `*Namespace`, and its conformance tests (room union,
+exclusions, `LocalRecipients`, partial failure, the redacted `Snapshot` use) run against a
+test double; the default factory only wraps `nsp.LocalSockets()`, so no 2B test needs a
+socket. Sockets and snapshots that reach `Deliver` and `Snapshot` through a live
+`Namespace` are covered by the 2C tests.
 
 *Readiness.* These rules close the v1 Redis limitations recorded in 1.R and, from
 `v1.5.0`, in the `CHANGELOG.md` *Known limitations*. They change two G2 signature lines:

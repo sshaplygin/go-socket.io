@@ -26,7 +26,7 @@ All notable changes to this project are documented here. The format follows
   `engineio` gains `Hooks` and the `Hooks` and `PayloadPreviewBytes` options (with
   `Options.Normalize`); `parser` gains the `Packet`,
   `Arguments`, `BinaryValue` and `ArgumentCodec` value types. All additive.
-- Compile fixtures in `go test`: a positive program and 19 negative programs that must
+- Compile fixtures in `go test`: a positive program and 20 negative programs that must
   fail to compile with recorded diagnostics (`internal/fixtures`, `testdata/negative`),
   and `make graph` / `TestPackageGraph` and `TestForbiddenEdge` for the package graph. The method-signature
   inventory is `docs/API.md`.
@@ -35,6 +35,7 @@ All notable changes to this project are documented here. The format follows
   (the skeleton returns nil), `Server.ServeHTTP` (answers 501); `make freeze` and
   `make g2` run the gate checks. The `engineio` payload redactor type and
   `Options.PayloadRedactor` are not part of the skeleton: stage 2.4E defines the boundary.
+  `LocalSockets` and `Namespace.LocalSockets` declare how an adapter delivers to local sockets.
 
 ### Changed
 

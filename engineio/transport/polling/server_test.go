@@ -1,7 +1,9 @@
 package polling
 
 import (
+	"bufio"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
@@ -96,7 +99,7 @@ func TestServerPost(t *testing.T) {
 		{"over the limit, chunked", text, "4abcdefgh", true, http.StatusRequestEntityTooLarge, nil},
 		{"empty", text, "", false, http.StatusBadRequest, nil},
 		{"empty record", text, "4a\x1e\x1e4b", false, http.StatusBadRequest, nil},
-		{"v3 length prefix", text, "18:4a", false, http.StatusBadRequest, nil},
+		{"v3 length prefix", text, "9:4abcd", false, http.StatusBadRequest, nil},
 		{"octet-stream is v3 only", "application/octet-stream", "4a", false, http.StatusBadRequest, nil},
 		{"no content type", "", "4a", false, http.StatusBadRequest, nil},
 	}
@@ -149,15 +152,17 @@ func TestServerPostTooLargeKeepsSession(t *testing.T) {
 	rec := serverPost(conn, text, strings.NewReader("4toolong"), -1)
 	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 
-	go serverPost(conn, text, strings.NewReader("4ok"), 3)
+	posted := make(chan *httptest.ResponseRecorder, 1)
+	go func() { posted <- serverPost(conn, text, strings.NewReader("4ok"), 3) }()
 	_, _, r, err := conn.NextReader()
 	require.NoError(t, err)
 	require.NoError(t, r.Close())
+	assert.Equal(t, http.StatusOK, (<-posted).Code) // the client sends its next POST after this answer
 
 	rec = serverPost(conn, text, strings.NewReader("9"), 1)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	_, _, _, err = conn.NextReader()
-	require.Error(t, err)
+	require.ErrorIs(t, err, payload.ErrInvalidPayload)
 }
 
 func TestServerInvalidMethod(t *testing.T) {
@@ -166,4 +171,27 @@ func TestServerInvalidMethod(t *testing.T) {
 	rec := httptest.NewRecorder()
 	conn.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/", nil))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestServerPostStalledBodyHitsReadDeadline: a POST that announces more bytes than it
+// sends is cut by the session's read deadline, not held until the HTTP server times out.
+func TestServerPostStalledBodyHitsReadDeadline(t *testing.T) {
+	conn := newServerConn(Default, httptest.NewRequest(http.MethodGet, "/", nil))
+	defer func() { _ = conn.Close() }()
+	srv := httptest.NewServer(conn)
+	defer srv.Close()
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(200*time.Millisecond)))
+
+	c, err := net.Dial("tcp", srv.Listener.Addr().String())
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+	_, err = io.WriteString(c, "POST /?transport=polling HTTP/1.1\r\nHost: x\r\nContent-Type: text/plain;charset=UTF-8\r\nContent-Length: 10\r\n\r\n4ab")
+	require.NoError(t, err)
+
+	require.NoError(t, c.SetReadDeadline(time.Now().Add(5*time.Second)))
+	start := time.Now()
+	resp, err := http.ReadResponse(bufio.NewReader(c), nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Less(t, time.Since(start), 3*time.Second)
 }

@@ -60,12 +60,12 @@ All notable changes to this project are documented here. The format follows
 - engineio: `Server.Close` closed the channel that hands sessions to `Accept`, so a
   handshake completing around or after `Close` panicked with a send on a closed channel,
   and a session nobody accepted stayed open and counted. See
-  [`engineio.Server.Close`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master/engineio#Server.Close)
+  [`engineio.Server.Close`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/engineio#Server.Close)
   (`engineio/server.go:53`, `:178` at `79a393c`, roadmap task 1I).
 - A namespace whose Redis broadcast could not be created held a nil broadcast, so every
   room call on it panicked, and the error was dropped. See
-  [`Server.Adapter`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#Server.Adapter)
-  and [`Server.Serve`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#Server.Serve)
+  [`Server.Adapter`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Server.Adapter)
+  and [`Server.Serve`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Server.Serve)
   (`namespace_handler.go:27` at `79a393c`, roadmap task 1I).
 - Concurrent handler registrations on one new namespace could each build a Redis
   broadcast and replace each other's handler (`server.go:346` at `79a393c`, roadmap
@@ -75,7 +75,7 @@ All notable changes to this project are documented here. The format follows
   `Server.Close` waiting; both connections must now be dialled, AUTH and SELECT
   included, within 10 s (`redis_broadcast.go:119` at `79a393c`, roadmap task 1I).
 - `Server.Close` left the Redis connections and subscriber goroutine of every namespace
-  running. See [`Server.Close`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#Server.Close)
+  running. See [`Server.Close`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Server.Close)
   (`server.go:69` at `79a393c`, roadmap task 1I).
 - engineio: after an upgrade switch the session kept the deadline set for the upgrade
   probe on the new connection, so `PingTimeout` ran from the probe instead of the switch;
@@ -128,8 +128,8 @@ All notable changes to this project are documented here. The format follows
   (roadmap task 1.L).
 - `engineio.Options.WriteBufferSize` (temporary v1 placement) and `ErrWriteBufferFull`:
   each connection queues at most that many outbound packets (default 64). See
-  [`engineio.Options`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master/engineio#Options)
-  and [`ErrWriteBufferFull`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#ErrWriteBufferFull)
+  [`engineio.Options`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/engineio#Options)
+  and [`ErrWriteBufferFull`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#ErrWriteBufferFull)
   (roadmap tasks 1.B and 1I).
 
 ### Changed
@@ -185,7 +185,7 @@ All notable changes to this project are documented here. The format follows
   (`connection.go:136` at `48cf0d2`). A connection whose queue overflows is closed
   without draining and reports `ErrWriteBufferFull`; more than `WriteBufferSize` packets
   queued faster than they are written can close a healthy client, polling ones much
-  sooner. See [`Namespace.Emit`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#Namespace)
+  sooner. See [`Namespace.Emit`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Namespace)
   (roadmap task 1.B).
 - `Conn.Close` and `Client.Close` drain: they run `OnDisconnect` and return, the packets
   queued until then are written in the background, and the engine.io connection closes
@@ -193,7 +193,7 @@ All notable changes to this project are documented here. The format follows
   session until then. They closed engine.io at once (`connection.go:66` at `48cf0d2`).
   Closes started by the library (read, decode, dispatch or encode error, peer close, ping
   timeout, overflow, failed connect) discard the queue. See
-  [`Conn`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#Conn) (roadmap tasks 1.B
+  [`Conn`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Conn) (roadmap tasks 1.B
   and 1I).
 - An encode error now closes the connection; it used to leave it open
   (`server.go:309` at `48cf0d2`).
@@ -244,7 +244,7 @@ All notable changes to this project are documented here. The format follows
 
 - `logger.Error` and `logger.Info`: the library no longer calls them. Use `slog`'s
   methods on `logger.Log` or on the logger passed as `engineio.Options.Logger`. See
-  [`logger`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master/logger), whose
+  [`logger`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/logger), whose
   godoc now documents the levels, the message pattern and the attribute keys of library
   records (roadmap task 1.L).
 
@@ -255,13 +255,13 @@ All notable changes to this project are documented here. The format follows
   has registered it the namespace on that instance misses other instances' broadcasts
   and room requests, and room queries on every instance, its own included, leave out
   its connections (see
-  [`Server.Adapter`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#Server.Adapter)).
+  [`Server.Adapter`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Server.Adapter)).
 - Redis broadcast: `Server.RoomLen` and `Server.Rooms` wait the full 5 s and return the
   answers received by then when the requesting instance has not yet registered its
   subscription or an instance that Redis counts does not answer (`Rooms` also when Redis
   cannot report that count), so they can undercount or omit rooms (see
-  [`Server.RoomLen`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#Server.RoomLen)
-  and [`Server.Rooms`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master#Server.Rooms)).
+  [`Server.RoomLen`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Server.RoomLen)
+  and [`Server.Rooms`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Server.Rooms)).
 
 ## v1.4.2 and earlier
 

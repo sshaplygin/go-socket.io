@@ -8,7 +8,7 @@ This is a maintained fork of the archived `googollee/go-socket.io`. The modernis
 plan, including Socket.IO protocol v5 support, is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ![Build Status](https://github.com/sshaplygin/go-socket.io/workflows/CI/badge.svg)
-[![GoDoc](https://pkg.go.dev/badge/github.com/sshaplygin/go-socket.io.svg)](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master)
+[![GoDoc](https://pkg.go.dev/badge/github.com/sshaplygin/go-socket.io.svg)](https://pkg.go.dev/github.com/sshaplygin/go-socket.io)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
 ## Compatibility
@@ -25,10 +25,10 @@ Details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 Install the maintained fork directly:
 
 ```sh
-go get github.com/sshaplygin/go-socket.io@master
+go get github.com/sshaplygin/go-socket.io@v1.x
 ```
 
-Earlier tags use the upstream module path; use `@master` until a release with the
+Earlier tags use the upstream module path; use the `v1.x` branch until a release with the
 fork's module path is tagged. Existing consumers must update their imports from
 `github.com/googollee/go-socket.io` to `github.com/sshaplygin/go-socket.io` and remove
 the former upstream-path `replace` directive, then run `go mod tidy`.
@@ -70,7 +70,7 @@ func main() {
 ```
 
 Runnable examples for gin, echo, iris, gf, CORS, Redis and graceful shutdown are in
-[_examples/](_examples/README.md). API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@master).
+[_examples/](_examples/README.md). API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io).
 
 ## Contributing
 

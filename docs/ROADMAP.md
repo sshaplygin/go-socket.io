@@ -1136,7 +1136,7 @@ frozen declaration. API.md (*Frozen contract*) lists the result; this table owns
 | Item | Decision | Reason | Left to |
 | --- | --- | --- | --- |
 | `Adapter`, `AdapterFactory`, `BroadcastOptions`, both hook structs | settled as declared (2.2, 2.4) | 2B consumers build on them; they match the roadmap text line for line | none |
-| `RemoteSocket` | settled: four fields as Node's `fetchSockets`; `Handshake` omits `auth` and the `authorization`, `cookie` and `proxy-authorization` headers; `Data` nil or valid JSON, no binary | a snapshot crosses node boundaries and reaches application code, so credentials must not travel in it; Node's own snapshot carries them, so a decoding adapter drops them too | producer API for `Data` (2.3S); conformance case (2.2) |
+| `RemoteSocket` | settled: four fields as Node's `fetchSockets`; `Handshake` omits exactly `auth` and the `authorization`, `cookie` and `proxy-authorization` headers and keeps every other key, header, `url` and `query` as Node does (they may carry credentials); `Data` nil or valid JSON, no binary | a snapshot crosses node boundaries and reaches application code; Node's own snapshot carries the three headers and `auth`, so a decoding adapter drops them too. The rest is not redacted because it is Node's own data that applications read back, a value filter would guess, and dropping more keys later changes observable snapshots; the limit is documented in the godoc and API.md | producer API for `Data` (2.3S); shared helper and conformance case (2.2, 4b) |
 | `BroadcastFlags` | settled: `Local` only | volatile and compress need the queue and codec design, timeout belongs to broadcast acks, which the contract does not have; a new field is additive for keyed literals | later flags, additive |
 | `Options` | settled: field names, budget names and the defaults of 2.3 *Resource limits* | the names were fixed by 2.3 and the tests pin the defaults | none |
 | Payload preview redaction | moved out: the redactor type and `engineio.Options.PayloadRedactor` removed from the skeleton | the boundary hands unredacted packet bytes to a trusted component; its method set follows from the fire points and the Socket.IO classifier, which 2.4E and 2.4S own; `PayloadPreviewBytes` and `PacketInfo.Preview` stay because 2.4 names them | 2.4E, 2.4S |
@@ -1259,13 +1259,22 @@ connection, not global across nodes; disconnect gaps have no replay guarantee.
 Conformance tests cover these semantics and concurrent join/leave/broadcast.
 
 *Snapshots and flags.* `RemoteSocket` follows Node's `fetchSockets` entry (`ID`, `Rooms`,
-`Handshake`, `Data`). `Handshake` is a JSON object with the Node key names; it never has
-an `auth` key and its `headers` omit `authorization`, `cookie` and `proxy-authorization`
-(compared without case). The producer drops them: the server for local sockets and, for a
-snapshot decoded from a peer, the adapter, because a Node peer sends them. `Data` is the slot
+`Handshake`, `Data`). `Handshake` is a JSON object with the Node key names. The guarantee is
+exactly this: it has no `auth` key and its `headers` omit `authorization`, `cookie` and
+`proxy-authorization` (compared without case). Nothing else is redacted: `url`, `query`,
+`address` and every other header (`set-cookie`, `x-api-key`, `x-auth-token`) pass through
+and may contain credentials, for example a token in `query`. They are Node's own fields
+that applications read back; a filter on values would guess, and omitting more keys later
+changes observable snapshots, so it is a contract change. An application keeps secrets out
+of the URL or removes them after `FetchSockets`. One helper does the omission,
+`adapter/codec.RedactHandshake` (created by this stage, depends on no root type): the
+server calls it for local sockets and every adapter calls it on a snapshot decoded from a
+peer, because a Node peer sends the omitted values. The conformance suite (memory adapter
+here, `adaptertest` in 4b for every broker adapter) decodes a peer snapshot that carries
+`auth`, the three headers in mixed case, `x-api-key` and a `query` token, and asserts that
+the first two groups are gone and the other two are unchanged. `Data` is the slot
 of `socket.data`: nil, or valid JSON; binary values are not representable, and a producer
-that cannot encode it returns the entries it can with an error. The conformance suite checks
-the omissions. `BroadcastFlags` is `{Local bool}`; volatile, compress and timeout are later
+that cannot encode it returns the entries it can with an error. `BroadcastFlags` is `{Local bool}`; volatile, compress and timeout are later
 additive fields. The adapter-facing `Namespace` API (reaching local sockets and delivering a
 broadcast received from a broker) is defined by this stage before root `v2.2.0`, additively.
 

@@ -72,7 +72,7 @@ from the declaration, and `make graph` checks the package graph.
 | `adapter.go` | `AdapterFactory` | `func(ctx, nsp *Namespace) (Adapter, error)` |
 | `adapter.go` | `BroadcastOptions` | `{Rooms, Except []Room; Flags BroadcastFlags}` |
 | `adapter.go` | `BroadcastFlags` | `{Local bool}`; other flags are later additive fields, so literals use field names |
-| `adapter.go` | `RemoteSocket` | `{ID SocketID; Rooms []Room; Handshake, Data json.RawMessage}`; `Handshake` never carries `auth` or credential headers, `Data` is nil or valid JSON |
+| `adapter.go` | `RemoteSocket` | `{ID SocketID; Rooms []Room; Handshake, Data json.RawMessage}`; `Handshake` omits `auth` and three headers only (see *Frozen at G2*), `Data` is nil or valid JSON |
 | `options.go` | `Options` | `{Logger *slog.Logger; Engine engineio.Options; Hooks *Hooks; Adapter AdapterFactory; AckTimeout time.Duration; OutboundQueueGroups, OutboundQueueBytes, HandlerQueueEvents, HandlerQueueBytes, MaxPendingAcks, MaxAttachments, MaxEventBytes, MaxConcurrentConnects int; AttachmentTimeout, ConnectTimeout time.Duration}`; defaults and units in the godoc |
 | `options.go` | `Options.Normalize` | `(Options) Normalize() (Options, error)` |
 | `options.go` | `Hooks` | 16 fields, signatures below |
@@ -149,9 +149,11 @@ Every declaration in the inventory above is frozen as written, with these points
 
 - `Adapter`, `AdapterFactory`, `BroadcastOptions`, `BroadcastResult`, both `Hooks` structs
   with their information and result types and constants (16 and 11 fields).
-- `RemoteSocket`: the four fields. `Handshake` is a JSON object that never has an `auth`
-  key and omits the `authorization`, `cookie` and `proxy-authorization` headers; `Data` is
-  nil or valid JSON, with no binary values.
+- `RemoteSocket`: the four fields. `Handshake` is a JSON object with Node's key names. The guarantee
+  is exactly: no `auth` key, and no `authorization`, `cookie` or `proxy-authorization` entry
+  in `headers`. `url`, `query` and all other headers pass through and may carry credentials;
+  ROADMAP 2.2 (*Snapshots and flags*) gives the reason and names the shared helper and the
+  conformance case. `Data` is nil or valid JSON, with no binary values.
 - `BroadcastFlags`: `Local` only.
 - `Options` and its budget fields: the names and `Normalize`; zero selects the bounded
   default and a negative value is rejected.

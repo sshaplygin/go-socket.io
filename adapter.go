@@ -54,13 +54,14 @@ type BroadcastFlags struct{ Local bool }
 // shaped like an entry of Node's fetchSockets: ID, Rooms, Handshake and Data.
 //
 // Handshake is a JSON object with the Node key names (headers, time, address, xdomain,
-// secure, issued, url, query). It never has an auth key, and its headers object
-// omits authorization, cookie and proxy-authorization (names compared without case);
-// the producer drops them, which for a snapshot decoded from a peer is the adapter
-// that decoded it. Data is the slot of Node's socket.data: nil means none, otherwise
-// valid JSON; binary values are not representable. A producer that cannot encode Data
-// returns the entries it can and an error. How an application sets Data is defined by
-// stage 2.3S. Producers copy every slice, and mutating a snapshot must not change
+// secure, issued, url, query). The guarantee is exactly this: no auth key, and no
+// authorization, cookie or proxy-authorization entry in headers (names compared
+// without case); the producer drops them, which for a snapshot decoded from a peer is
+// the adapter that decoded it. Nothing else is redacted: url, query, address and every
+// other header may carry credentials and are passed through as Node does. Data is the slot of Node's socket.data: nil
+// means none, otherwise valid JSON; binary values are not representable. A producer
+// that cannot encode Data returns the entries it can and an error. How an application
+// sets Data is defined by stage 2.3S. Producers copy every slice, and mutating a snapshot must not change
 // adapter state.
 type RemoteSocket struct {
 	ID        SocketID

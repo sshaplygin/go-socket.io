@@ -15,9 +15,10 @@ remaining work starts at stage 1 below. Existing application APIs stay on branch
 `v1.x` (cut in Stage 1b); v2 is a new core/API in this repository.
 
 The Engine.IO v4 preparation from `codex/eio4-payload` (inspected at
-`ee682282997b19309036e9c6fef6e248e06bc230`) has landed in `master` as unreferenced
-`internal/eio4` packages and the standalone `_experiments/eio4-websocket` module.
-Stage 2.1 owns their reuse and remaining integration work below.
+`ee682282997b19309036e9c6fef6e248e06bc230`) has landed in `master` and is in use: the polling
+codec is `engineio/payload`, the WebSocket codec and framing are in `engineio/transport/websocket`,
+and the standalone `eio4-websocket` and `ws-bench` modules are deleted. Stage 2.1 owns the
+remaining integration work below.
 The other prepared experiments are listed in Stage 2 *Prepared components*.
 
 ## Decisions
@@ -775,7 +776,7 @@ issue #2 ledger holds the same line). Between `$CUT` and the merge of step 3 onl
 `_examples/` and `engineio/_examples/` are outside the freeze, and `make examples` is
 their build gate. A PR that only adds files under `_experiments/<name>/` (a standalone
 module, rule in Stage 2 *Prepared components*) is exempt from the freeze and
-from the map and subject gates; the live tree, `internal/eio4` paths included, is not
+from the map and subject gates; the live tree is not
 exempt until G2. A `v1.x` fix is made
 on `v1.x` and forward-ported after step 3 (rule in
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases)), so it never conflicts with a rename.
@@ -1047,14 +1048,12 @@ the Node oracle or script checks of its module that it ran by hand. A module lan
 `master` through a fresh-branch cherry-pick PR of its owned commits (transfer rules in
 issue #2; #44, #45, #54, #55 and #53 landed this way and supersede draft PRs #8, #9, #1, #6 and #7); it is later
 absorbed into live packages by the PR that lands its consumer, and that PR deletes the
-experiment and its `Unreleased` CHANGELOG entry (today `adapter-rooms`,
-`eio4-websocket`, `ws-bench` and `sio5-codec`, plus the `internal/eio4` entry; `adapter-wire` went
-with the first 2.2 PR, which created `adapter/codec`). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
+experiment and its `Unreleased` CHANGELOG entry (today `adapter-rooms` and `sio5-codec`; `adapter-wire` went
+with the first 2.2 PR, which created `adapter/codec`, and `eio4-websocket`, `ws-bench` and the
+`internal/eio4` entry with the 2.1 WebSocket PR). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
 
 | Component (source PR) | Purpose | Consumer | State in `master` and retirement |
 | --- | --- | --- | --- |
-| `eio4` paths and `_experiments/eio4-websocket` (#1, landed as #54) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | landed, unreleased; the polling codec moved to `engineio/payload` and is in use by the polling transport (PR B); no production code references `engineio/transport/websocket/internal/eio4` yet, the 2.1 PR moves it into the live package; the module stays until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
-| `_experiments/ws-bench` (#6, landed as #55) | Gorilla vs gobwas component benchmark; requires `eio4-websocket` via a relative `replace` | 2.1 idle baseline (not RSS) | landed, unreleased; deleted when `gorilla/websocket` leaves the root `go.mod` at 2.1 (its own `go.mod` pins gorilla), and no later than `eio4-websocket` |
 | `_experiments/sio5-codec` (#7, landed as #53) | v5 wire codec, Node oracle | 2.3P `parser/` | landed, unreleased; the 2.3P PR absorbs it into `parser/` and deletes it |
 | `_experiments/adapter-rooms` (#9, landed as #45) | Node memory-adapter room corpus | 2.2 conformance | landed, unreleased; absorbed into the 2.2 tests by the PR that adds them, which deletes it |
 
@@ -1167,9 +1166,7 @@ runs them on Go 1.22 with `GOTOOLCHAIN=local`.
 
 ### 2.1 Engine.IO v4 and gobwas/ws
 
-Entry: G2. Exit: Engine.IO suite, transport/client tests and idle-connection baseline;
-`_experiments/ws-bench` and `_experiments/eio4-websocket` deleted (order in *Prepared
-components*).
+Entry: G2. Exit: Engine.IO suite, transport/client tests and idle-connection baseline.
 
 Reuse the prepared work that landed in `master` (#54, from the baseline's
 `codex/eio4-payload` revision). The 2.1 owner integrates it after G2, preserving tests
@@ -1178,8 +1175,7 @@ and updating imports to the v2 layout; do not repeat completed codec work.
 | Prepared component | Evidence | Remaining 2.1 integration |
 | --- | --- | --- |
 | `engineio/payload` (moved from `internal/eio4`) | polling codec, bounded `DecodeReader`, exact-wire `EncodeBatch`, fixtures/fuzz tests and pinned Node oracles | integrated by the polling transport (PR B): POST limits and status mapping, client batching, cancellation and deadlines, pause/upgrade lifecycle. Open: the open packet does not advertise `maxPayload` and the `EIO=4` check is absent until the session and server work (PRs D1/D2) |
-| `engineio/transport/websocket/internal/eio4` | complete-message EIO4 codec, binary/text fixtures and parser oracle | connect codec to the production transport and session lifecycle |
-| `_experiments/eio4-websocket` (own module) | gobwas framing prototype: masking, fragments, UTF-8, control frames, message limits and pinned `ws` peer | adapt `FrameReader`/`FrameWriter`, use `ws.Dialer`, preserve options/deadlines, implement protocol-error close status handling and integrate EIO handshake/heartbeat/upgrade |
+| `engineio/transport/websocket` (moved from `internal/eio4` and `_experiments/eio4-websocket`) | complete-message EIO4 codec with binary/text fixtures and parser oracle; gobwas framing (masking, fragments, UTF-8, control frames, message limits, close statuses) with a pinned `ws` peer oracle | integrated by the WebSocket transport (PR C): `FrameReader`/`FrameWriter` over the codec, `ws.Dialer`, deadlines and buffer options kept. Open: EIO handshake, heartbeat and upgrade lifecycle (PRs D1/D2); the `EIO=4` check; limits and timeouts as options (PR E) |
 
 Preparation policy remains explicit: polling reads are byte-bounded before
 buffering, then decoded as a complete batch without an additional packet-count cap.
@@ -1189,10 +1185,10 @@ Keep canonical base64/UTF-8 validation and fixtures for intentional differences 
 Node: exact base64 batching, oversized-first-packet rejection and no partial decode
 on invalid batches. The advertised `maxPayload` limits client POSTs, not server responses; the Go client reads a response up to `Transport.MaxPayload` and fails the session above it (docs/PROTOCOL.md). Reuse
 locked reference versions, recording changes when refreshed; these oracles establish
-component behaviour, not full Go-server conformance. The experiment is outside root
-`go test ./...`: run its own race tests and Node oracle until it is retired after
-production integration. Re-run all codec, reader, batching and framing checks after
-porting; existing branch Go race tests passed during this roadmap review.
+component behaviour, not full Go-server conformance. The Node oracles are outside the
+required `go test ./...` set: they run by hand (`engineio/payload/testdata/README.md`,
+`engineio/transport/websocket/testdata/README.md`), and `TestNodeOracle` runs the `ws`
+peer against the WebSocket transport when its dependencies are installed.
 
 - Replace the legacy `engineio/payload`/`pauser` transport integration using these
   codecs; complete the session lifecycle work rather than rewriting codecs again.
@@ -1209,14 +1205,18 @@ porting; existing branch Go race tests passed during this roadmap review.
   `wsutil.Writer` so the `FrameReader`/`FrameWriter` contract is preserved; control
   frames handled by `wsutil.ControlFrameHandler`; one write mutex per connection;
   `CheckOrigin`, `ReadBufferSize`, `WriteBufferSize` options kept. The client
-  (`engineio/client`) uses `ws.Dialer`. `gorilla/websocket` removed from `go.mod`. Both `engineio.Server` and
+  (`engineio/client`) uses `ws.Dialer`. `gorilla/websocket` removed from `go.mod`. Decisions: `permessage-deflate` is not
+  negotiated; `Transport.Proxy` is kept as an `http` CONNECT wrapper around `NetDial` (other proxy
+  schemes fail the dial); `Transport.MaxPayload` (default 1 MiB, as polling) bounds one message,
+  fragments together, until the limits options of PR E; the connection's `ServeHTTP` returns at
+  once, because the upgrade hijacked the connection. Both `engineio.Server` and
   `socketio.Server` assert `var _ http.Handler`; a wrapped `ResponseWriter` without
   `http.Hijacker` is answered with HTTP 501 and an `engineio: request rejected` line with
   `reason="no hijacker"`, never a panic.
 - CI job runs `socketio/engine.io-protocol/test-suite` (Node) against the Go server.
 - `BenchmarkIdleConnections` (10k websocket connections, RSS and goroutines) recorded
-  in `CHANGELOG.md` before and after the swap. The benchmark and the BEFORE numbers are
-  on `master` (`engineio/idle_bench_test.go`); the swap PR records the AFTER numbers.
+  in `CHANGELOG.md` before and after the swap (both recorded there, with the commands, from
+  `engineio/idle_bench_test.go`).
 - Bound decoded message size across polling and fragmented websocket frames, not
   just individual frame size. Initial configurable defaults: message limit 1 MiB,
   handshake and upgrade timeout 10 s each, write timeout 10 s. Preserve protocol

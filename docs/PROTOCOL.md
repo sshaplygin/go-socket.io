@@ -10,7 +10,7 @@ Package `engineio`.
 
 - Query parameter `EIO` is not checked; the server behaves as protocol v3 regardless.
 - Transports: `polling` (XHR only; the `j` JSONP parameter and the `b64` parameter are
-  ignored, as in Engine.IO v4) and `websocket` (`gorilla/websocket`). Order and upgrade path come from `engineio.Options.Transports`,
+  ignored, as in Engine.IO v4) and `websocket` (`gobwas/ws`). Order and upgrade path come from `engineio.Options.Transports`,
   default `[polling, websocket]`.
 - Handshake (`OPEN` packet) carries `sid`, `upgrades`, `pingInterval` (default 20 s),
   `pingTimeout` (default 60 s). There is no `maxPayload`.
@@ -30,6 +30,24 @@ Package `engineio`.
   open packet carries none, as this server's does today. Sessions are looked up by `sid`; an unknown `sid` is HTTP 400.
   The handshake, heartbeat and `EIO` check of this section are still v3 until the
   rest of 2.1 lands; the heading of this section flips with that change.
+- WebSocket framing (Engine.IO v4, ahead of the rest of this section): one packet per data
+  message. A text message is the type byte and the data; a binary message is the raw data of
+  a MESSAGE packet with no type byte, and the text form `b` + base64 is read as a binary
+  MESSAGE. The server hijacks the HTTP/1.1 request (`ws.UpgradeHTTP`); a response writer
+  that is not an `http.Hijacker`, as with HTTP/2, is answered with HTTP 501 and logged as
+  `engineio: request rejected` with `reason="no hijacker"`. No extension is negotiated, so
+  `permessage-deflate` is not supported, and no subprotocol is selected by the server. A
+  message is limited to the transport's `MaxPayload` (default 1 MiB,
+  `websocket.Transport.MaxPayload`), the fragments of one message together, checked before
+  they are buffered. The peer is told why it is cut off with a close frame, then the TCP
+  connection closes: status 1009 for an oversized message, 1007 for invalid UTF-8 and
+  1002 for a framing violation (unmasked client frame, reserved bits or opcode, a stray
+  continuation) or an invalid Engine.IO packet (empty text, unknown type byte, malformed
+  base64). A received close frame is answered with its status and closes the connection. Ping
+  and pong control frames, also between fragments, are answered by the transport and are
+  not Engine.IO packets. A handshake rejected by the origin check (`CheckOrigin`, by default
+  same origin) is HTTP 403. The WebSocket `Proxy` hook supports `http` proxies through
+  CONNECT only.
 - Upgrade polling → websocket:
 
 ```mermaid
@@ -73,7 +91,8 @@ only, and `master` keeps the packet codec in `parser`.
 ## Known deviations from the v3/v4 specs
 
 - No `maxPayload` handshake field is sent yet (the client reads it when present), and
-  the websocket transport has no message size limit. The polling POST limit is above.
+  the websocket message limit is the transport's default 1 MiB, not the advertised value. The
+  polling POST limit and the websocket limit are above.
 - CONNECT to a namespace without a registered handler closes the connection instead
   of answering with an ERROR packet.
 - `Header.Query` is never exposed to handlers.
@@ -89,7 +108,7 @@ Engine.IO v3 → v4:
 | Query | `EIO` ignored | `EIO=4` required, otherwise HTTP 400 with JSON error code 5 |
 | Handshake | `sid`, `upgrades`, `pingInterval`, `pingTimeout` | plus `maxPayload` |
 | Heartbeat | client sends `2`, server answers `3` | server sends `2` every `pingInterval`, client answers `3` within `pingTimeout` |
-| WebSocket | one packet per frame | unchanged; binary frames carry raw bytes |
+| WebSocket | one packet per frame, binary frames start with a type byte | unchanged; binary frames carry raw bytes (done, see above) |
 | Upgrade | `2probe` / `3probe` / `5` | unchanged, plus server sends `6` (NOOP) into the pending poll |
 | Errors | plain text | JSON `{"code": N, "message": "..."}`, codes 0..5 |
 

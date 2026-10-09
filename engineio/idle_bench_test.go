@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -42,6 +44,10 @@ import (
 // are its own; the dialing client sessions live in the benchmark process and are not
 // counted. The subprocess inherits RLIMIT_NOFILE, which the benchmark raises to about
 // 2*N; if the hard limit is lower, the benchmark skips with the limit in the message.
+//
+// Run one 10000-connection benchmark at a time, with -count=1: on macOS the TIME_WAIT
+// entries of a finished run keep the ephemeral port range exhausted for about a minute
+// and the next run fails to dial (the error says so).
 //
 // Only the public engineio.Server, client.Dialer and websocket.Default are used, so the
 // same file measures any WebSocket implementation behind them. The benchmark skips
@@ -116,7 +122,11 @@ func runIdleIteration(b *testing.B, n int) idleResult {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	addr, pid, stop := startIdleServer(b, ctx)
-	defer stop()
+	// Kill the server before the clients close: the side that closes first keeps the
+	// TIME_WAIT entries, and 10k of them on the client side exhaust the ephemeral ports of
+	// the next run on macOS.
+	closeAll := func() {}
+	defer func() { stop(); closeAll() }()
 
 	hc := &http.Client{Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}}
 	before := fetchIdleStats(b, hc, addr)
@@ -142,6 +152,9 @@ func runIdleIteration(b *testing.B, n int) idleResult {
 				}
 				c, err := dialer.Dial("http://"+addr+"/", nil)
 				if err != nil {
+					if errors.Is(err, syscall.EADDRNOTAVAIL) {
+						err = fmt.Errorf("%w (ephemeral ports are exhausted, usually by TIME_WAIT entries of a previous run: wait a minute)", err)
+					}
 					firstErr.CompareAndSwap(nil, fmt.Errorf("dial %d/%d: %w", i+1, n, err))
 					failed.Add(1)
 					return
@@ -167,7 +180,7 @@ func runIdleIteration(b *testing.B, n int) idleResult {
 	dialers.Wait()
 	connect := time.Since(began)
 
-	closeAll := func() {
+	closeAll = func() {
 		var wg sync.WaitGroup
 		for _, c := range conns {
 			if c == nil {
@@ -179,7 +192,6 @@ func runIdleIteration(b *testing.B, n int) idleResult {
 		wg.Wait()
 		readers.Wait()
 	}
-	defer closeAll()
 	if failed.Load() != 0 {
 		b.Fatalf("%v", firstErr.Load())
 	}

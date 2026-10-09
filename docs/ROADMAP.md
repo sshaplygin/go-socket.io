@@ -57,7 +57,7 @@ workers submit changes to these files through that integrator.
 | 1b | stage 1 and the 1.D link-form commit merged, `master` green (the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner, who is also the integrator for the CI, Dependabot and `CHANGELOG.md` files of steps 0b to 0d; moves/merges applied sequentially | M1b: the Stage 1b DoD, `v1.x` gates and Acceptance blocks |
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
-| 2C | 2B | 2.3S server/namespace runtime (root socket files); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including the 2.3S *Readiness* test) pass; dispatch baseline recorded |
+| 2C | 2B | 2.3S server/namespace runtime (root socket files); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
 | 2E | 2D | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
 | 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 pre-release gate, then publication verification |
@@ -1237,41 +1237,39 @@ creates no namespace, `/` included; a CONNECT to one the application has not cre
 unknown. In tests *at once* means within 100 ms. 2.3S implements the server side and
 owns its root test; 4b reproduces the broker cases.
 
-- *Creation:* a namespace is created only by `Server.Namespace` and registered only
-  when the factory returned it. A CONNECT never creates one: a CONNECT to a namespace
-  that is not registered, including one being created, is rejected as unknown; dynamic
+- *Creation:* a namespace is created only by `Server.Namespace` and registered only when
+  the factory returned it. A CONNECT never creates one: a CONNECT to a namespace that is
+  not registered, including one being created, is rejected as unknown; dynamic
   namespaces (2.4) have no owner stage yet, and the stage that adds them defines how a
-  CONNECT waits. One call decides in this order: (1) once shutdown has begun it
-  returns an error matching `ErrNamespaceClosed`, also for a registered namespace, and
-  calls no factory, so a handler running during the drain keeps the `*Namespace` it
-  holds; (2) a registered namespace is returned without calling the factory; (3) a
-  creation in progress is waited for, and its namespace or error returned; (4)
-  otherwise the server calls `AdapterFactory` outside every lock that packet dispatch
-  reads. Steps (1) and (2) ignore `ctx`; a `ctx` already done at (3) or (4) returns
-  its error at once, and at (4) calls no factory. An error returned after shutdown
-  began also matches `ctx.Err()` when the caller's `ctx` had ended. On a factory error nothing is registered, the call returns
-  the error wrapped with `%w` and naming the namespace, and a later call calls the
-  factory again. The factory context is the server's. The call's `ctx` bounds only
-  its caller's wait: when it ends first, the call returns an error matching `ctx.Err()`
-  and the creation goes on. A creation outlives its callers: when none is
-  left and shutdown has not begun, a successful result is still registered (the next
-  call returns it by step 2) and is closed by `Shutdown` or `Close` like any other, so
-  an abandoned creation leaks nothing. A broker adapter returns only after the broker
+  CONNECT waits. One call decides in this order: (1) once shutdown has begun it returns
+  an error matching `ErrNamespaceClosed`, also for a registered namespace, and calls no
+  factory; (2) a registered namespace is returned without calling the factory; (3) a
+  creation in progress is waited for, and its namespace or error returned; (4) otherwise
+  the server calls `AdapterFactory` outside every lock that packet dispatch reads. Steps
+  (1) and (2) ignore `ctx`; a `ctx` already done at (3) or (4) returns its error at
+  once, and at (4) calls no factory. An error returned after shutdown began also matches
+  `ctx.Err()` when the caller's `ctx` had ended. On a factory error nothing is
+  registered, the call returns the error wrapped with `%w` and naming the namespace, and
+  a later call calls the factory again. The factory context is the server's. The call's
+  `ctx` bounds only its caller's wait: when it ends first, the call returns an error
+  matching `ctx.Err()` and the creation goes on. A creation outlives its callers: when
+  none is left and shutdown has not begun, a successful result is still registered (the
+  next call returns it by step 2) and is closed by `Shutdown` or `Close` like any other,
+  so an abandoned creation leaks nothing. A broker adapter returns only after the broker
   it is connected to confirmed its subscriptions, or with an error within a bound it
-  documents as an option, leaving nothing of its own open. That is all the
-  confirmation proves: with one Redis master it covers every peer, but a NATS flush
-  does not show that the other servers of a NATS cluster, gateway or leafnode link
-  have the interest, so a peer's broadcast right after construction can be missed
-  there (4b `adapters/nats`).
+  documents as an option, leaving nothing of its own open. That is all the confirmation
+  proves: one Redis master covers every peer, but a NATS flush does not show that other
+  servers of a cluster, gateway or leafnode link have the interest, so a peer's
+  broadcast right after construction can be missed there (4b `adapters/nats`).
 - *Shutdown:* `Shutdown` and `Close` cancel the factory context when they begin;
   `Shutdown` waits for factory calls in progress, callers or not, until its deadline,
   `Close` does not wait. A creation that ends after either has begun returns an error
   matching `ErrNamespaceClosed` whatever the factory returns: the server closes a
-  returned adapter exactly once (before the call returns when a caller waits) and
-  wraps a factory error alongside with a second `%w`. That cancellation also reaches
-  adapters already built, while the drain still broadcasts, so the factory context
-  bounds only the factory call: an adapter derives no lifetime from it, stops any
-  `context.AfterFunc` on it before returning, and lives until `Adapter.Close`.
+  returned adapter exactly once (before the call returns when a caller waits) and wraps
+  a factory error alongside with a second `%w`. The cancellation also reaches built
+  adapters while the drain still broadcasts, so the factory context bounds only the
+  factory call: an adapter derives no lifetime from it, stops any `context.AfterFunc` on
+  it before returning, and lives until `Adapter.Close`.
 - *Restoring:* a broker adapter is restoring from the moment it observes the loss of
   a subscription (a receive or connection error) until the broker confirms the new
   one; before it observes the loss, queries can undercount without an error, an
@@ -1367,27 +1365,34 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
 - `BenchmarkEventDispatch` (root) is added with the new model, so stage 2.4 has a real
   baseline.
 - Rewrite `Client` on the same generic API with websocket over `gobwas/ws`.
-- 2.3S implements the server side of 2.2 *Readiness*. Its root test, part of the 2C join
-  gate, uses a factory held until its context ends. When it then returns an adapter at
-  once, `Close` during the call returns at once, the call's error matches
-  `ErrNamespaceClosed`, and the adapter has been closed exactly once when the call
-  returns; when it returns `ctx.Err()`, the error matches both `ErrNamespaceClosed` and
-  `context.Canceled`. When the factory returns an adapter 100 ms after its context ends,
-  `Shutdown` with a 1 s deadline does not return before the factory does, and with a 20
-  ms deadline returns before it; either way, with the creating call's caller present or
-  with every caller's `ctx` cancelled first, the adapter is closed exactly once, at once
-  after the factory returns. While `Shutdown` drains (a handler blocks it) or
-  after `Close`, a call for a registered namespace and a call arriving during a creation
-  in progress return `ErrNamespaceClosed` at once and call no factory. A factory error
-  comes back matching the error and naming the namespace, and the next call calls the
-  factory again. A done `ctx` returns the registered namespace, and for an unregistered
-  one returns its error without calling the factory. Eight concurrent creations of one
-  namespace under `-race`, with the factory held for 100 ms, call it once and get the
-  same namespace. While a creation is held, a CONNECT to its namespace is answered
-  CONNECT_ERROR at once and calls no factory. With every caller's `ctx` cancelled while
-  the factory is held, each call returns an error matching its `ctx.Err()`; when the
-  factory then returns an adapter, the next call returns that namespace without calling
-  the factory again and `Close` closes the adapter exactly once.
+- 2.3S implements the server side of 2.2 *Readiness*. Its root test is
+  `TestNamespaceReadiness`, with the subtests `R1` to `R8` below; the 2C join gate runs
+  `go test -race -count=1 -json -run '^TestNamespaceReadiness$' .` and requires a pass
+  event for each, none skipped. An adapter's close count is read when the call returns
+  and again 100 ms after `Close` or `Shutdown` has returned, and is 1 both times.
+  - R1: a factory held until its context ends, then returning an adapter at once: `Close`
+    during the call returns at once and the call's error matches `ErrNamespaceClosed`
+    (also `context.Canceled` when the factory returns `ctx.Err()`).
+  - R2: a factory returning an adapter 300 ms after its context ends: `Shutdown` with a
+    1 s deadline does not return before the factory, with a 20 ms deadline returns before
+    it, `Close` returns before it, and the creating call returns `ErrNamespaceClosed`
+    only after it; with the caller present and with every caller's `ctx` cancelled first.
+  - R3: while `Shutdown` drains (a handler blocks it) and after `Close`, calls for a
+    registered namespace, for an unregistered one and during a creation in progress
+    return `ErrNamespaceClosed` at once without calling the factory; after `Close` a
+    cancelled `ctx` also matches `context.Canceled`.
+  - R4: a factory error comes back matching the error and naming the namespace; the next
+    call calls the factory again.
+  - R5: a done `ctx` returns the registered namespace; for an unregistered one it returns
+    its error without calling the factory; while a creation is held, an already-cancelled
+    `ctx` returns an error matching `context.Canceled` at once and the creation goes on.
+  - R6: eight concurrent creations of one namespace under `-race`, the factory held for
+    100 ms, call it once and get the same namespace.
+  - R7: while a creation is held, a CONNECT to its namespace is answered CONNECT_ERROR
+    at once and calls no factory.
+  - R8: with every caller's `ctx` cancelled while the factory is held, each call returns
+    an error matching its `ctx.Err()`; the factory then returns an adapter, the next call
+    returns that namespace without calling the factory and `Close` closes it once.
 - Example migration is owned by 2.5D after runtime and observability gates pass.
 
 ### 2.4 Observability

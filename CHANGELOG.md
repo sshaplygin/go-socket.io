@@ -58,6 +58,41 @@ All notable changes to this project are documented here. The format follows
   `make g2` run the gate checks. The `engineio` payload redactor type and
   `Options.PayloadRedactor` are not part of the skeleton: stage 2.4E defines the boundary.
   `LocalSockets` and `Namespace.LocalSockets` declare how an adapter delivers to local sockets.
+- `engineio.BenchmarkIdleConnections` (`engineio/idle_bench_test.go`): opens N idle
+  websocket sessions against an `engineio.Server` running in a subprocess and reports the
+  server's RSS and goroutines. N is 200 by default and `IDLE_CONNS=10000` selects the
+  roadmap figure. It uses only `engineio.Server`, `client.Dialer` and `websocket.Default`,
+  so the same file measures the `gobwas/ws` transport; it skips outside linux and darwin.
+  Test code only, no change to the library.
+
+  Baseline for roadmap 2.1, BEFORE the `gobwas/ws` swap (Engine.IO v3 server on
+  `gorilla/websocket` v1.5.3, the library code of `cb0dd90`; the benchmark commits
+  add test files only, so the measured library code is identical). Apple M1 Max (10 cores, 32 GiB),
+  macOS 26.2 (Darwin 25.2.0), Go 1.25.5 darwin/arm64, server and clients on loopback on the
+  same machine. Three separate runs of
+
+  ```sh
+  IDLE_CONNS=10000 go test -count=1 -run '^$' -bench BenchmarkIdleConnections -benchtime=1x ./engineio/
+  ```
+
+  gave, per run, server RSS after 10000 sessions of 284.1, 285.2 and 286.2 MiB
+  (`rss-total-MiB`; 13.1-13.3 MiB before the first session, so 28449, 28554 and
+  28656 B per session), 20006 server goroutines (6 before, 2.00 per session) and a
+  connect phase of 480, 531 and 539 ms (48.0, 53.1 and 53.9 us per session with 32
+  parallel dialers). The default, `go test -run '^$' -bench BenchmarkIdleConnections
+  -benchmem -count=5 ./engineio/` (N=200; its numbers are in the `--- BENCH` log line, because
+  the benchmark workflow's report tool accepts only the standard metric units), gave 20.8-21.3 MiB RSS (40305-42844 B per
+  session, higher per session than at 10000 because one-time warm-up of a cold server is
+  counted), 406 server goroutines (2.00 per
+  session) and 1.24-1.28 s per run, which includes a one-second idle hold. These are one
+  machine and one set of runs, advisory, not a performance claim; a run is shorter than the
+  default 20 s ping interval, so heartbeat cost is not measured, and the Linux path was run
+  only on the CI runner, its figures are not recorded here; the AFTER numbers are
+  recorded by the swap PR with the same command. RSS is read with `ps -o rss=` after the
+  server ran `debug.FreeOSMemory`. A goroutine dump of the server at 50 sessions shows the
+  two goroutines per session: the `net/http` handler goroutine of the upgrade request,
+  blocked in the websocket transport's `ServeHTTP`, and the benchmark's own read loop
+  (one `NextReader` per accepted session, as `socketio.Server` starts per connection).
 
 ### Changed
 

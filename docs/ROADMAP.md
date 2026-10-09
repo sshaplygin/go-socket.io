@@ -1215,7 +1215,8 @@ porting; existing branch Go race tests passed during this roadmap review.
   `reason="no hijacker"`, never a panic.
 - CI job runs `socketio/engine.io-protocol/test-suite` (Node) against the Go server.
 - `BenchmarkIdleConnections` (10k websocket connections, RSS and goroutines) recorded
-  in `CHANGELOG.md` before and after the swap.
+  in `CHANGELOG.md` before and after the swap. The benchmark and the BEFORE numbers are
+  on `master` (`engineio/idle_bench_test.go`); the swap PR records the AFTER numbers.
 - Bound decoded message size across polling and fragmented websocket frames, not
   just individual frame size. Initial configurable defaults: message limit 1 MiB,
   handshake and upgrade timeout 10 s each, write timeout 10 s. Preserve protocol

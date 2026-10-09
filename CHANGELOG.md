@@ -134,6 +134,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- CI: run `govulncheck` in the lint job with the newest Go release published by go.dev,
+  because the `setup-go` manifest can lag and report fixed standard-library vulnerabilities.
 - CI: a `min-go` job builds and race-tests the root module on Ubuntu with Go 1.22
   and `GOTOOLCHAIN=local`, so a `go.mod` or dependency that requires a newer Go
   fails CI instead of downloading a newer toolchain (stage 1 DoD).

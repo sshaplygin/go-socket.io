@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -256,6 +257,52 @@ func TestJSONDecode(t *testing.T) {
 	if _, err := JSON[json.Number](Limits{MaxEventBytes: 3}).Decode(Arguments{Values: raws(`12345`)}); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("%v", err)
 	}
+}
+
+func TestJSONDecodeRepeatedReferences(t *testing.T) {
+	t.Run("amplification probe", func(t *testing.T) {
+		// One 100,000-byte attachment referenced 4000 times: 220 KB on the wire, 400 MB
+		// once every reference owns its bytes.
+		refs := make([]string, 4000)
+		for i := range refs {
+			refs[i] = string(Placeholder(0))
+		}
+		a := Arguments{Values: raws("[" + strings.Join(refs, ",") + "]"), Attachments: [][]byte{make([]byte, 100000)}}
+		if err := a.Validate(Limits{}); err != nil {
+			t.Fatalf("the message is within the limits on the wire: %v", err)
+		}
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		_, err := JSON[[][]byte](Limits{}).Decode(a)
+		runtime.ReadMemStats(&after)
+		if !errors.Is(err, ErrTooLarge) {
+			t.Fatalf("Decode = %v, want ErrTooLarge", err)
+		}
+		if grown := after.TotalAlloc - before.TotalAlloc; grown > 32<<20 {
+			t.Fatalf("Decode allocated %d MiB before it refused", grown>>20)
+		}
+	})
+	t.Run("bound", func(t *testing.T) {
+		const max = 1000
+		ph := string(Placeholder(0)) + "," + string(Placeholder(1))
+		value := "[" + ph + "]"
+		half := (max - len(value)) / 2
+		a := Arguments{Values: raws(value), Attachments: [][]byte{make([]byte, half), make([]byte, max-len(value)-half)}}
+		got, err := JSON[[][]byte](Limits{MaxEventBytes: max}).Decode(a)
+		if err != nil || len(got) != 2 || len(got[0]) != half || len(got[1]) != max-len(value)-half {
+			t.Fatalf("distinct references summing to the limit: %d %v", len(got), err)
+		}
+		// One more reference to the first attachment makes the expansion exceed the limit
+		// although the message itself still fits.
+		again := "[" + ph + "," + string(Placeholder(0)) + "]"
+		a = Arguments{Values: raws(again), Attachments: [][]byte{make([]byte, half), make([]byte, max-len(again)-half)}}
+		if err := a.Validate(Limits{MaxEventBytes: max}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := JSON[[][]byte](Limits{MaxEventBytes: max}).Decode(a); !errors.Is(err, ErrTooLarge) {
+			t.Fatalf("repeated reference past the limit: %v", err)
+		}
+	})
 }
 
 func TestJSONRoundTripThroughPackets(t *testing.T) {

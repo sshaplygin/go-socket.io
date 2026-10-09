@@ -32,9 +32,12 @@ var (
 // meets a string or an interface decodes to the base64 text encoding/json gives bytes.
 //
 // Encode copies the bytes it keeps and does not modify its argument; Decode returns
-// owned values and does not modify or retain its argument. Both enforce limits (zero
-// fields select the defaults of Limits) and return ErrArity unless exactly one
-// argument is present.
+// owned values and does not modify or retain its argument. A placeholder that is
+// referenced more than once decodes to one copy of its attachment per reference, so
+// Decode counts every reference against Limits.MaxEventBytes: the bytes of the value
+// plus the bytes of all references, repeated ones included, must not exceed it, or
+// Decode returns ErrTooLarge. Both enforce limits (zero fields select the defaults of
+// Limits) and return ErrArity unless exactly one argument is present.
 //
 // Encode supports the types encoding/json does, with these exceptions that apply only
 // to a value that holds a BinaryValue: a map key must have the string kind, a struct
@@ -64,9 +67,23 @@ func JSON[T any](limits Limits) ArgumentCodec[T] {
 			}
 			raw := []byte(a.Values[0])
 			if hasPlaceholder(raw) {
-				tree, err := walkPlaceholders(raw, len(a.Attachments), func(i int) any { return a.Attachments[i] })
+				// Every reference expands to its own copy of the attachment, so a
+				// repeated reference counts again. Validate bounded the message once;
+				// the expansion is bounded by the same MaxEventBytes.
+				budget, overflow := l.MaxEventBytes-len(raw), false
+				tree, err := walkPlaceholders(raw, len(a.Attachments), func(i int) any {
+					if overflow || len(a.Attachments[i]) > budget {
+						overflow = true
+						return nil
+					}
+					budget -= len(a.Attachments[i])
+					return a.Attachments[i]
+				})
 				if err != nil {
 					return zero, err
+				}
+				if overflow {
+					return zero, ErrTooLarge
 				}
 				if raw, err = marshalTree(tree); err != nil {
 					return zero, err

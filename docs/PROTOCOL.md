@@ -99,7 +99,9 @@ Deliberate differences from the Node.js parser:
   count, byte and depth limits are checked here; Node's decoder waits for missing
   attachments instead of failing, so the `Assembler` adds a deadline.
 - Unreferenced attachments and repeated placeholder indices are accepted, as by
-  Node; each decoded reference owns its bytes where Node shares one buffer.
+  Node; each decoded reference owns its bytes where Node shares one buffer. Because
+  that multiplies memory, `JSON[T]` decoding counts every reference, repeated ones
+  included, against `Limits.MaxEventBytes` and returns `ErrTooLarge` past it.
 - JSON decoding replaces an unpaired UTF-16 surrogate escape in a string by U+FFFD
   when a value is decoded into a Go string; the raw `Packet.Data` keeps the escape.
 

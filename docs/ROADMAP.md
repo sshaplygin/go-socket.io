@@ -1036,9 +1036,9 @@ An `_experiments/<name>/` directory is a standalone module with its own `go.mod`
 never imported by the root module and not listed in `go.work`; it never joins `./...`.
 This rule is permanent (the Stage 1b freeze exempts such PRs only for the 1b window).
 The command check of these clauses is the `_experiments stays standalone` line of the
-Stage 1b DoD, which stays a gate after 1b by reference; the experiments CI job, planned
-in a separate CI PR, must run it (per-module vet, lint and tests do not cover these
-clauses). A module lands in `master` through a fresh-branch cherry-pick PR of its
+Stage 1b DoD, which stays a gate after 1b by reference. The `experiments` CI job
+(`make experiments`, described in `CLAUDE.md`) exists but does not run that line:
+per-module vet, lint and tests do not cover these clauses. A module lands in `master` through a fresh-branch cherry-pick PR of its
 owned commits (transfer rules in issue #2); it is later absorbed into live packages by the PR that lands its
 consumer, and that PR deletes the experiment. A draft PR does not satisfy a gate.
 

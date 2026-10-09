@@ -2311,8 +2311,9 @@ handlers, `errors.Is` and the `ft.In(0).Name() == "Conn"` check in `handler.go` 
 before. Compatibility is judged at source level: apidiff and `gorelease` report the alias
 move as incompatible although consumers compile unchanged, so the DoD proves it with a
 consumer program and does not run `gorelease`.
-`client` may import `engineio`, `engineio/transport/...`, `parser` and `logger`; only the
-root and the examples import `client`. It carries its own copy, taken from `$TIP`, of the
+`client` may import any `engineio/...` package (`engineio/session` included), `parser` and
+`logger`, and never the root package, adapters or Redis (a DoD line checks the closure);
+only the root and the examples import `client`. It carries its own copy, taken from `$TIP`, of the
 closure the old `Client` reaches (write queue, packet handlers, client-side namespace
 connection, handler dispatch, an unexported in-memory broadcast behind `Namespace.Join`,
 `Leave`, `LeaveAll` and `Rooms`), without Redis and server-only code. The only server-path
@@ -2355,7 +2356,8 @@ stage commits are titled `<type>(7.<n>): ...`, so later `v1.x` patches are not j
 ```sh
 TIP=${TIP:?the v1.x commit recorded in the Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base; R=$PWD; git worktree add -q --detach $BASE $TIP
 make lint test-race
-test -z "$(go list -deps ./client | grep -E "^$MOD$|redigo")"   # no import cycle, no Redis broadcast
+D=$(go list -deps ./client)   # not piped inside test -z: a failing go list (import cycle) must stop the script
+test -z "$(echo "$D" | grep -E "redigo|^$MOD(/|$)" | grep -vE "^$MOD/(client|engineio|parser|logger)(/|$)")"   # only the allowed imports
 test -n "$(go list -deps . | grep -x "$MOD/client")"
 for X in Client NewClient; do test -n "$(go doc . $X | grep -E "^ *Deprecated: use client\.$X\.")"; done   # fails on v1.x: no notices
 cl() { awk '/^## Unreleased/{u=1;next} /^## /{u=0} u && /^### /{s=$2} u && s=="'$1'"' CHANGELOG.md; }

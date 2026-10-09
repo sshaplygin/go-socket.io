@@ -1044,17 +1044,18 @@ experiments`; until it does, each landing PR runs the line by hand and records t
 result in its body. `make experiments` runs Go checks only, so a landing PR also records
 the Node oracle or script checks of its module that it ran by hand. A module lands in
 `master` through a fresh-branch cherry-pick PR of its owned commits (transfer rules in
-issue #2); it is later absorbed into live packages by the PR that lands its consumer,
-and that PR deletes the experiment. A draft PR does not satisfy a gate.
+issue #2; #44 and #45 landed this way and supersede draft PRs #8 and #9); it is later
+absorbed into live packages by the PR that lands its consumer, and that PR deletes the
+experiment. A draft PR does not satisfy a gate.
 
-| Component (draft PR) | Purpose | Consumer | Lands in `master` |
+| Component (source PR) | Purpose | Consumer | State in `master` and retirement |
 | --- | --- | --- | --- |
-| `eio4` paths and `_experiments/eio4-websocket` (#1) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | after G2, wave 2B: `internal/eio4` paths in live packages; the module until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
-| `_experiments/ws-bench` (#6) | Gorilla vs gobwas component benchmark; requires `eio4-websocket` via a relative `replace` | 2.1 idle baseline (not RSS) | after G2, with or after `eio4-websocket`; deleted when `gorilla/websocket` leaves the root `go.mod` at 2.1 (its own `go.mod` pins gorilla), and no later than `eio4-websocket` |
-| `_experiments/v2-api` (#4, #5) | 2.0 descriptor, Adapter and hook compile proof | 2.0 fixtures | standalone before 2.0 starts; does not satisfy G2; deleted when 2.0 lands its fixtures |
-| `_experiments/sio5-codec` (#7) | v5 wire codec, Node oracle | 2.3P `parser/` | after G2, wave 2B; absorbed into `parser/` |
-| `_experiments/adapter-wire` (#8) | pinned Node Redis adapter wire fixtures | 4A codec fixtures, `adapter/codec` (2.2) | any time, as a standalone module; absorbed into `adapter/codec` |
-| `_experiments/adapter-rooms` (#9) | Node memory-adapter room corpus | 2.2 conformance | any time, as a standalone module; absorbed into the 2.2 tests |
+| `eio4` paths and `_experiments/eio4-websocket` (#1) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | to land after G2, wave 2B: `internal/eio4` paths in live packages; the module until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
+| `_experiments/ws-bench` (#6) | Gorilla vs gobwas component benchmark; requires `eio4-websocket` via a relative `replace` | 2.1 idle baseline (not RSS) | to land after G2, with or after `eio4-websocket`; deleted when `gorilla/websocket` leaves the root `go.mod` at 2.1 (its own `go.mod` pins gorilla), and no later than `eio4-websocket` |
+| `_experiments/v2-api` (#4, #5) | 2.0 descriptor, Adapter and hook compile proof | 2.0 fixtures | to land as a standalone module before 2.0 starts; does not satisfy G2; deleted when 2.0 lands its fixtures |
+| `_experiments/sio5-codec` (#7) | v5 wire codec, Node oracle | 2.3P `parser/` | to land after G2, wave 2B; absorbed into `parser/` |
+| `_experiments/adapter-wire` (#8, landed as #44) | pinned Node Redis adapter wire fixtures | `adapter/codec` (2.2), then 4A codec fixtures | landed, unreleased; the 2.2 PR that creates `adapter/codec` absorbs and deletes it, and 4A reads the fixtures from there |
+| `_experiments/adapter-rooms` (#9, landed as #45) | Node memory-adapter room corpus | 2.2 conformance | landed, unreleased; absorbed into the 2.2 tests by the PR that adds them, which deletes it |
 
 ### 2.0 Generic API and lifecycle contract
 

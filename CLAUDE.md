@@ -55,7 +55,7 @@ because `setup-go` lags behind it), `test` (race tests on
 ubuntu, macos and windows with `stable` and `oldstable` Go), `min-go` (build and
 race tests of the root module on ubuntu with the latest Go 1.22.x and
 `GOTOOLCHAIN=local`, so it fails if `go.mod` or a dependency requires a newer Go)
-and `examples` (`make examples`). Dependabot groups Go minor/patch and Actions updates weekly.
+and `examples` (`make examples`). Dependabot groups Go minor/patch and Actions updates weekly, also for the v1.x branch (target-branch).
 
 Benchmarks (`.github/workflows/benchmarks.yml`) compare the PR base and head on
 one Ubuntu runner with the same stable Go toolchain. Each benchmark runs ten times;

@@ -143,6 +143,8 @@ func TestInvalidPacketClosesWith1002(t *testing.T) {
 			code, _ := ws.ParseCloseFrameData(f.Payload)
 			assert.Equal(t, ws.OpClose, f.Header.OpCode)
 			assert.Equal(t, ws.StatusProtocolError, code)
+			_, err = ws.ReadFrame(raw)
+			require.Error(t, err, "the close frame is followed by the end of the stream")
 		})
 	}
 }
@@ -187,6 +189,42 @@ func TestMaxPayload(t *testing.T) {
 	require.NoError(t, err)
 	code, _ := ws.ParseCloseFrameData(f.Payload)
 	assert.Equal(t, ws.StatusMessageTooBig, code)
+}
+
+// A peer that is still sending when it is cut off must receive the close frame:
+// the server half-closes and drains instead of resetting the connection with
+// unread data in its receive buffer.
+func TestCloseFrameSurvivesUnreadData(t *testing.T) {
+	accepted := make(chan transport.Conn, 1)
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if c, err := (&Transport{MaxPayload: 16}).Accept(w, r); err == nil {
+			accepted <- c
+		}
+	}))
+	defer s.Close()
+	raw, _, _, err := ws.Dial(context.Background(), wsURL(t, s).String())
+	require.NoError(t, err)
+	defer func() { _ = raw.Close() }()
+	srv := <-accepted
+	defer func() { _ = srv.Close() }()
+
+	go func() { _ = wsutil.WriteClientBinary(raw, bytes.Repeat([]byte{1}, 256<<10)) }()
+	_, _, _, err = srv.NextReader()
+	require.ErrorIs(t, err, ErrTooLarge)
+	require.NoError(t, raw.SetReadDeadline(time.Now().Add(5*time.Second)))
+	f, err := ws.ReadFrame(raw)
+	require.NoError(t, err)
+	code, _ := ws.ParseCloseFrameData(f.Payload)
+	assert.Equal(t, ws.StatusMessageTooBig, code)
+	_, err = ws.ReadFrame(raw)
+	assert.ErrorIs(t, err, io.EOF)
+
+	// The reads and writes of the failed connection stop at once.
+	_, _, _, err = srv.NextReader()
+	require.ErrorIs(t, err, net.ErrClosed)
+	w, err := srv.NextWriter(frame.String, packet.MESSAGE)
+	require.NoError(t, err)
+	require.ErrorIs(t, w.Close(), net.ErrClosed)
 }
 
 // TestBufferSizes sends messages larger than WriteBufferSize, which wsutil splits

@@ -84,7 +84,7 @@ func newMessageConn(raw net.Conn, source io.Reader, clientSide bool, maxBytes, w
 func (c *messageConn) readMessage() (ws.OpCode, []byte, error) {
 	c.readMu.Lock()
 	defer c.readMu.Unlock()
-	if c.closed.Load() {
+	if c.closed.Load() || c.closing.Load() {
 		return 0, nil, net.ErrClosed
 	}
 	for {
@@ -125,7 +125,7 @@ func (c *messageConn) writeMessage(op ws.OpCode, data []byte) error {
 	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	if c.closed.Load() {
+	if c.closed.Load() || c.closing.Load() {
 		return net.ErrClosed
 	}
 	size := c.writeBuf
@@ -181,7 +181,11 @@ func closeStatus(err error) ws.StatusCode {
 
 // closeWith sends a close frame carrying code, unless code is zero, then closes
 // the connection. The wait behind a stuck writer and the frame itself are
-// bounded by closeTimeout.
+// bounded by closeTimeout. When the connection can half-close, the frame is
+// followed by a FIN and the socket stays open for up to closeTimeout more to
+// drain what the peer still sends: closing a TCP connection with unread data
+// makes some stacks (Windows) reset it, which can discard the close frame
+// before the peer has read it.
 func (c *messageConn) closeWith(code ws.StatusCode) {
 	if code != 0 && c.closing.CompareAndSwap(false, true) && !c.closed.Load() {
 		_ = c.raw.SetWriteDeadline(time.Now().Add(closeTimeout))
@@ -190,11 +194,28 @@ func (c *messageConn) closeWith(code ws.StatusCode) {
 		if c.state.ClientSide() {
 			frame = ws.MaskFrameInPlace(frame)
 		}
-		_ = ws.WriteFrame(c.raw, frame)
-		_ = c.Close()
+		err := ws.WriteFrame(c.raw, frame)
+		var halfClosed bool
+		if cw, ok := c.raw.(interface{ CloseWrite() error }); ok && err == nil {
+			halfClosed = cw.CloseWrite() == nil
+		}
+		if !halfClosed {
+			_ = c.Close()
+		}
 		c.writeMu.Unlock()
+		if halfClosed {
+			go c.drainAndClose()
+		}
 		return
 	}
+	_ = c.Close()
+}
+
+// drainAndClose discards what the peer still sends, until it closes, closeTimeout
+// passes or a megabyte went by, then closes the socket.
+func (c *messageConn) drainAndClose() {
+	_ = c.raw.SetReadDeadline(time.Now().Add(closeTimeout))
+	_, _ = io.CopyN(io.Discard, c.raw, 1<<20)
 	_ = c.Close()
 }
 

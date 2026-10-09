@@ -33,6 +33,9 @@ type DialError struct {
 	error
 }
 
+// Unwrap returns the dial failure, for errors.Is and errors.As.
+func (e DialError) Unwrap() error { return e.error }
+
 // HandshakeError is the error of a handshake the server rejected. Accept has
 // already answered the request, so the caller must not write to the response.
 type HandshakeError struct {

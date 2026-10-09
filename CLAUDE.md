@@ -10,8 +10,19 @@ Go implementation of a Socket.IO server (and an experimental client). Module pat
 | --- | --- |
 | `*.go` (root, package `socketio`) | Socket.IO server, client, namespaces, rooms, in-memory and Redis broadcast |
 | `parser/` | Socket.IO packet encoder/decoder, binary attachments |
-| `engineio/` | Engine.IO server and client: sessions, polling and websocket transports, payload codec |
-| `logger/` | package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: parser, transports, `engineio/packet`, client dialer |
+| `engineio/` | Engine.IO server: `Server`, `Conn`, options |
+| `engineio/client/` | Engine.IO client: `Dialer`, `Opener` |
+| `engineio/session/` | sessions, session manager, ID generator |
+| `engineio/frame/` | frame type (`frame.Type`, `frame.String`, `frame.Binary`) |
+| `engineio/packet/` | Engine.IO packet encoder/decoder and the exported test fakes in `fake.go` |
+| `engineio/payload/` | polling payload codec |
+| `engineio/transport/` | transport interfaces and manager |
+| `engineio/transport/polling/` | long-polling transport |
+| `engineio/transport/websocket/` | websocket transport |
+| `engineio/transport/utils/` | timestamp helper shared by the transports |
+| `engineio/internal/` | what the engineio packages share without exporting it (the shutdown hook) |
+| `engineio/internal/logtest/` | log recorder shared by the `engineio` and `engineio/client` tests |
+| `logger/` | package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: parser, transports, `engineio/packet`, `engineio/client` |
 | `_examples/` | runnable examples, each with its own `go.mod`; excluded from the root build by the `_` prefix |
 | `docs/` | protocol notes and roadmap |
 
@@ -72,7 +83,7 @@ they can contain C code. Validate the detector with `go test ./.github/benchmark
 ## Conventions
 
 - Go: `gofmt -s`, errors wrapped with `%w`, no panics in library code except handler
-  registration with an invalid signature (`handler.go`).
+  registration with an invalid signature (`event_handler.go`).
 - Every fix carries a test that fails without it. Concurrency fixes are verified under
   `-race`.
 - Public API changes go through `docs/ROADMAP.md` first.

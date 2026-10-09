@@ -73,6 +73,7 @@ from the declaration, and `make graph` checks the package graph.
 | `adapter.go` | `LocalSockets` | `Deliver(ctx, SocketID, parser.Packet) error`; `Snapshot(SocketID) (RemoteSocket, bool)` |
 | `adapter.go` | `AdapterFactory` | `func(ctx, nsp *Namespace) (Adapter, error)` |
 | `adapter.go` | `BroadcastOptions` | `{Rooms, Except []Room; Flags BroadcastFlags}` |
+| `adapter.go` | `RedactHandshake` | `RedactHandshake(json.RawMessage) (json.RawMessage, error)`; drops `auth` and the three headers, keeps the rest; the skeleton returns `ErrNotImplemented` |
 | `adapter.go` | `BroadcastFlags` | `{Local bool}`; other flags are later additive fields, so literals use field names |
 | `adapter.go` | `RemoteSocket` | `{ID SocketID; Rooms []Room; Handshake, Data json.RawMessage}`; `Handshake` omits `auth` and three headers only (see *Frozen at G2*), `Data` is nil or valid JSON |
 | `options.go` | `Options` | `{Logger *slog.Logger; Engine engineio.Options; Hooks *Hooks; Adapter AdapterFactory; AckTimeout time.Duration; OutboundQueueGroups, OutboundQueueBytes, HandlerQueueEvents, HandlerQueueBytes, MaxPendingAcks, MaxAttachments, MaxEventBytes, MaxConcurrentConnects int; AttachmentTimeout, ConnectTimeout time.Duration}`; defaults and units in the godoc |
@@ -155,8 +156,10 @@ Every declaration in the inventory above is frozen as written, with these points
 - `RemoteSocket`: the four fields. `Handshake` is a JSON object with Node's key names. The guarantee
   is exactly: no `auth` key, and no `authorization`, `cookie` or `proxy-authorization` entry
   in `headers`. `url`, `query` and all other headers pass through and may carry credentials;
-  ROADMAP 2.2 (*Snapshots and flags*) gives the reason and names the shared helper and the
-  conformance case. `Data` is nil or valid JSON, with no binary values.
+  ROADMAP 2.2 (*Snapshots and flags*) gives the reason and the conformance case. The one
+  helper is `RedactHandshake` in the root package (skeleton declared, body in 2.2): the
+  root calls it for local snapshots and each adapter package for snapshots decoded from a
+  peer; `adapter/codec` does not call it. `Data` is nil or valid JSON, with no binary values.
 - `BroadcastFlags`: `Local` only.
 - `Options` and its budget fields: the names and `Normalize`; zero selects the bounded
   default and a negative value is rejected.
@@ -223,6 +226,11 @@ packages that do not exist yet):
   the fixtures under `internal/fixtures` do today, and the future `client/` (it needs
   `RawEvent`, `Endpoint` and `ClientRawHandler`), external adapters and `contrib/...`
   will. The root never imports any of them;
+- `adapter/codec` never imports the root (it depends on `parser` and wire types), and the
+  root never imports `adapter/...`, so the shared `RedactHandshake` lives in the root: the
+  root calls it for local snapshots and each adapter package, which imports the root, for
+  decoded peer snapshots (`TestForbiddenEdge` allows `adapter/<name> -> .` and forbids
+  `adapter/codec -> .`; the `externaladapter` fixture calls it);
 - `engineio/...` never imports `parser`: the Socket.IO layer supplies payload
   redaction;
 - `parser` imports only `engineio/frame` and `logger`; `logger` imports nothing of this

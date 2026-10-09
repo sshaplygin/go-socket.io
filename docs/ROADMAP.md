@@ -1136,7 +1136,7 @@ frozen declaration. API.md (*Frozen contract*) lists the result; this table owns
 | Item | Decision | Reason | Left to |
 | --- | --- | --- | --- |
 | `Adapter`, `AdapterFactory`, `BroadcastOptions`, both hook structs | settled as declared (2.2, 2.4) | 2B consumers build on them; they match the roadmap text line for line | none |
-| `RemoteSocket` | settled: four fields as Node's `fetchSockets`; `Handshake` omits exactly `auth` and the `authorization`, `cookie` and `proxy-authorization` headers and keeps every other key, header, `url` and `query` as Node does (they may carry credentials); `Data` nil or valid JSON, no binary | a snapshot crosses node boundaries and reaches application code; Node's own snapshot carries the three headers and `auth`, so a decoding adapter drops them too. The rest is not redacted because it is Node's own data that applications read back, a value filter would guess, and dropping more keys later changes observable snapshots; the limit is documented in the godoc and API.md | producer API for `Data` (2.3S); shared helper and conformance case (2.2, 4b) |
+| `RemoteSocket` | settled: four fields as Node's `fetchSockets`; `Handshake` omits exactly `auth` and the `authorization`, `cookie` and `proxy-authorization` headers and keeps every other key, header, `url` and `query` as Node does (they may carry credentials); `Data` nil or valid JSON, no binary | a snapshot crosses node boundaries and reaches application code; Node's own snapshot carries the three headers and `auth`, so a decoding adapter drops them too. The rest is not redacted because it is Node's own data that applications read back, a value filter would guess, and dropping more keys later changes observable snapshots; the limit is documented in the godoc and API.md | producer API for `Data` (2.3S); shared helper `socketio.RedactHandshake` (declared by 2A, written by 2.2) and conformance case (2.2, 4b) |
 | `BroadcastFlags` | settled: `Local` only | volatile and compress need the queue and codec design, timeout belongs to broadcast acks, which the contract does not have; a new field is additive for keyed literals | later flags, additive |
 | `Options` | settled: field names, budget names and the defaults of 2.3 *Resource limits* | the names were fixed by 2.3 and the tests pin the defaults | none |
 | Payload preview redaction | moved out: the redactor type and `engineio.Options.PayloadRedactor` removed from the skeleton | the boundary hands unredacted packet bytes to a trusted component; its method set follows from the fire points and the Socket.IO classifier, which 2.4E and 2.4S own; `PayloadPreviewBytes` and `PacketInfo.Preview` stay because 2.4 names them | 2.4E, 2.4S |
@@ -1269,9 +1269,16 @@ and may contain credentials, for example a token in `query`. They are Node's own
 that applications read back; a filter on values would guess, and omitting more keys later
 changes observable snapshots, so it is a contract change. An application keeps secrets out
 of the URL or removes them after `FetchSockets`. One helper does the omission,
-`adapter/codec.RedactHandshake` (created by this stage, depends on no root type): the
-server calls it for local sockets and every adapter calls it on a snapshot decoded from a
-peer, because a Node peer sends the omitted values. The conformance suite (memory adapter
+`socketio.RedactHandshake(json.RawMessage) (json.RawMessage, error)`, declared in
+`adapter.go` by 2A (the skeleton returns `ErrNotImplemented`) and written by this stage. It
+lives in the root because the root may not import `adapter/...` while every adapter
+already imports the root, so one location is reachable by all callers under the frozen
+graph: the root calls it for local sockets (2.3S, in `Namespace.LocalSockets().Snapshot`) and
+each adapter package calls it on a snapshot decoded from a peer, because a Node peer sends
+the omitted values. `adapter/codec` decodes the wire fields only and does not call it,
+since it never imports the root (`TestForbiddenEdge` pins both `. -> adapter/codec` and
+`adapter/codec -> .` as forbidden, and `adapter/<name> -> .` as allowed; the
+`externaladapter` fixture calls the helper from outside the root). The conformance suite (memory adapter
 here, `adaptertest` in 4b for every broker adapter) decodes a peer snapshot that carries
 `auth`, the three headers in mixed case, `x-api-key` and a `query` token, and asserts that
 the first two groups are gone and the other two are unchanged. `Data` is the slot

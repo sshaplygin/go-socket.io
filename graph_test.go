@@ -62,6 +62,10 @@ func under(p, prefix string) bool { return p == prefix || strings.HasPrefix(p, p
 // what the roadmap relies on. ROADMAP 2.2 "Readiness" (the line "External adapters
 // import the root; the root never imports them"): the root never imports adapter/...,
 // adaptertest/..., client/, contrib/... or internal/fixtures/..., which all import it.
+// ROADMAP 2.2 (Readiness, Snapshots and flags): adapter/codec depends on parser and wire
+// types, never on the root, so the one handshake redaction helper, socketio.RedactHandshake,
+// is called by the root itself (local snapshots) and by each adapter package (decoded
+// peer snapshots), both without an edge the rules forbid.
 // ROADMAP wave 2D (logger.Wrap and the Socket.IO > Engine > logger.Log precedence):
 // the root may import engineio/..., parser and logger. The lower layers
 // (engineio/..., parser, logger) never import the root.
@@ -69,6 +73,8 @@ func forbiddenEdge(p, q string) string {
 	switch {
 	case p == "." && (under(q, "adapter") || under(q, "adaptertest") || under(q, "client") || under(q, "contrib") || under(q, "internal/fixtures")):
 		return fmt.Sprintf("root imports %s; adapters, the client, contrib and fixtures import the root, never the reverse", q)
+	case p == "adapter/codec" && q == ".":
+		return "adapter/codec imports the root package; it depends on parser and wire types only"
 	case q == "." && (under(p, "engineio") || p == "parser" || p == "logger"):
 		return fmt.Sprintf("%s imports the root package; engineio/..., parser and logger never do", p)
 	case under(p, "engineio") && q == "parser":
@@ -88,6 +94,9 @@ func TestForbiddenEdge(t *testing.T) {
 		{"client", "."},
 		{"client", "parser"},
 		{"adapter", "."},
+		{"adapter/redis", "."},
+		{"adapter/redis", "adapter/codec"},
+		{"adapter/codec", "parser"},
 		{"contrib/otel", "."},
 		{"internal/fixtures/positive", "."},
 		{".", "engineio"},
@@ -116,6 +125,7 @@ func TestForbiddenEdge(t *testing.T) {
 		{".", "internal/fixtures/positive"},
 		{".", "adapter"},
 		{".", "adapter/codec"},
+		{"adapter/codec", "."},
 		{".", "adaptertest"},
 		{".", "contrib/otel"},
 		{"parser", "engineio"},

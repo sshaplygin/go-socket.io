@@ -48,7 +48,8 @@ type LocalSockets interface {
 	// is gone yields an error matching ErrSocketClosed, a full queue ErrWriteBufferFull.
 	Deliver(ctx context.Context, sid SocketID, pkt parser.Packet) error
 	// Snapshot returns the RemoteSocket of the local socket sid, with the Handshake
-	// already redacted as the RemoteSocket godoc requires; false when the socket is gone.
+	// already passed through RedactHandshake as the RemoteSocket godoc requires; false
+	// when the socket is gone.
 	Snapshot(sid SocketID) (RemoteSocket, bool)
 }
 
@@ -72,7 +73,7 @@ type BroadcastFlags struct{ Local bool }
 // secure, issued, url, query). The guarantee is exactly this: no auth key, and no
 // authorization, cookie or proxy-authorization entry in headers (names compared
 // without case); the producer drops them, which for a snapshot decoded from a peer is
-// the adapter that decoded it. Nothing else is redacted: url, query, address and every
+// the adapter that decoded it, by calling RedactHandshake. Nothing else is redacted: url, query, address and every
 // other header may carry credentials and are passed through as Node does. Data is the slot of Node's socket.data: nil
 // means none, otherwise valid JSON; binary values are not representable. A producer
 // that cannot encode Data returns the entries it can and an error. How an application
@@ -84,3 +85,14 @@ type RemoteSocket struct {
 	Handshake json.RawMessage
 	Data      json.RawMessage
 }
+
+// RedactHandshake returns a copy of the Handshake object h without the auth key and
+// without the authorization, cookie and proxy-authorization entries of headers (names
+// compared without case); every other key and header is kept byte for byte. It is the
+// one implementation of the RemoteSocket guarantee: the server uses it for local
+// snapshots and an adapter calls it on a Handshake decoded from a peer, because a Node
+// peer sends the omitted values. nil yields nil; h that is not a JSON object yields an
+// error. It lives in the root package, which adapters already import and which the
+// graph allows to call it without an import of adapter/...; the skeleton returns
+// ErrNotImplemented and stage 2.2 writes the body.
+func RedactHandshake(h json.RawMessage) (json.RawMessage, error) { return nil, ErrNotImplemented }

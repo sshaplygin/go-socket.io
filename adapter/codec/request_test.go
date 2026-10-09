@@ -51,9 +51,20 @@ func TestEncodeRequestWire(t *testing.T) {
 	if err != nil || string(got) != `{"uid":"u","type":2,"opts":{"rooms":[],"except":[]},"rooms":[]}` {
 		t.Errorf("%s %v", got, err)
 	}
-	got, err = codec.EncodeRequest(codec.Request{UID: "u", Type: codec.RequestServerSideEmit, Data: json.RawMessage(` [ "<&> " ] `)})
-	if err != nil || string(got) != `{"uid":"u","type":6,"data":["<&>`+" "+`"]}` {
+	got, err = codec.EncodeRequest(codec.Request{UID: "u", Type: codec.RequestServerSideEmit, Data: json.RawMessage(` [ "<&>" ] `)})
+	if err != nil || string(got) != `{"uid":"u","type":6,"data":["<&>"]}` {
 		t.Errorf("%s %v", got, err)
+	}
+	// JSON.stringify writes U+2028 raw and encoding/json escapes it from Go 1.27 on:
+	// the bytes differ, the JSON value is the same, and only the value is pinned.
+	got, err = codec.EncodeRequest(codec.Request{UID: "u", Type: codec.RequestServerSideEmit, Data: json.RawMessage(`["\u2028"]`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := codec.DecodeRequest(got, codec.Limits{})
+	var args []string
+	if err != nil || json.Unmarshal(back.Data, &args) != nil || len(args) != 1 || args[0] != "\u2028" {
+		t.Errorf("%s %v %v", got, back.Data, err)
 	}
 	// Options.Flags never reach a request.
 	yes := true

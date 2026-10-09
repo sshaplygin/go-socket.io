@@ -1,11 +1,9 @@
-// Package eio4 encodes complete Engine.IO v4 HTTP polling payloads.
-// It is staged for the v2 transport rewrite; the v1 transport does not use it.
+// Package payload carries Engine.IO v4 HTTP polling payloads: packets separated
+// by the record separator 0x1e, binary packets as base64 behind a 'b' prefix.
 //
-// Callers choose HTTP body limits and own queues, deadlines, pause and resume.
-// This codec has no session state or goroutines. It does not encode WebSocket frames.
-// The polling rewrite should use it through package payload, as Go's internal
-// visibility rules prevent direct use by the sibling transport/polling package.
-package eio4
+// The codec (Encode, Decode, DecodeReader, EncodeBatch) is stateless and has no
+// goroutines; Payload applies it to the polling pause/upgrade lifecycle.
+package payload
 
 import (
 	"bytes"
@@ -22,11 +20,11 @@ const separator = byte(0x1e)
 
 var (
 	// ErrInvalidPayload indicates malformed wire data or an unencodable packet.
-	ErrInvalidPayload = errors.New("eio4: invalid polling payload")
+	ErrInvalidPayload = errors.New("payload: invalid polling payload")
 	// ErrTooLarge indicates that the encoded body exceeds the caller's limit.
-	ErrTooLarge = errors.New("eio4: polling payload too large")
+	ErrTooLarge = errors.New("payload: polling payload too large")
 	// ErrInvalidLimit indicates a nonpositive wire size limit.
-	ErrInvalidLimit = errors.New("eio4: wire size limit must be positive")
+	ErrInvalidLimit = errors.New("payload: wire size limit must be positive")
 )
 
 // Packet contains one Engine.IO packet, with no type byte in Data.

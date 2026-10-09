@@ -28,6 +28,10 @@ func (e *OpError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Op, e.Err.Error())
 }
 
+// Unwrap returns the underlying error, so errors.Is finds ErrTooLarge and
+// ErrInvalidPayload behind an OpError.
+func (e *OpError) Unwrap() error { return e.Err }
+
 // Temporary returns true if error can retry.
 func (e *OpError) Temporary() bool {
 	if oe, ok := e.Err.(Error); ok {
@@ -51,8 +55,6 @@ func (e retryError) Temporary() bool {
 var errPaused = retryError{"paused"}
 
 var errTimeout = errors.New("timeout")
-
-var errInvalidPayload = errors.New("invalid payload")
 
 var errOverlap = errors.New("overlap")
 

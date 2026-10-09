@@ -1,4 +1,4 @@
-package eio4
+package payload
 
 import (
 	"fmt"
@@ -24,7 +24,7 @@ func DecodeReader(r io.Reader, maxBytes int) ([]Packet, error) {
 	limited := &io.LimitedReader{R: r, N: int64(maxBytes)}
 	body, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, fmt.Errorf("eio4: read polling body: %w", err)
+		return nil, fmt.Errorf("payload: read polling body: %w", err)
 	}
 	if limited.N == 0 {
 		var extra [1]byte
@@ -33,7 +33,7 @@ func DecodeReader(r io.Reader, maxBytes int) ([]Packet, error) {
 			return nil, ErrTooLarge
 		}
 		if err != io.EOF {
-			return nil, fmt.Errorf("eio4: read polling body: %w", err)
+			return nil, fmt.Errorf("payload: read polling body: %w", err)
 		}
 	}
 	return Decode(body, maxBytes)

@@ -9,16 +9,27 @@ and the deltas planned for v2. Client version compatibility is summarised in
 Package `engineio`.
 
 - Query parameter `EIO` is not checked; the server behaves as protocol v3 regardless.
-- Transports: `polling` (XHR and JSONP via the `j` query parameter) and `websocket`
-  (`gorilla/websocket`). Order and upgrade path come from `engineio.Options.Transports`,
+- Transports: `polling` (XHR only; the `j` JSONP parameter and the `b64` parameter are
+  ignored, as in Engine.IO v4) and `websocket` (`gorilla/websocket`). Order and upgrade path come from `engineio.Options.Transports`,
   default `[polling, websocket]`.
 - Handshake (`OPEN` packet) carries `sid`, `upgrades`, `pingInterval` (default 20 s),
   `pingTimeout` (default 60 s). There is no `maxPayload`.
 - Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`) and extends
   the read/write deadline by `pingTimeout`.
-- Polling payload: packets are length-prefixed (`<length>:<packet>`), lengths count
-  UTF-16 code units; binary packets are base64 with a `b` prefix. Sessions are looked up
-  by `sid`; an unknown `sid` is HTTP 400.
+- Polling payload (Engine.IO v4 framing, ahead of the rest of this section): packets are
+  separated by the record separator `0x1e`; binary packets are base64 behind a `b`
+  prefix; every body is `text/plain; charset=UTF-8`, and a POST of `application/octet-stream`
+  is HTTP 400. A POST body is read up to the transport's `MaxPayload` (default 1 MiB,
+  `polling.Transport.MaxPayload`) before it is decoded: an announced or actual size over it is
+  HTTP 413 and delivers nothing; a malformed body is HTTP 400, delivers nothing and ends
+  the session. The server does not limit its responses: a response carries every packet the
+  session writers hand over at once. The Go client reads a response (and the open
+  response) up to the same `MaxPayload`; a longer one fails the session with
+  `payload.ErrTooLarge`, which readers see. The client batches its POSTs up to the
+  `maxPayload` of the open packet, and up to its `MaxPayload` (default 1 MiB) while the
+  open packet carries none, as this server's does today. Sessions are looked up by `sid`; an unknown `sid` is HTTP 400.
+  The handshake, heartbeat and `EIO` check of this section are still v3 until the
+  rest of 2.1 lands; the heading of this section flips with that change.
 - Upgrade polling → websocket:
 
 ```mermaid
@@ -61,7 +72,8 @@ only, and `master` keeps the packet codec in `parser`.
 
 ## Known deviations from the v3/v4 specs
 
-- No `maxPayload` handshake field and no payload size limit.
+- No `maxPayload` handshake field is sent yet (the client reads it when present), and
+  the websocket transport has no message size limit. The polling POST limit is above.
 - CONNECT to a namespace without a registered handler closes the connection instead
   of answering with an ERROR packet.
 - `Header.Query` is never exposed to handlers.
@@ -77,8 +89,6 @@ Engine.IO v3 → v4:
 | Query | `EIO` ignored | `EIO=4` required, otherwise HTTP 400 with JSON error code 5 |
 | Handshake | `sid`, `upgrades`, `pingInterval`, `pingTimeout` | plus `maxPayload` |
 | Heartbeat | client sends `2`, server answers `3` | server sends `2` every `pingInterval`, client answers `3` within `pingTimeout` |
-| Polling payload | `<length>:<packet>` | packets separated by `\x1e` (record separator) |
-| Polling binary | `b` + base64 with length | `b` + base64, no length |
 | WebSocket | one packet per frame | unchanged; binary frames carry raw bytes |
 | Upgrade | `2probe` / `3probe` / `5` | unchanged, plus server sends `6` (NOOP) into the pending poll |
 | Errors | plain text | JSON `{"code": N, "message": "..."}`, codes 0..5 |

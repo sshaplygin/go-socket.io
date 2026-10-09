@@ -17,7 +17,7 @@ API skeleton without runtime (stage 2.0), and the v1 server and client live on b
 | `engineio/session/` | sessions, session manager, ID generator |
 | `engineio/frame/` | frame type (`frame.Type`, `frame.String`, `frame.Binary`) |
 | `engineio/packet/` | Engine.IO packet encoder/decoder and the exported test fakes in `fake.go` |
-| `engineio/payload/` | polling payload codec |
+| `engineio/payload/` | Engine.IO v4 polling payload codec (`Decode`, `EncodeBatch`) and `Payload`, the pause/upgrade lifecycle between HTTP requests and a session |
 | `engineio/transport/` | transport interfaces and manager |
 | `engineio/transport/polling/` | long-polling transport |
 | `engineio/transport/websocket/` | websocket transport |

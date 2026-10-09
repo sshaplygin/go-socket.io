@@ -2,6 +2,7 @@ package polling
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,27 @@ type clientConn struct {
 	httpClient   *http.Client
 	request      http.Request
 	remoteHeader atomic.Value
+
+	// cancel aborts the requests in flight, such as a long poll, once the
+	// connection is closed.
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+// storeUnlessClosed stores the failure of a request, unless Close aborted it:
+// the reader and writer then report the close, io.EOF, not the abort.
+func (c *clientConn) storeUnlessClosed(op string, err error) error {
+	if c.ctx.Err() != nil {
+		return nil
+	}
+	return c.Payload.Store(op, err)
+}
+
+// Close closes the payload and aborts the requests in flight.
+func (c *clientConn) Close() error {
+	err := c.Payload.Close()
+	c.cancel()
+	return err
 }
 
 func (c *clientConn) Open() (transport.ConnParameters, error) {
@@ -59,6 +81,10 @@ func (c *clientConn) Open() (transport.ConnParameters, error) {
 
 	if err = r.Close(); err != nil {
 		return transport.ConnParameters{}, err
+	}
+
+	if conn.MaxPayload > 0 {
+		c.Payload.SetWriteLimit(conn.MaxPayload)
 	}
 
 	query := c.request.URL.Query()
@@ -117,10 +143,11 @@ func (c *clientConn) servePost() {
 		}
 		query.Set("t", utils.Timestamp())
 		req.URL.RawQuery = query.Encode()
+		req.ContentLength = int64(buf.Len())
 
 		resp, err := c.httpClient.Do(&req)
 		if err != nil {
-			if err = c.Payload.Store("post", err); err != nil {
+			if err = c.storeUnlessClosed("post", err); err != nil {
 				logger.Log.Debug("engineio: post request failed", "err", err)
 			}
 
@@ -163,7 +190,7 @@ func (c *clientConn) getOpen() {
 
 	resp, err := c.httpClient.Do(&req)
 	if err != nil {
-		if err = c.Payload.Store("get", err); err != nil {
+		if err = c.storeUnlessClosed("get", err); err != nil {
 			logger.Log.Debug("engineio: get request failed", "err", err)
 		}
 
@@ -182,17 +209,15 @@ func (c *clientConn) getOpen() {
 		err = fmt.Errorf("invalid request: %s(%d)", resp.Status, resp.StatusCode)
 	}
 
-	var isSupportBinary bool
 	if err == nil {
-		mime := resp.Header.Get("Content-Type")
-		isSupportBinary, err = mimeIsSupportBinary(mime)
+		err = checkContentType(resp.Header.Get("Content-Type"))
 		if err != nil {
 			logger.Log.Debug("engineio: unsupported content type", "err", err)
 		}
 	}
 
 	if err != nil {
-		if err = c.Payload.Store("get", err); err != nil {
+		if err = c.storeUnlessClosed("get", err); err != nil {
 			logger.Log.Debug("engineio: get request failed", "err", err)
 		}
 
@@ -205,10 +230,29 @@ func (c *clientConn) getOpen() {
 
 	c.remoteHeader.Store(resp.Header)
 
-	if err = c.Payload.FeedIn(resp.Body, isSupportBinary); err != nil {
+	if err = c.Payload.FeedIn(resp.Body); err != nil {
 		logger.Log.Debug("engineio: get payload failed", "err", err)
+		c.failOversized(err)
 
 		return
+	}
+}
+
+// failOversized ends the session when a response was over the read limit: the
+// server does not limit its responses, so nothing else would tell the reader that
+// polling stopped. Any other FeedIn error is a close or a pause, which the payload
+// reports itself, or a failure it has already stored.
+func (c *clientConn) failOversized(err error) {
+	if !errors.Is(err, payload.ErrTooLarge) {
+		return
+	}
+
+	if err = c.storeUnlessClosed("get", err); err != nil {
+		logger.Log.Debug("engineio: get response too large", "err", err)
+	}
+
+	if err = c.Close(); err != nil {
+		logger.Log.Debug("engineio: close connection failed", "err", err)
 	}
 }
 
@@ -232,7 +276,7 @@ func (c *clientConn) serveGet(after <-chan struct{}) {
 
 		resp, err := c.httpClient.Do(&req)
 		if err != nil {
-			if err = c.Payload.Store("get", err); err != nil {
+			if err = c.storeUnlessClosed("get", err); err != nil {
 				logger.Log.Debug("engineio: get request failed", "err", err)
 			}
 
@@ -247,10 +291,8 @@ func (c *clientConn) serveGet(after <-chan struct{}) {
 			err = fmt.Errorf("invalid request: %s(%d)", resp.Status, resp.StatusCode)
 		}
 
-		var isSupportBinary bool
 		if err == nil {
-			mime := resp.Header.Get("Content-Type")
-			isSupportBinary, err = mimeIsSupportBinary(mime)
+			err = checkContentType(resp.Header.Get("Content-Type"))
 			if err != nil {
 				logger.Log.Debug("engineio: unsupported content type", "err", err)
 			}
@@ -270,8 +312,9 @@ func (c *clientConn) serveGet(after <-chan struct{}) {
 			return
 		}
 
-		if err = c.Payload.FeedIn(resp.Body, isSupportBinary); err != nil {
+		if err = c.Payload.FeedIn(resp.Body); err != nil {
 			discardBody(resp.Body)
+			c.failOversized(err)
 
 			return
 		}

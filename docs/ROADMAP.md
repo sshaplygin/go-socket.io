@@ -1052,7 +1052,7 @@ experiment and its `Unreleased` CHANGELOG entry (today `adapter-wire`,
 
 | Component (source PR) | Purpose | Consumer | State in `master` and retirement |
 | --- | --- | --- | --- |
-| `eio4` paths and `_experiments/eio4-websocket` (#1, landed as #54) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | landed, unreleased; no production code references the `internal/eio4` packages yet, the 2.1 PR moves them into the live packages; the module stays until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
+| `eio4` paths and `_experiments/eio4-websocket` (#1, landed as #54) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | landed, unreleased; the polling codec moved to `engineio/payload` and is in use by the polling transport (PR B); no production code references `engineio/transport/websocket/internal/eio4` yet, the 2.1 PR moves it into the live package; the module stays until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
 | `_experiments/ws-bench` (#6, landed as #55) | Gorilla vs gobwas component benchmark; requires `eio4-websocket` via a relative `replace` | 2.1 idle baseline (not RSS) | landed, unreleased; deleted when `gorilla/websocket` leaves the root `go.mod` at 2.1 (its own `go.mod` pins gorilla), and no later than `eio4-websocket` |
 | `_experiments/sio5-codec` (#7, landed as #53) | v5 wire codec, Node oracle | 2.3P `parser/` | landed, unreleased; the 2.3P PR absorbs it into `parser/` and deletes it |
 | `_experiments/adapter-wire` (#8, landed as #44) | pinned Node Redis adapter wire fixtures | `adapter/codec` (2.2), then 4A codec fixtures | landed, unreleased; the 2.2 PR that creates `adapter/codec` absorbs and deletes it, and 4A reads the fixtures from there |
@@ -1177,7 +1177,7 @@ and updating imports to the v2 layout; do not repeat completed codec work.
 
 | Prepared component | Evidence | Remaining 2.1 integration |
 | --- | --- | --- |
-| `engineio/payload/internal/eio4` | polling codec, bounded `DecodeReader`, exact-wire `EncodeBatch`, fixtures/fuzz tests and pinned Node oracles | route through package `payload` to respect `internal` visibility; HTTP POST limits/status mapping, client batching, cancellation/deadlines and polling upgrade/pause lifecycle |
+| `engineio/payload` (moved from `internal/eio4`) | polling codec, bounded `DecodeReader`, exact-wire `EncodeBatch`, fixtures/fuzz tests and pinned Node oracles | integrated by the polling transport (PR B): POST limits and status mapping, client batching, cancellation and deadlines, pause/upgrade lifecycle. Open: the open packet does not advertise `maxPayload` and the `EIO=4` check is absent until the session and server work (PRs D1/D2) |
 | `engineio/transport/websocket/internal/eio4` | complete-message EIO4 codec, binary/text fixtures and parser oracle | connect codec to the production transport and session lifecycle |
 | `_experiments/eio4-websocket` (own module) | gobwas framing prototype: masking, fragments, UTF-8, control frames, message limits and pinned `ws` peer | adapt `FrameReader`/`FrameWriter`, use `ws.Dialer`, preserve options/deadlines, implement protocol-error close status handling and integrate EIO handshake/heartbeat/upgrade |
 
@@ -1187,7 +1187,7 @@ Decoded heap can exceed wire bytes; retain `BenchmarkDecode/dense-records` and
 measure amplification. Incremental decoding is deferred, not an integration gate.
 Keep canonical base64/UTF-8 validation and fixtures for intentional differences from
 Node: exact base64 batching, oversized-first-packet rejection and no partial decode
-on invalid batches. Client `maxPayload` limits POSTs, not server responses. Reuse
+on invalid batches. The advertised `maxPayload` limits client POSTs, not server responses; the Go client reads a response up to `Transport.MaxPayload` and fails the session above it (docs/PROTOCOL.md). Reuse
 locked reference versions, recording changes when refreshed; these oracles establish
 component behaviour, not full Go-server conformance. The experiment is outside root
 `go test ./...`: run its own race tests and Node oracle until it is retired after

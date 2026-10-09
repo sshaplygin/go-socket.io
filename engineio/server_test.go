@@ -1,4 +1,4 @@
-package engineio
+package engineio_test
 
 import (
 	"fmt"
@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
@@ -26,7 +28,7 @@ func TestEnginePolling(t *testing.T) {
 	should := assert.New(t)
 	must := require.New(t)
 
-	svr := NewServer(nil)
+	svr := engineio.NewServer(nil)
 	defer func() {
 		must.NoError(svr.Close())
 	}()
@@ -64,7 +66,7 @@ func TestEnginePolling(t *testing.T) {
 		must.Nil(w.Close())
 	}()
 
-	dialer := Dialer{
+	dialer := client.Dialer{
 		Transports: []transport.Transport{polling.Default},
 	}
 	header := http.Header{}
@@ -98,7 +100,7 @@ func TestEngineWebsocket(t *testing.T) {
 	should := assert.New(t)
 	must := require.New(t)
 
-	svr := NewServer(nil)
+	svr := engineio.NewServer(nil)
 	defer func() {
 		must.NoError(svr.Close())
 	}()
@@ -148,7 +150,7 @@ func TestEngineWebsocket(t *testing.T) {
 		must.Nil(w.Close())
 	}()
 
-	dialer := Dialer{
+	dialer := client.Dialer{
 		Transports: []transport.Transport{websocket.Default},
 	}
 	header := http.Header{}
@@ -210,7 +212,7 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 	should := assert.New(t)
 	must := require.New(t)
 
-	svr := NewServer(nil)
+	svr := engineio.NewServer(nil)
 	defer func() {
 		must.NoError(svr.Close())
 	}()
@@ -282,7 +284,7 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 	must.NoError(err)
 	defer func() { _ = p.Close() }()
 
-	params, err := p.(Opener).Open()
+	params, err := p.(client.Opener).Open()
 	must.NoError(err)
 
 	upU := *u
@@ -380,7 +382,7 @@ func TestEngineRejectsTransportDowngrade(t *testing.T) {
 	should := assert.New(t)
 	must := require.New(t)
 
-	svr := NewServer(nil)
+	svr := engineio.NewServer(nil)
 	defer func() {
 		must.NoError(svr.Close())
 	}()
@@ -399,7 +401,7 @@ func TestEngineRejectsTransportDowngrade(t *testing.T) {
 	must.NoError(err)
 	defer func() { _ = p.Close() }()
 
-	params, err := p.(Opener).Open()
+	params, err := p.(client.Opener).Open()
 	must.NoError(err)
 
 	// Take the session out of the accept queue as the other tests do: it
@@ -450,10 +452,10 @@ func TestEngineRejectsTransportDowngrade(t *testing.T) {
 	query.Set("transport", "polling")
 	pollURL.RawQuery = query.Encode()
 
-	client := &http.Client{Timeout: 2 * time.Second}
+	hc := &http.Client{Timeout: 2 * time.Second}
 	var status int
 	rejected := assert.Eventually(t, func() bool {
-		resp, err := client.Get(pollURL.String())
+		resp, err := hc.Get(pollURL.String())
 		if err != nil {
 			return false
 		}

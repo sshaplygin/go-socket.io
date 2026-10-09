@@ -6,80 +6,59 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Placeholder numbers belong to the packet, not to the Buffer: the same *Buffer twice in one
-// packet gets two numbers and two binary frames, and the Buffer stays as the caller made it.
-func TestEncodeSharedBufferPositions(t *testing.T) {
-	shared := &Buffer{Data: []byte{7, 8}}
-	other := &Buffer{Data: []byte{9}}
+type (
+	embeddedInner struct{ B *Buffer }
+	embeddedOuter struct {
+		embeddedInner
+		N int
+	}
+	embeddedPtrOuter struct {
+		*embeddedInner
+		N int
+	}
+	bufferList   []*Buffer
+	embeddedList struct{ bufferList }
+)
 
+// Placeholder numbers belong to the packet, not to the Buffer: the same *Buffer twice gets two
+// numbers and two frames. A Buffer in the exported field of an embedded unexported struct is
+// numbered as on v1.x. A Buffer that cannot be replaced in a copy without writing to the
+// caller's value (an unexported field, an embedded pointer or slice type) is errUnsupportedBuffer;
+// on v1.x the field and the slice panicked in reflect and the pointer wrote into the Buffer.
+// In every case the caller's Buffer stays as it was.
+func TestEncodeBufferShapes(t *testing.T) {
+	ph := func(n int) string { return `{"_placeholder":true,"num":` + string(rune('0'+n)) + `}` }
 	for _, tc := range []struct {
 		name string
-		args []interface{}
+		arg  func(b *Buffer) []interface{}
 		want []string
+		err  error
 	}{
-		{"after another", []interface{}{other, shared}, []string{`52-["e",{"_placeholder":true,"num":0},{"_placeholder":true,"num":1}]` + "\n", "\t", "\a\b"}},
-		{"twice", []interface{}{shared, shared}, []string{`52-["e",{"_placeholder":true,"num":0},{"_placeholder":true,"num":1}]` + "\n", "\a\b", "\a\b"}},
+		{"twice", func(b *Buffer) []interface{} { return []interface{}{&Buffer{Data: []byte{9}}, b, b} },
+			[]string{`53-["e",` + ph(0) + "," + ph(1) + "," + ph(2) + "]\n", "\t", "\x01", "\x01"}, nil},
+		{"embedded struct", func(b *Buffer) []interface{} { return []interface{}{embeddedOuter{embeddedInner{b}, 1}} },
+			[]string{`51-["e",{"B":` + ph(0) + ",\"N\":1}]\n", "\x01"}, nil},
+		{"embedded struct pointer", func(b *Buffer) []interface{} { return []interface{}{&embeddedOuter{embeddedInner{b}, 1}} },
+			[]string{`51-["e",{"B":` + ph(0) + ",\"N\":1}]\n", "\x01"}, nil},
+		{"field", func(b *Buffer) []interface{} { return []interface{}{struct{ b *Buffer }{b}} }, nil, errUnsupportedBuffer},
+		{"embedded pointer", func(b *Buffer) []interface{} { return []interface{}{embeddedPtrOuter{&embeddedInner{b}, 1}} }, nil, errUnsupportedBuffer},
+		{"embedded slice", func(b *Buffer) []interface{} { return []interface{}{embeddedList{bufferList{b}}} }, nil, errUnsupportedBuffer},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			b := &Buffer{Data: []byte{1}}
 			w := fakeWriter{}
-			require.NoError(t, NewEncoder(&w).Encode(Header{Type: Event}, append([]interface{}{"e"}, tc.args...)))
-
-			var got []string
-			for _, d := range w.data {
-				got = append(got, d.String())
+			err := NewEncoder(&w).Encode(Header{Type: Event}, append([]interface{}{"e"}, tc.arg(b)...))
+			if tc.err != nil {
+				require.ErrorIs(t, err, tc.err)
+			} else {
+				require.NoError(t, err)
+				var got []string
+				for _, d := range w.data {
+					got = append(got, d.String())
+				}
+				require.Equal(t, tc.want, got)
 			}
-			require.Equal(t, tc.want, got)
-			require.Equal(t, Buffer{Data: []byte{7, 8}}, *shared)
-			require.Equal(t, Buffer{Data: []byte{9}}, *other)
-		})
-	}
-}
-
-type embeddedInner struct{ B *Buffer }
-
-type embeddedOuter struct {
-	embeddedInner
-	N int
-}
-
-type embeddedPtrOuter struct {
-	*embeddedInner
-	N int
-}
-
-// A Buffer in the exported field of an embedded unexported struct is numbered, as on v1.x, and
-// the caller's value stays as it was.
-func TestEncodeEmbeddedUnexportedStruct(t *testing.T) {
-	buf := &Buffer{Data: []byte{1}}
-	outer := embeddedOuter{embeddedInner{buf}, 1}
-
-	for name, arg := range map[string]interface{}{"value": outer, "pointer": &outer} {
-		t.Run(name, func(t *testing.T) {
-			w := fakeWriter{}
-			require.NoError(t, NewEncoder(&w).Encode(Header{Type: Event}, []interface{}{"e", arg}))
-			require.Len(t, w.data, 2)
-			require.Equal(t, `51-["e",{"B":{"_placeholder":true,"num":0},"N":1}]`+"\n", w.data[0].String())
-			require.Equal(t, "\x01", w.data[1].String())
-			require.Same(t, buf, outer.B)
-			require.Equal(t, Buffer{Data: []byte{1}}, *buf)
-		})
-	}
-}
-
-// A Buffer behind an unexported field, or behind an embedded pointer to an unexported struct,
-// cannot be numbered without writing to the caller's value: Encode returns errUnsupportedBuffer.
-// On v1.x the unexported field panicked in reflect and the embedded pointer wrote into the Buffer.
-func TestEncodeUnexportedBuffer(t *testing.T) {
-	buf := &Buffer{Data: []byte{1}}
-
-	for name, arg := range map[string]interface{}{
-		"field":            struct{ b *Buffer }{buf},
-		"embedded pointer": embeddedPtrOuter{&embeddedInner{buf}, 1},
-	} {
-		t.Run(name, func(t *testing.T) {
-			err := NewEncoder(&fakeWriter{}).Encode(Header{Type: Event}, []interface{}{"e", arg})
-			require.ErrorIs(t, err, errUnsupportedBuffer)
-			require.Equal(t, Buffer{Data: []byte{1}}, *buf)
+			require.Equal(t, Buffer{Data: []byte{1}}, *b, "the encoder wrote to the caller's Buffer")
 		})
 	}
 }

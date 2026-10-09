@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- `_experiments/adapter-wire`: a standalone module (not imported by the root module) with
+  22 checked-in publications of the non-sharded Node Redis adapter
+  (`@socket.io/redis-adapter@8.3.0`), their Go decode tests and a pinned Node oracle
+  that reproduces them byte for byte. Test fixtures only; the library API and runtime
+  are unchanged.
+
 ### Changed
 
 - CI: `make experiments` vets, format-checks, lints and race-tests every standalone

@@ -1801,31 +1801,28 @@ timeout is 5 s.
   reconnect subscriptions with backoff; the backoff's initial and maximum delays are
   documented options.
   For 2.2 *Readiness*, construction and every resubscribe read the PSUBSCRIBE and
-  SUBSCRIBE confirmations within the `SubscribeTimeout` option (default 10 s). Every
-  read is bounded by the time left, and construction also stops when the factory
-  context ends: a go-redis `ReceiveTimeout` reads without that context, so the adapter
-  closes the attempt's `PubSub` from `context.AfterFunc`, stopped once the attempt is
-  confirmed. An unconfirmed resubscribe
-  is a failed attempt that closes its connection and grows the backoff. Each attempt
-  uses a new `PubSub`, and the adapter closes a failed one as soon as it observes the
-  error: after a connection error a go-redis `PubSub` redials and resends its
-  subscriptions inside `Receive`, outside the backoff. The adapter becomes restoring
-  before it logs `socketio: adapter subscriber lost`. The expected peers are PUBSUB
-  NUMSUB of the request channel minus this instance, floored at 0; when NUMSUB fails
-  they cannot be determined. Deterministic tests run on miniredis with a pre-hook,
-  installed on the running server, that holds PSUBSCRIBE and SUBSCRIBE (as the v1
-  helper `delayRedisSubscriptions` from PR #18 holds PSUBSCRIBE). The *live values*
-  are miniredis NUMPAT, NUMSUB of the request and response channels and
-  `CurrentConnectionCount`. They are *settled* when they are equal on two reads 50 ms
-  apart; each case first PINGs the injected client and waits for that, at most 5 s,
-  and records them as the baseline. *Nothing left* means they are settled within 5 s
-  of releasing the hold with NUMPAT and NUMSUB equal to the baseline and the connection
-  count not above it, and the client still answers PING. A peer adapter and its socket
-  exist before any hold.
+  SUBSCRIBE confirmations within the `SubscribeTimeout` option (default 10 s). Every read
+  is bounded by the time left, and construction also stops when the factory context ends:
+  a go-redis `ReceiveTimeout` reads without that context, so the adapter closes the
+  attempt's `PubSub` from `context.AfterFunc`, stopped once the attempt is confirmed. An
+  unconfirmed resubscribe is a failed attempt that closes its connection and grows the
+  backoff. Each attempt uses a new `PubSub`, and the adapter closes a failed one as soon
+  as it observes the error: after a connection error a go-redis `PubSub` redials and
+  resends its subscriptions inside `Receive`, outside the backoff. The adapter becomes
+  restoring before it logs `socketio: adapter subscriber lost`. The expected peers are
+  PUBSUB NUMSUB of the request channel minus this instance, floored at 0; when NUMSUB
+  fails they cannot be determined. Deterministic tests run on miniredis with a pre-hook,
+  installed on the running server, that holds PSUBSCRIBE and SUBSCRIBE (the v1 helper
+  `delayRedisSubscriptions`, PR #18, holds PSUBSCRIBE). The *live values* are miniredis
+  NUMPAT, NUMSUB of the request and response channels and `CurrentConnectionCount`. They
+  are *settled* when they are equal on two reads 50 ms apart; each case first PINGs the
+  injected client and waits for that, at most 5 s, and records them as the baseline.
+  *Nothing left* means they are settled within 5 s of releasing the hold with NUMPAT and
+  NUMSUB equal to the baseline and the connection count not above it, and the client still
+  answers PING. A peer adapter and its socket exist before any hold.
   - 4R-T1: the hold is released after 200 ms; construction returns only then, within
-    500 ms of the release. A peer's broadcast published as soon as it returns reaches
-    the new adapter within 1 s (the `adaptertest` readiness case), and a peer's
-    `Sockets` counts it.
+    500 ms of the release. A peer's broadcast sent as soon as it returns reaches the new
+    adapter within 1 s, and a peer's `Sockets` counts it.
   - 4R-T2: with `SubscribeTimeout` 200 ms and a 2 s hold, construction returns an
     error within 1 s, leaving nothing.
   - 4R-T3: server `Close` while a namespace creation is held returns at once; with
@@ -1834,26 +1831,24 @@ timeout is 5 s.
     nothing.
   - 4R-T4: `Sockets` and `FetchSockets` with no peer return the local data and nil at
     once; with NUMSUB failing (pre-hook error), the local data and an error at once.
-  - 4R-T5: the injected client's `Dialer` records every connection it dials. With a
-    live adapter and the baseline recorded, the test installs the hold first (no
-    resubscribe can reach miniredis before it: only PSUBSCRIBE and SUBSCRIBE are held,
-    and the established subscription sends none until its connection closes), then
-    closes every recorded connection. Once the `subscriber lost` record is logged,
-    `Sockets` returns the local sockets and an error at once. miniredis is not
-    restarted: `Restart` builds a server without the pre-hook. With `SubscribeTimeout`
-    200 ms and backoff delays of 50 ms initial and 200 ms maximum, the hold stays until
-    it has held the first command, PSUBSCRIBE or SUBSCRIBE whichever comes first, of
-    three distinct server-side connections within 10 s (an adapter attempt or the
-    go-redis redial inside `Receive`: each is a new connection and both count), and the
-    case fails if it has not. Leaks are checked on
-    the server only, after the release (a held peer stays counted): once the live
-    values are settled, `Sockets` returns the local sockets and nil within 2 s, and
-    nothing is left. A leaked attempt is an open connection that miniredis counts
-    whatever the client believes, so a leak raises the count; the PR that adds the test
-    also shows the check failing on a variant that leaves a failed attempt's
-    connection open (a read with a timeout the library does not treat as fatal, and no
-    `Close`). A second adapter, constructed only then with its own client on the same
-    miniredis, broadcasts, and the broadcast reaches the adapter's socket within 1 s.
+  - 4R-T5: the injected client's `Dialer` records every connection it dials. With a live
+    adapter and the baseline recorded, the test installs the hold first (only PSUBSCRIBE
+    and SUBSCRIBE are held, and an established subscription sends neither until its
+    connection closes, so no resubscribe reaches miniredis before it), then closes every
+    recorded connection. Once the `subscriber lost` record is logged, `Sockets` returns
+    the local sockets and an error at once. miniredis is not restarted: `Restart` builds
+    a server without the pre-hook. With `SubscribeTimeout` 200 ms and backoff delays of
+    50 ms initial and 200 ms maximum, the hold stays until it has held the first command
+    (PSUBSCRIBE or SUBSCRIBE) of three distinct server-side connections within 10 s, or
+    the case fails; an adapter attempt and the go-redis redial inside `Receive` are each
+    a new connection. Leaks are checked on the server only, after the release (a held
+    peer stays counted): once the live values are settled, `Sockets` returns the local
+    sockets and nil within 2 s, and nothing is left. A leaked attempt is an open
+    connection miniredis counts whatever the client believes; the PR that adds the test
+    also shows the check failing on a variant that leaves a failed attempt's connection
+    open (a read with a timeout the library does not treat as fatal, and no `Close`). A
+    second adapter, constructed only then with its own client on the same miniredis,
+    broadcasts, and the broadcast reaches the adapter's socket within 1 s.
   - 4R-T6: construction with a `*redis.ClusterClient` or a two-shard `*redis.Ring`
     returns an error matching `ErrUnsupportedRedisClient` (`errors.Is`).
 - **`adapters/nats`**: subjects `<prefix>.<encoded-nsp>.broadcast` and
@@ -1872,20 +1867,20 @@ timeout is 5 s.
   tests). For 2.2 *Readiness*, construction flushes after subscribing with a context
   derived by `context.WithTimeout` from the factory context and the documented
   `SubscribeTimeout` option (default 10 s; `FlushWithContext` needs a deadline). The
-  flush confirms only the connected server: interest propagation to the other servers
-  of a NATS cluster, gateways and leafnodes is outside the guarantee, the adapter
-  README says so, and no case covers it. The adapter is restoring while
+  flush confirms only the connected server (the limit stated in 2.2 *Readiness*); the
+  adapter README says so and no case covers the rest. The adapter is restoring while
   `nc.IsConnected()` is false and until a flush succeeds after reconnect, reading the
-  connection status without replacing the application's handlers; the expected peers
-  are undetermined until one `HeartbeatInterval` after construction. Test with an
-  embedded `nats-server/v2`, no Docker, and a test TCP proxy between client and server
-  that can stall forwarding after the handshake; while stalled it buffers the client's
-  bytes and forwards them in order on release. *Nothing left* is read from the release
-  of the stall: the server's subscription count and `nc.NumSubscriptions()` are back
-  to their values before construction within 1 s. A leaked SUB reaches the server on
-  release and raises the count; a SUB followed by its UNSUB leaves it unchanged.
-  - 4N-T1: after the embedded server shuts down and `nc.IsConnected()` is false,
-    `Sockets` and `FetchSockets` return the local data and an error at once.
+  connection status without replacing the application's handlers; the expected peers are
+  undetermined until one `HeartbeatInterval` after construction. Test with an embedded
+  `nats-server/v2`, no Docker, and a test TCP proxy between client and server that can
+  stall forwarding after the handshake; while stalled it buffers the client's bytes and
+  forwards them in order on release. *Nothing left* is read from the release of the
+  stall: the server's subscription count and `nc.NumSubscriptions()` are back to their
+  values before construction within 1 s. A leaked SUB reaches the server on release and
+  raises the count; a SUB followed by its UNSUB leaves it unchanged.
+  - 4N-T1: after the embedded server shuts down, `nc.IsConnected()` becomes false within
+    10 s (the test fails beyond it); `Sockets` and `FetchSockets` then return the local
+    data and an error at once.
   - 4N-T2: with the proxy stalled, construction with `SubscribeTimeout` 200 ms returns
     an error within 1 s; with `SubscribeTimeout` 10 s and the factory context cancelled,
     it returns an error at once. The stall is released only after the error, then
@@ -1894,9 +1889,11 @@ timeout is 5 s.
   - 4N-T3: `Sockets` issued as soon as construction returns, with a peer adapter
     running, returns the local sockets and an error at once; after
     `HeartbeatInterval` plus 100 ms it returns the peer's sockets and nil within 1 s.
-  - 4N-T4: after 4N-T1, restarting the server on the same address and
-    `nc.IsConnected()` becoming true, `Sockets` returns the local sockets and nil within
-    2 s.
+  - 4N-T4: repeats the 4N-T1 steps, starting `HeartbeatInterval` plus 100 ms after
+    construction, then restarts the server on the same address; `nc.IsConnected()` turns
+    true within 10 s. With the proxy stalled from then on, `Sockets` returns the local
+    sockets and an error at once until the stall is released and the flush succeeds;
+    then one call returns the local sockets and nil within 2 s.
   - 4N-T5: the application's `DisconnectedErrHandler` and `ReconnectHandler` count
     their calls; across construction, the 4N-T1 shutdown, the 4N-T4 restart and the
     adapter's `Close`, the first is called once and the second once.

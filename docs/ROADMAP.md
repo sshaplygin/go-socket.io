@@ -2327,7 +2327,9 @@ rejects unused code). Cost: a `v1.x` fix to a shared file names in its PR whethe
 **`api` freeze (additive exported API of `client`).** Derived from `client.go`, `connection.go`,
 `namespace_conn.go` and `errors.go` at `$TIP`; deliberately not an `api` fence, which the
 Stage 1b allow-list reads. A difference from the root signature at `$TIP`, receiver and
-parameter names included (`go doc -short` compares them), blocks the stage.
+parameter names included (`go doc -short` compares them), blocks the stage. The two
+`var`s are separate statements, as at `$TIP`: `go doc -short` prints only the first of a
+grouped `var ( ... )` block, and the export check would lose the second.
 
 ```text
 var ErrEmptyAddr, var ErrWriteBufferFull

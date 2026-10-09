@@ -35,12 +35,13 @@ The other prepared experiments are listed in Stage 2 *Prepared components*.
 | Observability | Nil-able hooks and logging in root; OTel bridge in `contrib/otel`; no OTel dependency in root | 2.4 |
 | Admin UI | Required final product stage, separate `contrib/admin`, unchanged official UI; commands disabled by default | 5 |
 | Benchmarks | Final comparative campaign after all product features: our v2, existing Go and official JS/TS implementations | 6 |
+| Client packages | Go client as its own package on both lines, scheduled last: v1 gets an additive `client` package in the v1.x module (the root `Client` stays as a deprecated wrapper); v2 keeps `client/` in the root module, no separate `go.mod` | 2.3C (v2), 7 (v1) |
 | Documentation | English; each contract has one owner; other sections refer to it | CLAUDE.md |
 
 ## Execution and parallel work
 
-Execution order: **1 → 1b → 2 → 3 → 4b → 5 → 6**. Admin UI remains the last
-product stage and starts after M5; the final benchmark campaign starts after M6.
+Execution order: **1 → 1b → 2 → 3 → 4b → 5 → 6 → 7**. Admin UI remains the last
+product stage and starts after M5; the final benchmark campaign after M6; Stage 7, the last item, after M7.
 Branch `v1.x` is cut between stages 1 and 1b (1b step 0); the `v1.5.0` tag waits for
 the owner's command at M4 and does not gate any stage.
 Numbers identify scope, not permission to start before a dependency passes.
@@ -70,6 +71,7 @@ workers submit changes to these files through that integrator.
 | 6A | M6 | benchmark owner freezes versions, workload matrix, resource budgets and result schema | comparison contract and correctness checks pass |
 | 6B | 6A | our-v2, existing-Go and official-Node runners in separate directories; shared load generator owned by integrator | runners produce equivalent traffic/results |
 | 6C | 6B | measurements sequentially on reserved hosts; analysis/report follows complete raw results | M7 reproducibility and report acceptance |
+| 7A | M7 | 7.1 layering and package (`client/`, `_examples/client/`, root `client.go`, `connection.go`, `connection_handlers.go`, `namespace_conn.go`, `errors.go`) and 7.2 tests and docs, as commits of one PR to `v1.x`: the wrapper switch breaks the root tests until they are split, so no PR head may carry one without the other | Stage 7 DoD and Acceptance, then the owner's tag order (M8) |
 
 Rows 1A and 1I, and the Stage 1 items, name files by their pre-1b paths; the Stage 1b
 source-to-target map owns the new names.
@@ -1448,7 +1450,7 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   above; G2 froze them.
 - `BenchmarkEventDispatch` (root) is added with the new model, so stage 2.4 has a real
   baseline.
-- Rewrite `Client` on the same generic API with websocket over `gobwas/ws`.
+- Rewrite `Client` on the same generic API with websocket over `gobwas/ws`. The v1 line gets its own `client` package later, in Stage 7; this item delivers only the v2 one.
 - 2.3S implements the server side of 2.2 *Readiness*. Its root test is
   `TestNamespaceReadiness`, with the subtests `R1` to `R9` below; the 2C join gate runs
   `go test -race -count=1 -json -run '^TestNamespaceReadiness$' .` and requires a pass
@@ -2286,7 +2288,140 @@ complete comparable results, recorded unsupported cases and an independent rerun
 of a representative scenario within the published uncertainty, not a preselected
 performance ranking. Investigate mismatches and limitations in the report. If this
 stage triggers code changes, rerun affected correctness gates and comparisons with
-new revision IDs; release them separately. M7 closes the roadmap.
+new revision IDs; release them separately. M7 closes the benchmark scope; Stage 7 follows it.
+
+## Stage 7. Go client as a separate package (v1.x)
+
+Owner decision of 2026-10-09: the Go client is supported as a separate package for both
+lines, after everything else; the v2 half is 2.3C. Entry: M7 passed; the stage does not
+wait for the `v1.5.0` tag. The compatibility base is the `v1.x` commit `$TIP`; the release
+is the next `v1.x` minor after the latest `v1.x` tag at tag time (`$REL`; `v1.6.0` when
+`v1.5.0` is that tag), named in the owner's order; if no `v1.5.0` exists then, the order
+names the number and the first-release procedure of `CONTRIBUTING.md` applies. Nothing
+before M7 depends on it.
+
+**Contract (v1).** Additive: `client` behaves as today's root `socketio.Client`. The root
+`Client` and `NewClient` stay as a wrapper over it, their godoc starting a paragraph
+`Deprecated: use client.Client.` and `Deprecated: use client.NewClient.` (full stop
+included); no root export is removed, renamed or changed in behaviour, so the release is
+a MINOR one. All PRs target `v1.x`. The tag is
+created only on the owner's order; `CHANGELOG.md` entries (`### Added` naming the import
+path `go-socket.io/client`, `### Deprecated` naming `Client` and `NewClient`) and the
+release commit follow [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases).
+
+**Layering and import rule.** The root imports `client` for the wrapper, so `client` must
+not import the root. The connection types therefore move to the leaf: `client` defines
+`Conn`, `Namespace`, `ErrEmptyAddr` and `ErrWriteBufferFull`, and the root declares them
+as aliases (`type Conn = client.Conn`, `var ErrEmptyAddr = client.ErrEmptyAddr`, ...), so
+handlers, `errors.Is` and the `ft.In(0).Name() == "Conn"` check in `handler.go` behave as
+before. apidiff and `gorelease` report the alias move as incompatible although consumers
+compile unchanged, so the DoD proves compatibility with a consumer program instead.
+`client` may import any `engineio/...` package (`engineio/session` included), `parser` and
+`logger`, and never the root package, adapters or Redis (a DoD line checks the closure);
+only the root and the examples import `client`. It carries its own copy, taken from `$TIP`, of the
+closure the old `Client` reaches (write queue, packet handlers, namespace connection,
+handler dispatch, an unexported in-memory broadcast behind `Namespace.Join`, `Leave`,
+`LeaveAll` and `Rooms`), without Redis and server-only code. The only server-path
+logic edit deletes `clientConnectPacketHandler` and `clientDisconnectPacketHandler` (`make
+lint` rejects unused code); the other root edits are the aliases, and `fmtNS`, used by the
+server, stays in the root `client.go`. Cost: a `v1.x` fix to a shared file names in its PR whether
+`client/` needs the same change and makes it there.
+
+**`api` freeze (additive exported API of `client`).** Derived from `client.go`, `connection.go`,
+`namespace_conn.go` and `errors.go` at `$TIP`; deliberately not an `api` fence, which the
+Stage 1b allow-list reads. A difference from the root signature at `$TIP`, receiver and
+parameter names included (`go doc -short` compares them), blocks the stage. The two
+`var`s are separate statements, as at `$TIP`: `go doc -short` prints only the first of a
+grouped `var ( ... )` block, and the export check would lose the second.
+
+```text
+var ErrEmptyAddr, var ErrWriteBufferFull
+func NewClient(addr string, opts *engineio.Options) (*Client, error)
+type Client struct (unexported fields), methods on *Client:
+  Connect() error; Close() error; Emit(event string, args ...interface{})
+  OnConnect(f func(Conn) error); OnDisconnect(f func(Conn, string))
+  OnError(f func(Conn, error)); OnEvent(event string, f interface{})
+type Conn interface and type Namespace interface: method sets exactly as at $TIP
+not exported: EmptyAddrErr (the root keeps it), Server, Broadcast, EachFunc, RedisAdapterOptions
+```
+
+**Tests.** A test that reaches the unexported `dial`, `conn` or `createNamespace` of a
+client can live only in package `client`, whose tests cannot import the root. Such a test
+is split by side: its C half moves to `client/` as an in-package test with the same
+function and subtest names (`TestX/C`) and `// Covers <id> (C)`; the root keeps the S half,
+marked `(S)`. At `$TIP` that is `backpressure_test.go` and `integration_test.go`, with
+their helpers copied into a `client/` test file. The exported-API-only `lifecycle_test.go`
+and `lifecycle_errors_test.go` stay in the root and run through the wrapper; `client/`
+gets copies in the external package `client_test` (it may import the root). The root adds `TestDeprecatedClientRoundTrip` (wrapper against a root
+`Server`: connect, event, ACK, `Close` runs the server's `OnDisconnect`),
+`TestConnAliasHandlers` (handlers written with `socketio.Conn` and `client.Conn` register
+on `client.Client` and `Server`) and `TestClientErrorIdentity` (`errors.Is` across the root
+and `client` errors; `EmptyAddrErr` still matches).
+
+DoD, run with `bash` and `set -e` on the head of the Stage 7 PR (rules as in the Stage 1b
+DoD; the consumer check needs network). `$TIP` is the `v1.x` commit recorded in its body;
+stage commits are titled `<type>(7.<n>): ...`, so later `v1.x` patches are not judged:
+
+```sh
+TIP=${TIP:?the v1.x commit recorded in the Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base; R=$PWD; git worktree add -q --detach $BASE $TIP; trap 'git worktree remove --force $BASE; rm -rf $T' EXIT
+make lint test-race
+D=$(go list -deps ./client); test -z "$(echo "$D" | grep -E "redigo|^$MOD(/|$)" | grep -vE "^$MOD/(client|engineio|parser|logger)(/|$)")"   # D is not piped inside test -z: a failing go list (import cycle) must stop the script
+test -n "$(go list -deps . | grep -x "$MOD/client")"; for X in Client NewClient; do test -n "$(go doc . $X | grep -E "^ *Deprecated: use client\.$X\.")"; done   # fails on v1.x: no notices
+cl() { awk '/^## Unreleased/{u=1;next} /^## /{u=0} u && /^### /{s=$2} u && s=="'$1'"' CHANGELOG.md; }; test -n "$(cl Added | grep 'go-socket.io/client')"; test -n "$(cl Deprecated | grep NewClient)"
+test "$(go doc -short ./client | sed -E 's/^ +//; s/^(func [A-Za-z]+)\(.*/\1/; s/^((var|type) [A-Za-z]+).*/\1/' | paste -sd, -)" = "var ErrEmptyAddr,var ErrWriteBufferFull,type Client,func NewClient,type Conn,type Namespace"
+test "$(go doc -short ./client Client | grep '^func')" = "$(cd $BASE && go doc -short . Client | grep '^func')"; for X in Conn Namespace; do test "$(go doc ./client $X | grep -vE '^(package|    )|^\s*(//|$)')" = "$(cd $BASE && go doc . $X | grep -vE '^(package|    )|^\s*(//|$)')"; done
+test -z "$(diff <(cd $BASE && go doc -short . | grep -oE '^(var|type) [A-Za-z]+' | sort) <(go doc -short . | grep -oE '^(var|type) [A-Za-z]+' | sort))"
+S7=$(git log -E --no-merges --grep='^[a-z]+\(7\.' --format=%H $TIP..HEAD); test -n "$S7"
+test -z "$(git show --format= --name-only $S7 | sort -u | grep -vE '^(client/|_examples/client/|(client|connection|connection_handlers|namespace_conn|errors)\.go$|CHANGELOG\.md$|CLAUDE\.md$)|_test\.go$')"
+names() { grep -rhoE '^func (Test|Benchmark)[A-Za-z0-9_]+' --include='*_test.go' --exclude-dir=_examples $1 | sort -u; }; test -z "$(comm -23 <(names $BASE) <(names .))"
+res() { (cd $1 && go test -count=1 -v ./... | awk '$1=="---" && $2=="PASS:"{gsub(/0x[0-9a-f]+/,"0x"); print $3}') | sort -u; }; test -z "$(comm -23 <(res $BASE) <(res .))"   # every passing test and subtest, TestX/C included, still passes (322 at 39f06fc)
+test "$(go test -race -count=1 -v ./client | grep -c -- '--- PASS: .*/C ')" -ge "$(res $BASE | grep -c '^Test.*/C$')"   # the C halves run in client/ (15 at 39f06fc)
+pairs() { (cd $1 && find . -name '*_test.go' -not -path './_examples/*' | xargs grep -hoE '^// Covers [0-9A-Za-z.-]+ \([SC, ]+\)' | awk '{s=$0; sub(/^[^(]*\(/,"",s); gsub(/[^SC]/,"",s); for(i=1;i<=length(s);i++)print $3, substr(s,i,1)}' | sort -u); }; test -n "$(pairs $BASE)"; test -z "$(comm -23 <(pairs $BASE) <(pairs .))"   # no (case, side) pair loses its marker (70 at 39f06fc)
+go test -race -count=1 -json -run '^(TestDeprecatedClientRoundTrip|TestConnAliasHandlers|TestClientErrorIdentity)$' . >$T/new.json; test "$(jq -rs '[.[]|select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test]|sort|join(",")' $T/new.json)" = TestClientErrorIdentity,TestConnAliasHandlers,TestDeprecatedClientRoundTrip
+grep -q '^| `client/` |' CLAUDE.md; grep -q "\"$MOD/client\"" _examples/client/main.go; test -z "$(grep -F "\"$MOD\"" _examples/client/main.go)"   # CLAUDE.md layout row (Stage 1b rule); the example imports client, not the root
+# a root-API consumer must compile and run unchanged: `cclient .` builds it against this checkout, `cclient <tag>` against a tag
+cclient() ( d=$(mktemp -d $T/c.XXXXXX); cd $d; go mod init example.com/consumer
+cat >main.go <<'GO'
+package main
+import (
+	"errors"
+	"os"
+	socketio "github.com/sshaplygin/go-socket.io"
+	"github.com/sshaplygin/go-socket.io/client"
+	"github.com/sshaplygin/go-socket.io/engineio"
+)
+var (
+	_ func(string, *engineio.Options) (*socketio.Client, error) = socketio.NewClient
+	_ func(*socketio.Client, func(socketio.Conn) error)         = (*socketio.Client).OnConnect
+	_ func(*socketio.Client, func(socketio.Conn, string))       = (*socketio.Client).OnDisconnect
+	_ func(*socketio.Client, func(socketio.Conn, error))        = (*socketio.Client).OnError
+	_ func(*socketio.Client, string, interface{})               = (*socketio.Client).OnEvent
+	_ func(*socketio.Client, string, ...interface{})            = (*socketio.Client).Emit
+	_ func(*socketio.Client) error                              = (*socketio.Client).Connect
+	_ func(*socketio.Client) error                              = (*socketio.Client).Close
+	_ func(client.Conn, client.Namespace)                       = func(socketio.Conn, socketio.Namespace) {}
+)
+func main() {
+	_, err := socketio.NewClient("", nil)
+	if !errors.Is(err, socketio.ErrEmptyAddr) || !errors.Is(err, socketio.EmptyAddrErr) || !errors.Is(err, client.ErrEmptyAddr) ||
+		!errors.Is(socketio.ErrWriteBufferFull, client.ErrWriteBufferFull) {
+		os.Exit(1)
+	}
+}
+GO
+if [ "$1" = . ]; then go mod edit -replace $MOD=$R && go mod tidy; else GOPROXY=direct go get $MOD@$1; fi
+go vet ./... && go run . )
+cclient .
+```
+
+Acceptance: `_examples/client` imports `client` instead of the deprecated root `Client`
+and `make examples` builds it; the owner runs it against `_examples/default-http` (the
+login event is received), then orders the tag (M8). Tag-time gate, after that order and
+the release commit: `cclient $REL` (the DoD function, tag in place of `.`) succeeds and
+`git merge-base --is-ancestor $REL origin/v1.x` holds; the release commit is
+forward-ported to `master` per `CONTRIBUTING.md`, the package is not. Out of scope: a
+separate `go.mod`, removing the root `Client` (v2 removes the v1 root runtime in 2.0), any
+change to the v1 server.
 
 ## Milestones
 
@@ -2301,6 +2436,7 @@ new revision IDs; release them separately. M7 closes the roadmap.
 | M5 | Stage 4b: adapters and cluster chat acceptance | root `v2.2.0` first, then `adapters/redis/v2.0.0`, `adapters/nats/v2.0.0` |
 | M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `contrib/admin/v2.0.0`; adapter minor releases |
 | M7 | Stage 6: final comparative benchmark report and reproducible artifacts | report/artifact revision; no runtime release required |
+| M8 | Stage 7: `client` package on `v1.x`, root `Client` deprecated; closes the roadmap | next `v1.x` minor after the latest `v1.x` tag (`v1.6.0` when that is `v1.5.0`), number named in the owner's order, on that order only |
 
 M2 is accepted when G2, the 2B join gate and the 2.1 exit have passed on one
 reviewed `master` commit and `git ls-files '_experiments/*/go.mod'` prints nothing there

@@ -32,6 +32,10 @@ All notable changes to this project are documented here. The format follows
   a recorded exploratory measurement run. It measures a framing server's Go heap, not RSS,
   and is not stage 2.1 acceptance; the root `go.mod` is unchanged. Preparation for stage
   2.1, no change to the library.
+- `_experiments/sio5-codec`: standalone module (not imported by the root module) with a
+  bounded Socket.IO protocol 5 wire codec (envelopes, complete binary groups, limits), Go
+  tests, fuzz targets and a Node oracle pinned to `socket.io-parser` 4.2.7; preparation for
+  the stage 2.3P parser, no change to the library.
 - v2 API skeleton in the root package (roadmap 2.0): `Event[T]`, `AckEvent[T, R]`,
   `Args2`, `Binary`, `Endpoint`, `ClientRegistration`, raw handlers, `Server`,
   `Namespace`, `Socket`, `Options`, the `Adapter` contract with `AdapterFactory`

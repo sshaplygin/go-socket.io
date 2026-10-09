@@ -2201,9 +2201,11 @@ new revision IDs; release them separately. M7 closes the benchmark scope; Stage 
 ## Stage 7. Go client as a separate package (v1.x)
 
 Owner decision of 2026-10-09: the Go client is supported as a separate package for both
-lines, after everything else. Entry: M7 passed and the tag `v1.5.0` exists on `v1.x`
-(M4), because this release is the next minor after it. Nothing before M7 depends on this
-stage. It is a stage and not a 2.3 item because its code lands on `v1.x`, after M7, in
+lines, after everything else. Entry: M7 passed. The stage does not wait for the `v1.5.0`
+tag (Execution and parallel work stays true): the compatibility base is the `v1.x` commit
+`$TIP`, and the release is the next `v1.x` minor after the latest `v1.x` tag at tag time,
+named in the owner's order (`$REL` in the tag-time gate; `v1.6.0` when `v1.5.0` is that tag). Nothing before
+M7 depends on this stage. It is a stage and not a 2.3 item because its code lands on `v1.x`, after M7, in
 its own release; the v2 half needs no work here.
 
 | Line | Client package | Work |
@@ -2322,7 +2324,7 @@ test -n "$(pairs $BASE)"; test -z "$(comm -23 <(pairs $BASE) <(pairs .))"   # no
 go test -race -count=1 -json -run '^(TestDeprecatedClientRoundTrip|TestConnAliasHandlers|TestClientErrorIdentity)$' . >$T/new.json
 test "$(jq -rs '[.[]|select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test]|sort|join(",")' $T/new.json)" = TestClientErrorIdentity,TestConnAliasHandlers,TestDeprecatedClientRoundTrip
 grep -q '^| `client/` |' CLAUDE.md   # layout row of the new directory (Stage 1b layout rule)
-# a consumer written against the v1.5.0 root API must compile and run unchanged: `cclient .` builds it against this
+# a consumer written against the root API at $TIP must compile and run unchanged: `cclient .` builds it against this
 # checkout (the PR head is on no remote branch before the merge), `cclient <tag>` against a published tag
 cclient() ( d=$(mktemp -d $T/c.XXXXXX); cd $d; go mod init example.com/consumer
 cat >main.go <<'GO'
@@ -2366,8 +2368,8 @@ git worktree remove --force $BASE
 Acceptance: `_examples/client` imports `client` instead of the deprecated root `Client`
 and `make examples` builds it; the owner runs it against `_examples/default-http` (the
 login event is received), then orders the tag (M8). Tag-time gate, after the owner's order and
-the release commit: `cclient v1.6.0` (the function from the DoD, with the tag in place of
-`.`) succeeds, and `git merge-base --is-ancestor v1.6.0 origin/v1.x` holds. The release
+the release commit: `cclient $REL` (the function from the DoD, with the tag in place of
+`.`) succeeds, and `git merge-base --is-ancestor $REL origin/v1.x` holds. The release
 forward-port to `master` follows `CONTRIBUTING.md`. Out of scope here: a separate `go.mod` for
 either client, removal of the root `Client` (v2 removes the whole v1 root runtime in 2.0), any
 change to the v1 server.
@@ -2385,7 +2387,7 @@ change to the v1 server.
 | M5 | Stage 4b: adapters and cluster chat acceptance | root `v2.2.0` first, then `adapters/redis/v2.0.0`, `adapters/nats/v2.0.0` |
 | M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `contrib/admin/v2.0.0`; adapter minor releases |
 | M7 | Stage 6: final comparative benchmark report and reproducible artifacts | report/artifact revision; no runtime release required |
-| M8 | Stage 7: `client` package on `v1.x`, root `Client` deprecated; closes the roadmap | next `v1.x` minor after `v1.5.0` (`v1.6.0` unless the owner names another), on the owner's order only |
+| M8 | Stage 7: `client` package on `v1.x`, root `Client` deprecated; closes the roadmap | next `v1.x` minor after the latest `v1.x` tag (`v1.6.0` when that is `v1.5.0`), number named in the owner's order, on that order only |
 
 M2 is accepted when G2, the 2B join gate and the 2.1 exit have passed on one
 reviewed `master` commit and `git ls-files '_experiments/*/go.mod'` prints nothing there

@@ -1045,7 +1045,7 @@ consumer, and that PR deletes the experiment. A draft PR does not satisfy a gate
 
 | Component (draft PR) | Purpose | Consumer | Lands in `master` |
 | --- | --- | --- | --- |
-| `eio4` paths and `_experiments/eio4-websocket` (#1) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | after G2, wave 2B: `internal/eio4` paths in live packages; the module until 2.1 deletes it |
+| `eio4` paths and `_experiments/eio4-websocket` (#1) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | after G2, wave 2B: `internal/eio4` paths in live packages; the module until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
 | `_experiments/ws-bench` (#6) | Gorilla vs gobwas component benchmark; replaces `eio4-websocket` by relative path | 2.1 idle baseline (not RSS) | after G2 with `eio4-websocket`; deleted when `gorilla/websocket` leaves `go.mod` at 2.1 |
 | `_experiments/v2-api` (#4, #5) | 2.0 descriptor, Adapter and hook compile proof | 2.0 fixtures | standalone before 2.0 starts; does not satisfy G2; deleted when 2.0 lands its fixtures |
 | `_experiments/sio5-codec` (#7) | v5 wire codec, Node oracle | 2.3P `parser/` | after G2, wave 2B; absorbed into `parser/` |
@@ -1123,7 +1123,9 @@ request B and late ACK A: B must remain pending until its own terminal condition
 
 ### 2.1 Engine.IO v4 and gobwas/ws
 
-Entry: G2. Exit: Engine.IO suite, transport/client tests and idle-connection baseline.
+Entry: G2. Exit: Engine.IO suite, transport/client tests and idle-connection baseline;
+`_experiments/ws-bench` and `_experiments/eio4-websocket` deleted (order in *Prepared
+components*).
 
 Reuse the prepared work from the baseline's `codex/eio4-payload` revision. The 2.1
 owner ports/rebases it after 1b and G2, preserving tests and updating imports to the

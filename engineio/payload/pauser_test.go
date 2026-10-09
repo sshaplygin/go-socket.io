@@ -224,43 +224,38 @@ func TestPauserCannotWorkingAfterPause(t *testing.T) {
 	p.Done()
 }
 
+// TestPauserRandom starts 1000 workers around a pending Pause (half before it, half after its
+// trigger) and checks that Pause waits for all of them. Channels, not sleeps, fix the order.
 func TestPauserRandom(t *testing.T) {
 	p := newPauser()
-	wg := sync.WaitGroup{}
-	n := 100
+	var started, done sync.WaitGroup
+	var released int32
+	release := make(chan struct{})
 
-	f := func() {
-		defer wg.Done()
-		should := assert.New(t)
-		r := rand.New(rand.NewSource(time.Now().UnixNano()))
-		time.Sleep(time.Millisecond * time.Duration(r.Intn(n)))
-		ok := p.Working()
-		should.True(ok)
-		defer p.Done()
-		time.Sleep(time.Millisecond * time.Duration(r.Intn(n)))
+	assert.True(t, p.Working()) // held until every worker runs, so Pause cannot finish early
+	for i := 0; i < 1000; i++ {
+		started.Add(1)
+		done.Add(1)
+		go func(late bool) {
+			defer done.Done()
+			if late {
+				<-p.PausingTrigger()
+			}
+			ok := p.Working()
+			started.Done()
+			assert.True(t, ok)
+			<-release
+			p.Done()
+		}(i%2 == 1)
 	}
 
-	max := 1000
-	wg.Add(max)
-	for i := 0; i < max; i++ {
-		go f()
-	}
-
-	should := assert.New(t)
-	// Make sure waiting pause.
-	ok := p.Working()
-	should.True(ok)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		time.Sleep(time.Millisecond * time.Duration(n/2))
-		p.Done()
-	}()
-
-	start := time.Now()
-	ok = p.Pause()
-	end := time.Now()
-	should.True(ok)
-	should.True(end.Sub(start) > time.Millisecond)
-	wg.Wait()
+	paused := make(chan bool) // Pause returned true after the workers were released
+	go func() { ok := p.Pause(); paused <- ok && atomic.LoadInt32(&released) == 1 }()
+	<-p.PausingTrigger()
+	started.Wait()
+	atomic.StoreInt32(&released, 1)
+	close(release)
+	p.Done()
+	assert.True(t, <-paused)
+	done.Wait()
 }

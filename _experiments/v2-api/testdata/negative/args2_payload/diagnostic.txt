@@ -1,0 +1,3 @@
+cannot use
+Args2[int, string]
+Args2[string, int]

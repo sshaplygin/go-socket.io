@@ -1,0 +1,3 @@
+cannot use
+int
+func(context.Context, *socketio.Socket, string) error

@@ -1,0 +1,2 @@
+cannot use
+func(context.Context, *socketio.Socket, string) error

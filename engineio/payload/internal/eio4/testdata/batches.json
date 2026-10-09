@@ -1,0 +1,13 @@
+[
+  {"name":"empty", "limit":1, "count":0, "nodeCount":0, "wire":"", "nodeWire":"", "packets":[]},
+  {"name":"single-exact", "limit":6, "count":1, "nodeCount":1, "wire":"4hello", "nodeWire":"4hello", "packets":[{"type":4,"text":"hello"}]},
+  {"name":"text-split", "limit":10, "count":1, "nodeCount":1, "wire":"4hello", "nodeWire":"4hello", "packets":[{"type":4,"text":"hello"},{"type":4,"text":"world"}]},
+  {"name":"text-all", "limit":13, "count":2, "nodeCount":2, "wire":"4hello\u001e4world", "nodeWire":"4hello\u001e4world", "packets":[{"type":4,"text":"hello"},{"type":4,"text":"world"}]},
+  {"name":"unicode-split", "limit":9, "count":1, "nodeCount":1, "wire":"4€", "nodeWire":"4€", "packets":[{"type":4,"text":"€"},{"type":4,"text":"🙂"}]},
+  {"name":"unicode-all", "limit":10, "count":2, "nodeCount":2, "wire":"4€\u001e4🙂", "nodeWire":"4€\u001e4🙂", "packets":[{"type":4,"text":"€"},{"type":4,"text":"🙂"}]},
+  {"name":"binary-triplets", "limit":11, "count":2, "nodeCount":2, "wire":"bAQID\u001ebBAUG", "nodeWire":"bAQID\u001ebBAUG", "packets":[{"type":4,"binary":true,"base64":"AQID"},{"type":4,"binary":true,"base64":"BAUG"}]},
+  {"name":"binary-padding-estimate", "limit":7, "count":1, "nodeCount":2, "wire":"bAA==", "nodeWire":"bAA==\u001ebAQ==", "packets":[{"type":4,"binary":true,"base64":"AA=="},{"type":4,"binary":true,"base64":"AQ=="}]},
+  {"name":"empty-binary-estimate", "limit":1, "count":1, "nodeCount":2, "wire":"b", "nodeWire":"b\u001e4tail", "packets":[{"type":4,"binary":true,"base64":""},{"type":4,"text":"tail"}]},
+  {"name":"oversized-first", "limit":5, "count":0, "nodeCount":1, "tooLarge":true, "wire":"", "nodeWire":"4hello", "packets":[{"type":4,"text":"hello"},{"type":4,"text":""}]},
+  {"name":"control-and-binary", "limit":11, "count":2, "nodeCount":2, "wire":"2\u001ebAQIDBA==", "nodeWire":"2\u001ebAQIDBA==", "packets":[{"type":2,"text":""},{"type":4,"binary":true,"base64":"AQIDBA=="}]}
+]

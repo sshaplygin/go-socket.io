@@ -14,9 +14,10 @@ Engine.IO v3. Stage 0, toolchain/CI work and logger tasks 1.2/1.2a have landed;
 remaining work starts at stage 1 below. Existing application APIs stay on branch
 `v1.x` (cut in Stage 1b); v2 is a new core/API in this repository.
 
-Preparation exists on `codex/eio4-payload`, inspected at
-`ee682282997b19309036e9c6fef6e248e06bc230`; it is not merged into this baseline.
-Stage 2.1 owns its reuse and remaining integration work below.
+The Engine.IO v4 preparation from `codex/eio4-payload` (inspected at
+`ee682282997b19309036e9c6fef6e248e06bc230`) has landed in `master` as unreferenced
+`internal/eio4` packages and the standalone `_experiments/eio4-websocket` module.
+Stage 2.1 owns their reuse and remaining integration work below.
 The other prepared experiments are listed in Stage 2 *Prepared components*.
 
 ## Decisions
@@ -1042,14 +1043,14 @@ M1b. The landing PRs of the two modules already on `master` (#44, #45) checked i
 hand. Otherwise `make experiments` runs Go checks only, so a landing PR also records
 the Node oracle or script checks of its module that it ran by hand. A module lands in
 `master` through a fresh-branch cherry-pick PR of its owned commits (transfer rules in
-issue #2; #44 and #45 landed this way and supersede draft PRs #8 and #9); it is later
+issue #2; #44, #45 and #54 landed this way and supersede draft PRs #8, #9 and #1); it is later
 absorbed into live packages by the PR that lands its consumer, and that PR deletes the
-experiment and its `Unreleased` CHANGELOG entry (today `adapter-wire` and
-`adapter-rooms`). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
+experiment and its `Unreleased` CHANGELOG entry (today `adapter-wire`,
+`adapter-rooms` and `eio4-websocket`, plus the `internal/eio4` entry). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
 
 | Component (source PR) | Purpose | Consumer | State in `master` and retirement |
 | --- | --- | --- | --- |
-| `eio4` paths and `_experiments/eio4-websocket` (#1) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | to land after G2, wave 2B: `internal/eio4` paths in live packages; the module until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
+| `eio4` paths and `_experiments/eio4-websocket` (#1, landed as #54) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | landed, unreleased; no production code references the `internal/eio4` packages yet, the 2.1 PR moves them into the live packages; the module stays until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
 | `_experiments/ws-bench` (#6) | Gorilla vs gobwas component benchmark; requires `eio4-websocket` via a relative `replace` | 2.1 idle baseline (not RSS) | to land after G2, with or after `eio4-websocket`; deleted when `gorilla/websocket` leaves the root `go.mod` at 2.1 (its own `go.mod` pins gorilla), and no later than `eio4-websocket` |
 | `_experiments/sio5-codec` (#7) | v5 wire codec, Node oracle | 2.3P `parser/` | to land after G2, wave 2B; absorbed into `parser/` |
 | `_experiments/adapter-wire` (#8, landed as #44) | pinned Node Redis adapter wire fixtures | `adapter/codec` (2.2), then 4A codec fixtures | landed, unreleased; the 2.2 PR that creates `adapter/codec` absorbs and deletes it, and 4A reads the fixtures from there |
@@ -1168,11 +1169,11 @@ Entry: G2. Exit: Engine.IO suite, transport/client tests and idle-connection bas
 `_experiments/ws-bench` and `_experiments/eio4-websocket` deleted (order in *Prepared
 components*).
 
-Reuse the prepared work from the baseline's `codex/eio4-payload` revision. The 2.1
-owner ports/rebases it after 1b and G2, preserving tests and updating imports to the
-v2 layout; do not repeat completed codec work or merge the branch blindly.
+Reuse the prepared work that landed in `master` (#54, from the baseline's
+`codex/eio4-payload` revision). The 2.1 owner integrates it after G2, preserving tests
+and updating imports to the v2 layout; do not repeat completed codec work.
 
-| Prepared component | Evidence in branch | Remaining 2.1 integration |
+| Prepared component | Evidence | Remaining 2.1 integration |
 | --- | --- | --- |
 | `engineio/payload/internal/eio4` | polling codec, bounded `DecodeReader`, exact-wire `EncodeBatch`, fixtures/fuzz tests and pinned Node oracles | route through package `payload` to respect `internal` visibility; HTTP POST limits/status mapping, client batching, cancellation/deadlines and polling upgrade/pause lifecycle |
 | `engineio/transport/websocket/internal/eio4` | complete-message EIO4 codec, binary/text fixtures and parser oracle | connect codec to the production transport and session lifecycle |

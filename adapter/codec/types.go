@@ -29,15 +29,22 @@ const (
 	DefaultMaxAttachments  = 64
 )
 
+// MaxDepthCeiling is the largest MaxDepth that Limits accepts. The decoder recurses
+// once per level of nesting, and the Go stack of an input nested millions of levels
+// deep ends in a fatal error that no recover can catch, so the bound has to be
+// finite whatever the caller asks for. It equals the depth the encoder allows in a
+// packet's JSON data.
+const MaxDepthCeiling = 1000
+
 // Limits bound what a decoder accepts from a peer. A zero field selects its default,
-// a negative one is rejected with ErrInvalid. The bounds apply to the decoded
+// a negative one, or a MaxDepth above MaxDepthCeiling, is rejected with ErrInvalid. The bounds apply to the decoded
 // message: the decoder reads at most MaxMessageBytes, allocates no more than the
 // input length demands, and never recurses deeper than MaxDepth.
 type Limits struct {
 	// MaxMessageBytes is the largest accepted message, in bytes.
 	MaxMessageBytes int
 	// MaxDepth is the deepest accepted nesting of arrays and maps in a MessagePack
-	// message. The message itself is depth 0.
+	// message. The message itself is depth 0. It must not exceed MaxDepthCeiling.
 	MaxDepth int
 	// MaxAttachments is the largest number of binary values in one packet.
 	MaxAttachments int
@@ -46,6 +53,9 @@ type Limits struct {
 func (l Limits) resolve() (Limits, error) {
 	if l.MaxMessageBytes < 0 || l.MaxDepth < 0 || l.MaxAttachments < 0 {
 		return l, fmt.Errorf("%w: negative limit %+v", ErrInvalid, l)
+	}
+	if l.MaxDepth > MaxDepthCeiling {
+		return l, fmt.Errorf("%w: MaxDepth %d above the ceiling %d", ErrInvalid, l.MaxDepth, MaxDepthCeiling)
 	}
 	if l.MaxMessageBytes == 0 {
 		l.MaxMessageBytes = DefaultMaxMessageBytes

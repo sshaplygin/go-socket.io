@@ -159,7 +159,7 @@ imports the root. Behaviour (limits, errors, supported request types) is in its 
 | `adapter/codec/response.go` | `Response.SocketIDs`, `Response.RemoteSockets` | `(Response) SocketIDs() ([]string, error)`; `(Response) RemoteSockets() ([]RemoteSocket, error)` |
 | `adapter/codec/response.go` | `NewRoomsResponse`, `NewSocketIDsResponse`, `NewRemoteSocketsResponse` | `NewRoomsResponse(string, []string) Response`; `NewSocketIDsResponse(string, []string) Response`; `NewRemoteSocketsResponse(string, []RemoteSocket) (Response, error)` |
 | `adapter/codec/types.go` | `Options`, `Flags`, `RemoteSocket` | `{Rooms, Except []string; Flags *Flags}`; `{Volatile, Compress *bool; Timeout *int64}`; `{ID string; Rooms []string; Handshake, Data json.RawMessage}` |
-| `adapter/codec/types.go` | `Limits` and `DefaultMaxMessageBytes`, `DefaultMaxDepth`, `DefaultMaxAttachments` | `{MaxMessageBytes, MaxDepth, MaxAttachments int}`; zero selects the default, negative is rejected |
+| `adapter/codec/types.go` | `Limits` and `DefaultMaxMessageBytes`, `DefaultMaxDepth`, `DefaultMaxAttachments`, `MaxDepthCeiling` | `{MaxMessageBytes, MaxDepth, MaxAttachments int}`; zero selects the default, negative or a MaxDepth above `MaxDepthCeiling` (1000) is rejected |
 | `adapter/codec/types.go` | `ErrMalformed`, `ErrUnsupported`, `ErrLimit`, `ErrInvalid` | sentinel errors matched with `errors.Is` |
 
 ## Frozen contract

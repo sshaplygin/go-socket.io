@@ -12,7 +12,7 @@ import (
 
 // maxEncodeDepth bounds the nesting of a packet's JSON data on encode. A peer's
 // decoder applies its own Limits.MaxDepth.
-const maxEncodeDepth = 1000
+const maxEncodeDepth = MaxDepthCeiling
 
 // Broadcast is the message a node publishes to deliver a packet to the sockets of its
 // peers: the MessagePack array [uid, packet, opts] of the Node adapter. UID is the

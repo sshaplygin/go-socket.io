@@ -265,6 +265,25 @@ func TestDecodeBroadcastLimits(t *testing.T) {
 		t.Errorf("negative limit: %v", err)
 	}
 
+	// MaxDepth is capped: a limit above the ceiling is refused, so that no caller
+	// can configure a recursion deep enough to overflow the stack.
+	if _, err := codec.DecodeBroadcast(msg, codec.Limits{MaxDepth: codec.MaxDepthCeiling}); err != nil {
+		t.Errorf("depth at the ceiling: %v", err)
+	}
+	if _, err := codec.DecodeBroadcast(msg, codec.Limits{MaxDepth: codec.MaxDepthCeiling + 1}); !errors.Is(err, codec.ErrInvalid) {
+		t.Errorf("depth above the ceiling: %v", err)
+	}
+	// 4M nested arrays took the process down with a stack overflow at MaxDepth 1<<30.
+	huge := append([]byte{0x93, 0xa1, 'u', 0x81, 0xa4, 'd', 'a', 't', 'a'}, bytes.Repeat([]byte{0x91}, 4<<20)...)
+	lim := codec.Limits{MaxMessageBytes: 8 << 20, MaxDepth: 1 << 30}
+	if _, err := codec.DecodeBroadcast(huge, lim); !errors.Is(err, codec.ErrInvalid) {
+		t.Errorf("huge MaxDepth on deep nesting: %v", err)
+	}
+	lim.MaxDepth = codec.MaxDepthCeiling
+	if _, err := codec.DecodeBroadcast(huge, lim); !errors.Is(err, codec.ErrLimit) {
+		t.Errorf("deep nesting at the ceiling: %v", err)
+	}
+
 	// A 100000-deep nesting needs 100000 bytes: it must be refused, not recursed into.
 	deep := append([]byte{0x93, 0xa1, 'u', 0x81, 0xa4, 'd', 'a', 't', 'a'}, bytes.Repeat([]byte{0x91}, 100000)...)
 	if _, err := codec.DecodeBroadcast(deep, codec.Limits{}); !errors.Is(err, codec.ErrLimit) {

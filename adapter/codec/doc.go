@@ -35,8 +35,9 @@
 //
 // Decoders take bytes from a peer. They accept at most Limits.MaxMessageBytes, check
 // every declared string, binary, array and map length against the bytes that are
-// left before allocating, refuse nesting deeper than Limits.MaxDepth and more than
-// Limits.MaxAttachments binary values, refuse MessagePack extension types, non-finite
+// left before allocating, refuse nesting deeper than Limits.MaxDepth (itself capped
+// at MaxDepthCeiling, so the recursion is bounded whatever the caller configures) and
+// more than Limits.MaxAttachments binary values, refuse MessagePack extension types, non-finite
 // numbers, invalid UTF-8 and trailing bytes, and return owned values that alias
 // nothing of the input. Errors match ErrMalformed, ErrUnsupported, ErrLimit or
 // ErrInvalid with errors.Is. The decoders check the structure of a message and not its

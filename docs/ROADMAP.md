@@ -1891,34 +1891,47 @@ timeout is 5 s.
   `SubscribeTimeout` option (default 10 s; `FlushWithContext` needs a deadline). The
   flush confirms only the connected server (the limit stated in 2.2 *Readiness*); the
   adapter README says so and no case covers the rest. The adapter is restoring while
-  `nc.IsConnected()` is false and until a flush succeeds after reconnect, reading the
-  connection status without replacing the application's handlers; the expected peers are
-  undetermined until one `HeartbeatInterval` after construction. Test with an embedded
-  `nats-server/v2`, no Docker, and a test TCP proxy between client and server that can
-  stall forwarding after the handshake; while stalled it buffers the client's bytes and
-  forwards them in order on release. *Nothing left* is read from the release of the
-  stall: the server's subscription count and `nc.NumSubscriptions()` are back to their
-  values before construction within 1 s. A leaked SUB reaches the server on release and
-  raises the count; a SUB followed by its UNSUB leaves it unchanged.
-  - 4N-T1: after the embedded server shuts down, `nc.IsConnected()` becomes false within
-    10 s (the test fails beyond it); `Sockets` and `FetchSockets` then return the local
-    data and an error at once.
-  - 4N-T2: with the proxy stalled, construction with `SubscribeTimeout` 200 ms returns
-    an error within 1 s; with `SubscribeTimeout` 10 s and the factory context cancelled,
-    it returns an error at once. The stall is released only after the error, then
-    each leaves nothing. The PR that adds the case shows it failing on a variant that
-    skips the unsubscribe.
-  - 4N-T3: `Sockets` issued as soon as construction returns, with a peer adapter
-    running, returns the local sockets and an error at once; after
-    `HeartbeatInterval` plus 100 ms it returns the peer's sockets and nil within 1 s.
-  - 4N-T4: repeats the 4N-T1 steps, starting `HeartbeatInterval` plus 100 ms after
-    construction, then restarts the server on the same address; `nc.IsConnected()` turns
-    true within 10 s. With the proxy stalled from then on, `Sockets` returns the local
-    sockets and an error at once until the stall is released and the flush succeeds;
-    then one call returns the local sockets and nil within 2 s.
+  `nc.IsConnected()` is false and from any reconnect until a flush succeeds after it. It
+  sees a reconnect, even one shorter than a status poll, by comparing `nc.Stats().Reconnects`
+  with the value read before its last successful flush; it polls every 100 ms and checks at each query,
+  and never replaces the application's handlers. The expected peers are undetermined
+  until one `HeartbeatInterval` after construction, so for that long every cluster query
+  returns the local data and an error, also with no peer; the adapter README says so.
+  Test with an embedded `nats-server/v2`, no Docker, and a test TCP proxy between client
+  and server. The proxy listens on one fixed address, dials the server anew for each
+  accepted client, closes the client side when the upstream closes, and has three controls.
+  `Stall()` stops forwarding client bytes on live connections and buffers them;
+  `StallNext()` does the same for the next connection that completes its handshake (the
+  server's first PONG forwarded), which a connection whose upstream dial fails never
+  does; `Release()` forwards the buffered bytes in order and ends the stalls. *Nothing
+  left* is read after `Release()` and a following `nc.FlushTimeout(2 s)`, which returns
+  once the server has processed everything the client sent before it: the server's
+  subscription count and `nc.NumSubscriptions()` equal their values before construction.
+  A leaked SUB reaches the server on release and raises the count; a SUB followed by its
+  UNSUB leaves it unchanged. Every `Test4N_T<n>` builds its own server and repeats the
+  steps it names.
+  - 4N-T1: no peer. `HeartbeatInterval` plus 100 ms after construction the test shuts the
+    embedded server down; `nc.IsConnected()` becomes false within 10 s (the test fails
+    beyond it); `Sockets` and `FetchSockets` then return the local data and an error at
+    once.
+  - 4N-T2: with `Stall()` applied, construction with `SubscribeTimeout` 200 ms returns an
+    error within 1 s; with `SubscribeTimeout` 10 s and the factory context cancelled
+    after the proxy buffered the SUB, it returns an error at once. `Release()` comes only
+    after the error, then each leaves nothing. The PR that adds the case shows it failing
+    on a variant that skips the unsubscribe.
+  - 4N-T3: `HeartbeatInterval` 2 s, a peer adapter running. `Sockets` issued as soon as
+    construction returns returns the local sockets and an error at once; 2.1 s after
+    construction it returns the peer's sockets and nil within 1 s.
+  - 4N-T4: no peer; the connection has `MaxReconnects` -1 and `ReconnectWait` 100 ms.
+    The test calls `StallNext()` at the 4N-T1 start time, then does the 4N-T1 shutdown with
+    its assertions, restarts the server on the same address and waits for
+    `nc.IsConnected()` to turn true within 10 s. The resent subscriptions and the
+    adapter's flush then sit in the proxy, so `Sockets` returns the local sockets and an
+    error at once although `nc.IsConnected()` is true. After `Release()` one call
+    returns the local sockets and nil within 2 s.
   - 4N-T5: the application's `DisconnectedErrHandler` and `ReconnectHandler` count
-    their calls; across construction, the 4N-T1 shutdown, the 4N-T4 restart and the
-    adapter's `Close`, the first is called once and the second once.
+    their calls; the test repeats the 4N-T1 and 4N-T4 steps and then closes the adapter;
+    the first handler was called once and the second once.
 - Both adapters report through `Namespace.Hooks()` (paired `AdapterPublishStart/End`
   and `AdapterReceiveStart/End`) and use `Namespace.Logger()` for other library-owned diagnostics.
   The Redis adapter logs WARN `socketio: adapter publish failed` on a PUBLISH error,

@@ -4,9 +4,9 @@ permissions:
 
 on:
   push:
-    branches: [master]
+    branches: [v1.x]
   pull_request:
-    branches: [master]
+    branches: [v1.x]
   schedule:
     - cron: '0 8 * * 1' # Mondays 08:00 UTC
 

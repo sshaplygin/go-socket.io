@@ -2,7 +2,7 @@ name: Benchmarks
 
 on:
   pull_request:
-    branches: [master]
+    branches: [v1.x]
 
 permissions:
   contents: read

@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
+	eioclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
@@ -156,7 +157,7 @@ func TestRequestRejectedRecords(t *testing.T) {
 		c, err := tr.Dial(u, nil)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = c.Close() })
-		if o, ok := c.(engineio.Opener); ok {
+		if o, ok := c.(eioclient.Opener); ok {
 			params, err := o.Open()
 			require.NoError(t, err)
 			return params.SID

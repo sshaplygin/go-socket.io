@@ -1153,7 +1153,9 @@ frozen declaration. API.md (*Frozen contract*) lists the result; this table owns
 The gate evidence is `make g2`: `make graph` (package graph), `make freeze` (`TestFrozenContract`:
 none of `TODO`, `FIXME`, `proposed`, `unreviewed`, `not yet frozen`, `open before G2` or a
 placeholder `any`/handler wording in API.md or in the comments of the frozen files, and no
-bare `any` in a frozen signature other than `ServerSideEmit`) and `go test -run
+bare `any` or `interface{}` in an exported function, method, func type, func-typed field, interface method
+or struct field of the frozen files, other than the variadic payload of `ServerSideEmit`; `TestAnyUsesDetects` proves the
+check fails on each of those shapes) and `go test -run
 '^(TestCompileContracts|TestInventory.*)$' .`, which compiles the
 positive fixtures and the negative fixtures with their recorded diagnostics, and checks that
 API.md lists every exported declaration with its declared result types. CI runs `make

@@ -43,7 +43,7 @@ make test-race  # the same with -race; what CI runs
 make bench      # benchmarks only, no tests
 make vuln       # govulncheck ./... in the root and in every _experiments module
 make graph      # package graph: no import cycle, the root imports only engineio and parser (docs/API.md)
-make freeze     # G2 check: no unresolved marker in docs/API.md or the frozen declarations, no bare any in a frozen signature
+make freeze     # G2 check: no unresolved marker in docs/API.md or the frozen declarations, no bare any in an exported frozen declaration
 make g2         # the gate evidence of ROADMAP row 2A: make graph, make freeze and the compile fixtures
 make cover      # coverage profile + HTML report
 make examples   # check that every _examples/*/chat.go is identical; the legacy examples are not built until 2.5D

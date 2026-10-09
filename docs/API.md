@@ -198,7 +198,9 @@ defined by the stage named; all are additions to the frozen declarations.
 
 `make g2` runs the three checks of ROADMAP row 2A: `make graph` (package graph acyclic),
 `make freeze` (`TestFrozenContract`: no unresolved marker in this file or in the comments of
-the frozen declarations, no bare `any` in a frozen signature) and the compile fixtures
+the frozen declarations, no bare `any` in an exported function, method, func type, func-typed field, interface
+method or struct field of the frozen files; type parameter constraints and unexported
+declarations are not examined, and `TestAnyUsesDetects` pins the shapes it catches) and the compile fixtures
 (`go test -run TestCompileContracts .`) with the inventory check. CI runs `make graph`
 and `make freeze` in the `lint` job and the fixtures in every `go test ./...`, including
 `min-go` on Go 1.22 with `GOTOOLCHAIN=local`.

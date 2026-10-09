@@ -53,10 +53,10 @@ graph:
 	go test -count=1 -run '^(TestPackageGraph|TestForbiddenEdge)$$' .
 
 # The G2 check of docs/API.md (Frozen contract): no unresolved marker in docs/API.md or in
-# the comments of the frozen declarations, and no bare any in a frozen signature.
+# the comments of the frozen declarations, and no bare any in an exported frozen signature, func type or struct field.
 .PHONY: freeze
 freeze:
-	go test -count=1 -run '^TestFrozenContract$$' .
+	go test -count=1 -run '^(TestFrozenContract|TestAnyUsesDetects)$$' .
 
 # The gate evidence of ROADMAP wave 2A: the compile fixtures, the package graph and the
 # frozen-contract check. The inventory check keeps docs/API.md complete.

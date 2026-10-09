@@ -2231,9 +2231,15 @@ source level, so the release stays a MINOR one: apidiff, and so `gorelease`, rep
 move of `Conn` and `Namespace` as an incompatible change although every consumer compiles
 unchanged, hence the DoD proves it with a consumer program and does not run `gorelease`. `client` may import
 `engineio`, `engineio/transport/...`, `parser` and `logger`; nothing imports `client`
-except the root and the examples. The client path has its own copy of the connection
-runtime it uses (`conn` with the write queue and the close rules, the client-side
-namespace connection, the handler registry and the reflection dispatch, `connLimits`),
+except the root and the examples. The client path has its own copy of exactly the closure
+of what the old `Client` reaches, minus Redis and server-only code: `conn` (write queue,
+close rules), `connLimits`, `frameReader`, `queueWriter`, `isDone`, `nspAttr` and the packet
+handlers `serveRead` calls, including the two client ones; the client-side namespace
+connection; the handler registry and the reflection dispatch; `namespace_handler.go` split
+so that `RedisAdapterOptions`, `newRedisBroadcast` and `nopBroadcast` stay out; the
+in-memory broadcast as an unexported `broadcast` and `eachFunc` (it backs `Namespace.Join`,
+`Leave`, `LeaveAll` and `Rooms`; `client` exports no `Broadcast`); `loggerFrom`; the
+constants of `types.go`. `go list -deps ./client` lists no `redigo`. All of it is
 copied from the `v1.x` files at the stage's start `$TIP`; the server code path is not
 extracted, and its only edit is deleting `clientConnectPacketHandler` and
 `clientDisconnectPacketHandler` from `connection_handlers.go` (only the old `Connect`
@@ -2294,6 +2300,7 @@ TIP=${TIP:?the v1.x commit recorded in the first Stage 7 PR}; MOD=github.com/ssh
 git worktree add -q --detach $BASE $TIP
 make lint test-race
 test -z "$(go list -deps ./client | grep -x "$MOD")"
+test -z "$(go list -deps ./client | grep redigo)"   # the Redis broadcast is not carried over
 test -n "$(go list -deps . | grep -x "$MOD/client")"
 test "$(go doc -short ./client | sed -E 's/^ +//; s/^(func [A-Za-z]+)\(.*/\1/; s/^((var|type) [A-Za-z]+).*/\1/' | paste -sd, -)" = "var ErrEmptyAddr,var ErrWriteBufferFull,type Client,func NewClient,type Conn,type Namespace"
 test "$(go doc -short ./client Client | grep '^func')" = "$(cd $BASE && go doc -short . Client | grep '^func')"

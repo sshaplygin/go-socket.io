@@ -1365,22 +1365,26 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   baseline.
 - Rewrite `Client` on the same generic API with websocket over `gobwas/ws`.
 - 2.3S implements the server side of 2.2 *Readiness*. Its root test, part of the 2C join
-  gate, holds the factory until its context ends. When the factory then returns an adapter
-  at once, `Close` during the call returns within 100 ms, the creating call's error
-  matches `ErrNamespaceClosed`, and the late adapter has been closed exactly once when the
-  creating call returns; when it returns `ctx.Err()`, the error matches both
-  `ErrNamespaceClosed` and `context.Canceled`. When the factory returns an adapter 100 ms
-  after its context ends, `Shutdown` with a 1 s deadline does not return before the
-  factory does, and `Shutdown` with a 20 ms deadline returns before the factory does. A
-  creation after `Close` returns `ErrNamespaceClosed` without calling the factory, also
-  for a registered namespace; eight concurrent creations of one namespace under `-race`,
-  with the factory held for 100 ms, call it once and get the same namespace. While a
-  creation is held, a CONNECT to its namespace is answered CONNECT_ERROR within 100 ms and
-  does not call the factory. With every caller's `ctx` cancelled while the factory is
-  held, each call returns an error matching its `ctx.Err()`; when the factory then returns
-  an adapter, the next call returns that namespace without calling the factory again and
-  `Close` closes the adapter exactly once; when it returns an error, the next call calls
-  the factory again.
+  gate, uses a factory held until its context ends. When it then returns an adapter at
+  once, `Close` during the call returns at once, the call's error matches
+  `ErrNamespaceClosed`, and the adapter has been closed exactly once when the call
+  returns; when it returns `ctx.Err()`, the error matches both `ErrNamespaceClosed` and
+  `context.Canceled`. When the factory returns an adapter 100 ms after its context ends,
+  `Shutdown` with a 1 s deadline does not return before the factory does, and with a 20
+  ms deadline returns before it; either way, with the creating call's caller present or
+  with every caller's `ctx` cancelled first, the adapter is closed exactly once, within
+  100 ms of the factory returning. While `Shutdown` drains (a handler blocks it) or
+  after `Close`, a call for a registered namespace and a call arriving during a creation
+  in progress return `ErrNamespaceClosed` at once and call no factory. A factory error
+  comes back matching the error and naming the namespace, and the next call calls the
+  factory again. A done `ctx` returns the registered namespace, and for an unregistered
+  one returns its error without calling the factory. Eight concurrent creations of one
+  namespace under `-race`, with the factory held for 100 ms, call it once and get the
+  same namespace. While a creation is held, a CONNECT to its namespace is answered
+  CONNECT_ERROR at once and calls no factory. With every caller's `ctx` cancelled while
+  the factory is held, each call returns an error matching its `ctx.Err()`; when the
+  factory then returns an adapter, the next call returns that namespace without calling
+  the factory again and `Close` closes the adapter exactly once.
 - Example migration is owned by 2.5D after runtime and observability gates pass.
 
 ### 2.4 Observability

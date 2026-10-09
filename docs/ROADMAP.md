@@ -2354,7 +2354,7 @@ DoD; the consumer check needs network). `$TIP` is the `v1.x` commit recorded in 
 stage commits are titled `<type>(7.<n>): ...`, so later `v1.x` patches are not judged:
 
 ```sh
-TIP=${TIP:?the v1.x commit recorded in the Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base; R=$PWD; git worktree add -q --detach $BASE $TIP
+TIP=${TIP:?the v1.x commit recorded in the Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base; R=$PWD; git worktree add -q --detach $BASE $TIP; trap 'git worktree remove --force $BASE; rm -rf $T' EXIT
 make lint test-race
 D=$(go list -deps ./client)   # not piped inside test -z: a failing go list (import cycle) must stop the script
 test -z "$(echo "$D" | grep -E "redigo|^$MOD(/|$)" | grep -vE "^$MOD/(client|engineio|parser|logger)(/|$)")"   # only the allowed imports
@@ -2411,7 +2411,6 @@ GO
 if [ "$1" = . ]; then go mod edit -replace $MOD=$R && go mod tidy; else GOPROXY=direct go get $MOD@$1; fi
 go vet ./... && go run . )
 cclient .
-git worktree remove --force $BASE
 ```
 
 Acceptance: `_examples/client` imports `client` instead of the deprecated root `Client`

@@ -74,6 +74,12 @@ import (
 // Before measuring, the server runs debug.FreeOSMemory, so RSS excludes garbage the Go
 // runtime has not yet returned to the system. RSS comes from "ps -o rss=" on the server
 // pid. The numbers describe one machine and one run; they are advisory.
+//
+// In a default run (IDLE_CONNS unset) the standard metrics are not the measured
+// quantity: ns/op includes the one-second hold and the subprocess start-up, and B/op and
+// allocs/op are those of the dialing client in this process, not of the server. They
+// appear in the base-vs-PR benchmark comparison only because the testing package always
+// reports them; read the log line above for the server figures.
 func BenchmarkIdleConnections(b *testing.B) {
 	if !idleBenchSupported {
 		b.Skipf("idle benchmark needs linux or darwin, not %s", runtime.GOOS)

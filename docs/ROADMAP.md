@@ -1410,7 +1410,8 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
     second factory call, and the count is 0 before the test's `Close`.
   - R9: a handler blocks the drain of `Shutdown` until the recorded factory context is
     done, then broadcasts to a room: the fake adapter receives that `Broadcast`, and its
-    count is 0 until the handler and `Shutdown` have returned.
+    count, read in the handler right after the broadcast was delivered, is 0; the settled
+    reading is 1.
 - Example migration is owned by 2.5D after runtime and observability gates pass.
 
 ### 2.4 Observability

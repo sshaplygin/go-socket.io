@@ -1589,9 +1589,17 @@ It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
   nested and unicode data, `bin` at top level and nested, a repeated attachment, `undefined`
   and `Date` as notepack writes them, and the invalid inputs. Oracles check component
   behaviour, not Go-server conformance.
-- Hook tests of 2.4 run once more with `Parser` set to MessagePack (`PacketRead` and
-  `PacketWrite` report the binary frame type and size); the obligation lives here and the
-  2.4 text is unchanged, which is why row 2E waits for 2CM.
+- **Hooks and preview (2.4).** The 2.4 text is unchanged; 2.4E and 2.4S write the tests
+  below, which M3 gates, and row 2E waits for 2CM for that reason. The 2.4 redactor reads
+  text envelopes, so it must not see msgpack: with `Parser` MessagePack, `PacketInfo.Preview`
+  is empty for every Socket.IO message even if `PayloadPreviewBytes` > 0 (fail closed; a
+  msgpack-aware redactor is a later addition), and the classifier reads the packet type from
+  the first `type` key of the envelope without decoding `data`. `PacketRead` and
+  `PacketWrite` report the binary frame type and size. `TestMessagePackHookPreview` sets
+  `PayloadPreviewBytes` 256 and sends a CONNECT with auth `{"token":"secret"}` over both
+  transports: no hook receives that byte string, `Preview` is empty. `TestMessagePackHookLabels`
+  runs the 2.3P corpus in both formats and requires the same packet-type labels on spans
+  and metrics.
 - Out of scope: negotiation or autodetection, other parsers (the default
   JSON parser is Node's `socket.io-parser`; custom parsers are not an API), the v1 line, a speed claim over JSON
   (`BenchmarkMessagePackEncode` and `BenchmarkMessagePackDecode` are recorded, advisory).

@@ -1873,8 +1873,11 @@ timeout is 5 s.
     the case fails; an adapter attempt and the go-redis redial inside `Receive` are each
     a new connection. When the third has held its first command, `Sockets` returns the
     local sockets and an error at once, nothing being confirmed (an adapter that stops
-    restoring when it creates or dials the new connection returns nil). Leaks are checked on the server only, after the release (a held
-    connection stays counted until its command returns): once the live values are settled, `Sockets` returns the local
+    restoring when it creates or dials the new connection returns nil). The test then
+    releases the held commands in arrival order up to the third connection's first one
+    only; 50 ms later `Sockets` still returns the local sockets and an error (one of two
+    confirmations), and the rest is released. Leaks are checked on the server only, after
+    the release (a held connection stays counted until its command returns): once the live values are settled, `Sockets` returns the local
     sockets and nil within 2 s, and nothing is left. A leaked attempt is an open
     connection miniredis counts whatever the client believes; the PR that adds the test
     also shows the check failing on a variant that leaves a failed attempt's connection

@@ -2315,6 +2315,7 @@ names() { grep -rhoE '^func (Test|Benchmark)[A-Za-z0-9_]+' --include='*_test.go'
 test -z "$(comm -23 <(names $BASE) <(names .))"
 res() { (cd $1 && go test -count=1 -v ./... | awk '$1=="---" && $2=="PASS:"{gsub(/0x[0-9a-f]+/,"0x"); print $3}') | sort -u; }
 test -z "$(comm -23 <(res $BASE) <(res .))"   # every passing test and subtest, TestX/C included, still passes (322 at 39f06fc)
+test "$(go test -race -count=1 -v ./client | grep -c -- '--- PASS: .*/C ')" -ge "$(res $BASE | grep -c '^Test.*/C$')"   # the C halves run in client/ (15 at 39f06fc)
 pairs() { (cd $1 && find . -name '*_test.go' -not -path './_examples/*' | xargs grep -hoE '^// Covers [0-9A-Za-z.-]+ \([SC, ]+\)' | awk '{s=$0; sub(/^[^(]*\(/,"",s); gsub(/[^SC]/,"",s); for(i=1;i<=length(s);i++)print $3, substr(s,i,1)}' | sort -u); }
 test -n "$(pairs $BASE)"; test -z "$(comm -23 <(pairs $BASE) <(pairs .))"   # no (case, side) pair loses its marker (70 at 39f06fc)
 # -run alone exits 0 when a name matches nothing: require one pass event per test

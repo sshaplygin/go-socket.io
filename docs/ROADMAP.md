@@ -646,7 +646,9 @@ Tasks:
     (whatever date suffix its heading carries; an empty `## Unreleased` may stay
     above it), so
     `awk '/^## /{s=$0} s ~ /^## \[?(Unreleased|v1\.5\.0)\]?( |$)/ && /^### Known limitations$/{c++} END{exit c!=1}' CHANGELOG.md`
-    exits 0 (at `82aa740` it exits 1);
+    exits 0 (at `82aa740` it exits 1). The awk counts across the Unreleased and `v1.5.0`
+    sections, so it is meant for the `v1.x` tree and the tagged `v1.5.0` tree, not for
+    `master` after step 0d, whose own `## Unreleased` may later carry its own entries;
     `for m in Server.Adapter Server.RoomLen Server.Rooms; do go doc . $m | grep -q subscription || echo $m; done`
     prints nothing (a case-sensitive substring match; at `82aa740` it prints all
     three). The grep shows only that each comment was edited; the content check is
@@ -663,7 +665,7 @@ prints nothing; a standard-library finding is cleared by the toolchain, not by c
 two-instance Redis test under `-race` passes; every (case, side)
 pair of the 1.B, 1I and 1.L test lists is named by a passing test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
 package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses.
-The 1.K check passes (1.K says when it runs).
+The 1.K check passes (1.K says when it runs and on which trees).
 Logging gate: `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv` (also asserting that
 stderr contains the message `logger: invalid level ignored` and `value=bogus`),
 `TestWrapOverridesHandlerLevel` and `TestTraceDisabledNoAlloc` pass; the package

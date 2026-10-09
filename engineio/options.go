@@ -32,16 +32,11 @@ type Options struct {
 	// have access to Options and keep using logger.Log.
 	Logger *slog.Logger
 
-	// WriteBufferSize is the number of outbound socket.io packets each connection of
-	// a socketio.Server or socketio.Client queues; 0 and negative values mean 64. It
-	// is unrelated to websocket.Transport.WriteBufferSize, which counts bytes, and
-	// the engine.io server ignores it. A packet the writer has started no longer
-	// counts. An Emit that finds the queue full closes the connection without
-	// draining it (see socketio.ErrWriteBufferFull), so more than WriteBufferSize
-	// packets queued faster than the writer sends them can close a healthy client.
-	// Polling writes one engine.io frame per poll round trip, and a packet with k
-	// binary attachments takes k+1 frames, so polling clients overflow at much lower
-	// emit rates than websocket clients. Temporary v1 placement.
+	// WriteBufferSize was the number of outbound socket.io packets each connection of
+	// the v1 socketio.Server or socketio.Client queued (0 and negative meant 64). It
+	// is unrelated to websocket.Transport.WriteBufferSize, which counts bytes, and the
+	// engine.io server ignores it. Nothing reads it since stage 2.0 removed the v1 root
+	// runtime; socketio.Options.OutboundQueueGroups replaces it. Temporary v1 placement.
 	WriteBufferSize int
 
 	// Hooks are the observer callbacks. nil means none. They are declared but not

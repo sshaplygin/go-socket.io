@@ -42,7 +42,10 @@ server->>server: close old conn
 
 ## Implemented: Socket.IO protocol v4
 
-Packages `parser` and root.
+Package `parser` on `master`, and the root package on branch `v1.x`. Stage 2.0 removed the
+v1 root runtime from `master`: the server behaviour below (root namespace, event
+acknowledgement, namespace query handling and the deviations) is implemented on `v1.x`
+only, and `master` keeps the packet codec in `parser`.
 
 - Packet format `<type>[<attachments>-][<namespace>,][<ack id>][JSON]`. Types
   0 CONNECT, 1 DISCONNECT, 2 EVENT, 3 ACK, 4 ERROR, 5 BINARY_EVENT, 6 BINARY_ACK.

@@ -4,6 +4,11 @@ A [Socket.IO](https://socket.io) server for Go with namespaces, rooms, acknowled
 broadcast and a Redis adapter for multi-instance deployments. Engine.IO is included as
 the `engineio` sub-package and can be used on its own.
 
+**Status of `master`.** This branch is the v2 work. Its root package declares the typed
+v2 API (signatures in [docs/API.md](docs/API.md)) and has no runtime yet: operations
+return `ErrNotImplemented`. The working v1 server and client, described below, are on the
+branch `v1.x`.
+
 This is a maintained fork of the archived `googollee/go-socket.io`. The modernisation
 plan, including Socket.IO protocol v5 support, is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -15,8 +20,8 @@ plan, including Socket.IO protocol v5 support, is in [docs/ROADMAP.md](docs/ROAD
 
 | Server | Socket.IO protocol | Engine.IO protocol | JavaScript client |
 | --- | --- | --- | --- |
-| v1.x (this branch) | v4 | v3 | `socket.io-client` 1.x and 2.x |
-| v2 (planned) | v5 | v4 | `socket.io-client` 3.x and 4.x |
+| v1.x (branch `v1.x`) | v4 | v3 | `socket.io-client` 1.x and 2.x |
+| v2 (in development on `master`, no runtime yet) | v5 | v4 | `socket.io-client` 3.x and 4.x |
 
 Details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
@@ -34,6 +39,8 @@ fork's module path is tagged. Existing consumers must update their imports from
 the former upstream-path `replace` directive, then run `go mod tidy`.
 
 ## Quick start
+
+The v1 API, on the branch `v1.x`:
 
 ```go
 package main
@@ -69,8 +76,8 @@ func main() {
 }
 ```
 
-Runnable examples for gin, echo, iris, gf, CORS, Redis and graceful shutdown are in
-[_examples/](_examples/README.md). API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io).
+Runnable v1 examples for gin, echo, iris, gf, CORS, Redis and graceful shutdown are in
+[_examples/](_examples/README.md); on `master` they no longer build until they are migrated. API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io).
 
 ## Contributing
 

@@ -11,7 +11,7 @@ API skeleton without runtime (stage 2.0), and the v1 server and client live on b
 | Path | Purpose |
 | --- | --- |
 | `*.go` (root, package `socketio`) | v2 API skeleton: typed events, `Server`/`Namespace`/`Socket`, `Adapter`, hooks, options; declarations only, signatures in [docs/API.md](docs/API.md) |
-| `parser/` | Socket.IO packet encoder/decoder, binary attachments, the `Packet`/`Arguments` value types of the v2 API |
+| `parser/` | Socket.IO v5 wire codec (bounded `Encode`/`Decode`, `Assembler`, binary attachments, `JSON[T]` argument codec), the `Packet`/`Arguments` value types of the v2 API; `testdata/oracle` is the Node check (`README.md` there) |
 | `engineio/` | Engine.IO server: `Server`, `Conn`, options, observer hook types (`hooks.go`) |
 | `engineio/client/` | Engine.IO client: `Dialer`, `Opener` |
 | `engineio/session/` | sessions, session manager, ID generator |
@@ -24,7 +24,7 @@ API skeleton without runtime (stage 2.0), and the v1 server and client live on b
 | `engineio/transport/utils/` | timestamp helper shared by the transports |
 | `engineio/internal/` | what the engineio packages share without exporting it (the shutdown hook) |
 | `engineio/internal/logtest/` | log recorder shared by the `engineio` and `engineio/client` tests |
-| `logger/` | package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: parser, transports, `engineio/packet`, `engineio/client` |
+| `logger/` | package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: transports, `engineio/packet`, `engineio/client` |
 | `internal/fixtures/` | compile-only packages built by the root fixtures: positive usage, an external adapter and a client stand-in; `testdata/negative/` holds the programs that must not compile |
 | `_examples/` | runnable examples, each with its own `go.mod`; excluded from the root build by the `_` prefix |
 | `_experiments/` | standalone prototypes, each with its own `go.mod`, never imported by the root module; built by `make experiments` |

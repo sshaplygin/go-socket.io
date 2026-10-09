@@ -1048,13 +1048,12 @@ the Node oracle or script checks of its module that it ran by hand. A module lan
 issue #2; #44, #45, #54, #55 and #53 landed this way and supersede draft PRs #8, #9, #1, #6 and #7); it is later
 absorbed into live packages by the PR that lands its consumer, and that PR deletes the
 experiment and its `Unreleased` CHANGELOG entry (today `adapter-wire`,
-`adapter-rooms`, `eio4-websocket`, `ws-bench` and `sio5-codec`, plus the `internal/eio4` entry). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
+`adapter-rooms`, `eio4-websocket` and `ws-bench`, plus the `internal/eio4` entry; `sio5-codec` was absorbed into `parser/` by 2.3P). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
 
 | Component (source PR) | Purpose | Consumer | State in `master` and retirement |
 | --- | --- | --- | --- |
 | `eio4` paths and `_experiments/eio4-websocket` (#1, landed as #54) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | landed, unreleased; no production code references the `internal/eio4` packages yet, the 2.1 PR moves them into the live packages; the module stays until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
 | `_experiments/ws-bench` (#6, landed as #55) | Gorilla vs gobwas component benchmark; requires `eio4-websocket` via a relative `replace` | 2.1 idle baseline (not RSS) | landed, unreleased; deleted when `gorilla/websocket` leaves the root `go.mod` at 2.1 (its own `go.mod` pins gorilla), and no later than `eio4-websocket` |
-| `_experiments/sio5-codec` (#7, landed as #53) | v5 wire codec, Node oracle | 2.3P `parser/` | landed, unreleased; the 2.3P PR absorbs it into `parser/` and deletes it |
 | `_experiments/adapter-wire` (#8, landed as #44) | pinned Node Redis adapter wire fixtures | `adapter/codec` (2.2), then 4A codec fixtures | landed, unreleased; the 2.2 PR that creates `adapter/codec` absorbs and deletes it, and 4A reads the fixtures from there |
 | `_experiments/adapter-rooms` (#9, landed as #45) | Node memory-adapter room corpus | 2.2 conformance | landed, unreleased; absorbed into the 2.2 tests by the PR that adds them, which deletes it |
 
@@ -1363,10 +1362,16 @@ Go/Node interoperability, 2.0 lifecycle tests and dispatch benchmark baseline.
 - `parser`: CONNECT payload, CONNECT_ERROR object, marker interface instead of
   `Type().Name()=="Buffer"`, `Packet` value type with lazily decoded args. The 2.0
   skeleton froze the value forms `Packet`, `Arguments`, `BinaryValue` and
-  `ArgumentCodec[T]`; 2.3P adds the stream encoder and decoder, placeholder validation and
-  wire errors beside them, and 2.3S binds a codec to a descriptor, both without changing
-  the frozen declarations. A value passed to a callee is borrowed for the call; a returned
-  value is owned by the caller.
+  `ArgumentCodec[T]`; 2.3P added the bounded `Encode`, `Decode` and `Assembler`,
+  placeholder validation, wire errors and the `JSON[T]` argument codec beside them, and
+  2.3S binds a codec to a descriptor, both without changing the frozen declarations. A
+  value passed to a callee is borrowed for the call; a returned value is owned by the
+  caller. 2.3P is on `master` and unreleased (M3 releases it); the root calls none of it
+  yet. What 2.3S still does with it: map `socketio.Options` to `parser.Limits`
+  (`MaxEventBytes`, `MaxAttachments`, `AttachmentTimeout`), arm a timer on
+  `Assembler.Deadline`, translate the parser errors into `ErrMessageTooLarge`,
+  `ErrTooManyAttachments` and the `parse error` close, allocate acknowledgement IDs, and
+  build `Args2` and the typed ack convention from `JSON[T]`, `Concat` and `Slice`.
 - New model `Server → Namespace → Socket` replacing `conn`/`namespaceConn`. Explicit
   CONNECT for `/`. Each `Socket` owns a `context.Context` cancelled on disconnect.
 - Generics-first public API; reflection-based `OnEvent(string, interface{})` is

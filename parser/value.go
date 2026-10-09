@@ -5,9 +5,10 @@ import "encoding/json"
 // Arguments carries the positional arguments of an event or acknowledgement and
 // the binary attachments that belong to them. A value handed to a callee is borrowed
 // for the call and the callee copies what it retains; a value a callee returns is
-// owned by the caller. Placeholder validation and the stream encoder and decoder that
-// produce and consume these values are added to this package by roadmap 2.3P; this
-// declaration copies and validates nothing.
+// owned by the caller. A placeholder in a value, {"_placeholder":true,"num":N},
+// names Attachments[N]. This declaration copies and validates nothing; Validate,
+// Concat, Slice, EventPacket, AckPacket, EventArguments, AckArguments and the JSON
+// codec do.
 type Arguments struct {
 	Values      []json.RawMessage
 	Attachments [][]byte
@@ -17,8 +18,8 @@ type Arguments struct {
 // adapters. ID is nil when the packet requests no acknowledgement; zero is a valid
 // ID. Data is the lazily decoded JSON payload and Attachments travel with it as one
 // message group. A packet with attachments is a binary event or binary ack on the
-// wire; Type holds the base type. The legacy Header and Payload types remain for
-// the current codec until 2.3P replaces it.
+// wire; Type holds the base type. Encode, Decode and Assembler convert it to and
+// from the wire form.
 type Packet struct {
 	Type        Type
 	Namespace   string

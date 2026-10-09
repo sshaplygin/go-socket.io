@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -40,8 +40,8 @@ func newFakeConn(t *testing.T) *fakeConn {
 	return f
 }
 
-func (f *fakeConn) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
-	if ft == session.TEXT {
+func (f *fakeConn) NextWriter(ft frame.Type) (io.WriteCloser, error) {
+	if ft == frame.String {
 		f.texts.Add(1)
 	}
 	if f.hold.Load() {
@@ -60,14 +60,14 @@ func (f *fakeConn) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
 	return &frameWriter{out: f.out}, nil
 }
 
-func (f *fakeConn) NextReader() (session.FrameType, io.ReadCloser, error) {
+func (f *fakeConn) NextReader() (frame.Type, io.ReadCloser, error) {
 	select {
-	case frame := <-f.reads:
-		return session.TEXT, io.NopCloser(strings.NewReader(frame)), nil
+	case msg := <-f.reads:
+		return frame.String, io.NopCloser(strings.NewReader(msg)), nil
 	case <-f.peerGone:
 	case <-f.closed:
 	}
-	return session.TEXT, nil, io.EOF
+	return frame.String, nil, io.EOF
 }
 
 func (f *fakeConn) Close() error { f.closeOnce.Do(func() { close(f.closed) }); return nil }
@@ -209,12 +209,12 @@ func (p *peer) join(t *testing.T, nsp string) Conn {
 	return recv(t, p.conns, "OnConnect of "+nsp)
 }
 
-func (p *peer) send(t *testing.T, frame string) {
+func (p *peer) send(t *testing.T, msg string) {
 	t.Helper()
 	select {
-	case p.fc.reads <- frame:
+	case p.fc.reads <- msg:
 	case <-time.After(waitFor):
-		t.Fatalf("timed out sending %q", frame)
+		t.Fatalf("timed out sending %q", msg)
 	}
 }
 
@@ -390,8 +390,8 @@ func TestBackpressureCloseStopsDispatch(t *testing.T) {
 		p.stall(t, p.nc, 0) // keeps the drain running
 		require.NoError(t, p.Close())
 
-		for _, frame := range []string{`2["ev"]`, map[byte]string{'S': "0/a", 'C': "0"}[side], "0/none", `2["ev"]`} {
-			p.send(t, frame)
+		for _, msg := range []string{`2["ev"]`, map[byte]string{'S': "0/a", 'C': "0"}[side], "0/none", `2["ev"]`} {
+			p.send(t, msg)
 		}
 		close(p.fc.release)
 		recv(t, p.fc.closed, "engine.io close after the drain")
@@ -484,8 +484,8 @@ func TestBackpressureEncodeErrorClosesAfterReport(t *testing.T) {
 		recv(t, p.fc.closed, "engine.io close after the report")
 		p.disconnected(t, append(others, nc.Namespace())...)
 		require.Empty(t, drain(p.errs), "a second report")
-		for _, frame := range drain(p.fc.out) {
-			require.NotContains(t, frame, `"x"`, "a packet queued after the bad one was written")
+		for _, msg := range drain(p.fc.out) {
+			require.NotContains(t, msg, `"x"`, "a packet queued after the bad one was written")
 		}
 	})
 }
@@ -523,9 +523,9 @@ func TestBackpressureNamespaceDisconnectRacesClose(t *testing.T) {
 				<-hold
 			}
 		}}, "/a")
-		nc, frame, others := p.sub(t)
+		nc, msg, others := p.sub(t)
 		target = nc.Namespace()
-		p.send(t, frame)
+		p.send(t, msg)
 		require.Equal(t, target, recv(t, p.discs, "the held OnDisconnect"))
 		recv(t, inBackground(func() { _ = p.Close() }), "Close while OnDisconnect is held")
 		close(hold)
@@ -558,8 +558,8 @@ func TestBackpressureReportForDisconnectedNamespace(t *testing.T) {
 	sides(t, "SC", func(t *testing.T, side byte) {
 		for _, n := range []int{defaultWriteBufferSize + 1, 0} {
 			p := start(t, side, hooks{}, "/a")
-			nc, frame, others := p.sub(t)
-			p.send(t, frame)
+			nc, msg, others := p.sub(t)
+			p.send(t, msg)
 			require.Equal(t, nc.Namespace(), recv(t, p.discs, "OnDisconnect on the DISCONNECT"))
 			if p.stall(t, nc, n); n == 0 {
 				nc.Emit("bad", make(chan int)) // json cannot encode a channel
@@ -696,9 +696,9 @@ func TestBackpressureCloseFromHandlers(t *testing.T) {
 func TestBackpressureNamespaceDisconnectKeepsSession(t *testing.T) {
 	sides(t, "SC", func(t *testing.T, side byte) {
 		p := start(t, side, hooks{events: map[string]interface{}{"echo": func(Conn) string { return "ok" }}}, "/a")
-		nc, frame, _ := p.sub(t)
+		nc, msg, _ := p.sub(t)
 		p.stall(t, p.nc, 0)
-		p.send(t, frame)
+		p.send(t, msg)
 		require.Equal(t, nc.Namespace(), recv(t, p.discs, "OnDisconnect of "+nc.Namespace()))
 		close(p.fc.release)
 		require.Equal(t, ev("first"), recv(t, p.fc.out, "the packet queued before the DISCONNECT"))
@@ -734,13 +734,13 @@ func TestBackpressureCloseFromOnConnect(t *testing.T) {
 // Covers 1B-T27 (S, C).
 func TestBackpressureLibraryPacketOverflow(t *testing.T) {
 	for _, tc := range []struct {
-		side  byte
-		frame string
-		nsps  []string // the last one overflows
+		side byte
+		msg  string
+		nsps []string // the last one overflows
 	}{{'S', `21["echo"]`, []string{"/"}}, {'C', `21["echo"]`, []string{"/"}}, {'S', "0/a", []string{"/", "/a"}}} {
 		p := start(t, tc.side, hooks{events: map[string]interface{}{"echo": func(Conn) string { return "ok" }}}, "/a")
 		p.stall(t, p.nc, defaultWriteBufferSize)
-		p.send(t, tc.frame) // the ACK or CONNECT reply finds the queue full
+		p.send(t, tc.msg) // the ACK or CONNECT reply finds the queue full
 		recv(t, p.fc.closed, "engine.io close on overflow")
 		p.overflowReported(t, tc.nsps[len(tc.nsps)-1])
 		p.disconnected(t, tc.nsps...) // the read goroutine ran them, so it did not block

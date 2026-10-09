@@ -6,14 +6,14 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
 )
 
 // Conn is connection by client session
 type Conn interface {
 	ID() string
-	NextReader() (session.FrameType, io.ReadCloser, error)
-	NextWriter(fType session.FrameType) (io.WriteCloser, error)
+	NextReader() (frame.Type, io.ReadCloser, error)
+	NextWriter(fType frame.Type) (io.WriteCloser, error)
 	Close() error
 	URL() url.URL
 	LocalAddr() net.Addr

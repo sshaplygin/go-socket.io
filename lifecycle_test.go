@@ -10,7 +10,7 @@ import (
 
 	"github.com/sshaplygin/go-socket.io/engineio"
 	eioclient "github.com/sshaplygin/go-socket.io/engineio/client"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 )
@@ -140,7 +140,7 @@ func dialRaw(t *testing.T, url string) *rawClient {
 
 func (c *rawClient) send(pkt string) {
 	c.t.Helper()
-	w, err := c.conn.NextWriter(session.TEXT)
+	w, err := c.conn.NextWriter(frame.String)
 	require.NoError(c.t, err)
 	_, err = w.Write([]byte(pkt))
 	require.NoError(c.t, err)

@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
@@ -17,7 +17,7 @@ const (
 )
 
 type FrameReader interface {
-	NextReader() (session.FrameType, io.ReadCloser, error)
+	NextReader() (frame.Type, io.ReadCloser, error)
 }
 
 type byteReader interface {
@@ -69,7 +69,7 @@ func (d *Decoder) DecodeHeader(header *Header, event *string) error {
 		return err
 	}
 
-	if ft != session.TEXT {
+	if ft != frame.String {
 		return errInvalidFirstPacketType
 	}
 
@@ -327,14 +327,14 @@ func (d *Decoder) readEvent(event *string) error {
 	return json.Unmarshal(buf.Bytes(), event)
 }
 
-func (d *Decoder) readBuffer(ft session.FrameType, r io.ReadCloser) ([]byte, error) {
+func (d *Decoder) readBuffer(ft frame.Type, r io.ReadCloser) ([]byte, error) {
 	defer func() {
 		if err := r.Close(); err != nil {
 			logger.Log.Debug("socketio: close reader failed", "err", err)
 		}
 	}()
 
-	if ft != session.BINARY {
+	if ft != frame.Binary {
 		return nil, errInvalidBinaryBufferType
 	}
 

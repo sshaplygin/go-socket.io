@@ -1914,9 +1914,10 @@ timeout is 5 s.
   and server. The proxy listens on one fixed address, dials the server anew for each
   accepted client, closes the client side when the upstream closes, and has three controls.
   `Stall()` stops forwarding client bytes on live connections and buffers them;
-  `StallNext()` does the same for the next connection that completes its handshake (the
-  server's first PONG forwarded), which a connection whose upstream dial fails never
-  does; `Release()` forwards the buffered bytes in order and ends the stalls. *Nothing
+  `StallNext()` does the same for the next connection that completes its handshake: the
+  proxy engages the stall before it forwards the server's first PONG, so nothing the
+  client sends after the handshake passes, and a connection whose upstream dial fails
+  never completes one; `Release()` forwards the buffered bytes in order and ends the stalls. *Nothing
   left* is read after `Release()` and a following `nc.FlushTimeout(2 s)`, which returns
   once the server has processed everything the client sent before it: the server's
   subscription count and `nc.NumSubscriptions()` equal their values before construction.
@@ -1936,7 +1937,7 @@ timeout is 5 s.
     construction returns returns the local sockets and an error at once; 2.1 s after
     construction it returns the peer's sockets and nil within 1 s.
   - 4N-T4: no peer; the connection has `MaxReconnects` -1 and `ReconnectWait` 100 ms.
-    The test calls `StallNext()` at the 4N-T1 start time, then does the 4N-T1 shutdown with
+    The test calls `StallNext()` right after construction returns, then does the 4N-T1 shutdown with
     its assertions, restarts the server on the same address and waits for
     `nc.IsConnected()` to turn true within 10 s. The resent subscriptions and the
     adapter's flush then sit in the proxy, so `Sockets` returns the local sockets and an

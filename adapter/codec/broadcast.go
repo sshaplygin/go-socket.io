@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/sshaplygin/go-socket.io/parser"
 	"github.com/vmihailenco/msgpack/v5"
@@ -102,6 +103,21 @@ func DecodeBroadcast(msg []byte, lim Limits) (Broadcast, error) {
 	return Broadcast{UID: uid, Packet: pkt, Options: Options(wo)}, nil
 }
 
+// checkPlaceholders requires that the data holds each of the n placeholders the reader
+// wrote exactly once. A binary value under another key, or one in a key that a later
+// duplicate replaced, leaves an attachment without a placeholder, which the encoder
+// refuses. The reader writes the placeholder in one fixed form, and a string cannot
+// contain it because quotes inside strings are escaped.
+func checkPlaceholders(data []byte, n int) error {
+	for i := 0; i < n; i++ {
+		needle := `{"_placeholder":true,"num":` + strconv.Itoa(i) + `}`
+		if c := bytes.Count(data, []byte(needle)); c != 1 {
+			return fmt.Errorf("%w: attachment %d has %d placeholders in the data, want 1", ErrMalformed, i, c)
+		}
+	}
+	return nil
+}
+
 func packetFromWire(wp wirePacket, atts [][]byte) (parser.Packet, error) {
 	if wp.Type == nil {
 		return parser.Packet{}, fmt.Errorf("%w: packet has no type", ErrMalformed)
@@ -125,6 +141,9 @@ func packetFromWire(wp wirePacket, atts [][]byte) (parser.Packet, error) {
 		pkt.Data = wp.Data
 	}
 	if len(atts) > 0 {
+		if err := checkPlaceholders(pkt.Data, len(atts)); err != nil {
+			return parser.Packet{}, err
+		}
 		pkt.Attachments = atts
 	}
 	if (t == parser.Event || t == parser.Ack) && (len(pkt.Data) == 0 || pkt.Data[0] != '[') {

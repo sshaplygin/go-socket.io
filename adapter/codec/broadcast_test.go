@@ -403,3 +403,18 @@ func TestDecodeBroadcastAllWidths(t *testing.T) {
 		t.Errorf("escaping: %s", b.Packet.Data)
 	}
 }
+
+func TestDecodeBroadcastRejectsOrphanAttachment(t *testing.T) {
+	// A binary value that does not end up as a placeholder in the packet data would
+	// decode into an attachment the encoder refuses, so the decoder refuses it first.
+	for name, msg := range map[string]string{
+		// binary under a key the packet does not use
+		"unknown key": "\x93\xaa0000000000\x83\xa4type\x00\xa50000\x00\xc4\x00\xa3nsp\xa1/\x80",
+		// the second "data" key replaces the first, together with its placeholder
+		"duplicate data key": "\x93\xaa0000000000\x84\xa4type\x02\xa4data\x92\xa1a\xc4\x01x\xa4data\x91\xa1a\xa3nsp\xa1/\x80",
+	} {
+		if _, err := codec.DecodeBroadcast([]byte(msg), codec.Limits{}); !errors.Is(err, codec.ErrMalformed) {
+			t.Errorf("%s: want ErrMalformed, got %v", name, err)
+		}
+	}
+}

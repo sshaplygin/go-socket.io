@@ -1372,8 +1372,8 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   `context.Canceled`. When the factory returns an adapter 100 ms after its context ends,
   `Shutdown` with a 1 s deadline does not return before the factory does, and with a 20
   ms deadline returns before it; either way, with the creating call's caller present or
-  with every caller's `ctx` cancelled first, the adapter is closed exactly once, within
-  100 ms of the factory returning. While `Shutdown` drains (a handler blocks it) or
+  with every caller's `ctx` cancelled first, the adapter is closed exactly once, at once
+  after the factory returns. While `Shutdown` drains (a handler blocks it) or
   after `Close`, a call for a registered namespace and a call arriving during a creation
   in progress return `ErrNamespaceClosed` at once and call no factory. A factory error
   comes back matching the error and naming the namespace, and the next call calls the

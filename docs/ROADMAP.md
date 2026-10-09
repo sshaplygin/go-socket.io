@@ -1835,7 +1835,8 @@ timeout is 5 s.
   restoring before it logs `socketio: adapter subscriber lost`. The expected peers are
   PUBSUB NUMSUB of the request channel minus this instance, floored at 0; when NUMSUB
   fails they cannot be determined. Deterministic tests run on miniredis with a pre-hook,
-  installed on the running server, that holds PSUBSCRIBE and SUBSCRIBE (the v1 helper
+  installed on the running server, that holds PSUBSCRIBE and SUBSCRIBE and releases the
+  held commands all at once or one at a time, in the order they reached it (the v1 helper
   `delayRedisSubscriptions`, PR #18, holds PSUBSCRIBE). The *live values* are miniredis
   NUMPAT, NUMSUB of the request and response channels and `CurrentConnectionCount`. They
   are *settled* when they are equal on two reads 50 ms apart; each case first PINGs the
@@ -1845,11 +1846,13 @@ timeout is 5 s.
   answers PING. A *peer* is another adapter with a socket, on its own client of the same
   miniredis; each case below says whether one exists, and the baseline is recorded after
   it is constructed.
-  - 4R-T1: a peer exists. The test installs the hold, starts construction and releases
-    the hold 200 ms later: construction has not returned at the release and returns
-    within 500 ms of it. The test adds a socket to the new adapter immediately after
-    construction returns and only then issues a peer's broadcast, with no wait: the socket
-    receives it within 1 s. The peer's `Sockets`, issued after the add, lists it.
+  - 4R-T1: a peer exists. The test installs the hold, starts construction and, once the
+    hook holds its first command, releases that one only. 200 ms later construction has
+    not returned and the hook holds a second command (an adapter reading one confirmation
+    returns earlier); releasing that one returns construction within 500 ms. The test adds
+    a socket to the new adapter immediately after construction returns and only then
+    issues a peer's broadcast, with no wait: the socket receives it within 1 s. The peer's
+    `Sockets`, issued after the add, lists it.
   - 4R-T2: no peer. With `SubscribeTimeout` 200 ms and a 2 s hold, construction returns
     an error within 1 s, leaving nothing.
   - 4R-T3: no peer. Server `Close`, called after the hook has held its first command of a

@@ -1600,8 +1600,8 @@ It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
   Node today, and 2.3M adds none: the fixtures decoded by Go run in the `test` job, while the
   oracle and the interop tests are an M3 tag-time check whose output and `node --version`
   the PR records, as for the other oracles. A Node job would be a separate `ci.yaml` change.
-- **Hooks and preview (2.4).** The 2.4 text is unchanged; 2.4E and 2.4S write the tests
-  below, which M3 gates, and row 2E waits for 2CM for that reason. The 2.4 redactor reads
+- **Hooks and preview (2.4).** The 2.4 behaviour text is unchanged; its DoD gains the two
+  tests below, owned by 2.4E and 2.4S, so row 2CM does not run them. The 2.4 redactor reads
   text envelopes, so it must not see msgpack: with `Parser` MessagePack, `PacketInfo.Preview`
   is empty for every Socket.IO message even if `PayloadPreviewBytes` > 0 (fail closed; a
   msgpack-aware redactor is a later addition), and the classifier reads the packet type from
@@ -1629,8 +1629,7 @@ size-driven allocation, duplicate key, invalid UTF-8, trailing byte, truncation,
 extension and empty message, none panicking; `FuzzMessagePackDecode` seeded from the oracle
 corpus (clean 30 s run); `TestMessagePackEncodeConcurrent` (32 goroutines, one shared
 `Packet` with three attachments, `-race`: the `Packet` stays deeply equal to its snapshot and
-every output equals the fixture); `TestMessagePackMismatch` (`client`); the two hook tests
-of 2.4 above; `make g2` still passes with the field added; `git diff go.mod go.sum` empty.
+every output equals the fixture); `TestMessagePackMismatch` (`client`); `make g2` still passes with the field added; `git diff go.mod go.sum` empty.
 The `-run` line below counts the named passes, so an absent test fails it.
 
 ```sh
@@ -1663,6 +1662,7 @@ the unchanged `go test ./...`.
 export SOCKETIO_NODE_INTEROP=1
 N=$(go test -race -count=1 -json -run '^(TestMessagePackNodeClient|TestMessagePackNodeServer|TestMessagePackWireFrames|TestMessagePackMismatch|TestMessagePackLimitIsolation)$' ./client | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
 [ "$N" -eq 5 ]
+# M3 tag-time, after 2E: the tests below are written by 2.4E and 2.4S, not by 2CM
 N=$(go test -race -count=1 -json -run '^(TestMessagePackHookPreview|TestMessagePackHookLabels)$' ./... | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
 [ "$N" -eq 2 ]
 go test -race -count=1 ./...
@@ -1930,7 +1930,8 @@ and asserts the parent relation; `TestSlogHandlerAddsTraceID` passes.
 `TestNoBadKeyAttrs` from stage 1 is ported to the v2 scenario and passes at `trace` with the 1.L message pattern and key list extended by the keys of the 2.4 records table and the keys added on top of it; `docs/OBSERVABILITY.md` owns the v2 list.
 Add `TestHandshakeEndsExactlyOnce`, `TestSessionGaugeAcrossUpgrade`,
 `TestMessageQueuedCountsOnce`, `TestAdapterSpanLifecycle` and
-`TestPreviewDisabledNoAlloc`; assert no negative or stranded active-session/pending-ack
+`TestPreviewDisabledNoAlloc`; add the two tests of 2.3M *Hooks and preview*
+(`TestMessagePackHookPreview` in 2.4E, `TestMessagePackHookLabels` in 2.4S); assert no negative or stranded active-session/pending-ack
 series after failures, cancellation and close. Stage 2.4 uses the memory adapter and
 a recording adapter fixture for publish/receive failures; no Redis/NATS dependency.
 

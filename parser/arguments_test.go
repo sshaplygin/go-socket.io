@@ -1,9 +1,11 @@
 package parser
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -147,6 +149,77 @@ func TestValidate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// escapedPlaceholder spells the key of Placeholder(n) with JSON escapes; it decodes to
+// the same object, so every layer must treat it as the plain form.
+func escapedPlaceholder(n int) string {
+	return `{"\u005fplaceholder":true,"\u006eum":` + strconv.Itoa(n) + `}`
+}
+
+func TestEscapedPlaceholderKey(t *testing.T) {
+	t.Run("Validate", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			a    Arguments
+			want error
+		}{
+			{"in range", Arguments{Values: raws(escapedPlaceholder(0)), Attachments: [][]byte{{1}}}, nil},
+			{"out of range", Arguments{Values: raws(escapedPlaceholder(9)), Attachments: [][]byte{{1}}}, ErrAttachments},
+			{"no attachments", Arguments{Values: raws(escapedPlaceholder(0))}, ErrAttachments},
+			{"nested", Arguments{Values: raws(`{"a":[` + escapedPlaceholder(3) + `]}`), Attachments: [][]byte{{1}}}, ErrAttachments},
+		} {
+			if err := tc.a.Validate(Limits{}); tc.want == nil && err != nil || tc.want != nil && !errors.Is(err, tc.want) {
+				t.Errorf("%s: Validate = %v, want %v", tc.name, err, tc.want)
+			}
+		}
+	})
+	t.Run("Decode", func(t *testing.T) {
+		p, err := Decode([]byte(`51-["e",`+escapedPlaceholder(0)+`]`), [][]byte{{7, 8}}, Limits{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, args, err := EventArguments(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := JSON[[]byte](Limits{}).Decode(args)
+		if err != nil || !bytes.Equal(b, []byte{7, 8}) {
+			t.Fatalf("JSON[[]byte] = %v, %v", b, err)
+		}
+		m, err := JSON[map[string]any](Limits{}).Decode(Arguments{Values: raws(`{"k":` + escapedPlaceholder(0) + `}`), Attachments: [][]byte{{7, 8}}})
+		if err != nil || m["k"] != "BwA=" && m["k"] != "Bwg=" {
+			t.Fatalf("JSON[map] = %v, %v", m, err)
+		}
+	})
+	t.Run("Concat", func(t *testing.T) {
+		first := Arguments{Values: raws(`1`), Attachments: [][]byte{{10}}}
+		second := Arguments{Values: raws(escapedPlaceholder(0)), Attachments: [][]byte{{20}}}
+		joined, err := Concat(first, second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(joined.Values[1]) != `{"_placeholder":true,"num":1}` {
+			t.Fatalf("renumbered: %s", joined.Values[1])
+		}
+		if _, err := Concat(first, Arguments{Values: raws(escapedPlaceholder(5)), Attachments: [][]byte{{20}}}); !errors.Is(err, ErrAttachments) {
+			t.Fatalf("Concat dangling = %v", err)
+		}
+	})
+	t.Run("Slice", func(t *testing.T) {
+		a := Arguments{Values: raws(`1`, escapedPlaceholder(2)), Attachments: [][]byte{{10}, {11}, {12}}}
+		got, err := a.Slice(1, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got.Values[0]) != `{"_placeholder":true,"num":0}` || !reflect.DeepEqual(got.Attachments, [][]byte{{12}}) {
+			t.Fatalf("%s %v", got.Values[0], got.Attachments)
+		}
+		bad := Arguments{Values: raws(escapedPlaceholder(3)), Attachments: [][]byte{{1}}}
+		if _, err := bad.Slice(0, 1); !errors.Is(err, ErrAttachments) {
+			t.Fatalf("Slice dangling = %v", err)
+		}
+	})
 }
 
 func TestConcatAndSlice(t *testing.T) {

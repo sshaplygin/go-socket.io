@@ -70,9 +70,12 @@ func walk(v any, count int, repl func(index int) any) (any, error) {
 	return v, nil
 }
 
-// hasPlaceholder is a cheap pre-check: false means raw holds no placeholder.
+// hasPlaceholder is a cheap pre-check: false means raw holds no placeholder. A JSON
+// string may spell any character as an escape, so a key such as "\u005fplaceholder"
+// is a placeholder key too; the check therefore also answers true for any backslash,
+// and the tree walk decides.
 func hasPlaceholder(raw []byte) bool {
-	return bytes.Contains(raw, []byte(placeholderKey))
+	return bytes.Contains(raw, []byte(placeholderKey[1:])) || bytes.IndexByte(raw, '\\') >= 0
 }
 
 // marshalTree encodes a tree without escaping HTML characters.

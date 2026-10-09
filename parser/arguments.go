@@ -112,8 +112,8 @@ func (a Arguments) Validate(limits Limits) error {
 		remaining -= len(b)
 	}
 	for _, v := range a.Values {
-		if !json.Valid(v) {
-			return ErrInvalid
+		if err := validJSON(v); err != nil {
+			return err
 		}
 		if err := checkDepth(v, l.MaxDepth); err != nil {
 			return err
@@ -233,8 +233,8 @@ func arrayPacket(t Type, namespace string, id *uint64, first json.RawMessage, ar
 		data = append(data, first...)
 	}
 	for i, v := range args.Values {
-		if !json.Valid(v) {
-			return Packet{}, ErrInvalid
+		if err := validJSON(v); err != nil {
+			return Packet{}, err
 		}
 		if i > 0 || first != nil {
 			data = append(data, ',')

@@ -23,7 +23,8 @@ var (
 	// ErrTooManyAttachments reports a message past Limits.MaxAttachments.
 	ErrTooManyAttachments = errors.New("parser: too many attachments")
 
-	// ErrDepth reports JSON nesting past Limits.MaxDepth.
+	// ErrDepth reports JSON nesting past Limits.MaxDepth. Text that nests past the
+	// 10000 levels encoding/json accepts is ErrDepth too, whatever Limits.MaxDepth is.
 	ErrDepth = errors.New("parser: JSON nesting exceeds limit")
 
 	// ErrArity reports a number of positional arguments that a codec does not accept.

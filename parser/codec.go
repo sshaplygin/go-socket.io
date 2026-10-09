@@ -222,8 +222,11 @@ func check(t Type, ns string, id *uint64, data []byte, n int, l Limits) error {
 		}
 		return ErrInvalid
 	}
-	if t == Disconnect || !utf8.Valid(data) || !json.Valid(data) {
+	if t == Disconnect || !utf8.Valid(data) {
 		return ErrInvalid
+	}
+	if err := validJSON(data); err != nil {
+		return err
 	}
 	if err := checkDepth(data, l.MaxDepth); err != nil {
 		return err
@@ -253,6 +256,38 @@ func check(t Type, ns string, id *uint64, data []byte, n int, l Limits) error {
 		return err
 	}
 	return nil
+}
+
+// maxStdlibNesting is the nesting depth past which encoding/json refuses a document.
+const maxStdlibNesting = 10000
+
+// validJSON reports ErrInvalid for text that is not one JSON value. Text that nests
+// arrays or objects deeper than encoding/json accepts (10000 levels) is ErrDepth, so
+// that a limit breach is not reported as a malformed packet whatever Limits.MaxDepth
+// is; such text is never valid for the parser, whose depth limit is far lower.
+func validJSON(data []byte) error {
+	if json.Valid(data) {
+		return nil
+	}
+	depth, inString, escaped := 0, false, false
+	for _, c := range data {
+		switch {
+		case escaped:
+			escaped = false
+		case inString:
+			escaped = c == '\\'
+			inString = c != '"'
+		case c == '"':
+			inString = true
+		case c == '[' || c == '{':
+			if depth++; depth > maxStdlibNesting {
+				return ErrDepth
+			}
+		case c == ']' || c == '}':
+			depth--
+		}
+	}
+	return ErrInvalid
 }
 
 // checkDepth rejects valid JSON that nests arrays or objects deeper than max. It runs

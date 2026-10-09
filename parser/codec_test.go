@@ -354,3 +354,34 @@ func arrayValues(p Packet) (Arguments, error) {
 	}
 	return args, args.Validate(Limits{MaxEventBytes: 4096, MaxAttachments: 8, MaxDepth: 16})
 }
+
+// TestDepthBeyondStdlib checks that nesting past the 10000 levels encoding/json
+// accepts is ErrDepth, not ErrInvalid, in every entry point that validates JSON.
+func TestDepthBeyondStdlib(t *testing.T) {
+	nest := func(n int) string { return strings.Repeat("[", n) + strings.Repeat("]", n) }
+	for _, n := range []int{100, 10000, 10001, 20000} {
+		text := `2["x",` + nest(n) + `]`
+		if _, err := Decode([]byte(text), nil, Limits{}); !errors.Is(err, ErrDepth) {
+			t.Errorf("Decode at depth %d: %v, want ErrDepth", n, err)
+		}
+		// An unterminated document that is too deep is still a limit breach.
+		if _, err := Decode([]byte(`2["x",`+strings.Repeat("[", n)), nil, Limits{}); n > 10000 && !errors.Is(err, ErrDepth) {
+			t.Errorf("Decode of unterminated depth %d: %v, want ErrDepth", n, err)
+		}
+		args := Arguments{Values: []json.RawMessage{json.RawMessage(nest(n))}}
+		if err := args.Validate(Limits{}); !errors.Is(err, ErrDepth) {
+			t.Errorf("Validate at depth %d: %v, want ErrDepth", n, err)
+		}
+		if _, err := EventPacket("/", nil, "x", args); n > 10000 && !errors.Is(err, ErrDepth) {
+			t.Errorf("EventPacket at depth %d: %v, want ErrDepth", n, err)
+		}
+	}
+	// Brackets inside strings do not count, and malformed shallow text stays ErrInvalid.
+	deepString := `2["` + strings.Repeat("[", 20000) + `"]`
+	if _, err := Decode([]byte(deepString), nil, Limits{}); err != nil {
+		t.Errorf("brackets in a string: %v", err)
+	}
+	if _, err := Decode([]byte(`2["x",[1,]`), nil, Limits{}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("malformed shallow text: %v, want ErrInvalid", err)
+	}
+}

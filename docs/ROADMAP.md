@@ -2302,9 +2302,9 @@ before M7 depends on it.
 `Deprecated: use client.Client.` and `Deprecated: use client.NewClient.` (full stop
 included); no root export is removed, renamed or changed in behaviour, so the release is
 a MINOR one. All PRs target `v1.x`. The tag is
-created only on the owner's order; `CHANGELOG.md` entries (`### Added` for the package,
-`### Deprecated` for root `Client`, `NewClient`) and the release commit follow
-[`CONTRIBUTING.md`](../CONTRIBUTING.md#releases).
+created only on the owner's order; `CHANGELOG.md` entries (`### Added` naming the import
+path `go-socket.io/client`, `### Deprecated` naming `Client` and `NewClient`) and the
+release commit follow [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases).
 
 **Layering and import rule.** The root imports `client` for the wrapper, so `client` must
 not import the root. The connection types therefore move to the leaf: `client` defines
@@ -2326,7 +2326,8 @@ rejects unused code). Cost: a `v1.x` fix to a shared file names in its PR whethe
 
 **`api` freeze (additive exported API of `client`).** Derived from `client.go`, `connection.go`,
 `namespace_conn.go` and `errors.go` at `$TIP`; deliberately not an `api` fence, which the
-Stage 1b allow-list reads. A difference from the root signature at `$TIP` blocks the stage.
+Stage 1b allow-list reads. A difference from the root signature at `$TIP`, receiver and
+parameter names included (`go doc -short` compares them), blocks the stage.
 
 ```text
 var ErrEmptyAddr, var ErrWriteBufferFull

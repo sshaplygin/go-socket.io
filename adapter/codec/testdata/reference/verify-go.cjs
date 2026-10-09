@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const msgpack = require("notepack.io");
@@ -13,10 +14,16 @@ function normalize(value) {
   return value;
 }
 
-const expected = JSON.parse(fs.readFileSync(path.join(__dirname, "../testdata/publications.json")));
-const actual = JSON.parse(execFileSync("go", ["run", "./cmd/roundtrip"], {
-  cwd: path.join(__dirname, ".."), encoding: "utf8", timeout: 120000,
-}));
+const expected = JSON.parse(fs.readFileSync(path.join(__dirname, "../publications.json")));
+// The Go side re-encodes every publication with adapter/codec (generic MessagePack or
+// JSON for the reference-only ones) and writes the result to CODEC_ROUNDTRIP_OUT.
+const out = path.join(os.tmpdir(), `adapter-codec-roundtrip-${process.pid}.json`);
+execFileSync("go", ["test", "-count=1", "-run", "^TestRoundtripExport$", "."], {
+  cwd: path.join(__dirname, "../.."), encoding: "utf8", timeout: 120000,
+  env: { ...process.env, CODEC_ROUNDTRIP_OUT: out },
+});
+const actual = JSON.parse(fs.readFileSync(out, "utf8"));
+fs.rmSync(out);
 assert.equal(actual.cases.length, expected.cases.length);
 let count = 0;
 for (let i = 0; i < actual.cases.length; i++) {

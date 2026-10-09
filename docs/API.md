@@ -141,6 +141,27 @@ Engine.IO hook fields (`engineio.Hooks`):
 | `PingSent` | `func(ctx, SessionInfo)` |
 | `PongReceived` | `func(ctx, SessionInfo, time.Duration)` |
 
+### Package `adapter/codec`
+
+Added by stage 2.2, after G2; it is not part of the freeze. The package is the shared
+message format of the broker adapters, with wire types of its own because it never
+imports the root. Behaviour (limits, errors, supported request types) is in its godoc.
+
+| File | Declaration | Signature |
+| --- | --- | --- |
+| `adapter/codec/broadcast.go` | `Broadcast` | `{UID string; Packet parser.Packet; Options Options}` |
+| `adapter/codec/broadcast.go` | `EncodeBroadcast`, `DecodeBroadcast` | `EncodeBroadcast(Broadcast) ([]byte, error)`; `DecodeBroadcast([]byte, Limits) (Broadcast, error)` |
+| `adapter/codec/request.go` | `RequestType` and `RequestAllRooms`, `RequestRemoteJoin`, `RequestRemoteLeave`, `RequestRemoteDisconnect`, `RequestFetchSockets`, `RequestServerSideEmit` | `type RequestType uint8`, the values 1 to 6 of the Node enumeration |
+| `adapter/codec/request.go` | `Request` | `{UID, RequestID string; Type RequestType; Options *Options; Rooms []string; Close bool; Data json.RawMessage}` |
+| `adapter/codec/request.go` | `EncodeRequest`, `DecodeRequest` | `EncodeRequest(Request) ([]byte, error)`; `DecodeRequest([]byte, Limits) (Request, error)` |
+| `adapter/codec/response.go` | `Response` | `{RequestID string; Rooms []string; Sockets []json.RawMessage}` |
+| `adapter/codec/response.go` | `EncodeResponse`, `DecodeResponse` | `EncodeResponse(Response) ([]byte, error)`; `DecodeResponse([]byte, Limits) (Response, error)` |
+| `adapter/codec/response.go` | `Response.SocketIDs`, `Response.RemoteSockets` | `(Response) SocketIDs() ([]string, error)`; `(Response) RemoteSockets() ([]RemoteSocket, error)` |
+| `adapter/codec/response.go` | `NewRoomsResponse`, `NewSocketIDsResponse`, `NewRemoteSocketsResponse` | `NewRoomsResponse(string, []string) Response`; `NewSocketIDsResponse(string, []string) Response`; `NewRemoteSocketsResponse(string, []RemoteSocket) (Response, error)` |
+| `adapter/codec/types.go` | `Options`, `Flags`, `RemoteSocket` | `{Rooms, Except []string; Flags *Flags}`; `{Volatile, Compress *bool; Timeout *int64}`; `{ID string; Rooms []string; Handshake, Data json.RawMessage}` |
+| `adapter/codec/types.go` | `Limits` and `DefaultMaxMessageBytes`, `DefaultMaxDepth`, `DefaultMaxAttachments`, `MaxDepthCeiling` | `{MaxMessageBytes, MaxDepth, MaxAttachments int}`; zero selects the default, negative or a MaxDepth above `MaxDepthCeiling` (1000) is rejected |
+| `adapter/codec/types.go` | `ErrMalformed`, `ErrUnsupported`, `ErrLimit`, `ErrInvalid` | sentinel errors matched with `errors.Is` |
+
 ## Frozen contract
 
 Recorded by the G2 review of the 2A owner. The decision on each item and its reason are in
@@ -211,6 +232,7 @@ and `make freeze` in the `lint` job and the fixtures in every `go test ./...`, i
 socketio (.)  ──> engineio ──> engineio/{frame,packet,payload,session,transport/...,internal}
      │                 └─────> logger
      └──────────> parser ──> engineio/frame, logger
+adapter/codec ──> parser, github.com/vmihailenco/msgpack/v5 (never socketio)
 internal/fixtures/{positive,externaladapter,clientstub} ──> socketio, parser
 internal/fixtures/positive ──> engineio, engineio/{frame,packet}
 logger ──> standard library only
@@ -228,7 +250,8 @@ packages that do not exist yet):
   the fixtures under `internal/fixtures` do today, and the future `client/` (it needs
   `RawEvent`, `Endpoint` and `ClientRawHandler`), external adapters and `contrib/...`
   will. The root never imports any of them;
-- `adapter/codec` never imports the root (it depends on `parser` and wire types), and the
+- `adapter/codec` (exists since 2.2) never imports the root (it depends on `parser`, wire types of its
+  own and `vmihailenco/msgpack/v5`, the only third-party package it imports), and the
   root never imports `adapter/...`, so the shared `RedactHandshake` lives in the root: the
   root calls it for local snapshots and each adapter package, which imports the root, for
   decoded peer snapshots (`TestForbiddenEdge` allows `adapter/<name> -> .` and forbids

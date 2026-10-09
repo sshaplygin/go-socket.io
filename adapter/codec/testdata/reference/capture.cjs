@@ -129,7 +129,7 @@ async function main() {
   });
 
   const result = { formatVersion: 1, reference: "@socket.io/redis-adapter@8.3.0 + notepack.io@3.0.1", cases };
-  const target = path.join(__dirname, "../testdata/publications.json");
+  const target = path.join(__dirname, "../publications.json");
   if (process.argv.includes("--write")) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, JSON.stringify(result, null, 2) + "\n");

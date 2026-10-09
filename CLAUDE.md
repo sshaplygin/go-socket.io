@@ -12,6 +12,7 @@ API skeleton without runtime (stage 2.0), and the v1 server and client live on b
 | --- | --- |
 | `*.go` (root, package `socketio`) | v2 API skeleton: typed events, `Server`/`Namespace`/`Socket`, `Adapter`, hooks, options; declarations only, signatures in [docs/API.md](docs/API.md) |
 | `parser/` | Socket.IO packet encoder/decoder, binary attachments, the `Packet`/`Arguments` value types of the v2 API |
+| `adapter/codec/` | message format of the broker adapters (Node Redis adapter 8.3.0): MessagePack broadcast, JSON requests and responses over codec-local wire types; imports `parser` and `vmihailenco/msgpack`, never the root; Node-captured fixtures and oracle in `testdata/` |
 | `engineio/` | Engine.IO server: `Server`, `Conn`, options, observer hook types (`hooks.go`) |
 | `engineio/client/` | Engine.IO client: `Dialer`, `Opener` |
 | `engineio/session/` | sessions, session manager, ID generator |
@@ -128,5 +129,6 @@ owner below and put it there.
 | `docs/PROTOCOL.md` | which parts of Engine.IO / Socket.IO protocols are implemented, deviations, upgrade sequence | API usage |
 | `docs/MIGRATION.md` (from v2) | v1 → v2 API mapping | protocol |
 | `docs/ADAPTERS.md` (from v2) | `Adapter` contract, thread-safety rules, conformance suite, shared message format | backend-specific options (`adapters/<name>/README.md`) |
+| `adapter/codec/testdata/README.md` | provenance of the Node adapter fixtures and the Go and Node commands that reproduce them | codec format (godoc) |
 | `_examples/README.md`, `_examples/*/README.md` | how to run the examples | library docs |
 | godoc comments | public API reference, including ack and broadcast semantics | anything above |

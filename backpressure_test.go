@@ -72,9 +72,8 @@ func (f *fakeConn) NextReader() (session.FrameType, io.ReadCloser, error) {
 
 func (f *fakeConn) Close() error { f.closeOnce.Do(func() { close(f.closed) }); return nil }
 
-// closeAtEnd closes f when the test ends and waits for the serving conn c to finish, so that
-// its "socketio: disconnect" records are logged before the test returns and cannot reach the
-// slog.Default recorder of the next test.
+// closeAtEnd closes f at cleanup and waits for the serving conn c, so that its "socketio:
+// disconnect" records are logged before the test returns, not into the next test's recorder.
 func closeAtEnd(t *testing.T, f *fakeConn, c *conn) {
 	t.Cleanup(func() {
 		_ = f.Close()

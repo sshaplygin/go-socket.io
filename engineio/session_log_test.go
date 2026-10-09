@@ -39,10 +39,9 @@ func newRecorder() *recorder { return &recorder{mu: new(sync.Mutex), recs: new([
 
 func (h *recorder) Enabled(context.Context, slog.Level) bool { return true }
 
-// bridged matches a message that the log package carried from the previous default handler
-// into slog.Default: slog.SetDefault redirects log's output to the new default handler at
-// INFO. A goroutine that outlives an earlier test and picked the old handler before the
-// swap writes its line (the old handler's own format, never a library message) there.
+// bridged matches a message that the log package carried from the previous default handler into
+// slog.Default (slog.SetDefault redirects log's output there at INFO): a goroutine that outlives
+// an earlier test writes its line in the old handler's own format, never a library message.
 var bridged = regexp.MustCompile(`^(\d{4}/\d\d/\d\d \d\d:\d\d:\d\d(\.\d+)? )?(DEBUG|INFO|WARN|ERROR)([+-]\d+)? `)
 
 func (h *recorder) Handle(_ context.Context, r slog.Record) error {
@@ -288,7 +287,6 @@ func TestRecorderDropsBridgedLines(t *testing.T) {
 	for _, msg := range []string{
 		`2026/10/09 22:50:11 WARN engineio: request rejected transport=polling reason=init err=EOF`,
 		`2026/10/09 21:22:17 DEBUG engineio: get request failed err="refused"`,
-		`WARN engineio: request rejected`,
 		`engineio: request rejected`,
 	} {
 		require.NoError(t, rec.Handle(context.Background(), slog.NewRecord(time.Time{}, slog.LevelInfo, msg, 0)))

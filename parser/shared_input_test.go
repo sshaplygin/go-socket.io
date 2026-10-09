@@ -10,10 +10,9 @@ import (
 )
 
 // Arguments given to Emit or a broadcast are shared by the encoders of every connection that
-// receives them and must stay read-only. This test encodes every fixture of `tests` (so a new
-// fixture is covered without further work) and the shapes below from several goroutines on one
-// shared value, and compares the value with a deep copy taken before. It needs -race to catch
-// the writes themselves (make test-race, make test-stress).
+// receives them and must stay read-only. This test encodes every fixture of `tests` (a new one is
+// covered at once) and the shapes below from several goroutines on one shared value and compares
+// it with a deep copy taken before. -race (make test-race, make test-stress) catches the writes.
 const sharedWorkers, sharedRounds = 8, 25
 
 type sharedShape struct {

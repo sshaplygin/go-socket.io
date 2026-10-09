@@ -272,19 +272,14 @@ func TestRedisConcurrentRegistrationBuildsOneBroadcast(t *testing.T) {
 	closed("Redis connections left after Close")
 }
 
-// shortRedisDial lowers redisDialTimeout for the test and restores it in a cleanup that runs
-// after the ones registered later, such as the wait of startRegistration.
-func shortRedisDial(t *testing.T) {
+// startRegistration lowers redisDialTimeout, registers namespace "/x" on its own goroutine and
+// at cleanup waits for it, then restores the timeout: the registration reads the variable, which
+// the next test changes.
+func startRegistration(t *testing.T, srv *Server) {
 	t.Helper()
 	d := redisDialTimeout
 	redisDialTimeout = 300 * time.Millisecond
 	t.Cleanup(func() { redisDialTimeout = d })
-}
-
-// startRegistration registers namespace "/x" on its own goroutine and waits for it in a
-// cleanup: the registration reads redisDialTimeout, which the next test changes.
-func startRegistration(t *testing.T, srv *Server) {
-	t.Helper()
 	reg := make(chan struct{})
 	go func() { srv.OnConnect("/x", func(Conn) error { return nil }); close(reg) }()
 	t.Cleanup(func() { recv(t, reg, "the registration to end") })
@@ -294,7 +289,6 @@ func startRegistration(t *testing.T, srv *Server) {
 // timeout while a handler registration waits for a Redis server that accepted the
 // connection and never answers AUTH, and that the registration records the failure.
 func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
-	shortRedisDial(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ln.Close() })
@@ -327,7 +321,6 @@ func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
 // still returns while the registration waits; the registration records the failure and
 // closes the publishing connection.
 func TestRedisCloseDoesNotWaitForSilentSubscriber(t *testing.T) {
-	shortRedisDial(t)
 	s := miniredis.RunT(t)
 	s.RequireAuth("secret")
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

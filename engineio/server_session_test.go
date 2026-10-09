@@ -53,9 +53,8 @@ func (c *blockingConn) SetWriteDeadline(time.Time) error { return nil }
 // been written: the client may send its next request with that sid as soon
 // as it reads OPEN. A session whose handshake fails is removed again.
 func TestNewSessionRegistersBeforeHandshake(t *testing.T) {
-	// The handshake goroutine removes the session and then logs the rejection, so the
-	// test waits for that record: a record logged after the test ended would reach the
-	// slog.Default recorder of whichever log test runs next.
+	// The handshake goroutine removes the session and then logs the rejection: wait for that
+	// record, or it reaches the slog.Default recorder of the next log test.
 	rec := newRecorder()
 	s := NewServer(&Options{Logger: slog.New(rec)})
 	conn := newBlockingConn()

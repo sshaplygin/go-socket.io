@@ -13,11 +13,9 @@ test-race:
 	go test -race -count=1 ./...
 
 # Race tests of the packages that run goroutines per connection, repeated and shuffled.
-STRESS_PKGS := . ./parser ./engineio/...
-
 .PHONY: test-stress
 test-stress:
-	go test -race -count=5 -shuffle=on -cpu=1,4 $(STRESS_PKGS)
+	go test -race -count=5 -shuffle=on -cpu=1,4 . ./parser ./engineio/...
 
 .PHONY: bench
 bench:

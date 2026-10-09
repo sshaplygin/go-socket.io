@@ -8,14 +8,13 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 
 - parser: the encoder wrote the placeholder number and the binary flag into the caller's
-  `*parser.Buffer`, so one `*Buffer` in the arguments of a broadcast reached the encoders
-  of several connections and was written concurrently (a data race under `-race`); the
-  same `*Buffer` twice in one packet also got one number for both placeholders. The encoder
-  now numbers private copies and leaves the arguments untouched (`parser/encoder.go`).
-  A `*Buffer` reachable only through an unexported field, or through an embedded pointer
-  to an unexported struct, can no longer be numbered without writing to the argument:
-  `Encode` returns an error for it (the unexported field panicked in `reflect` before).
-  An embedded unexported struct value with a `*Buffer` in an exported field still works.
+  `*parser.Buffer`, so one `*Buffer` in the arguments of a broadcast was written concurrently
+  by the encoders of several connections (a data race under `-race`), and the same `*Buffer`
+  twice in a packet got one number for both placeholders. The encoder now numbers private
+  copies and leaves the arguments untouched. A `*Buffer` behind an unexported field (an
+  embedded unexported slice type included; both panicked in `reflect` before) or an embedded
+  pointer to an unexported struct (it worked, by writing into the Buffer) makes `Encode`
+  return an error; an embedded unexported struct value with an exported `*Buffer` field works.
 - engineio: when the write deadline passed (or the payload was closed) while the session
   writer was writing a polling response, `Payload.FlushOut` returned at once and the GET
   handler answered with `http.Error` on the same `http.ResponseWriter` the writer was

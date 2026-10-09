@@ -155,23 +155,21 @@ func (e *Encoder) writeUint64(w byteWriter, i uint64) error {
 	return nil
 }
 
-// attachBuffer returns the data of every Buffer reachable from v, in the order of their
-// placeholder numbers. It never writes to v.
+// attachBuffer returns the data of every Buffer in v in placeholder order; it never writes to v.
 func (e *Encoder) attachBuffer(v reflect.Value, index *uint64) ([][]byte, error) {
 	_, data, err := e.numberBuffers(v, index)
 	return data, err
 }
 
-// numberBuffers returns the data of the Buffers in v and a replacement of v in which each
-// Buffer is a copy that carries its placeholder number. The values given to Emit or Broadcast
-// are shared between connections, so they are read-only here: containers that hold a Buffer
-// are copied, never changed. The returned Value is invalid when v holds no Buffer.
+// numberBuffers returns the data of the Buffers in v and a replacement of v in which each Buffer
+// is a numbered copy. Values given to Emit or Broadcast are shared between connections: the
+// containers that hold a Buffer are copied, never changed. The Value is invalid if v has none.
 func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, [][]byte, error) {
 	var (
 		repl reflect.Value
 		data [][]byte
 	)
-	// own returns the private copy of v that numbered children are stored into, made on first use.
+	// own returns the private copy of v that numbered children are stored into (made on first use).
 	own := func() (reflect.Value, error) {
 		if repl.IsValid() {
 			return repl, nil
@@ -193,7 +191,7 @@ func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, 
 		}
 		return repl, nil
 	}
-	// child numbers the element at i (or under key) of a slice, array or map and stores a changed one into the copy of v.
+	// child numbers the element at i (or key) of a slice, array or map and stores it into the copy.
 	child := func(c reflect.Value, i int, key reflect.Value) error {
 		c, b, err := e.numberBuffers(c, index)
 		data = append(data, b...)
@@ -265,9 +263,8 @@ func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, 
 	return repl, data, nil
 }
 
-// numberFields numbers the Buffers in the fields of the struct s and stores the changed fields
-// into dst(), the private copy of s. The exported fields of an embedded unexported struct are
-// reached through the copy, because reflect refuses to read or set the embedded field itself.
+// numberFields numbers the Buffers in the fields of the struct s and stores them into dst(), the
+// copy of s. An embedded unexported struct is reached through the copy: reflect refuses to set it.
 func (e *Encoder) numberFields(s reflect.Value, dst func() (reflect.Value, error), index *uint64) ([][]byte, error) {
 	var data [][]byte
 	for i := 0; i < s.NumField(); i++ {

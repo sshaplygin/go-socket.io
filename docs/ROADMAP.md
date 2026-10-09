@@ -17,6 +17,7 @@ remaining work starts at stage 1 below. Existing application APIs stay on branch
 Preparation exists on `codex/eio4-payload`, inspected at
 `ee682282997b19309036e9c6fef6e248e06bc230`; it is not merged into this baseline.
 Stage 2.1 owns its reuse and remaining integration work below.
+The other prepared experiments are listed in Stage 2 *Prepared components*.
 
 ## Decisions
 
@@ -769,8 +770,8 @@ base of the DoD diffs; each 1b PR records `CUT=<sha>` on its own line of the bod
 issue #2 ledger holds the same line). Between `$CUT` and the merge of step 3 only
 `refactor(1b.` commits change Go files (tests included) on `master`; Go files under
 `_examples/` and `engineio/_examples/` are outside the freeze, and `make examples` is
-their build gate. A PR that only adds files under `_experiments/<name>/` (own `go.mod`,
-never imported by the root module, not listed in `go.work`) is exempt from the freeze and
+their build gate. A PR that only adds files under `_experiments/<name>/` (a standalone
+module, rule in Stage 2 *Prepared components*) is exempt from the freeze and
 from the map and subject gates; the live tree, `internal/eio4` paths included, is not
 exempt until G2. A `v1.x` fix is made
 on `v1.x` and forward-ported after step 3 (rule in
@@ -1029,6 +1030,35 @@ Stage 2 lands in the tree defined by stage 1b. New code for the `Socket` model g
 the root files `server.go`, `namespace.go`, `socket.go`, `packet_handlers.go`,
 `event.go`, `options.go` and `errors.go`; the client goes to `client/`.
 
+### Prepared components
+
+An `_experiments/<name>/` directory is a standalone module with its own `go.mod`, never
+imported by the root module and not listed in `go.work`; it never joins `./...`. This
+rule is permanent (the Stage 1b freeze exempts such PRs only for the 1b window). The
+command check of these clauses is the `_experiments stays standalone` line of the Stage
+1b DoD. The `experiments` CI job (`make experiments`, described in `CLAUDE.md`) does
+not run that line: per-module vet, lint and tests do not cover these clauses; the
+landing PRs of the two modules already on `master` (#44, #45) checked them by hand. The
+next `_experiments` landing PR (expected `v2-api`) adds the line to `make experiments`,
+and its absence blocks that PR's review. From then on that target owns the check and the
+1b DoD line is a copy that ends with M1b. Until then each landing PR runs the line by
+hand and records the result in its body. `make experiments` runs Go checks only, so a landing PR also records
+the Node oracle or script checks of its module that it ran by hand. A module lands in
+`master` through a fresh-branch cherry-pick PR of its owned commits (transfer rules in
+issue #2; #44 and #45 landed this way and supersede draft PRs #8 and #9); it is later
+absorbed into live packages by the PR that lands its consumer, and that PR deletes the
+experiment and its `Unreleased` CHANGELOG entry (today `adapter-wire` and
+`adapter-rooms`). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
+
+| Component (source PR) | Purpose | Consumer | State in `master` and retirement |
+| --- | --- | --- | --- |
+| `eio4` paths and `_experiments/eio4-websocket` (#1) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | to land after G2, wave 2B: `internal/eio4` paths in live packages; the module until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
+| `_experiments/ws-bench` (#6) | Gorilla vs gobwas component benchmark; requires `eio4-websocket` via a relative `replace` | 2.1 idle baseline (not RSS) | to land after G2, with or after `eio4-websocket`; deleted when `gorilla/websocket` leaves the root `go.mod` at 2.1 (its own `go.mod` pins gorilla), and no later than `eio4-websocket` |
+| `_experiments/v2-api` (#4, #5) | 2.0 descriptor, Adapter and hook compile proof | 2.0 fixtures | to land as a standalone module before 2.0 starts; does not satisfy G2; deleted when 2.0 lands its fixtures |
+| `_experiments/sio5-codec` (#7) | v5 wire codec, Node oracle | 2.3P `parser/` | to land after G2, wave 2B; absorbed into `parser/` |
+| `_experiments/adapter-wire` (#8, landed as #44) | pinned Node Redis adapter wire fixtures | `adapter/codec` (2.2), then 4A codec fixtures | landed, unreleased; the 2.2 PR that creates `adapter/codec` absorbs and deletes it, and 4A reads the fixtures from there |
+| `_experiments/adapter-rooms` (#9, landed as #45) | Node memory-adapter room corpus | 2.2 conformance | landed, unreleased; absorbed into the 2.2 tests by the PR that adds them, which deletes it |
+
 ### 2.0 Generic API and lifecycle contract
 
 The 2.0 owner atomically removes the legacy root server/client/namespace/handler
@@ -1100,7 +1130,9 @@ request B and late ACK A: B must remain pending until its own terminal condition
 
 ### 2.1 Engine.IO v4 and gobwas/ws
 
-Entry: G2. Exit: Engine.IO suite, transport/client tests and idle-connection baseline.
+Entry: G2. Exit: Engine.IO suite, transport/client tests and idle-connection baseline;
+`_experiments/ws-bench` and `_experiments/eio4-websocket` deleted (order in *Prepared
+components*).
 
 Reuse the prepared work from the baseline's `codex/eio4-payload` revision. The 2.1
 owner ports/rebases it after 1b and G2, preserving tests and updating imports to the
@@ -1928,12 +1960,27 @@ new revision IDs; release them separately. M7 closes the roadmap.
 | M0 | Stage 0 docs baseline | none |
 | M1 | Stage 1 complete and the 1.D link-form commit merged | none |
 | M1b | Stage 1b closed: step 0 done (branch `v1.x` cut) and steps 1–3 merged, with the Stage 1b DoD, `v1.x` gates and Acceptance blocks passing on `master` | none (first commits after the cut commit `$CUT`) |
-| M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance | branch `v2-dev` |
-| M3 | 2.2 + 2.3 + 2.4 + 2.5 | `v2.0.0`, `contrib/otel/v2.0.0` |
+| M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance; accepted at the 2B join, which also puts the 2.2 and 2.3P code on `master` unreleased (below) | branch `v2-next` |
+| M3 | 2.2 + 2.3 + 2.4 + 2.5 (2.2 and 2.3P are already on `master` at M2 acceptance; this milestone releases them) | `v2.0.0`, `contrib/otel/v2.0.0` |
 | M4 | Stage 3: single-server chat | root `v2.1.0`; `v1.5.0` is tagged on branch `v1.x` when the Stage 3 upstream-chat parity DoD line passes (release commit per `CONTRIBUTING.md`, tag-time gates in Stage 1 Acceptance) |
 | M5 | Stage 4b: adapters and cluster chat acceptance | root `v2.2.0` first, then `adapters/redis/v2.0.0`, `adapters/nats/v2.0.0` |
 | M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `contrib/admin/v2.0.0`; adapter minor releases |
 | M7 | Stage 6: final comparative benchmark report and reproducible artifacts | report/artifact revision; no runtime release required |
+
+M2 is accepted when G2, the 2B join gate and the 2.1 exit have passed on one
+reviewed `master` commit and `git ls-files '_experiments/*/go.mod'` prints nothing there
+(every consumer in *Prepared components* has landed, so no leftover experiment is
+allowed); the owner may not declare M2 otherwise. The 2B join gate also covers the 2.2 memory adapter and the
+2.3P codec, so at acceptance that code is on `master` but unreleased; M3 releases it.
+The owner's declaration is what makes the commit reviewed: the owner records its SHA
+in the transfer ledger of [issue #2](https://github.com/sshaplygin/go-socket.io/issues/2)
+and only then creates branch `v2-next` once from that SHA as a frozen snapshot. It
+receives no PRs (the owner does not merge into it); topic PRs keep targeting `master`.
+Check: `git ls-remote origin refs/heads/v2-next refs/heads/v2-dev` prints the ledger
+SHA for `v2-next` and `063debc5f9f0b1658743d746ec323be3ee6b649d` for `v2-dev`.
+No CI or Dependabot trigger is wired for it, so it is not a working branch unless a
+roadmap step first adds the triggers. The
+legacy `v2-dev` branch (2021) is unrelated and stays unchanged.
 
 Re-estimate stage 2 after G2 and adapters after the shared codec/conformance fixtures.
 The earlier 15–25 working-day estimate for stage 5 is provisional; measure the

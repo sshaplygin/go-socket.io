@@ -71,7 +71,7 @@ workers submit changes to these files through that integrator.
 | 6A | M6 | benchmark owner freezes versions, workload matrix, resource budgets and result schema | comparison contract and correctness checks pass |
 | 6B | 6A | our-v2, existing-Go and official-Node runners in separate directories; shared load generator owned by integrator | runners produce equivalent traffic/results |
 | 6C | 6B | measurements sequentially on reserved hosts; analysis/report follows complete raw results | M7 reproducibility and report acceptance |
-| 7A | M7 | 7.1 layering and package on branch `v1.x` (`client/`, root `client.go`, `connection.go`, `namespace_conn.go`, `errors.go`); 7.2 tests and docs follow it on the same branch | Stage 7 DoD and Acceptance, then the owner's tag order (M8) |
+| 7A | M7 | 7.1 layering and package on branch `v1.x` (`client/`, `_examples/client/`, root `client.go`, `connection.go`, `connection_handlers.go`, `namespace_conn.go`, `errors.go`); 7.2 tests and docs follow it on the same branch | Stage 7 DoD and Acceptance, then the owner's tag order (M8) |
 
 Rows 1A and 1I, and the Stage 1 items, name files by their pre-1b paths; the Stage 1b
 source-to-target map owns the new names.
@@ -2232,7 +2232,11 @@ except the root and the examples. The client path has its own copy of the connec
 runtime it uses (`conn` with the write queue and the close rules, the client-side
 namespace connection, the handler registry and the reflection dispatch, `connLimits`),
 copied from the `v1.x` files at the stage's start `$TIP`; the server code path is not
-extracted or edited, so a minor release cannot change server behaviour. Cost: until
+extracted, and its only edit is deleting `clientConnectPacketHandler` and
+`clientDisconnectPacketHandler` from `connection_handlers.go` (only the old `Connect`
+used them; `make lint` rejects unused code). `types.go`, `helpers.go`, `handler.go`,
+`server.go` and the namespace and broadcast files stay unchanged, so a minor release
+cannot change server behaviour. Cost: until
 the roadmap ends, a `v1.x` fix to those shared files names in its PR whether `client/`
 needs the same change, and makes it in the same PR.
 
@@ -2268,8 +2272,9 @@ package clause and identifiers; test function names are kept. The root adds thre
 of `ErrEmptyAddr` and `ErrWriteBufferFull`; `EmptyAddrErr` still matches).
 
 DoD, run with `bash` and `set -e` on the head of the last Stage 7 PR, rules as in the
-Stage 1b DoD. `$TIP` is the `v1.x` commit recorded in the first Stage 7 PR body; the consumer
-check needs network:
+Stage 1b DoD. `$TIP` is the `v1.x` commit recorded in the first Stage 7 PR body; commits of
+this stage are titled `<type>(7.<n>): ...`, so a later `v1.x` patch or a mirrored fix (Layering)
+in `$TIP..HEAD` is not judged against the file list. The consumer check needs network:
 
 ```sh
 TIP=${TIP:?the v1.x commit recorded in the first Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base; R=$PWD
@@ -2284,8 +2289,9 @@ test "$(go doc ./client Namespace | grep -vE '^(package|    )|^\s*(//|$)')" = "$
 # no root export lost; source compatibility is proved by cclient below, not by gorelease: apidiff reports the
 # Conn and Namespace alias moves as incompatible changes although every consumer compiles
 test -z "$(diff <(cd $BASE && go doc -short . | grep -oE '^(var|type) [A-Za-z]+' | sort) <(go doc -short . | grep -oE '^(var|type) [A-Za-z]+' | sort))"
-# only the files named in 7A changed outside client/; no test function lost
-test -z "$(git diff --name-only $TIP | grep -vE '^(client/|client\.go|connection\.go|namespace_conn\.go|errors\.go|CHANGELOG\.md|CLAUDE\.md)|_test\.go$')"
+# only the files named in 7A changed outside client/: judged per Stage 7 commit, so later v1.x patches in $TIP..HEAD do not count
+S7=$(git log -E --no-merges --grep='^[a-z]+\(7\.' --format=%H $TIP..HEAD); test -n "$S7"
+test -z "$(git show --format= --name-only $S7 | sort -u | grep -vE '^(client/|_examples/client/|(client|connection|connection_handlers|namespace_conn|errors)\.go$|CHANGELOG\.md$|CLAUDE\.md$)|_test\.go$')"
 names() { grep -rhoE '^func (Test|Benchmark)[A-Za-z0-9_]+' --include='*_test.go' --exclude-dir=_examples $1 | sort -u; }
 test -z "$(comm -23 <(names $BASE) <(names .))"
 go test -race -count=1 -run 'TestDeprecatedClientRoundTrip|TestConnAliasHandlers|TestClientErrorIdentity' .

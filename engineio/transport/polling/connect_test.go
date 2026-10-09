@@ -72,7 +72,7 @@ func testDialOpen(t *testing.T, delayedPOST bool) {
 		}
 		sid := query.Get("sid")
 		if sid == "" {
-			if _, err := fmt.Fprintf(w, "%d:0%s", buf.Len()+1, buf.String()); err != nil {
+			if _, err := fmt.Fprintf(w, "0%s", buf.String()); err != nil {
 				recordHandlerError(fmt.Errorf("write OPEN: %w", err))
 			}
 			return
@@ -96,10 +96,6 @@ func testDialOpen(t *testing.T, delayedPOST bool) {
 	u, err := url.Parse(httpSvr.URL)
 	must.NoError(err)
 
-	query := u.Query()
-	query.Set("b64", "1")
-	u.RawQuery = query.Encode()
-
 	postGate := make(chan struct{})
 	var releaseOnce sync.Once
 	releasePOST := func() { releaseOnce.Do(func() { close(postGate) }) }
@@ -120,7 +116,7 @@ func testDialOpen(t *testing.T, delayedPOST bool) {
 			return http.DefaultTransport.RoundTrip(r)
 		}),
 	}
-	cc, err := dial(client, u, nil)
+	cc, err := dial(client, u, nil, 0)
 	must.NoError(err)
 
 	defer func() {
@@ -151,7 +147,7 @@ func testDialOpen(t *testing.T, delayedPOST bool) {
 	case result := <-posted:
 		must.NoError(result.err)
 		should.Equal(cp.SID, result.sid)
-		should.Equal("6:4hello", string(result.body))
+		should.Equal("4hello", string(result.body))
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for polling POST body before teardown")
 	}
@@ -193,7 +189,7 @@ func TestDialOpenFirstPollAfterOpenResponse(t *testing.T) {
 
 	stop := make(chan struct{})
 	defer close(stop)
-	firstPoll := &closeNotifyBody{Reader: bytes.NewReader([]byte("7:4second")), closed: make(chan struct{})}
+	firstPoll := &closeNotifyBody{Reader: bytes.NewReader([]byte("4second")), closed: make(chan struct{})}
 	var polls int
 	var pollsMu sync.Mutex
 	client := &http.Client{
@@ -202,7 +198,7 @@ func TestDialOpenFirstPollAfterOpenResponse(t *testing.T) {
 			var body io.ReadCloser
 			switch {
 			case r.Method == http.MethodGet && r.URL.Query().Get("sid") == "":
-				body = io.NopCloser(bytes.NewReader([]byte(fmt.Sprintf("%d:0%s6:4first", buf.Len()+1, buf.String()))))
+				body = io.NopCloser(bytes.NewReader([]byte(fmt.Sprintf("0%s\x1e4first", buf.String()))))
 			case r.Method == http.MethodGet:
 				pollsMu.Lock()
 				polls++
@@ -230,9 +226,9 @@ func TestDialOpenFirstPollAfterOpenResponse(t *testing.T) {
 		}),
 	}
 
-	u, err := url.Parse("http://polling.test/engine.io/?b64=1")
+	u, err := url.Parse("http://polling.test/engine.io/")
 	must.NoError(err)
-	cc, err := dial(client, u, nil)
+	cc, err := dial(client, u, nil, 0)
 	must.NoError(err)
 	defer func() {
 		should.NoError(cc.Close())

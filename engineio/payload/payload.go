@@ -12,12 +12,12 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 )
 
-type readArg struct {
-	r             io.Reader
-	supportBinary bool
-}
+// DefaultMaxPayload is the body limit, in wire bytes, that New applies to a read
+// when it is given none: 1 MiB.
+const DefaultMaxPayload = 1 << 20
 
-// Payload does encode or decode to payload protocol.
+// Payload carries Engine.IO v4 polling payloads between HTTP requests and the
+// packet reader and writer of one session.
 type Payload struct {
 	close     chan struct{}
 	closeOnce sync.Once
@@ -25,69 +25,67 @@ type Payload struct {
 
 	pauser *pauser
 
-	readerChan   chan readArg
+	readLimit    int
+	readerChan   chan []Packet
 	feeding      int32
 	readError    chan error
 	readDeadline atomic.Value
 	decoder      decoder
 
-	writerChan    chan io.Writer
+	writeLimit    atomic.Int64
+	writerChan    chan *flush
 	flushing      int32
-	writeError    chan error
 	writeDeadline atomic.Value
-	encoder       encoder
+	queue         queue
 }
 
-// New returns a new payload.
-func New(supportBinary bool) *Payload {
+// New returns a new payload. readLimit bounds one body fed in and writeLimit one
+// body flushed out, both in wire bytes. A readLimit of zero or less means
+// DefaultMaxPayload; a writeLimit of zero or less means no limit.
+func New(readLimit, writeLimit int) *Payload {
+	if readLimit <= 0 {
+		readLimit = DefaultMaxPayload
+	}
 	ret := &Payload{
 		close:      make(chan struct{}),
 		pauser:     newPauser(),
-		readerChan: make(chan readArg),
+		readLimit:  readLimit,
+		readerChan: make(chan []Packet),
 		readError:  make(chan error),
-		writerChan: make(chan io.Writer),
-		writeError: make(chan error),
+		writerChan: make(chan *flush),
 	}
 	ret.readDeadline.Store(time.Time{})
 	ret.decoder.feeder = ret
 	ret.writeDeadline.Store(time.Time{})
-	ret.encoder.supportBinary = supportBinary
-	ret.encoder.feeder = ret
+	ret.SetWriteLimit(writeLimit)
 	return ret
 }
 
-// flushWriter is the io.Writer that FlushOut hands to the session writer. detach waits
-// for a Write in progress and fails every later one with errDetached, so once FlushOut
-// has returned nothing is written to, or still running against, the caller's writer.
-type flushWriter struct {
-	mu   sync.Mutex
-	w    io.Writer
-	gone bool
-}
-
-func (f *flushWriter) Write(b []byte) (int, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.gone {
-		return 0, errDetached
+// SetWriteLimit sets the limit of one body flushed out, in wire bytes; zero or
+// less means no limit. A client calls it with the maxPayload the server advertised.
+func (p *Payload) SetWriteLimit(n int) {
+	if n <= 0 {
+		n = math.MaxInt
 	}
-	return f.w.Write(b)
+	p.writeLimit.Store(int64(n))
 }
 
-func (f *flushWriter) detach() {
-	f.mu.Lock()
-	f.gone = true
-	f.mu.Unlock()
-}
-
-// FeedIn feeds in a new reader for NextReader.
+// FeedIn reads one polling body from r, decodes it and offers its packets to
+// NextReader. It returns once NextReader has consumed every packet.
 // Multi-FeedIn needs be called sync.
+//
+// The body is read, up to the read limit, before any packet is offered, and a
+// body that is malformed or oversized delivers nothing.
 //
 // If Close called when FeedIn, it returns io.EOF.
 // If have Pause-ed when FeedIn, it returns ErrPaused.
 // If NextReader has timeout, it returns ErrTimeout.
-// If read error while FeedIn, it returns read error.
-func (p *Payload) FeedIn(r io.Reader, supportBinary bool) error {
+// If the body exceeds the read limit, it returns an error wrapping ErrTooLarge;
+// the payload stays usable, as no packet of the body was delivered.
+// If the body is malformed or cannot be read, it returns an error wrapping
+// ErrInvalidPayload or the read error, and the payload fails and closes: the
+// batch is lost, so the session cannot continue.
+func (p *Payload) FeedIn(r io.Reader) error {
 	select {
 	case <-p.close:
 		return p.load()
@@ -104,6 +102,16 @@ func (p *Payload) FeedIn(r io.Reader, supportBinary bool) error {
 	}
 	defer p.pauser.Done()
 
+	packets, err := DecodeReader(r, p.readLimit)
+	if err != nil {
+		if errors.Is(err, ErrTooLarge) {
+			return newOpError("read", err)
+		}
+		err = p.Store("read", err)
+		_ = p.Close() // wakes NextReader, which returns the stored error
+		return err
+	}
+
 	for {
 		after, ok := p.readTimeout()
 		if !ok {
@@ -118,10 +126,7 @@ func (p *Payload) FeedIn(r io.Reader, supportBinary bool) error {
 			// it may changed during wait, need check again
 			continue
 
-		case p.readerChan <- readArg{
-			r:             r,
-			supportBinary: supportBinary,
-		}:
+		case p.readerChan <- packets:
 		}
 		break
 	}
@@ -143,74 +148,6 @@ func (p *Payload) FeedIn(r io.Reader, supportBinary bool) error {
 	}
 }
 
-// FlushOut write data from NextWriter.
-// FlushOut needs be called sync.
-//
-// If Close called when Flushout,  it return io.EOF.
-// If Pause called when Flushout, it flushs out a NOOP message and return
-// nil.
-// If NextWriter has timeout, it returns ErrTimeout.
-// If write error while FlushOut, it returns write error.
-func (p *Payload) FlushOut(w io.Writer) error {
-	select {
-	case <-p.close:
-		return p.load()
-	default:
-	}
-
-	if !atomic.CompareAndSwapInt32(&p.flushing, 0, 1) {
-		return newOpError("write", errOverlap)
-	}
-	defer atomic.StoreInt32(&p.flushing, 0)
-
-	if ok := p.pauser.Working(); !ok {
-		_, err := w.Write(p.encoder.NOOP())
-		return err
-	}
-	defer p.pauser.Done()
-
-	// FlushOut may return, on a timeout or Close, while the session writer is still
-	// writing; detach makes that return wait for the Write in progress.
-	fw := &flushWriter{w: w}
-	defer fw.detach()
-
-	for {
-		after, ok := p.writeTimeout()
-		if !ok {
-			return p.Store("write", errTimeout)
-		}
-		select {
-		case <-p.close:
-			return p.load()
-
-		case <-after:
-			continue
-
-		case <-p.pauser.PausingTrigger():
-			_, err := w.Write(p.encoder.NOOP())
-			return err
-
-		case p.writerChan <- fw:
-		}
-		break
-	}
-
-	for {
-		after, ok := p.writeTimeout()
-		if !ok {
-			return p.Store("write", errTimeout)
-		}
-		select {
-		case <-p.close:
-			return p.load()
-		case <-after:
-			// it may changed during wait, need check again
-		case err := <-p.writeError:
-			return p.Store("write", err)
-		}
-	}
-}
-
 // NextReader returns a reader for next frame.
 // NextReader and SetReadDeadline needs be called sync.
 //
@@ -224,8 +161,8 @@ func (p *Payload) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
 
 // SetReadDeadline sets next reader deadline.
 // NextReader and SetReadDeadline needs be called sync.
-// NextReader will wait a FeedIn call, then it returns ReadCloser which
-// decodes packet from FeedIn's Reader.
+// NextReader will wait a FeedIn call, then it returns a ReadCloser over the
+// data of the next packet of FeedIn's body.
 //
 // If Close called when SetReadDeadline,  it return io.EOF.
 // If beyond the time set by SetReadDeadline, it returns ErrTimeout.
@@ -237,14 +174,16 @@ func (p *Payload) SetReadDeadline(t time.Time) error {
 
 // NextWriter returns a writer for next frame.
 // NextWriter and SetWriterDeadline needs be called sync.
-// NextWriter will wait a FlushOut call, then it returns WriteCloser which
-// encode package to FlushOut's Writer.
+// NextWriter will wait a FlushOut call, then it returns a WriteCloser which
+// collects one packet. Close hands the packet to that FlushOut, whose body can
+// carry other packets that were handed over concurrently, and returns once the
+// body was written.
 //
 // If Close called when NextWriter,  it returns io.EOF.
 // If beyond the time set by SetWriteDeadline, it returns ErrTimeout.
 // If Pause called when NextWriter, it returns ErrPaused.
 func (p *Payload) NextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, error) {
-	return p.encoder.NextWriter(ft, pt)
+	return p.nextWriter(ft, pt)
 }
 
 // SetWriteDeadline sets next writer deadline.
@@ -255,6 +194,12 @@ func (p *Payload) NextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, err
 func (p *Payload) SetWriteDeadline(t time.Time) error {
 	p.writeDeadline.Store(t)
 	return nil
+}
+
+// ReadDeadline returns the deadline set by SetReadDeadline; the zero time means none.
+// A transport applies it to the HTTP request whose body FeedIn reads.
+func (p *Payload) ReadDeadline() time.Time {
+	return p.readDeadline.Load().(time.Time)
 }
 
 // Pause pauses the payload. It will wait all reader and writer closed which
@@ -319,32 +264,32 @@ func (p *Payload) writeTimeout() (<-chan time.Time, bool) {
 	return time.After(wait), true
 }
 
-func (p *Payload) getReader() (io.Reader, bool, error) {
+func (p *Payload) getReader() ([]Packet, error) {
 	select {
 	case <-p.close:
-		return nil, false, p.load()
+		return nil, p.load()
 	default:
 	}
 
 	if ok := p.pauser.Working(); !ok {
-		return nil, false, newOpError("payload", errPaused)
+		return nil, newOpError("payload", errPaused)
 	}
 	p.pauser.Done()
 
 	for {
 		after, ok := p.readTimeout()
 		if !ok {
-			return nil, false, p.Store("read", errTimeout)
+			return nil, p.Store("read", errTimeout)
 		}
 		select {
 		case <-p.close:
-			return nil, false, p.load()
+			return nil, p.load()
 		case <-p.pauser.PausedTrigger():
-			return nil, false, newOpError("payload", errPaused)
+			return nil, newOpError("payload", errPaused)
 		case <-after:
 			continue
-		case arg := <-p.readerChan:
-			return arg.r, arg.supportBinary, nil
+		case packets := <-p.readerChan:
+			return packets, nil
 		}
 	}
 }
@@ -368,62 +313,6 @@ func (p *Payload) putReader(err error) error {
 		case p.readError <- err:
 		}
 		return nil
-	}
-}
-
-func (p *Payload) getWriter() (io.Writer, error) {
-	select {
-	case <-p.close:
-		return nil, p.load()
-	default:
-	}
-
-	if ok := p.pauser.Working(); !ok {
-		return nil, newOpError("payload", errPaused)
-	}
-	p.pauser.Done()
-
-	for {
-		after, ok := p.writeTimeout()
-		if !ok {
-			return nil, p.Store("write", errTimeout)
-		}
-		select {
-		case <-p.close:
-			return nil, p.load()
-		case <-p.pauser.PausedTrigger():
-			return nil, newOpError("payload", errPaused)
-		case <-after:
-			continue
-		case w := <-p.writerChan:
-			return w, nil
-		}
-	}
-}
-
-func (p *Payload) putWriter(err error) error {
-	if errors.Is(err, errDetached) {
-		return err // FlushOut has returned; nobody waits for this result
-	}
-	select {
-	case <-p.close:
-		return p.load()
-	default:
-	}
-	for {
-		after, ok := p.writeTimeout()
-		if !ok {
-			return p.Store("write", errTimeout)
-		}
-		ret := p.Store("write", err)
-		select {
-		case <-p.close:
-			return p.load()
-		case <-after:
-			continue
-		case p.writeError <- err:
-			return ret
-		}
 	}
 }
 

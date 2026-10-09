@@ -1,35 +1,30 @@
 package polling
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestNormalizeMime(t *testing.T) {
+func TestCheckContentType(t *testing.T) {
 	at := assert.New(t)
 
 	tests := []struct {
-		mime          string
-		supportBinary bool
-		ok            bool
+		mime string
+		ok   bool
 	}{
-		{"application/octet-stream", true, true},
-		{"text/plain; charset=utf-8", false, true},
-		{"text/plain;charset=UTF-8", false, true},
+		{"text/plain; charset=utf-8", true},
+		{"text/plain;charset=UTF-8", true},
 
-		{"text/plain;charset=gbk", false, false},
-		{"text/plain charset=U;TF-8", false, false},
-		{"text/html", false, false},
+		// v3 carried binary payloads in this type; v4 polling has no such body.
+		{"application/octet-stream", false},
+		{"text/plain;charset=gbk", false},
+		{"text/plain charset=U;TF-8", false},
+		{"text/html", false},
+		{"", false},
 	}
 
 	for _, test := range tests {
-		isSupportBinary, err := mimeIsSupportBinary(test.mime)
-		at.Equal(test.ok, err == nil)
-
-		if err != nil {
-			continue
-		}
-
-		at.Equal(test.supportBinary, isSupportBinary)
+		at.Equal(test.ok, checkContentType(test.mime) == nil, test.mime)
 	}
 }

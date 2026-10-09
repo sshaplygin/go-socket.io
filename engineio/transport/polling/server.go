@@ -1,8 +1,7 @@
 package polling
 
 import (
-	"bytes"
-	"html/template"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -15,33 +14,30 @@ import (
 
 type serverConn struct {
 	*payload.Payload
-	transport     *Transport
-	supportBinary bool
+	transport  *Transport
+	maxPayload int
 
 	remoteHeader http.Header
 	localAddr    Addr
 	remoteAddr   Addr
 	url          url.URL
-	jsonp        string
 }
 
 func newServerConn(t *Transport, r *http.Request) *serverConn {
-	query := r.URL.Query()
-	jsonp := query.Get("j")
-	supportBinary := query.Get("b64") == ""
-	if jsonp != "" {
-		supportBinary = false
+	maxPayload := t.MaxPayload
+	if maxPayload <= 0 {
+		maxPayload = payload.DefaultMaxPayload
 	}
 
+	// A response is not limited: maxPayload bounds what the server accepts.
 	return &serverConn{
-		Payload:       payload.New(supportBinary),
-		transport:     t,
-		supportBinary: supportBinary,
-		remoteHeader:  r.Header,
-		localAddr:     Addr{r.Host},
-		remoteAddr:    Addr{r.RemoteAddr},
-		url:           *r.URL,
-		jsonp:         jsonp,
+		Payload:      payload.New(maxPayload, 0),
+		transport:    t,
+		maxPayload:   maxPayload,
+		remoteHeader: r.Header,
+		localAddr:    Addr{r.Host},
+		remoteAddr:   Addr{r.RemoteAddr},
+		url:          *r.URL,
 	}
 }
 
@@ -73,14 +69,12 @@ func (c *serverConn) SetHeaders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if checkOrigin != nil && checkOrigin(r) {
-		if r.URL.Query().Get("j") == "" {
-			origin := r.Header.Get("Origin")
-			if origin == "" {
-				w.Header().Set("Access-Control-Allow-Origin", "*")
-			} else {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Credentials", "true")
-			}
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 	}
 }
@@ -99,35 +93,13 @@ func (p *progressWriter) Write(b []byte) (int, error) {
 func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodOptions:
-		if r.URL.Query().Get("j") == "" {
-			c.SetHeaders(w, r)
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-			w.WriteHeader(200)
-		}
+		c.SetHeaders(w, r)
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.WriteHeader(200)
 
 	case http.MethodGet:
 		c.SetHeaders(w, r)
-
-		if jsonp := r.URL.Query().Get("j"); jsonp != "" {
-			buf := bytes.NewBuffer(nil)
-			if err := c.Payload.FlushOut(buf); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			w.Header().Set("Content-Type", "text/javascript; charset=UTF-8")
-			pl := template.JSEscapeString(buf.String())
-
-			_, _ = w.Write([]byte("___eio[" + jsonp + "](\""))
-			_, _ = w.Write([]byte(pl))
-			_, _ = w.Write([]byte("\");"))
-
-			return
-		}
-		if c.supportBinary {
-			w.Header().Set("Content-Type", "application/octet-stream")
-		} else {
-			w.Header().Set("Content-Type", "text/plain; charset=UTF-8")
-		}
+		w.Header().Set("Content-Type", contentType)
 
 		// FlushOut has returned, so the session writer no longer uses w. If it had
 		// already started the response, a second one would corrupt it.
@@ -143,21 +115,33 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		c.SetHeaders(w, r)
 
-		mime := r.Header.Get("Content-Type")
-		isSupportBinary, err := mimeIsSupportBinary(mime)
-		if err != nil {
+		if err := checkContentType(r.Header.Get("Content-Type")); err != nil {
 			logger.Log.Debug("engineio: unsupported content type", "err", err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		if err := c.Payload.FeedIn(r.Body, isSupportBinary); err != nil {
-			logger.Log.Debug("engineio: post payload failed", "err", err)
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		// An announced length over the limit is refused before a byte is read; an
+		// unannounced or understated one is cut by the reader at the limit.
+		if r.ContentLength > int64(c.maxPayload) {
+			http.Error(w, payload.ErrTooLarge.Error(), http.StatusRequestEntityTooLarge)
 			return
 		}
 
-		_, err = w.Write([]byte("ok"))
+		// The session's read deadline also bounds the body read.
+		if d := c.Payload.ReadDeadline(); !d.IsZero() {
+			if err := http.NewResponseController(w).SetReadDeadline(d); err != nil && !errors.Is(err, http.ErrNotSupported) {
+				logger.Log.Debug("engineio: set body read deadline failed", "err", err)
+			}
+		}
+
+		if err := c.Payload.FeedIn(r.Body); err != nil {
+			logger.Log.Debug("engineio: post payload failed", "err", err)
+			http.Error(w, err.Error(), postStatus(err))
+			return
+		}
+
+		_, err := w.Write([]byte("ok"))
 		if err != nil {
 			logger.Log.Debug("engineio: post answer failed", "err", err)
 		}
@@ -165,4 +149,12 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "invalid method", http.StatusBadRequest)
 	}
+}
+
+// postStatus maps an error of FeedIn to the status of the POST it answers.
+func postStatus(err error) int {
+	if errors.Is(err, payload.ErrTooLarge) {
+		return http.StatusRequestEntityTooLarge
+	}
+	return http.StatusBadRequest
 }

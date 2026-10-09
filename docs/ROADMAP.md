@@ -1268,7 +1268,10 @@ owns its root test; 4b reproduces the broker cases.
   `Close` does not wait. A creation that ends after either has begun returns an error
   matching `ErrNamespaceClosed` whatever the factory returns: the server closes a
   returned adapter exactly once (before the call returns when a caller waits) and
-  wraps a factory error alongside with a second `%w`.
+  wraps a factory error alongside with a second `%w`. That cancellation also reaches
+  adapters already built, while the drain still broadcasts, so the factory context
+  bounds only the factory call: an adapter derives no lifetime from it, stops any
+  `context.AfterFunc` on it before returning, and lives until `Adapter.Close`.
 - *Restoring:* a broker adapter is restoring from the moment it observes the loss of
   a subscription (a receive or connection error) until the broker confirms the new
   one; before it observes the loss, queries can undercount without an error, an
@@ -1796,7 +1799,8 @@ timeout is 5 s.
   SUBSCRIBE confirmations within the `SubscribeTimeout` option (default 10 s). Every
   read is bounded by the time left, and construction also stops when the factory
   context ends: a go-redis `ReceiveTimeout` reads without that context, so the adapter
-  closes the attempt's `PubSub` from `context.AfterFunc`. An unconfirmed resubscribe
+  closes the attempt's `PubSub` from `context.AfterFunc`, stopped once the attempt is
+  confirmed. An unconfirmed resubscribe
   is a failed attempt that closes its connection and grows the backoff. Each attempt
   uses a new `PubSub`, and the adapter closes a failed one as soon as it observes the
   error: after a connection error a go-redis `PubSub` redials and resends its
@@ -1907,10 +1911,13 @@ timeout is 5 s.
   peers, a peer's broadcast issued as soon as construction returns gets a nil error
   with `Published` true and reaches the new adapter's socket within 1 s; a query
   with no peer, issued after the harness's `DiscoveryDelay` (0 for Redis, the
-  `HeartbeatInterval` plus 100 ms for NATS), returns the local data and nil at once.
-  They run as the subtests `Readiness/PeerBroadcast` and `Readiness/NoPeerQuery` of
-  `adaptertest.Run`. Held subscriptions and subscriber loss need a backend harness and
-  stay in the backend suites (4R, 4N).
+  `HeartbeatInterval` plus 100 ms for NATS), returns the local data and nil at once;
+  with the factory context cancelled after construction returns, a peer's broadcast
+  still reaches the adapter's socket and, after `DiscoveryDelay`, a query with a peer
+  still answers until `Close`. They run as the subtests `Readiness/PeerBroadcast`,
+  `Readiness/NoPeerQuery` and `Readiness/CtxAfterReturn` of `adaptertest.Run`. Held
+  subscriptions and subscriber loss need a backend harness and stay in the backend
+  suites (4R, 4N).
 - `docs/ADAPTERS.md`; `adapters/<name>/README.md` for backend options; chat example
   supports both backends.
 - Restore the migrated Redis examples and add the chat's two-server compose

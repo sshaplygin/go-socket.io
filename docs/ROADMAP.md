@@ -2262,9 +2262,12 @@ type Conn interface and type Namespace interface: method sets exactly as at $TIP
 Not exported by `client`: `EmptyAddrErr` (the root keeps the old name), `Server`,
 `Broadcast`, `EachFunc`, `RedisAdapterOptions`.
 
-**Tests.** Every root test that constructs a `Client` (the lifecycle and backpressure
-cases that use the unexported `dial` seam) moves to `client/` with the seam, changed only in
-package clause and identifiers; test function names are kept. The root adds three tests:
+**Tests.** A test that reaches the unexported `dial`, `conn` or `createNamespace` of a client
+can live only in package `client`, and `client` tests cannot import the root (the root
+imports `client`). Such a test is therefore split by side: its C half moves to `client/` as
+an in-package test with the same function and subtest names (`TestX/C`) and
+`// Covers <id> (C)`; the root keeps the S half, marked `(S)`. The unexported `dial` field
+is the seam and gets no export. The root adds three tests:
 `TestDeprecatedClientRoundTrip` (the wrapper against a root `Server`: connect, event, ACK,
 `Close` runs the server's `OnDisconnect`), `TestConnAliasHandlers` (a handler written with
 `socketio.Conn` registers on `client.Client`, and one written with `client.Conn` on
@@ -2294,6 +2297,8 @@ S7=$(git log -E --no-merges --grep='^[a-z]+\(7\.' --format=%H $TIP..HEAD); test 
 test -z "$(git show --format= --name-only $S7 | sort -u | grep -vE '^(client/|_examples/client/|(client|connection|connection_handlers|namespace_conn|errors)\.go$|CHANGELOG\.md$|CLAUDE\.md$)|_test\.go$')"
 names() { grep -rhoE '^func (Test|Benchmark)[A-Za-z0-9_]+' --include='*_test.go' --exclude-dir=_examples $1 | sort -u; }
 test -z "$(comm -23 <(names $BASE) <(names .))"
+pairs() { (cd $1 && find . -name '*_test.go' -not -path './_examples/*' | xargs grep -hoE '^// Covers [0-9A-Za-z.-]+ \([SC, ]+\)' | awk '{s=$0; sub(/^[^(]*\(/,"",s); gsub(/[^SC]/,"",s); for(i=1;i<=length(s);i++)print $3, substr(s,i,1)}' | sort -u); }
+test -n "$(pairs $BASE)"; test -z "$(comm -23 <(pairs $BASE) <(pairs .))"   # no (case, side) pair loses its marker (70 at 39f06fc)
 go test -race -count=1 -run 'TestDeprecatedClientRoundTrip|TestConnAliasHandlers|TestClientErrorIdentity' .
 grep -q '^| `client/` |' CLAUDE.md   # layout row of the new directory (Stage 1b layout rule)
 # a consumer written against the v1.5.0 root API must compile and run unchanged: `cclient .` builds it against this

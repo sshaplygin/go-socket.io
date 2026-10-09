@@ -2270,7 +2270,14 @@ can live only in package `client`, and `client` tests cannot import the root (th
 imports `client`). Such a test is therefore split by side: its C half moves to `client/` as
 an in-package test with the same function and subtest names (`TestX/C`) and
 `// Covers <id> (C)`; the root keeps the S half, marked `(S)`. The unexported `dial` field
-is the seam and gets no export. The root adds three tests:
+is the seam and gets no export. Per file at `$TIP`: `backpressure_test.go` and
+`integration_test.go` (`newPeer`, `connWithOptions`; the 1B and 1I `(S, C)` tests) are
+split this way, and the helpers both halves use (`fakeConn`, `frameWriter`, `recv`,
+`waitFor`, `sides`, `hooks`) are copied into a `client/` test file, not shared. The
+exported-API-only tests of `lifecycle_test.go` and `lifecycle_errors_test.go` stay in the
+root and run through the wrapper; `client/` gets copies of `TestLifecycleRootNamespace`
+and the raw-server cases in the external package `client_test`, which may import the root,
+using `client.NewClient`. Function and subtest names are kept on both sides. The root adds three tests:
 `TestDeprecatedClientRoundTrip` (the wrapper against a root `Server`: connect, event, ACK,
 `Close` runs the server's `OnDisconnect`), `TestConnAliasHandlers` (a handler written with
 `socketio.Conn` registers on `client.Client`, and one written with `client.Conn` on
@@ -2299,6 +2306,8 @@ S7=$(git log -E --no-merges --grep='^[a-z]+\(7\.' --format=%H $TIP..HEAD); test 
 test -z "$(git show --format= --name-only $S7 | sort -u | grep -vE '^(client/|_examples/client/|(client|connection|connection_handlers|namespace_conn|errors)\.go$|CHANGELOG\.md$|CLAUDE\.md$)|_test\.go$')"
 names() { grep -rhoE '^func (Test|Benchmark)[A-Za-z0-9_]+' --include='*_test.go' --exclude-dir=_examples $1 | sort -u; }
 test -z "$(comm -23 <(names $BASE) <(names .))"
+res() { (cd $1 && go test -count=1 -v ./... | awk '$1=="---" && $2=="PASS:"{gsub(/0x[0-9a-f]+/,"0x"); print $3}') | sort -u; }
+test -z "$(comm -23 <(res $BASE) <(res .))"   # every passing test and subtest, TestX/C included, still passes (322 at 39f06fc)
 pairs() { (cd $1 && find . -name '*_test.go' -not -path './_examples/*' | xargs grep -hoE '^// Covers [0-9A-Za-z.-]+ \([SC, ]+\)' | awk '{s=$0; sub(/^[^(]*\(/,"",s); gsub(/[^SC]/,"",s); for(i=1;i<=length(s);i++)print $3, substr(s,i,1)}' | sort -u); }
 test -n "$(pairs $BASE)"; test -z "$(comm -23 <(pairs $BASE) <(pairs .))"   # no (case, side) pair loses its marker (70 at 39f06fc)
 # -run alone exits 0 when a name matches nothing: require one pass event per test

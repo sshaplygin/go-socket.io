@@ -787,8 +787,10 @@ Step 0 precedes steps 1 to 3:
 - 0c. One PR into `master`, `.github/dependabot.yml` only: a second `gomod` and a
   second `github-actions` entry, otherwise identical, with `target-branch: v1.x` (Dependabot
   reads its configuration from the default branch). The weekly CI cron runs on `master`
-  only, so `v1.x` has no scheduled vulnerability scan: Dependabot's `target-branch` PRs and
-  the Stage 1 `govulncheck` gate, which the owner runs on `v1.x` before the M4 tag, cover it.
+  only, so `v1.x` has no scheduled vulnerability scan. The `target-branch` entries give
+  version-update PRs only (security updates always use the default branch); the
+  vulnerability check of `v1.x` is the Stage 1 `govulncheck` gate, which the owner runs on
+  `v1.x` before the M4 tag.
 - 0d. One PR into `master`, `CHANGELOG.md` only: the `## Unreleased` section that `v1.x`
   carries is renamed `## v1.5.0 (unreleased, branch v1.x)` and an empty `## Unreleased`
   is added above it, so that master's own entries never share a section with the entries

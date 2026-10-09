@@ -1400,8 +1400,10 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   - R6: eight concurrent creations of one namespace under `-race`, the factory held for
     100 ms, call it once and get the same namespace; the count is 0 before the test's
     `Close`.
-  - R7: while a creation is held, a CONNECT to its namespace is answered CONNECT_ERROR
-    at once and calls no factory.
+  - R7: on a fresh server with no creating call, the factory count is 0 after `NewServer`
+    and a CONNECT to `/` and to a never-created name is answered CONNECT_ERROR at once with
+    the count still 0. While a creation is held, a CONNECT to its namespace is answered
+    CONNECT_ERROR at once and calls no factory.
   - R8: with every caller's `ctx` cancelled while the factory is held, each call returns
     an error matching its `ctx.Err()` at once and the factory's context stays live; the
     factory then returns an adapter, the next call returns that namespace without a

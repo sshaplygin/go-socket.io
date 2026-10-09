@@ -1036,12 +1036,13 @@ An `_experiments/<name>/` directory is a standalone module with its own `go.mod`
 imported by the root module and not listed in `go.work`; it never joins `./...`. This
 rule is permanent (the Stage 1b freeze exempts such PRs only for the 1b window). The
 command check of these clauses is the `_experiments stays standalone` line of the Stage
-1b DoD, which stays a gate after 1b by reference. The `experiments` CI job (`make
-experiments`, described in `CLAUDE.md`) does not run that line: per-module vet, lint and
-tests do not cover these clauses; the landing PRs of the two modules already on
-`master` (#44, #45) checked them by hand. The PR that lands the next `_experiments` module adds the line to `make
-experiments`; until it does, each landing PR runs the line by hand and records the
-result in its body. `make experiments` runs Go checks only, so a landing PR also records
+1b DoD. The `experiments` CI job (`make experiments`, described in `CLAUDE.md`) does
+not run that line: per-module vet, lint and tests do not cover these clauses; the
+landing PRs of the two modules already on `master` (#44, #45) checked them by hand. The
+next `_experiments` landing PR (expected `v2-api`) adds the line to `make experiments`,
+and its absence blocks that PR's review. From then on that target owns the check and the
+1b DoD line is a copy that ends with M1b. Until then each landing PR runs the line by
+hand and records the result in its body. `make experiments` runs Go checks only, so a landing PR also records
 the Node oracle or script checks of its module that it ran by hand. A module lands in
 `master` through a fresh-branch cherry-pick PR of its owned commits (transfer rules in
 issue #2; #44 and #45 landed this way and supersede draft PRs #8 and #9); it is later

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
+	eioclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/parser"
@@ -76,7 +77,7 @@ func fmtNS(ns string) string {
 }
 
 func (c *Client) Connect() error {
-	dialer := engineio.Dialer{
+	dialer := eioclient.Dialer{
 		Transports: []transport.Transport{polling.Default},
 	}
 

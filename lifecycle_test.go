@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
+	eioclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
@@ -130,7 +131,7 @@ type rawClient struct {
 
 func dialRaw(t *testing.T, url string) *rawClient {
 	t.Helper()
-	d := engineio.Dialer{Transports: []transport.Transport{polling.Default}}
+	d := eioclient.Dialer{Transports: []transport.Transport{polling.Default}}
 	conn, err := d.Dial(url, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })

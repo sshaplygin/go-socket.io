@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
+	eioclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
@@ -87,7 +88,7 @@ func TestServerLoggerOption(t *testing.T) {
 
 	// A raw engine.io client sends a CONNECT for a namespace that has no
 	// handler; the server logs it as an unhandled error with nsp=/nope.
-	dialer := engineio.Dialer{Transports: []transport.Transport{polling.Default}}
+	dialer := eioclient.Dialer{Transports: []transport.Transport{polling.Default}}
 	conn, err := dialer.Dial(ts.URL, nil)
 	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
@@ -177,7 +178,7 @@ func TestConnLogWrappedWithSid(t *testing.T) {
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
-	dialer := engineio.Dialer{Transports: []transport.Transport{polling.Default}}
+	dialer := eioclient.Dialer{Transports: []transport.Transport{polling.Default}}
 	conn, err := dialer.Dial(ts.URL, nil)
 	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()

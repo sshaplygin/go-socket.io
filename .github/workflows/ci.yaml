@@ -70,7 +70,6 @@ jobs:
 
   stress:
     name: Stress (race, repeated, shuffled)
-    # Pull requests only: the push and schedule runs already cover the plain race tests.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15

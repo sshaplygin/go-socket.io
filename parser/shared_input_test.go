@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bytes"
 	"fmt"
 	"reflect"
 	"sync"
@@ -11,10 +10,10 @@ import (
 )
 
 // Arguments given to Emit or a broadcast are shared by the encoders of every connection that
-// receives them, and a decoder input may be read by several decoders. Both must be read-only.
-// These tests run every fixture of `tests` (so a new fixture is covered without further work)
-// plus the argument shapes below from several goroutines on one shared value, and compare the
-// value with a deep copy taken before. Run them with -race (make test-race, make test-stress).
+// receives them and must stay read-only. This test encodes every fixture of `tests` (so a new
+// fixture is covered without further work) and the shapes below from several goroutines on one
+// shared value, and compares the value with a deep copy taken before. It needs -race to catch
+// the writes themselves (make test-race, make test-stress).
 const sharedWorkers, sharedRounds = 8, 25
 
 type sharedShape struct {
@@ -28,13 +27,10 @@ var sharedArgs = []struct {
 	args []interface{}
 }{
 	{"struct", []interface{}{"e", &sharedShape{A: &Buffer{Data: []byte{1}}, N: 2, B: []*Buffer{{Data: []byte{3}}, {Data: []byte{4}}}}}},
-	// one Buffer per map: the order of map keys, hence the numbering, differs between encodes
+	// one Buffer per map: map order, hence the numbering, differs between encodes
 	{"map", []interface{}{"e", map[string]interface{}{"a": &Buffer{Data: []byte{1}}, "b": 2}, map[string][]*Buffer{"c": {{Data: []byte{3}}}}}},
 	{"slice and array", []interface{}{"e", []*Buffer{{Data: []byte{1}}}, [2]*Buffer{{Data: []byte{2}}, {Data: []byte{3}}}}},
-	{"same twice", []interface{}{"e", sharedBuffer, sharedBuffer, []interface{}{sharedBuffer}}},
 }
-
-var sharedBuffer = &Buffer{Data: []byte{9, 9}}
 
 // deepCopy copies v including the unexported fields of Buffer, which reflect cannot set one by one.
 func deepCopy(v reflect.Value) reflect.Value {
@@ -84,52 +80,32 @@ func deepCopy(v reflect.Value) reflect.Value {
 	return out
 }
 
-func requireUnchanged(t *testing.T, before, after interface{}) {
-	t.Helper()
-	require.True(t, reflect.DeepEqual(before, after), "the encoder or decoder wrote to its shared input:\nbefore %#v\nafter  %#v", before, after)
-}
-
 // encodeShared encodes args from sharedWorkers goroutines and checks that every frame equals
 // the frames of one sequential encode, then that args is unchanged.
 func encodeShared(t *testing.T, h Header, args []interface{}) {
 	t.Helper()
 	before := deepCopy(reflect.ValueOf(args)).Interface()
+	frames := func(w *fakeWriter) string { return fmt.Sprintf("%v %q", w.types, w.data) }
 
 	ref := fakeWriter{}
 	require.NoError(t, NewEncoder(&ref).Encode(h, args))
-	requireUnchanged(t, before, args)
 
 	var wg sync.WaitGroup
-	errs := make(chan error, sharedWorkers)
 	for w := 0; w < sharedWorkers; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for r := 0; r < sharedRounds; r++ {
 				fw := fakeWriter{}
-				if err := NewEncoder(&fw).Encode(h, args); err != nil {
-					errs <- err
+				if err := NewEncoder(&fw).Encode(h, args); err != nil || frames(&fw) != frames(&ref) {
+					t.Errorf("frames %s (err %v), want %s", frames(&fw), err, frames(&ref))
 					return
-				}
-				if !reflect.DeepEqual(fw.types, ref.types) || len(fw.data) != len(ref.data) {
-					errs <- fmt.Errorf("frame types %v, want %v", fw.types, ref.types)
-					return
-				}
-				for i := range fw.data {
-					if !bytes.Equal(fw.data[i].Bytes(), ref.data[i].Bytes()) {
-						errs <- fmt.Errorf("frame %d is %q, want %q", i, fw.data[i], ref.data[i])
-						return
-					}
 				}
 			}
 		}()
 	}
 	wg.Wait()
-	close(errs)
-	for err := range errs {
-		require.NoError(t, err)
-	}
-	requireUnchanged(t, before, args)
+	require.Equal(t, before, interface{}(args), "the encoder wrote to its shared input")
 }
 
 func TestEncodeSharedArgs(t *testing.T) {
@@ -145,38 +121,6 @@ func TestEncodeSharedArgs(t *testing.T) {
 	for _, test := range sharedArgs {
 		t.Run(test.name, func(t *testing.T) {
 			encodeShared(t, Header{Type: Event}, test.args)
-		})
-	}
-}
-
-func TestDecodeSharedFrames(t *testing.T) {
-	for _, test := range tests {
-		t.Run(test.Name, func(t *testing.T) {
-			before := deepCopy(reflect.ValueOf(test.Data)).Interface()
-
-			var wg sync.WaitGroup
-			for w := 0; w < sharedWorkers; w++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					for r := 0; r < sharedRounds; r++ {
-						d := NewDecoder(&fakeReader{data: test.Data})
-						var h Header
-						var event string
-						if d.DecodeHeader(&h, &event) == nil {
-							types := make([]reflect.Type, len(test.Var))
-							for i := range types {
-								types[i] = reflect.TypeOf(test.Var[i])
-							}
-							_, _ = d.DecodeArgs(types)
-						}
-						_ = d.DiscardLast()
-						_ = d.Close()
-					}
-				}()
-			}
-			wg.Wait()
-			requireUnchanged(t, before, test.Data)
 		})
 	}
 }

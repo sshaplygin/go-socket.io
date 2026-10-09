@@ -78,8 +78,8 @@ they can contain C code. Validate the detector with `go test ./.github/benchmark
 - Values passed to `Emit`, `Broadcast*` and `parser.Encoder.Encode` (including `*parser.Buffer`)
   are shared read-only between the connections that receive them, each encoded on its own
   goroutine: the library must not write to them. `parser/shared_input_test.go` encodes every
-  fixture of `parser/packet_test.go` from several goroutines on one shared value and compares
-  it with a deep copy, so a new fixture is covered by adding it to that table.
+  fixture of `parser/packet_test.go` concurrently on one shared value and compares it with a
+  deep copy, so a new fixture is covered by adding it to that table.
 - Every fix carries a test that fails without it. Concurrency fixes are verified under
   `-race`.
 - Public API changes go through `docs/ROADMAP.md` first.

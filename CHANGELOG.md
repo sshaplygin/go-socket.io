@@ -10,9 +10,8 @@ All notable changes to this project are documented here. The format follows
 - parser: the encoder wrote the placeholder number and the binary flag into the caller's
   `*parser.Buffer`, so one `*Buffer` in the arguments of a broadcast reached the encoders
   of several connections and was written concurrently (a data race under `-race`); the
-  same `*Buffer` twice in one packet also got one number for both placeholders. The
-  encoder now numbers private copies and leaves the arguments untouched
-  (`parser/encoder.go`, `numberBuffers`).
+  same `*Buffer` twice in one packet also got one number for both placeholders. The encoder
+  now numbers private copies and leaves the arguments untouched (`parser/encoder.go`).
 - engineio: when the write deadline passed (or the payload was closed) while the session
   writer was writing a polling response, `Payload.FlushOut` returned at once and the GET
   handler answered with `http.Error` on the same `http.ResponseWriter` the writer was

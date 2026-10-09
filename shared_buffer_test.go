@@ -8,8 +8,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
-// startRoom serves `members` connections that joined room "r" and returns the server and
-// the frames each of them receives.
+// startRoom serves `members` connections in room "r" and returns the frames each receives.
 func startRoom(t *testing.T, members int) (*Server, []<-chan string) {
 	t.Helper()
 	p := start(t, 'S', hooks{connect: func(c Conn) error { c.Join("r"); return nil }})
@@ -46,8 +45,7 @@ func TestBroadcastSharedBuffer(t *testing.T) {
 	require.Equal(t, parser.Buffer{Data: []byte{1, 2, 3}}, *shared, "the broadcast wrote to its argument")
 }
 
-// The same for arguments without a Buffer: the values of a broadcast are shared read-only, so
-// the library must neither write to them nor hand a connection a copy that aliases another's.
+// The same for arguments without a Buffer: a broadcast must not write to them either.
 func TestBroadcastSharedArgs(t *testing.T) {
 	const members, rounds = 4, 20
 

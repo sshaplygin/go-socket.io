@@ -162,59 +162,51 @@ func (e *Encoder) attachBuffer(v reflect.Value, index *uint64) ([][]byte, error)
 	return data, err
 }
 
-// numberBuffers walks v and returns the data of its Buffers together with a replacement of
-// v in which every Buffer is a copy that carries its placeholder number. The values the
-// caller passed to Emit or Broadcast are shared between connections, so they are
-// read-only here: containers that hold a Buffer are copied, never changed. The returned
-// Value is invalid when v holds no Buffer.
+// numberBuffers returns the data of the Buffers in v and a replacement of v in which each
+// Buffer is a copy that carries its placeholder number. The values given to Emit or Broadcast
+// are shared between connections, so they are read-only here: containers that hold a Buffer
+// are copied, never changed. The returned Value is invalid when v holds no Buffer.
 func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, [][]byte, error) {
 	var (
 		repl reflect.Value
 		data [][]byte
 	)
-	// set stores the replacement of the child at position i into a private copy of v.
-	set := func(child reflect.Value, i int, key reflect.Value) error {
+	// child numbers the element at i (or under key) and stores a changed one into a copy of v.
+	child := func(c reflect.Value, i int, key reflect.Value) error {
+		c, b, err := e.numberBuffers(c, index)
+		data = append(data, b...)
+		if err != nil || !c.IsValid() {
+			return err
+		}
 		if !repl.IsValid() {
 			if !v.CanInterface() {
 				return errFailedBufferAddress
 			}
+			repl = reflect.New(v.Type()).Elem()
+			repl.Set(v)
 			switch v.Kind() {
 			case reflect.Slice:
-				repl = reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+				repl.Set(reflect.MakeSlice(v.Type(), v.Len(), v.Len()))
 				reflect.Copy(repl, v)
 			case reflect.Map:
-				repl = reflect.MakeMapWithSize(v.Type(), v.Len())
+				repl.Set(reflect.MakeMapWithSize(v.Type(), v.Len()))
 				for it := v.MapRange(); it.Next(); {
 					repl.SetMapIndex(it.Key(), it.Value())
 				}
-			default:
-				repl = reflect.New(v.Type()).Elem()
-				repl.Set(v)
 			}
 		}
 		switch v.Kind() {
 		case reflect.Map:
-			repl.SetMapIndex(key, child)
+			repl.SetMapIndex(key, c)
 		case reflect.Struct:
 			if !repl.Field(i).CanSet() {
 				return errFailedBufferAddress
 			}
-			repl.Field(i).Set(child)
+			repl.Field(i).Set(c)
 		default:
-			repl.Index(i).Set(child)
+			repl.Index(i).Set(c)
 		}
 		return nil
-	}
-	walk := func(child reflect.Value, i int, key reflect.Value) error {
-		c, b, err := e.numberBuffers(child, index)
-		if err != nil {
-			return err
-		}
-		data = append(data, b...)
-		if !c.IsValid() {
-			return nil
-		}
-		return set(c, i, key)
 	}
 
 	switch v.Kind() {
@@ -223,15 +215,12 @@ func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, 
 			return reflect.Value{}, nil, nil
 		}
 		c, b, err := e.numberBuffers(v.Elem(), index)
-		if err != nil || !c.IsValid() {
-			return reflect.Value{}, b, err
-		}
-		if v.Kind() == reflect.Pointer {
+		if err == nil && c.IsValid() && v.Kind() == reflect.Pointer {
 			p := reflect.New(c.Type())
 			p.Elem().Set(c)
 			c = p
 		}
-		return c, b, nil
+		return c, b, err
 
 	case reflect.Struct:
 		if v.Type().Name() == bufferTypeName {
@@ -244,7 +233,7 @@ func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, 
 			return reflect.ValueOf(numbered), [][]byte{src.Data}, nil
 		}
 		for i := 0; i < v.NumField(); i++ {
-			if err := walk(v.Field(i), i, reflect.Value{}); err != nil {
+			if err := child(v.Field(i), i, reflect.Value{}); err != nil {
 				return reflect.Value{}, nil, err
 			}
 		}
@@ -253,7 +242,7 @@ func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, 
 		switch v.Type().Elem().Kind() {
 		case reflect.Struct, reflect.Pointer, reflect.Interface, reflect.Array, reflect.Slice, reflect.Map:
 			for i := 0; i < v.Len(); i++ {
-				if err := walk(v.Index(i), i, reflect.Value{}); err != nil {
+				if err := child(v.Index(i), i, reflect.Value{}); err != nil {
 					return reflect.Value{}, nil, err
 				}
 			}
@@ -261,7 +250,7 @@ func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, 
 
 	case reflect.Map:
 		for _, key := range v.MapKeys() {
-			if err := walk(v.MapIndex(key), 0, key); err != nil {
+			if err := child(v.MapIndex(key), 0, key); err != nil {
 				return reflect.Value{}, nil, err
 			}
 		}

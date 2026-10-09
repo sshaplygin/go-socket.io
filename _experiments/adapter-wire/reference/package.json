@@ -1,0 +1,14 @@
+{
+  "name": "socketio-adapter-wire-reference",
+  "private": true,
+  "scripts": {
+    "capture": "node capture.cjs --write",
+    "test": "node capture.cjs && node verify-go.cjs"
+  },
+  "dependencies": {
+    "@socket.io/redis-adapter": "8.3.0",
+    "socket.io-adapter": "2.5.5",
+    "socket.io-parser": "4.2.7",
+    "notepack.io": "3.0.1"
+  }
+}

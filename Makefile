@@ -46,8 +46,8 @@ examples:
 	@set -e; for d in $(EXAMPLES); do cmp $$d/chat.go _examples/default-http/chat.go; done
 
 # The package graph check of docs/API.md: no import cycle and the layering of the
-# roadmap (the root imports only engineio and parser; engineio, parser and logger never
-# import the root).
+# roadmap (the root never imports adapter/, adaptertest/, client/, contrib/ or
+# internal/fixtures/; engineio, parser and logger never import the root).
 .PHONY: graph
 graph:
 	go test -count=1 -run '^(TestPackageGraph|TestForbiddenEdge)$$' .

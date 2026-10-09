@@ -183,7 +183,10 @@ Rules, enforced by `TestPackageGraph` (also a depth-first cycle search; the rule
 themselves are table-tested by `TestForbiddenEdge`, including the allowed edges of
 packages that do not exist yet):
 
-- the root imports only `engineio` and `parser`;
+- the root never imports `adapter/...`, `adaptertest/...`, `client/`, `contrib/...` or
+  `internal/fixtures/...` (ROADMAP 2.2 Readiness: external adapters import the root, the
+  root never imports them); it may import `engineio/...`, `parser` and `logger` (ROADMAP
+  wave 2D: instance loggers pass through `logger.Wrap`);
 - `engineio/...`, `parser` and `logger` never import the root. Every other package may:
   the fixtures under `internal/fixtures` do today, and the future `client/` (it needs
   `RawEvent`, `Endpoint` and `ClientRawHandler`), external adapters and `contrib/...`

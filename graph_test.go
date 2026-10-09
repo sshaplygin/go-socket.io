@@ -59,14 +59,16 @@ func under(p, prefix string) bool { return p == prefix || strings.HasPrefix(p, p
 
 // forbiddenEdge reports why package p (relative to the module, "." is the root) must
 // not import package q, or returns "" when the edge is allowed. The rules pin only
-// what the roadmap relies on: the lower layers (engineio/..., parser, logger) never
-// import the root, and the root imports only engineio and parser. Every other
-// package may import the root: the future client/ (RawEvent, Endpoint,
-// ClientRawHandler), adapter modules, contrib/... and internal/fixtures.
+// what the roadmap relies on. ROADMAP 2.2 "Readiness" (the line "External adapters
+// import the root; the root never imports them"): the root never imports adapter/...,
+// adaptertest/..., client/, contrib/... or internal/fixtures/..., which all import it.
+// ROADMAP wave 2D (logger.Wrap and the Socket.IO > Engine > logger.Log precedence):
+// the root may import engineio/..., parser and logger. The lower layers
+// (engineio/..., parser, logger) never import the root.
 func forbiddenEdge(p, q string) string {
 	switch {
-	case p == "." && q != "engineio" && q != "parser":
-		return fmt.Sprintf("root imports %s; it may import only engineio and parser (the client, adapters and fixtures import the root, never the reverse)", q)
+	case p == "." && (under(q, "adapter") || under(q, "adaptertest") || under(q, "client") || under(q, "contrib") || under(q, "internal/fixtures")):
+		return fmt.Sprintf("root imports %s; adapters, the client, contrib and fixtures import the root, never the reverse", q)
 	case q == "." && (under(p, "engineio") || p == "parser" || p == "logger"):
 		return fmt.Sprintf("%s imports the root package; engineio/..., parser and logger never do", p)
 	case under(p, "engineio") && q == "parser":
@@ -90,6 +92,9 @@ func TestForbiddenEdge(t *testing.T) {
 		{"internal/fixtures/positive", "."},
 		{".", "engineio"},
 		{".", "parser"},
+		{".", "logger"},
+		{".", "engineio/frame"},
+		{".", "engineio/transport/polling"},
 		{"parser", "engineio/frame"},
 		{"parser", "logger"},
 		{"engineio", "logger"},
@@ -109,7 +114,10 @@ func TestForbiddenEdge(t *testing.T) {
 		{"engineio/transport/polling", "parser"},
 		{".", "client"},
 		{".", "internal/fixtures/positive"},
-		{".", "logger"},
+		{".", "adapter"},
+		{".", "adapter/codec"},
+		{".", "adaptertest"},
+		{".", "contrib/otel"},
 		{"parser", "engineio"},
 		{"logger", "engineio"},
 	}

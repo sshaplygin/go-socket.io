@@ -42,10 +42,16 @@ examples:
 	@set -e; for d in $(EXAMPLES); do cmp $$d/chat.go _examples/default-http/chat.go; done
 	cd _examples/default-http && go test -race -count=1 ./...
 
-# Vet, gofmt, golangci-lint (root config) and race tests in every standalone
-# _experiments module; stops at the first failure, prints nothing when there are none.
+# First the isolation check (the Stage 1b DoD line "_experiments stays standalone", see
+# docs/ROADMAP.md): no root-module import of an _experiments package, no go.work, every
+# Go file under a go.mod of its own. Then vet, gofmt, golangci-lint (root config) and race
+# tests in every standalone _experiments module; stops at the first failure, prints
+# nothing when there are none.
 .PHONY: experiments
 experiments:
+	@deps="$$(go list -deps -test -f '{{.Dir}}' ./...)" || { echo "_experiments check: go list failed (an unresolvable import in the root module also fails here)" >&2; exit 1; }; \
+	bad="$$(echo "$$deps" | grep '/_experiments/')$$(git ls-files go.work)$$(git ls-files '_experiments/*.go' | while read f; do d=$$(dirname $$f); until [ -e $$d/go.mod ] || [ $$d = _experiments ]; do d=$$(dirname $$d); done; [ -e $$d/go.mod ] || echo $$f; done)"; \
+	test -z "$$bad" || { echo "_experiments must stay standalone: root import, go.work or Go file outside a module:" >&2; echo "$$bad" >&2; exit 1; }
 	@set -e; for d in $(EXPERIMENTS); do \
 		echo "==> $$d"; \
 		(cd $$d && go vet ./... && test -z "$$(gofmt -s -l . | tee /dev/stderr)" \

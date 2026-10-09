@@ -16,7 +16,9 @@
 // {"_placeholder":true,"num":N} objects with the bytes in Attachments[N], numbered in
 // order of appearance; the encoder accepts any numbering that uses each attachment
 // once. A map that already has the placeholder shape is not a representable event
-// argument: the decoder refuses it and the encoder reads it as a placeholder.
+// argument: the decoder refuses it and the encoder reads it as a placeholder. The
+// decoder also refuses a binary value that does not end up as exactly one placeholder
+// in the packet's data.
 //
 // A Request is a JSON object on the request channel (EncodeRequest, DecodeRequest)
 // and a Response a JSON object on a response channel (EncodeResponse,

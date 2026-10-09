@@ -138,7 +138,7 @@ func TestEncodeBroadcastRejects(t *testing.T) {
 	deep := strings.Repeat("[", 2000) + strings.Repeat("]", 2000)
 	cases := map[string]codec.Broadcast{
 		"empty uid":                {Packet: parser.Packet{Type: parser.Connect}},
-		"type out of range":        {UID: "u", Packet: parser.Packet{Type: parser.Error + 1}},
+		"type out of range":        {UID: "u", Packet: parser.Packet{Type: parser.ConnectError + 1}},
 		"event without data":       {UID: "u", Packet: parser.Packet{Type: parser.Event}},
 		"event with object data":   ev(`{"a":1}`),
 		"invalid JSON":             ev(`["a",`),

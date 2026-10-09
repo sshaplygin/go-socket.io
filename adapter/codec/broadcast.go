@@ -124,7 +124,7 @@ func packetFromWire(wp wirePacket, atts [][]byte) (parser.Packet, error) {
 	}
 	var t parser.Type
 	switch {
-	case *wp.Type >= 0 && *wp.Type <= int(parser.Error):
+	case *wp.Type >= 0 && *wp.Type <= int(parser.ConnectError):
 		t = parser.Type(*wp.Type)
 	case *wp.Type == 5: // BINARY_EVENT
 		t = parser.Event
@@ -157,7 +157,7 @@ func packetFromWire(wp wirePacket, atts [][]byte) (parser.Packet, error) {
 // An empty Packet.Namespace is written as "/". Rooms and Except are written as arrays
 // even when empty, and a nil Options.Flags as an empty object.
 //
-// It refuses (ErrInvalid) an empty UID, a packet type above Error, an Event or Ack
+// It refuses (ErrInvalid) an empty UID, a packet type above ConnectError, an Event or Ack
 // whose Data is not a JSON array, Data that is not valid JSON, and attachments that
 // do not match the placeholders one to one.
 func EncodeBroadcast(b Broadcast) ([]byte, error) {
@@ -165,7 +165,7 @@ func EncodeBroadcast(b Broadcast) ([]byte, error) {
 		return nil, fmt.Errorf("%w: empty uid", ErrInvalid)
 	}
 	p := b.Packet
-	if p.Type > parser.Error {
+	if p.Type > parser.ConnectError {
 		return nil, fmt.Errorf("%w: packet type %d", ErrInvalid, p.Type)
 	}
 	var data *jsonNode

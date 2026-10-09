@@ -1616,11 +1616,12 @@ It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
   (`BenchmarkMessagePackEncode` and `BenchmarkMessagePackDecode` are recorded, advisory).
 
 DoD, each test failing without its change; tests are in `parser` unless marked:
-`TestParserDefaultIsJSON` (golden: `Options{}` and `Options{Parser: parser.FormatJSON}` write
-identical text frames for the 2.3P corpus); `TestOptionsParserNormalize` (root: zero is JSON,
+`TestParserDefaultIsJSON` (`parser`, which cannot import the root: the zero `parser.Format`
+equals `FormatJSON` and the codec it selects encodes the 2.3P corpus to the golden text
+frames unchanged; the `Options` level is the next two tests); `TestOptionsParserNormalize` (root: zero is JSON,
 both constants are kept, any other value fails `Normalize`); `TestServerClientParserWiring`
-(`client`: the format reaches the Engine.IO session and the dialed client, and in MessagePack
-mode no text Socket.IO frame is written); `TestMessagePackPacketRoundTrip` and
+(`client`: the format reaches the Engine.IO session and the dialed client; zero `Options` on
+both sides write only text Socket.IO frames and `FormatMessagePack` writes none); `TestMessagePackPacketRoundTrip` and
 `TestMessagePackExtensions` (the corpus and every extension case of the oracle);
 `TestMessagePackLimits`, a table with one case per bound: one byte over `MaxEventBytes` and
 `MaxAttachments`, depth 64 accepted and 65 `ErrDepth`, a declared array, map, str, bin or

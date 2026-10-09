@@ -1915,7 +1915,8 @@ timeout is 5 s.
   with the factory context cancelled after construction returns, a peer's broadcast
   still reaches the adapter's socket and, after `DiscoveryDelay`, a query with a peer
   still answers until `Close`. They run as the subtests `Readiness/PeerBroadcast`,
-  `Readiness/NoPeerQuery` and `Readiness/CtxAfterReturn` of `adaptertest.Run`. Held
+  `Readiness/NoPeerQuery` and `Readiness/CtxAfterReturn` of `adaptertest.Run`, which
+  each backend module calls from its wrapper test `TestAdapterConformance`. Held
   subscriptions and subscriber loss need a backend harness and stay in the backend
   suites (4R, 4N).
 - `docs/ADAPTERS.md`; `adapters/<name>/README.md` for backend options; chat example
@@ -1938,9 +1939,12 @@ passes under `-race` as the test `Test4R_T<n>` or `Test4N_T<n>` (the 4R cases on
 miniredis), and so does each `adaptertest` `Readiness/` subtest of the Redis and NATS
 suites. In each adapter module `go test -race -count=1 -json -run
 '^(Test4R_T[1-6]|TestAdapterConformance)$' ./...` (`Test4N_T[1-5]` in `adapters/nats`)
-must report a pass for each of its ids and no skip, fail or missing id; a CI script
-(added with 4b) lists the ids and fails otherwise, and a PR that adds a case adds its
-id there; cross-language CI test:
+must report a pass for each of its ids and no skip, fail or missing id. The ids are
+the test names and `TestAdapterConformance/Readiness/PeerBroadcast`, `.../NoPeerQuery`
+and `.../CtxAfterReturn`: a skipped subtest does not fail its parent, so a CI script
+(added with 4b) reads the `-json` events for every id and fails otherwise, and a PR
+that adds a case adds its id there;
+cross-language CI test:
 one Go server and one Node `socket.io@4` server with `@socket.io/redis-adapter` share
 Redis, a room broadcast from each side reaches a client on the other, and
 `fetchSockets` from Node lists the Go socket. Msgpack fixtures captured from notepack cross-decode in

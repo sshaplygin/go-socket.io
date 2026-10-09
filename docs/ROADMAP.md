@@ -57,7 +57,7 @@ workers submit changes to these files through that integrator.
 | 1b | stage 1 and the 1.D link-form commit merged, `master` green (the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner, who is also the integrator for the CI, Dependabot and `CHANGELOG.md` files of steps 0b to 0d; moves/merges applied sequentially | M1b: the Stage 1b DoD, `v1.x` gates and Acceptance blocks |
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
-| 2C | 2B | 2.3S server/namespace runtime (root socket files); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests pass; dispatch baseline recorded |
+| 2C | 2B | 2.3S server/namespace runtime (root socket files); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including the 2.3S *Readiness* test) pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
 | 2E | 2D | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
 | 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 pre-release gate, then publication verification |
@@ -141,7 +141,7 @@ Tasks:
     this rule (`waitRedisSubscribers`) and adds `delayRedisSubscriptions`, which
     holds PSUBSCRIBE with a miniredis pre-hook and releases it after a set time. 1.K
     carries the limitations into the `v1.5.0` release notes and godoc; the v2
-    requirement is 2.2 *Subscription readiness*.
+    requirement is 2.2 *Readiness*.
 - **1.B Backpressure:** each connection has a bounded queue of outbound packets. The
   rules below apply to `Server` connections and to `Client` alike.
   - *Size:* temporary v1 `engineio.Options.WriteBufferSize` counts socket.io packets
@@ -1076,8 +1076,9 @@ Positive compile fixtures cover server and client registration,
 emit, ack, room broadcast, `Args2` and binary data; negative fixtures must reject a
 wrong handler argument, ack return type or emitted payload. Keep these fixtures in
 CI. Freeze the shared types consumed by parallel work: `Endpoint`, client registration
-interface, `Options`, packet/argument codecs, `Adapter`, both hook structs and result
-enums. Publish a method-signature inventory and acyclic package graph. No placeholder
+interface, `Options`, packet/argument codecs, `Adapter`, `AdapterFactory`, the namespace-creating call (2.2
+*Readiness*), both hook structs and result enums. Publish a method-signature inventory
+and acyclic package graph. No placeholder
 `any` handler, unresolved signature or TODO in these interfaces passes G2. Runtime
 work is assigned to 2.1–2.4; the skeleton contains no claimed runtime implementation.
 
@@ -1203,13 +1204,14 @@ type Adapter interface {
 }
 type BroadcastOptions struct{ Rooms, Except []Room; Flags BroadcastFlags }
 type BroadcastResult struct{ LocalRecipients int; Published bool }
-type AdapterFactory func(nsp *Namespace) (Adapter, error)
+type AdapterFactory func(ctx context.Context, nsp *Namespace) (Adapter, error)
+func (s *Server) Namespace(ctx context.Context, name string) (*Namespace, error) // creating call
 ```
 
 `Adapter`, related types and the in-memory implementation live in root `socketio`;
 `adapter/codec` (created here) depends on parser/wire types, never on root `socketio`. External
 adapters import the root; the root never imports them. This avoids a cycle through
-`AdapterFactory(*Namespace)`. The memory adapter is the v2 default; legacy removal belongs to 2.0. The v2.0
+the `*Namespace` parameter of `AdapterFactory`. The memory adapter is the v2 default; legacy removal belongs to 2.0. The v2.0
 release and its example build job require only the memory adapter.
 
 `Broadcast` success means local recipients were queued and, for a non-local cluster
@@ -1227,21 +1229,50 @@ connection, not global across nodes; disconnect gaps have no replay guarantee.
 `Close` releases adapter-owned subscriptions/workers, never injected broker clients.
 Conformance tests cover these semantics and concurrent join/leave/broadcast.
 
-*Subscription readiness (open; the 2.0 owner resolves it when freezing `Adapter`).*
-The v1 Redis broadcast returns from namespace creation without waiting until Redis
-has registered its subscription, and can wait the full request timeout for answers
-that never arrive (found with PR #18; recorded in 1.R and, from `v1.5.0`, in the
-godoc that its `CHANGELOG.md` *Known limitations* links). Before the freeze this
-section specifies when a broker adapter's construction and each resubscribe count as
-subscribed, what a cluster query returns within which bound when no peer is
-expected to answer, and a deterministic test that holds the subscribe commands
-until the test releases them: for the Redis adapter a miniredis pre-hook, the hold
-mechanism of `delayRedisSubscriptions` from PR #18 (which releases on a timer); for
-NATS the freeze names the equivalent hold. The answer can change `AdapterFactory`
-(for example, a context for the wait), so while this item is open `AdapterFactory`
-counts as an unresolved API signature under G2.
-[Draft PR #20](https://github.com/sshaplygin/go-socket.io/pull/20) holds an
-unvalidated proposal; nothing in it is part of this plan.
+*Readiness.* These rules close the v1 Redis limitations recorded in 1.R and, from
+`v1.5.0`, in the `CHANGELOG.md` *Known limitations*. They change two G2 signature lines:
+`AdapterFactory` gains `ctx`, and the namespace-creating call is `Namespace(ctx, name)`
+returning an error. The prepared `_experiments/v2-api` (#5) declares
+`AdapterFactory(*Namespace)` and `Namespace(string) *Namespace`; its landing PR aligns
+them. The G2 inventory states whether server construction creates `/` with this call.
+2.3S implements the server side and owns its root test; backend suites in 4b reproduce
+the broker timing cases.
+
+- *Creation:* a namespace is created only by `Server.Namespace` and registered only
+  when the factory returned it. A CONNECT never creates one: a CONNECT to a namespace
+  that is not registered, including one being created, is rejected as unknown (2.4 logs
+  it as a CONNECT to an unknown namespace). v2 specifies no dynamic namespaces; a stage
+  that adds them defines how a CONNECT waits. One call decides in this order: (1) once
+  shutdown has begun it returns an error matching `ErrNamespaceClosed`, also for a
+  registered namespace, and calls no factory; (2) a registered namespace is returned
+  without calling the factory; (3) a creation in progress is waited for, and its
+  namespace or error returned; (4) otherwise the server calls `AdapterFactory` outside
+  every lock that packet dispatch reads. On a factory error nothing is registered, the
+  call returns the error wrapped with `%w` and naming the namespace, and a later call
+  calls the factory again. The factory context is the server's. The call's `ctx`
+  bounds only its caller's wait: when it ends first, the call returns an error matching
+  `ctx.Err()` and the creation goes on. A creation outlives its callers: when none is
+  left and shutdown has not begun, a successful result is still registered (the next
+  call returns it by step 2) and is closed by `Shutdown` or `Close` like any other, so
+  an abandoned creation leaks nothing. A returned adapter already receives every
+  cluster message for its namespace: a broker adapter returns only after the broker
+  confirmed its subscriptions, or with an error within a bound it documents as an
+  option, leaving nothing of its own open.
+- *Shutdown:* `Shutdown` and `Close` cancel the factory context when they begin;
+  `Shutdown` waits for factory calls in progress, callers or not, until its deadline,
+  `Close` does not wait. A creation that ends after either has begun returns an error
+  matching `ErrNamespaceClosed` whatever the factory returns: the server closes a
+  returned adapter exactly once (before the call returns when a caller waits), and a
+  factory error is wrapped alongside with a second `%w`. Calls that begin later fail
+  at step 1 of *Creation*.
+- *Restoring:* a broker adapter is restoring from the moment it observes the loss
+  of a subscription (a receive or connection error) until the broker confirms the
+  new one; before it observes the loss, queries can undercount without an error,
+  an accepted gap like the disconnect gaps above.
+- *Queries:* cluster queries count local sockets locally, never through the broker,
+  and wait only for the peers expected to answer. With none expected they return
+  the local data and a nil error at once; while restoring, or when the expected
+  peers cannot be determined, the local data and an error at once.
 
 ### 2.3 Socket.IO v5 and the generic API
 
@@ -1329,6 +1360,24 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
 - `BenchmarkEventDispatch` (root) is added with the new model, so stage 2.4 has a real
   baseline.
 - Rewrite `Client` on the same generic API with websocket over `gobwas/ws`.
+- 2.3S implements the server side of 2.2 *Readiness*. Its root test, part of the 2C
+  join gate, holds the factory until its context ends. When the factory then returns
+  an adapter at once, `Close` during the call returns within 100 ms, the creating
+  call's error matches `ErrNamespaceClosed`, and the late adapter has been closed
+  exactly once when the creating call returns; when it returns `ctx.Err()`, the
+  error matches both `ErrNamespaceClosed` and `context.Canceled`. When the factory
+  returns an adapter 100 ms after its context ends, `Shutdown` with a 1 s deadline
+  does not return before the factory does, and `Shutdown` with a 20 ms deadline
+  returns before the factory does. A creation after `Close` returns
+  `ErrNamespaceClosed` without calling the factory, also for a registered namespace;
+  eight concurrent creations of one namespace under `-race`, with the factory held for
+  100 ms, call it once and get the same namespace. While a creation is held, a CONNECT
+  to its namespace is answered CONNECT_ERROR within 100 ms and does not call the
+  factory. With every caller's `ctx` cancelled while the factory is held, each call
+  returns an error matching its `ctx.Err()`; when the factory then returns an adapter,
+  the next call returns that namespace without calling the factory (one call in all)
+  and `Close` closes the adapter exactly once; when it returns an error, the next call
+  calls the factory again (two calls in all).
 - Example migration is owned by 2.5D after runtime and observability gates pass.
 
 ### 2.4 Observability

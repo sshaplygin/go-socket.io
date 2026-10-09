@@ -16,6 +16,7 @@ import (
 
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
@@ -136,4 +137,47 @@ func TestClientRejectsOversizedPacket(t *testing.T) {
 	require.NoError(t, err)
 	_, _ = w.Write([]byte("0123456789"))
 	assert.ErrorContains(t, w.Close(), "too large")
+}
+
+// TestClientPostDefaultLimitWithoutAdvertisedMaxPayload: with a default Transport
+// and an open packet that carries no maxPayload, concurrent writers whose
+// combined size is over payload.DefaultMaxPayload are split across POSTs.
+func TestClientPostDefaultLimitWithoutAdvertisedMaxPayload(t *testing.T) {
+	s := newPollServer(t, transport.ConnParameters{SID: "sid", PingInterval: time.Second, PingTimeout: time.Second})
+	conn, params := dialPollServer(t, s, &Transport{})
+	defer func() { _ = conn.Close() }()
+	require.Zero(t, params.MaxPayload)
+
+	const writers, size = 3, 600 << 10
+	data := []byte(strings.Repeat("a", size))
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w, err := conn.NextWriter(frame.String, packet.MESSAGE)
+			if !assert.NoError(t, err) {
+				return
+			}
+			_, _ = w.Write(data)
+			assert.NoError(t, w.Close())
+		}()
+	}
+	wg.Wait()
+
+	count := func() (total int) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, body := range s.posts {
+			total += len(strings.Split(body, "\x1e"))
+		}
+		return total
+	}
+	require.Eventually(t, func() bool { return count() == writers }, 5*time.Second, time.Millisecond)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, body := range s.posts {
+		assert.LessOrEqual(t, len(body), payload.DefaultMaxPayload)
+	}
 }

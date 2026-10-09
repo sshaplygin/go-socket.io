@@ -26,7 +26,8 @@ Package `engineio`.
   session writers hand over at once. The Go client reads a response (and the open
   response) up to the same `MaxPayload`; a longer one fails the session with
   `payload.ErrTooLarge`, which readers see. The client batches its POSTs up to the
-  `maxPayload` of the open packet. Sessions are looked up by `sid`; an unknown `sid` is HTTP 400.
+  `maxPayload` of the open packet, and up to its `MaxPayload` (default 1 MiB) while the
+  open packet carries none, as this server's does today. Sessions are looked up by `sid`; an unknown `sid` is HTTP 400.
   The handshake, heartbeat and `EIO` check of this section are still v3 until the
   rest of 2.1 lands; the heading of this section flips with that change.
 - Upgrade polling → websocket:

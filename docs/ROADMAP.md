@@ -1592,6 +1592,14 @@ It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
   empty, nested and unicode data, `bin` at top level and nested, a repeated attachment,
   every extension case above and the invalid inputs. Oracles check component behaviour, not
   Go-server conformance.
+- **Interop tests and CI.** Root `msgpack_interop_test.go` holds `TestMessagePackNodeClient`
+  (`socket.io-client` with the pinned parser against the Go server) and
+  `TestMessagePackNodeServer` (the Go client against a Node `socket.io` server with it); they
+  start the scripts beside the oracle. They run when `SOCKETIO_NODE_INTEROP=1` is set, and
+  then a missing `node` or `node_modules` is a failure, not a skip. No `ci.yaml` job runs
+  Node today, and 2.3M adds none: the fixtures decoded by Go run in the `test` job, while the
+  oracle and the interop tests are an M3 tag-time check whose output and `node --version`
+  the PR records, as for the other oracles. A Node job would be a separate `ci.yaml` change.
 - **Hooks and preview (2.4).** The 2.4 text is unchanged; 2.4E and 2.4S write the tests
   below, which M3 gates, and row 2E waits for 2CM for that reason. The 2.4 redactor reads
   text envelopes, so it must not see msgpack: with `Parser` MessagePack, `PacketInfo.Preview`

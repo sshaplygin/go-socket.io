@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/gobwas/ws/wsutil"
 
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
@@ -144,21 +144,20 @@ func (c *client) serve() {
 // pingFailed logs a failure of the ping loop. By the 1.L Levels rule it is DEBUG when
 // it is expected closure: a Close the client started, io.EOF or a closed connection, a
 // *net.OpError (a peer close, reset or passed deadline), a websocket close frame from
-// the peer (websocket.ErrCloseSent after the reply to it, or a *websocket.CloseError),
-// or a polling *payload.OpError that is not temporary (the transport stores a request
+// the peer (a wsutil.ClosedError; later writes fail with net.ErrClosed), or a polling *payload.OpError that is not temporary (the transport stores a request
 // failure and closes itself before a writer sees it, or the deadline passed). It is WARN
 // otherwise: no caller receives it.
 func (c *client) pingFailed(err error) {
 	level := slog.LevelWarn
 	var netErr *net.OpError
 	var payloadErr *payload.OpError
-	var closeErr *websocket.CloseError
+	var closedErr wsutil.ClosedError
 	select {
 	case <-c.close:
 		level = slog.LevelDebug
 	default:
 		if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.As(err, &netErr) ||
-			errors.Is(err, websocket.ErrCloseSent) || errors.As(err, &closeErr) ||
+			errors.As(err, &closedErr) ||
 			(errors.As(err, &payloadErr) && !payloadErr.Temporary()) {
 			level = slog.LevelDebug
 		}

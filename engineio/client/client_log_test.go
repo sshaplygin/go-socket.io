@@ -11,7 +11,8 @@ import (
 	"testing"
 	"time"
 
-	gorilla "github.com/gorilla/websocket"
+	"github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -105,18 +106,15 @@ func TestClientPeerCloseRecords(t *testing.T) {
 		rec := logtest.NewRecorder()
 		logtest.SetDefault(t, rec)
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			c, err := (&gorilla.Upgrader{}).Upgrade(w, r, nil)
+			c, _, _, err := ws.UpgradeHTTP(r, w)
 			if err != nil {
 				return
 			}
 			defer func() { _ = c.Close() }()
 			open := `0{"sid":"x","upgrades":[],"pingInterval":50,"pingTimeout":5000}`
-			_ = c.WriteMessage(gorilla.TextMessage, []byte(open))
-			msg := gorilla.FormatCloseMessage(gorilla.CloseNormalClosure, "")
-			_ = c.WriteControl(gorilla.CloseMessage, msg, time.Now().Add(time.Second))
-			for err == nil {
-				_, _, err = c.NextReader()
-			}
+			_ = wsutil.WriteServerText(c, []byte(open))
+			_ = ws.WriteFrame(c, ws.NewCloseFrame(ws.NewCloseFrameBody(ws.StatusNormalClosure, "")))
+			_, _ = io.Copy(io.Discard, c)
 		}))
 		defer ts.Close()
 

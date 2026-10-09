@@ -1592,7 +1592,7 @@ It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
   empty, nested and unicode data, `bin` at top level and nested, a repeated attachment,
   every extension case above and the invalid inputs. Oracles check component behaviour, not
   Go-server conformance.
-- **Interop tests and CI.** Root `msgpack_interop_test.go` holds `TestMessagePackNodeClient`
+- **Interop tests and CI.** `client/msgpack_interop_test.go` (it needs both the server and the client) holds `TestMessagePackNodeClient`
   (`socket.io-client` with the pinned parser against the Go server) and
   `TestMessagePackNodeServer` (the Go client against a Node `socket.io` server with it); they
   start the scripts beside the oracle. They run when `SOCKETIO_NODE_INTEROP=1` is set, and
@@ -1615,16 +1615,28 @@ It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
   JSON parser is Node's `socket.io-parser`; custom parsers are not an API), the v1 line, a speed claim over JSON
   (`BenchmarkMessagePackEncode` and `BenchmarkMessagePackDecode` are recorded, advisory).
 
-DoD: the 2.3 resource-limit and fuzz tests also run per format; `FuzzMessagePackDecode`
-seeded from the oracle corpus has a clean 30 s run; `TestMessagePackEncodeConcurrent`
-(32 goroutines, one shared `Packet` with three attachments, `-race`) leaves the `Packet`
-deeply equal to its snapshot and every output equal to the fixture; a golden test shows
-`Options{}` and `Options{Parser: parser.FormatJSON}` write identical text frames for the
-2.3P corpus; `make g2` still passes after the field is added; no new module dependency
-(`git diff go.mod go.sum` empty for 2.3M).
+DoD, each test failing without its change; tests are in `parser` unless marked:
+`TestParserDefaultIsJSON` (golden: `Options{}` and `Options{Parser: parser.FormatJSON}` write
+identical text frames for the 2.3P corpus); `TestOptionsParserNormalize` (root: zero is JSON,
+both constants are kept, any other value fails `Normalize`); `TestServerClientParserWiring`
+(`client`: the format reaches the Engine.IO session and the dialed client, and in MessagePack
+mode no text Socket.IO frame is written); `TestMessagePackPacketRoundTrip` and
+`TestMessagePackExtensions` (the corpus and every extension case of the oracle);
+`TestMessagePackLimits`, a table with one case per bound: one byte over `MaxEventBytes` and
+`MaxAttachments`, depth 64 accepted and 65 `ErrDepth`, a declared array, map, str, bin or
+ext length of 2^32-1 in a 5-byte message rejected with `testing.AllocsPerRun` showing no
+size-driven allocation, duplicate key, invalid UTF-8, trailing byte, truncation, unknown
+extension and empty message, none panicking; `FuzzMessagePackDecode` seeded from the oracle
+corpus (clean 30 s run); `TestMessagePackEncodeConcurrent` (32 goroutines, one shared
+`Packet` with three attachments, `-race`: the `Packet` stays deeply equal to its snapshot and
+every output equals the fixture); `TestMessagePackMismatch` (`client`); the two hook tests
+of 2.4 above; `make g2` still passes with the field added; `git diff go.mod go.sum` empty.
+The `-run` line below counts the named passes, so an absent test fails it.
 
 ```sh
-go test -race -count=1 ./parser/... .
+go test -race -count=1 ./parser/... . ./client
+N=$(go test -count=1 -json -run '^(TestParserDefaultIsJSON|TestOptionsParserNormalize|TestServerClientParserWiring|TestMessagePackPacketRoundTrip|TestMessagePackExtensions|TestMessagePackLimits|TestMessagePackMismatch|TestMessagePackEncodeConcurrent)$' ./parser . ./client | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
+[ "$N" -eq 8 ]
 go test -run '^$' -fuzz '^FuzzMessagePackDecode$' -fuzztime 30s ./parser
 R=parser/testdata/msgpack/reference
 node -e 'process.exit(+process.versions.node.split(".")[0] >= 22 ? 0 : 1)'

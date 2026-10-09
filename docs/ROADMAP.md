@@ -1038,20 +1038,20 @@ rule is permanent (the Stage 1b freeze exempts such PRs only for the 1b window).
 command check of these clauses is the `_experiments stays standalone` line of the Stage
 1b DoD. It is also the first step of `make experiments` (the `experiments` CI job,
 described in `CLAUDE.md`), which owns the check; the 1b DoD line is a copy that ends with
-M1b. The landing PRs of the two modules already on `master` (#44, #45) checked it by
+M1b. The landing PRs of the modules already on `master` (#44, #45, `sio5-codec`) checked it by
 hand. Otherwise `make experiments` runs Go checks only, so a landing PR also records
 the Node oracle or script checks of its module that it ran by hand. A module lands in
 `master` through a fresh-branch cherry-pick PR of its owned commits (transfer rules in
 issue #2; #44 and #45 landed this way and supersede draft PRs #8 and #9); it is later
 absorbed into live packages by the PR that lands its consumer, and that PR deletes the
-experiment and its `Unreleased` CHANGELOG entry (today `adapter-wire` and
-`adapter-rooms`). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
+experiment and its `Unreleased` CHANGELOG entry (today `adapter-wire`,
+`adapter-rooms` and `sio5-codec`). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
 
 | Component (source PR) | Purpose | Consumer | State in `master` and retirement |
 | --- | --- | --- | --- |
 | `eio4` paths and `_experiments/eio4-websocket` (#1) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | to land after G2, wave 2B: `internal/eio4` paths in live packages; the module until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
 | `_experiments/ws-bench` (#6) | Gorilla vs gobwas component benchmark; requires `eio4-websocket` via a relative `replace` | 2.1 idle baseline (not RSS) | to land after G2, with or after `eio4-websocket`; deleted when `gorilla/websocket` leaves the root `go.mod` at 2.1 (its own `go.mod` pins gorilla), and no later than `eio4-websocket` |
-| `_experiments/sio5-codec` (#7) | v5 wire codec, Node oracle | 2.3P `parser/` | to land after G2, wave 2B; absorbed into `parser/` |
+| `_experiments/sio5-codec` (#7, landed as the PR that closes it) | v5 wire codec, Node oracle | 2.3P `parser/` | landed, unreleased; the 2.3P PR absorbs it into `parser/` and deletes it |
 | `_experiments/adapter-wire` (#8, landed as #44) | pinned Node Redis adapter wire fixtures | `adapter/codec` (2.2), then 4A codec fixtures | landed, unreleased; the 2.2 PR that creates `adapter/codec` absorbs and deletes it, and 4A reads the fixtures from there |
 | `_experiments/adapter-rooms` (#9, landed as #45) | Node memory-adapter room corpus | 2.2 conformance | landed, unreleased; absorbed into the 2.2 tests by the PR that adds them, which deletes it |
 

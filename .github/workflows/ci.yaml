@@ -36,7 +36,7 @@ jobs:
       - name: govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
+          make vuln
 
   test:
     name: Test ${{ matrix.os }} Go ${{ matrix.go }}

@@ -2425,9 +2425,10 @@ Acceptance: `_examples/client` imports `client` instead of the deprecated root `
 and `make examples` builds it; the owner runs it against `_examples/default-http` (the
 login event is received), then orders the tag (M8). Tag-time gate, after that order and
 the release commit: `cclient $REL` (the DoD function, tag in place of `.`) succeeds and
-`git merge-base --is-ancestor $REL origin/v1.x` holds; the forward-port to `master`
-follows `CONTRIBUTING.md`. Out of scope: a separate `go.mod`, removing the root `Client`
-(v2 removes the v1 root runtime in 2.0), any change to the v1 server.
+`git merge-base --is-ancestor $REL origin/v1.x` holds; the release commit is
+forward-ported to `master` per `CONTRIBUTING.md`, the package is not. Out of scope: a
+separate `go.mod`, removing the root `Client` (v2 removes the v1 root runtime in 2.0), any
+change to the v1 server.
 
 ## Milestones
 

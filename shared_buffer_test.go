@@ -23,7 +23,7 @@ func startRoom(t *testing.T, members int) (*Server, []<-chan string) {
 	return p.srv, outs
 }
 
-// One *parser.Buffer in the args of a broadcast reaches the encoder of every member of the
+// One *parser.Buffer in the args of a broadcast (to the room and to the namespace, alternately) reaches the encoder of every member of the
 // room, each on its own write goroutine. Under -race the encoders must not write to it, and
 // every member must get the bytes that a single connection gets.
 func TestBroadcastSharedBuffer(t *testing.T) {
@@ -33,7 +33,11 @@ func TestBroadcastSharedBuffer(t *testing.T) {
 	payload := []byte{1, 2, 3}
 	shared := &parser.Buffer{Data: payload}
 	for i := 0; i < rounds; i++ {
-		srv.BroadcastToRoom("/", "r", "bin", shared)
+		if i%2 == 0 {
+			srv.BroadcastToRoom("/", "r", "bin", shared)
+		} else {
+			srv.BroadcastToNamespace("/", "bin", shared)
+		}
 	}
 
 	for m, out := range outs {

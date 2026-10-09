@@ -1579,16 +1579,19 @@ It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
   encoder only reads `Data` and `Attachments`, never writes them or the placeholders, and
   returns a fresh buffer that the transport may keep. The copy-before-`Emit`-returns rule
   of 2.3 holds because encoding runs at the same point as on the text path.
-- **Node oracle.** `parser/testdata/msgpack/reference/` pins `socket.io-msgpack-parser` to
-  one exact version (its `package.json` and lockfile are the record; the PR checks the
-  version resolves) and, as for `sio5-codec` and `adapter-wire`, holds a capture script
-  and a verify script. Node encodes a corpus into hex fixtures that Go must decode to the
-  expected `Packet`; Go encodes the same packets and the Node decoder must return an
-  equal object, both directions. The corpus has CONNECT with and without auth,
-  CONNECT_ERROR, DISCONNECT, EVENT, ACK, namespaces, ID `0` and `2^53-1`, empty,
-  nested and unicode data, `bin` at top level and nested, a repeated attachment, `undefined`
-  and `Date` as notepack writes them, and the invalid inputs. Oracles check component
-  behaviour, not Go-server conformance.
+- **Node oracle.** `parser/testdata/msgpack/reference/` pins `socket.io-msgpack-parser`
+  3.0.2 (latest on the registry), which depends on `notepack.io ~2.2.0` and resolves to
+  2.2.0, its only 2.2 release; `adapter-wire` pins notepack 3.0.1 for the adapter body, a
+  different layer. Also pinned: `socket.io` and `socket.io-client` 4.8.4, `socket.io-parser`
+  4.2.7. `package.json` holds exact versions and `npm ci --ignore-scripts` installs the
+  committed `package-lock.json`. Node 22 or newer runs it (the PR records `node --version`). As for `sio5-codec` and `adapter-wire`, a
+  capture script and a verify script sit beside it. Node encodes a corpus into hex fixtures
+  that Go must decode to the expected `Packet`; Go encodes the same packets and the Node
+  decoder must return an equal object, both directions. The corpus has CONNECT with and
+  without auth, CONNECT_ERROR, DISCONNECT, EVENT, ACK, namespaces, ID `0` and `2^53-1`,
+  empty, nested and unicode data, `bin` at top level and nested, a repeated attachment,
+  every extension case above and the invalid inputs. Oracles check component behaviour, not
+  Go-server conformance.
 - **Hooks and preview (2.4).** The 2.4 text is unchanged; 2.4E and 2.4S write the tests
   below, which M3 gates, and row 2E waits for 2CM for that reason. The 2.4 redactor reads
   text envelopes, so it must not see msgpack: with `Parser` MessagePack, `PacketInfo.Preview`
@@ -1615,7 +1618,11 @@ deeply equal to its snapshot and every output equal to the fixture; a golden tes
 ```sh
 go test -race -count=1 ./parser/... .
 go test -run '^$' -fuzz '^FuzzMessagePackDecode$' -fuzztime 30s ./parser
-(cd parser/testdata/msgpack/reference && npm ci && npm test)
+R=parser/testdata/msgpack/reference
+node -e 'process.exit(+process.versions.node.split(".")[0] >= 22 ? 0 : 1)'
+npm ci --ignore-scripts --no-audit --no-fund --prefix "$R"
+[ "$(npm ls --all --prefix "$R" socket.io-msgpack-parser notepack.io | grep -c -F -e socket.io-msgpack-parser@3.0.2 -e notepack.io@2.2.0)" -eq 2 ]
+npm test --prefix "$R"
 git diff --exit-code origin/master -- go.mod go.sum
 make g2
 ```

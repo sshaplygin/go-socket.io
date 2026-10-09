@@ -51,7 +51,8 @@ import (
 //
 // Only the public engineio.Server, client.Dialer and websocket.Default are used, so the
 // same file measures any WebSocket implementation behind them. The benchmark skips
-// outside linux and darwin (it needs ps and RLIMIT_NOFILE).
+// outside linux and darwin (it needs RLIMIT_NOFILE) and where ps is missing or does not
+// support -p.
 //
 // Every run logs one line with the server RSS before and after, B/conn, goroutines and
 // the connect phase (visible in -bench output). The benchmark workflow's report tool
@@ -76,6 +77,11 @@ import (
 func BenchmarkIdleConnections(b *testing.B) {
 	if !idleBenchSupported {
 		b.Skipf("idle benchmark needs linux or darwin, not %s", runtime.GOOS)
+	}
+	// A host without a usable ps (busybox, minimal containers) skips instead of failing
+	// "make bench" for the whole repository.
+	if _, err := readRSS(os.Getpid()); err != nil {
+		b.Skipf("idle benchmark needs a working ps: %v", err)
 	}
 	n := idleConns(b)
 	if err := raiseNoFile(uint64(2*n + 512)); err != nil {
@@ -288,16 +294,25 @@ func fetchIdleStats(b *testing.B, c *http.Client, addr string) idleStats {
 	return s
 }
 
-// processRSS returns the resident set size of pid in KiB, as reported by ps.
-func processRSS(b *testing.B, pid int) int64 {
-	b.Helper()
+// readRSS returns the resident set size of pid in KiB, as reported by ps.
+func readRSS(pid int) (int64, error) {
 	out, err := exec.Command("ps", "-o", "rss=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
-		b.Fatalf("ps rss of %d: %v", pid, err)
+		return 0, fmt.Errorf("ps rss of %d: %w", pid, err)
 	}
 	kib, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
 	if err != nil {
-		b.Fatalf("ps rss of %d: %q: %v", pid, out, err)
+		return 0, fmt.Errorf("ps rss of %d: %q: %w", pid, out, err)
+	}
+	return kib, nil
+}
+
+// processRSS is readRSS that fails the benchmark.
+func processRSS(b *testing.B, pid int) int64 {
+	b.Helper()
+	kib, err := readRSS(pid)
+	if err != nil {
+		b.Fatal(err)
 	}
 	return kib
 }

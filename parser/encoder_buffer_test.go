@@ -35,13 +35,51 @@ func TestEncodeSharedBufferPositions(t *testing.T) {
 	}
 }
 
-// A Buffer behind an unexported field cannot be numbered without writing to it: Encode returns
-// an error, where it used to panic in reflect.
-func TestEncodeUnexportedBuffer(t *testing.T) {
-	arg := struct{ b *Buffer }{&Buffer{Data: []byte{1}}}
-	w := fakeWriter{}
+type embeddedInner struct{ B *Buffer }
 
-	err := NewEncoder(&w).Encode(Header{Type: Event}, []interface{}{"e", arg})
-	require.ErrorIs(t, err, errFailedBufferAddress)
-	require.Equal(t, Buffer{Data: []byte{1}}, *arg.b)
+type embeddedOuter struct {
+	embeddedInner
+	N int
+}
+
+type embeddedPtrOuter struct {
+	*embeddedInner
+	N int
+}
+
+// A Buffer in the exported field of an embedded unexported struct is numbered, as on v1.x, and
+// the caller's value stays as it was.
+func TestEncodeEmbeddedUnexportedStruct(t *testing.T) {
+	buf := &Buffer{Data: []byte{1}}
+	outer := embeddedOuter{embeddedInner{buf}, 1}
+
+	for name, arg := range map[string]interface{}{"value": outer, "pointer": &outer} {
+		t.Run(name, func(t *testing.T) {
+			w := fakeWriter{}
+			require.NoError(t, NewEncoder(&w).Encode(Header{Type: Event}, []interface{}{"e", arg}))
+			require.Len(t, w.data, 2)
+			require.Equal(t, `51-["e",{"B":{"_placeholder":true,"num":0},"N":1}]`+"\n", w.data[0].String())
+			require.Equal(t, "\x01", w.data[1].String())
+			require.Same(t, buf, outer.B)
+			require.Equal(t, Buffer{Data: []byte{1}}, *buf)
+		})
+	}
+}
+
+// A Buffer behind an unexported field, or behind an embedded pointer to an unexported struct,
+// cannot be numbered without writing to the caller's value: Encode returns errUnsupportedBuffer.
+// On v1.x the unexported field panicked in reflect and the embedded pointer wrote into the Buffer.
+func TestEncodeUnexportedBuffer(t *testing.T) {
+	buf := &Buffer{Data: []byte{1}}
+
+	for name, arg := range map[string]interface{}{
+		"field":            struct{ b *Buffer }{buf},
+		"embedded pointer": embeddedPtrOuter{&embeddedInner{buf}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := NewEncoder(&fakeWriter{}).Encode(Header{Type: Event}, []interface{}{"e", arg})
+			require.ErrorIs(t, err, errUnsupportedBuffer)
+			require.Equal(t, Buffer{Data: []byte{1}}, *buf)
+		})
+	}
 }

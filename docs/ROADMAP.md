@@ -63,8 +63,8 @@ workers submit changes to these files through that integrator.
 | 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets`); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
 | 2CM | 2D | 2.3M opt-in MessagePack parser (new `parser/` msgpack files, the `Parser` option field through the integrator, server and client wiring); serial after 2D because 2D rewrites the logger call sites of `parser/`, the server and `client/` that 2.3M edits; its log sites use the 2D instance-logger contract | 2.3M DoD fence and the five-test Acceptance command (the oracle fixtures run in the DoD fence); the hook tests and the full Node run are M3 tag-time checks |
-| 2E | 2CM (after 2D) | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
-| 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 pre-release gate, then publication verification |
+| 2E | 2CM | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass, including the two MessagePack hook tests (2.3M *Hooks and preview*) |
+| 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 pre-release gate, which includes the 2.3M tag-time Acceptance (2.3M *Acceptance*), then publication verification |
 | 3A | M3 | freeze chat event schema; then server, browser/CLI and load client in separate directories | M4 single-server acceptance |
 | 4A | M4 | freeze codec fixtures and adaptertest cases; then Redis and NATS modules independently | each passes shared conformance suite |
 | 4B | 4A | cluster chat profile; mixed Go/Node Redis tests in separate test directories | M5 cluster acceptance |

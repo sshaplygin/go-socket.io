@@ -28,7 +28,7 @@ All notable changes to this project are documented here. The format follows
   `Arguments`, `BinaryValue` and `ArgumentCodec` value types. All additive.
 - Compile fixtures in `go test`: a positive program and 19 negative programs that must
   fail to compile with recorded diagnostics (`internal/fixtures`, `testdata/negative`),
-  and `make graph` / `TestPackageGraph` for the package graph. The method-signature
+  and `make graph` / `TestPackageGraph` and `TestForbiddenEdge` for the package graph. The method-signature
   inventory is `docs/API.md`.
 
 ### Changed

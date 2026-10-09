@@ -50,7 +50,7 @@ examples:
 # import the root).
 .PHONY: graph
 graph:
-	go test -count=1 -run '^TestPackageGraph$$' .
+	go test -count=1 -run '^(TestPackageGraph|TestForbiddenEdge)$$' .
 
 # First the isolation check (the Stage 1b DoD line "_experiments stays standalone", see
 # docs/ROADMAP.md): no root-module import of an _experiments package, no go.work, every

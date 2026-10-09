@@ -179,18 +179,21 @@ internal/fixtures/positive ──> engineio, engineio/{frame,packet}
 logger ──> standard library only
 ```
 
-Rules, enforced by `TestPackageGraph` (also a depth-first cycle search):
+Rules, enforced by `TestPackageGraph` (also a depth-first cycle search; the rules
+themselves are table-tested by `TestForbiddenEdge`, including the allowed edges of
+packages that do not exist yet):
 
 - the root imports only `engineio` and `parser`;
-- only the root's fixtures under `internal/fixtures` import the root; `engineio/...`,
-  `parser` and `logger` never do, so the future `client/` and external adapters import
-  the root and the root never imports them;
+- `engineio/...`, `parser` and `logger` never import the root. Every other package may:
+  the fixtures under `internal/fixtures` do today, and the future `client/` (it needs
+  `RawEvent`, `Endpoint` and `ClientRawHandler`), external adapters and `contrib/...`
+  will. The root never imports any of them;
 - `engineio/...` never imports `parser`: the Socket.IO layer supplies payload
   redaction;
 - `parser` imports only `engineio/frame` and `logger`; `logger` imports nothing of this
   module.
 
-Command: `make graph` (runs `go test -count=1 -run '^TestPackageGraph$' .`; set
+Command: `make graph` (runs `go test -count=1 -run '^(TestPackageGraph|TestForbiddenEdge)$' .`; set
 `SOCKETIO_PRINT_GRAPH=1` and `-v` to print every edge).
 
 ## Compile fixtures

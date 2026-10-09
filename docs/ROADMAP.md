@@ -1764,7 +1764,7 @@ NATS dependency. Both depend on the root module as a normal versioned dependency
 `adaptertest` and any shared-codec additions, before tagging adapter modules. Verify
 root and adapter consumers/tests against published versions without local replacements.
 In this stage's tests (`adaptertest` and both backend suites) the adapter's request
-timeout is 5 s and *at once* means within 100 ms.
+timeout is 5 s.
 
 - **`adapters/redis`**: compatibility with the non-sharded
   [`@socket.io/redis-adapter@8.3.0` wire format](https://github.com/socketio/socket.io-redis-adapter/blob/8.3.0/lib/index.ts)
@@ -1775,23 +1775,28 @@ timeout is 5 s and *at once* means within 100 ms.
   matching notepack output; supported request/response messages use Node's JSON
   encoding. Freeze fixtures for every supported operation, including
   `publishOnSpecificResponseChannel=true` and false. The injected
-  `redis.UniversalClient` must send every command to one Redis master, so only a
-  `*redis.Client` (from `redis.NewClient` or `redis.NewFailoverClient`) is accepted;
+  `redis.UniversalClient` (the type `redis.NewUniversalClient` returns, which for one
+  address holds a `*redis.Client`) must send every command to one Redis master, so only
+  a `*redis.Client` (from `redis.NewClient` or `redis.NewFailoverClient`) is accepted;
   any other implementation, such as `*redis.ClusterClient` or `*redis.Ring`, is
-  rejected at construction with a documented error: counting peers on a Cluster
-  needs PUBSUB NUMSUB summed over every master, as redis-adapter 8.3.0 `lib/util.ts`
-  does, and a Ring sends subscriptions and keyless PUBLISH and PUBSUB to different
-  shards. A `*redis.Client` that routes to a replica (`FailoverOptions.ReplicaOnly`,
-  or `NewClient` addressed to a replica) is unsupported, and the constructor godoc
-  says so: a PUBLISH or PUBSUB NUMSUB on a replica reaches only that replica's
-  subscribers, and go-redis v9 exposes no client-side way to detect it (the read-only
-  flag of `redis.Options` is unexported; `ReplicaOnly` only selects the failover
-  dialer). The adapter does not ask the server for its role: miniredis has no ROLE
-  command. Bound request time and reconnect subscriptions with backoff; the backoff's
-  initial and maximum delays are documented options.
+  rejected at construction with the exported `ErrUnsupportedRedisClient`: counting
+  peers on a Cluster needs PUBSUB NUMSUB summed over every master, as redis-adapter
+  8.3.0 `lib/util.ts` does, and a Ring sends subscriptions and keyless PUBLISH and
+  PUBSUB to different shards. A `*redis.Client` that routes to a replica
+  (`FailoverOptions.ReplicaOnly`, or `NewClient` addressed to a replica) is
+  unsupported, and the constructor godoc says so: a PUBLISH or PUBSUB NUMSUB on a
+  replica reaches only that replica's subscribers, and go-redis v9 exposes no
+  client-side way to detect it (the read-only flag of `redis.Options` is unexported;
+  `ReplicaOnly` only selects the failover dialer; checked against v9.7.0, and the
+  adapter's PR re-checks them against its pinned version). The adapter does not ask the
+  server for its role: miniredis has no ROLE command. Bound request time and
+  reconnect subscriptions with backoff; the backoff's initial and maximum delays are
+  documented options.
   For 2.2 *Readiness*, construction and every resubscribe read the PSUBSCRIBE and
-  SUBSCRIBE confirmations within the `SubscribeTimeout` option (default 10 s),
-  construction also stopping when the factory context ends; an unconfirmed resubscribe
+  SUBSCRIBE confirmations within the `SubscribeTimeout` option (default 10 s). Every
+  read is bounded by the time left, and construction also stops when the factory
+  context ends: a go-redis `ReceiveTimeout` reads without that context, so the adapter
+  closes the attempt's `PubSub` from `context.AfterFunc`. An unconfirmed resubscribe
   is a failed attempt that closes its connection and grows the backoff. Each attempt
   uses a new `PubSub`, and the adapter closes a failed one as soon as it observes the
   error: after a connection error a go-redis `PubSub` redials and resends its
@@ -1800,40 +1805,47 @@ timeout is 5 s and *at once* means within 100 ms.
   NUMSUB of the request channel minus this instance, floored at 0; when NUMSUB fails
   they cannot be determined. Deterministic tests run on miniredis with a pre-hook,
   installed on the running server, that holds PSUBSCRIBE and SUBSCRIBE (as the v1
-  helper `delayRedisSubscriptions` from PR #18 holds PSUBSCRIBE). The test first PINGs
-  the injected client and records miniredis NUMPAT, NUMSUB of the request and response
-  channels and `CurrentConnectionCount`; *nothing left* means all of them are back to
-  those values within 1 s of releasing the hold, and the client still answers PING.
-  - 4R-T1: the hold is released after 200 ms and construction returns only then; a
-    peer's broadcast published as soon as it returns reaches the new adapter within
-    1 s (the `adaptertest` readiness case), and a peer's `Sockets` counts it.
-  - 4R-T2: with `SubscribeTimeout` 200 ms and a longer hold, construction returns an
+  helper `delayRedisSubscriptions` from PR #18 holds PSUBSCRIBE). The *live values*
+  are miniredis NUMPAT, NUMSUB of the request and response channels and
+  `CurrentConnectionCount`. They are *settled* when they are equal on two reads 50 ms
+  apart; each case first PINGs the injected client and waits for that, at most 5 s,
+  and records them as the baseline. *Nothing left* means they are settled within 5 s
+  of releasing the hold with NUMPAT and NUMSUB equal to the baseline and the connection
+  count not above it, and the client still answers PING. A peer adapter and its socket
+  exist before any hold.
+  - 4R-T1: the hold is released after 200 ms; construction returns only then, within
+    500 ms of the release. A peer's broadcast published as soon as it returns reaches
+    the new adapter within 1 s (the `adaptertest` readiness case), and a peer's
+    `Sockets` counts it.
+  - 4R-T2: with `SubscribeTimeout` 200 ms and a 2 s hold, construction returns an
     error within 1 s, leaving nothing.
   - 4R-T3: server `Close` while a namespace creation is held returns at once; with
-    the hold still in place, the creating call returns within 100 ms of `Close`
-    with an error matching `ErrNamespaceClosed`. The hold is released only then,
-    leaving nothing.
-  - 4R-T4: `Sockets` with no peer returns the local sockets and nil at once; with
-    NUMSUB failing (pre-hook error), the local sockets and an error at once.
+    the hold still in place, the creating call returns at once after `Close` with an
+    error matching `ErrNamespaceClosed`. The hold is released only then, leaving
+    nothing.
+  - 4R-T4: `Sockets` and `FetchSockets` with no peer return the local data and nil at
+    once; with NUMSUB failing (pre-hook error), the local data and an error at once.
   - 4R-T5: the injected client's `Dialer` records every connection it dials. With a
-    live adapter settled, the test records the *live values* (the four counts above)
-    and closes every recorded connection, then installs the hold. Once the `subscriber
-    lost` record is logged, `Sockets` returns the local sockets and an error at once.
-    miniredis is not restarted: `Restart` builds a server without the pre-hook, which
-    a resubscribe could reach first. With `SubscribeTimeout` 200 ms and backoff delays
-    of 50 ms initial and 200 ms maximum, the hold stays until the pre-hook has seen
-    PSUBSCRIBE from three distinct peers (three attempts, each a new server-side
-    connection). Leaks are checked on the server only, after the release (a held peer
-    stays counted): `Sockets`, retried every 50 ms, returns the local sockets and nil
-    within 2 s, then the live values are back within 1 s and equal again 500 ms later.
-    A leaked attempt is an open connection that miniredis counts whatever the client
-    believes, and the live values already hold the one subscription connection that
-    must remain, so a leak raises the count; the PR that adds the test shows it failing
-    with the failed attempt's `Close` removed. A second adapter, constructed only then
-    with its own client on the same miniredis, broadcasts, and the broadcast reaches
-    the adapter's socket within 1 s.
+    live adapter and the baseline recorded, the test installs the hold first (no
+    resubscribe can reach miniredis before it: only PSUBSCRIBE and SUBSCRIBE are held,
+    and the established subscription sends none until its connection closes), then
+    closes every recorded connection. Once the `subscriber lost` record is logged,
+    `Sockets` returns the local sockets and an error at once. miniredis is not
+    restarted: `Restart` builds a server without the pre-hook. With `SubscribeTimeout`
+    200 ms and backoff delays of 50 ms initial and 200 ms maximum, the hold stays until
+    the pre-hook has seen PSUBSCRIBE from three distinct peers within 10 s (an adapter
+    attempt or the go-redis redial inside `Receive`: each is a new server-side
+    connection and both count), and the case fails if it has not. Leaks are checked on
+    the server only, after the release (a held peer stays counted): once the live
+    values are settled, `Sockets` returns the local sockets and nil within 2 s, and
+    nothing is left. A leaked attempt is an open connection that miniredis counts
+    whatever the client believes, so a leak raises the count; the PR that adds the test
+    also shows the check failing on a variant that leaves a failed attempt's
+    connection open (a read with a timeout the library does not treat as fatal, and no
+    `Close`). A second adapter, constructed only then with its own client on the same
+    miniredis, broadcasts, and the broadcast reaches the adapter's socket within 1 s.
   - 4R-T6: construction with a `*redis.ClusterClient` or a two-shard `*redis.Ring`
-    returns the documented error.
+    returns an error matching `ErrUnsupportedRedisClient` (`errors.Is`).
 - **`adapters/nats`**: subjects `<prefix>.<encoded-nsp>.broadcast` and
   `<prefix>.<encoded-nsp>.room.<encoded-room>`. Encode each arbitrary UTF-8 name as
   `b` plus unpadded base64url of its bytes (empty name becomes `b`); dots, wildcards

@@ -124,8 +124,8 @@ type AdapterMessage struct {
 	Bytes           int
 }
 
-// Hooks are the Socket.IO observer callbacks. This declaration freezes the
-// signatures only: nothing fires a hook yet (roadmap 2.4S owns the fire points). Nil
+// Hooks are the Socket.IO observer callbacks. This declaration fixes the
+// signatures only (not yet frozen, see docs/API.md, Open before G2): nothing fires a hook yet (roadmap 2.4S owns the fire points). Nil
 // fields mean no observer and callers must test the pointer and the field. Metadata
 // is borrowed for the call; an observer that retains it must copy it. Start contexts
 // flow left to right, terminal hooks unwind right to left, and the runtime pairs

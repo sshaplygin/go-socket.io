@@ -43,12 +43,15 @@ type BroadcastOptions struct {
 	Flags         BroadcastFlags
 }
 
-// BroadcastFlags is the minimal flag set. Local restricts the operation to the
+// BroadcastFlags is the minimal flag set. Proposed and unreviewed: see docs/API.md,
+// Open before G2. Local restricts the operation to the
 // server's own sockets. The other flags of the Node adapter (volatile, compress,
 // timeout) are not part of this contract.
 type BroadcastFlags struct{ Local bool }
 
 // RemoteSocket is an owned metadata snapshot of a socket, possibly on another node.
+// Proposed and unreviewed: Handshake and Data exposure, including auth and header
+// redaction, is open (docs/API.md, Open before G2).
 // Handshake and Data are JSON values; producers copy every slice, and mutating a
 // snapshot must not change adapter state.
 type RemoteSocket struct {

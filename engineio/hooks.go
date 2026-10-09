@@ -55,8 +55,8 @@ const (
 	HandshakeResultClosed       = "closed"
 )
 
-// Hooks are the Engine.IO observer callbacks. This declaration freezes the
-// signatures only: no hook is fired yet (roadmap 2.4E owns the fire points).
+// Hooks are the Engine.IO observer callbacks. This declaration fixes the
+// signatures only (not yet frozen, see docs/API.md, Open before G2): no hook is fired yet (roadmap 2.4E owns the fire points).
 // Nil fields mean no observer and callers must test the pointer and the field.
 // Metadata is borrowed for the duration of a call; an observer that retains it
 // must copy it. Start contexts flow left to right and terminal hooks unwind right

@@ -1,8 +1,9 @@
 # v2 API skeleton
 
-The frozen declarations of roadmap stage 2.0: the method-signature inventory and the
-package graph that parallel work (2.1 to 2.4) builds against. The skeleton is
-declarations only. Every operation that needs the runtime returns
+The declarations of roadmap stage 2.0: the method-signature inventory and the
+package graph that parallel work (2.1 to 2.4) builds against. They are compiled and
+tested but not yet frozen: [Open before G2](#open-before-g2) lists what the G2 gate
+(ROADMAP wave 2A) still has to close. The skeleton is declarations only. Every operation that needs the runtime returns
 `socketio.ErrNotImplemented`; nothing here works yet. Behaviour is specified in
 [ROADMAP.md](ROADMAP.md) (sections 2.0 to 2.4) and, once it exists, in the godoc of each
 declaration. This file lists signatures and does not restate behaviour. A signature
@@ -142,6 +143,30 @@ than declared as placeholders: the HTTP handler of `Server`, the lifecycle conte
 `internal/fixtures/clientstub` implements `ClientRegistration` for the fixtures only.
 The upgrade results, request-rejection reasons, disconnect reasons and adapter results
 of the hook contracts are not enumerated by the roadmap and have no constants.
+
+### Open before G2
+
+The declarations above compile and are fixture-tested; that does not approve them.
+G2 requires no unresolved API signature (ROADMAP 2.0, wave 2A), so every item here is
+settled, or moved out of the freeze with its reason recorded in ROADMAP, before G2.
+Until then none of the declarations named here is a frozen signature.
+
+| Open item | Status | Closed by |
+| --- | --- | --- |
+| `Adapter`, `AdapterFactory` and the two hook structs | declared as in ROADMAP 2.2 and 2.4; final approval not given | G2 review of the 2A owner |
+| `RemoteSocket` (JSON `Handshake` and `Data`; whether and how auth and header values are exposed or redacted) | proposed, unreviewed | G2 review; the mapping of non-JSON and binary `Data` is decided there |
+| `BroadcastFlags` (only `Local`; the Node adapter also has volatile, compress and timeout) | proposed, unreviewed | G2 review |
+| `Options` field names and the budget names in the godoc | proposed | G2 review |
+| `engineio.PayloadRedactor` boundary: a two-method interface with full-packet access | proposed | G2 review, then 2.4E |
+| Packet and argument codec contract: `parser.Packet`, `parser.Arguments` and `ArgumentCodec` do not define a complete stream encoder and decoder, and descriptors are not bound to a codec | incomplete | 2.3P (codec), 2.3S (descriptor binding) |
+| `SocketID = Room` alias, chosen so `nsp.To("room").Except(s.ID())` compiles | proposed | G2 review |
+| `Endpoint.RequestAck` raw return (`parser.Arguments`) | proposed | G2 review, with 2.3S |
+| Result and reason domains: upgrade results, request-rejection reasons, disconnect reasons and adapter results are not enumerated by ROADMAP and have no constants | unenumerated | 2.4 (`docs/OBSERVABILITY.md`) |
+| Lifecycle context access on `Socket` and `Namespace`, connection callbacks, shutdown ownership, the `Server` HTTP handler, `ChainHooks`, `LoggingHooks` | not declared (see above) | 2.3S, 2.4 |
+| Descriptor codec construction and registration wrappers without handler reflection | not declared | 2.3S |
+
+The runtime behaviour behind every declaration (lifecycle, byte and queue limits,
+error mapping, Go and Node wire contracts) is proved by 2.1 to 2.4, not by G2.
 
 ## Package graph
 

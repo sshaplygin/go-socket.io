@@ -959,11 +959,15 @@ ge "$(cov . ./engineio/session)" "$(cov $BASE ./engineio/session)"
 ge "$(cov . ./parser)" "$(cov $BASE ./parser)"
 ```
 
+The per-test assertion count (the `asserts` gate) counts only `(assert|require).X(` and
+`t.Fatal`/`t.Error` calls: a removed `should.X(` or `must.X(` call, or an in-place
+weakening of an assertion, is left to the diff review.
+
 A floor is the figure `cov` gives on `$CUT` for the package that held the code before 1b
 (at `7a7a71d`, Go 1.25.5: root 92.4%, `engineio/session` 74.8%, `parser` 78.8%); `HEAD` is
 measured over the new packages together with the same `-coverpkg` method. `engineio` alone
-varies between runs (75.8% in two of three, 76.7% in one), so its floor is the literal
-lower value.
+varies between runs (75.8% in two of three, 76.7% in one, at identical code), so the
+figure is bimodal and its floor, the `75.8` in the `ge` line, is the lower mode.
 
 The `v1.x` gates (variables as in the DoD; run with `bash` and `set -e`, rules as in the
 DoD). Each group runs at the stated moment, not later, because `v1.x` receives patches

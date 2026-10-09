@@ -1647,14 +1647,26 @@ git diff --exit-code origin/master -- go.mod go.sum
 make g2
 ```
 
-Acceptance: against `socket.io-client@4` with the pinned msgpack parser, the Go server
-with `Parser` set to MessagePack completes connect with auth, an event without binary, an
-event with binary both ways and an ack both ways, over websocket and over `transports:
-['polling']`, and a captured session shows every Socket.IO message as a binary frame (or `b`
-payload) and the pings as text; the Go client with the same option does the same against a
-Node `socket.io` server with the pinned parser; the four-cell mismatch matrix closes with
-`parse error` and runs no handler; messages one byte over each limit are rejected without
-closing other sessions. The default-format interop tests of 2.3 pass unchanged.
+Acceptance, run after the DoD on the tag commit with the Node dependencies installed:
+`TestMessagePackNodeClient` (`socket.io-client` 4.8.4 with the pinned parser against the Go
+server with `Parser` MessagePack) and `TestMessagePackNodeServer` (the Go client against a
+Node `socket.io` server with it) each run the subtests `websocket` and `polling`: connect
+with auth, an event without binary, an event with binary and an ack, each in both
+directions. `TestMessagePackWireFrames` taps the transport and asserts every Socket.IO
+message is a binary frame (`b` payload on polling) and every ping, pong and upgrade packet
+is text. `TestMessagePackMismatch` is the matrix above. `TestMessagePackLimitIsolation`
+sends one byte over `MaxEventBytes` and over `MaxAttachments` on one session, which closes
+with that error while a second session keeps echoing. The default-format tests of 2.3 are
+the unchanged `go test ./...`.
+
+```sh
+export SOCKETIO_NODE_INTEROP=1
+N=$(go test -race -count=1 -json -run '^(TestMessagePackNodeClient|TestMessagePackNodeServer|TestMessagePackWireFrames|TestMessagePackMismatch|TestMessagePackLimitIsolation)$' ./client | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
+[ "$N" -eq 5 ]
+N=$(go test -race -count=1 -json -run '^(TestMessagePackHookPreview|TestMessagePackHookLabels)$' ./... | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
+[ "$N" -eq 2 ]
+go test -race -count=1 ./...
+```
 
 ### 2.4 Observability
 

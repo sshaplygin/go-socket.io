@@ -1833,36 +1833,40 @@ timeout is 5 s.
   injected client and waits for that, at most 5 s, and records them as the baseline.
   *Nothing left* means they are settled within 5 s of releasing the hold with NUMPAT and
   NUMSUB equal to the baseline and the connection count not above it, and the client still
-  answers PING. A peer adapter and its socket exist before any hold.
-  - 4R-T1: the hold is released after 200 ms; construction returns only then, within
-    500 ms of the release. A peer's broadcast sent as soon as it returns reaches the new
-    adapter within 1 s, and a peer's `Sockets` counts it.
-  - 4R-T2: with `SubscribeTimeout` 200 ms and a 2 s hold, construction returns an
-    error within 1 s, leaving nothing.
-  - 4R-T3: server `Close` while a namespace creation is held returns at once; with
-    the hold still in place, the creating call returns at once after `Close` with an
-    error matching `ErrNamespaceClosed`. The hold is released only then, leaving
-    nothing.
-  - 4R-T4: `Sockets` and `FetchSockets` with no peer return the local data and nil at
-    once; with NUMSUB failing (pre-hook error), the local data and an error at once.
-  - 4R-T5: the injected client's `Dialer` records every connection it dials. With a live
-    adapter and the baseline recorded, the test installs the hold first (only PSUBSCRIBE
+  answers PING. A *peer* is another adapter with a socket, on its own client of the same
+  miniredis; each case below says whether one exists, and the baseline is recorded after
+  it is constructed.
+  - 4R-T1: a peer exists. The test installs the hold, starts construction and releases
+    the hold 200 ms later: construction has not returned at the release and returns
+    within 500 ms of it. A socket the test then adds to the new adapter receives a
+    peer's broadcast, sent as soon as construction returned, within 1 s, and the peer's
+    `Sockets` lists it.
+  - 4R-T2: no peer. With `SubscribeTimeout` 200 ms and a 2 s hold, construction returns
+    an error within 1 s, leaving nothing.
+  - 4R-T3: no peer. Server `Close`, called after the hook has held its first command of a
+    namespace creation, returns at once; with the hold still in place, the creating call
+    returns at once after `Close` with an error matching `ErrNamespaceClosed`. The hold
+    is released only then, leaving nothing.
+  - 4R-T4: no peer. `Sockets` and `FetchSockets` return the local data and nil at once;
+    with NUMSUB failing (pre-hook error), the local data and an error at once.
+  - 4R-T5: no peer until the last step. The injected client's `Dialer` records every
+    connection it dials. With a live adapter that has a socket and the baseline recorded, the test installs the hold first (only PSUBSCRIBE
     and SUBSCRIBE are held, and an established subscription sends neither until its
     connection closes, so no resubscribe reaches miniredis before it), then closes every
     recorded connection. Once the `subscriber lost` record is logged, `Sockets` returns
     the local sockets and an error at once. miniredis is not restarted: `Restart` builds
-    a server without the pre-hook. With `SubscribeTimeout` 200 ms and backoff delays of
-    50 ms initial and 200 ms maximum, the hold stays until it has held the first command
+    a server without the pre-hook. With `SubscribeTimeout` 200 ms and the backoff's documented
+    initial and maximum delay options set to 50 ms and 200 ms, the hold stays until it has held the first command
     (PSUBSCRIBE or SUBSCRIBE) of three distinct server-side connections within 10 s, or
     the case fails; an adapter attempt and the go-redis redial inside `Receive` are each
     a new connection. Leaks are checked on the server only, after the release (a held
-    peer stays counted): once the live values are settled, `Sockets` returns the local
+    connection stays counted until its command returns): once the live values are settled, `Sockets` returns the local
     sockets and nil within 2 s, and nothing is left. A leaked attempt is an open
     connection miniredis counts whatever the client believes; the PR that adds the test
     also shows the check failing on a variant that leaves a failed attempt's connection
     open (a read with a timeout the library does not treat as fatal, and no `Close`). A
-    second adapter, constructed only then with its own client on the same miniredis,
-    broadcasts, and the broadcast reaches the adapter's socket within 1 s.
+    peer, constructed only then, broadcasts, and the broadcast reaches the adapter's socket
+    within 1 s.
   - 4R-T6: construction with a `*redis.ClusterClient` or a two-shard `*redis.Ring`
     returns an error matching `ErrUnsupportedRedisClient` (`errors.Is`).
 - **`adapters/nats`**: subjects `<prefix>.<encoded-nsp>.broadcast` and

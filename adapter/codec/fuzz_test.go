@@ -93,6 +93,7 @@ func FuzzDecodeRequest(f *testing.F) {
 func FuzzDecodeResponse(f *testing.F) {
 	seedFixtures(f, "response")
 	f.Add([]byte(`{"requestId":"r","sockets":[{"id":"s","rooms":[]}]}`))
+	f.Add([]byte(`{"requestId":"a","rooms":["x"],"sockets":["s"]}`))
 	f.Fuzz(func(t *testing.T, msg []byte) {
 		r, err := codec.DecodeResponse(msg, codec.Limits{MaxMessageBytes: 1 << 16})
 		if err != nil {

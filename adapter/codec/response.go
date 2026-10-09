@@ -90,7 +90,8 @@ func EncodeResponse(r Response) ([]byte, error) {
 // DecodeResponse decodes a message received on a response channel. Unknown fields are
 // ignored. A message that does not start with '{' (a MessagePack broadcast
 // acknowledgement) or that has a "type" key (server-side emit and broadcast
-// acknowledgement responses) matches ErrUnsupported.
+// acknowledgement responses) matches ErrUnsupported. A message with both a "rooms" and
+// a "sockets" key is ErrMalformed, because EncodeResponse refuses such a Response.
 func DecodeResponse(msg []byte, lim Limits) (Response, error) {
 	lim, err := lim.resolve()
 	if err != nil {
@@ -111,6 +112,9 @@ func DecodeResponse(msg []byte, lim Limits) (Response, error) {
 	}
 	if w.RequestID == "" {
 		return Response{}, fmt.Errorf("%w: response without requestId", ErrMalformed)
+	}
+	if w.Rooms != nil && w.Sockets != nil {
+		return Response{}, fmt.Errorf("%w: response with both rooms and sockets", ErrMalformed)
 	}
 	r := Response{RequestID: w.RequestID}
 	if w.Rooms != nil {

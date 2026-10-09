@@ -240,15 +240,17 @@ func TestResponseRejects(t *testing.T) {
 		msg  string
 		want error
 	}{
-		"empty":         {``, codec.ErrUnsupported},
-		"msgpack":       {"\x83\xa4type", codec.ErrUnsupported},
-		"typed":         {`{"type":6,"requestId":"r","data":1}`, codec.ErrUnsupported},
-		"typed zero":    {`{"type":0,"requestId":"r"}`, codec.ErrUnsupported},
-		"truncated":     {`{"requestId":"r"`, codec.ErrMalformed},
-		"no id":         {`{"sockets":[]}`, codec.ErrMalformed},
-		"id not text":   {`{"requestId":1}`, codec.ErrMalformed},
-		"rooms wrong":   {`{"requestId":"r","rooms":{}}`, codec.ErrMalformed},
-		"sockets wrong": {`{"requestId":"r","sockets":"s"}`, codec.ErrMalformed},
+		"empty":                   {``, codec.ErrUnsupported},
+		"msgpack":                 {"\x83\xa4type", codec.ErrUnsupported},
+		"typed":                   {`{"type":6,"requestId":"r","data":1}`, codec.ErrUnsupported},
+		"typed zero":              {`{"type":0,"requestId":"r"}`, codec.ErrUnsupported},
+		"truncated":               {`{"requestId":"r"`, codec.ErrMalformed},
+		"no id":                   {`{"sockets":[]}`, codec.ErrMalformed},
+		"id not text":             {`{"requestId":1}`, codec.ErrMalformed},
+		"rooms wrong":             {`{"requestId":"r","rooms":{}}`, codec.ErrMalformed},
+		"sockets wrong":           {`{"requestId":"r","sockets":"s"}`, codec.ErrMalformed},
+		"rooms and sockets":       {`{"requestId":"a","rooms":["x"],"sockets":["s"]}`, codec.ErrMalformed},
+		"empty rooms and sockets": {`{"requestId":"a","rooms":[],"sockets":[]}`, codec.ErrMalformed},
 	}
 	for name, c := range dec {
 		if _, err := codec.DecodeResponse([]byte(c.msg), codec.Limits{}); !errors.Is(err, c.want) {

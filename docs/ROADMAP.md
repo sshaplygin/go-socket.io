@@ -1529,13 +1529,18 @@ It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
   are unchanged and the root still imports only `engineio` and `parser`. A hand-written
   bounded transcoder over the wire subset (nil, bool, integers, floats, str, bin, array, map
   and the two extension types the oracle pins), without reflection or a value tree.
-- **Behaviour.** The Packet value forms stay as frozen. The msgpack object is
-  `{type, nsp, data?, id?}` with types 0 to 4 only; `BINARY_EVENT` and `BINARY_ACK` do not
-  exist in that parser. The encoder writes `Data` (JSON, kept in key order) as msgpack, and
-  replaces each `{"_placeholder":true,"num":N}` by a `bin` holding `Attachments[N]`; the
-  decoder does the reverse, so the layers above see the same `Packet`, placeholders and
-  `Attachments` as on the text path, with type 5 or 6 when `bin` values were found, and a
-  received type 5 or 6 is a wire error. Typed payloads still pass through JSON
+- **Behaviour.** The `Packet` value forms stay as frozen: `Type` holds the base type and
+  a packet with `Attachments` is a binary event or ack (`parser/value.go`); the root
+  declares no constants for wire types 5 and 6. The msgpack object is `{type, nsp, data?,
+  id?}` with types 0 to 4 only; that parser has no `BINARY_EVENT` or `BINARY_ACK`. The
+  encoder writes `Data` (JSON, kept in key order) as msgpack and replaces each
+  `{"_placeholder":true,"num":N}` by a `bin` holding `Attachments[N]`, deriving `bin`
+  placement from `Attachments` only, never from a `Type` value; `Attachments` on a type
+  other than Event or Ack, or a `Type` outside 0 to 4, is an encode error. The decoder
+  returns `Type` Event or Ack with non-empty `Attachments` when `bin` values were found,
+  and a wire type 5 or 6, or any type above 4, is a decode error in this mode. The layers
+  above see the same `Packet` as on the text path, which `TestMessagePackPacketRoundTrip`
+  shows by passing the 2.3P corpus through both formats and comparing the decoded `Packet`s. Typed payloads still pass through JSON
   (`ArgumentCodec[T]`), so `json` tags apply and a `[]byte` field is a base64 string unless
   it is a `socketio.Binary`. Every Socket.IO packet, events without binary included, is one
   Engine.IO binary message: a binary websocket frame, or `b` plus base64 on polling.

@@ -37,7 +37,8 @@ Requires Go 1.22+, golangci-lint v2 and govulncheck (`go install
 golang.org/x/vuln/cmd/govulncheck@latest`). Tests need no external services.
 
 CI (`.github/workflows/ci.yaml`) has four jobs: `lint` (tidy diff, mod verify, gofmt,
-vet, golangci-lint, govulncheck on ubuntu), `test` (race tests on
+vet, golangci-lint, govulncheck on ubuntu with the newest Go release from go.dev,
+because `setup-go` lags behind it), `test` (race tests on
 ubuntu, macos and windows with `stable` and `oldstable` Go), `min-go` (build and
 race tests of the root module on ubuntu with the latest Go 1.22.x and
 `GOTOOLCHAIN=local`, so it fails if `go.mod` or a dependency requires a newer Go)

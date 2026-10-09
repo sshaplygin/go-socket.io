@@ -34,7 +34,17 @@ jobs:
         with:
           version: latest
       - name: govulncheck
+        # setup-go reads a manifest that can lag behind go.dev, so scan with the newest
+        # published release; the go command downloads that toolchain via the module proxy.
         run: |
+          set -eu
+          version="$(curl -fsS 'https://go.dev/VERSION?m=text' | head -n 1)"
+          if ! printf '%s\n' "$version" | grep -Eq '^go1\.[0-9]+(\.[0-9]+)?$'; then
+            echo "unexpected Go version from go.dev: '$version'" >&2
+            exit 1
+          fi
+          export GOTOOLCHAIN="$version"
+          go version
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 

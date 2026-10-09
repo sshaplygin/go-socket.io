@@ -4,6 +4,7 @@ package positive
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 
 	sio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/internal/fixtures/clientstub"
@@ -114,3 +115,6 @@ func Construction(ctx context.Context, factory sio.AdapterFactory) error {
 // assertType proves assignability to the explicitly supplied result type. Like
 // the rest of this fixture it is compiled, never executed.
 func assertType[T any](T) {}
+
+// Serve proves that Server is an http.Handler (roadmap 2.1).
+func Serve(addr string, s *sio.Server) error { return http.ListenAndServe(addr, s) }

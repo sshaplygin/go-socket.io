@@ -23,13 +23,19 @@ All notable changes to this project are documented here. The format follows
   (which takes `ctx`), the creating call `Server.Namespace(ctx, name)`, both hook
   structs and the runtime error sentinels. Declarations only: every operation that needs
   the runtime returns `ErrNotImplemented`, and `NewServer` creates no namespace.
-  `engineio` gains `Hooks`, `PayloadRedactor` and the `Hooks`, `PayloadPreviewBytes` and
-  `PayloadRedactor` options (with `Options.Normalize`); `parser` gains the `Packet`,
+  `engineio` gains `Hooks` and the `Hooks` and `PayloadPreviewBytes` options (with
+  `Options.Normalize`); `parser` gains the `Packet`,
   `Arguments`, `BinaryValue` and `ArgumentCodec` value types. All additive.
-- Compile fixtures in `go test`: a positive program and 19 negative programs that must
+- Compile fixtures in `go test`: a positive program and 20 negative programs that must
   fail to compile with recorded diagnostics (`internal/fixtures`, `testdata/negative`),
   and `make graph` / `TestPackageGraph` and `TestForbiddenEdge` for the package graph. The method-signature
   inventory is `docs/API.md`.
+- G2 review of the skeleton (roadmap 2.0): `docs/API.md` records the frozen contract and what
+  is explicitly not frozen; `ChainHooks` and `LoggingHooks` in `socketio` and `engineio`
+  (the skeleton returns nil), `Server.ServeHTTP` (answers 501); `make freeze` and
+  `make g2` run the gate checks. The `engineio` payload redactor type and
+  `Options.PayloadRedactor` are not part of the skeleton: stage 2.4E defines the boundary.
+  `LocalSockets` and `Namespace.LocalSockets` declare how an adapter delivers to local sockets.
 
 ### Changed
 

@@ -11,6 +11,7 @@ package socketio
 
 import (
 	"context"
+	"net/http"
 )
 
 // Server owns the namespaces and the Engine.IO sessions. The skeleton holds neither.
@@ -40,3 +41,12 @@ func (*Server) Shutdown(context.Context) error { return ErrNotImplemented }
 // Close aborts immediately without draining. The skeleton always returns
 // ErrNotImplemented.
 func (*Server) Close() error { return ErrNotImplemented }
+
+var _ http.Handler = (*Server)(nil)
+
+// ServeHTTP implements http.Handler: the Engine.IO endpoint of the server (roadmap
+// 2.1, with the Socket.IO layer from 2.3S). The skeleton answers 501 Not Implemented
+// and reads nothing from the request.
+func (*Server) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
+	http.Error(w, ErrNotImplemented.Error(), http.StatusNotImplemented)
+}

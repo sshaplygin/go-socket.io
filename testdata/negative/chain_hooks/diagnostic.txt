@@ -1,0 +1,3 @@
+cannot use &engineio.Hooks{}
+as *socketio.Hooks value in argument to sio.ChainHooks
+as *slog.Logger value in argument to sio.LoggingHooks

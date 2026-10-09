@@ -10,7 +10,9 @@ import (
 // and the Go client. It lets event descriptors work on both sides without the root
 // package importing the client package. A runtime implementation must copy encoded
 // data before a send returns and queue binary headers and attachments as one
-// indivisible message group.
+// indivisible message group. RequestAck returns the positional arguments of the ack
+// exactly as the peer sent them, owned by the caller; the error-first convention of
+// AckEvent is applied above it (roadmap 2.3S), never by the endpoint.
 type Endpoint interface {
 	SendPacket(context.Context, parser.Packet) error
 	RequestAck(context.Context, parser.Packet) (parser.Arguments, error)

@@ -16,7 +16,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/engineio/payload"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/logger"
 )
@@ -58,7 +57,7 @@ func (c *client) Close() error {
 	return c.conn.Close()
 }
 
-func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
+func (c *client) NextReader() (frame.Type, io.ReadCloser, error) {
 	for {
 		ft, pt, r, err := c.conn.NextReader()
 		if err != nil {
@@ -79,7 +78,7 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 			return 0, nil, io.EOF
 
 		case packet.MESSAGE:
-			return session.FrameType(ft), r, nil
+			return ft, r, nil
 		}
 
 		// Transports keep a read failure, so the next NextReader returns it: DEBUG.
@@ -89,8 +88,8 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 	}
 }
 
-func (c *client) NextWriter(typ session.FrameType) (io.WriteCloser, error) {
-	return c.conn.NextWriter(frame.Type(typ), packet.MESSAGE)
+func (c *client) NextWriter(typ frame.Type) (io.WriteCloser, error) {
+	return c.conn.NextWriter(typ, packet.MESSAGE)
 }
 
 func (c *client) URL() url.URL {

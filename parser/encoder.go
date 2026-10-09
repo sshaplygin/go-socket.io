@@ -6,12 +6,12 @@ import (
 	"io"
 	"reflect"
 
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
 type FrameWriter interface {
-	NextWriter(ft session.FrameType) (io.WriteCloser, error)
+	NextWriter(ft frame.Type) (io.WriteCloser, error)
 }
 
 type Encoder struct {
@@ -26,7 +26,7 @@ func NewEncoder(w FrameWriter) *Encoder {
 
 func (e *Encoder) Encode(h Header, args ...interface{}) (err error) {
 	var w io.WriteCloser
-	w, err = e.w.NextWriter(session.TEXT)
+	w, err = e.w.NextWriter(frame.String)
 	if err != nil {
 		logger.Log.Debug("socketio: next writer failed", "err", err)
 
@@ -42,7 +42,7 @@ func (e *Encoder) Encode(h Header, args ...interface{}) (err error) {
 	}
 
 	for _, b := range buffers {
-		w, err = e.w.NextWriter(session.BINARY)
+		w, err = e.w.NextWriter(frame.Binary)
 		if err != nil {
 			logger.Log.Debug("socketio: next writer failed", "err", err)
 

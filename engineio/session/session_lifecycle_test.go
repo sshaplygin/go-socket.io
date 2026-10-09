@@ -159,7 +159,7 @@ func TestSessionNextReaderAnswersPingAndSkipsUnknown(t *testing.T) {
 
 	ft, r, err := s.NextReader()
 	require.NoError(t, err)
-	require.Equal(t, TEXT, ft)
+	require.Equal(t, frame.String, ft)
 	b, err := io.ReadAll(r)
 	require.NoError(t, err)
 	require.Equal(t, "hello", string(b))
@@ -201,7 +201,7 @@ func TestSessionNextWriter(t *testing.T) {
 	conn := &scriptConn{}
 	s := newTestSession(t, conn, "polling")
 
-	w, err := s.NextWriter(BINARY)
+	w, err := s.NextWriter(frame.Binary)
 	require.NoError(t, err)
 	_, err = w.Write([]byte{1, 2})
 	require.NoError(t, err)
@@ -418,7 +418,7 @@ func TestSessionWriteSurvivesUpgrade(t *testing.T) {
 
 	errs := make(chan error, 1)
 	go func() {
-		w, err := s.NextWriter(TEXT)
+		w, err := s.NextWriter(frame.String)
 		if err == nil {
 			_, _ = w.Write([]byte("x"))
 			err = w.Close()
@@ -482,7 +482,7 @@ func TestSessionClosedBeforeUpgradeCompletes(t *testing.T) {
 					errs <- err
 					return
 				}
-				_, err := s.NextWriter(TEXT)
+				_, err := s.NextWriter(frame.String)
 				errs <- err
 			}()
 			<-old.entered

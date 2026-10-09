@@ -18,7 +18,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -50,7 +49,7 @@ func TestEnginePolling(t *testing.T) {
 
 		ft, r, err := conn.NextReader()
 		must.NoError(err)
-		should.Equal(session.TEXT, ft)
+		should.Equal(frame.String, ft)
 
 		b, err := io.ReadAll(r)
 		must.NoError(err)
@@ -58,7 +57,7 @@ func TestEnginePolling(t *testing.T) {
 
 		must.Nil(r.Close())
 
-		w, err := conn.NextWriter(session.BINARY)
+		w, err := conn.NextWriter(frame.Binary)
 		must.NoError(err)
 
 		_, err = w.Write([]byte{1, 2, 3, 4})
@@ -75,7 +74,7 @@ func TestEnginePolling(t *testing.T) {
 	cnt, err := dialer.Dial(httpSvr.URL, header)
 	must.NoError(err)
 
-	w, err := cnt.NextWriter(session.TEXT)
+	w, err := cnt.NextWriter(frame.String)
 	must.NoError(err)
 
 	_, err = w.Write([]byte("hello你好"))
@@ -84,7 +83,7 @@ func TestEnginePolling(t *testing.T) {
 
 	ft, r, err := cnt.NextReader()
 	must.NoError(err)
-	should.Equal(session.BINARY, ft)
+	should.Equal(frame.Binary, ft)
 
 	b, err := io.ReadAll(r)
 	must.NoError(err)
@@ -133,7 +132,7 @@ func TestEngineWebsocket(t *testing.T) {
 		ft, r, err := conn.NextReader()
 		must.NoError(err)
 
-		should.Equal(session.TEXT, ft)
+		should.Equal(frame.String, ft)
 
 		b, err := io.ReadAll(r)
 		must.NoError(err)
@@ -142,7 +141,7 @@ func TestEngineWebsocket(t *testing.T) {
 		err = r.Close()
 		must.NoError(err)
 
-		w, err := conn.NextWriter(session.BINARY)
+		w, err := conn.NextWriter(frame.Binary)
 		must.NoError(err)
 
 		_, err = w.Write([]byte{1, 2, 3, 4})
@@ -165,7 +164,7 @@ func TestEngineWebsocket(t *testing.T) {
 	ur.RawQuery = ""
 	should.Equal(u, ur.String())
 
-	w, err := cnt.NextWriter(session.TEXT)
+	w, err := cnt.NextWriter(frame.String)
 	must.NoError(err)
 
 	_, err = w.Write([]byte("hello你好"))
@@ -176,7 +175,7 @@ func TestEngineWebsocket(t *testing.T) {
 
 	ft, r, err := cnt.NextReader()
 	must.NoError(err)
-	should.Equal(session.BINARY, ft)
+	should.Equal(frame.Binary, ft)
 
 	b, err := io.ReadAll(r)
 	must.NoError(err)
@@ -235,7 +234,7 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 
 		ft, r, err := conn.NextReader()
 		must.NoError(err)
-		should.Equal(session.TEXT, ft)
+		should.Equal(frame.String, ft)
 
 		b, err := io.ReadAll(r)
 		must.NoError(err)
@@ -243,7 +242,7 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 
 		must.NoError(r.Close())
 
-		w, err := conn.NextWriter(session.BINARY)
+		w, err := conn.NextWriter(frame.Binary)
 		must.NoError(err)
 
 		_, err = w.Write([]byte{1, 2, 3, 4})

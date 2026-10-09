@@ -27,7 +27,6 @@ import (
 	eioclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -234,7 +233,7 @@ type faultConn struct {
 	armed                       *atomic.Bool
 }
 
-func (c faultConn) NextReader() (session.FrameType, io.ReadCloser, error) {
+func (c faultConn) NextReader() (frame.Type, io.ReadCloser, error) {
 	if c.readErr == nil {
 		ft, r, err := c.fakeConn.NextReader()
 		return ft, struct {
@@ -242,10 +241,10 @@ func (c faultConn) NextReader() (session.FrameType, io.ReadCloser, error) {
 			io.Closer
 		}{r, faultWriter{c}}, err
 	}
-	return session.TEXT, io.NopCloser(io.MultiReader(strings.NewReader("2"), iotest.ErrReader(c.readErr))), nil
+	return frame.String, io.NopCloser(io.MultiReader(strings.NewReader("2"), iotest.ErrReader(c.readErr))), nil
 }
 
-func (c faultConn) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
+func (c faultConn) NextWriter(ft frame.Type) (io.WriteCloser, error) {
 	if c.writeErr == nil && c.closeErr == nil || c.armed != nil && !c.armed.Load() {
 		return c.fakeConn.NextWriter(ft)
 	}

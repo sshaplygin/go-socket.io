@@ -177,7 +177,7 @@ func (w frameWriter) Close() error { return w.s.fail(w.WriteCloser.Close()) }
 // NextReader attempts to obtain a ReadCloser from the session's connection.
 // When finished writing, the caller MUST Close the ReadCloser to unlock the
 // connection's FramerReader.
-func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
+func (s *Session) NextReader() (frame.Type, io.ReadCloser, error) {
 	for {
 		ft, pt, r, err := s.nextReader()
 		if err != nil {
@@ -244,7 +244,7 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 		case packet.MESSAGE:
 			// Caller must Close the ReadCloser to unlock the connection's
 			// FrameReader when finished reading.
-			return FrameType(ft), frameReader{r, s}, nil
+			return ft, frameReader{r, s}, nil
 
 		default:
 			// Unknown packet type. Close reader and try again.
@@ -286,8 +286,8 @@ func (s *Session) RemoteHeader() http.Header {
 // NextWriter attempts to obtain a WriteCloser from the session's connection.
 // When finished writing, the caller MUST Close the WriteCloser to unlock the
 // connection's FrameWriter.
-func (s *Session) NextWriter(typ FrameType) (io.WriteCloser, error) {
-	w, err := s.nextWriter(frame.Type(typ), packet.MESSAGE)
+func (s *Session) NextWriter(typ frame.Type) (io.WriteCloser, error) {
+	w, err := s.nextWriter(typ, packet.MESSAGE)
 	if s.fail(err) != nil {
 		return nil, err
 	}

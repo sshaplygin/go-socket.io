@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -331,8 +331,8 @@ type queueWriter struct {
 	failed error
 }
 
-func (w *queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
-	if ft == session.TEXT && isDone(w.c.discard) {
+func (w *queueWriter) NextWriter(ft frame.Type) (io.WriteCloser, error) {
+	if ft == frame.String && isDone(w.c.discard) {
 		w.failed = io.EOF
 		return nil, io.EOF
 	}
@@ -349,7 +349,7 @@ type frameReader struct {
 	failed error
 }
 
-func (r *frameReader) NextReader() (session.FrameType, io.ReadCloser, error) {
+func (r *frameReader) NextReader() (frame.Type, io.ReadCloser, error) {
 	ft, fr, err := r.FrameReader.NextReader()
 	if r.failed = err; err != nil {
 		return ft, fr, err

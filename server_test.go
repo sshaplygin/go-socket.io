@@ -15,7 +15,7 @@ import (
 
 	"github.com/sshaplygin/go-socket.io/engineio"
 	eioclient "github.com/sshaplygin/go-socket.io/engineio/client"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/logger"
@@ -93,7 +93,7 @@ func TestServerLoggerOption(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
 
-	w, err := conn.NextWriter(session.TEXT)
+	w, err := conn.NextWriter(frame.String)
 	require.NoError(t, err)
 	_, err = w.Write([]byte("0/nope"))
 	require.NoError(t, err)
@@ -183,7 +183,7 @@ func TestConnLogWrappedWithSid(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
 
-	w, err := conn.NextWriter(session.TEXT)
+	w, err := conn.NextWriter(frame.String)
 	require.NoError(t, err)
 	_, err = w.Write([]byte("0/nope"))
 	require.NoError(t, err)

@@ -2268,8 +2268,8 @@ package clause and identifiers; test function names are kept. The root adds thre
 of `ErrEmptyAddr` and `ErrWriteBufferFull`; `EmptyAddrErr` still matches).
 
 DoD, run with `bash` and `set -e` on the head of the last Stage 7 PR, rules as in the
-Stage 1b DoD. `$TIP` is the `v1.x` commit recorded in the first Stage 7 PR body; `gorelease`
-and the consumer check need network:
+Stage 1b DoD. `$TIP` is the `v1.x` commit recorded in the first Stage 7 PR body; the consumer
+check needs network:
 
 ```sh
 TIP=${TIP:?the v1.x commit recorded in the first Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base
@@ -2281,16 +2281,50 @@ test "$(go doc -short ./client | sed -E 's/^ +//; s/^(func [A-Za-z]+)\(.*/\1/; s
 test "$(go doc -short ./client Client | grep '^func')" = "$(cd $BASE && go doc -short . Client | grep '^func')"
 test "$(go doc ./client Conn | grep -vE '^(package|    )|^\s*(//|$)')" = "$(cd $BASE && go doc . Conn | grep -vE '^(package|    )|^\s*(//|$)')"
 test "$(go doc ./client Namespace | grep -vE '^(package|    )|^\s*(//|$)')" = "$(cd $BASE && go doc . Namespace | grep -vE '^(package|    )|^\s*(//|$)')"
-# no root export lost, and no incompatible change against the released v1.5.0
+# no root export lost; source compatibility is proved by cclient below, not by gorelease: apidiff reports the
+# Conn and Namespace alias moves as incompatible changes although every consumer compiles
 test -z "$(diff <(cd $BASE && go doc -short . | grep -oE '^(var|type) [A-Za-z]+' | sort) <(go doc -short . | grep -oE '^(var|type) [A-Za-z]+' | sort))"
-test "$(go run golang.org/x/exp/cmd/gorelease@latest -base=v1.5.0 | grep -c 'incompatible changes')" -eq 0
 # only the files named in 7A changed outside client/; no test function lost
 test -z "$(git diff --name-only $TIP | grep -vE '^(client/|client\.go|connection\.go|namespace_conn\.go|errors\.go|CHANGELOG\.md|CLAUDE\.md)|_test\.go$')"
 names() { grep -rhoE '^func (Test|Benchmark)[A-Za-z0-9_]+' --include='*_test.go' --exclude-dir=_examples $1 | sort -u; }
 test -z "$(comm -23 <(names $BASE) <(names .))"
 go test -race -count=1 -run 'TestDeprecatedClientRoundTrip|TestConnAliasHandlers|TestClientErrorIdentity' .
 grep -q '^| `client/` |' CLAUDE.md   # layout row of the new directory (Stage 1b layout rule)
-cclient() ( d=$(mktemp -d $T/c.XXXXXX); cd $d; go mod init example.com/consumer; printf 'package main\n\nimport (\n\tsocketio "github.com/sshaplygin/go-socket.io"\n\t"github.com/sshaplygin/go-socket.io/client"\n)\n\nvar _ func(client.Conn) = func(socketio.Conn) {}\n\nvar _ = client.ErrEmptyAddr == socketio.ErrEmptyAddr\n\nfunc main() {}\n' >main.go; GOPROXY=direct go get github.com/sshaplygin/go-socket.io@$1; go build ./... )
+# a consumer written against the v1.5.0 root API must compile and run unchanged
+cclient() ( d=$(mktemp -d $T/c.XXXXXX); cd $d; go mod init example.com/consumer
+cat >main.go <<'GO'
+package main
+
+import (
+	"errors"
+	"os"
+
+	socketio "github.com/sshaplygin/go-socket.io"
+	"github.com/sshaplygin/go-socket.io/client"
+	"github.com/sshaplygin/go-socket.io/engineio"
+)
+
+var (
+	_ func(string, *engineio.Options) (*socketio.Client, error) = socketio.NewClient
+	_ func(*socketio.Client, func(socketio.Conn) error)         = (*socketio.Client).OnConnect
+	_ func(*socketio.Client, func(socketio.Conn, string))       = (*socketio.Client).OnDisconnect
+	_ func(*socketio.Client, func(socketio.Conn, error))        = (*socketio.Client).OnError
+	_ func(*socketio.Client, string, interface{})               = (*socketio.Client).OnEvent
+	_ func(*socketio.Client, string, ...interface{})            = (*socketio.Client).Emit
+	_ func(*socketio.Client) error                              = (*socketio.Client).Connect
+	_ func(*socketio.Client) error                              = (*socketio.Client).Close
+	_ func(client.Conn, client.Namespace)                       = func(socketio.Conn, socketio.Namespace) {}
+)
+
+func main() {
+	_, err := socketio.NewClient("", nil)
+	if !errors.Is(err, socketio.ErrEmptyAddr) || !errors.Is(err, socketio.EmptyAddrErr) || !errors.Is(err, client.ErrEmptyAddr) ||
+		!errors.Is(socketio.ErrWriteBufferFull, client.ErrWriteBufferFull) {
+		os.Exit(1)
+	}
+}
+GO
+GOPROXY=direct go get github.com/sshaplygin/go-socket.io@$1; go vet ./... && go run . )
 cclient v1.x
 git worktree remove --force $BASE
 ```

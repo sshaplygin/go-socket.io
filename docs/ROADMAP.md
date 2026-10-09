@@ -1793,7 +1793,10 @@ NATS dependency. Both depend on the root module as a normal versioned dependency
 `adaptertest` and any shared-codec additions, before tagging adapter modules. Verify
 root and adapter consumers/tests against published versions without local replacements.
 In this stage's tests (`adaptertest` and both backend suites) the adapter's request
-timeout is 5 s.
+timeout is 5 s. A *recovery poll* calls `Sockets` every 50 ms and passes at the first nil
+error within 2 s (it fails at 2 s); every earlier call returns the local data and an
+error, because restoring ends only when a flush or confirmation read completes, which a
+single call cannot be required to hit.
 
 - **`adapters/redis`**: compatibility with the non-sharded
   [`@socket.io/redis-adapter@8.3.0` wire format](https://github.com/socketio/socket.io-redis-adapter/blob/8.3.0/lib/index.ts)
@@ -1877,8 +1880,8 @@ timeout is 5 s.
     releases the held commands in arrival order up to the third connection's first one
     only; 50 ms later `Sockets` still returns the local sockets and an error (one of two
     confirmations), and the rest is released. Leaks are checked on the server only, after
-    the release (a held connection stays counted until its command returns): once the live values are settled, `Sockets` returns the local
-    sockets and nil within 2 s, and nothing is left. A leaked attempt is an open
+    the release (a held connection stays counted until its command returns): once the live values are settled, a recovery poll passes, and
+    nothing is left. A leaked attempt is an open
     connection miniredis counts whatever the client believes; the PR that adds the test
     also shows the check failing on a variant that leaves a failed attempt's connection
     open (a read with a timeout the library does not treat as fatal, and no `Close`). A
@@ -1941,8 +1944,8 @@ timeout is 5 s.
     its assertions, restarts the server on the same address and waits for
     `nc.IsConnected()` to turn true within 10 s. The resent subscriptions and the
     adapter's flush then sit in the proxy, so `Sockets` returns the local sockets and an
-    error at once although `nc.IsConnected()` is true. After `Release()` one call
-    returns the local sockets and nil within 2 s.
+    error at once although `nc.IsConnected()` is true. After `Release()` a recovery
+    poll passes.
   - 4N-T5: the application's `DisconnectedErrHandler` and `ReconnectHandler` count
     their calls; the test repeats the 4N-T1 and 4N-T4 steps and then closes the adapter;
     the first handler was called once and the second once.

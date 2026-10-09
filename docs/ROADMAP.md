@@ -2272,7 +2272,7 @@ Stage 1b DoD. `$TIP` is the `v1.x` commit recorded in the first Stage 7 PR body;
 check needs network:
 
 ```sh
-TIP=${TIP:?the v1.x commit recorded in the first Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base
+TIP=${TIP:?the v1.x commit recorded in the first Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base; R=$PWD
 git worktree add -q --detach $BASE $TIP
 make lint test-race
 test -z "$(go list -deps ./client | grep -x "$MOD")"
@@ -2290,7 +2290,8 @@ names() { grep -rhoE '^func (Test|Benchmark)[A-Za-z0-9_]+' --include='*_test.go'
 test -z "$(comm -23 <(names $BASE) <(names .))"
 go test -race -count=1 -run 'TestDeprecatedClientRoundTrip|TestConnAliasHandlers|TestClientErrorIdentity' .
 grep -q '^| `client/` |' CLAUDE.md   # layout row of the new directory (Stage 1b layout rule)
-# a consumer written against the v1.5.0 root API must compile and run unchanged
+# a consumer written against the v1.5.0 root API must compile and run unchanged: `cclient .` builds it against this
+# checkout (the PR head is on no remote branch before the merge), `cclient <tag>` against a published tag
 cclient() ( d=$(mktemp -d $T/c.XXXXXX); cd $d; go mod init example.com/consumer
 cat >main.go <<'GO'
 package main
@@ -2324,8 +2325,9 @@ func main() {
 	}
 }
 GO
-GOPROXY=direct go get github.com/sshaplygin/go-socket.io@$1; go vet ./... && go run . )
-cclient v1.x
+if [ "$1" = . ]; then go mod edit -replace $MOD=$R && go mod tidy; else GOPROXY=direct go get $MOD@$1; fi
+go vet ./... && go run . )
+cclient .
 git worktree remove --force $BASE
 ```
 
@@ -2333,7 +2335,7 @@ Acceptance: `_examples/client` imports `client` instead of the deprecated root `
 and `make examples` builds it; the owner runs it against `_examples/default-http` (the
 login event is received), then orders the tag (M8). Tag-time gate, after the owner's order and
 the release commit: `cclient v1.6.0` (the function from the DoD, with the tag in place of
-`v1.x`) succeeds, and `git merge-base --is-ancestor v1.6.0 origin/v1.x` holds. The release
+`.`) succeeds, and `git merge-base --is-ancestor v1.6.0 origin/v1.x` holds. The release
 forward-port to `master` follows `CONTRIBUTING.md`. Out of scope here: a separate `go.mod` for
 either client, removal of the root `Client` (v2 removes the whole v1 root runtime in 2.0), any
 change to the v1 server.

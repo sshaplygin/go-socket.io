@@ -1366,33 +1366,47 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   baseline.
 - Rewrite `Client` on the same generic API with websocket over `gobwas/ws`.
 - 2.3S implements the server side of 2.2 *Readiness*. Its root test is
-  `TestNamespaceReadiness`, with the subtests `R1` to `R8` below; the 2C join gate runs
+  `TestNamespaceReadiness`, with the subtests `R1` to `R9` below; the 2C join gate runs
   `go test -race -count=1 -json -run '^TestNamespaceReadiness$' .` and requires a pass
-  event for each, none skipped. An adapter's close count is read when the call returns
-  and again 100 ms after `Close` or `Shutdown` has returned, and is 1 both times.
+  event for each, none skipped. Each subtest (each variant of R2) builds its own server.
+  The fake factory counts its calls, records its context and the time of each return, and
+  returns a fake adapter that counts its `Close` calls. The *settled reading* is taken
+  100 ms after the later of the factory's last return and the last `Close` or `Shutdown`
+  return of the subtest; at it every adapter the factory returned has been closed exactly
+  once, registered or not. A subtest states any earlier reading.
   - R1: a factory held until its context ends, then returning an adapter at once: `Close`
-    during the call returns at once and the call's error matches `ErrNamespaceClosed`
-    (also `context.Canceled` when the factory returns `ctx.Err()`).
-  - R2: a factory returning an adapter 300 ms after its context ends: `Shutdown` with a
-    1 s deadline does not return before the factory, with a 20 ms deadline returns before
-    it, `Close` returns before it, and the creating call returns `ErrNamespaceClosed`
-    only after it; with the caller present and with every caller's `ctx` cancelled first.
+    during the call returns at once and the call's error matches `ErrNamespaceClosed`; the
+    count is 1 when the call returns. A variant whose factory returns `ctx.Err()` instead
+    returns an error that also matches `context.Canceled`.
+  - R2: a factory returning an adapter 300 ms after its context ends. `Shutdown` with a
+    1 s deadline does not return before the factory does, with a 20 ms deadline it returns
+    before it, and `Close` returns before it. With the caller waiting, its call returns
+    `ErrNamespaceClosed` only after the factory returned, and the count is then 1. With
+    every caller's `ctx` cancelled first, each call has returned an error matching its
+    `ctx.Err()` at once, and the count is 0 until the factory returns.
   - R3: while `Shutdown` drains (a handler blocks it) and after `Close`, calls for a
-    registered namespace, for an unregistered one and during a creation in progress
-    return `ErrNamespaceClosed` at once without calling the factory; after `Close` a
-    cancelled `ctx` also matches `context.Canceled`.
+    registered namespace, for an unregistered one and for one whose creation was started
+    before and is still held (the test releases that factory last) return
+    `ErrNamespaceClosed` at once with no further factory call; after `Close` a cancelled
+    `ctx` also matches `context.Canceled`.
   - R4: a factory error comes back matching the error and naming the namespace; the next
     call calls the factory again.
   - R5: a done `ctx` returns the registered namespace; for an unregistered one it returns
     its error without calling the factory; while a creation is held, an already-cancelled
-    `ctx` returns an error matching `context.Canceled` at once and the creation goes on.
+    `ctx` returns an error matching `context.Canceled` at once, the creation goes on and a
+    later call with a live `ctx` returns its namespace after one factory call.
   - R6: eight concurrent creations of one namespace under `-race`, the factory held for
-    100 ms, call it once and get the same namespace.
+    100 ms, call it once and get the same namespace; the count is 0 before the test's
+    `Close`.
   - R7: while a creation is held, a CONNECT to its namespace is answered CONNECT_ERROR
     at once and calls no factory.
   - R8: with every caller's `ctx` cancelled while the factory is held, each call returns
-    an error matching its `ctx.Err()`; the factory then returns an adapter, the next call
-    returns that namespace without calling the factory and `Close` closes it once.
+    an error matching its `ctx.Err()` at once and the factory's context stays live; the
+    factory then returns an adapter, the next call returns that namespace without a
+    second factory call, and the count is 0 before the test's `Close`.
+  - R9: a handler blocks the drain of `Shutdown` until the recorded factory context is
+    done, then broadcasts to a room: the fake adapter receives that `Broadcast`, and its
+    count is 0 until the handler and `Shutdown` have returned.
 - Example migration is owned by 2.5D after runtime and observability gates pass.
 
 ### 2.4 Observability

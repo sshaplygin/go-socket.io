@@ -43,6 +43,8 @@ make test-race  # the same with -race; what CI runs
 make bench      # benchmarks only, no tests
 make vuln       # govulncheck ./... in the root and in every _experiments module
 make graph      # package graph: no import cycle, the root imports only engineio and parser (docs/API.md)
+make freeze     # G2 check: no unresolved marker in docs/API.md or the frozen declarations, no bare any in a frozen signature
+make g2         # the gate evidence of ROADMAP row 2A: make graph, make freeze and the compile fixtures
 make cover      # coverage profile + HTML report
 make examples   # check that every _examples/*/chat.go is identical; the legacy examples are not built until 2.5D
 make experiments # check that _experiments stays standalone, then vet, gofmt -s, golangci-lint and race tests in every _experiments/*/ module
@@ -55,7 +57,7 @@ standard-library finding is cleared by upgrading the toolchain, not by code. Tes
 no external services.
 
 CI (`.github/workflows/ci.yaml`) has five jobs: `lint` (tidy diff, mod verify, gofmt,
-vet, `make graph`, golangci-lint, `make vuln` on ubuntu with the newest Go release from go.dev,
+vet, `make graph`, `make freeze`, golangci-lint, `make vuln` on ubuntu with the newest Go release from go.dev,
 because `setup-go` lags behind it), `test` (race tests on
 ubuntu, macos and windows with `stable` and `oldstable` Go), `min-go` (build and
 race tests of the root module on ubuntu with the latest Go 1.22.x and
@@ -122,7 +124,7 @@ owner below and put it there.
 | `CONTRIBUTING.md` | PR process, review rules, release and tagging procedure | commands (link here) |
 | `CHANGELOG.md` | released changes per tag | plans |
 | `docs/ROADMAP.md` | planned stages, DoD, acceptance criteria, milestones, decisions | anything already released |
-| `docs/API.md` | method-signature inventory of the v2 skeleton, package graph and its rules, compile fixtures | behaviour (ROADMAP, godoc) |
+| `docs/API.md` | method-signature inventory of the v2 skeleton, the frozen-contract record, package graph and its rules, compile fixtures | behaviour (ROADMAP, godoc) |
 | `docs/PROTOCOL.md` | which parts of Engine.IO / Socket.IO protocols are implemented, deviations, upgrade sequence | API usage |
 | `docs/MIGRATION.md` (from v2) | v1 → v2 API mapping | protocol |
 | `docs/ADAPTERS.md` (from v2) | `Adapter` contract, thread-safety rules, conformance suite, shared message format | backend-specific options (`adapters/<name>/README.md`) |

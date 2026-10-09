@@ -55,7 +55,7 @@ workers submit changes to these files through that integrator.
 | 1B | 1I | 1.L Go files (logging, session close reasons, `logger` godoc; no Markdown except `CHANGELOG.md`); 1.D `README.md`, `engineio/README.md`, `logger/README.md`, `CLAUDE.md`, `CONTRIBUTING.md`; each writes its own `CHANGELOG.md` entries | M1 checks and v1 compatibility |
 | 1C | 1B | 1.K known-limitation notes: the godoc of `Server.Adapter`, `RoomLen` and `Rooms` in `server.go` and the `### Known limitations` subsection of `CHANGELOG.md`; contract in the 1.K item | 1.K check, then M1 checks |
 | 1b | stage 1 and the 1.D link-form commit merged, `master` green (the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner, who is also the integrator for the CI, Dependabot and `CHANGELOG.md` files of steps 0b to 0d; moves/merges applied sequentially | M1b: the Stage 1b DoD, `v1.x` gates and Acceptance blocks |
-| 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
+| 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures; evidence: `make g2` (2.0 *G2 record*) |
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
 | 2C | 2B | 2.3S server/namespace runtime (root socket files); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
@@ -1077,7 +1077,8 @@ interface, `Options`, packet/argument codecs, `Adapter`, `AdapterFactory`, the n
 *Readiness*), both hook structs and result enums. The method-signature inventory and the
 acyclic package graph are published in [API.md](API.md); `make graph` checks the graph and
 `go test` the fixtures. No placeholder
-`any` handler, unresolved signature or TODO in these interfaces passes G2. Runtime
+`any` handler, unresolved signature or TODO in these interfaces passes G2 (`make freeze`
+checks it, see the *G2 record*). Runtime
 work is assigned to 2.1–2.4; the skeleton contains no claimed runtime implementation.
 
 `Event[T].Handle` registers `func(context.Context, *Socket, T) error` on a namespace;
@@ -1126,6 +1127,36 @@ independence, handler-initiated ack, ordering, concurrent close/ack/timeout, bou
 queues, graceful/forced shutdown and an application close that drains within the ping
 timeout while a library close discards, all under `-race`. Include timeout of A, new
 request B and late ACK A: B must remain pending until its own terminal condition.
+
+**G2 record.** The 2A owner reviewed every open item of the skeleton. Each is either
+settled, with the declaration, the fixtures and [API.md](API.md) changed together, or moved
+out of the freeze to the stage that defines it; a moved item is an addition and changes no
+frozen declaration. API.md (*Frozen contract*) lists the result; this table owns the reasons.
+
+| Item | Decision | Reason | Left to |
+| --- | --- | --- | --- |
+| `Adapter`, `AdapterFactory`, `BroadcastOptions`, both hook structs | settled as declared (2.2, 2.4) | 2B consumers build on them; they match the roadmap text line for line | none |
+| `RemoteSocket` | settled: four fields as Node's `fetchSockets`; `Handshake` omits `auth` and the `authorization`, `cookie` and `proxy-authorization` headers; `Data` nil or valid JSON, no binary | a snapshot crosses node boundaries and reaches application code, so credentials must not travel in it; Node's own snapshot carries them, so a decoding adapter drops them too | producer API for `Data` (2.3S); conformance case (2.2) |
+| `BroadcastFlags` | settled: `Local` only | volatile and compress need the queue and codec design, timeout belongs to broadcast acks, which the contract does not have; a new field is additive for keyed literals | later flags, additive |
+| `Options` | settled: field names, budget names and the defaults of 2.3 *Resource limits* | the names were fixed by 2.3 and the tests pin the defaults | none |
+| Payload preview redaction | moved out: the redactor type and `engineio.Options.PayloadRedactor` removed from the skeleton | the boundary hands unredacted packet bytes to a trusted component; its method set follows from the fire points and the Socket.IO classifier, which 2.4E and 2.4S own; `PayloadPreviewBytes` and `PacketInfo.Preview` stay because 2.4 names them | 2.4E, 2.4S |
+| Codec contract | settled minimum: `parser.Packet`, `Arguments`, `BinaryValue` and `ArgumentCodec[T]` as value forms; values passed to a callee are borrowed, returned values owned | 2.1 relies on no `parser` type (`engineio` never imports it); 2.3P and `adapter/codec` need the value forms and nothing else | stream encoder and decoder, placeholder validation (2.3P); descriptor binding (2.3S) |
+| `SocketID = Room` | settled: alias | every socket is in the room named by its ID; a defined type would need conversions in `To` and `Except` | none; it cannot be undone without a breaking change |
+| `Endpoint.RequestAck` | settled: returns the raw `parser.Arguments` | the ack of Node is positional arguments; the error-first convention is applied by `AckEvent` above the endpoint | typed decoding (2.3S) |
+| Result and reason domains | moved out: upgrade results, request-rejection reasons, disconnect reasons, adapter results | the roadmap does not enumerate them and the hook fields are strings; a constant added later is additive | 2.4 (`docs/OBSERVABILITY.md`) |
+| `ChainHooks`, `LoggingHooks` | settled: signatures declared in both packages as in 2.4, returning nil | the signatures are fixed by 2.4; the behaviour needs the fire points | 2.4E, 2.4S |
+| `Server.ServeHTTP` | settled: declared, the skeleton answers 501 | the signature is `http.Handler`, asserted by 2.1 | 2.1, 2.3S |
+| Lifecycle context of `Socket` and `Namespace`, disconnect, connection callbacks, `Socket.Data`, descriptor codec binding | moved out | they need the runtime design; each is an added method | 2.3S |
+| Namespace API for external adapters (local sockets, local delivery of a received broadcast) | moved out | the memory adapter is its first user and 2B writes it; 4A needs it only for the broker adapters | 2.2, before root `v2.2.0` |
+
+The gate evidence is `make g2`: `make graph` (package graph), `make freeze` (`TestFrozenContract`:
+none of `TODO`, `FIXME`, `proposed`, `unreviewed`, `not yet frozen`, `open before G2` or a
+placeholder `any`/handler wording in API.md or in the comments of the frozen files, and no
+bare `any` in a frozen signature other than `ServerSideEmit`) and `go test -run
+'^(TestCompileContracts|TestInventoryListsEveryExportedSignature)$' .`, which compiles the
+positive fixtures and the negative fixtures with their recorded diagnostics. CI runs `make
+graph` and `make freeze` in the `lint` job and the fixtures in `go test ./...`, so `min-go`
+runs them on Go 1.22 with `GOTOOLCHAIN=local`.
 
 ### 2.1 Engine.IO v4 and gobwas/ws
 
@@ -1227,6 +1258,17 @@ connection, not global across nodes; disconnect gaps have no replay guarantee.
 `Close` releases adapter-owned subscriptions/workers, never injected broker clients.
 Conformance tests cover these semantics and concurrent join/leave/broadcast.
 
+*Snapshots and flags.* `RemoteSocket` follows Node's `fetchSockets` entry (`ID`, `Rooms`,
+`Handshake`, `Data`). `Handshake` is a JSON object with the Node key names; it never has
+an `auth` key and its `headers` omit `authorization`, `cookie` and `proxy-authorization`
+(compared without case). The producer drops them: the server for local sockets and, for a
+snapshot decoded from a peer, the adapter, because a Node peer sends them. `Data` is the slot
+of `socket.data`: nil, or valid JSON; binary values are not representable, and a producer
+that cannot encode it returns the entries it can with an error. The conformance suite checks
+the omissions. `BroadcastFlags` is `{Local bool}`; volatile, compress and timeout are later
+additive fields. The adapter-facing `Namespace` API (reaching local sockets and delivering a
+broadcast received from a broker) is defined by this stage before root `v2.2.0`, additively.
+
 *Readiness.* These rules close the v1 Redis limitations recorded in 1.R and, from
 `v1.5.0`, in the `CHANGELOG.md` *Known limitations*. They change two G2 signature lines:
 `AdapterFactory` gains `ctx`, and the namespace-creating call is `Namespace(ctx, name)`
@@ -1287,7 +1329,12 @@ Parser work starts at G2; server/client runtime starts after 2B. Exit: typed
 Go/Node interoperability, 2.0 lifecycle tests and dispatch benchmark baseline.
 
 - `parser`: CONNECT payload, CONNECT_ERROR object, marker interface instead of
-  `Type().Name()=="Buffer"`, `Packet` value type with lazily decoded args.
+  `Type().Name()=="Buffer"`, `Packet` value type with lazily decoded args. The 2.0
+  skeleton froze the value forms `Packet`, `Arguments`, `BinaryValue` and
+  `ArgumentCodec[T]`; 2.3P adds the stream encoder and decoder, placeholder validation and
+  wire errors beside them, and 2.3S binds a codec to a descriptor, both without changing
+  the frozen declarations. A value passed to a callee is borrowed for the call; a returned
+  value is owned by the caller.
 - New model `Server → Namespace → Socket` replacing `conn`/`namespaceConn`. Explicit
   CONNECT for `/`. Each `Socket` owns a `context.Context` cancelled on disconnect.
 - Generics-first public API; reflection-based `OnEvent(string, interface{})` is
@@ -1363,7 +1410,11 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   argument arity and limits; verify memory remains bounded with a stalled peer.
   Returned errors distinguish oversized messages, too many attachments and queue
   saturation. Document every limit's option name, unit, default and zero-value
-  semantics in the 2.0 API fixture; zero selects the bounded default, not unlimited.
+  semantics in the 2.0 API fixture; zero selects the bounded default, not unlimited. The
+  option names are `OutboundQueueGroups`, `OutboundQueueBytes`, `HandlerQueueEvents`,
+  `HandlerQueueBytes`, `MaxPendingAcks`, `MaxAttachments`, `MaxEventBytes`,
+  `AttachmentTimeout`, `MaxConcurrentConnects` and `ConnectTimeout`, with `AckTimeout`
+  above; G2 froze them.
 - `BenchmarkEventDispatch` (root) is added with the new model, so stage 2.4 has a real
   baseline.
 - Rewrite `Client` on the same generic API with websocket over `gobwas/ws`.
@@ -1452,6 +1503,12 @@ func ChainHooks(hs ...*Hooks) *Hooks // Start funcs thread ctx left to right; ni
 func LoggingHooks(l *slog.Logger) *Hooks
 ```
 
+The 2.0 skeleton declares `ChainHooks` and `LoggingHooks` of both packages with these
+signatures and returns nil (no observer); 2.4 supplies the behaviour. Result and reason
+strings the roadmap does not enumerate (upgrade results, request-rejection reasons,
+disconnect reasons, adapter results) are defined by 2.4 in `docs/OBSERVABILITY.md` and
+added as constants; the hook signatures stay strings.
+
 ```go
 package socketio
 
@@ -1509,7 +1566,10 @@ explicit opt-in; capture only for an enabled consumer (TRACE for `LoggingHooks`)
 apply redaction before delivery and never retain whole frame buffers for a preview.
 The owning Socket.IO layer supplies protocol-aware redaction; Engine.IO does not
 import the Socket.IO parser. Standalone Engine.IO applications supply their own
-payload redactor. Callback retention rules and disabled-capture behaviour are tested.
+payload redactor. The redactor type and its `engineio.Options` field are defined and added
+by 2.4E, because the boundary hands unredacted packet bytes to a trusted component and
+follows from the fire points; the 2.0 skeleton declares only `PayloadPreviewBytes` (0 to
+256) and `PacketInfo.Preview`. Callback retention rules and disabled-capture behaviour are tested.
 Keep preview collection disabled when no redactor is configured; enabling TRACE
 alone never enables v2 payload capture; v1 never logs payloads (1.L).
 

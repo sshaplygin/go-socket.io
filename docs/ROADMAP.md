@@ -1048,8 +1048,8 @@ consumer, and that PR deletes the experiment. A draft PR does not satisfy a gate
 | `_experiments/ws-bench` (#6) | Gorilla vs gobwas component benchmark; requires `eio4-websocket` via a relative `replace` | 2.1 idle baseline (not RSS) | after G2, with or after `eio4-websocket`; deleted when `gorilla/websocket` leaves the root `go.mod` at 2.1 (its own `go.mod` pins gorilla), and no later than `eio4-websocket` |
 | `_experiments/v2-api` (#4, #5) | 2.0 descriptor, Adapter and hook compile proof | 2.0 fixtures | standalone before 2.0 starts; does not satisfy G2; deleted when 2.0 lands its fixtures |
 | `_experiments/sio5-codec` (#7) | v5 wire codec, Node oracle | 2.3P `parser/` | after G2, wave 2B; absorbed into `parser/` |
-| `_experiments/adapter-wire` (#8) | pinned Node Redis adapter wire fixtures | 4A codec fixtures, `adapter/codec` (2.2) | any time after the experiments CI job exists; absorbed into `adapter/codec` |
-| `_experiments/adapter-rooms` (#9) | Node memory-adapter room corpus | 2.2 conformance | any time after the experiments CI job exists; absorbed into the 2.2 tests |
+| `_experiments/adapter-wire` (#8) | pinned Node Redis adapter wire fixtures | 4A codec fixtures, `adapter/codec` (2.2) | any time, as a standalone module; absorbed into `adapter/codec` |
+| `_experiments/adapter-rooms` (#9) | Node memory-adapter room corpus | 2.2 conformance | any time, as a standalone module; absorbed into the 2.2 tests |
 
 ### 2.0 Generic API and lifecycle contract
 

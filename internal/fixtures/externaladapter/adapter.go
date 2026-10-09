@@ -22,7 +22,7 @@ func New(ctx context.Context, n *sio.Namespace) (sio.Adapter, error) {
 	_ = n.Hooks()
 	_ = n.Logger()
 	// ...and the local sockets they deliver a received broadcast to.
-	var _ sio.LocalSockets = n.LocalSockets()
+	_ = n.LocalSockets()
 	return nil, sio.ErrNotImplemented
 }
 

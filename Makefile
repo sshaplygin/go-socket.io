@@ -62,7 +62,7 @@ freeze:
 # frozen-contract check. The inventory check keeps docs/API.md complete.
 .PHONY: g2
 g2: graph freeze
-	go test -count=1 -run '^(TestCompileContracts|TestInventoryListsEveryExportedSignature)$$' .
+	go test -count=1 -run '^(TestCompileContracts|TestInventory.*)$$' .
 
 # First the isolation check (the Stage 1b DoD line "_experiments stays standalone", see
 # docs/ROADMAP.md): no root-module import of an _experiments package, no go.work, every

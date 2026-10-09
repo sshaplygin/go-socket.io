@@ -1154,8 +1154,9 @@ The gate evidence is `make g2`: `make graph` (package graph), `make freeze` (`Te
 none of `TODO`, `FIXME`, `proposed`, `unreviewed`, `not yet frozen`, `open before G2` or a
 placeholder `any`/handler wording in API.md or in the comments of the frozen files, and no
 bare `any` in a frozen signature other than `ServerSideEmit`) and `go test -run
-'^(TestCompileContracts|TestInventoryListsEveryExportedSignature)$' .`, which compiles the
-positive fixtures and the negative fixtures with their recorded diagnostics. CI runs `make
+'^(TestCompileContracts|TestInventory.*)$' .`, which compiles the
+positive fixtures and the negative fixtures with their recorded diagnostics, and checks that
+API.md lists every exported declaration with its declared result types. CI runs `make
 graph` and `make freeze` in the `lint` job and the fixtures in `go test ./...`, so `min-go`
 runs them on Go 1.22 with `GOTOOLCHAIN=local`.
 

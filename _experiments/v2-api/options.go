@@ -2,13 +2,20 @@ package socketio
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
+
+	"github.com/sshaplygin/go-socket.io/experiments/v2-api/engineio"
 )
 
-// Options proposes names for the stage 2.3 budgets. Zero selects the bounded
-// default documented on each field; negative values are rejected by Normalize.
-// Logger, Engine.IO, Adapter and Hooks configuration remain outside this slice.
+// Options proposes names for the stage 2.3 budgets. Zero budget fields select the bounded
+// defaults documented on those fields; negative values are rejected by Normalize.
+// Observer/adapter fields compose contracts only; runtime wiring remains deferred.
 type Options struct {
+	Logger                *slog.Logger
+	Engine                engineio.Options
+	Hooks                 *Hooks
+	Adapter               AdapterFactory
 	AckTimeout            time.Duration // 30 seconds; caller deadline wins when earlier.
 	OutboundQueueGroups   int           // 64 complete message groups, shared across a session.
 	OutboundQueueBytes    int           // 8 MiB, including attachments, shared across a session.
@@ -25,6 +32,11 @@ type Options struct {
 // Normalize applies defaults to a copy and rejects negative settings. It is a
 // pure configuration helper; none of these limits are enforced by runtime stubs.
 func (o Options) Normalize() (Options, error) {
+	engine, err := o.Engine.Normalize()
+	if err != nil {
+		return Options{}, fmt.Errorf("engine: %w", err)
+	}
+	o.Engine = engine
 	counts := []struct {
 		name     string
 		value    *int

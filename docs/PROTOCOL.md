@@ -22,8 +22,10 @@ Package `engineio`.
   is HTTP 400. A POST body is read up to the transport's `MaxPayload` (default 1 MiB,
   `polling.Transport.MaxPayload`) before it is decoded: an announced or actual size over it is
   HTTP 413 and delivers nothing; a malformed body is HTTP 400, delivers nothing and ends
-  the session. Responses are not size-limited; a response carries every packet the
-  session writers hand over at once, and the client batches its POSTs up to the
+  the session. The server does not limit its responses: a response carries every packet the
+  session writers hand over at once. The Go client reads a response (and the open
+  response) up to the same `MaxPayload`; a longer one fails the session with
+  `payload.ErrTooLarge`, which readers see. The client batches its POSTs up to the
   `maxPayload` of the open packet. Sessions are looked up by `sid`; an unknown `sid` is HTTP 400.
   The handshake, heartbeat and `EIO` check of this section are still v3 until the
   rest of 2.1 lands; the heading of this section flips with that change.

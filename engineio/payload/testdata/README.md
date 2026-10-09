@@ -19,8 +19,9 @@ server and the isolated Go reader, not a claim of Go server interoperability.
 the peer's advertised `maxPayload`. Go checks `EncodeBatch`; the Node verifier
 calls the pinned client's actual `_getWritablePackets` method with a queue and
 polling transport name, without opening a socket. The independent Node encoder
-checks each selected Go prefix's wire bytes, bound and maximality. This does not
-introduce a server-to-client response size policy.
+checks each selected Go prefix's wire bytes, bound and maximality. The fixtures
+define no server-to-client response size policy; the Go client's response read limit
+is in docs/PROTOCOL.md.
 
 From the repository root:
 

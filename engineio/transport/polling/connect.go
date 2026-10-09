@@ -232,8 +232,27 @@ func (c *clientConn) getOpen() {
 
 	if err = c.Payload.FeedIn(resp.Body); err != nil {
 		logger.Log.Debug("engineio: get payload failed", "err", err)
+		c.failOversized(err)
 
 		return
+	}
+}
+
+// failOversized ends the session when a response was over the read limit: the
+// server does not limit its responses, so nothing else would tell the reader that
+// polling stopped. Any other FeedIn error is a close or a pause, which the payload
+// reports itself, or a failure it has already stored.
+func (c *clientConn) failOversized(err error) {
+	if !errors.Is(err, payload.ErrTooLarge) {
+		return
+	}
+
+	if err = c.storeUnlessClosed("get", err); err != nil {
+		logger.Log.Debug("engineio: get response too large", "err", err)
+	}
+
+	if err = c.Close(); err != nil {
+		logger.Log.Debug("engineio: close connection failed", "err", err)
 	}
 }
 
@@ -295,6 +314,7 @@ func (c *clientConn) serveGet(after <-chan struct{}) {
 
 		if err = c.Payload.FeedIn(resp.Body); err != nil {
 			discardBody(resp.Body)
+			c.failOversized(err)
 
 			return
 		}

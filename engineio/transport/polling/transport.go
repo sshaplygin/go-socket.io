@@ -15,8 +15,9 @@ type Transport struct {
 	Client      *http.Client
 	CheckOrigin func(r *http.Request) bool
 
-	// MaxPayload limits, in wire bytes, one request body this transport reads: a
-	// POST on the server, a GET response on the client. On the client it also
+	// MaxPayload limits, in wire bytes, one body this transport reads: a POST on
+	// the server, a GET response (the open response included) on the client; a
+	// client response over it ends the session with payload.ErrTooLarge. On the client it also
 	// bounds the bodies of its POSTs until the server advertises its own
 	// maxPayload. Zero means payload.DefaultMaxPayload.
 	MaxPayload int

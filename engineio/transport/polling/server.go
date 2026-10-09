@@ -29,7 +29,8 @@ func newServerConn(t *Transport, r *http.Request) *serverConn {
 		maxPayload = payload.DefaultMaxPayload
 	}
 
-	// A response is not limited: maxPayload bounds what the server accepts.
+	// A response is not limited: maxPayload bounds what the server accepts. The
+	// Go client reads a response under its own Transport.MaxPayload.
 	return &serverConn{
 		Payload:      payload.New(maxPayload, 0),
 		transport:    t,

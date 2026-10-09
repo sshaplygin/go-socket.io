@@ -1187,7 +1187,7 @@ Decoded heap can exceed wire bytes; retain `BenchmarkDecode/dense-records` and
 measure amplification. Incremental decoding is deferred, not an integration gate.
 Keep canonical base64/UTF-8 validation and fixtures for intentional differences from
 Node: exact base64 batching, oversized-first-packet rejection and no partial decode
-on invalid batches. Client `maxPayload` limits POSTs, not server responses. Reuse
+on invalid batches. The advertised `maxPayload` limits client POSTs, not server responses; the Go client reads a response up to `Transport.MaxPayload` and fails the session above it (docs/PROTOCOL.md). Reuse
 locked reference versions, recording changes when refreshed; these oracles establish
 component behaviour, not full Go-server conformance. The experiment is outside root
 `go test ./...`: run its own race tests and Node oracle until it is retired after

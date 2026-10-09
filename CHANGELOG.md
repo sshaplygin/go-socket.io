@@ -73,7 +73,7 @@ All notable changes to this project are documented here. The format follows
   pinned Node oracles. A POST body is read up to `polling.Transport.MaxPayload` (default
   1 MiB) before decoding: 413 when larger, 400 when malformed. A poll response and a client
   POST carry every packet that the session writers hand over at once, a POST up to the
-  server's `maxPayload`. Closing a polling client aborts its pending requests.
+  server's `maxPayload`. A client response larger than its `MaxPayload` ends the session with `payload.ErrTooLarge`. Closing a polling client aborts its pending requests.
   `transport.ConnParameters` gains `MaxPayload` (JSON `maxPayload`, omitted when zero).
   The handshake, heartbeat and `EIO` check are still Engine.IO v3 until the rest of 2.1
   lands, so a v3 peer no longer interoperates over polling.

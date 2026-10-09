@@ -2384,6 +2384,7 @@ test -n "$(pairs $BASE)"; test -z "$(comm -23 <(pairs $BASE) <(pairs .))"   # no
 go test -race -count=1 -json -run '^(TestDeprecatedClientRoundTrip|TestConnAliasHandlers|TestClientErrorIdentity)$' . >$T/new.json
 test "$(jq -rs '[.[]|select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test]|sort|join(",")' $T/new.json)" = TestClientErrorIdentity,TestConnAliasHandlers,TestDeprecatedClientRoundTrip
 grep -q '^| `client/` |' CLAUDE.md   # layout row of the new directory (Stage 1b layout rule)
+grep -q "\"$MOD/client\"" _examples/client/main.go; test -z "$(grep -F "\"$MOD\"" _examples/client/main.go)"   # the example imports client, not the root
 # a root-API consumer must compile and run unchanged: `cclient .` builds it against this checkout, `cclient <tag>` against a tag
 cclient() ( d=$(mktemp -d $T/c.XXXXXX); cd $d; go mod init example.com/consumer
 cat >main.go <<'GO'

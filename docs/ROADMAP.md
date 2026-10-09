@@ -1869,13 +1869,18 @@ timeout is 5 s.
   connection status without replacing the application's handlers; the expected peers
   are undetermined until one `HeartbeatInterval` after construction. Test with an
   embedded `nats-server/v2`, no Docker, and a test TCP proxy between client and server
-  that can stall forwarding after the handshake. *Nothing left* means the server's
-  subscription count is back to its value before construction within 1 s.
+  that can stall forwarding after the handshake; while stalled it buffers the client's
+  bytes and forwards them in order on release. *Nothing left* is read from the release
+  of the stall: the server's subscription count and `nc.NumSubscriptions()` are back
+  to their values before construction within 1 s. A leaked SUB reaches the server on
+  release and raises the count; a SUB followed by its UNSUB leaves it unchanged.
   - 4N-T1: after the embedded server shuts down and `nc.IsConnected()` is false,
     `Sockets` and `FetchSockets` return the local data and an error at once.
   - 4N-T2: with the proxy stalled, construction with `SubscribeTimeout` 200 ms returns
     an error within 1 s; with `SubscribeTimeout` 10 s and the factory context cancelled,
-    it returns an error at once. Each leaves nothing.
+    it returns an error at once. The stall is released only after the error, then
+    each leaves nothing. The PR that adds the case shows it failing on a variant that
+    skips the unsubscribe.
   - 4N-T3: `Sockets` issued as soon as construction returns, with a peer adapter
     running, returns the local sockets and an error at once; after
     `HeartbeatInterval` plus 100 ms it returns the peer's sockets and nil within 1 s.

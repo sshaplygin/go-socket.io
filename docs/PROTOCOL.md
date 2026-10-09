@@ -42,10 +42,10 @@ server->>server: close old conn
 
 ## Implemented: Socket.IO protocol v4
 
-Package `parser` on `master`, and the root package on branch `v1.x`. Stage 2.0 removed the
-v1 root runtime from `master`: the server behaviour below (root namespace, event
-acknowledgement, namespace query handling and the deviations) is implemented on `v1.x`
-only, and `master` keeps the packet codec in `parser`.
+Branch `v1.x` only: the root package and `parser` (`parser.Buffer`, `Header.Query`).
+Stage 2.0 removed the v1 root runtime from `master` and stage 2.3P replaced the v4
+codec in `parser` there with the v5 codec (next section), so nothing in this section
+and in the deviations after it describes `master`.
 
 - Packet format `<type>[<attachments>-][<namespace>,][<ack id>][JSON]`. Types
   0 CONNECT, 1 DISCONNECT, 2 EVENT, 3 ACK, 4 ERROR, 5 BINARY_EVENT, 6 BINARY_ACK.
@@ -60,6 +60,8 @@ only, and `master` keeps the packet codec in `parser`.
 - Namespace query strings (`0/nsp?x=1`) are parsed into `Header.Query` and ignored.
 
 ## Known deviations from the v3/v4 specs
+
+Branch `v1.x`.
 
 - No `maxPayload` handshake field and no payload size limit.
 - CONNECT to a namespace without a registered handler closes the connection instead

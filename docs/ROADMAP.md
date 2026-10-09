@@ -1528,7 +1528,17 @@ It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
 - **Where.** `parser/` (msgpack files beside the 2.3P codec), so the package graph rules
   are unchanged and the root still imports only `engineio` and `parser`. A hand-written
   bounded transcoder over the wire subset (nil, bool, integers, floats, str, bin, array, map
-  and the two extension types the oracle pins), without reflection or a value tree.
+  and the extension forms below), without reflection or a value tree.
+- **Extensions.** `notepack.io` writes only extension type 0, and the decoder accepts only
+  these forms; everything else, including any other type, is a decode error (Node returns
+  `[type, bytes]` for it; the corpus records this deviation). Fixext 1 `d4 00 00` is
+  `undefined`: JSON `null` as an array element, the member omitted in an object, `data`
+  absent at top level, as `JSON.stringify` does. Fixext 8 `d7 00` plus an int64 of
+  milliseconds is a `Date`: the JSON string `JSON.stringify` writes (`toISOString`, UTC,
+  three decimals); beyond ±8.64e15 ms it is a decode error. Ext 8, 16 and 32 `c7`/`c8`/`c9`
+  of type 0 is Node's `ArrayBuffer` or typed array and counts as a `bin`, an attachment.
+  The encoder never writes an extension: Go has no `undefined` or `Date`, and every
+  attachment is a `bin`. Each case is a corpus entry with its expected `Packet`.
 - **Behaviour.** The `Packet` value forms stay as frozen: `Type` holds the base type and
   a packet with `Attachments` is a binary event or ack (`parser/value.go`); the root
   declares no constants for wire types 5 and 6. The msgpack object is `{type, nsp, data?,

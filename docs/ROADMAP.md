@@ -17,6 +17,7 @@ remaining work starts at stage 1 below. Existing application APIs stay on branch
 Preparation exists on `codex/eio4-payload`, inspected at
 `ee682282997b19309036e9c6fef6e248e06bc230`; it is not merged into this baseline.
 Stage 2.1 owns its reuse and remaining integration work below.
+The other prepared experiments are listed in Stage 2 *Prepared components*.
 
 ## Decisions
 
@@ -769,8 +770,8 @@ base of the DoD diffs; each 1b PR records `CUT=<sha>` on its own line of the bod
 issue #2 ledger holds the same line). Between `$CUT` and the merge of step 3 only
 `refactor(1b.` commits change Go files (tests included) on `master`; Go files under
 `_examples/` and `engineio/_examples/` are outside the freeze, and `make examples` is
-their build gate. A PR that only adds files under `_experiments/<name>/` (own `go.mod`,
-never imported by the root module, not listed in `go.work`) is exempt from the freeze and
+their build gate. A PR that only adds files under `_experiments/<name>/` (a standalone
+module, rule in Stage 2 *Prepared components*) is exempt from the freeze and
 from the map and subject gates; the live tree, `internal/eio4` paths included, is not
 exempt until G2. A `v1.x` fix is made
 on `v1.x` and forward-ported after step 3 (rule in
@@ -1028,6 +1029,25 @@ Protocol deltas are listed in [PROTOCOL.md](PROTOCOL.md#planned-engineio-v4-and-
 Stage 2 lands in the tree defined by stage 1b. New code for the `Socket` model goes to
 the root files `server.go`, `namespace.go`, `socket.go`, `packet_handlers.go`,
 `event.go`, `options.go` and `errors.go`; the client goes to `client/`.
+
+### Prepared components
+
+An `_experiments/<name>/` directory is a standalone module with its own `go.mod`,
+never imported by the root module and not listed in `go.work`; it never joins `./...`.
+This rule is permanent (the Stage 1b freeze exempts such PRs only for the 1b window).
+Its checks run in the experiments CI job, planned in a separate CI PR. A module lands
+in `master` through a fresh-branch cherry-pick PR of its owned commits (transfer rules
+in issue #2); it is later absorbed into live packages by the PR that lands its
+consumer, and that PR deletes the experiment. A draft PR does not satisfy a gate.
+
+| Component (draft PR) | Purpose | Consumer | Lands in `master` |
+| --- | --- | --- | --- |
+| `eio4` paths and `_experiments/eio4-websocket` (#1) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | after G2, wave 2B: `internal/eio4` paths in live packages; the module until 2.1 deletes it |
+| `_experiments/ws-bench` (#6) | Gorilla vs gobwas component benchmark; replaces `eio4-websocket` by relative path | 2.1 idle baseline (not RSS) | after G2 with `eio4-websocket`; deleted when `gorilla/websocket` leaves `go.mod` at 2.1 |
+| `_experiments/v2-api` (#4, #5) | 2.0 descriptor, Adapter and hook compile proof | 2.0 fixtures | standalone before 2.0 starts; does not satisfy G2; deleted when 2.0 lands its fixtures |
+| `_experiments/sio5-codec` (#7) | v5 wire codec, Node oracle | 2.3P `parser/` | after G2, wave 2B; absorbed into `parser/` |
+| `_experiments/adapter-wire` (#8) | pinned Node Redis adapter wire fixtures | 4A codec fixtures, `adapter/codec` (2.2) | any time after the experiments CI job exists; absorbed into `adapter/codec` |
+| `_experiments/adapter-rooms` (#9) | Node memory-adapter room corpus | 2.2 conformance | any time after the experiments CI job exists; absorbed into the 2.2 tests |
 
 ### 2.0 Generic API and lifecycle contract
 

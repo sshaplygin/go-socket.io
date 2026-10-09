@@ -96,7 +96,7 @@ func TestServerPost(t *testing.T) {
 		{"over the limit, chunked", text, "4abcdefgh", true, http.StatusRequestEntityTooLarge, nil},
 		{"empty", text, "", false, http.StatusBadRequest, nil},
 		{"empty record", text, "4a\x1e\x1e4b", false, http.StatusBadRequest, nil},
-		{"v3 length prefix", text, "2:4a", false, http.StatusBadRequest, nil},
+		{"v3 length prefix", text, "18:4a", false, http.StatusBadRequest, nil},
 		{"octet-stream is v3 only", "application/octet-stream", "4a", false, http.StatusBadRequest, nil},
 		{"no content type", "", "4a", false, http.StatusBadRequest, nil},
 	}

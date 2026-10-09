@@ -76,6 +76,8 @@ func (p *Payload) getFlush() (*flush, error) {
 	}
 	p.pauser.Done()
 
+	p.waiting.Add(1)
+	defer p.waiting.Add(-1)
 	for {
 		after, ok := p.writeTimeout()
 		if !ok {

@@ -37,6 +37,7 @@ type Payload struct {
 	flushing      int32
 	writeDeadline atomic.Value
 	queue         queue
+	waiting       atomic.Int32 // NextWriter calls waiting for a FlushOut
 }
 
 // New returns a new payload. readLimit bounds one body fed in and writeLimit one

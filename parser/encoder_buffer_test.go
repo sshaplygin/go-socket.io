@@ -34,3 +34,14 @@ func TestEncodeSharedBufferPositions(t *testing.T) {
 		})
 	}
 }
+
+// A Buffer behind an unexported field cannot be numbered without writing to it: Encode returns
+// an error, where it used to panic in reflect.
+func TestEncodeUnexportedBuffer(t *testing.T) {
+	arg := struct{ b *Buffer }{&Buffer{Data: []byte{1}}}
+	w := fakeWriter{}
+
+	err := NewEncoder(&w).Encode(Header{Type: Event}, []interface{}{"e", arg})
+	require.ErrorIs(t, err, errFailedBufferAddress)
+	require.Equal(t, Buffer{Data: []byte{1}}, *arg.b)
+}

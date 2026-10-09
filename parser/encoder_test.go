@@ -37,7 +37,7 @@ func (w *fakeWriter) Close() error {
 }
 
 func TestEncoder(t *testing.T) {
-	for _, test := range tests {
+	for _, test := range newTests() {
 		t.Run(test.Name, func(t *testing.T) {
 			should := assert.New(t)
 			must := require.New(t)

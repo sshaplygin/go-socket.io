@@ -10,6 +10,33 @@ func TestFixturesRepeatable(t *testing.T) {
 	t.Run("Decoder", TestDecoder)
 }
 
+// newTests returns a copy of tests that is safe to hand to the encoder or the
+// decoder: every *Buffer is a fresh value, because both numbers and marks the
+// buffers they are given. Test functions must range over newTests(), never over
+// tests, which is a read-only template.
+func newTests() []struct {
+	Name   string
+	Header Header
+	Event  string
+	Var    []interface{}
+	Data   [][]byte
+} {
+	out := append(tests[:0:0], tests...)
+	for i := range out {
+		if out[i].Var == nil {
+			continue
+		}
+		out[i].Var = append([]interface{}(nil), out[i].Var...)
+		for j, v := range out[i].Var {
+			if b, ok := v.(*Buffer); ok {
+				out[i].Var[j] = &Buffer{Data: append([]byte(nil), b.Data...)}
+			}
+		}
+	}
+
+	return out
+}
+
 var tests = []struct {
 	Name   string
 	Header Header

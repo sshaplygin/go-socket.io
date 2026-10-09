@@ -63,7 +63,7 @@ workers submit changes to these files through that integrator.
 | 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets`); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
 | 2CM | 2D | 2.3M opt-in MessagePack parser (new `parser/` msgpack files, the `Parser` option field through the integrator, server and client wiring); serial after 2D because 2D rewrites the logger call sites of `parser/`, the server and `client/` that 2.3M edits; its log sites use the 2D instance-logger contract | 2.3M DoD and Acceptance, including the Node oracle |
-| 2E | 2D, 2CM | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
+| 2E | 2CM (after 2D) | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
 | 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 pre-release gate, then publication verification |
 | 3A | M3 | freeze chat event schema; then server, browser/CLI and load client in separate directories | M4 single-server acceptance |
 | 4A | M4 | freeze codec fixtures and adaptertest cases; then Redis and NATS modules independently | each passes shared conformance suite |
@@ -1509,7 +1509,7 @@ opt-in parser compatible with Node's `socket.io-msgpack-parser` is supported on 
 and the Go client. It replaces the packet parser of the client-server connection only.
 `adapter/codec` (2.2) is a different layer, the inter-server message body, and is untouched.
 This is a new item rather than a bullet of 2.3 because it has its own option, oracle and
-release gate, and 2.3 would otherwise grow past one owner. Entry: 2.3P merged and 2C done.
+release gate, and 2.3 would otherwise grow past one owner. Entry: 2D done (which follows 2C), so the logger contract of 2D is in place; 2.3M edits only the files named in row 2CM and no file 2D is still changing.
 It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
 `adapter/codec` (with the `adapter/codec` change, PR #56), and `parser` does not import it.
 

@@ -1051,7 +1051,7 @@ experiment and its `Unreleased` CHANGELOG entry (today `adapter-wire` and
 | --- | --- | --- | --- |
 | `eio4` paths and `_experiments/eio4-websocket` (#1) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | to land after G2, wave 2B: `internal/eio4` paths in live packages; the module until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
 | `_experiments/ws-bench` (#6) | Gorilla vs gobwas component benchmark; requires `eio4-websocket` via a relative `replace` | 2.1 idle baseline (not RSS) | to land after G2, with or after `eio4-websocket`; deleted when `gorilla/websocket` leaves the root `go.mod` at 2.1 (its own `go.mod` pins gorilla), and no later than `eio4-websocket` |
-| `_experiments/v2-api` (#4, #5) | 2.0 descriptor, Adapter and hook compile proof | 2.0 fixtures | to land as a standalone module before 2.0 starts; does not satisfy G2; deleted when 2.0 lands its fixtures |
+| `_experiments/v2-api` (#4, #5) | 2.0 descriptor, Adapter and hook compile proof | 2.0 fixtures | landed as #47, unreleased; does not satisfy G2; the 2.0 fixtures add the creating call and `AdapterFactory` of 2.2 *Readiness*, and the PR that lands them deletes it |
 | `_experiments/sio5-codec` (#7) | v5 wire codec, Node oracle | 2.3P `parser/` | to land after G2, wave 2B; absorbed into `parser/` |
 | `_experiments/adapter-wire` (#8, landed as #44) | pinned Node Redis adapter wire fixtures | `adapter/codec` (2.2), then 4A codec fixtures | landed, unreleased; the 2.2 PR that creates `adapter/codec` absorbs and deletes it, and 4A reads the fixtures from there |
 | `_experiments/adapter-rooms` (#9, landed as #45) | Node memory-adapter room corpus | 2.2 conformance | landed, unreleased; absorbed into the 2.2 tests by the PR that adds them, which deletes it |
@@ -1070,7 +1070,8 @@ examples return in 4b. This transition must build/test the entire root module be
 
 Implement the v2 generic API skeleton on Go 1.22 before runtime dispatch.
 Positive compile fixtures cover server and client registration,
-emit, ack, room broadcast, `Args2` and binary data; negative fixtures must reject a
+emit, ack, room broadcast, `Args2`, binary data, and the creating call with `ctx` and an
+`AdapterFactory` taking `ctx` (2.2 *Readiness*); negative fixtures must reject a
 wrong handler argument, ack return type or emitted payload. Keep these fixtures in
 CI. Freeze the shared types consumed by parallel work: `Endpoint`, client registration
 interface, `Options`, packet/argument codecs, `Adapter`, `AdapterFactory`, the namespace-creating call (2.2
@@ -1229,10 +1230,12 @@ Conformance tests cover these semantics and concurrent join/leave/broadcast.
 *Readiness.* These rules close the v1 Redis limitations recorded in 1.R and, from
 `v1.5.0`, in the `CHANGELOG.md` *Known limitations*. They change two G2 signature lines:
 `AdapterFactory` gains `ctx`, and the namespace-creating call is `Namespace(ctx, name)`
-returning an error. The prepared `_experiments/v2-api` (#5) declares
-`AdapterFactory(*Namespace)` and `Namespace(string) *Namespace`; its landing PR aligns
-them. The G2 inventory states whether server construction creates `/` with this call.
-2.3S implements the server side and owns its root test; 4b reproduces the broker cases.
+returning an error. `_experiments/v2-api` (#47) declares `Namespace(string) *Namespace`
+and no `AdapterFactory`; the PR that lands the 2.0 fixtures declares both new lines.
+`Options.AdapterFactory` carries the factory (default: the memory adapter). `NewServer`
+creates no namespace, `/` included; a CONNECT to one the application has not created is
+unknown. In tests *at once* means within 100 ms. 2.3S implements the server side and
+owns its root test; 4b reproduces the broker cases.
 
 - *Creation:* a namespace is created only by `Server.Namespace` and registered only
   when the factory returned it. A CONNECT never creates one: a CONNECT to a namespace

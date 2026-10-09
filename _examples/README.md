@@ -1,5 +1,11 @@
 # Examples
 
+**Status on `master`.** These examples are written against the v1 server, which stage 2.0
+removed from the root package (it lives on branch `v1.x`). They do not build on `master`
+and no CI job builds or tests them; `make examples` only checks that every `chat.go` is
+identical. Stage 2.5D migrates them to the v2 API, and the Redis examples return with the
+Redis adapter in stage 4b. To run one now, check out `v1.x`.
+
 Directories with a `go.mod` are standalone Go modules. Each carries a `replace`
 directive pointing at the repository root, so it builds against the checked-out
 fork. The `client` example uses the root module.
@@ -24,7 +30,7 @@ only in what it demonstrates: mounting, CORS, pprof, shutdown, Redis or Docker.
   `socket.io-client` 2.5.0 from jsDelivr with an integrity hash (this server speaks
   Engine.IO v3; cdn.socket.io has no 2.5.0 file), so it needs network access. Open <http://localhost:8000> in two tabs after starting a server.
 - **Test.** `default-http/chat_test.go` checks the chat logic with the Go client;
-  `make examples` runs it with `-race`.
+  on `v1.x`, `make examples` runs it with `-race`.
 
 | Directory | Shows |
 | --- | --- |

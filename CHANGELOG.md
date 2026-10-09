@@ -17,23 +17,38 @@ All notable changes to this project are documented here. The format follows
   room membership and recipient selection, a Go fixture validator and a Node script that
   reproduces the fixtures; preparation for the stage 2.2 memory adapter, no change to the
   library.
-- `_experiments/v2-api`: standalone module (not imported by the root module) that
-  compiles the proposed typed v2 descriptor, client and hook signatures, with one
-  positive fixture and 11 negative fixtures that must fail to compile under Go 1.22 with
-  recorded diagnostics; preparation for stage 2.0, no change to the library.
-- `_experiments/v2-api`: the proposed `Adapter` and `AdapterFactory` signatures, the
-  27 observer hook signatures of roadmap 2.4 (`Hooks` in `socketio` and `engineio`),
-  observer options, an external-adapter fixture and a second positive fixture, plus six
-  more negative compile fixtures (17 in all); compile proof only, no adapter runtime,
-  hook dispatch or change to the library.
+- v2 API skeleton in the root package (roadmap 2.0): `Event[T]`, `AckEvent[T, R]`,
+  `Args2`, `Binary`, `Endpoint`, `ClientRegistration`, raw handlers, `Server`,
+  `Namespace`, `Socket`, `Options`, the `Adapter` contract with `AdapterFactory`
+  (which takes `ctx`), the creating call `Server.Namespace(ctx, name)`, both hook
+  structs and the runtime error sentinels. Declarations only: every operation that needs
+  the runtime returns `ErrNotImplemented`, and `NewServer` creates no namespace.
+  `engineio` gains `Hooks`, `PayloadRedactor` and the `Hooks`, `PayloadPreviewBytes` and
+  `PayloadRedactor` options (with `Options.Normalize`); `parser` gains the `Packet`,
+  `Arguments`, `BinaryValue` and `ArgumentCodec` value types. All additive.
+- Compile fixtures in `go test`: a positive program and 19 negative programs that must
+  fail to compile with recorded diagnostics (`internal/fixtures`, `testdata/negative`),
+  and `make graph` / `TestPackageGraph` and `TestForbiddenEdge` for the package graph. The method-signature
+  inventory is `docs/API.md`.
 
 ### Changed
 
+- CI: `make examples` only checks that every `_examples/*/chat.go` is identical, and
+  `make vuln` no longer scans the `_examples` modules: the legacy examples build against
+  the removed v1 runtime until stage 2.5D migrates them. The `lint` job runs
+  `make graph`.
 - CI: `make experiments` vets, format-checks, lints and race-tests every standalone
   `_experiments/*/go.mod` module in a new `experiments` job; `make vuln` and Dependabot
   (`gomod`, weekly) cover those modules too.
 - CI: `make experiments` first checks that `_experiments` stays standalone (no root
   import, no `go.work`, every Go file under a `go.mod` of its own).
+
+### Removed
+
+- The v1 root runtime: the reflection-based `Server`, `Client`, namespace and handler
+  API, the memory and Redis broadcast, `Server.Adapter` and the `redigo` dependency (and
+  the test-only `miniredis` and the `uuid` dependency with it). The v1 code stays on the
+  branch `v1.x`.
 
 ## v1.5.0 (unreleased, branch v1.x)
 

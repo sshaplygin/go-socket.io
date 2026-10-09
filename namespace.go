@@ -1,158 +1,82 @@
 package socketio
 
 import (
-	"reflect"
-	"sync"
-
-	"github.com/sshaplygin/go-socket.io/parser"
+	"context"
+	"encoding/json"
+	"log/slog"
 )
 
-// Namespace describes a communication channel that allows you to split the logic of your application
-// over a single shared connection.
-type Namespace interface {
-	// Context of this connection. You can save one context for one
-	// connection, and share it between all handlers. The handlers
-	// are called in one goroutine, so no need to lock context if it
-	// only accessed in one connection.
-	Context() interface{}
-	SetContext(ctx interface{})
+// Namespace is a Socket.IO namespace. Server.Namespace is the only call that
+// creates one. The skeleton holds no sockets, handlers or adapter.
+type Namespace struct{ name string }
 
-	Namespace() string
-	// Emit sends eventName with arguments v to the client. If the last element of v
-	// is a func, it is not sent but registered as the acknowledgement callback: the
-	// client's ACK arguments are decoded into its parameters and it is called on the
-	// read goroutine of the connection. Emit never blocks: it queues the packet, and Emits
-	// from OnConnect are written once the writer starts. A queue already holding
-	// engineio.Options.WriteBufferSize packets not yet started drops the packet and every
-	// later one and closes the connection (see ErrWriteBufferFull). Once a close started,
-	// Emit drops the packet without a report, except that Close still queues packets until
-	// the OnDisconnect calls it runs have returned (see Conn.Close).
-	Emit(eventName string, v ...interface{})
-
-	Join(room string)
-	Leave(room string)
-	LeaveAll()
-	Rooms() []string
-}
-
-type namespaceConn struct {
-	*conn
-	broadcast Broadcast
-
-	namespace string
-	context   interface{}
-
-	ack sync.Map
-}
-
-func newNamespaceConn(conn *conn, namespace string, broadcast Broadcast) *namespaceConn {
-	return &namespaceConn{
-		conn:      conn,
-		namespace: namespace,
-		broadcast: broadcast,
+// Name returns the namespace name, or "" for a nil Namespace.
+func (n *Namespace) Name() string {
+	if n == nil {
+		return ""
 	}
+	return n.name
 }
 
-func (nc *namespaceConn) SetContext(ctx interface{}) {
-	nc.context = ctx
+// Middleware authenticates a socket before the namespace accepts it. It receives
+// the raw credentials of the CONNECT packet.
+type Middleware func(context.Context, *Socket, json.RawMessage) error
+
+// Auth adapts a typed credentials handler to a Middleware without reflecting over
+// the handler. The skeleton's Middleware always returns ErrNotImplemented.
+func Auth[T any](h func(context.Context, *Socket, T) error) Middleware {
+	return func(context.Context, *Socket, json.RawMessage) error { return ErrNotImplemented }
 }
 
-func (nc *namespaceConn) Context() interface{} {
-	return nc.context
+// Use adds middleware to the namespace. The skeleton always returns ErrNotImplemented.
+func (*Namespace) Use(Middleware) error { return ErrNotImplemented }
+
+// OnRaw registers the raw event handler of the namespace. The skeleton always
+// returns ErrNotImplemented.
+func (*Namespace) OnRaw(RawHandler) error { return ErrNotImplemented }
+
+// BroadcastResult reports what a broadcast achieved: LocalRecipients counts
+// successful local enqueues after room union, deduplication and exclusions, and
+// Published records that the broker accepted the publication. Neither implies
+// remote delivery or a client acknowledgement.
+type BroadcastResult struct {
+	LocalRecipients int
+	Published       bool
 }
 
-func (nc *namespaceConn) Namespace() string {
-	return nc.namespace
+// BroadcastOperator is an immutable selection builder: every method returns a
+// modified copy and none performs I/O. Rooms are the union of the To rooms; an empty
+// selection means every socket of the namespace.
+type BroadcastOperator struct {
+	rooms  []Room
+	except []Room
+	local  bool
 }
 
-func (nc *namespaceConn) Emit(eventName string, v ...interface{}) {
-	header := parser.Header{
-		Type: parser.Event,
-	}
-
-	if nc.namespace != aliasRootNamespace {
-		header.Namespace = nc.namespace
-	}
-
-	if l := len(v); l > 0 {
-		last := v[l-1]
-		lastV := reflect.TypeOf(last)
-
-		if lastV.Kind() == reflect.Func {
-			f := newAckFunc(last)
-
-			header.ID = nc.conn.nextID()
-			header.NeedAck = true
-
-			nc.ack.Store(header.ID, f)
-			v = v[:l-1]
-		}
-	}
-
-	args := make([]reflect.Value, len(v)+1)
-	args[0] = reflect.ValueOf(eventName)
-
-	for i := 1; i < len(args); i++ {
-		args[i] = reflect.ValueOf(v[i-1])
-	}
-
-	nc.conn.write(header, args...)
+// To selects the sockets in any of rooms.
+func (*Namespace) To(rooms ...Room) BroadcastOperator {
+	return BroadcastOperator{rooms: append([]Room(nil), rooms...)}
 }
 
-func (nc *namespaceConn) Join(room string) {
-	nc.broadcast.Join(room, nc)
+// Except excludes the sockets in any of rooms, including the automatic room named by
+// a socket ID.
+func (b BroadcastOperator) Except(rooms ...Room) BroadcastOperator {
+	b.except = append(append([]Room(nil), b.except...), rooms...)
+	return b
 }
 
-func (nc *namespaceConn) Leave(room string) {
-	nc.broadcast.Leave(room, nc)
+// Local restricts the broadcast to this server; a local broadcast never publishes.
+func (b BroadcastOperator) Local() BroadcastOperator {
+	b.local = true
+	return b
 }
 
-func (nc *namespaceConn) LeaveAll() {
-	nc.broadcast.LeaveAll(nc)
-}
+// Hooks returns the observer hooks of the server that owns the namespace, for
+// adapters in other modules. The skeleton has no owner and returns nil, also for a
+// nil Namespace; the runtime will return a nil-safe wrapper.
+func (*Namespace) Hooks() *Hooks { return nil }
 
-func (nc *namespaceConn) Rooms() []string {
-	return nc.broadcast.Rooms(nc)
-}
-
-type namespaces struct {
-	namespaces map[string]*namespaceConn
-	mu         sync.RWMutex
-}
-
-func newNamespaces() *namespaces {
-	return &namespaces{
-		namespaces: make(map[string]*namespaceConn),
-	}
-}
-
-func (n *namespaces) Get(ns string) (*namespaceConn, bool) {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-
-	namespace, ok := n.namespaces[ns]
-	return namespace, ok
-}
-
-func (n *namespaces) Set(ns string, conn *namespaceConn) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	n.namespaces[ns] = conn
-}
-
-func (n *namespaces) Delete(ns string) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	delete(n.namespaces, ns)
-}
-
-func (n *namespaces) Range(fn func(ns string, nc *namespaceConn)) {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-
-	for ns, nc := range n.namespaces {
-		fn(ns, nc)
-	}
-}
+// Logger returns the instance logger of the server that owns the namespace, for
+// adapter and contrib diagnostics. The skeleton has no owner and returns nil, also
+// for a nil Namespace.
+func (*Namespace) Logger() *slog.Logger { return nil }

@@ -1,0 +1,3 @@
+cannot use
+func(*socketio.Namespace) (socketio.Adapter, error)
+as socketio.AdapterFactory

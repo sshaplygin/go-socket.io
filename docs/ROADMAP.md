@@ -826,7 +826,7 @@ Target tree (root module; rows added after 1b are marked):
 | Path | Package | Holds |
 | --- | --- | --- |
 | `.` | `socketio` | public API; the legacy root runtime, including the memory and Redis broadcast, `Server.Adapter` and redigo, is removed in 2.0 |
-| `engineio/` | `engineio` | server side: `Server`, `Conn`, options; `hooks.go` in 2.4 |
+| `engineio/` | `engineio` | server side: `Server`, `Conn`, options; `hooks.go` (hook types since 2.0, fire points in 2.4) |
 | `engineio/client/` | `client` | Engine.IO client: `Dialer`, `Opener`; imports `engineio` for `engineio.Conn` only |
 | `engineio/internal/logtest/` | `logtest` | log recorder shared by the `engineio` and `engineio/client` tests: `Recorder`, `NewRecorder`, `Recorder.Find`, `SetDefault` and the `slog.Handler` methods |
 | `engineio/session`, `frame`, `packet`, `payload`, `transport/...`, `internal`, `parser/`, `logger/` | same packages; only the file changes in the map (`session`, `packet`) and the signatures in the `api` block (`session`, `parser`) differ | `engineio/internal` holds the 1.L shutdown hook |
@@ -1028,7 +1028,7 @@ git worktree remove --force $BASE
 Protocol deltas are listed in [PROTOCOL.md](PROTOCOL.md#planned-engineio-v4-and-socketio-v5).
 Stage 2 lands in the tree defined by stage 1b. New code for the `Socket` model goes to
 the root files `server.go`, `namespace.go`, `socket.go`, `packet_handlers.go`,
-`event.go`, `options.go` and `errors.go`; the client goes to `client/`.
+`event.go`, `options.go`, `errors.go` and `adapter.go`; the client goes to `client/`.
 
 ### Prepared components
 
@@ -1051,7 +1051,6 @@ experiment and its `Unreleased` CHANGELOG entry (today `adapter-wire` and
 | --- | --- | --- | --- |
 | `eio4` paths and `_experiments/eio4-websocket` (#1) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | to land after G2, wave 2B: `internal/eio4` paths in live packages; the module until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
 | `_experiments/ws-bench` (#6) | Gorilla vs gobwas component benchmark; requires `eio4-websocket` via a relative `replace` | 2.1 idle baseline (not RSS) | to land after G2, with or after `eio4-websocket`; deleted when `gorilla/websocket` leaves the root `go.mod` at 2.1 (its own `go.mod` pins gorilla), and no later than `eio4-websocket` |
-| `_experiments/v2-api` (#4, #5) | 2.0 descriptor, Adapter and hook compile proof | 2.0 fixtures | landed as #47 and #48, unreleased; does not satisfy G2; the 2.0 fixtures give `AdapterFactory` the `ctx` and add the creating call of 2.2 *Readiness*, and the PR that lands them deletes it |
 | `_experiments/sio5-codec` (#7) | v5 wire codec, Node oracle | 2.3P `parser/` | to land after G2, wave 2B; absorbed into `parser/` |
 | `_experiments/adapter-wire` (#8, landed as #44) | pinned Node Redis adapter wire fixtures | `adapter/codec` (2.2), then 4A codec fixtures | landed, unreleased; the 2.2 PR that creates `adapter/codec` absorbs and deletes it, and 4A reads the fixtures from there |
 | `_experiments/adapter-rooms` (#9, landed as #45) | Node memory-adapter room corpus | 2.2 conformance | landed, unreleased; absorbed into the 2.2 tests by the PR that adds them, which deletes it |
@@ -1075,8 +1074,9 @@ emit, ack, room broadcast, `Args2`, binary data, and the creating call with `ctx
 wrong handler argument, ack return type or emitted payload. Keep these fixtures in
 CI. Freeze the shared types consumed by parallel work: `Endpoint`, client registration
 interface, `Options`, packet/argument codecs, `Adapter`, `AdapterFactory`, the namespace-creating call (2.2
-*Readiness*), both hook structs and result enums. Publish a method-signature inventory
-and acyclic package graph. No placeholder
+*Readiness*), both hook structs and result enums. The method-signature inventory and the
+acyclic package graph are published in [API.md](API.md); `make graph` checks the graph and
+`go test` the fixtures. No placeholder
 `any` handler, unresolved signature or TODO in these interfaces passes G2. Runtime
 work is assigned to 2.1–2.4; the skeleton contains no claimed runtime implementation.
 
@@ -1230,9 +1230,9 @@ Conformance tests cover these semantics and concurrent join/leave/broadcast.
 *Readiness.* These rules close the v1 Redis limitations recorded in 1.R and, from
 `v1.5.0`, in the `CHANGELOG.md` *Known limitations*. They change two G2 signature lines:
 `AdapterFactory` gains `ctx`, and the namespace-creating call is `Namespace(ctx, name)`
-returning an error. `_experiments/v2-api` (#47, #48) declares `Namespace(string) *Namespace`
-and `AdapterFactory func(*Namespace)` without `ctx`; the PR that lands the 2.0 fixtures
-declares both new lines. `Options.Adapter` carries the factory (default: the memory adapter). `NewServer`
+returning an error. The 2.0 skeleton declares both lines ([API.md](API.md)); the
+experiment that held the earlier `Namespace(string) *Namespace` and `AdapterFactory
+func(*Namespace)` was deleted by that PR. `Options.Adapter` carries the factory (default: the memory adapter). `NewServer`
 creates no namespace, `/` included; a CONNECT to one the application has not created is
 unknown. In tests *at once* means within 100 ms. 2.3S implements the server side and
 owns its root test; 4b reproduces the broker cases.

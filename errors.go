@@ -1,53 +1,40 @@
 package socketio
 
-import (
-	"errors"
-	"fmt"
-)
+import "errors"
 
-// connect errors.
+// ErrNotImplemented is returned by every operation of the v2 API skeleton that
+// needs the runtime. The runtime lands in roadmap stages 2.1 to 2.4; until then no
+// operation that returns this error has any effect.
+var ErrNotImplemented = errors.New("socketio: not implemented in the v2 API skeleton")
+
+// Sentinel errors of the runtime contract (roadmap 2.3). The skeleton never
+// returns them; they are declared so that consumers can match them with
+// errors.Is from the first runtime release.
 var (
-	errUnavailableRootHandler = errors.New("root ('/') doesn't have a namespace handler")
+	// ErrNamespaceClosed is returned by Server.Namespace once shutdown has begun, and
+	// by a creation whose factory returned after shutdown began.
+	ErrNamespaceClosed = errors.New("socketio: namespace closed")
 
-	errFailedConnectNamespace = errors.New("failed connect to namespace without handler")
+	// ErrAckTimeout ends an emit-with-ack when Options.AckTimeout, not the caller's
+	// context, expired.
+	ErrAckTimeout = errors.New("socketio: ack timeout")
 
-	// errServerClosed is the error of a namespace registered with an Adapter after Server.Close.
-	errServerClosed = errors.New("socketio: server closed")
+	// ErrWriteBufferFull reports an outbound queue overflow.
+	ErrWriteBufferFull = errors.New("socketio: write buffer full")
+
+	// ErrSocketClosed ends every pending ack when the socket disconnects.
+	ErrSocketClosed = errors.New("socketio: socket closed")
+
+	// ErrTooManyPendingAcks rejects an emit-with-ack past Options.MaxPendingAcks.
+	ErrTooManyPendingAcks = errors.New("socketio: too many pending acks")
+
+	// ErrMessageTooLarge rejects a message past Options.MaxEventBytes.
+	ErrMessageTooLarge = errors.New("socketio: message too large")
+
+	// ErrTooManyAttachments rejects a message past Options.MaxAttachments.
+	ErrTooManyAttachments = errors.New("socketio: too many attachments")
+
+	// ErrAckIDExhausted rejects new ack requests once the IDs of an Engine.IO
+	// connection reached the JavaScript safe integer maximum (2^53-1).
+	ErrAckIDExhausted = errors.New("socketio: ack ID space exhausted")
 )
-
-// common connection dispatch errors.
-var (
-	errHandleDispatch = errors.New("handler dispatch error")
-
-	errDecodeArgs = errors.New("decode args error")
-)
-
-// ErrWriteBufferFull is reported once, to OnError of the packet's namespace and unordered with
-// OnDisconnect, when an Emit or a packet the library queues (an ACK or CONNECT reply) finds the
-// outbound queue (engineio.Options.WriteBufferSize) full before any close started; a packet being
-// written does not count. Emit never blocks: that packet and every later one are dropped and the
-// connection is closed without draining. An overflow in root OnConnect fails the connect and is
-// reported with a nil Conn. Packets queued faster than they are written can close a healthy client:
-// polling writes one engine.io frame per round trip, and a packet with k binary attachments takes k+1
-// frames.
-var ErrWriteBufferFull = errors.New("write buffer full")
-
-type errorMessage struct {
-	namespace string
-	conn      *namespaceConn // nil if namespace has no OnError; see conn.errConn
-	done      chan struct{}  // closed once OnError returned
-
-	err error
-}
-
-func (e errorMessage) Error() string {
-	return fmt.Sprintf("error in namespace: (%s) with error: (%s)", e.namespace, e.err.Error())
-}
-
-func newErrorMessage(namespace string, err error) *errorMessage {
-	return &errorMessage{
-		namespace: namespace,
-		done:      make(chan struct{}),
-		err:       err,
-	}
-}

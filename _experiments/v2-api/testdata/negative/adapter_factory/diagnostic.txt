@@ -1,2 +1,0 @@
-cannot use
-as socketio.AdapterFactory

@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
@@ -153,5 +156,20 @@ func TestBroadcastOperatorIsImmutable(t *testing.T) {
 	rooms[0] = "changed"
 	if !reflect.DeepEqual(op, n.To("x")) {
 		t.Fatal("To kept the caller's slice")
+	}
+}
+
+// TestSkeletonServeHTTPAndHookConstructors pins that the http.Handler and the hook
+// constructors of the skeleton claim no behaviour: the handler answers 501 and the
+// constructors return nil, which is "no observer".
+func TestSkeletonServeHTTPAndHookConstructors(t *testing.T) {
+	var h http.Handler = &sio.Server{}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/socket.io/?EIO=4&transport=polling", nil))
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status %d, want %d", rec.Code, http.StatusNotImplemented)
+	}
+	if sio.ChainHooks(&sio.Hooks{}, nil) != nil || sio.LoggingHooks(slog.Default()) != nil {
+		t.Fatal("the skeleton hook constructors returned an observer")
 	}
 }

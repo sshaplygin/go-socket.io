@@ -44,12 +44,9 @@ type Options struct {
 	Hooks *Hooks
 
 	// PayloadPreviewBytes is the opt-in size of PacketInfo.Preview: 0 disables
-	// capture and the accepted range is 0 to 256. A preview also needs a
-	// PayloadRedactor and an enabled consumer. Nothing is captured yet.
+	// capture and the accepted range is 0 to 256. Nothing is captured until stage
+	// 2.4E, which also adds the redaction boundary a preview needs.
 	PayloadPreviewBytes int
-
-	// PayloadRedactor produces previews. nil keeps capture disabled.
-	PayloadRedactor PayloadRedactor
 }
 
 // Normalize validates the observer fields of a copy of the options. It does not

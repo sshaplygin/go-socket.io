@@ -11,7 +11,8 @@ type Room string
 
 // SocketID identifies a socket. It aliases Room because every socket is
 // automatically in the room named by its ID, so the ID can select that room, as in
-// nsp.To("room").Except(s.ID()).
+// nsp.To("room").Except(s.ID()). The alias is part of the contract: SocketID and Room
+// are the same type and cannot be separated later without a breaking change.
 type SocketID = Room
 
 // Socket is one client's connection to one namespace. It implements Endpoint. The

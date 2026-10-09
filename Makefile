@@ -52,6 +52,18 @@ examples:
 graph:
 	go test -count=1 -run '^(TestPackageGraph|TestForbiddenEdge)$$' .
 
+# The G2 check of docs/API.md (Frozen contract): no unresolved marker in docs/API.md or in
+# the comments of the frozen declarations, and no bare any in a frozen signature.
+.PHONY: freeze
+freeze:
+	go test -count=1 -run '^TestFrozenContract$$' .
+
+# The gate evidence of ROADMAP wave 2A: the compile fixtures, the package graph and the
+# frozen-contract check. The inventory check keeps docs/API.md complete.
+.PHONY: g2
+g2: graph freeze
+	go test -count=1 -run '^(TestCompileContracts|TestInventoryListsEveryExportedSignature)$$' .
+
 # First the isolation check (the Stage 1b DoD line "_experiments stays standalone", see
 # docs/ROADMAP.md): no root-module import of an _experiments package, no go.work, every
 # Go file under a go.mod of its own. Then vet, gofmt, golangci-lint (root config) and race

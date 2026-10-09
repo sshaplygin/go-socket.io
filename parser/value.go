@@ -3,9 +3,11 @@ package parser
 import "encoding/json"
 
 // Arguments carries the positional arguments of an event or acknowledgement and
-// the binary attachments that belong to them. Ownership of the slices,
-// placeholder validation and typed conversion belong to the codec (roadmap 2.3P);
-// this declaration copies and validates nothing.
+// the binary attachments that belong to them. A value handed to a callee is borrowed
+// for the call and the callee copies what it retains; a value a callee returns is
+// owned by the caller. Placeholder validation and the stream encoder and decoder that
+// produce and consume these values are added to this package by roadmap 2.3P; this
+// declaration copies and validates nothing.
 type Arguments struct {
 	Values      []json.RawMessage
 	Attachments [][]byte
@@ -29,9 +31,10 @@ type Packet struct {
 // including a value nested in a struct, slice or map.
 type BinaryValue interface{ SocketIOBinary() []byte }
 
-// ArgumentCodec converts one Go value to and from positional arguments. A typed
-// event descriptor binds one when the runtime lands (roadmap 2.3); dispatch never
-// reflects over handlers.
+// ArgumentCodec converts one Go value to and from positional arguments and does no
+// stream I/O. Encode copies the bytes it keeps; Decode returns owned values. Binding a
+// codec to an event descriptor is defined by roadmap 2.3S as an addition to the root
+// package; dispatch never reflects over handlers.
 type ArgumentCodec[T any] struct {
 	Encode func(T) (Arguments, error)
 	Decode func(Arguments) (T, error)

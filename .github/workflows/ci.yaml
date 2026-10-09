@@ -31,6 +31,8 @@ jobs:
         run: go vet ./...
       - name: Package graph
         run: make graph
+      - name: Frozen contract
+        run: make freeze
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:

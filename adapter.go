@@ -43,17 +43,25 @@ type BroadcastOptions struct {
 	Flags         BroadcastFlags
 }
 
-// BroadcastFlags is the minimal flag set. Proposed and unreviewed: see docs/API.md,
-// Open before G2. Local restricts the operation to the
-// server's own sockets. The other flags of the Node adapter (volatile, compress,
-// timeout) are not part of this contract.
+// BroadcastFlags selects how far a broadcast or query reaches. Local restricts the
+// operation to the server's own sockets; a local operation never publishes. The
+// other flags of the Node adapter (volatile, compress, timeout) are not part of this
+// contract: a later stage may add them as further fields, so construct the struct
+// with field names.
 type BroadcastFlags struct{ Local bool }
 
-// RemoteSocket is an owned metadata snapshot of a socket, possibly on another node.
-// Proposed and unreviewed: Handshake and Data exposure, including auth and header
-// redaction, is open (docs/API.md, Open before G2).
-// Handshake and Data are JSON values; producers copy every slice, and mutating a
-// snapshot must not change adapter state.
+// RemoteSocket is an owned metadata snapshot of a socket, possibly on another node,
+// shaped like an entry of Node's fetchSockets: ID, Rooms, Handshake and Data.
+//
+// Handshake is a JSON object with the Node key names (headers, time, address, xdomain,
+// secure, issued, url, query). It never has an auth key, and its headers object
+// omits authorization, cookie and proxy-authorization (names compared without case);
+// the producer drops them, which for a snapshot decoded from a peer is the adapter
+// that decoded it. Data is the slot of Node's socket.data: nil means none, otherwise
+// valid JSON; binary values are not representable. A producer that cannot encode Data
+// returns the entries it can and an error. How an application sets Data is defined by
+// stage 2.3S. Producers copy every slice, and mutating a snapshot must not change
+// adapter state.
 type RemoteSocket struct {
 	ID        SocketID
 	Rooms     []Room

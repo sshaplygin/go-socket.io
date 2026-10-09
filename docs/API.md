@@ -1,10 +1,10 @@
 # v2 API skeleton
 
 The declarations of roadmap stage 2.0: the method-signature inventory and the
-package graph that parallel work (2.1 to 2.4) builds against. They are compiled and
-tested but not yet frozen: [Open before G2](#open-before-g2) lists what the G2 gate
-(ROADMAP wave 2A) still has to close. The skeleton is declarations only. Every operation that needs the runtime returns
-`socketio.ErrNotImplemented`; nothing here works yet. Behaviour is specified in
+package graph that parallel work (2.1 to 2.4) builds against. The G2 gate (ROADMAP wave
+2A) froze them; [Frozen contract](#frozen-contract) records what is frozen and what is
+explicitly not. The skeleton is declarations only. Every operation that needs the runtime returns
+`socketio.ErrNotImplemented` (`Server.ServeHTTP` answers 501); nothing here works yet. Behaviour is specified in
 [ROADMAP.md](ROADMAP.md) (sections 2.0 to 2.4) and, once it exists, in the godoc of each
 declaration. This file lists signatures and does not restate behaviour. A signature
 change updates this file, the fixtures and the owning roadmap section in one PR.
@@ -34,7 +34,7 @@ package has no entry below, and `make graph` checks the package graph.
 | `event.go` | `Args2` | `Args2[A, B any]{First A; Second B}`: exactly two positional arguments |
 | `event.go` | `Binary` | `type Binary []byte` |
 | `event.go` | `Binary.SocketIOBinary` | `(Binary) SocketIOBinary() []byte`; implements `parser.BinaryValue` |
-| `packet_handlers.go` | `Endpoint` | `SendPacket(ctx, parser.Packet) error`; `RequestAck(ctx, parser.Packet) (Args, error)` |
+| `packet_handlers.go` | `Endpoint` | `SendPacket(ctx, parser.Packet) error`; `RequestAck(ctx, parser.Packet) (Args, error)`; the raw ack arguments, owned by the caller |
 | `packet_handlers.go` | `ClientRegistration` | embeds `Endpoint`; `RegisterEvent(string, ClientRawHandler) error` |
 | `packet_handlers.go` | `RawHandler` | `func(ctx, *Socket, RawEvent) error` |
 | `packet_handlers.go` | `ClientRawHandler` | `func(ctx, Endpoint, RawEvent) error` |
@@ -44,6 +44,7 @@ package has no entry below, and `make graph` checks the package graph.
 | `server.go` | `Server.Namespace` | `(*Server) Namespace(ctx, name string) (*Namespace, error)`; the creating call (ROADMAP 2.2 *Readiness*) |
 | `server.go` | `Server.Shutdown` | `(*Server) Shutdown(ctx) error` |
 | `server.go` | `Server.Close` | `(*Server) Close() error` |
+| `server.go` | `Server.ServeHTTP` | `(*Server) ServeHTTP(http.ResponseWriter, *http.Request)`; implements `http.Handler`; the skeleton answers 501 |
 | `server.go` | `Server` | server type |
 | `namespace.go` | `Namespace.Name` | `(*Namespace) Name() string` |
 | `namespace.go` | `Namespace.Use` | `(*Namespace) Use(Middleware) error` |
@@ -69,11 +70,13 @@ package has no entry below, and `make graph` checks the package graph.
 | `adapter.go` | `Adapter` | `AddAll(SocketID, []Room)`; `Del(SocketID, Room)`; `DelAll(SocketID)`; `Broadcast(ctx, parser.Packet, BroadcastOptions) (BroadcastResult, error)`; `Sockets(ctx, []Room) ([]SocketID, error)`; `SocketRooms(SocketID) []Room`; `FetchSockets(ctx, BroadcastOptions) ([]RemoteSocket, error)`; `ServerSideEmit(ctx, string, ...any) error`; `Close() error` |
 | `adapter.go` | `AdapterFactory` | `func(ctx, nsp *Namespace) (Adapter, error)` |
 | `adapter.go` | `BroadcastOptions` | `{Rooms, Except []Room; Flags BroadcastFlags}` |
-| `adapter.go` | `BroadcastFlags` | `{Local bool}` |
-| `adapter.go` | `RemoteSocket` | `{ID SocketID; Rooms []Room; Handshake, Data json.RawMessage}` |
+| `adapter.go` | `BroadcastFlags` | `{Local bool}`; other flags are later additive fields, so literals use field names |
+| `adapter.go` | `RemoteSocket` | `{ID SocketID; Rooms []Room; Handshake, Data json.RawMessage}`; `Handshake` never carries `auth` or credential headers, `Data` is nil or valid JSON |
 | `options.go` | `Options` | `{Logger *slog.Logger; Engine engineio.Options; Hooks *Hooks; Adapter AdapterFactory; AckTimeout time.Duration; OutboundQueueGroups, OutboundQueueBytes, HandlerQueueEvents, HandlerQueueBytes, MaxPendingAcks, MaxAttachments, MaxEventBytes, MaxConcurrentConnects int; AttachmentTimeout, ConnectTimeout time.Duration}`; defaults and units in the godoc |
 | `options.go` | `Options.Normalize` | `(Options) Normalize() (Options, error)` |
 | `options.go` | `Hooks` | 16 fields, signatures below |
+| `options.go` | `ChainHooks` | `ChainHooks(...*Hooks) *Hooks`; the skeleton returns nil |
+| `options.go` | `LoggingHooks` | `LoggingHooks(*slog.Logger) *Hooks`; the skeleton returns nil |
 | `options.go` | `SocketInfo` | `{SID, SocketID, Namespace string}` |
 | `options.go` | `EventInfo` | `{Socket SocketInfo; Event string; AckID uint64; NeedAck, HandlerFound bool}` |
 | `options.go` | `EventResult` | `{Result string; Err error; AckQueued bool; Duration time.Duration}` |
@@ -111,10 +114,10 @@ Additions only; nothing existing changed.
 | `engineio/hooks.go` | `Hooks` | 11 fields, signatures below |
 | `engineio/hooks.go` | `SessionInfo`, `PacketInfo`, `HandshakeResult` | `{SID, Transport, RemoteAddr string}`; `{Type packet.Type; Frame frame.Type; Bytes int; Preview []byte}`; `{Result string; Err error; Duration time.Duration}` |
 | `engineio/hooks.go` | `CloseReason` | `type CloseReason string` with `CloseTransportClose`, `CloseTransportError`, `ClosePingTimeout`, `CloseForced`, `CloseServerShuttingDown`, `CloseParseError`; handshake results `HandshakeResultOK`, `HandshakeResultBadTransport`, `HandshakeResultChecker`, `HandshakeResultAccept`, `HandshakeResultNoHijacker`, `HandshakeResultInit`, `HandshakeResultTimeout`, `HandshakeResultClosed` |
-| `engineio/hooks.go` | `PayloadRedactor` | `Enabled(ctx) bool`; `Redact(ctx, SessionInfo, PacketInfo, []byte, int) []byte` |
-| `engineio/options.go` | `Options` fields | `Hooks *Hooks`; `PayloadPreviewBytes int` (0 to 256); `PayloadRedactor PayloadRedactor` |
+| `engineio/hooks.go` | `ChainHooks`, `LoggingHooks` | `ChainHooks(...*Hooks) *Hooks`; `LoggingHooks(*slog.Logger) *Hooks`; the skeleton returns nil |
+| `engineio/options.go` | `Options` fields | `Hooks *Hooks`; `PayloadPreviewBytes int` (0 to 256) |
 | `engineio/options.go` | `Options.Normalize` | `(Options) Normalize() (Options, error)`; rejects a preview limit outside 0..256 |
-| `parser/value.go` | `Arguments` | `{Values []json.RawMessage; Attachments [][]byte}` |
+| `parser/value.go` | `Arguments` | `{Values []json.RawMessage; Attachments [][]byte}`; borrowed when passed, owned when returned |
 | `parser/value.go` | `Packet` | `{Type Type; Namespace string; ID *uint64; Data json.RawMessage; Attachments [][]byte}` |
 | `parser/value.go` | `BinaryValue` | `SocketIOBinary() []byte` |
 | `parser/value.go` | `ArgumentCodec` | `ArgumentCodec[T any]{Encode func(T) (Arguments, error); Decode func(Arguments) (T, error)}` |
@@ -134,39 +137,62 @@ Engine.IO hook fields (`engineio.Hooks`):
 | `PingSent` | `func(ctx, SessionInfo)` |
 | `PongReceived` | `func(ctx, SessionInfo, time.Duration)` |
 
-### Not declared in 2.0
+## Frozen contract
 
-Signatures that need the runtime design and are therefore left to their stage rather
-than declared as placeholders: the HTTP handler of `Server`, the lifecycle context of
-`Socket` and `Namespace`, socket disconnect, connection callbacks, `ChainHooks`,
-`LoggingHooks`, the in-memory adapter and the `client/` package (the Go client).
-`internal/fixtures/clientstub` implements `ClientRegistration` for the fixtures only.
-The upgrade results, request-rejection reasons, disconnect reasons and adapter results
-of the hook contracts are not enumerated by the roadmap and have no constants.
+Recorded by the G2 review of the 2A owner. The decision on each item and its reason are in
+[ROADMAP.md](ROADMAP.md), section 2.0 (*G2 record*); this section lists the result.
 
-### Open before G2
+### Frozen at G2
 
-The declarations above compile and are fixture-tested; that does not approve them.
-G2 requires no unresolved API signature (ROADMAP 2.0, wave 2A), so every item here is
-settled, or moved out of the freeze with its reason recorded in ROADMAP, before G2.
-Until then none of the declarations named here is a frozen signature.
+Every declaration in the inventory above is frozen as written, with these points settled:
 
-| Open item | Status | Closed by |
-| --- | --- | --- |
-| `Adapter`, `AdapterFactory` and the two hook structs | declared as in ROADMAP 2.2 and 2.4; final approval not given | G2 review of the 2A owner |
-| `RemoteSocket` (JSON `Handshake` and `Data`; whether and how auth and header values are exposed or redacted) | proposed, unreviewed | G2 review; the mapping of non-JSON and binary `Data` is decided there |
-| `BroadcastFlags` (only `Local`; the Node adapter also has volatile, compress and timeout) | proposed, unreviewed | G2 review |
-| `Options` field names and the budget names in the godoc | proposed | G2 review |
-| `engineio.PayloadRedactor` boundary: a two-method interface with full-packet access | proposed | G2 review, then 2.4E |
-| Packet and argument codec contract: `parser.Packet`, `parser.Arguments` and `ArgumentCodec` do not define a complete stream encoder and decoder, and descriptors are not bound to a codec | incomplete | 2.3P (codec), 2.3S (descriptor binding) |
-| `SocketID = Room` alias, chosen so `nsp.To("room").Except(s.ID())` compiles | proposed | G2 review |
-| `Endpoint.RequestAck` raw return (`parser.Arguments`) | proposed | G2 review, with 2.3S |
-| Result and reason domains: upgrade results, request-rejection reasons, disconnect reasons and adapter results are not enumerated by ROADMAP and have no constants | unenumerated | 2.4 (`docs/OBSERVABILITY.md`) |
-| Lifecycle context access on `Socket` and `Namespace`, connection callbacks, shutdown ownership, the `Server` HTTP handler, `ChainHooks`, `LoggingHooks` | not declared (see above) | 2.3S, 2.4 |
-| Descriptor codec construction and registration wrappers without handler reflection | not declared | 2.3S |
+- `Adapter`, `AdapterFactory`, `BroadcastOptions`, `BroadcastResult`, both `Hooks` structs
+  with their information and result types and constants (16 and 11 fields).
+- `RemoteSocket`: the four fields. `Handshake` is a JSON object that never has an `auth`
+  key and omits the `authorization`, `cookie` and `proxy-authorization` headers; `Data` is
+  nil or valid JSON, with no binary values.
+- `BroadcastFlags`: `Local` only.
+- `Options` and its budget fields: the names and `Normalize`; zero selects the bounded
+  default and a negative value is rejected.
+- `SocketID = Room`, an alias, so `nsp.To("room").Except(s.ID())` compiles.
+- `Endpoint.RequestAck` returns the raw `parser.Arguments` of the ack.
+- The codec minimum: `parser.Packet`, `parser.Arguments`, `parser.BinaryValue` and
+  `parser.ArgumentCodec[T]` as value forms. 2.1 depends on none of them (`engineio`
+  never imports `parser`); 2.3P and `adapter/codec` (2.2) build on `Packet` and `Arguments`.
+- The `engineio` additions: `Hooks`, the information types, `CloseReason`, the handshake
+  result constants, `Options.Hooks` and `Options.PayloadPreviewBytes`.
+- `ChainHooks` and `LoggingHooks` of both packages as signatures, and `Server.ServeHTTP`.
 
-The runtime behaviour behind every declaration (lifecycle, byte and queue limits,
-error mapping, Go and Node wire contracts) is proved by 2.1 to 2.4, not by G2.
+Later stages may add fields to a frozen struct and declarations to a package; a frozen
+declaration changes only through a contract change (ROADMAP, Execution and parallel work).
+Construct frozen structs with field names.
+
+### Not frozen
+
+Each item has no declaration in the skeleton, or none that binds a consumer, and is
+defined by the stage named; all are additions to the frozen declarations.
+
+| Item | Defined by |
+| --- | --- |
+| Payload preview redaction: the `engineio` redactor type and its `Options` field | 2.4E, with the Socket.IO supplier in 2.4S |
+| Stream encoder and decoder, placeholder validation and wire errors of `parser` | 2.3P |
+| Binding a codec to an event descriptor; constructors without handler reflection | 2.3S |
+| Lifecycle context of `Socket` and `Namespace`, socket disconnect, connection callbacks, `Socket.Data` and handshake accessors | 2.3S |
+| The namespace API an external adapter uses to reach local sockets and deliver a received broadcast | 2.2, before root `v2.2.0` |
+| Further broadcast flags: volatile, compress, timeout | a later stage, additive |
+| Upgrade results, request-rejection reasons, disconnect reasons and adapter results as constants | 2.4 (`docs/OBSERVABILITY.md`) |
+| Behaviour of `ChainHooks` and `LoggingHooks`, and every hook fire point | 2.4E and 2.4S |
+| The in-memory adapter, `client/`, and the runtime behind every declaration | 2.2, 2.3C, 2.1 to 2.4 |
+| The legacy fields of `engineio.Options` outside the two above, including `WriteBufferSize` | 2.1 |
+
+### Gate evidence
+
+`make g2` runs the three checks of ROADMAP row 2A: `make graph` (package graph acyclic),
+`make freeze` (`TestFrozenContract`: no unresolved marker in this file or in the comments of
+the frozen declarations, no bare `any` in a frozen signature) and the compile fixtures
+(`go test -run TestCompileContracts .`) with the inventory check. CI runs `make graph`
+and `make freeze` in the `lint` job and the fixtures in every `go test ./...`, including
+`min-go` on Go 1.22 with `GOTOOLCHAIN=local`.
 
 ## Package graph
 
@@ -203,11 +229,11 @@ Command: `make graph` (runs `go test -count=1 -run '^(TestPackageGraph|TestForbi
 
 `internal/fixtures/positive` (server and client registration, emit, ack, room
 broadcast, `Args2`, binary data, the creating call with `ctx` and an `AdapterFactory`
-taking `ctx`, both hook structs, option composition) must compile. Each directory of
+taking `ctx`, both hook structs, hook chaining, option composition, `Server` as an `http.Handler`) must compile. Each directory of
 `testdata/negative` must fail with every fragment of its `diagnostic.txt` inside its
 `invalid.go`: wrong handler argument or return, ack request, result or return type,
 emitted or broadcast payload, `Args2` order, auth handler, client handler, adapter
 factory without `ctx`, adapter method set, creating call without `ctx` or error, hook
-return and layer, Engine.IO packet identity and redactor result. `TestCompileContracts`
+return, layer and constructor argument, Engine.IO packet identity. `TestCompileContracts`
 runs both and is part of `go test ./...`, so the `min-go` job runs it on Go 1.22 with
 `GOTOOLCHAIN=local`.

@@ -62,7 +62,7 @@ workers submit changes to these files through that integrator.
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
 | 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets`); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
-| 2CM | 2D | 2.3M opt-in MessagePack parser (new `parser/` msgpack files, the `Parser` option field through the integrator, server and client wiring); serial after 2D because 2D rewrites the logger call sites of `parser/`, the server and `client/` that 2.3M edits; its log sites use the 2D instance-logger contract | 2.3M DoD and Acceptance, including the Node oracle |
+| 2CM | 2D | 2.3M opt-in MessagePack parser (new `parser/` msgpack files, the `Parser` option field through the integrator, server and client wiring); serial after 2D because 2D rewrites the logger call sites of `parser/`, the server and `client/` that 2.3M edits; its log sites use the 2D instance-logger contract | 2.3M DoD fence and the five-test Acceptance command (the oracle fixtures run in the DoD fence); the hook tests and the full Node run are M3 tag-time checks |
 | 2E | 2CM (after 2D) | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
 | 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 pre-release gate, then publication verification |
 | 3A | M3 | freeze chat event schema; then server, browser/CLI and load client in separate directories | M4 single-server acceptance |
@@ -1598,8 +1598,8 @@ It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
   start the scripts beside the oracle. They run when `SOCKETIO_NODE_INTEROP=1` is set, and
   then a missing `node` or `node_modules` is a failure, not a skip. No `ci.yaml` job runs
   Node today, and 2.3M adds none: the fixtures decoded by Go run in the `test` job, while the
-  oracle and the interop tests are an M3 tag-time check whose output and `node --version`
-  the PR records, as for the other oracles. A Node job would be a separate `ci.yaml` change.
+  oracle and the interop tests run by hand in the 2CM gate and again at M3 tag time, and the PR
+  records their output and `node --version`, as for the other oracles. A Node job would be a separate `ci.yaml` change.
 - **Hooks and preview (2.4).** The 2.4 behaviour text is unchanged; its DoD gains the two
   tests below, owned by 2.4E and 2.4S, so row 2CM does not run them. The 2.4 redactor reads
   text envelopes, so it must not see msgpack: with `Parser` MessagePack, `PacketInfo.Preview`
@@ -1646,7 +1646,9 @@ git diff --exit-code origin/master -- go.mod go.sum
 make g2
 ```
 
-Acceptance, run after the DoD on the tag commit with the Node dependencies installed:
+Acceptance, with the Node dependencies installed. The first command of the fence below is
+the Acceptance part of the 2CM gate, run on the 2CM head; the M3 tag-time check (2E, 2F)
+repeats it on the tag commit and adds the rest of the fence:
 `TestMessagePackNodeClient` (`socket.io-client` 4.8.4 with the pinned parser against the Go
 server with `Parser` MessagePack) and `TestMessagePackNodeServer` (the Go client against a
 Node `socket.io` server with it) each run the subtests `websocket` and `polling`: connect
@@ -1662,7 +1664,7 @@ the unchanged `go test ./...`.
 export SOCKETIO_NODE_INTEROP=1
 N=$(go test -race -count=1 -json -run '^(TestMessagePackNodeClient|TestMessagePackNodeServer|TestMessagePackWireFrames|TestMessagePackMismatch|TestMessagePackLimitIsolation)$' ./client | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
 [ "$N" -eq 5 ]
-# M3 tag-time, after 2E: the tests below are written by 2.4E and 2.4S, not by 2CM
+# M3 tag-time check (2E, 2F) from here on; the two tests are written by 2.4E and 2.4S
 N=$(go test -race -count=1 -json -run '^(TestMessagePackHookPreview|TestMessagePackHookLabels)$' ./... | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
 [ "$N" -eq 2 ]
 go test -race -count=1 ./...

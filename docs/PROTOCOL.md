@@ -94,5 +94,6 @@ Socket.IO v4 → v5:
 | DISCONNECT | `1/nsp` | `1/nsp,` |
 | Binary attachments | placeholder objects | unchanged |
 | Connection state recovery | none | `pid`/`offset` in CONNECT; out of scope, answered without recovery |
+| Parser | JSON text only | JSON text by default; opt-in MessagePack parser of Node's `socket.io-msgpack-parser` ([2.3M](ROADMAP.md#23m-opt-in-messagepack-parser)) |
 
-Not planned: EIO=3 in v2, WebTransport, permessage-deflate, connection state recovery.
+Not planned: EIO=3 in v2, JSONP polling, WebTransport, permessage-deflate, connection state recovery.

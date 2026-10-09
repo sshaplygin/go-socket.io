@@ -188,6 +188,7 @@ defined by the stage named; all are additions to the frozen declarations.
 | Binding a codec to an event descriptor; constructors without handler reflection | 2.3S |
 | Lifecycle context of `Socket` and `Namespace`, socket disconnect, connection callbacks, `Socket.Data` and handshake accessors | 2.3S |
 | Delivery of a received `ServerSideEmit` to application handlers, and acknowledgements of server-side emits | 4b, additively, with 2.3S for the namespace side |
+| `parser.Format` (`FormatJSON` zero value, `FormatMessagePack`) and the field `Options.Parser`, with the same field on `client.Options`: an addition to the frozen `Options`; the zero value keeps JSON text and no frozen declaration changes | 2.3M, moved into the inventory by its PR |
 | Further broadcast flags: volatile, compress, timeout | a later stage, additive |
 | Upgrade results, request-rejection reasons, disconnect reasons and adapter results as constants | 2.4 (`docs/OBSERVABILITY.md`) |
 | Behaviour of `ChainHooks` and `LoggingHooks`, and every hook fire point | 2.4E and 2.4S |

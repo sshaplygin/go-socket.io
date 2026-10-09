@@ -1,6 +1,6 @@
 # Roadmap
 
-Scope approved: 2026-09-28. Updated: 2026-10-09. Owner: Sam Shaplygin.
+Scope approved: 2026-09-28. Updated: 2026-10-10. Owner: Sam Shaplygin.
 
 This file owns scope, dependencies, implementation contracts and release gates.
 Current implementation: [PROTOCOL.md](PROTOCOL.md). Completed changes:
@@ -26,6 +26,7 @@ The other prepared experiments are listed in Stage 2 *Prepared components*.
 | --- | --- | --- |
 | Core | Own Engine.IO/Socket.IO core; no dependency on or rebase onto `zishang520/socket.io` | 2.0–2.3 |
 | Protocol | v2 supports Engine.IO v4 / Socket.IO protocol v5; old clients stay on branch `v1.x` | 2.1, 2.3 |
+| Wire format | Client-server packets are JSON text exactly as in Socket.IO protocol v5 over Engine.IO v4, by default and for every existing user; an opt-in MessagePack parser compatible with Node's `socket.io-msgpack-parser` is selected by `Options.Parser` (owner, 2026-10-10); JSONP polling is not supported | 2.3, 2.3M |
 | API | Generic `Event[T]` / `AckEvent[T, R]` from the first v2 implementation; explicit raw escape hatch; no reflection-based dispatch | 2.0, 2.3 |
 | Modules | v1 root is `github.com/sshaplygin/go-socket.io`, independent of the upstream module; v2 root adds `/v2`; adapters and contrib have separate modules | 2.5, 4b, 5 |
 | Go | Go 1.22 minimum for runtime modules; compatible dependencies pinned and minimum tested; build tools may use stable Go | Stage 1 DoD, 2.5 |
@@ -60,8 +61,9 @@ workers submit changes to these files through that integrator.
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures; evidence: `make g2` (2.0 *G2 record*) |
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
 | 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets`); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
+| 2CM | 2C | 2.3M opt-in MessagePack parser (`parser/` msgpack files, the `Parser` option field through the integrator, server and client wiring); disjoint from 2D except that both read the runtime files 2C wrote | 2.3M DoD and Acceptance, including the Node oracle |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
-| 2E | 2D | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
+| 2E | 2D, 2CM | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
 | 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 pre-release gate, then publication verification |
 | 3A | M3 | freeze chat event schema; then server, browser/CLI and load client in separate directories | M4 single-server acceptance |
 | 4A | M4 | freeze codec fixtures and adaptertest cases; then Redis and NATS modules independently | each passes shared conformance suite |
@@ -1449,7 +1451,7 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   above; G2 froze them.
 - `BenchmarkEventDispatch` (root) is added with the new model, so stage 2.4 has a real
   baseline.
-- Rewrite `Client` on the same generic API with websocket over `gobwas/ws`. The v1 line gets its own `client` package later, in Stage 7; this item delivers only the v2 one.
+- Rewrite `Client` on the same generic API with websocket over `gobwas/ws`. The v1 line gets its own `client` package later, in Stage 7; this item delivers only the v2 one. The default wire format stays JSON text; the opt-in MessagePack parser is 2.3M.
 - 2.3S implements the server side of 2.2 *Readiness*. Its root test is
   `TestNamespaceReadiness`, with the subtests `R1` to `R9` below; the 2C join gate runs
   `go test -race -count=1 -json -run '^TestNamespaceReadiness$' .` and requires a pass
@@ -1498,6 +1500,104 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
     count, read in the handler right after the broadcast was delivered, is 0; the settled
     reading is 1.
 - Example migration is owned by 2.5D after runtime and observability gates pass.
+
+### 2.3M Opt-in MessagePack parser
+
+Owner decision, 2026-10-10: the default client-server wire format stays JSON text exactly
+as in Socket.IO protocol v5 over Engine.IO v4, so nothing changes for default users. An
+opt-in parser compatible with Node's `socket.io-msgpack-parser` is supported on the server
+and the Go client. It replaces the packet parser of the client-server connection only.
+`adapter/codec` (2.2) is a different layer, the inter-server message body, and is untouched.
+This is a new item rather than a bullet of 2.3 because it has its own option, oracle and
+release gate, and 2.3 would otherwise grow past one owner. Entry: 2.3P merged and 2C done.
+It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
+`adapter/codec` (with the `adapter/codec` change, PR #56), and `parser` does not import it.
+
+- **Selection (additive to G2).** `parser.Format` (`uint8`) with `parser.FormatJSON`, the
+  zero value, and `parser.FormatMessagePack`. The root `Options` gains the field `Parser
+  parser.Format`; `client.Options` (2.3C) declares the same name and type. The zero value
+  and every existing `Options` literal keep JSON, a value outside the two constants fails
+  `Options.Normalize`. `NewServer` stores the normalized format once; each Engine.IO session
+  therefore has one parser for all its namespaces, since they share one transport. The
+  client takes it from its options at dial. Nothing else is declared in the root:
+  `Endpoint`, `Adapter` and `Packet` are format-agnostic, so no frozen declaration
+  changes and [API.md](API.md) lists the field under *Not frozen* until the code lands, as
+  an addition to the frozen `Options`; the 2.3M PR moves it into the inventory with the
+  fixtures (a positive fixture sets `Parser`, a negative one assigns an untyped string).
+  No negotiation: Node has none either, both peers are configured alike.
+- **Where.** `parser/` (msgpack files beside the 2.3P codec), so the package graph rules
+  are unchanged and the root still imports only `engineio` and `parser`. A hand-written
+  bounded transcoder over the wire subset (nil, bool, integers, floats, str, bin, array, map
+  and the two extension types the oracle pins), without reflection or a value tree.
+- **Behaviour.** The Packet value forms stay as frozen. The msgpack object is
+  `{type, nsp, data?, id?}` with types 0 to 4 only; `BINARY_EVENT` and `BINARY_ACK` do not
+  exist in that parser. The encoder writes `Data` (JSON, kept in key order) as msgpack, and
+  replaces each `{"_placeholder":true,"num":N}` by a `bin` holding `Attachments[N]`; the
+  decoder does the reverse, so the layers above see the same `Packet`, placeholders and
+  `Attachments` as on the text path, with type 5 or 6 when `bin` values were found, and a
+  received type 5 or 6 is a wire error. Typed payloads still pass through JSON
+  (`ArgumentCodec[T]`), so `json` tags apply and a `[]byte` field is a base64 string unless
+  it is a `socketio.Binary`. Every Socket.IO packet, events without binary included, is one
+  Engine.IO binary message: a binary websocket frame, or `b` plus base64 on polling.
+  Engine.IO control packets (ping, pong, upgrade, noop) stay text. NaN, infinities and
+  non-string map keys are wire errors; integers keep their exact decimal form.
+- **Mismatch.** A text message where msgpack is configured, or a binary message with no
+  attachment pending where JSON is, is a malformed envelope: the session closes with
+  `parse error` (`engineio.CloseParseError`) within 100 ms, no CONNECT_ERROR is sent and
+  no handler runs. The first CONNECT already hits it. Tests cover both directions between
+  the Go server and client, and Node clients against the Go server.
+- **Untrusted input.** One message is limited by `MaxEventBytes` (1 MiB, `bin` bytes
+  included), counted on the JSON-equivalent form too so amplification is capped by the same
+  budget (`ErrMessageTooLarge`), by `MaxAttachments` (`ErrTooManyAttachments`) and by the
+  depth limit of 2.3P. A declared array, map, str or bin length is checked against the bytes
+  left before anything is allocated. Keys must be unique valid UTF-8 strings, trailing bytes,
+  truncation, unknown extension types and an empty message are errors, and no input panics.
+  The attachment assembly timeout does not apply: a packet is one message.
+- **Shared input.** One `Packet` is encoded for many connections in a broadcast. The
+  encoder only reads `Data` and `Attachments`, never writes them or the placeholders, and
+  returns a fresh buffer that the transport may keep. The copy-before-`Emit`-returns rule
+  of 2.3 holds because encoding runs at the same point as on the text path.
+- **Node oracle.** `parser/testdata/msgpack/reference/` pins `socket.io-msgpack-parser` to
+  one exact version (its `package.json` and lockfile are the record; the PR checks the
+  version resolves) and, as for `sio5-codec` and `adapter-wire`, holds a capture script
+  and a verify script. Node encodes a corpus into hex fixtures that Go must decode to the
+  expected `Packet`; Go encodes the same packets and the Node decoder must return an
+  equal object, both directions. The corpus has CONNECT with and without auth,
+  CONNECT_ERROR, DISCONNECT, EVENT, ACK, namespaces, ID `0` and `2^53-1`, empty,
+  nested and unicode data, `bin` at top level and nested, a repeated attachment, `undefined`
+  and `Date` as notepack writes them, and the invalid inputs. Oracles check component
+  behaviour, not Go-server conformance.
+- Hook tests of 2.4 run once more with `Parser` set to MessagePack (`PacketRead` and
+  `PacketWrite` report the binary frame type and size); the obligation lives here and the
+  2.4 text is unchanged, which is why row 2E waits for 2CM.
+- Out of scope: negotiation or autodetection, other parsers (the default
+  JSON parser is Node's `socket.io-parser`; custom parsers are not an API), the v1 line, a speed claim over JSON
+  (`BenchmarkMessagePackEncode` and `BenchmarkMessagePackDecode` are recorded, advisory).
+
+DoD: the 2.3 resource-limit and fuzz tests also run per format; `FuzzMessagePackDecode`
+seeded from the oracle corpus has a clean 30 s run; `TestMessagePackEncodeConcurrent`
+(32 goroutines, one shared `Packet` with three attachments, `-race`) leaves the `Packet`
+deeply equal to its snapshot and every output equal to the fixture; a golden test shows
+`Options{}` and `Options{Parser: parser.FormatJSON}` write identical text frames for the
+2.3P corpus; `make g2` still passes after the field is added; no new module dependency
+(`git diff go.mod go.sum` empty for 2.3M).
+
+```sh
+go test -race -count=1 ./parser/... .
+go test -run '^$' -fuzz '^FuzzMessagePackDecode$' -fuzztime 30s ./parser
+(cd parser/testdata/msgpack/reference && npm ci && npm test)
+git diff --exit-code origin/master -- go.mod go.sum
+make g2
+```
+
+Acceptance: against `socket.io-client@4` with the pinned msgpack parser, the Go server
+with `Parser` set to MessagePack completes connect with auth, an event without binary, an
+event with binary both ways and an ack both ways, over websocket and over `transports:
+['polling']`, and a captured session shows every Socket.IO message as a binary frame (or `b`
+payload) and the pings as text; the Go client with the same option does the same against a
+Node `socket.io` server with the pinned parser; the four-cell mismatch matrix closes with
+`parse error` and runs no handler; messages one byte over each limit are rejected without
+closing other sessions. The default-format interop tests of 2.3 pass unchanged.
 
 ### 2.4 Observability
 
@@ -2428,7 +2528,7 @@ change to the v1 server.
 | M1 | Stage 1 complete and the 1.D link-form commit merged | none |
 | M1b | Stage 1b closed: step 0 done (branch `v1.x` cut) and steps 1–3 merged, with the Stage 1b DoD, `v1.x` gates and Acceptance blocks passing on `master` | none (first commits after the cut commit `$CUT`) |
 | M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance; accepted at the 2B join, which also puts the 2.2 and 2.3P code on `master` unreleased (below) | branch `v2-next` |
-| M3 | 2.2 + 2.3 + 2.4 + 2.5 (2.2 and 2.3P are already on `master` at M2 acceptance; this milestone releases them) | `v2.0.0`, `contrib/otel/v2.0.0` |
+| M3 | 2.2 + 2.3 (2.3M included: its Acceptance must pass on the tag commit) + 2.4 + 2.5 (2.2 and 2.3P are already on `master` at M2 acceptance; this milestone releases them) | `v2.0.0`, `contrib/otel/v2.0.0` |
 | M4 | Stage 3: single-server chat | root `v2.1.0`; `v1.5.0` is tagged on branch `v1.x` when the Stage 3 upstream-chat parity DoD line passes (release commit per `CONTRIBUTING.md`, tag-time gates in Stage 1 Acceptance) |
 | M5 | Stage 4b: adapters and cluster chat acceptance | root `v2.2.0` first, then `adapters/redis/v2.0.0`, `adapters/nats/v2.0.0` |
 | M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `contrib/admin/v2.0.0`; adapter minor releases |
@@ -2459,5 +2559,5 @@ snapshot/Node interoperability prototype before treating it as a delivery commit
 EIO=3 in v2; connection state recovery; WebTransport; permessage-deflate; sharded Redis
 adapter (Redis 7 sharded pub/sub); Redis Cluster, Ring and replica-routed clients for
 `adapters/redis` (see 4b `adapters/redis`); cluster broadcast-with-ack; NATS JetStream persistence;
-framework-specific integration packages (gin, echo, iris, gf use `http.Handler`); trace
+JSONP polling (the `j` query parameter; the Engine.IO v4 protocol no longer describes it, branch `v1.x` keeps it); framework-specific integration packages (gin, echo, iris, gf use `http.Handler`); trace
 context propagation through the Redis adapter.

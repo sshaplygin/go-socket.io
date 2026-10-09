@@ -646,7 +646,9 @@ Tasks:
     (whatever date suffix its heading carries; an empty `## Unreleased` may stay
     above it), so
     `awk '/^## /{s=$0} s ~ /^## \[?(Unreleased|v1\.5\.0)\]?( |$)/ && /^### Known limitations$/{c++} END{exit c!=1}' CHANGELOG.md`
-    exits 0 (at `82aa740` it exits 1);
+    exits 0 (at `82aa740` it exits 1). The awk counts across the Unreleased and `v1.5.0`
+    sections, so it is meant for the `v1.x` tree and the tagged `v1.5.0` tree, not for
+    `master` after step 0d, whose own `## Unreleased` may later carry its own entries;
     `for m in Server.Adapter Server.RoomLen Server.Rooms; do go doc . $m | grep -q subscription || echo $m; done`
     prints nothing (a case-sensitive substring match; at `82aa740` it prints all
     three). The grep shows only that each comment was edited; the content check is
@@ -663,7 +665,7 @@ prints nothing; a standard-library finding is cleared by the toolchain, not by c
 two-instance Redis test under `-race` passes; every (case, side)
 pair of the 1.B, 1I and 1.L test lists is named by a passing test (see 1.B *Gate record*); `engineio/session` coverage ≥ 70%, root
 package ≥ 60%; `CHANGELOG.md` lists every fix with the issue or line it addresses.
-The 1.K check passes (1.K says when it runs).
+The 1.K check passes (1.K says when it runs and on which trees).
 Logging gate: `TestLogLevelFromEnv`, `TestLogLevelInvalidEnv` (also asserting that
 stderr contains the message `logger: invalid level ignored` and `value=bogus`),
 `TestWrapOverridesHandlerLevel` and `TestTraceDisabledNoAlloc` pass; the package
@@ -785,8 +787,10 @@ Step 0 precedes steps 1 to 3:
 - 0c. One PR into `master`, `.github/dependabot.yml` only: a second `gomod` and a
   second `github-actions` entry, otherwise identical, with `target-branch: v1.x` (Dependabot
   reads its configuration from the default branch). The weekly CI cron runs on `master`
-  only, so `v1.x` has no scheduled vulnerability scan: Dependabot's `target-branch` PRs and
-  the Stage 1 `govulncheck` gate, which the owner runs on `v1.x` before the M4 tag, cover it.
+  only, so `v1.x` has no scheduled vulnerability scan. The `target-branch` entries give
+  version-update PRs only (security updates always use the default branch); the
+  vulnerability check of `v1.x` is the Stage 1 `govulncheck` gate, which the owner runs on
+  `v1.x` before the M4 tag.
 - 0d. One PR into `master`, `CHANGELOG.md` only: the `## Unreleased` section that `v1.x`
   carries is renamed `## v1.5.0 (unreleased, branch v1.x)` and an empty `## Unreleased`
   is added above it, so that master's own entries never share a section with the entries
@@ -955,11 +959,15 @@ ge "$(cov . ./engineio/session)" "$(cov $BASE ./engineio/session)"
 ge "$(cov . ./parser)" "$(cov $BASE ./parser)"
 ```
 
+The per-test assertion count (the `asserts` gate) counts only `(assert|require).X(` and
+`t.Fatal`/`t.Error` calls: a removed `should.X(` or `must.X(` call, or an in-place
+weakening of an assertion, is left to the diff review.
+
 A floor is the figure `cov` gives on `$CUT` for the package that held the code before 1b
 (at `7a7a71d`, Go 1.25.5: root 92.4%, `engineio/session` 74.8%, `parser` 78.8%); `HEAD` is
 measured over the new packages together with the same `-coverpkg` method. `engineio` alone
-varies between runs (75.8% in two of three, 76.7% in one), so its floor is the literal
-lower value.
+varies between runs (75.8% in two of three, 76.7% in one, at identical code), so the
+figure is bimodal and its floor, the `75.8` in the `ge` line, is the lower mode.
 
 The `v1.x` gates (variables as in the DoD; run with `bash` and `set -e`, rules as in the
 DoD). Each group runs at the stated moment, not later, because `v1.x` receives patches
@@ -982,6 +990,7 @@ git merge-base --is-ancestor $CUT origin/master
 git merge-base --is-ancestor $CUT origin/v1.x
 test -z "$(git diff --name-only $CUT origin/v1.x | grep -v '^\.github/')"
 # at M1b closure: step 0d on master (v1.x keeps Unreleased), triggers, Dependabot and the CI run of the current v1.x head
+# the next check belongs to the period before the tag: the release forward-port renames that heading, so it is not re-run after it
 test "$(git show origin/master:CHANGELOG.md | grep -c '^## v1\.5\.0 (unreleased, branch v1\.x)$')" -eq 1
 test "$(git show origin/master:CHANGELOG.md | grep -c '^## Unreleased$')" -eq 1
 test "$(git show origin/v1.x:CHANGELOG.md | grep -c '^## Unreleased$')" -eq 1

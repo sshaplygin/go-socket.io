@@ -755,7 +755,10 @@ base of the DoD diffs; each 1b PR records `CUT=<sha>` on its own line of the bod
 issue #2 ledger holds the same line). Between `$CUT` and the merge of step 3 only
 `refactor(1b.` commits change Go files (tests included) on `master`; Go files under
 `_examples/` and `engineio/_examples/` are outside the freeze, and `make examples` is
-their build gate: a `v1.x` fix is made
+their build gate. A PR that only adds files under `_experiments/<name>/` (own `go.mod`,
+never imported by the root module, not listed in `go.work`) is exempt from the freeze and
+from the map and subject gates; the live tree, `internal/eio4` paths included, is not
+exempt until G2. A `v1.x` fix is made
 on `v1.x` and forward-ported after step 3 (rule in
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases)), so it never conflicts with a rename.
 A flaky test that fails on `master` during the freeze is re-run by the integrator; one that
@@ -914,12 +917,14 @@ test -z "$(grep -rn 'session\.\(FrameType\|TEXT\|BINARY\)' --include='*.go' .)"
 awk '/^```map$/{m=1;next} /^```$/{m=0} m{print $2, $3}' docs/ROADMAP.md >$T/map.txt
 test -s $T/map.txt   # an empty map would make the checks below vacuous
 test -z "$(while read o n; do { [ "$o" = - ] || [ ! -e "$o" ]; } && { [ "$n" = - ] || [ -e "$n" ]; } || echo "map: $o $n"; done <$T/map.txt)"
-chg() { git diff --no-renames --name-only --diff-filter=$1 $CUT HEAD -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' | sort; }
+chg() { git diff --no-renames --name-only --diff-filter=$1 $CUT HEAD -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' ':(exclude,glob)_experiments/**' | sort; }
 test -z "$(comm -13 <(awk '{print $2}' $T/map.txt | sort -u) <(chg A))"
 test -z "$(comm -13 <(awk '{print $1}' $T/map.txt | sort -u) <(chg D))"
-test -z "$(git log --format=%s $CUT..HEAD -- '*.go' ':(exclude,glob)**/_examples/**' | grep -v '^refactor(1b\.')"
+test -z "$(git log --format=%s $CUT..HEAD -- '*.go' ':(exclude,glob)**/_examples/**' ':(exclude,glob)_experiments/**' | grep -v '^refactor(1b\.')"
+# _experiments stays standalone: no root-module import, every Go file under a go.mod of its own, no go.work
+test -z "$(go list -deps -test -f '{{.Dir}}' ./... | grep '/_experiments/')$(git ls-files go.work)$(git ls-files '_experiments/*.go' | while read f; do d=$(dirname $f); until [ -e $d/go.mod ] || [ $d = _experiments ]; do d=$(dirname $d); done; [ -e $d/go.mod ] || echo $f; done)"
 # prefix rule: no directory has more than two non-test files sharing a <prefix>_
-pkgdirs() { find . \( -name _examples -o -name .github -o -name .git \) -prune -o -name '*.go' ! -name '*_test.go' -print | xargs -n1 dirname | sort -u; }
+pkgdirs() { find . \( -name _examples -o -name _experiments -o -name .github -o -name .git \) -prune -o -name '*.go' ! -name '*_test.go' -print | xargs -n1 dirname | sort -u; }
 test -z "$(for d in $(pkgdirs); do ls $d/*.go | grep -v _test.go | xargs -n1 basename | sed -n 's/^\([A-Za-z0-9]*\)_.*/\1/p' | sort | uniq -c | awk -v d=$d '$1>2{print d,$2,$1}'; done)"
 # regression: no test or subtest result, (test, Covers id, sides) triple or per-test assertion lost
 res() { (cd $1 && go test -count=1 -v ./... | awk '$1=="---" && $2~/^(PASS|SKIP):/{gsub(/0x[0-9a-f]+/,"0x"); print $2,$3}'; go test -list '^(Benchmark|Fuzz|Example)' ./... | grep -E '^(Benchmark|Fuzz|Example)') | sort; }

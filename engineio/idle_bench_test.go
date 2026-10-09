@@ -49,12 +49,17 @@ import (
 //
 // Reported metrics (units chosen so that benchstat keeps them as separate columns):
 //
-//	ns/op                time to dial and handshake N sessions (the only timed phase)
+//	ns/op                wall time of one whole run: start the server, dial N sessions,
+//	                     hold them idle for at least one second, tear down
+//	connect-us/conn      connect phase wall time divided by N (32 parallel dialers)
 //	rss-B/conn           (server RSS after - server RSS before) / N
 //	rss-total-MiB        server RSS after N connections
 //	goroutines/conn      (server goroutines after - before) / N
 //	server-goroutines    server goroutines after N connections
 //
+// The whole run is timed and holds the sessions idle for at least one second. A run
+// shorter than -benchtime would make the testing package raise b.N and start dozens of
+// server subprocesses; with the hold it stays at b.N=1 for the default -benchtime.
 // Before measuring, the server runs debug.FreeOSMemory, so RSS excludes garbage the Go
 // runtime has not yet returned to the system. RSS comes from "ps -o rss=" on the server
 // pid. The numbers describe one machine and one run; they are advisory.
@@ -71,6 +76,7 @@ func BenchmarkIdleConnections(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		last = runIdleIteration(b, n)
 	}
+	b.ReportMetric(last.connectUsPerConn, "connect-us/conn")
 	b.ReportMetric(last.rssPerConn, "rss-B/conn")
 	b.ReportMetric(last.rssTotalMiB, "rss-total-MiB")
 	b.ReportMetric(last.goroutinesPerConn, "goroutines/conn")
@@ -91,6 +97,7 @@ func idleConns(b *testing.B) int {
 }
 
 type idleResult struct {
+	connectUsPerConn  float64
 	rssPerConn        float64
 	rssTotalMiB       float64
 	goroutinesPerConn float64
@@ -105,7 +112,6 @@ type idleStats struct {
 
 func runIdleIteration(b *testing.B, n int) idleResult {
 	b.Helper()
-	b.StopTimer()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -122,7 +128,6 @@ func runIdleIteration(b *testing.B, n int) idleResult {
 	var firstErr atomic.Value
 	var readers sync.WaitGroup
 
-	b.StartTimer()
 	began := time.Now()
 	var next atomic.Int64
 	var dialers sync.WaitGroup
@@ -160,7 +165,6 @@ func runIdleIteration(b *testing.B, n int) idleResult {
 		}()
 	}
 	dialers.Wait()
-	b.StopTimer()
 	connect := time.Since(began)
 
 	closeAll := func() {
@@ -185,7 +189,7 @@ func runIdleIteration(b *testing.B, n int) idleResult {
 	var after idleStats
 	stable := 0
 	prev := -1
-	for deadline := time.Now().Add(60 * time.Second); stable < 3; {
+	for deadline := time.Now().Add(60 * time.Second); stable < 5; {
 		if time.Now().After(deadline) {
 			b.Fatalf("server did not settle: %+v, want %d sessions", after, n)
 		}
@@ -201,6 +205,7 @@ func runIdleIteration(b *testing.B, n int) idleResult {
 	rssAfter := processRSS(b, pid)
 
 	res := idleResult{
+		connectUsPerConn:  float64(connect.Microseconds()) / float64(n),
 		rssPerConn:        float64(rssAfter-rssBefore) * 1024 / float64(n),
 		rssTotalMiB:       float64(rssAfter) / 1024,
 		goroutinesPerConn: float64(after.Goroutines-before.Goroutines) / float64(n),

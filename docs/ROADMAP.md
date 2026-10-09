@@ -1046,7 +1046,7 @@ consumer, and that PR deletes the experiment. A draft PR does not satisfy a gate
 | Component (draft PR) | Purpose | Consumer | Lands in `master` |
 | --- | --- | --- | --- |
 | `eio4` paths and `_experiments/eio4-websocket` (#1) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | after G2, wave 2B: `internal/eio4` paths in live packages; the module until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
-| `_experiments/ws-bench` (#6) | Gorilla vs gobwas component benchmark; replaces `eio4-websocket` by relative path | 2.1 idle baseline (not RSS) | after G2 with `eio4-websocket`; deleted when `gorilla/websocket` leaves `go.mod` at 2.1 |
+| `_experiments/ws-bench` (#6) | Gorilla vs gobwas component benchmark; requires `eio4-websocket` via a relative `replace` | 2.1 idle baseline (not RSS) | after G2, with or after `eio4-websocket`; deleted when `gorilla/websocket` leaves the root `go.mod` at 2.1 (its own `go.mod` pins gorilla), and no later than `eio4-websocket` |
 | `_experiments/v2-api` (#4, #5) | 2.0 descriptor, Adapter and hook compile proof | 2.0 fixtures | standalone before 2.0 starts; does not satisfy G2; deleted when 2.0 lands its fixtures |
 | `_experiments/sio5-codec` (#7) | v5 wire codec, Node oracle | 2.3P `parser/` | after G2, wave 2B; absorbed into `parser/` |
 | `_experiments/adapter-wire` (#8) | pinned Node Redis adapter wire fixtures | 4A codec fixtures, `adapter/codec` (2.2) | any time after the experiments CI job exists; absorbed into `adapter/codec` |

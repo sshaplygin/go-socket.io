@@ -17,12 +17,18 @@ All notable changes to this project are documented here. The format follows
   room membership and recipient selection, a Go fixture validator and a Node script that
   reproduces the fixtures; preparation for the stage 2.2 memory adapter, no change to the
   library.
+- `_experiments/v2-api`: standalone module (not imported by the root module) that
+  compiles the proposed typed v2 descriptor, client and hook signatures, with one
+  positive fixture and 11 negative fixtures that must fail to compile under Go 1.22 with
+  recorded diagnostics; preparation for stage 2.0, no change to the library.
 
 ### Changed
 
 - CI: `make experiments` vets, format-checks, lints and race-tests every standalone
   `_experiments/*/go.mod` module in a new `experiments` job; `make vuln` and Dependabot
   (`gomod`, weekly) cover those modules too.
+- CI: `make experiments` first checks that `_experiments` stays standalone (no root
+  import, no `go.work`, every Go file under a `go.mod` of its own).
 
 ## v1.5.0 (unreleased, branch v1.x)
 

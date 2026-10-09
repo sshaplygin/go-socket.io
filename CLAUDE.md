@@ -42,7 +42,7 @@ make bench      # benchmarks only, no tests
 make vuln       # govulncheck ./... in the root and in every _examples and _experiments module
 make cover      # coverage profile + HTML report
 make examples   # build every _examples/*/ module and the Go client, check that every chat.go is identical, race-test default-http
-make experiments # vet, gofmt -s, golangci-lint and race tests in every _experiments/*/ module
+make experiments # check that _experiments stays standalone, then vet, gofmt -s, golangci-lint and race tests in every _experiments/*/ module
 make all        # go install ./...
 ```
 

@@ -8,12 +8,10 @@ import (
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
-// One *parser.Buffer in the args of a broadcast reaches the encoder of every member of the
-// room, each on its own write goroutine. Under -race the encoders must not write to it, and
-// every member must get the bytes that a single connection gets.
-func TestBroadcastSharedBuffer(t *testing.T) {
-	const members, rounds = 4, 20
-
+// startRoom serves `members` connections that joined room "r" and returns the server and
+// the frames each of them receives.
+func startRoom(t *testing.T, members int) (*Server, []<-chan string) {
+	t.Helper()
 	p := start(t, 'S', hooks{connect: func(c Conn) error { c.Join("r"); return nil }})
 	outs := []<-chan string{p.fc.out}
 	for i := 1; i < members; i++ {
@@ -23,11 +21,20 @@ func TestBroadcastSharedBuffer(t *testing.T) {
 		recv(t, p.conns, "OnConnect of a member")
 		outs = append(outs, fc.out)
 	}
+	return p.srv, outs
+}
 
+// One *parser.Buffer in the args of a broadcast reaches the encoder of every member of the
+// room, each on its own write goroutine. Under -race the encoders must not write to it, and
+// every member must get the bytes that a single connection gets.
+func TestBroadcastSharedBuffer(t *testing.T) {
+	const members, rounds = 4, 20
+
+	srv, outs := startRoom(t, members)
 	payload := []byte{1, 2, 3}
 	shared := &parser.Buffer{Data: payload}
 	for i := 0; i < rounds; i++ {
-		p.srv.BroadcastToRoom("/", "r", "bin", shared)
+		srv.BroadcastToRoom("/", "r", "bin", shared)
 	}
 
 	for m, out := range outs {
@@ -36,4 +43,27 @@ func TestBroadcastSharedBuffer(t *testing.T) {
 			require.Equal(t, string(payload), recv(t, out, "the binary frame"), "member %d", m)
 		}
 	}
+	require.Equal(t, parser.Buffer{Data: []byte{1, 2, 3}}, *shared, "the broadcast wrote to its argument")
+}
+
+// The same for arguments without a Buffer: the values of a broadcast are shared read-only, so
+// the library must neither write to them nor hand a connection a copy that aliases another's.
+func TestBroadcastSharedArgs(t *testing.T) {
+	const members, rounds = 4, 20
+
+	mk := func() []interface{} {
+		return []interface{}{map[string]interface{}{"k": []interface{}{1, "two"}}, []string{"x", "y"}}
+	}
+	srv, outs := startRoom(t, members)
+	shared := mk()
+	for i := 0; i < rounds; i++ {
+		srv.BroadcastToRoom("/", "r", "json", shared...)
+	}
+
+	for m, out := range outs {
+		for i := 0; i < rounds; i++ {
+			require.Equal(t, "2[\"json\",{\"k\":[1,\"two\"]},[\"x\",\"y\"]]\n", recv(t, out, "the text frame"), "member %d", m)
+		}
+	}
+	require.Equal(t, mk(), shared, "the broadcast wrote to its arguments")
 }

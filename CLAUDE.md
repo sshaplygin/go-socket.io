@@ -26,6 +26,7 @@ the read goroutine of that connection, so a blocking handler blocks that client 
 make lint       # gofmt -s check, go vet, golangci-lint (v2 config)
 make test       # go test -count=1 ./...
 make test-race  # the same with -race; what CI runs
+make test-stress # race tests of root, parser, engineio/...: -count=5 -shuffle=on -cpu=1,4
 make bench      # benchmarks only, no tests
 make vuln       # govulncheck ./... in the root and in every _examples module
 make cover      # coverage profile + HTML report
@@ -38,13 +39,14 @@ golang.org/x/vuln/cmd/govulncheck@latest`), built with the newest stable Go: a
 standard-library finding is cleared by upgrading the toolchain, not by code. Tests need
 no external services.
 
-CI (`.github/workflows/ci.yaml`) has four jobs: `lint` (tidy diff, mod verify, gofmt,
+CI (`.github/workflows/ci.yaml`) has five jobs: `lint` (tidy diff, mod verify, gofmt,
 vet, golangci-lint, `make vuln` on ubuntu with the newest Go release from go.dev,
 because `setup-go` lags behind it), `test` (race tests on
 ubuntu, macos and windows with `stable` and `oldstable` Go), `min-go` (build and
 race tests of the root module on ubuntu with the latest Go 1.22.x and
-`GOTOOLCHAIN=local`, so it fails if `go.mod` or a dependency requires a newer Go)
-and `examples` (`make examples`). Dependabot groups Go minor/patch and Actions updates weekly.
+`GOTOOLCHAIN=local`, so it fails if `go.mod` or a dependency requires a newer Go),
+`stress` (`make test-stress` on ubuntu with the newest Go, pull requests only) and
+`examples` (`make examples`). Dependabot groups Go minor/patch and Actions updates weekly.
 
 Benchmarks (`.github/workflows/benchmarks.yml`) compare the PR base and head on
 one Ubuntu runner with the same stable Go toolchain. Each benchmark runs ten times;
@@ -73,6 +75,11 @@ they can contain C code. Validate the detector with `go test ./.github/benchmark
 
 - Go: `gofmt -s`, errors wrapped with `%w`, no panics in library code except handler
   registration with an invalid signature (`handler.go`).
+- Values passed to `Emit`, `Broadcast*` and `parser.Encoder.Encode` (including `*parser.Buffer`)
+  are shared read-only between the connections that receive them, each encoded on its own
+  goroutine: the library must not write to them. `parser/shared_input_test.go` encodes every
+  fixture of `parser/packet_test.go` from several goroutines on one shared value and compares
+  it with a deep copy, so a new fixture is covered by adding it to that table.
 - Every fix carries a test that fails without it. Concurrency fixes are verified under
   `-race`.
 - Public API changes go through `docs/ROADMAP.md` first.

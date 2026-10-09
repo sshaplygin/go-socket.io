@@ -12,6 +12,14 @@ test:
 test-race:
 	go test -race -count=1 ./...
 
+# Repeats the race tests of the packages that run goroutines per connection, in shuffled
+# order and with one and four Ps, to catch shared-input races the single run of test-race can miss.
+STRESS_PKGS := . ./parser ./engineio/...
+
+.PHONY: test-stress
+test-stress:
+	go test -race -count=5 -shuffle=on -cpu=1,4 $(STRESS_PKGS)
+
 .PHONY: bench
 bench:
 	go test -run '^$$' -bench . -benchmem ./...

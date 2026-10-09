@@ -1,4 +1,6 @@
-package engineio
+// Package client is the Engine.IO client: a Dialer that connects to an Engine.IO server
+// over the transports it lists and returns the connection as an engineio.Conn.
+package client
 
 import (
 	"context"
@@ -8,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/logger"
@@ -19,7 +22,7 @@ type Dialer struct {
 }
 
 // Dial returns a connection which dials to url with requestHeader.
-func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
+func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (engineio.Conn, error) {
 	u, err := url.Parse(urlStr)
 	if err != nil {
 		logger.Log.Debug("engineio: parse url failed", "err", err)

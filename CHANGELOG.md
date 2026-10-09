@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `_experiments/adapter-wire`: a standalone module (not imported by the root module) with
+  22 checked-in publications of the non-sharded Node Redis adapter
+  (`@socket.io/redis-adapter@8.3.0`), their Go decode tests and a pinned Node oracle
+  that reproduces them byte for byte. Test fixtures only; the library API and runtime
+  are unchanged.
 - `_experiments/adapter-rooms`: standalone module (not imported by the root module) with
   22 fixtures captured from the Node in-memory adapter (`socket.io-adapter` 2.5.5) for
   room membership and recipient selection, a Go fixture validator and a Node script that

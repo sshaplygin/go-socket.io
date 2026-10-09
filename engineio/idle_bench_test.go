@@ -1,0 +1,336 @@
+package engineio_test
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"runtime"
+	"runtime/debug"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/sshaplygin/go-socket.io/engineio/client"
+	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
+)
+
+// BenchmarkIdleConnections opens N idle websocket Engine.IO sessions against an
+// engineio.Server and reports what the server process holds for them: resident set
+// size and goroutines. It is the "idle connections" baseline of ROADMAP 2.1 and is
+// meant to be run again, unchanged, after the WebSocket transport is replaced.
+//
+// N is 200 by default so that "make bench" and the benchmark workflow (ten runs each
+// for base and head) stay cheap. The roadmap figure is selected with the environment
+// variable IDLE_CONNS:
+//
+//	IDLE_CONNS=10000 go test -run '^$' -bench BenchmarkIdleConnections -benchtime=1x ./engineio/
+//
+// The server runs in a subprocess (this test binary re-executed with
+// IDLE_BENCH_SERVER=1, see TestIdleBenchServerProcess), so its RSS and goroutine count
+// are its own; the dialing client sessions live in the benchmark process and are not
+// counted. The subprocess inherits RLIMIT_NOFILE, which the benchmark raises to about
+// 2*N; if the hard limit is lower, the benchmark skips with the limit in the message.
+//
+// Only the public engineio.Server, client.Dialer and websocket.Default are used, so the
+// same file measures any WebSocket implementation behind them. The benchmark skips
+// outside linux and darwin (it needs ps and RLIMIT_NOFILE).
+//
+// Reported metrics (units chosen so that benchstat keeps them as separate columns):
+//
+//	ns/op                time to dial and handshake N sessions (the only timed phase)
+//	rss-B/conn           (server RSS after - server RSS before) / N
+//	rss-total-MiB        server RSS after N connections
+//	goroutines/conn      (server goroutines after - before) / N
+//	server-goroutines    server goroutines after N connections
+//
+// Before measuring, the server runs debug.FreeOSMemory, so RSS excludes garbage the Go
+// runtime has not yet returned to the system. RSS comes from "ps -o rss=" on the server
+// pid. The numbers describe one machine and one run; they are advisory.
+func BenchmarkIdleConnections(b *testing.B) {
+	if !idleBenchSupported {
+		b.Skipf("idle benchmark needs linux or darwin, not %s", runtime.GOOS)
+	}
+	n := idleConns(b)
+	if err := raiseNoFile(uint64(2*n + 512)); err != nil {
+		b.Skipf("cannot open %d connections: %v", n, err)
+	}
+
+	var last idleResult
+	for i := 0; i < b.N; i++ {
+		last = runIdleIteration(b, n)
+	}
+	b.ReportMetric(last.rssPerConn, "rss-B/conn")
+	b.ReportMetric(last.rssTotalMiB, "rss-total-MiB")
+	b.ReportMetric(last.goroutinesPerConn, "goroutines/conn")
+	b.ReportMetric(last.goroutines, "server-goroutines")
+}
+
+// idleConns reads IDLE_CONNS: 1..100000, default 200.
+func idleConns(b *testing.B) int {
+	v := os.Getenv("IDLE_CONNS")
+	if v == "" {
+		return 200
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 || n > 100000 {
+		b.Fatalf("IDLE_CONNS=%q: want an integer in 1..100000", v)
+	}
+	return n
+}
+
+type idleResult struct {
+	rssPerConn        float64
+	rssTotalMiB       float64
+	goroutinesPerConn float64
+	goroutines        float64
+}
+
+type idleStats struct {
+	Sessions   int `json:"sessions"`
+	Accepted   int `json:"accepted"`
+	Goroutines int `json:"goroutines"`
+}
+
+func runIdleIteration(b *testing.B, n int) idleResult {
+	b.Helper()
+	b.StopTimer()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	addr, pid, stop := startIdleServer(b, ctx)
+	defer stop()
+
+	hc := &http.Client{Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}}
+	before := fetchIdleStats(b, hc, addr)
+	rssBefore := processRSS(b, pid)
+
+	dialer := client.Dialer{Transports: []transport.Transport{websocket.Default}}
+	conns := make([]engineio.Conn, n)
+	var failed atomic.Int64
+	var firstErr atomic.Value
+	var readers sync.WaitGroup
+
+	b.StartTimer()
+	began := time.Now()
+	var next atomic.Int64
+	var dialers sync.WaitGroup
+	for w := 0; w < 32; w++ {
+		dialers.Add(1)
+		go func() {
+			defer dialers.Done()
+			for failed.Load() == 0 {
+				i := int(next.Add(1)) - 1
+				if i >= n {
+					return
+				}
+				c, err := dialer.Dial("http://"+addr+"/", nil)
+				if err != nil {
+					firstErr.CompareAndSwap(nil, fmt.Errorf("dial %d/%d: %w", i+1, n, err))
+					failed.Add(1)
+					return
+				}
+				conns[i] = c
+				readers.Add(1)
+				// The client side of an idle session reads, as a real client does; this is
+				// also what answers server frames.
+				go func() {
+					defer readers.Done()
+					for {
+						_, r, err := c.NextReader()
+						if err != nil {
+							return
+						}
+						_, _ = io.Copy(io.Discard, r)
+						_ = r.Close()
+					}
+				}()
+			}
+		}()
+	}
+	dialers.Wait()
+	b.StopTimer()
+	connect := time.Since(began)
+
+	closeAll := func() {
+		var wg sync.WaitGroup
+		for _, c := range conns {
+			if c == nil {
+				continue
+			}
+			wg.Add(1)
+			go func() { defer wg.Done(); _ = c.Close() }()
+		}
+		wg.Wait()
+		readers.Wait()
+	}
+	defer closeAll()
+	if failed.Load() != 0 {
+		b.Fatalf("%v", firstErr.Load())
+	}
+
+	// Wait until the server has accepted every session and its goroutine count has
+	// stopped moving, so handshake goroutines are not counted as per-session cost.
+	var after idleStats
+	stable := 0
+	prev := -1
+	for deadline := time.Now().Add(60 * time.Second); stable < 3; {
+		if time.Now().After(deadline) {
+			b.Fatalf("server did not settle: %+v, want %d sessions", after, n)
+		}
+		time.Sleep(200 * time.Millisecond)
+		after = fetchIdleStats(b, hc, addr)
+		if after.Sessions == n && after.Accepted == n && after.Goroutines == prev {
+			stable++
+		} else {
+			stable = 0
+		}
+		prev = after.Goroutines
+	}
+	rssAfter := processRSS(b, pid)
+
+	res := idleResult{
+		rssPerConn:        float64(rssAfter-rssBefore) * 1024 / float64(n),
+		rssTotalMiB:       float64(rssAfter) / 1024,
+		goroutinesPerConn: float64(after.Goroutines-before.Goroutines) / float64(n),
+		goroutines:        float64(after.Goroutines),
+	}
+	b.Logf("N=%d: server RSS %d -> %d KiB (%.0f B/conn), goroutines %d -> %d (%.2f/conn), connect phase %v",
+		n, rssBefore, rssAfter, res.rssPerConn, before.Goroutines, after.Goroutines, res.goroutinesPerConn,
+		connect.Round(time.Millisecond))
+	return res
+}
+
+// startIdleServer re-executes the test binary as the server and returns its address
+// and pid; stop kills and reaps it.
+func startIdleServer(b *testing.B, ctx context.Context) (addr string, pid int, stop func()) {
+	b.Helper()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestIdleBenchServerProcess$", "-test.count=1")
+	cmd.Env = append(os.Environ(), "IDLE_BENCH_SERVER=1")
+	cmd.Stderr = os.Stderr
+	// The server exits when its stdin closes, so it does not outlive a crashed parent.
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		b.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		b.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		b.Fatal(err)
+	}
+	var once sync.Once
+	stop = func() {
+		once.Do(func() {
+			_ = stdin.Close()
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		})
+	}
+	sc := bufio.NewScanner(stdout)
+	for sc.Scan() {
+		if a, ok := strings.CutPrefix(sc.Text(), "IDLE_BENCH_ADDR "); ok {
+			go func() { _, _ = io.Copy(io.Discard, stdout) }()
+			return a, cmd.Process.Pid, stop
+		}
+	}
+	stop()
+	b.Fatalf("server subprocess did not report an address: %v", sc.Err())
+	return "", 0, nil
+}
+
+func fetchIdleStats(b *testing.B, c *http.Client, addr string) idleStats {
+	b.Helper()
+	resp, err := c.Get("http://" + addr + "/idle-stats")
+	if err != nil {
+		b.Fatalf("stats: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var s idleStats
+	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+		b.Fatalf("stats: %v", err)
+	}
+	return s
+}
+
+// processRSS returns the resident set size of pid in KiB, as reported by ps.
+func processRSS(b *testing.B, pid int) int64 {
+	b.Helper()
+	out, err := exec.Command("ps", "-o", "rss=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		b.Fatalf("ps rss of %d: %v", pid, err)
+	}
+	kib, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil {
+		b.Fatalf("ps rss of %d: %q: %v", pid, out, err)
+	}
+	return kib
+}
+
+// TestIdleBenchServerProcess is the server half of BenchmarkIdleConnections. It does
+// nothing unless IDLE_BENCH_SERVER=1, which only the benchmark sets when it re-executes
+// this test binary. It serves an engineio.Server over websocket on a loopback port,
+// prints "IDLE_BENCH_ADDR <host:port>" and runs until stdin is closed. Each accepted
+// session gets one goroutine that reads and discards frames, the engineio part of the
+// read loop that socketio.Server starts per connection.
+func TestIdleBenchServerProcess(t *testing.T) {
+	if os.Getenv("IDLE_BENCH_SERVER") != "1" {
+		t.Skip("helper process of BenchmarkIdleConnections")
+	}
+	srv := engineio.NewServer(&engineio.Options{
+		Transports: []transport.Transport{websocket.Default},
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	var accepted atomic.Int64
+	go func() {
+		for {
+			c, err := srv.Accept()
+			if err != nil {
+				return
+			}
+			accepted.Add(1)
+			go func() {
+				defer func() { _ = c.Close() }()
+				for {
+					_, r, err := c.NextReader()
+					if err != nil {
+						return
+					}
+					_, _ = io.Copy(io.Discard, r)
+					_ = r.Close()
+				}
+			}()
+		}
+	}()
+
+	mux := http.NewServeMux()
+	mux.Handle("/", srv)
+	mux.HandleFunc("/idle-stats", func(w http.ResponseWriter, _ *http.Request) {
+		debug.FreeOSMemory()
+		_ = json.NewEncoder(w).Encode(idleStats{
+			Sessions:   srv.Count(),
+			Accepted:   int(accepted.Load()),
+			Goroutines: runtime.NumGoroutine(),
+		})
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = http.Serve(ln, mux) }()
+	fmt.Printf("IDLE_BENCH_ADDR %s\n", ln.Addr())
+
+	_, _ = io.Copy(io.Discard, os.Stdin)
+}

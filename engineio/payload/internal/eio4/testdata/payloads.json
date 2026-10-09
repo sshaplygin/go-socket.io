@@ -1,0 +1,50 @@
+[
+  {
+    "name": "spec-text",
+    "wire": "4hello\u001e2\u001e4world",
+    "packets": [
+      {"type": 4, "text": "hello"},
+      {"type": 2, "text": ""},
+      {"type": 4, "text": "world"}
+    ]
+  },
+  {
+    "name": "spec-binary",
+    "wire": "4hello\u001ebAQIDBA==",
+    "packets": [
+      {"type": 4, "text": "hello"},
+      {"type": 4, "binary": true, "base64": "AQIDBA=="}
+    ]
+  },
+  {
+    "name": "all-types",
+    "wire": "0{\"sid\":\"fixture\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":1000000}\u001e1\u001e2probe\u001e3probe\u001e4\u001e5\u001e6",
+    "packets": [
+      {"type": 0, "text": "{\"sid\":\"fixture\",\"upgrades\":[\"websocket\"],\"pingInterval\":25000,\"pingTimeout\":20000,\"maxPayload\":1000000}"},
+      {"type": 1, "text": ""},
+      {"type": 2, "text": "probe"},
+      {"type": 3, "text": "probe"},
+      {"type": 4, "text": ""},
+      {"type": 5, "text": ""},
+      {"type": 6, "text": ""}
+    ]
+  },
+  {
+    "name": "unicode",
+    "wire": "4€🙂世界\u001e4a\u0000b\n",
+    "packets": [
+      {"type": 4, "text": "€🙂世界"},
+      {"type": 4, "text": "a\u0000b\n"}
+    ]
+  },
+  {
+    "name": "binary-padding",
+    "wire": "b\u001ebAA==\u001ebAP8=\u001ebAP8e",
+    "packets": [
+      {"type": 4, "binary": true, "base64": ""},
+      {"type": 4, "binary": true, "base64": "AA=="},
+      {"type": 4, "binary": true, "base64": "AP8="},
+      {"type": 4, "binary": true, "base64": "AP8e"}
+    ]
+  }
+]

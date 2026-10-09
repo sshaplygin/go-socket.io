@@ -17,6 +17,15 @@ All notable changes to this project are documented here. The format follows
   room membership and recipient selection, a Go fixture validator and a Node script that
   reproduces the fixtures; preparation for the stage 2.2 memory adapter, no change to the
   library.
+- `engineio/payload/internal/eio4` and `engineio/transport/websocket/internal/eio4`:
+  Engine.IO v4 polling payload codec (bounded body reads, exact `maxPayload` batching) and
+  WebSocket packet codec, with fixtures, fuzz tests and pinned Node oracles
+  (`engine.io-parser@5.2.3`, `engine.io-client@6.6.3`). Preparation for stage 2.1: no
+  production code references them yet, so the Engine.IO v3 behaviour is unchanged.
+- `_experiments/eio4-websocket`: standalone module (not imported by the root module) with a
+  bounded `gobwas/ws` framing prototype and a Node `ws@8.18.3` peer that checks it; the root
+  `go.mod` does not depend on `gobwas/ws`. Preparation for stage 2.1, no change to the
+  library.
 - `_experiments/sio5-codec`: standalone module (not imported by the root module) with a
   bounded Socket.IO protocol 5 wire codec (envelopes, complete binary groups, limits), Go
   tests, fuzz targets and a Node oracle pinned to `socket.io-parser` 4.2.7; preparation for

@@ -1558,9 +1558,12 @@ It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
   non-string map keys are wire errors; integers keep their exact decimal form.
 - **Mismatch.** A text message where msgpack is configured, or a binary message with no
   attachment pending where JSON is, is a malformed envelope: the session closes with
-  `parse error` (`engineio.CloseParseError`) within 100 ms, no CONNECT_ERROR is sent and
-  no handler runs. The first CONNECT already hits it. Tests cover both directions between
-  the Go server and client, and Node clients against the Go server.
+  `parse error` (`engineio.CloseParseError`) within 100 ms of the first CONNECT, no
+  CONNECT_ERROR is sent and no handler runs. `TestMessagePackMismatch` is the matrix of
+  four cells, Go server and Go client in each: (server JSON, client MessagePack) and
+  (server MessagePack, client JSON), each over websocket and over polling. Every cell
+  asserts the server session's close reason, the 100 ms bound, no CONNECT_ERROR written
+  and zero handler invocations. Node peers are covered by the interop tests below.
 - **Untrusted input.** One message is limited by `MaxEventBytes` (1 MiB, `bin` bytes
   included), counted on the JSON-equivalent form too so amplification is capped by the same
   budget (`ErrMessageTooLarge`), by `MaxAttachments` (`ErrTooManyAttachments`) and by a

@@ -82,9 +82,12 @@ func (e *Encoder) writePacket(w io.WriteCloser, h Header, args []interface{}) ([
 	}
 
 	max := uint64(0)
-	buffers, err := e.attachBuffer(reflect.ValueOf(args), &max)
+	numbered, buffers, err := e.numberBuffers(reflect.ValueOf(args), &max)
 	if err != nil {
 		return nil, err
+	}
+	if numbered.IsValid() {
+		args = numbered.Interface().([]interface{})
 	}
 
 	if len(buffers) > 0 && (h.Type == Event || h.Type == Ack) {
@@ -152,55 +155,119 @@ func (e *Encoder) writeUint64(w byteWriter, i uint64) error {
 	return nil
 }
 
+// attachBuffer returns the data of every Buffer reachable from v, in the order of their
+// placeholder numbers. It never writes to v.
 func (e *Encoder) attachBuffer(v reflect.Value, index *uint64) ([][]byte, error) {
-	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
-		v = v.Elem()
+	_, data, err := e.numberBuffers(v, index)
+	return data, err
+}
+
+// numberBuffers walks v and returns the data of its Buffers together with a replacement of
+// v in which every Buffer is a copy that carries its placeholder number. The values the
+// caller passed to Emit or Broadcast are shared between connections, so they are
+// read-only here: containers that hold a Buffer are copied, never changed. The returned
+// Value is invalid when v holds no Buffer.
+func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, [][]byte, error) {
+	var (
+		repl reflect.Value
+		data [][]byte
+	)
+	// set stores the replacement of the child at position i into a private copy of v.
+	set := func(child reflect.Value, i int, key reflect.Value) error {
+		if !repl.IsValid() {
+			if !v.CanInterface() {
+				return errFailedBufferAddress
+			}
+			switch v.Kind() {
+			case reflect.Slice:
+				repl = reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+				reflect.Copy(repl, v)
+			case reflect.Map:
+				repl = reflect.MakeMapWithSize(v.Type(), v.Len())
+				for it := v.MapRange(); it.Next(); {
+					repl.SetMapIndex(it.Key(), it.Value())
+				}
+			default:
+				repl = reflect.New(v.Type()).Elem()
+				repl.Set(v)
+			}
+		}
+		switch v.Kind() {
+		case reflect.Map:
+			repl.SetMapIndex(key, child)
+		case reflect.Struct:
+			if !repl.Field(i).CanSet() {
+				return errFailedBufferAddress
+			}
+			repl.Field(i).Set(child)
+		default:
+			repl.Index(i).Set(child)
+		}
+		return nil
+	}
+	walk := func(child reflect.Value, i int, key reflect.Value) error {
+		c, b, err := e.numberBuffers(child, index)
+		if err != nil {
+			return err
+		}
+		data = append(data, b...)
+		if !c.IsValid() {
+			return nil
+		}
+		return set(c, i, key)
 	}
 
-	var ret [][]byte
 	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if v.IsNil() {
+			return reflect.Value{}, nil, nil
+		}
+		c, b, err := e.numberBuffers(v.Elem(), index)
+		if err != nil || !c.IsValid() {
+			return reflect.Value{}, b, err
+		}
+		if v.Kind() == reflect.Pointer {
+			p := reflect.New(c.Type())
+			p.Elem().Set(c)
+			c = p
+		}
+		return c, b, nil
+
 	case reflect.Struct:
 		if v.Type().Name() == bufferTypeName {
-			if !v.CanAddr() {
-				return nil, errFailedBufferAddress
+			if !v.CanAddr() || !v.CanInterface() {
+				return reflect.Value{}, nil, errFailedBufferAddress
 			}
-			buffer := v.Addr().Interface().(*Buffer)
-			buffer.num = *index
-			buffer.isBinary = true
-			ret = append(ret, buffer.Data)
+			src := v.Addr().Interface().(*Buffer)
+			numbered := Buffer{num: *index, isBinary: true, Data: src.Data}
 			*index++
-		} else {
-			for i := 0; i < v.NumField(); i++ {
-				b, err := e.attachBuffer(v.Field(i), index)
-				if err != nil {
-					return nil, err
-				}
-				ret = append(ret, b...)
+			return reflect.ValueOf(numbered), [][]byte{src.Data}, nil
+		}
+		for i := 0; i < v.NumField(); i++ {
+			if err := walk(v.Field(i), i, reflect.Value{}); err != nil {
+				return reflect.Value{}, nil, err
 			}
 		}
 
 	case reflect.Array, reflect.Slice:
-		for i := 0; i < v.Len(); i++ {
-			b, err := e.attachBuffer(v.Index(i), index)
-			if err != nil {
-				return nil, err
+		switch v.Type().Elem().Kind() {
+		case reflect.Struct, reflect.Pointer, reflect.Interface, reflect.Array, reflect.Slice, reflect.Map:
+			for i := 0; i < v.Len(); i++ {
+				if err := walk(v.Index(i), i, reflect.Value{}); err != nil {
+					return reflect.Value{}, nil, err
+				}
 			}
-
-			ret = append(ret, b...)
 		}
 
 	case reflect.Map:
 		for _, key := range v.MapKeys() {
-			b, err := e.attachBuffer(v.MapIndex(key), index)
-			if err != nil {
-				return nil, err
+			if err := walk(v.MapIndex(key), 0, key); err != nil {
+				return reflect.Value{}, nil, err
 			}
-
-			ret = append(ret, b...)
 		}
 	}
 
-	return ret, nil
+	return repl, data, nil
 }
 
 func (e *Encoder) writeBuffer(w io.WriteCloser, buffer []byte) error {

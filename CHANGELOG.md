@@ -17,11 +17,9 @@ All notable changes to this project are documented here. The format follows
   room membership and recipient selection, a Go fixture validator and a Node script that
   reproduces the fixtures; preparation for the stage 2.2 memory adapter, no change to the
   library.
-- `engineio/payload/internal/eio4` and `engineio/transport/websocket/internal/eio4`:
-  Engine.IO v4 polling payload codec (bounded body reads, exact `maxPayload` batching) and
-  WebSocket packet codec, with fixtures, fuzz tests and pinned Node oracles
-  (`engine.io-parser@5.2.3`, `engine.io-client@6.6.3`). Preparation for stage 2.1: no
-  production code references them yet, so the Engine.IO v3 behaviour is unchanged.
+- `engineio/transport/websocket/internal/eio4`: Engine.IO v4 WebSocket packet codec with
+  fixtures, fuzz tests and a pinned Node oracle (`engine.io-parser@5.2.3`). Preparation
+  for stage 2.1: no production code references it yet.
 - `_experiments/eio4-websocket`: standalone module (not imported by the root module) with a
   bounded `gobwas/ws` framing prototype and a Node `ws@8.18.3` peer that checks it; the root
   `go.mod` does not depend on `gobwas/ws`. Preparation for stage 2.1, no change to the
@@ -67,8 +65,26 @@ All notable changes to this project are documented here. The format follows
   (`gomod`, weekly) cover those modules too.
 - CI: `make experiments` first checks that `_experiments` stays standalone (no root
   import, no `go.work`, every Go file under a `go.mod` of its own).
+- `engineio/payload` and the polling transport use the Engine.IO v4 polling payload
+  (stage 2.1): records separated by `0x1e`, binary packets as `b` + base64, always
+  `text/plain; charset=UTF-8`. The prepared codec moved from `engineio/payload/internal/eio4`
+  into package `payload` (`Encode`, `Decode`, `DecodeReader`, `EncodeBatch`, `Packet`,
+  `ErrTooLarge`, `ErrInvalidPayload`, `ErrInvalidLimit`) with its fixtures, fuzz tests and
+  pinned Node oracles. A POST body is read up to `polling.Transport.MaxPayload` (default
+  1 MiB) before decoding: 413 when larger, 400 when malformed. A poll response and a client
+  POST carry every packet that the session writers hand over at once, a POST up to the
+  server's `maxPayload`. Closing a polling client aborts its pending requests.
+  `transport.ConnParameters` gains `MaxPayload` (JSON `maxPayload`, omitted when zero).
+  The handshake, heartbeat and `EIO` check are still Engine.IO v3 until the rest of 2.1
+  lands, so a v3 peer no longer interoperates over polling.
+- `payload.New` takes the read and write limits instead of a binary flag, and `FeedIn`
+  no longer takes one.
 
 ### Removed
+
+- Polling JSONP (the `j` parameter, removed from Engine.IO v4), the `b64` parameter, the
+  `application/octet-stream` polling body and the v3 length-prefixed payload encoder and
+  decoder. The Engine.IO v3 polling framing is gone from `master`; branch `v1.x` keeps it.
 
 - The v1 root runtime: the reflection-based `Server`, `Client`, namespace and handler
   API, the memory and Redis broadcast, `Server.Adapter` and the `redigo` dependency (and

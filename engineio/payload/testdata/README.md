@@ -25,14 +25,14 @@ introduce a server-to-client response size policy.
 From the repository root:
 
 ```sh
-go test -race -count=1 -cover ./engineio/payload/internal/eio4
-npm ci --ignore-scripts --no-audit --no-fund --prefix engineio/payload/internal/eio4/testdata/reference
-npm test --prefix engineio/payload/internal/eio4/testdata/reference
-go test ./engineio/payload/internal/eio4 -run '^$' -fuzz '^FuzzDecode$' -fuzztime 20s -parallel 2
-go test ./engineio/payload/internal/eio4 -run '^$' -fuzz '^FuzzBinaryRoundTrip$' -fuzztime 20s -parallel 2
-go test ./engineio/payload/internal/eio4 -run '^$' -fuzz '^FuzzDecodeReader$' -fuzztime 20s -parallel 2
-go test ./engineio/payload/internal/eio4 -run '^$' -fuzz '^FuzzEncodeBatch$' -fuzztime 20s -parallel 2
-go test ./engineio/payload/internal/eio4 -run '^$' -bench BenchmarkDecode -benchmem
+go test -race -count=1 -cover ./engineio/payload
+npm ci --ignore-scripts --no-audit --no-fund --prefix engineio/payload/testdata/reference
+npm test --prefix engineio/payload/testdata/reference
+go test ./engineio/payload -run '^$' -fuzz '^FuzzDecode$' -fuzztime 20s -parallel 2
+go test ./engineio/payload -run '^$' -fuzz '^FuzzBinaryRoundTrip$' -fuzztime 20s -parallel 2
+go test ./engineio/payload -run '^$' -fuzz '^FuzzDecodeReader$' -fuzztime 20s -parallel 2
+go test ./engineio/payload -run '^$' -fuzz '^FuzzEncodeBatch$' -fuzztime 20s -parallel 2
+go test ./engineio/payload -run '^$' -bench BenchmarkDecode -benchmem
 ```
 
 The reference dependencies are pinned to `engine.io-parser@5.2.3` (protocol 4) and
@@ -76,5 +76,5 @@ additional packet-count limit. Transport integration must bound HTTP reads befor
 buffering; reducing the decoded batch's memory use is a future optimization, not an
 integration prerequisite. The TODO in `Decode` marks where to investigate
 incremental consumption while preserving acceptance of payloads within the byte
-limit. Use the dense-record benchmark to assess improvements. The current codec is
-staged internally and is not connected to v1.
+limit. Use the dense-record benchmark to assess improvements. The codec is used by the polling transport through `Payload.FeedIn`, which reads a
+POST body or a poll response with `DecodeReader` and the transport's byte limit.

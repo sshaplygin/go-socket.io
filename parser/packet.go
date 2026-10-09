@@ -1,38 +1,42 @@
 package parser
 
-// Type of packet.
+import "strconv"
+
+// Type is the base type of a Packet. A binary event or binary acknowledgement is an
+// Event or Ack that carries attachments; the wire digits 5 and 6 never appear as a
+// Type.
 type Type byte
 
 const (
-	// Connect type
+	// Connect is a namespace CONNECT, carrying an optional JSON object.
 	Connect Type = iota
-	// Disconnect type
+	// Disconnect is a namespace DISCONNECT, carrying no data.
 	Disconnect
-	// Event type
+	// Event is an EVENT, or a BINARY_EVENT when it has attachments.
 	Event
-	// Ack type
+	// Ack is an ACK, or a BINARY_ACK when it has attachments.
 	Ack
-	// Error type
-	Error
-
-	// BinaryEvent type
-	binaryEvent
-	// BinaryAck type
-	binaryAck
+	// ConnectError is a CONNECT_ERROR, carrying a JSON object or string.
+	ConnectError
 )
 
-// Header of packet.
-type Header struct {
-	Type      Type
-	ID        uint64
-	NeedAck   bool
-	Namespace string
-	Query     string
-}
+// MaxID is the largest acknowledgement ID, the largest integer a JavaScript number
+// holds exactly (2^53-1).
+const MaxID uint64 = 1<<53 - 1
 
-// Payload of packet.
-type Payload struct {
-	Header Header
-
-	Data []interface{}
+// String returns the protocol name of t.
+func (t Type) String() string {
+	switch t {
+	case Connect:
+		return "CONNECT"
+	case Disconnect:
+		return "DISCONNECT"
+	case Event:
+		return "EVENT"
+	case Ack:
+		return "ACK"
+	case ConnectError:
+		return "CONNECT_ERROR"
+	}
+	return "Type(" + strconv.Itoa(int(t)) + ")"
 }

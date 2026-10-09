@@ -22,10 +22,6 @@ All notable changes to this project are documented here. The format follows
   room membership and recipient selection, a Go fixture validator and a Node script that
   reproduces the fixtures; preparation for the stage 2.2 memory adapter, no change to the
   library.
-- `_experiments/sio5-codec`: standalone module (not imported by the root module) with a
-  bounded Socket.IO protocol 5 wire codec (envelopes, complete binary groups, limits), Go
-  tests, fuzz targets and a Node oracle pinned to `socket.io-parser` 4.2.7; preparation for
-  the stage 2.3P parser, no change to the library.
 - v2 API skeleton in the root package (roadmap 2.0): `Event[T]`, `AckEvent[T, R]`,
   `Args2`, `Binary`, `Endpoint`, `ClientRegistration`, raw handlers, `Server`,
   `Namespace`, `Socket`, `Options`, the `Adapter` contract with `AdapterFactory`
@@ -45,6 +41,24 @@ All notable changes to this project are documented here. The format follows
   `make g2` run the gate checks. The `engineio` payload redactor type and
   `Options.PayloadRedactor` are not part of the skeleton: stage 2.4E defines the boundary.
   `LocalSockets` and `Namespace.LocalSockets` declare how an adapter delivers to local sockets.
+- `parser`: the Socket.IO protocol 5 wire codec (roadmap 2.3P), built on the frozen
+  `Packet`, `Arguments`, `BinaryValue` and `ArgumentCodec` types. `Encode` and `Decode` convert a
+  `Packet` to and from a complete message (text envelope plus ordered binary frames);
+  `Assembler` accepts the frames of a connection one at a time and exposes the attachment
+  deadline. Both are bounded by `Limits` (`MaxEventBytes` 1 MiB, `MaxAttachments` 64,
+  `MaxDepth` 64, `AttachmentTimeout` 10 s; zero selects the default, a negative value is
+  `ErrLimit`), validate namespaces, acknowledgement IDs up to 2^53-1, JSON payload shapes,
+  reserved event names and binary placeholders, copy every buffer they keep and never
+  modify their input. `EventPacket`, `AckPacket`, `EventArguments`, `AckArguments`,
+  `Arguments.Validate`, `Concat` and `Arguments.Slice` build and split packets and join the
+  arguments of a multi-argument codec; `JSON[T]` is an `ArgumentCodec` that sends a `T` as one
+  argument and turns a `BinaryValue` nested in a struct, slice, map, pointer or interface
+  into an attachment. Error sentinels: `ErrInvalid`, `ErrLimit`, `ErrTooLarge`,
+  `ErrAttachments`, `ErrTooManyAttachments`, `ErrDepth`, `ErrArity`, `ErrUnsupported`,
+  `ErrUnexpectedFrame`, `ErrAttachmentTimeout`. The codec comes from the
+  `_experiments/sio5-codec` module, which this change deletes together with its tests,
+  fuzz targets and Node oracle (now `parser/testdata/oracle`, pinned to
+  `socket.io-parser` 4.2.7). Nothing in the root package calls it yet.
 - `engineio.BenchmarkIdleConnections` (`engineio/idle_bench_test.go`): opens N idle
   websocket sessions against an `engineio.Server` running in a subprocess and reports the
   server's RSS and goroutines. N is 200 by default and `IDLE_CONNS=10000` selects the
@@ -125,7 +139,7 @@ All notable changes to this project are documented here. The format follows
   transport never enabled it either). `x/sys` v0.6.0 enters the module graph through `gobwas/ws`.
   The standalone `_experiments/eio4-websocket` (the framing prototype, its Go tests and its Node
   `ws@8.18.3` peer, now `engineio/transport/websocket/testdata/reference` with `TestNodeOracle`)
-  and `_experiments/ws-bench` are deleted, with their entries above.
+  and `_experiments/ws-bench` are deleted, with their Unreleased entries.
 - CI: `make examples` only checks that every `_examples/*/chat.go` is identical, and
   `make vuln` no longer scans the `_examples` modules: the legacy examples build against
   the removed v1 runtime until stage 2.5D migrates them. The `lint` job runs
@@ -152,10 +166,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Removed
 
+- `parser`: the Socket.IO v4 packet codec of the v1 runtime (`Header`, `Payload`, `Encoder`,
+  `Decoder`, `FrameReader`, `FrameWriter`, `Buffer`, `BufferData` and `ErrInvalidPacketType`).
+  Nothing in the module used it after stage 2.0; it stays on the branch `v1.x`. `parser.Type`
+  keeps its name and its values 0 to 4, now means the base type only (a binary event is an
+  `Event` with attachments), and the constant `Error` is renamed `ConnectError`.
 - Polling JSONP (the `j` parameter, removed from Engine.IO v4), the `b64` parameter, the
   `application/octet-stream` polling body and the v3 length-prefixed payload encoder and
   decoder. The Engine.IO v3 polling framing is gone from `master`; branch `v1.x` keeps it.
-
 - The v1 root runtime: the reflection-based `Server`, `Client`, namespace and handler
   API, the memory and Redis broadcast, `Server.Adapter` and the `redigo` dependency (and
   the test-only `miniredis` and the `uuid` dependency with it). The v1 code stays on the

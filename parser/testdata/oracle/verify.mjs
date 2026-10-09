@@ -42,8 +42,8 @@ const stricter = [
  {envelope:'39007199254740992[]'},
 ];
 const limits = [
- {envelope:'2["é"]',limits:{MaxBytes:6}}, // 7 UTF-8 bytes
- {envelope:'51-["x"]',attachments:['AAE='],limits:{MaxBytes:9}},
+ {envelope:'2["é"]',limits:{MaxEventBytes:6}}, // 7 UTF-8 bytes
+ {envelope:'51-["x"]',attachments:['AAE='],limits:{MaxEventBytes:9}},
  {envelope:'52-["x"]',attachments:['',''],limits:{MaxAttachments:1}},
  {envelope:'2["x",[]]',limits:{MaxDepth:1}},
  {envelope:'51-["x"]',attachments:[]},
@@ -52,10 +52,10 @@ const limits = [
 const goOrigins = [
  {packet:{type:0,namespace:'/go',data:{token:'go-origin'}},attachments:[],expected:{type:0,nsp:'/go',data:{token:'go-origin'}}},
  {packet:{type:2,namespace:'/',id:7,data:['go-event',{one:1},[2,3]]},attachments:[],expected:{type:2,nsp:'/',id:7,data:['go-event',{one:1},[2,3]]}},
- {packet:{type:6,namespace:'/go',id:42,attachments:1,data:[null,{_placeholder:true,num:0}]},attachments:['AP8='],expected:{type:3,nsp:'/go',id:42,data:[null,Buffer.from([0,255])]}},
+ {packet:{type:3,namespace:'/go',id:42,data:[null,{_placeholder:true,num:0}]},attachments:['AP8='],expected:{type:3,nsp:'/go',id:42,data:[null,Buffer.from([0,255])]}},
 ];
 const all=[...requests,...invalid,...stricter,...limits,...goOrigins];
-const proc=spawnSync('go',['run','./cmd/oracle'],{cwd:fileURLToPath(new URL('..',import.meta.url)),input:JSON.stringify(all),encoding:'utf8',timeout:120000,maxBuffer:8<<20});
+const proc=spawnSync('go',['run','./parser/testdata/oracle'],{cwd:fileURLToPath(new URL('../../..',import.meta.url)),input:JSON.stringify(all),encoding:'utf8',timeout:120000,maxBuffer:8<<20});
 assert.equal(proc.status,0,proc.stderr || String(proc.error));
 const results=JSON.parse(proc.stdout);assert.equal(results.length,all.length);
 function decode(r) {

@@ -1048,13 +1048,12 @@ the Node oracle or script checks of its module that it ran by hand. A module lan
 `master` through a fresh-branch cherry-pick PR of its owned commits (transfer rules in
 issue #2; #44, #45, #54, #55 and #53 landed this way and supersede draft PRs #8, #9, #1, #6 and #7); it is later
 absorbed into live packages by the PR that lands its consumer, and that PR deletes the
-experiment and its `Unreleased` CHANGELOG entry (today `adapter-rooms` and `sio5-codec`; `adapter-wire` went
-with the first 2.2 PR, which created `adapter/codec`, and `eio4-websocket`, `ws-bench` and the
-`internal/eio4` entry with the 2.1 WebSocket PR). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
+experiment and its `Unreleased` CHANGELOG entry (today `adapter-rooms`; `adapter-wire` went
+with the first 2.2 PR, which created `adapter/codec`, `sio5-codec` was absorbed into `parser/` by 2.3P, and
+`eio4-websocket`, `ws-bench` and the `internal/eio4` entry went with the 2.1 WebSocket PR). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
 
 | Component (source PR) | Purpose | Consumer | State in `master` and retirement |
 | --- | --- | --- | --- |
-| `_experiments/sio5-codec` (#7, landed as #53) | v5 wire codec, Node oracle | 2.3P `parser/` | landed, unreleased; the 2.3P PR absorbs it into `parser/` and deletes it |
 | `_experiments/adapter-rooms` (#9, landed as #45) | Node memory-adapter room corpus | 2.2 conformance | landed, unreleased; absorbed into the 2.2 tests by the PR that adds them, which deletes it |
 
 ### 2.0 Generic API and lifecycle contract
@@ -1365,10 +1364,16 @@ Go/Node interoperability, 2.0 lifecycle tests and dispatch benchmark baseline.
 - `parser`: CONNECT payload, CONNECT_ERROR object, marker interface instead of
   `Type().Name()=="Buffer"`, `Packet` value type with lazily decoded args. The 2.0
   skeleton froze the value forms `Packet`, `Arguments`, `BinaryValue` and
-  `ArgumentCodec[T]`; 2.3P adds the stream encoder and decoder, placeholder validation and
-  wire errors beside them, and 2.3S binds a codec to a descriptor, both without changing
-  the frozen declarations. A value passed to a callee is borrowed for the call; a returned
-  value is owned by the caller.
+  `ArgumentCodec[T]`; 2.3P added the bounded `Encode`, `Decode` and `Assembler`,
+  placeholder validation, wire errors and the `JSON[T]` argument codec beside them, and
+  2.3S binds a codec to a descriptor, both without changing the frozen declarations. A
+  value passed to a callee is borrowed for the call; a returned value is owned by the
+  caller. 2.3P is on `master` and unreleased (M3 releases it); the root calls none of it
+  yet. What 2.3S still does with it: map `socketio.Options` to `parser.Limits`
+  (`MaxEventBytes`, `MaxAttachments`, `AttachmentTimeout`), arm a timer on
+  `Assembler.Deadline`, translate the parser errors into `ErrMessageTooLarge`,
+  `ErrTooManyAttachments` and the `parse error` close, allocate acknowledgement IDs, and
+  build `Args2` and the typed ack convention from `JSON[T]`, `Concat` and `Slice`.
 - New model `Server → Namespace → Socket` replacing `conn`/`namespaceConn`. Explicit
   CONNECT for `/`. Each `Socket` owns a `context.Context` cancelled on disconnect.
 - Generics-first public API; reflection-based `OnEvent(string, interface{})` is

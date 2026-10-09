@@ -1,4 +1,4 @@
-package engineio
+package client
 
 import (
 	"context"

@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v1.5.0 (unreleased, branch v1.x)
+
 ### Fixed
 
 - engineio: when the write deadline passed (or the payload was closed) while the session

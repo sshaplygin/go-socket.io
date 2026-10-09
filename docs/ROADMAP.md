@@ -2299,8 +2299,9 @@ before M7 depends on it.
 
 **Contract (v1).** Additive: `client` behaves as today's root `socketio.Client`. The root
 `Client` and `NewClient` stay as a wrapper over it, their godoc starting a paragraph
-`Deprecated: use client.Client` (`client.NewClient`); no root export is removed, renamed
-or changed in behaviour, so the release is a MINOR one. All PRs target `v1.x`. The tag is
+`Deprecated: use client.Client.` and `Deprecated: use client.NewClient.` (full stop
+included); no root export is removed, renamed or changed in behaviour, so the release is
+a MINOR one. All PRs target `v1.x`. The tag is
 created only on the owner's order; `CHANGELOG.md` entries (`### Added` for the package,
 `### Deprecated` for root `Client`, `NewClient`) and the release commit follow
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases).

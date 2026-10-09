@@ -24,7 +24,11 @@ lint:
 
 .PHONY: vuln
 vuln:
-	govulncheck ./...
+	set -e; \
+	govulncheck ./...; \
+	for d in _examples/*/go.mod; do \
+		(cd "$$(dirname "$$d")" && govulncheck ./...); \
+	done
 
 .PHONY: cover
 cover:

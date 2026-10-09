@@ -27,17 +27,19 @@ make lint       # gofmt -s check, go vet, golangci-lint (v2 config)
 make test       # go test -count=1 ./...
 make test-race  # the same with -race; what CI runs
 make bench      # benchmarks only, no tests
-make vuln       # govulncheck ./...
+make vuln       # govulncheck ./... in the root and in every _examples module
 make cover      # coverage profile + HTML report
 make examples   # build every _examples/*/ module and the Go client, check that every chat.go is identical, race-test default-http
 make all        # go install ./...
 ```
 
 Requires Go 1.22+, golangci-lint v2 and govulncheck (`go install
-golang.org/x/vuln/cmd/govulncheck@latest`). Tests need no external services.
+golang.org/x/vuln/cmd/govulncheck@latest`), built with the newest stable Go: a
+standard-library finding is cleared by upgrading the toolchain, not by code. Tests need
+no external services.
 
 CI (`.github/workflows/ci.yaml`) has four jobs: `lint` (tidy diff, mod verify, gofmt,
-vet, golangci-lint, govulncheck on ubuntu with the newest Go release from go.dev,
+vet, golangci-lint, `make vuln` on ubuntu with the newest Go release from go.dev,
 because `setup-go` lags behind it), `test` (race tests on
 ubuntu, macos and windows with `stable` and `oldstable` Go), `min-go` (build and
 race tests of the root module on ubuntu with the latest Go 1.22.x and

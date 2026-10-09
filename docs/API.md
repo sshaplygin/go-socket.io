@@ -9,9 +9,10 @@ explicitly not. The skeleton is declarations only. Every operation that needs th
 declaration. This file lists signatures and does not restate behaviour. A signature
 change updates this file, the fixtures and the owning roadmap section in one PR.
 
-`ctx` is `context.Context`, `Args` is `parser.Arguments`. Both lists are checked:
-`TestInventoryListsEveryExportedSignature` fails when an exported identifier of the root
-package has no entry below, and `make graph` checks the package graph.
+`ctx` is `context.Context`. The inventory is checked: `TestInventoryListsEveryExportedSignature`
+fails when an exported identifier of the root package has no entry below,
+`TestInventoryResultTypesMatchDeclarations` fails when the result types written here differ
+from the declaration, and `make graph` checks the package graph.
 
 ## Method-signature inventory
 
@@ -34,12 +35,12 @@ package has no entry below, and `make graph` checks the package graph.
 | `event.go` | `Args2` | `Args2[A, B any]{First A; Second B}`: exactly two positional arguments |
 | `event.go` | `Binary` | `type Binary []byte` |
 | `event.go` | `Binary.SocketIOBinary` | `(Binary) SocketIOBinary() []byte`; implements `parser.BinaryValue` |
-| `packet_handlers.go` | `Endpoint` | `SendPacket(ctx, parser.Packet) error`; `RequestAck(ctx, parser.Packet) (Args, error)`; the raw ack arguments, owned by the caller |
+| `packet_handlers.go` | `Endpoint` | `SendPacket(ctx, parser.Packet) error`; `RequestAck(ctx, parser.Packet) (parser.Arguments, error)`; the raw ack arguments, owned by the caller |
 | `packet_handlers.go` | `ClientRegistration` | embeds `Endpoint`; `RegisterEvent(string, ClientRawHandler) error` |
 | `packet_handlers.go` | `RawHandler` | `func(ctx, *Socket, RawEvent) error` |
 | `packet_handlers.go` | `ClientRawHandler` | `func(ctx, Endpoint, RawEvent) error` |
-| `packet_handlers.go` | `RawAck` | `Respond(ctx, Args) error` |
-| `packet_handlers.go` | `RawEvent` | `{Name string; Args Args; Ack RawAck}`; `Ack` is nil when no ack was requested |
+| `packet_handlers.go` | `RawAck` | `Respond(ctx, parser.Arguments) error` |
+| `packet_handlers.go` | `RawEvent` | `{Name string; Args parser.Arguments; Ack RawAck}`; `Ack` is nil when no ack was requested |
 | `server.go` | `NewServer` | `NewServer(Options) (*Server, error)`; creates no namespace, `/` included |
 | `server.go` | `Server.Namespace` | `(*Server) Namespace(ctx, name string) (*Namespace, error)`; the creating call (ROADMAP 2.2 *Readiness*) |
 | `server.go` | `Server.Shutdown` | `(*Server) Shutdown(ctx) error` |
@@ -62,7 +63,7 @@ package has no entry below, and `make graph` checks the package graph.
 | `socket.go` | `Socket` | implements `Endpoint` |
 | `socket.go` | `Socket.ID` | `(*Socket) ID() SocketID` |
 | `socket.go` | `Socket.SendPacket` | `(*Socket) SendPacket(ctx, parser.Packet) error` |
-| `socket.go` | `Socket.RequestAck` | `(*Socket) RequestAck(ctx, parser.Packet) (Args, error)` |
+| `socket.go` | `Socket.RequestAck` | `(*Socket) RequestAck(ctx, parser.Packet) (parser.Arguments, error)` |
 | `socket.go` | `Socket.Join` | `(*Socket) Join(...Room) error` |
 | `socket.go` | `Socket.Leave` | `(*Socket) Leave(...Room) error` |
 | `socket.go` | `Room` | `type Room string` |

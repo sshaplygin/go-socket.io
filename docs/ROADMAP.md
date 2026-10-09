@@ -1951,7 +1951,9 @@ timeout is 5 s.
   `HeartbeatInterval` plus 100 ms for NATS), returns the local data and nil at once;
   with the factory context cancelled after construction returns, a peer's broadcast
   still reaches the adapter's socket and, after `DiscoveryDelay`, a query with a peer
-  still answers until `Close`. They run as the subtests `Readiness/PeerBroadcast`,
+  still answers until `Close`. The harness calls `AdapterFactory` itself with a context
+  it cancels once the call returns, because `Server` cancels that context only in
+  `Shutdown` or `Close` (2.3S R9 covers that path). They run as the subtests `Readiness/PeerBroadcast`,
   `Readiness/NoPeerQuery` and `Readiness/CtxAfterReturn` of `adaptertest.Run`, which
   each backend module calls from its wrapper test `TestAdapterConformance`. Held
   subscriptions and subscriber loss need a backend harness and stay in the backend

@@ -23,11 +23,13 @@ lint:
 	go vet ./...
 	golangci-lint run ./...
 
+# The legacy _examples modules are not scanned: they build against the removed v1 root
+# runtime until stage 2.5D migrates them (docs/ROADMAP.md, 2.0).
 .PHONY: vuln
 vuln:
 	set -e; \
 	govulncheck ./...; \
-	for d in $(EXAMPLES) $(EXPERIMENTS); do \
+	for d in $(EXPERIMENTS); do \
 		(cd "$$d" && govulncheck ./...); \
 	done
 
@@ -35,12 +37,20 @@ vuln:
 cover:
 	go test -count=1 -coverprofile=c.out ./... && go tool cover -html=c.out
 
+# The legacy application examples are written against the v1 root runtime that stage 2.0
+# removed, so they are not built or tested until stage 2.5D migrates them. The check that
+# every chat.go is identical to _examples/default-http/chat.go still runs, on the files
+# only.
 .PHONY: examples
 examples:
-	@set -e; for d in $(EXAMPLES); do echo "==> $$d"; (cd $$d && go build -o /dev/null ./...); done
-	go build -o /dev/null ./_examples/client
 	@set -e; for d in $(EXAMPLES); do cmp $$d/chat.go _examples/default-http/chat.go; done
-	cd _examples/default-http && go test -race -count=1 ./...
+
+# The package graph check of docs/API.md: no import cycle and the layering of the
+# roadmap (the root imports only engineio and parser; engineio, parser and logger never
+# import the root).
+.PHONY: graph
+graph:
+	go test -count=1 -run '^TestPackageGraph$$' .
 
 # First the isolation check (the Stage 1b DoD line "_experiments stays standalone", see
 # docs/ROADMAP.md): no root-module import of an _experiments package, no go.work, every

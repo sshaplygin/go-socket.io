@@ -29,6 +29,8 @@ jobs:
         run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
       - name: Vet
         run: go vet ./...
+      - name: Package graph
+        run: make graph
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
@@ -101,7 +103,9 @@ jobs:
         with:
           go-version: stable
           check-latest: true
-      - name: Build every example module
+      # Stage 2.0 removed the v1 root runtime the application examples build against,
+      # so only the identical-copy check of chat.go runs until 2.5D migrates them.
+      - name: Check the shared example sources
         run: make examples
 
   experiments:

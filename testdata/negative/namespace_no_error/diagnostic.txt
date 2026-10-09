@@ -1,0 +1,2 @@
+multiple-value
+(value of type (*socketio.Namespace, error))

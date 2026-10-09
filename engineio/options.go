@@ -1,6 +1,7 @@
 package engineio
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -42,6 +43,27 @@ type Options struct {
 	// binary attachments takes k+1 frames, so polling clients overflow at much lower
 	// emit rates than websocket clients. Temporary v1 placement.
 	WriteBufferSize int
+
+	// Hooks are the observer callbacks. nil means none. They are declared but not
+	// fired yet (roadmap 2.4E).
+	Hooks *Hooks
+
+	// PayloadPreviewBytes is the opt-in size of PacketInfo.Preview: 0 disables
+	// capture and the accepted range is 0 to 256. A preview also needs a
+	// PayloadRedactor and an enabled consumer. Nothing is captured yet.
+	PayloadPreviewBytes int
+
+	// PayloadRedactor produces previews. nil keeps capture disabled.
+	PayloadRedactor PayloadRedactor
+}
+
+// Normalize validates the observer fields of a copy of the options. It does not
+// invoke user callbacks, resolve loggers or change the application default logger.
+func (c Options) Normalize() (Options, error) {
+	if c.PayloadPreviewBytes < 0 || c.PayloadPreviewBytes > 256 {
+		return Options{}, fmt.Errorf("engineio: PayloadPreviewBytes %d outside 0..256", c.PayloadPreviewBytes)
+	}
+	return c, nil
 }
 
 // CheckerFunc is function to check request.

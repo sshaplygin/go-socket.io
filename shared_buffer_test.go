@@ -23,49 +23,31 @@ func startRoom(t *testing.T, members int) (*Server, []<-chan string) {
 	return p.srv, outs
 }
 
-// One *parser.Buffer in the args of a broadcast (to the room and to the namespace, alternately) reaches the encoder of every member of the
-// room, each on its own write goroutine. Under -race the encoders must not write to it, and
-// every member must get the bytes that a single connection gets.
-func TestBroadcastSharedBuffer(t *testing.T) {
-	const members, rounds = 4, 20
-
-	srv, outs := startRoom(t, members)
-	payload := []byte{1, 2, 3}
-	shared := &parser.Buffer{Data: payload}
-	for i := 0; i < rounds; i++ {
-		if i%2 == 0 {
-			srv.BroadcastToRoom("/", "r", "bin", shared)
-		} else {
-			srv.BroadcastToNamespace("/", "bin", shared)
-		}
-	}
-
-	for m, out := range outs {
-		for i := 0; i < rounds; i++ {
-			require.Equal(t, "51-[\"bin\",{\"_placeholder\":true,\"num\":0}]\n", recv(t, out, "the text frame"), "member %d", m)
-			require.Equal(t, string(payload), recv(t, out, "the binary frame"), "member %d", m)
-		}
-	}
-	require.Equal(t, parser.Buffer{Data: []byte{1, 2, 3}}, *shared, "the broadcast wrote to its argument")
-}
-
-// The same for arguments without a Buffer: a broadcast must not write to them either.
+// A *parser.Buffer and plain JSON values in the args of a broadcast (to the room and to the
+// namespace, alternately) reach the encoder of every member on its own write goroutine. Under
+// -race neither the encoders nor the broadcast path may write to them, and every member must
+// get the frames that a single connection gets.
 func TestBroadcastSharedArgs(t *testing.T) {
 	const members, rounds = 4, 20
-
 	mk := func() []interface{} {
-		return []interface{}{map[string]interface{}{"k": []interface{}{1, "two"}}, []string{"x", "y"}}
+		return []interface{}{&parser.Buffer{Data: []byte{1, 2, 3}}, map[string]interface{}{"k": []interface{}{1, "two"}}}
 	}
+
 	srv, outs := startRoom(t, members)
-	shared := mk()
+	args := mk()
 	for i := 0; i < rounds; i++ {
-		srv.BroadcastToRoom("/", "r", "json", shared...)
+		if i%2 == 0 {
+			srv.BroadcastToRoom("/", "r", "bin", args...)
+		} else {
+			srv.BroadcastToNamespace("/", "bin", args...)
+		}
 	}
 
 	for m, out := range outs {
 		for i := 0; i < rounds; i++ {
-			require.Equal(t, "2[\"json\",{\"k\":[1,\"two\"]},[\"x\",\"y\"]]\n", recv(t, out, "the text frame"), "member %d", m)
+			require.Equal(t, "51-[\"bin\",{\"_placeholder\":true,\"num\":0},{\"k\":[1,\"two\"]}]\n", recv(t, out, "the text frame"), "member %d", m)
+			require.Equal(t, "\x01\x02\x03", recv(t, out, "the binary frame"), "member %d", m)
 		}
 	}
-	require.Equal(t, mk(), shared, "the broadcast wrote to its arguments")
+	require.Equal(t, mk(), args, "the broadcast wrote to its arguments")
 }

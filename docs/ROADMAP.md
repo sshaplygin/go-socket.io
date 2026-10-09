@@ -1967,9 +1967,10 @@ single call cannot be required to hit.
   reaches that socket within 1 s; a query
   with no peer, issued after the harness's `DiscoveryDelay` (0 for Redis, the
   `HeartbeatInterval` plus 100 ms for NATS), returns the local data and nil at once;
-  with the factory context cancelled after construction returns, a peer's broadcast
-  still reaches the adapter's socket and, after `DiscoveryDelay`, a query with a peer
-  still answers until `Close`. The harness calls `AdapterFactory` itself with a context
+  with a socket added and the factory context cancelled after construction returns, and
+  200 ms waited for every backend whatever its `DiscoveryDelay` (longer than any
+  in-process cancellation), a peer's broadcast still reaches the socket and, after
+  `DiscoveryDelay`, a query with a peer still answers until `Close`. The harness calls `AdapterFactory` itself with a context
   it cancels once the call returns, because `Server` cancels that context only in
   `Shutdown` or `Close` (2.3S R9 covers that path). They run as the subtests `Readiness/PeerBroadcast`,
   `Readiness/NoPeerQuery` and `Readiness/CtxAfterReturn` of `adaptertest.Run`, which

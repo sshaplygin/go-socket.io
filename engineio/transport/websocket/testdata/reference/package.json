@@ -2,9 +2,11 @@
   "name": "eio4-websocket-reference",
   "private": true,
   "scripts": {
-    "test": "node verify.cjs"
+    "test": "node verify.cjs",
+    "framing": "node verify-framing.mjs"
   },
   "dependencies": {
-    "engine.io-parser": "5.2.3"
+    "engine.io-parser": "5.2.3",
+    "ws": "8.18.3"
   }
 }

@@ -84,6 +84,9 @@ func newMessageConn(raw net.Conn, source io.Reader, clientSide bool, maxBytes, w
 func (c *messageConn) readMessage() (ws.OpCode, []byte, error) {
 	c.readMu.Lock()
 	defer c.readMu.Unlock()
+	if c.closed.Load() {
+		return 0, nil, net.ErrClosed
+	}
 	for {
 		h, err := c.reader.NextFrame()
 		if err != nil {

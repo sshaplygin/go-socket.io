@@ -1,4 +1,5 @@
 EXAMPLES := $(patsubst %/go.mod,%,$(wildcard _examples/*/go.mod))
+EXPERIMENTS := $(patsubst %/go.mod,%,$(wildcard _experiments/*/go.mod))
 
 .PHONY: all
 all:
@@ -26,8 +27,8 @@ lint:
 vuln:
 	set -e; \
 	govulncheck ./...; \
-	for d in _examples/*/go.mod; do \
-		(cd "$$(dirname "$$d")" && govulncheck ./...); \
+	for d in $(EXAMPLES) $(EXPERIMENTS); do \
+		(cd "$$d" && govulncheck ./...); \
 	done
 
 .PHONY: cover
@@ -40,3 +41,14 @@ examples:
 	go build -o /dev/null ./_examples/client
 	@set -e; for d in $(EXAMPLES); do cmp $$d/chat.go _examples/default-http/chat.go; done
 	cd _examples/default-http && go test -race -count=1 ./...
+
+# Vet, gofmt, golangci-lint (root config) and race tests in every standalone
+# _experiments module; stops at the first failure, prints nothing when there are none.
+.PHONY: experiments
+experiments:
+	@set -e; for d in $(EXPERIMENTS); do \
+		echo "==> $$d"; \
+		(cd $$d && go vet ./... && test -z "$$(gofmt -s -l . | tee /dev/stderr)" \
+			&& golangci-lint run --config "$(CURDIR)/.golangci.yml" ./... \
+			&& go test -race -count=1 ./...); \
+	done

@@ -7,6 +7,14 @@ updates:
     groups:
       go-minor-patch:
         update-types: ["minor", "patch"]
+  - package-ecosystem: gomod
+    # Standalone _experiments modules; the glob matches nothing until one is merged.
+    directories: ["/_experiments/*"]
+    schedule:
+      interval: weekly
+    groups:
+      go-minor-patch:
+        update-types: ["minor", "patch"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

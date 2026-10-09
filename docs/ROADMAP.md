@@ -57,7 +57,7 @@ workers submit changes to these files through that integrator.
 | 1b | stage 1 and the 1.D link-form commit merged, `master` green (the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner, who is also the integrator for the CI, Dependabot and `CHANGELOG.md` files of steps 0b to 0d; moves/merges applied sequentially | M1b: the Stage 1b DoD, `v1.x` gates and Acceptance blocks |
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures |
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
-| 2C | 2B | 2.3S server/namespace runtime (root socket files); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests pass; dispatch baseline recorded |
+| 2C | 2B | 2.3S server/namespace runtime (root socket files); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
 | 2E | 2D | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
 | 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 pre-release gate, then publication verification |
@@ -141,7 +141,7 @@ Tasks:
     this rule (`waitRedisSubscribers`) and adds `delayRedisSubscriptions`, which
     holds PSUBSCRIBE with a miniredis pre-hook and releases it after a set time. 1.K
     carries the limitations into the `v1.5.0` release notes and godoc; the v2
-    requirement is 2.2 *Subscription readiness*.
+    requirement is 2.2 *Readiness*.
 - **1.B Backpressure:** each connection has a bounded queue of outbound packets. The
   rules below apply to `Server` connections and to `Client` alike.
   - *Size:* temporary v1 `engineio.Options.WriteBufferSize` counts socket.io packets
@@ -1051,7 +1051,7 @@ experiment and its `Unreleased` CHANGELOG entry (today `adapter-wire` and
 | --- | --- | --- | --- |
 | `eio4` paths and `_experiments/eio4-websocket` (#1) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | to land after G2, wave 2B: `internal/eio4` paths in live packages; the module until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
 | `_experiments/ws-bench` (#6) | Gorilla vs gobwas component benchmark; requires `eio4-websocket` via a relative `replace` | 2.1 idle baseline (not RSS) | to land after G2, with or after `eio4-websocket`; deleted when `gorilla/websocket` leaves the root `go.mod` at 2.1 (its own `go.mod` pins gorilla), and no later than `eio4-websocket` |
-| `_experiments/v2-api` (#4, #5) | 2.0 descriptor, Adapter and hook compile proof | 2.0 fixtures | to land as a standalone module before 2.0 starts; does not satisfy G2; deleted when 2.0 lands its fixtures |
+| `_experiments/v2-api` (#4, #5) | 2.0 descriptor, Adapter and hook compile proof | 2.0 fixtures | landed as #47 and #48, unreleased; does not satisfy G2; the 2.0 fixtures give `AdapterFactory` the `ctx` and add the creating call of 2.2 *Readiness*, and the PR that lands them deletes it |
 | `_experiments/sio5-codec` (#7) | v5 wire codec, Node oracle | 2.3P `parser/` | to land after G2, wave 2B; absorbed into `parser/` |
 | `_experiments/adapter-wire` (#8, landed as #44) | pinned Node Redis adapter wire fixtures | `adapter/codec` (2.2), then 4A codec fixtures | landed, unreleased; the 2.2 PR that creates `adapter/codec` absorbs and deletes it, and 4A reads the fixtures from there |
 | `_experiments/adapter-rooms` (#9, landed as #45) | Node memory-adapter room corpus | 2.2 conformance | landed, unreleased; absorbed into the 2.2 tests by the PR that adds them, which deletes it |
@@ -1070,11 +1070,13 @@ examples return in 4b. This transition must build/test the entire root module be
 
 Implement the v2 generic API skeleton on Go 1.22 before runtime dispatch.
 Positive compile fixtures cover server and client registration,
-emit, ack, room broadcast, `Args2` and binary data; negative fixtures must reject a
+emit, ack, room broadcast, `Args2`, binary data, and the creating call with `ctx` and an
+`AdapterFactory` taking `ctx` (2.2 *Readiness*); negative fixtures must reject a
 wrong handler argument, ack return type or emitted payload. Keep these fixtures in
 CI. Freeze the shared types consumed by parallel work: `Endpoint`, client registration
-interface, `Options`, packet/argument codecs, `Adapter`, both hook structs and result
-enums. Publish a method-signature inventory and acyclic package graph. No placeholder
+interface, `Options`, packet/argument codecs, `Adapter`, `AdapterFactory`, the namespace-creating call (2.2
+*Readiness*), both hook structs and result enums. Publish a method-signature inventory
+and acyclic package graph. No placeholder
 `any` handler, unresolved signature or TODO in these interfaces passes G2. Runtime
 work is assigned to 2.1–2.4; the skeleton contains no claimed runtime implementation.
 
@@ -1200,13 +1202,14 @@ type Adapter interface {
 }
 type BroadcastOptions struct{ Rooms, Except []Room; Flags BroadcastFlags }
 type BroadcastResult struct{ LocalRecipients int; Published bool }
-type AdapterFactory func(nsp *Namespace) (Adapter, error)
+type AdapterFactory func(ctx context.Context, nsp *Namespace) (Adapter, error)
+func (s *Server) Namespace(ctx context.Context, name string) (*Namespace, error) // creating call
 ```
 
 `Adapter`, related types and the in-memory implementation live in root `socketio`;
 `adapter/codec` (created here) depends on parser/wire types, never on root `socketio`. External
 adapters import the root; the root never imports them. This avoids a cycle through
-`AdapterFactory(*Namespace)`. The memory adapter is the v2 default; legacy removal belongs to 2.0. The v2.0
+the `*Namespace` parameter of `AdapterFactory`. The memory adapter is the v2 default; legacy removal belongs to 2.0. The v2.0
 release and its example build job require only the memory adapter.
 
 `Broadcast` success means local recipients were queued and, for a non-local cluster
@@ -1224,21 +1227,59 @@ connection, not global across nodes; disconnect gaps have no replay guarantee.
 `Close` releases adapter-owned subscriptions/workers, never injected broker clients.
 Conformance tests cover these semantics and concurrent join/leave/broadcast.
 
-*Subscription readiness (open; the 2.0 owner resolves it when freezing `Adapter`).*
-The v1 Redis broadcast returns from namespace creation without waiting until Redis
-has registered its subscription, and can wait the full request timeout for answers
-that never arrive (found with PR #18; recorded in 1.R and, from `v1.5.0`, in the
-godoc that its `CHANGELOG.md` *Known limitations* links). Before the freeze this
-section specifies when a broker adapter's construction and each resubscribe count as
-subscribed, what a cluster query returns within which bound when no peer is
-expected to answer, and a deterministic test that holds the subscribe commands
-until the test releases them: for the Redis adapter a miniredis pre-hook, the hold
-mechanism of `delayRedisSubscriptions` from PR #18 (which releases on a timer); for
-NATS the freeze names the equivalent hold. The answer can change `AdapterFactory`
-(for example, a context for the wait), so while this item is open `AdapterFactory`
-counts as an unresolved API signature under G2.
-[Draft PR #20](https://github.com/sshaplygin/go-socket.io/pull/20) holds an
-unvalidated proposal; nothing in it is part of this plan.
+*Readiness.* These rules close the v1 Redis limitations recorded in 1.R and, from
+`v1.5.0`, in the `CHANGELOG.md` *Known limitations*. They change two G2 signature lines:
+`AdapterFactory` gains `ctx`, and the namespace-creating call is `Namespace(ctx, name)`
+returning an error. `_experiments/v2-api` (#47, #48) declares `Namespace(string) *Namespace`
+and `AdapterFactory func(*Namespace)` without `ctx`; the PR that lands the 2.0 fixtures
+declares both new lines. `Options.Adapter` carries the factory (default: the memory adapter). `NewServer`
+creates no namespace, `/` included; a CONNECT to one the application has not created is
+unknown. In tests *at once* means within 100 ms. 2.3S implements the server side and
+owns its root test; 4b reproduces the broker cases.
+
+- *Creation:* a namespace is created only by `Server.Namespace` and registered only when
+  the factory returned it. A CONNECT never creates one: a CONNECT to a namespace that is
+  not registered, including one being created, is rejected as unknown; dynamic
+  namespaces (mentioned in 2.4) have no owner stage yet, and the stage that adds them defines how a
+  CONNECT waits. One call decides in this order: (1) once shutdown has begun it returns
+  an error matching `ErrNamespaceClosed`, also for a registered namespace, and calls no
+  factory; (2) a registered namespace is returned without calling the factory; (3) a
+  creation in progress is waited for, and its namespace or error returned; (4) otherwise
+  the server calls `AdapterFactory` outside every lock that packet dispatch reads. Steps
+  (1) and (2) ignore `ctx`; a `ctx` already done at (3) or (4) returns its error at
+  once, and at (4) calls no factory. An error returned after shutdown began also matches
+  `ctx.Err()` when the caller's `ctx` had ended. On a factory error nothing is
+  registered, the call returns the error wrapped with `%w` and naming the namespace, and
+  a later call calls the factory again. The factory context is the server's. The call's
+  `ctx` bounds only its caller's wait: when it ends first, the call returns an error
+  matching `ctx.Err()` and the creation goes on. A creation outlives its callers: when
+  none is left and shutdown has not begun, a successful result is still registered (the
+  next call returns it by step 2) and is closed by `Shutdown` or `Close` like any other,
+  so an abandoned creation leaks nothing. A broker adapter returns only after the broker
+  it is connected to confirmed its subscriptions, or with an error within a bound it
+  documents as an option, leaving nothing of its own open. That is all the confirmation
+  proves: one Redis master covers every peer, but a NATS flush does not show that other
+  servers of a cluster, gateway or leafnode link have the interest, so a peer's
+  broadcast right after construction can be missed there (4b `adapters/nats`).
+- *Shutdown:* `Shutdown` and `Close` cancel the factory context when they begin;
+  `Shutdown` waits for factory calls in progress, callers or not, until its deadline,
+  `Close` does not wait. The server decides between registering and closing a returned
+  adapter under the lock that sets the shutdown flag. A creation whose factory returns
+  after either has begun returns an error
+  matching `ErrNamespaceClosed` whatever the factory returns: the server closes a
+  returned adapter exactly once (before the call returns when a caller waits) and wraps
+  a factory error alongside with a second `%w`. The cancellation also reaches built
+  adapters while the drain still broadcasts, so the factory context bounds only the
+  factory call: an adapter derives no lifetime from it, stops any `context.AfterFunc` on
+  it before returning, and lives until `Adapter.Close`.
+- *Restoring:* a broker adapter is restoring from the moment it observes the loss of
+  a subscription (a receive or connection error) until the broker confirms the new
+  one; before it observes the loss, queries can undercount without an error, an
+  accepted gap like the disconnect gaps above.
+- *Queries:* cluster queries (`Sockets`, `FetchSockets`) count local sockets locally, never through the broker,
+  and wait only for the peers expected to answer. With none expected they return the
+  local data and a nil error at once; while restoring, or when the expected peers
+  cannot be determined, the local data and an error at once.
 
 ### 2.3 Socket.IO v5 and the generic API
 
@@ -1326,6 +1367,53 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
 - `BenchmarkEventDispatch` (root) is added with the new model, so stage 2.4 has a real
   baseline.
 - Rewrite `Client` on the same generic API with websocket over `gobwas/ws`.
+- 2.3S implements the server side of 2.2 *Readiness*. Its root test is
+  `TestNamespaceReadiness`, with the subtests `R1` to `R9` below; the 2C join gate runs
+  `go test -race -count=1 -json -run '^TestNamespaceReadiness$' .` and requires a pass
+  event for each, none skipped. Each subtest (each variant of R2) builds its own server.
+  The fake factory counts its calls, records its context and the time of each return, and
+  returns a fake adapter that counts its `Close` calls. The *settled reading* is taken
+  100 ms after the later of the factory's last return and the last `Close` or `Shutdown`
+  return of the subtest; at it every adapter the factory returned has been closed exactly
+  once, registered or not. A subtest states any earlier reading.
+  - R1: a factory held until its context ends, then returning an adapter at once: `Close`
+    during the call returns at once and the call's error matches `ErrNamespaceClosed`; the
+    count is 1 when the call returns. A variant whose factory returns `ctx.Err()` instead
+    returns an error that also matches `context.Canceled`.
+  - R2: a factory returning an adapter 300 ms after its context ends, in two variants
+    (the caller waits; every caller's `ctx` cancelled first), each ending the server in
+    three runs of its own: `Shutdown` with a 1 s deadline does not return before the
+    factory does, with a 20 ms deadline it returns before it, and `Close` returns before
+    it. With the caller waiting, its call returns `ErrNamespaceClosed` only after the
+    factory returned, and the count is then 1. With every caller gone, each call has
+    returned an error matching its `ctx.Err()` at once, and the count read 100 ms after
+    the end began is 0; the settled reading is 1.
+  - R3: while `Shutdown` drains (a handler blocks it) and after `Close`, calls for a
+    registered namespace, for an unregistered one and for one whose creation was started
+    before and is still held (the test releases that factory last) return
+    `ErrNamespaceClosed` at once with no further factory call; after `Close` a cancelled
+    `ctx` also matches `context.Canceled`.
+  - R4: a factory error comes back matching the error and naming the namespace; the next
+    call calls the factory again.
+  - R5: a done `ctx` returns the registered namespace; for an unregistered one it returns
+    its error without calling the factory; while a creation is held, an already-cancelled
+    `ctx` returns an error matching `context.Canceled` at once, the creation goes on and a
+    later call with a live `ctx` returns its namespace after one factory call.
+  - R6: eight concurrent creations of one namespace under `-race`, the factory held for
+    100 ms, call it once and get the same namespace; the count is 0 before the test's
+    `Close`.
+  - R7: on a fresh server with no creating call, the factory count is 0 after `NewServer`
+    and a CONNECT to `/` and to a never-created name is answered CONNECT_ERROR at once with
+    the count still 0. While a creation is held, a CONNECT to its namespace is answered
+    CONNECT_ERROR at once and calls no factory.
+  - R8: with every caller's `ctx` cancelled while the factory is held, each call returns
+    an error matching its `ctx.Err()` at once and the factory's context stays live; the
+    factory then returns an adapter, the next call returns that namespace without a
+    second factory call, and the count is 0 before the test's `Close`.
+  - R9: a handler blocks the drain of `Shutdown` until the recorded factory context is
+    done, then broadcasts to a room: the fake adapter receives that `Broadcast`, and its
+    count, read in the handler right after the broadcast was delivered, is 0; the settled
+    reading is 1.
 - Example migration is owned by 2.5D after runtime and observability gates pass.
 
 ### 2.4 Observability
@@ -1704,6 +1792,11 @@ NATS dependency. Both depend on the root module as a normal versioned dependency
 `adapter/codec` for the message format. Release root `v2.2.0`, containing
 `adaptertest` and any shared-codec additions, before tagging adapter modules. Verify
 root and adapter consumers/tests against published versions without local replacements.
+In this stage's tests (`adaptertest` and both backend suites) the adapter's request
+timeout is 5 s. A *recovery poll* calls `Sockets` every 50 ms and passes at the first nil
+error within 2 s (it fails at 2 s); every earlier call returns the local data and an
+error, because restoring ends only when a flush or confirmation read completes, which a
+single call cannot be required to hit.
 
 - **`adapters/redis`**: compatibility with the non-sharded
   [`@socket.io/redis-adapter@8.3.0` wire format](https://github.com/socketio/socket.io-redis-adapter/blob/8.3.0/lib/index.ts)
@@ -1713,9 +1806,89 @@ root and adapter consumers/tests against published versions without local replac
   Broadcast messages are msgpack `[uid, packet, opts]` via `vmihailenco/msgpack/v5`
   matching notepack output; supported request/response messages use Node's JSON
   encoding. Freeze fixtures for every supported operation, including
-  `publishOnSpecificResponseChannel=true` and false. Inject `redis.UniversalClient`;
-  bound request time and reconnect subscriptions with backoff. Subscription
-  readiness and the wait when no peer answers follow 2.2 *Subscription readiness*.
+  `publishOnSpecificResponseChannel=true` and false. The injected
+  `redis.UniversalClient` (the type `redis.NewUniversalClient` returns, which for one
+  address holds a `*redis.Client`) must send every command to one Redis master, so only
+  a `*redis.Client` (from `redis.NewClient` or `redis.NewFailoverClient`) is accepted;
+  any other implementation, such as `*redis.ClusterClient` or `*redis.Ring`, is
+  rejected at construction with the exported `ErrUnsupportedRedisClient`: counting
+  peers on a Cluster needs PUBSUB NUMSUB summed over every master, as redis-adapter
+  8.3.0 `lib/util.ts` does, and a Ring sends subscriptions and keyless PUBLISH and
+  PUBSUB to different shards. A `*redis.Client` that routes to a replica
+  (`FailoverOptions.ReplicaOnly`, or `NewClient` addressed to a replica) is
+  unsupported, and the constructor godoc says so: a PUBLISH or PUBSUB NUMSUB on a
+  replica reaches only that replica's subscribers, and go-redis v9 exposes no
+  client-side way to detect it (the read-only flag of `redis.Options` is unexported;
+  `ReplicaOnly` only selects the failover dialer; checked against v9.7.0, and the
+  adapter's PR re-checks them against its pinned version). The adapter does not ask the
+  server for its role: miniredis has no ROLE command. Bound request time and
+  reconnect subscriptions with backoff; the backoff's initial and maximum delays are
+  documented options.
+  For 2.2 *Readiness*, construction and every resubscribe read the PSUBSCRIBE and
+  SUBSCRIBE confirmations within the `SubscribeTimeout` option (default 10 s). Every read
+  is bounded by the time left, and construction also stops when the factory context ends:
+  a go-redis `ReceiveTimeout` reads without that context, so the adapter closes the
+  attempt's `PubSub` from `context.AfterFunc`, stopped once the attempt is confirmed; when the stop reports that
+  the function already started, construction fails with the context error instead of
+  returning the adapter. An
+  unconfirmed resubscribe is a failed attempt that closes its connection and grows the
+  backoff. Each attempt uses a new `PubSub`, and the adapter closes a failed one as soon
+  as it observes the error: after a connection error a go-redis `PubSub` redials and
+  resends its subscriptions inside `Receive`, outside the backoff. The adapter becomes
+  restoring before it logs `socketio: adapter subscriber lost`. The expected peers are
+  PUBSUB NUMSUB of the request channel minus this instance, floored at 0; when NUMSUB
+  fails they cannot be determined. Deterministic tests run on miniredis with a pre-hook,
+  installed on the running server, that holds PSUBSCRIBE and SUBSCRIBE and releases the
+  held commands all at once or one at a time, in the order they reached it (the v1 helper
+  `delayRedisSubscriptions`, PR #18, holds PSUBSCRIBE). The *live values* are miniredis
+  NUMPAT, NUMSUB of the request and response channels and `CurrentConnectionCount`. They
+  are *settled* when they are equal on two reads 50 ms apart; each case first PINGs the
+  injected client and waits for that, at most 5 s, and records them as the baseline.
+  *Nothing left* means they are settled within 5 s of releasing the hold with NUMPAT and
+  NUMSUB equal to the baseline and the connection count not above it, and the client still
+  answers PING. A *peer* is another adapter with a socket, on its own client of the same
+  miniredis; each case below says whether one exists, and the baseline is recorded after
+  it is constructed.
+  - 4R-T1: a peer exists. The test installs the hold, starts construction and, once the
+    hook holds its first command, releases that one only. 200 ms later construction has
+    not returned and the hook holds a second command (an adapter reading one confirmation
+    returns earlier); releasing that one returns construction within 500 ms. The test adds
+    a socket to the new adapter immediately after construction returns and only then
+    issues a peer's broadcast, with no wait: the socket receives it within 1 s. The peer's
+    `Sockets`, issued after the add, lists it.
+  - 4R-T2: no peer. With `SubscribeTimeout` 200 ms and a 2 s hold, construction returns
+    an error within 1 s, leaving nothing.
+  - 4R-T3: no peer. Server `Close`, called after the hook has held its first command of a
+    namespace creation, returns at once; with the hold still in place, the creating call
+    returns at once after `Close` with an error matching `ErrNamespaceClosed`. The hold
+    is released only then, leaving nothing.
+  - 4R-T4: no peer. `Sockets` and `FetchSockets` return the local data and nil at once;
+    with NUMSUB failing (pre-hook error), the local data and an error at once.
+  - 4R-T5: no peer until the last step. The injected client's `Dialer` records every
+    connection it dials. With a live adapter that has a socket and the baseline recorded, the test installs the hold first (only PSUBSCRIBE
+    and SUBSCRIBE are held, and an established subscription sends neither until its
+    connection closes, so no resubscribe reaches miniredis before it), then closes every
+    recorded connection. Once the `subscriber lost` record is logged, `Sockets` returns
+    the local sockets and an error at once. miniredis is not restarted: `Restart` builds
+    a server without the pre-hook. With `SubscribeTimeout` 200 ms and the backoff's documented
+    initial and maximum delay options set to 50 ms and 200 ms, the hold stays until it has held the first command
+    (PSUBSCRIBE or SUBSCRIBE) of three distinct server-side connections within 10 s, or
+    the case fails; an adapter attempt and the go-redis redial inside `Receive` are each
+    a new connection. When the third has held its first command, `Sockets` returns the
+    local sockets and an error at once, nothing being confirmed (an adapter that stops
+    restoring when it creates or dials the new connection returns nil). The test then
+    releases the held commands in arrival order up to the third connection's first one
+    only; 50 ms later `Sockets` still returns the local sockets and an error (one of two
+    confirmations), and the rest is released. Leaks are checked on the server only, after
+    the release (a held connection stays counted until its command returns): once the live values are settled, a recovery poll passes, and
+    nothing is left. A leaked attempt is an open
+    connection miniredis counts whatever the client believes; the PR that adds the test
+    also shows the check failing on a variant that leaves a failed attempt's connection
+    open (a read with a timeout the library does not treat as fatal, and no `Close`). A
+    peer, constructed only then, broadcasts, and the broadcast reaches the adapter's socket
+    within 1 s.
+  - 4R-T6: construction with a `*redis.ClusterClient` or a two-shard `*redis.Ring`
+    returns an error matching `ErrUnsupportedRedisClient` (`errors.Is`).
 - **`adapters/nats`**: subjects `<prefix>.<encoded-nsp>.broadcast` and
   `<prefix>.<encoded-nsp>.room.<encoded-room>`. Encode each arbitrary UTF-8 name as
   `b` plus unpadded base64url of its bytes (empty name becomes `b`); dots, wildcards
@@ -1728,7 +1901,54 @@ root and adapter consumers/tests against published versions without local replac
   plus an error for missing peers. Document membership staleness and distinguish
   known zero remote peers from unavailable discovery. `ServerSideEmit` follows the
   publication-only contract in 2.2. Inject `*nats.Conn`; reconnect is handled by the
-  client. Test with an embedded `nats-server/v2`, no Docker.
+  client. Heartbeats are sent every `HeartbeatInterval` (option, default 5 s, 200 ms in
+  tests). For 2.2 *Readiness*, construction flushes after subscribing with a context
+  derived by `context.WithTimeout` from the factory context and the documented
+  `SubscribeTimeout` option (default 10 s; `FlushWithContext` needs a deadline). The
+  flush confirms only the connected server (the limit stated in 2.2 *Readiness*); the
+  adapter README says so and no case covers the rest. The adapter is restoring while
+  `nc.IsConnected()` is false and from any reconnect until a flush succeeds after it. It
+  sees a reconnect, even one shorter than a status poll, by comparing `nc.Stats().Reconnects`
+  with the value read before its last successful flush; it polls every 100 ms and checks at each query,
+  and never replaces the application's handlers. The expected peers are undetermined
+  until one `HeartbeatInterval` after construction, so for that long every cluster query
+  returns the local data and an error, also with no peer; the adapter README says so.
+  Test with an embedded `nats-server/v2`, no Docker, and a test TCP proxy between client
+  and server. The proxy listens on one fixed address, dials the server anew for each
+  accepted client, closes the client side when the upstream closes, and has three controls.
+  `Stall()` stops forwarding client bytes on live connections and buffers them;
+  `StallNext()` does the same for the next connection that completes its handshake: the
+  proxy engages the stall before it forwards the server's first PONG, so nothing the
+  client sends after the handshake passes, and a connection whose upstream dial fails
+  never completes one; `Release()` forwards the buffered bytes in order and ends the stalls. *Nothing
+  left* is read after `Release()` and a following `nc.FlushTimeout(2 s)`, which returns
+  once the server has processed everything the client sent before it: the server's
+  subscription count and `nc.NumSubscriptions()` equal their values before construction.
+  A leaked SUB reaches the server on release and raises the count; a SUB followed by its
+  UNSUB leaves it unchanged. Every `Test4N_T<n>` builds its own server and repeats the
+  steps it names.
+  - 4N-T1: no peer. `HeartbeatInterval` plus 100 ms after construction the test shuts the
+    embedded server down; `nc.IsConnected()` becomes false within 10 s (the test fails
+    beyond it); `Sockets` and `FetchSockets` then return the local data and an error at
+    once.
+  - 4N-T2: with `Stall()` applied, construction with `SubscribeTimeout` 200 ms returns an
+    error within 1 s; with `SubscribeTimeout` 10 s and the factory context cancelled
+    after the proxy buffered the SUB, it returns an error at once. `Release()` comes only
+    after the error, then each leaves nothing. The PR that adds the case shows it failing
+    on a variant that skips the unsubscribe.
+  - 4N-T3: `HeartbeatInterval` 2 s, a peer adapter running. `Sockets` issued as soon as
+    construction returns returns the local sockets and an error at once; 2.1 s after
+    construction it returns the peer's sockets and nil within 1 s.
+  - 4N-T4: no peer; the connection has `MaxReconnects` -1 and `ReconnectWait` 100 ms.
+    The test calls `StallNext()` right after construction returns, then does the 4N-T1 shutdown with
+    its assertions, restarts the server on the same address and waits for
+    `nc.IsConnected()` to turn true within 10 s. The resent subscriptions and the
+    adapter's flush then sit in the proxy, so `Sockets` returns the local sockets and an
+    error at once although `nc.IsConnected()` is true. After `Release()` a recovery
+    poll passes.
+  - 4N-T5: the application's `DisconnectedErrHandler` and `ReconnectHandler` count
+    their calls; the test repeats the 4N-T1 and 4N-T4 steps and then closes the adapter;
+    the first handler was called once and the second once.
 - Both adapters report through `Namespace.Hooks()` (paired `AdapterPublishStart/End`
   and `AdapterReceiveStart/End`) and use `Namespace.Logger()` for other library-owned diagnostics.
   The Redis adapter logs WARN `socketio: adapter publish failed` on a PUBLISH error,
@@ -1740,8 +1960,23 @@ root and adapter consumers/tests against published versions without local replac
   servers do not send logs to each other's handlers or the global fallback.
 - **`adaptertest`** package in the root module: conformance suite any adapter runs
   against itself (like `fstest.TestFS`): join/leave, broadcast to room, except, local
-  flag, fetch across two adapters, server-side emit, peer loss with timeout, and both
-  adapter hooks firing.
+  flag, fetch across two adapters, server-side emit, peer loss with timeout, both
+  adapter hooks firing, and the generic 2.2 *Readiness* cases: for a backend with
+  peers, a socket added to the new adapter immediately after construction returns, then
+  a peer's broadcast issued with no wait, gets a nil error with `Published` true and
+  reaches that socket within 1 s; a query
+  with no peer, issued after the harness's `DiscoveryDelay` (0 for Redis, the
+  `HeartbeatInterval` plus 100 ms for NATS), returns the local data and nil at once;
+  with a socket added and the factory context cancelled after construction returns, and
+  200 ms waited for every backend whatever its `DiscoveryDelay` (longer than any
+  in-process cancellation), a peer's broadcast still reaches the socket and, after
+  `DiscoveryDelay`, a query with a peer still answers until `Close`. The harness calls `AdapterFactory` itself with a context
+  it cancels once the call returns, because `Server` cancels that context only in
+  `Shutdown` or `Close` (2.3S R9 covers that path). They run as the subtests `Readiness/PeerBroadcast`,
+  `Readiness/NoPeerQuery` and `Readiness/CtxAfterReturn` of `adaptertest.Run`, which
+  each backend module calls from its wrapper test `TestAdapterConformance`. Held
+  subscriptions and subscriber loss need a backend harness and stay in the backend
+  suites (4R, 4N).
 - `docs/ADAPTERS.md`; `adapters/<name>/README.md` for backend options; chat example
   supports both backends.
 - Restore the migrated Redis examples and add the chat's two-server compose
@@ -1757,10 +1992,20 @@ root and adapter consumers/tests against published versions without local replac
 
 DoD: `go mod graph` of the root module contains no redis or nats module; `adaptertest`
 passes for in-memory, Redis and NATS; Redis suite (testcontainers, two servers) and NATS
-suite (embedded server, two servers) pass under `-race`; cross-language CI test: one Go
-server and one Node `socket.io@4` server with `@socket.io/redis-adapter` share Redis, a
-room broadcast from each side reaches a client on the other, and `fetchSockets` from
-Node lists the Go socket. Msgpack fixtures captured from notepack cross-decode in
+suite (embedded server, two servers) pass under `-race`; every 4R and 4N case
+passes under `-race` as the test `Test4R_T<n>` or `Test4N_T<n>` (the 4R cases on
+miniredis), and so does each `adaptertest` `Readiness/` subtest of the Redis and NATS
+suites. In each adapter module `go test -race -count=1 -json -run
+'^(Test4R_T[1-6]|TestAdapterConformance)$' ./...` (`Test4N_T[1-5]` in `adapters/nats`)
+must report a pass for each of its ids and no skip, fail or missing id. The ids are
+the test names and `TestAdapterConformance/Readiness/PeerBroadcast`, `.../NoPeerQuery`
+and `.../CtxAfterReturn`: a skipped subtest does not fail its parent, so a CI script
+(added with 4b) reads the `-json` events for every id and fails otherwise, and a PR
+that adds a case adds its id there;
+cross-language CI test:
+one Go server and one Node `socket.io@4` server with `@socket.io/redis-adapter` share
+Redis, a room broadcast from each side reaches a client on the other, and
+`fetchSockets` from Node lists the Go socket. Msgpack fixtures captured from notepack cross-decode in
 both directions with equal semantics; require exact bytes only for canonical
 fixtures where map ordering and numeric representation are fixed.
 
@@ -1986,6 +2231,7 @@ snapshot/Node interoperability prototype before treating it as a delivery commit
 ## Out of scope
 
 EIO=3 in v2; connection state recovery; WebTransport; permessage-deflate; sharded Redis
-adapter (Redis 7 sharded pub/sub); cluster broadcast-with-ack; NATS JetStream persistence;
+adapter (Redis 7 sharded pub/sub); Redis Cluster, Ring and replica-routed clients for
+`adapters/redis` (see 4b `adapters/redis`); cluster broadcast-with-ack; NATS JetStream persistence;
 framework-specific integration packages (gin, echo, iris, gf use `http.Handler`); trace
 context propagation through the Redis adapter.

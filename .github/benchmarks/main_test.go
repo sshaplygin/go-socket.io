@@ -60,6 +60,8 @@ func TestCodeChanged(t *testing.T) {
 		{"checksum", "go.sum", "old\n", "new\n", true},
 		{"documentation", "README.md", "old\n", "new\n", false},
 		{"example", "_examples/main.go", "package old\n", "package new\n", false},
+		{"experiment source", "_experiments/x/x.go", "package old\n", "package new\n", false},
+		{"experiment module", "_experiments/x/go.mod", "module old\n", "module new\n", false},
 		{"unrelated workflow", ".github/workflows/ci.yaml", "old\n", "new\n", false},
 		{"benchmark workflow", ".github/workflows/benchmarks.yml", "old\n", "new\n", true},
 		{"helper comments", ".github/benchmarks/main.go", "package main\n// old\n", "package main\n// new\n", false},

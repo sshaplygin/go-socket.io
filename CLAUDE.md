@@ -24,6 +24,7 @@ Go implementation of a Socket.IO server (and an experimental client). Module pat
 | `engineio/internal/logtest/` | log recorder shared by the `engineio` and `engineio/client` tests |
 | `logger/` | package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: parser, transports, `engineio/packet`, `engineio/client` |
 | `_examples/` | runnable examples, each with its own `go.mod`; excluded from the root build by the `_` prefix |
+| `_experiments/` | standalone prototypes, each with its own `go.mod`, never imported by the root module; built by `make experiments` |
 | `docs/` | protocol notes and roadmap |
 
 Runtime model: `engineio.Server` accepts HTTP requests and emits `engineio.Conn`
@@ -38,9 +39,10 @@ make lint       # gofmt -s check, go vet, golangci-lint (v2 config)
 make test       # go test -count=1 ./...
 make test-race  # the same with -race; what CI runs
 make bench      # benchmarks only, no tests
-make vuln       # govulncheck ./... in the root and in every _examples module
+make vuln       # govulncheck ./... in the root and in every _examples and _experiments module
 make cover      # coverage profile + HTML report
 make examples   # build every _examples/*/ module and the Go client, check that every chat.go is identical, race-test default-http
+make experiments # vet, gofmt -s, golangci-lint and race tests in every _experiments/*/ module
 make all        # go install ./...
 ```
 
@@ -49,13 +51,14 @@ golang.org/x/vuln/cmd/govulncheck@latest`), built with the newest stable Go: a
 standard-library finding is cleared by upgrading the toolchain, not by code. Tests need
 no external services.
 
-CI (`.github/workflows/ci.yaml`) has four jobs: `lint` (tidy diff, mod verify, gofmt,
+CI (`.github/workflows/ci.yaml`) has five jobs: `lint` (tidy diff, mod verify, gofmt,
 vet, golangci-lint, `make vuln` on ubuntu with the newest Go release from go.dev,
 because `setup-go` lags behind it), `test` (race tests on
 ubuntu, macos and windows with `stable` and `oldstable` Go), `min-go` (build and
 race tests of the root module on ubuntu with the latest Go 1.22.x and
-`GOTOOLCHAIN=local`, so it fails if `go.mod` or a dependency requires a newer Go)
-and `examples` (`make examples`). Dependabot groups Go minor/patch and Actions updates weekly, also for the v1.x branch (target-branch).
+`GOTOOLCHAIN=local`, so it fails if `go.mod` or a dependency requires a newer Go),
+`examples` (`make examples`) and `experiments` (`make experiments` on ubuntu with `stable`;
+installs golangci-lint with `go install`). Dependabot groups Go minor/patch and Actions updates weekly, also for the v1.x branch (target-branch).
 
 Benchmarks (`.github/workflows/benchmarks.yml`) compare the PR base and head on
 one Ubuntu runner with the same stable Go toolchain. Each benchmark runs ten times;

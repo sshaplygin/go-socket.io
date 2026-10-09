@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Changed
+
+- CI: `make experiments` vets, format-checks, lints and race-tests every standalone
+  `_experiments/*/go.mod` module in a new `experiments` job; `make vuln` and Dependabot
+  (`gomod`, weekly) cover those modules too.
+
 ## v1.5.0 (unreleased, branch v1.x)
 
 ### Fixed

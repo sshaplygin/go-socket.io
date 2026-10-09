@@ -605,14 +605,18 @@ Tasks:
     examples, API usage".
   - `logger/README.md` is deleted: it tells users to assign `logger.Log`, which
     bypasses `logger.Wrap`, and the package godoc owns its subject (1.L).
-  - Link form (1.D owns it): until `v1.5.0` is tagged, pkg.go.dev links and `go get`
-    commands use `@v1.x`, the branch cut in 1b step 0. 1.D replaces every `@master` in
-    `README.md`, `engineio/README.md` and `CHANGELOG.md` with `@v1.x` in a commit on
-    `master` before the cut, so both branches carry it, and writes into `README.md` one
-    sentence containing the words `until a release` that tells users to use the branch
-    until a release is tagged. The tag-time release commit and the reason for the branch
-    name are owned by [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases); the tag-time
-    gates are in the Stage 1 Acceptance.
+  - Link form (1.D owns it, by URL kind): until `v1.5.0` is tagged, `go get` commands
+    use `@v1.x`, the branch cut in 1b step 0, and pkg.go.dev links carry no version
+    (`https://pkg.go.dev/github.com/sshaplygin/go-socket.io[/pkg]`), because pkg.go.dev
+    accepts only a semantic version, `latest` or `master` and answers HTTP 400 for
+    `@v1.x`. 1.D replaces `@master` in the `go get` command of `README.md` with `@v1.x`
+    and strips `@master` from every pkg.go.dev link in `README.md`,
+    `engineio/README.md` and `CHANGELOG.md`, in a commit on `master` before the cut, so
+    both branches carry it, and writes into `README.md` one sentence containing the
+    words `until a release` that tells users to use the branch until a release is
+    tagged. The tag-time release commit and the reason for the branch name are owned by
+    [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases); the tag-time gates are in the
+    Stage 1 Acceptance.
   - Already satisfied at `9716ec0` and guarded by the DoD: no `godoc.org` links;
     the README badges point at this fork.
 - **1.K Known limitations** (wave 1C, after wave 1B has merged, so no other task
@@ -623,8 +627,9 @@ Tasks:
   - The godoc states the behaviour; from the tag it, not 1.R, records the two 1.R
     *Known limitations*. The subsection names each limitation in one sentence,
     without line numbers, and links the pkg.go.dev godoc of `Server.Adapter`,
-    `Server.RoomLen` and `Server.Rooms` in the form 1.D owns (a link merged as `@master` is converted
-    to `@v1.x` by the 1.D link-form commit), which the tag-time release commit (`CONTRIBUTING.md`) switches to `@v1.5.0`. It adds no entry under `### Fixed` or
+    `Server.RoomLen` and `Server.Rooms` in the form 1.D owns (unversioned; a link merged as `@master`
+    is stripped by the 1.D link-form commit), which the tag-time release commit
+    (`CONTRIBUTING.md`) pins to `@v1.5.0`. It adds no entry under `### Fixed` or
     `### Changed`.
   - The `Server.Adapter` godoc says that a namespace receives peers' broadcasts and
     requests and is counted by them only once Redis has registered its
@@ -674,7 +679,7 @@ with no output, and the last pipeline prints nothing:
 git grep -nE '(^|[^[:alnum:]_])(log|fmt)\.Print' -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' ':(exclude).github'
 git grep -nE '\.(Error|Info)\("' -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' ':(exclude).github' ':(exclude)logger'
 git grep -nE 'https?://godoc[.]org' -- '*.md'
-git grep -nE '(pkg\.go\.dev/|go get )github\.com/sshaplygin/go-socket\.io(/[a-z_/]+)?([^@a-z_/]|$)' -- README.md engineio/README.md
+git grep -nE 'pkg\.go\.dev/[^) ]*@|go get github\.com/sshaplygin/go-socket\.io(/[a-z_/]+)?([^@a-z_/]|$)' -- README.md engineio/README.md CHANGELOG.md
 git grep -n '@master' -- README.md engineio/README.md CHANGELOG.md
 git grep -nE '\.(Debug|Warn)\("' -- '*.go' ':(exclude)*_test.go' ':(exclude,glob)**/_examples/**' ':(exclude).github' | grep -vE '\.(Debug|Warn)\("(engineio|socketio|logger): [a-z][a-z0-9 ]*"[,)]'
 ```
@@ -688,12 +693,19 @@ example the release commit was accepted on also connected `/chat`).
 Closing the tab gives `reason` `transport error` or `ping timeout`, because
 socket.io-client 1.x and 2.x send no CLOSE then; `transport close` is covered by 1L-T1.
 Unset, the application's handler controls the level; invalid values behave as 2.4
-specifies. Every badge and link in `README.md` resolves on GitHub.
+specifies. Every badge and link in `README.md` resolves on GitHub, and every pkg.go.dev
+URL in `README.md`, `engineio/README.md` and `CHANGELOG.md` answers HTTP 200 (needs
+network; prints nothing; the same check runs on `$CUT` in the `v1.x` gates):
+
+```sh
+test -z "$(for u in $(cat README.md engineio/README.md CHANGELOG.md | grep -o 'https://pkg.go.dev/[^) ]*' | sed 's/#.*//' | sort -u); do test "$(curl -s -o /dev/null -w '%{http_code}' $u)" = 200 || echo $u; done)"
+```
+
 Tag-time gates (M4; run once, after the owner ordered the tag and the `v1.5.0` release
 commit of [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases) is tagged and pushed; `bash`
 and `set -e`, rules as in the Stage 1b DoD; not part of the stage 1 gate). The block
 proves that the tag sits on `v1.x` and not on `master`, that the released files carry
-`@v1.5.0` and no `@v1.x`, that the 1.K check passes on the tagged tree, and that a
+`@v1.5.0` (the `go get` command and the pinned pkg.go.dev links) and no `@v1.x`, that the 1.K check passes on the tagged tree, and that a
 consumer that previously used upstream builds against the fork at the tag after
 updating its imports, without an upstream-path `replace` directive. Stage 1b runs
 `consumer v1.x` from the same definition at M1b closure:
@@ -747,8 +759,8 @@ commits kept ([`CONTRIBUTING.md`](../CONTRIBUTING.md) rule 5).
 **Base and branch `v1.x` (this section owns the cut; no other section creates the
 branch).** The branch is `v1.x`; why it is not `v1`, the tagging rule and the release
 commit are in [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases). `$CUT` is the last `master` commit with CI green once the pre-cut PRs have
-merged: every stage 1 task and the 1.D link-form commit (`@master` becomes `@v1.x`, so
-both branches carry it). The branch is cut from `$CUT` without a tag, before the first 1b
+merged: every stage 1 task and the 1.D link-form commit (`go get` moves from `@master` to `@v1.x`
+and pkg.go.dev links lose `@master`, so both branches carry it). The branch is cut from `$CUT` without a tag, before the first 1b
 commit. The tag `v1.5.0` is made later on `v1.x`, only on the owner's command, at M4
 (Milestones). `$CUT` replaces the tag as the
 base of the DoD diffs; each 1b PR records `CUT=<sha>` on its own line of the body (the
@@ -958,6 +970,8 @@ afterwards:
 gh pr view --json body --jq .body | tr -d '\r' | grep -qx "CUT=$CUT"
 test -z "$(for f in README.md engineio/README.md CHANGELOG.md; do git show $CUT:$f; done | grep '@master')"
 git show $CUT:README.md | grep -q '@v1\.x'
+test -z "$(for f in README.md engineio/README.md CHANGELOG.md; do git show $CUT:$f; done | grep -o 'https://pkg.go.dev/[^) ]*' | grep '@')"
+test -z "$(for u in $(for f in README.md engineio/README.md CHANGELOG.md; do git show $CUT:$f; done | grep -o 'https://pkg.go.dev/[^) ]*' | sed 's/#.*//' | sort -u); do test "$(curl -s -o /dev/null -w '%{http_code}' $u)" = 200 || echo $u; done)"
 git show $CUT:README.md | grep -q 'until a release'   # the sentence the tag-time absence check relies on (1.D)
 test "$(gh run list --branch master --workflow CI --commit $CUT --json conclusion --jq '.[0].conclusion')" = success
 # before step 0b merges: the branch is at $CUT, and no v1.5 tag exists (it is made at M4)

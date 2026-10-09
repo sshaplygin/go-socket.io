@@ -43,13 +43,15 @@ procedure and the `CHANGELOG.md` handling across branches; the roadmap links her
   `## <version> - <date>` (the section moves under the new version), run the full CI
   matrix, and record benchmark numbers the roadmap asks for in the changelog entry.
 - While a line has no tag with the fork's module path (the `v1.4.x` tags carry the
-  upstream path, and an unversioned `go get` resolves `v1.4.2` and fails), pkg.go.dev
-  links and `go get` commands name the branch: `@v1.x`. The first release commit
-  (`v1.5.0`) is made on `v1.x` when the owner orders the tag: it renames the heading as
-  above, switches `@v1.x` to `@v1.5.0` in the pkg.go.dev links of `README.md`,
-  `engineio/README.md` and the released `CHANGELOG.md` section and in the `README.md`
-  install command, and removes the `README.md` sentence that tells users to use the
-  branch until a release is tagged. The tag is created on that commit.
+  upstream path, and an unversioned `go get` resolves `v1.4.2` and fails), `go get`
+  commands name the branch: `@v1.x`. pkg.go.dev links carry no version, because
+  pkg.go.dev rejects `@v1.x` (HTTP 400: not a valid semantic version) and accepts only
+  a semantic version, `latest` or `master`. The first release commit (`v1.5.0`) is made
+  on `v1.x` when the owner orders the tag: it renames the heading as above, switches
+  `@v1.x` to `@v1.5.0` in the `README.md` install command, adds `@v1.5.0` to the
+  pkg.go.dev links of `README.md`, `engineio/README.md` and the released `CHANGELOG.md`
+  section, and removes the `README.md` sentence that tells users to use the branch
+  until a release is tagged. The tag is created on that commit.
 - `CHANGELOG.md` across branches: each branch writes entries under its own `Unreleased`
   heading, and an entry that a branch already carries from the other one is never
   repeated under `master`'s `Unreleased`. The release commit is forward-ported to

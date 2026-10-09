@@ -1047,7 +1047,8 @@ the Node oracle or script checks of its module that it ran by hand. A module lan
 `master` through a fresh-branch cherry-pick PR of its owned commits (transfer rules in
 issue #2; #44 and #45 landed this way and supersede draft PRs #8 and #9); it is later
 absorbed into live packages by the PR that lands its consumer, and that PR deletes the
-experiment. A draft PR does not satisfy a gate.
+experiment and its `Unreleased` CHANGELOG entry (today `adapter-wire` and
+`adapter-rooms`). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
 
 | Component (source PR) | Purpose | Consumer | State in `master` and retirement |
 | --- | --- | --- | --- |
@@ -1967,7 +1968,9 @@ new revision IDs; release them separately. M7 closes the roadmap.
 | M7 | Stage 6: final comparative benchmark report and reproducible artifacts | report/artifact revision; no runtime release required |
 
 M2 is accepted when G2, the 2B join gate and the 2.1 exit have passed on one
-reviewed `master` commit. The 2B join gate also covers the 2.2 memory adapter and the
+reviewed `master` commit and `git ls-files '_experiments/*/go.mod'` prints nothing there
+(every consumer in *Prepared components* has landed, so no leftover experiment is
+allowed); the owner may not declare M2 otherwise. The 2B join gate also covers the 2.2 memory adapter and the
 2.3P codec, so at acceptance that code is on `master` but unreleased; M3 releases it.
 The owner's declaration is what makes the commit reviewed: the owner records its SHA
 in the transfer ledger of [issue #2](https://github.com/sshaplygin/go-socket.io/issues/2)

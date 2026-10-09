@@ -2304,6 +2304,10 @@ make lint test-race
 test -z "$(go list -deps ./client | grep -x "$MOD")"
 test -z "$(go list -deps ./client | grep redigo)"   # the Redis broadcast is not carried over
 test -n "$(go list -deps . | grep -x "$MOD/client")"
+test -n "$(go doc . Client | grep -E '^ *Deprecated: use client\.Client\.')"   # the notices; both fail on v1.x, where they are absent
+test -n "$(go doc . NewClient | grep -E '^ *Deprecated: use client\.NewClient\.')"
+cl() { awk '/^## Unreleased/{u=1;next} /^## /{u=0} u && /^### /{s=$2} u && s=="'$1'"' CHANGELOG.md; }
+test -n "$(cl Added | grep 'go-socket.io/client')"; test -n "$(cl Deprecated | grep NewClient)"
 test "$(go doc -short ./client | sed -E 's/^ +//; s/^(func [A-Za-z]+)\(.*/\1/; s/^((var|type) [A-Za-z]+).*/\1/' | paste -sd, -)" = "var ErrEmptyAddr,var ErrWriteBufferFull,type Client,func NewClient,type Conn,type Namespace"
 test "$(go doc -short ./client Client | grep '^func')" = "$(cd $BASE && go doc -short . Client | grep '^func')"
 test "$(go doc ./client Conn | grep -vE '^(package|    )|^\s*(//|$)')" = "$(cd $BASE && go doc . Conn | grep -vE '^(package|    )|^\s*(//|$)')"

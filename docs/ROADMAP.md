@@ -1038,9 +1038,8 @@ This rule is permanent (the Stage 1b freeze exempts such PRs only for the 1b win
 The command check of these clauses is the `_experiments stays standalone` line of the
 Stage 1b DoD, which stays a gate after 1b by reference; the experiments CI job, planned
 in a separate CI PR, must run it (per-module vet, lint and tests do not cover these
-clauses). A module lands
-in `master` through a fresh-branch cherry-pick PR of its owned commits (transfer rules
-in issue #2); it is later absorbed into live packages by the PR that lands its
+clauses). A module lands in `master` through a fresh-branch cherry-pick PR of its
+owned commits (transfer rules in issue #2); it is later absorbed into live packages by the PR that lands its
 consumer, and that PR deletes the experiment. A draft PR does not satisfy a gate.
 
 | Component (draft PR) | Purpose | Consumer | Lands in `master` |
@@ -1968,8 +1967,9 @@ in the transfer ledger of [issue #2](https://github.com/sshaplygin/go-socket.io/
 and only then creates branch `v2-next` once from that SHA as a frozen snapshot. It
 receives no PRs (the owner does not merge into it); topic PRs keep targeting `master`.
 Check: `git ls-remote origin refs/heads/v2-next refs/heads/v2-dev` prints the ledger
-SHA for `v2-next` and `063debc5f9f0b1658743d746ec323be3ee6b649d` for `v2-dev`. No CI or Dependabot trigger is wired for
-it, so it is not a working branch unless a roadmap step first adds the triggers. The
+SHA for `v2-next` and `063debc5f9f0b1658743d746ec323be3ee6b649d` for `v2-dev`.
+No CI or Dependabot trigger is wired for it, so it is not a working branch unless a
+roadmap step first adds the triggers. The
 legacy `v2-dev` branch (2021) is unrelated and stays unchanged.
 
 Re-estimate stage 2 after G2 and adapters after the shared codec/conformance fixtures.

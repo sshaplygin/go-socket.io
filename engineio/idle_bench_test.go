@@ -49,6 +49,9 @@ import (
 // entries of a finished run keep the ephemeral port range exhausted for about a minute
 // and the next run fails to dial (the error says so).
 //
+// A run with more connections than the loopback ephemeral range holds (about 16000 on
+// macOS by default) fails the same way.
+//
 // Only the public engineio.Server, client.Dialer and websocket.Default are used, so the
 // same file measures any WebSocket implementation behind them. The benchmark skips
 // outside linux and darwin (it needs RLIMIT_NOFILE) and where ps is missing or does not
@@ -176,8 +179,8 @@ func runIdleIteration(b *testing.B, n int) idleResult {
 				}
 				c, err := dialer.Dial("http://"+addr+"/", nil)
 				if err != nil {
-					if errors.Is(err, syscall.EADDRNOTAVAIL) {
-						err = fmt.Errorf("%w (ephemeral ports are exhausted, usually by TIME_WAIT entries of a previous run: wait a minute)", err)
+					if portsExhausted(err) {
+						err = fmt.Errorf("%w (ephemeral ports are exhausted: IDLE_CONNS exceeds the loopback port range, or TIME_WAIT entries of a previous run still hold it, wait a minute)", err)
 					}
 					firstErr.CompareAndSwap(nil, fmt.Errorf("dial %d/%d: %w", i+1, n, err))
 					failed.Add(1)
@@ -304,6 +307,36 @@ func fetchIdleStats(b *testing.B, c *http.Client, addr string) idleStats {
 		b.Fatalf("stats: %v", err)
 	}
 	return s
+}
+
+// portsExhausted reports whether a dial error means the ephemeral ports ran out
+// (EADDRNOTAVAIL). The transport's dial error does not unwrap to the errno
+// (websocket.DialError embeds error without Unwrap), and another WebSocket
+// implementation may wrap it differently, so the text of the OS error is matched as
+// well: "can't assign requested address" on macOS, "cannot assign requested address"
+// on Linux.
+func portsExhausted(err error) bool {
+	return errors.Is(err, syscall.EADDRNOTAVAIL) ||
+		strings.Contains(err.Error(), "assign requested address")
+}
+
+// TestPortsExhausted checks the dial-error classification when the errno is lost on the
+// way up, as it is in websocket.DialError (embeds error, no Unwrap): only the text is left.
+func TestPortsExhausted(t *testing.T) {
+	op := &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.EADDRNOTAVAIL)}
+	for name, tc := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"wrapped errno":         {fmt.Errorf("dial: %w", op), true},
+		"errno lost, text kept": {fmt.Errorf("dial: %v", op), true},
+		"linux text":            {errors.New("connect: cannot assign requested address"), true},
+		"other error":           {errors.New("connect: connection refused"), false},
+	} {
+		if got := portsExhausted(tc.err); got != tc.want {
+			t.Errorf("%s: portsExhausted(%v) = %v, want %v", name, tc.err, got, tc.want)
+		}
+	}
 }
 
 // readRSS returns the resident set size of pid in KiB, as reported by ps.

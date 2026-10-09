@@ -1847,9 +1847,9 @@ timeout is 5 s.
   it is constructed.
   - 4R-T1: a peer exists. The test installs the hold, starts construction and releases
     the hold 200 ms later: construction has not returned at the release and returns
-    within 500 ms of it. A socket the test then adds to the new adapter receives a
-    peer's broadcast, sent as soon as construction returned, within 1 s, and the peer's
-    `Sockets` lists it.
+    within 500 ms of it. The test adds a socket to the new adapter immediately after
+    construction returns and only then issues a peer's broadcast, with no wait: the socket
+    receives it within 1 s. The peer's `Sockets`, issued after the add, lists it.
   - 4R-T2: no peer. With `SubscribeTimeout` 200 ms and a 2 s hold, construction returns
     an error within 1 s, leaving nothing.
   - 4R-T3: no peer. Server `Close`, called after the hook has held its first command of a
@@ -1950,8 +1950,9 @@ timeout is 5 s.
   against itself (like `fstest.TestFS`): join/leave, broadcast to room, except, local
   flag, fetch across two adapters, server-side emit, peer loss with timeout, both
   adapter hooks firing, and the generic 2.2 *Readiness* cases: for a backend with
-  peers, a peer's broadcast issued as soon as construction returns gets a nil error
-  with `Published` true and reaches the new adapter's socket within 1 s; a query
+  peers, a socket added to the new adapter immediately after construction returns, then
+  a peer's broadcast issued with no wait, gets a nil error with `Published` true and
+  reaches that socket within 1 s; a query
   with no peer, issued after the harness's `DiscoveryDelay` (0 for Redis, the
   `HeartbeatInterval` plus 100 ms for NATS), returns the local data and nil at once;
   with the factory context cancelled after construction returns, a peer's broadcast

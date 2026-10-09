@@ -2320,8 +2320,9 @@ only the root and the examples import `client`. It carries its own copy, taken f
 closure the old `Client` reaches (write queue, packet handlers, client-side namespace
 connection, handler dispatch, an unexported in-memory broadcast behind `Namespace.Join`,
 `Leave`, `LeaveAll` and `Rooms`), without Redis and server-only code. The only server-path
-edit deletes `clientConnectPacketHandler` and `clientDisconnectPacketHandler` (`make lint`
-rejects unused code). Cost: a `v1.x` fix to a shared file names in its PR whether
+logic edit deletes `clientConnectPacketHandler` and `clientDisconnectPacketHandler` (`make
+lint` rejects unused code); the other root edits are the aliases, and `fmtNS`, used by the
+server, stays in the root `client.go`. Cost: a `v1.x` fix to a shared file names in its PR whether
 `client/` needs the same change and makes it there.
 
 **`api` freeze (additive exported API of `client`).** Derived from `client.go`, `connection.go`,

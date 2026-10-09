@@ -71,7 +71,7 @@ workers submit changes to these files through that integrator.
 | 6A | M6 | benchmark owner freezes versions, workload matrix, resource budgets and result schema | comparison contract and correctness checks pass |
 | 6B | 6A | our-v2, existing-Go and official-Node runners in separate directories; shared load generator owned by integrator | runners produce equivalent traffic/results |
 | 6C | 6B | measurements sequentially on reserved hosts; analysis/report follows complete raw results | M7 reproducibility and report acceptance |
-| 7A | M7 | 7.1 layering and package on branch `v1.x` (`client/`, `_examples/client/`, root `client.go`, `connection.go`, `connection_handlers.go`, `namespace_conn.go`, `errors.go`); 7.2 tests and docs follow it on the same branch | Stage 7 DoD and Acceptance, then the owner's tag order (M8) |
+| 7A | M7 | 7.1 layering and package (`client/`, `_examples/client/`, root `client.go`, `connection.go`, `connection_handlers.go`, `namespace_conn.go`, `errors.go`) and 7.2 tests and docs, as commits of one PR to `v1.x`: the wrapper switch breaks the root tests until they are split, so no PR head may carry one without the other | Stage 7 DoD and Acceptance, then the owner's tag order (M8) |
 
 Rows 1A and 1I, and the Stage 1 items, name files by their pre-1b paths; the Stage 1b
 source-to-target map owns the new names.
@@ -2292,13 +2292,13 @@ using `client.NewClient`. Function and subtest names are kept on both sides. The
 `Server`) and `TestClientErrorIdentity` (`errors.Is` between the root and `client` values
 of `ErrEmptyAddr` and `ErrWriteBufferFull`; `EmptyAddrErr` still matches).
 
-DoD, run with `bash` and `set -e` on the head of the last Stage 7 PR, rules as in the
-Stage 1b DoD. `$TIP` is the `v1.x` commit recorded in the first Stage 7 PR body; commits of
+DoD, run with `bash` and `set -e` on the head of the Stage 7 PR, rules as in the
+Stage 1b DoD. `$TIP` is the `v1.x` commit recorded in the Stage 7 PR body; commits of
 this stage are titled `<type>(7.<n>): ...`, so a later `v1.x` patch or a mirrored fix (Layering)
 in `$TIP..HEAD` is not judged against the file list. The consumer check needs network:
 
 ```sh
-TIP=${TIP:?the v1.x commit recorded in the first Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base; R=$PWD
+TIP=${TIP:?the v1.x commit recorded in the Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base; R=$PWD
 git worktree add -q --detach $BASE $TIP
 make lint test-race
 test -z "$(go list -deps ./client | grep -x "$MOD")"

@@ -26,6 +26,12 @@ All notable changes to this project are documented here. The format follows
   bounded `gobwas/ws` framing prototype and a Node `ws@8.18.3` peer that checks it; the root
   `go.mod` does not depend on `gobwas/ws`. Preparation for stage 2.1, no change to the
   library.
+- `_experiments/ws-bench`: standalone module (not imported by the root module) that compares
+  Gorilla WebSocket v1.5.3 with the `_experiments/eio4-websocket` gobwas prototype
+  (`gobwas/ws` v1.4.0) in echo and idle-connection workloads, with a harness, smoke tests and
+  a recorded exploratory measurement run. It measures a framing server's Go heap, not RSS,
+  and is not stage 2.1 acceptance; the root `go.mod` is unchanged. Preparation for stage
+  2.1, no change to the library.
 - `_experiments/sio5-codec`: standalone module (not imported by the root module) with a
   bounded Socket.IO protocol 5 wire codec (envelopes, complete binary groups, limits), Go
   tests, fuzz targets and a Node oracle pinned to `socket.io-parser` 4.2.7; preparation for

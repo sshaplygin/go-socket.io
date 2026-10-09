@@ -1833,9 +1833,10 @@ timeout is 5 s.
     `Sockets` returns the local sockets and an error at once. miniredis is not
     restarted: `Restart` builds a server without the pre-hook. With `SubscribeTimeout`
     200 ms and backoff delays of 50 ms initial and 200 ms maximum, the hold stays until
-    the pre-hook has seen PSUBSCRIBE from three distinct peers within 10 s (an adapter
-    attempt or the go-redis redial inside `Receive`: each is a new server-side
-    connection and both count), and the case fails if it has not. Leaks are checked on
+    it has held the first command, PSUBSCRIBE or SUBSCRIBE whichever comes first, of
+    three distinct server-side connections within 10 s (an adapter attempt or the
+    go-redis redial inside `Receive`: each is a new connection and both count), and the
+    case fails if it has not. Leaks are checked on
     the server only, after the release (a held peer stays counted): once the live
     values are settled, `Sockets` returns the local sockets and nil within 2 s, and
     nothing is left. A leaked attempt is an open connection that miniredis counts

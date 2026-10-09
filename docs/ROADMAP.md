@@ -2226,7 +2226,10 @@ leaf: `client` defines `Conn`, `Namespace`, `ErrEmptyAddr` and `ErrWriteBufferFu
 root declares `type Conn = client.Conn`, `type Namespace = client.Namespace`,
 `var ErrEmptyAddr = client.ErrEmptyAddr` and `var ErrWriteBufferFull = client.ErrWriteBufferFull`
 (the same type and the same values, so handlers, `errors.Is` and the reflection check
-`ft.In(0).Name() == "Conn"` in `handler.go` behave as before). `client` may import
+`ft.In(0).Name() == "Conn"` in `handler.go` behave as before). Compatibility is judged at
+source level, so the release stays a MINOR one: apidiff, and so `gorelease`, reports the alias
+move of `Conn` and `Namespace` as an incompatible change although every consumer compiles
+unchanged, hence the DoD proves it with a consumer program and does not run `gorelease`. `client` may import
 `engineio`, `engineio/transport/...`, `parser` and `logger`; nothing imports `client`
 except the root and the examples. The client path has its own copy of the connection
 runtime it uses (`conn` with the write queue and the close rules, the client-side
@@ -2289,8 +2292,7 @@ test "$(go doc -short ./client | sed -E 's/^ +//; s/^(func [A-Za-z]+)\(.*/\1/; s
 test "$(go doc -short ./client Client | grep '^func')" = "$(cd $BASE && go doc -short . Client | grep '^func')"
 test "$(go doc ./client Conn | grep -vE '^(package|    )|^\s*(//|$)')" = "$(cd $BASE && go doc . Conn | grep -vE '^(package|    )|^\s*(//|$)')"
 test "$(go doc ./client Namespace | grep -vE '^(package|    )|^\s*(//|$)')" = "$(cd $BASE && go doc . Namespace | grep -vE '^(package|    )|^\s*(//|$)')"
-# no root export lost; source compatibility is proved by cclient below, not by gorelease: apidiff reports the
-# Conn and Namespace alias moves as incompatible changes although every consumer compiles
+# no root export lost; source compatibility is proved by cclient below (see Layering)
 test -z "$(diff <(cd $BASE && go doc -short . | grep -oE '^(var|type) [A-Za-z]+' | sort) <(go doc -short . | grep -oE '^(var|type) [A-Za-z]+' | sort))"
 # only the files named in 7A changed outside client/: judged per Stage 7 commit, so later v1.x patches in $TIP..HEAD do not count
 S7=$(git log -E --no-merges --grep='^[a-z]+\(7\.' --format=%H $TIP..HEAD); test -n "$S7"

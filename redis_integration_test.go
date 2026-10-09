@@ -272,12 +272,29 @@ func TestRedisConcurrentRegistrationBuildsOneBroadcast(t *testing.T) {
 	closed("Redis connections left after Close")
 }
 
+// shortRedisDial lowers redisDialTimeout for the test and restores it in a cleanup that runs
+// after the ones registered later, such as the wait of startRegistration.
+func shortRedisDial(t *testing.T) {
+	t.Helper()
+	d := redisDialTimeout
+	redisDialTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { redisDialTimeout = d })
+}
+
+// startRegistration registers namespace "/x" on its own goroutine and waits for it in a
+// cleanup: the registration reads redisDialTimeout, which the next test changes.
+func startRegistration(t *testing.T, srv *Server) {
+	t.Helper()
+	reg := make(chan struct{})
+	go func() { srv.OnConnect("/x", func(Conn) error { return nil }); close(reg) }()
+	t.Cleanup(func() { recv(t, reg, "the registration to end") })
+}
+
 // TestRedisCloseDoesNotWaitForSilentRedis checks that Close returns within the Redis dial
 // timeout while a handler registration waits for a Redis server that accepted the
 // connection and never answers AUTH, and that the registration records the failure.
 func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
-	defer func(d time.Duration) { redisDialTimeout = d }(redisDialTimeout)
-	redisDialTimeout = 100 * time.Millisecond
+	shortRedisDial(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ln.Close() })
@@ -289,7 +306,7 @@ func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
 	}()
 	srv := NewServer(nil)
 	srv.redisAdapter = getOptions(&RedisAdapterOptions{Addr: ln.Addr().String(), Password: "secret"})
-	go srv.OnConnect("/x", func(Conn) error { return nil })
+	startRegistration(t, srv)
 	c := recv(t, accepted, "the registration's Redis dial")
 	t.Cleanup(func() { _ = c.Close() }) // at the latest, ends the registration's dial
 
@@ -310,8 +327,7 @@ func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
 // still returns while the registration waits; the registration records the failure and
 // closes the publishing connection.
 func TestRedisCloseDoesNotWaitForSilentSubscriber(t *testing.T) {
-	defer func(d time.Duration) { redisDialTimeout = d }(redisDialTimeout)
-	redisDialTimeout = 100 * time.Millisecond
+	shortRedisDial(t)
 	s := miniredis.RunT(t)
 	s.RequireAuth("secret")
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -330,7 +346,7 @@ func TestRedisCloseDoesNotWaitForSilentSubscriber(t *testing.T) {
 	}()
 	srv := NewServer(nil)
 	srv.redisAdapter = getOptions(&RedisAdapterOptions{Addr: ln.Addr().String(), Password: "secret"})
-	go srv.OnConnect("/x", func(Conn) error { return nil })
+	startRegistration(t, srv)
 	c := recv(t, silent, "the registration's subscriber dial")
 	t.Cleanup(func() { _ = c.Close() }) // at the latest, ends the subscriber dial
 	require.Equal(t, 1, s.TotalConnectionCount(), "publishing connections that reached Redis")

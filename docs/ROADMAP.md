@@ -1045,15 +1045,15 @@ the Node oracle or script checks of its module that it ran by hand. A module lan
 `master` through a fresh-branch cherry-pick PR of its owned commits (transfer rules in
 issue #2; #44, #45, #54, #55 and #53 landed this way and supersede draft PRs #8, #9, #1, #6 and #7); it is later
 absorbed into live packages by the PR that lands its consumer, and that PR deletes the
-experiment and its `Unreleased` CHANGELOG entry (today `adapter-wire`,
-`adapter-rooms`, `eio4-websocket`, `ws-bench` and `sio5-codec`, plus the `internal/eio4` entry). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
+experiment and its `Unreleased` CHANGELOG entry (today `adapter-rooms`,
+`eio4-websocket`, `ws-bench` and `sio5-codec`, plus the `internal/eio4` entry; `adapter-wire` went
+with the first 2.2 PR, which created `adapter/codec`). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
 
 | Component (source PR) | Purpose | Consumer | State in `master` and retirement |
 | --- | --- | --- | --- |
 | `eio4` paths and `_experiments/eio4-websocket` (#1, landed as #54) | EIO4 codecs and gobwas framing | 2.1, table in 2.1 | landed, unreleased; no production code references the `internal/eio4` packages yet, the 2.1 PR moves them into the live packages; the module stays until the 2.1 PR deletes it, in the same PR as `ws-bench` or after it |
 | `_experiments/ws-bench` (#6, landed as #55) | Gorilla vs gobwas component benchmark; requires `eio4-websocket` via a relative `replace` | 2.1 idle baseline (not RSS) | landed, unreleased; deleted when `gorilla/websocket` leaves the root `go.mod` at 2.1 (its own `go.mod` pins gorilla), and no later than `eio4-websocket` |
 | `_experiments/sio5-codec` (#7, landed as #53) | v5 wire codec, Node oracle | 2.3P `parser/` | landed, unreleased; the 2.3P PR absorbs it into `parser/` and deletes it |
-| `_experiments/adapter-wire` (#8, landed as #44) | pinned Node Redis adapter wire fixtures | `adapter/codec` (2.2), then 4A codec fixtures | landed, unreleased; the 2.2 PR that creates `adapter/codec` absorbs and deletes it, and 4A reads the fixtures from there |
 | `_experiments/adapter-rooms` (#9, landed as #45) | Node memory-adapter room corpus | 2.2 conformance | landed, unreleased; absorbed into the 2.2 tests by the PR that adds them, which deletes it |
 
 ### 2.0 Generic API and lifecycle contract
@@ -1243,7 +1243,8 @@ func (s *Server) Namespace(ctx context.Context, name string) (*Namespace, error)
 ```
 
 `Adapter`, related types and the in-memory implementation live in root `socketio`;
-`adapter/codec` (created here) depends on parser/wire types, never on root `socketio`. External
+`adapter/codec` (created here; its first slice, the Node Redis adapter message format over
+codec-local wire types, has landed) depends on parser/wire types, never on root `socketio`. External
 adapters import the root; the root never imports them. This avoids a cycle through
 the `*Namespace` parameter of `AdapterFactory`. The memory adapter is the v2 default; legacy removal belongs to 2.0. The v2.0
 release and its example build job require only the memory adapter.
@@ -1878,7 +1879,8 @@ latency, errors, queue peaks and memory; do not use an unspecified workload as a
 
 Each adapter has its own `go.mod` and CI job and is tagged independently
 (`adapters/redis/v2.0.0`, `adapters/nats/v2.0.0`). The root `go.mod` has no Redis or
-NATS dependency. Both depend on the root module as a normal versioned dependency and on
+NATS dependency; it does carry `vmihailenco/msgpack/v5` (with its `tagparser/v2`), which
+`adapter/codec` imports since 2.2. Both depend on the root module as a normal versioned dependency and on
 `adapter/codec` for the message format. Release root `v2.2.0`, containing
 `adaptertest` and any shared-codec additions, before tagging adapter modules. Verify
 root and adapter consumers/tests against published versions without local replacements.
@@ -1896,7 +1898,8 @@ single call cannot be required to hit.
   Broadcast messages are msgpack `[uid, packet, opts]` via `vmihailenco/msgpack/v5`
   matching notepack output; supported request/response messages use Node's JSON
   encoding. Freeze fixtures for every supported operation, including
-  `publishOnSpecificResponseChannel=true` and false. The injected
+  `publishOnSpecificResponseChannel=true` and false (the Node corpus and its oracle are
+  in `adapter/codec/testdata`, landed with 2.2). The injected
   `redis.UniversalClient` (the type `redis.NewUniversalClient` returns, which for one
   address holds a `*redis.Client`) must send every command to one Redis master, so only
   a `*redis.Client` (from `redis.NewClient` or `redis.NewFailoverClient`) is accepted;

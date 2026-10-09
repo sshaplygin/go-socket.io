@@ -1553,9 +1553,13 @@ It adds no dependency: the root `go.mod` carries `vmihailenco/msgpack/v5` for
   the Go server and client, and Node clients against the Go server.
 - **Untrusted input.** One message is limited by `MaxEventBytes` (1 MiB, `bin` bytes
   included), counted on the JSON-equivalent form too so amplification is capped by the same
-  budget (`ErrMessageTooLarge`), by `MaxAttachments` (`ErrTooManyAttachments`) and by the
-  depth limit of 2.3P. A declared array, map, str or bin length is checked against the bytes
-  left before anything is allocated. Keys must be unique valid UTF-8 strings, trailing bytes,
+  budget (`ErrMessageTooLarge`), by `MaxAttachments` (`ErrTooManyAttachments`) and by a
+  depth limit of 64 (`ErrDepth`), the default of `Limits.MaxDepth` in the `sio5-codec`
+  prototype. 2.3 defines none, so this item does. It counts msgpack array and map levels
+  inside `data` while reading, not the JSON form, and is a `parser` constant, not an `Options`
+  field; the reader is iterative or its recursion is bounded by that constant, so a
+  nested message inside 1 MiB cannot grow the stack. A declared array, map, str, bin or ext
+  length is checked against the bytes left before anything is allocated. Keys must be unique valid UTF-8 strings, trailing bytes,
   truncation, unknown extension types and an empty message are errors, and no input panics.
   The attachment assembly timeout does not apply: a packet is one message.
 - **Shared input.** One `Packet` is encoded for many connections in a broadcast. The

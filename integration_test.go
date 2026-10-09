@@ -20,13 +20,16 @@ func connWithOptions(t *testing.T, side byte, opts *engineio.Options) *conn {
 		cl.dial = func(string) (engineio.Conn, error) { return fc, nil }
 		cl.OnConnect(func(Conn) error { return nil })
 		require.NoError(t, cl.Connect())
+		closeAtEnd(t, fc, cl.conn)
 		return cl.conn
 	}
 	srv := NewServer(opts)
 	conns := make(chan Conn, 1)
 	srv.OnConnect("/", func(c Conn) error { conns <- c; return nil })
 	srv.serveConn(fc)
-	return recv(t, conns, "root OnConnect").(*namespaceConn).conn
+	c := recv(t, conns, "root OnConnect").(*namespaceConn).conn
+	closeAtEnd(t, fc, c)
+	return c
 }
 
 // TestOptionsReachConnections checks the queue size and drain deadline each connection

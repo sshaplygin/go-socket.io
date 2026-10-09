@@ -68,6 +68,41 @@ Branch `v1.x`.
   of answering with an ERROR packet.
 - `Header.Query` is never exposed to handlers.
 
+## Implemented on master: Socket.IO protocol v5 wire codec
+
+Package `parser`, stage 2.3P. It converts packets to and from the wire format and has
+no runtime: nothing in the root package calls it before stage 2.3S. The wire format is
+that of `socket.io-parser` 4.2.7 (protocol 5), checked against it by the Node oracle in
+`parser/testdata/oracle` (run by hand, see its README; CI does not run it).
+
+- A message is one text frame, the envelope, followed by as many binary frames as the
+  envelope announces. The envelope is `<type>[<attachments>-][<namespace>,][<ack id>][JSON]`.
+  Types on the wire: 0 CONNECT, 1 DISCONNECT, 2 EVENT, 3 ACK, 4 CONNECT_ERROR,
+  5 BINARY_EVENT, 6 BINARY_ACK. `parser.Type` holds 0 to 4 only; an EVENT or ACK with
+  attachments is written as 5 or 6.
+- Binary values are replaced in the JSON by `{"_placeholder":true,"num":N}` and sent as
+  the following binary frames, in order.
+
+Deliberate differences from the Node.js parser:
+
+- Missing EVENT, ACK or CONNECT_ERROR data is rejected, although Node's decoder
+  accepts an absent payload. CONNECT may omit data; DISCONNECT must omit it.
+- A namespace in a header must start with `/` and end its header with a comma, and
+  contains no comma, NUL, CR or LF. The default namespace is returned as `/`.
+- Attachment counts are unsigned decimal digits and positive; `1.0` and `1e0` are
+  rejected, and so is a count of zero, as by 4.2.7.
+- An acknowledgement ID above 2^53-1 is rejected. Leading zeros are accepted and
+  written canonically.
+- A placeholder index must be an integer name of an attachment; a fractional index
+  is rejected where Node yields an undefined attachment value.
+- Envelopes must be valid UTF-8 and valid JSON of bounded depth. The attachment
+  count, byte and depth limits are checked here; Node's decoder waits for missing
+  attachments instead of failing, so the `Assembler` adds a deadline.
+- Unreferenced attachments and repeated placeholder indices are accepted, as by
+  Node; each decoded reference owns its bytes where Node shares one buffer.
+- JSON decoding replaces an unpaired UTF-16 surrogate escape in a string by U+FFFD
+  when a value is decoded into a Go string; the raw `Packet.Data` keeps the escape.
+
 ## Planned: Engine.IO v4 and Socket.IO v5
 
 Target of [ROADMAP.md](ROADMAP.md#stage-2-socketio-protocol-v5-over-engineio-protocol-v4-tag-v200).

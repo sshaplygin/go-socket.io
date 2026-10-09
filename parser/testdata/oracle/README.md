@@ -12,7 +12,7 @@ its dependency hashes in `package-lock.json`. It drives the real Node `Encoder` 
   again in Node to the same value;
 - three Go-origin packets are decoded by Node and compared with Node's encoding;
 - eleven malformed messages must be rejected by both, seven are accepted by Node and
-  rejected by Go on purpose (the list is in the package documentation), and six cover the
+  rejected by Go on purpose (the list is in docs/PROTOCOL.md), and six cover the
   byte, attachment-count and depth limits.
 
 CI does not run it: it needs Node and npm. Run it from the repository root after a change

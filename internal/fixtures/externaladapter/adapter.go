@@ -5,6 +5,7 @@ package externaladapter
 
 import (
 	"context"
+	"encoding/json"
 
 	sio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/parser"
@@ -21,6 +22,8 @@ func New(ctx context.Context, n *sio.Namespace) (sio.Adapter, error) {
 	// Prove external modules can reach namespace metadata without a reverse import.
 	_ = n.Hooks()
 	_ = n.Logger()
+	// ...and the local sockets they deliver a received broadcast to.
+	_ = n.LocalSockets()
 	return nil, sio.ErrNotImplemented
 }
 
@@ -41,3 +44,23 @@ func (*Adapter) FetchSockets(context.Context, sio.BroadcastOptions) ([]sio.Remot
 }
 func (*Adapter) ServerSideEmit(context.Context, string, ...any) error { return sio.ErrNotImplemented }
 func (*Adapter) Close() error                                         { return sio.ErrNotImplemented }
+
+// Local is a test double of the namespace side of the seam, as the conformance suite
+// of the memory adapter uses it before the runtime exists.
+type Local struct{}
+
+var _ sio.LocalSockets = (*Local)(nil)
+
+func (*Local) Deliver(context.Context, sio.SocketID, parser.Packet) error { return nil }
+func (*Local) Snapshot(sio.SocketID) (sio.RemoteSocket, bool)             { return sio.RemoteSocket{}, false }
+
+// FromPeer builds a RemoteSocket from the fields of a snapshot decoded off the wire
+// (the decoding is adapter/codec's job and imports no root type). The adapter, not the
+// codec, calls the one redaction helper, which lives in the root package.
+func FromPeer(id sio.SocketID, rooms []sio.Room, handshake, data json.RawMessage) (sio.RemoteSocket, error) {
+	h, err := sio.RedactHandshake(handshake)
+	if err != nil {
+		return sio.RemoteSocket{}, err
+	}
+	return sio.RemoteSocket{ID: id, Rooms: rooms, Handshake: h, Data: data}, nil
+}

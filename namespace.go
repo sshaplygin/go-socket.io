@@ -76,6 +76,12 @@ func (b BroadcastOperator) Local() BroadcastOperator {
 // nil Namespace; the runtime will return a nil-safe wrapper.
 func (*Namespace) Hooks() *Hooks { return nil }
 
+// LocalSockets returns the seam an adapter uses to reach the sockets of this server,
+// for adapters in other modules. The skeleton has no sockets and returns nil, also for
+// a nil Namespace; the runtime (2.3S) implements it and never returns nil for a
+// namespace that Server.Namespace created.
+func (*Namespace) LocalSockets() LocalSockets { return nil }
+
 // Logger returns the instance logger of the server that owns the namespace, for
 // adapter and contrib diagnostics. The skeleton has no owner and returns nil, also
 // for a nil Namespace.

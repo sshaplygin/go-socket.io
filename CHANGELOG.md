@@ -17,19 +17,34 @@ All notable changes to this project are documented here. The format follows
   room membership and recipient selection, a Go fixture validator and a Node script that
   reproduces the fixtures; preparation for the stage 2.2 memory adapter, no change to the
   library.
+- `engineio/payload/internal/eio4` and `engineio/transport/websocket/internal/eio4`:
+  Engine.IO v4 polling payload codec (bounded body reads, exact `maxPayload` batching) and
+  WebSocket packet codec, with fixtures, fuzz tests and pinned Node oracles
+  (`engine.io-parser@5.2.3`, `engine.io-client@6.6.3`). Preparation for stage 2.1: no
+  production code references them yet, so the Engine.IO v3 behaviour is unchanged.
+- `_experiments/eio4-websocket`: standalone module (not imported by the root module) with a
+  bounded `gobwas/ws` framing prototype and a Node `ws@8.18.3` peer that checks it; the root
+  `go.mod` does not depend on `gobwas/ws`. Preparation for stage 2.1, no change to the
+  library.
 - v2 API skeleton in the root package (roadmap 2.0): `Event[T]`, `AckEvent[T, R]`,
   `Args2`, `Binary`, `Endpoint`, `ClientRegistration`, raw handlers, `Server`,
   `Namespace`, `Socket`, `Options`, the `Adapter` contract with `AdapterFactory`
   (which takes `ctx`), the creating call `Server.Namespace(ctx, name)`, both hook
   structs and the runtime error sentinels. Declarations only: every operation that needs
   the runtime returns `ErrNotImplemented`, and `NewServer` creates no namespace.
-  `engineio` gains `Hooks`, `PayloadRedactor` and the `Hooks`, `PayloadPreviewBytes` and
-  `PayloadRedactor` options (with `Options.Normalize`); `parser` gains the `Packet`,
+  `engineio` gains `Hooks` and the `Hooks` and `PayloadPreviewBytes` options (with
+  `Options.Normalize`); `parser` gains the `Packet`,
   `Arguments`, `BinaryValue` and `ArgumentCodec` value types. All additive.
-- Compile fixtures in `go test`: a positive program and 19 negative programs that must
+- Compile fixtures in `go test`: a positive program and 20 negative programs that must
   fail to compile with recorded diagnostics (`internal/fixtures`, `testdata/negative`),
   and `make graph` / `TestPackageGraph` and `TestForbiddenEdge` for the package graph. The method-signature
   inventory is `docs/API.md`.
+- G2 review of the skeleton (roadmap 2.0): `docs/API.md` records the frozen contract and what
+  is explicitly not frozen; `ChainHooks` and `LoggingHooks` in `socketio` and `engineio`
+  (the skeleton returns nil), `Server.ServeHTTP` (answers 501); `make freeze` and
+  `make g2` run the gate checks. The `engineio` payload redactor type and
+  `Options.PayloadRedactor` are not part of the skeleton: stage 2.4E defines the boundary.
+  `LocalSockets` and `Namespace.LocalSockets` declare how an adapter delivers to local sockets.
 
 ### Changed
 

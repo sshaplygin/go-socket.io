@@ -9,7 +9,8 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio"
 )
 
-// Options configures a Server. In every budget field zero selects the bounded
+// Options configures a Server. The field names are the contract; the defaults and
+// units on the fields are the starting values of roadmap 2.3 (Resource limits). In every budget field zero selects the bounded
 // default noted on the field, never "unlimited"; a negative value is rejected by
 // Normalize. Logger, Hooks and Adapter keep their zero value (nil) as "not set": a
 // nil Logger is resolved by the instance logger policy of roadmap 2.4, nil Hooks
@@ -124,12 +125,12 @@ type AdapterMessage struct {
 	Bytes           int
 }
 
-// Hooks are the Socket.IO observer callbacks. This declaration fixes the
-// signatures only (not yet frozen, see docs/API.md, Open before G2): nothing fires a hook yet (roadmap 2.4S owns the fire points). Nil
+// Hooks are the Socket.IO observer callbacks. The 16 fields and their signatures are
+// the contract; nothing fires a hook yet (roadmap 2.4S owns the fire points). Nil
 // fields mean no observer and callers must test the pointer and the field. Metadata
 // is borrowed for the call; an observer that retains it must copy it. Start contexts
 // flow left to right, terminal hooks unwind right to left, and the runtime pairs
-// every start with exactly one terminal call.
+// every start with exactly one terminal call. Hooks never signal an error handler.
 type Hooks struct {
 	ConnectStart        func(ctx context.Context, s SocketInfo) context.Context
 	ConnectEnd          func(ctx context.Context, s SocketInfo, err error, d time.Duration)
@@ -149,11 +150,23 @@ type Hooks struct {
 	AdapterReceiveEnd   func(ctx context.Context, m AdapterMessage, err error, d time.Duration)
 }
 
+// ChainHooks combines observers: start hooks thread the context left to right,
+// terminal hooks run right to left, and nil hooks and nil fields are skipped. The
+// skeleton returns nil, which is "no observer": nothing fires a hook until 2.4S, and
+// the combining behaviour is specified and tested by roadmap 2.4 (TestChainHooksOrder).
+func ChainHooks(hs ...*Hooks) *Hooks { return nil }
+
+// LoggingHooks returns the hooks that write the log records of roadmap 2.4 to l. The
+// skeleton returns nil, which is "no observer": the records and their levels are
+// defined and tested by roadmap 2.4.
+func LoggingHooks(l *slog.Logger) *Hooks { return nil }
+
 // Result values of roadmap 2.4 for EventResult.Result, connect results and
 // acknowledgement results. The hook fields stay strings so the signatures match the
 // roadmap, and Go does not enforce the closed sets. The upgrade results, request
 // rejection reasons, disconnect reasons and adapter results are not enumerated by the
-// roadmap yet and are not declared here.
+// roadmap and have no constants: stage 2.4 (docs/OBSERVABILITY.md) adds them as further
+// constants, so an observer must not assume the declared sets are exhaustive.
 const (
 	EventResultOK          = "ok"
 	EventResultError       = "error"

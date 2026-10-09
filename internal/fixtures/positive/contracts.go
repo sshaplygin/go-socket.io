@@ -47,17 +47,6 @@ var EngineHooks = &engineio.Hooks{
 	PongReceived:    func(context.Context, engineio.SessionInfo, time.Duration) {},
 }
 
-// PreviewContract proves the proposed trusted redactor method set. It is disabled
-// and drops every payload; no protocol redaction implementation is claimed.
-type PreviewContract struct{}
-
-func (PreviewContract) Enabled(context.Context) bool { return false }
-func (PreviewContract) Redact(context.Context, engineio.SessionInfo, engineio.PacketInfo, []byte, int) []byte {
-	return nil
-}
-
-var _ engineio.PayloadRedactor = PreviewContract{}
-
 func ComposeContracts(l *slog.Logger) sio.Options {
 	assertType[engineio.PacketInfo](engineio.PacketInfo{Type: packet.MESSAGE, Frame: frame.String, Bytes: 7})
 	assertType[sio.RemoteSocket](sio.RemoteSocket{
@@ -68,7 +57,7 @@ func ComposeContracts(l *slog.Logger) sio.Options {
 		Rooms: []sio.Room{"room"}, Except: []sio.Room{"excluded"}, Flags: sio.BroadcastFlags{Local: true},
 	})
 	return sio.Options{
-		Logger: l, Adapter: externaladapter.New, Hooks: SocketHooks,
-		Engine: engineio.Options{Logger: l, Hooks: EngineHooks, PayloadPreviewBytes: 128, PayloadRedactor: PreviewContract{}},
+		Logger: l, Adapter: externaladapter.New, Hooks: sio.ChainHooks(SocketHooks, sio.LoggingHooks(l)),
+		Engine: engineio.Options{Logger: l, Hooks: engineio.ChainHooks(EngineHooks, engineio.LoggingHooks(l)), PayloadPreviewBytes: 128},
 	}
 }

@@ -1,2 +1,0 @@
-does not implement
-wrong type for method Redact

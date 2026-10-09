@@ -1,0 +1,18 @@
+[
+  {"name":"open","type":0,"text":"{\"sid\":\"fixture\"}","wire":"0{\"sid\":\"fixture\"}"},
+  {"name":"close","type":1,"text":"","wire":"1"},
+  {"name":"probe-ping","type":2,"text":"probe","wire":"2probe"},
+  {"name":"probe-pong","type":3,"text":"probe","wire":"3probe"},
+  {"name":"message","type":4,"text":"hello","wire":"4hello"},
+  {"name":"upgrade","type":5,"text":"","wire":"5"},
+  {"name":"noop","type":6,"text":"","wire":"6"},
+  {"name":"empty-text","type":4,"text":"","wire":"4"},
+  {"name":"unicode","type":4,"text":"€🙂世界","wire":"4€🙂世界"},
+  {"name":"record-separator","type":4,"text":"hello\u001eworld","wire":"4hello\u001eworld"},
+  {"name":"text-starting-with-b","type":4,"text":"bAQIDBA==","wire":"4bAQIDBA=="},
+  {"name":"binary-empty","type":4,"binary":true,"base64":"","wire":"b"},
+  {"name":"binary-spec","type":4,"binary":true,"base64":"AQIDBA==","wire":"bAQIDBA=="},
+  {"name":"binary-leading-zero","type":4,"binary":true,"base64":"AAT/Hg==","wire":"bAAT/Hg=="},
+  {"name":"binary-padding-one","type":4,"binary":true,"base64":"AP8=","wire":"bAP8="},
+  {"name":"binary-no-padding","type":4,"binary":true,"base64":"AP8e","wire":"bAP8e"}
+]

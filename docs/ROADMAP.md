@@ -990,6 +990,7 @@ git merge-base --is-ancestor $CUT origin/master
 git merge-base --is-ancestor $CUT origin/v1.x
 test -z "$(git diff --name-only $CUT origin/v1.x | grep -v '^\.github/')"
 # at M1b closure: step 0d on master (v1.x keeps Unreleased), triggers, Dependabot and the CI run of the current v1.x head
+# the next check belongs to the period before the tag: the release forward-port renames that heading, so it is not re-run after it
 test "$(git show origin/master:CHANGELOG.md | grep -c '^## v1\.5\.0 (unreleased, branch v1\.x)$')" -eq 1
 test "$(git show origin/master:CHANGELOG.md | grep -c '^## Unreleased$')" -eq 1
 test "$(git show origin/v1.x:CHANGELOG.md | grep -c '^## Unreleased$')" -eq 1

@@ -1,5 +1,15 @@
 package parser
 
+import "testing"
+
+// TestFixturesRepeatable runs the encoder tests before the decoder tests. The
+// encoder numbers and marks the *Buffer values it is given, so the decoder
+// tests must not see fixtures that an earlier run has already used.
+func TestFixturesRepeatable(t *testing.T) {
+	t.Run("Encoder", TestEncoder)
+	t.Run("Decoder", TestDecoder)
+}
+
 var tests = []struct {
 	Name   string
 	Header Header

@@ -1038,7 +1038,7 @@ rule is permanent (the Stage 1b freeze exempts such PRs only for the 1b window).
 command check of these clauses is the `_experiments stays standalone` line of the Stage
 1b DoD. It is also the first step of `make experiments` (the `experiments` CI job,
 described in `CLAUDE.md`), which owns the check; the 1b DoD line is a copy that ends with
-M1b. The landing PRs of the modules already on `master` (#44, #45, #53) checked it by
+M1b. The landing PRs of the two modules already on `master` (#44, #45) checked it by
 hand. Otherwise `make experiments` runs Go checks only, so a landing PR also records
 the Node oracle or script checks of its module that it ran by hand. A module lands in
 `master` through a fresh-branch cherry-pick PR of its owned commits (transfer rules in

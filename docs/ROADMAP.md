@@ -1239,24 +1239,30 @@ owns its root test; 4b reproduces the broker cases.
 
 - *Creation:* a namespace is created only by `Server.Namespace` and registered only
   when the factory returned it. A CONNECT never creates one: a CONNECT to a namespace
-  that is not registered, including one being created, is rejected as unknown (2.4 logs
-  it as a CONNECT to an unknown namespace); a stage that adds dynamic namespaces defines
-  how a CONNECT waits. One call decides in this order: (1) once shutdown has begun it
+  that is not registered, including one being created, is rejected as unknown; dynamic
+  namespaces (2.4) have no owner stage yet, and the stage that adds them defines how a
+  CONNECT waits. One call decides in this order: (1) once shutdown has begun it
   returns an error matching `ErrNamespaceClosed`, also for a registered namespace, and
-  calls no factory; (2) a registered namespace is returned without calling the
-  factory; (3) a creation in progress is waited for, and its namespace or error
-  returned; (4) otherwise the server calls `AdapterFactory` outside every lock that
-  packet dispatch reads. On a factory error nothing is registered, the call returns
+  calls no factory, so a handler running during the drain keeps the `*Namespace` it
+  holds; (2) a registered namespace is returned without calling the factory; (3) a
+  creation in progress is waited for, and its namespace or error returned; (4)
+  otherwise the server calls `AdapterFactory` outside every lock that packet dispatch
+  reads. Steps (1) and (2) ignore `ctx`; a `ctx` already done at (3) or (4) returns
+  its error at once, and at (4) calls no factory. An error returned after shutdown
+  began also matches `ctx.Err()` when the caller's `ctx` had ended. On a factory error nothing is registered, the call returns
   the error wrapped with `%w` and naming the namespace, and a later call calls the
   factory again. The factory context is the server's. The call's `ctx` bounds only
   its caller's wait: when it ends first, the call returns an error matching `ctx.Err()`
   and the creation goes on. A creation outlives its callers: when none is
   left and shutdown has not begun, a successful result is still registered (the next
   call returns it by step 2) and is closed by `Shutdown` or `Close` like any other, so
-  an abandoned creation leaks nothing. A returned adapter already receives every
-  cluster message for its namespace: a broker adapter returns only after the broker
-  confirmed its subscriptions, or with an error within a bound it documents as an
-  option, leaving nothing of its own open.
+  an abandoned creation leaks nothing. A broker adapter returns only after the broker
+  it is connected to confirmed its subscriptions, or with an error within a bound it
+  documents as an option, leaving nothing of its own open. That is all the
+  confirmation proves: with one Redis master it covers every peer, but a NATS flush
+  does not show that the other servers of a NATS cluster, gateway or leafnode link
+  have the interest, so a peer's broadcast right after construction can be missed
+  there (4b `adapters/nats`).
 - *Shutdown:* `Shutdown` and `Close` cancel the factory context when they begin;
   `Shutdown` waits for factory calls in progress, callers or not, until its deadline,
   `Close` does not wait. A creation that ends after either has begun returns an error
@@ -1267,7 +1273,7 @@ owns its root test; 4b reproduces the broker cases.
   a subscription (a receive or connection error) until the broker confirms the new
   one; before it observes the loss, queries can undercount without an error, an
   accepted gap like the disconnect gaps above.
-- *Queries:* cluster queries count local sockets locally, never through the broker,
+- *Queries:* cluster queries (`Sockets`, `FetchSockets`) count local sockets locally, never through the broker,
   and wait only for the peers expected to answer. With none expected they return the
   local data and a nil error at once; while restoring, or when the expected peers
   cannot be determined, the local data and an error at once.

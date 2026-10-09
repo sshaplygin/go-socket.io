@@ -1928,12 +1928,20 @@ new revision IDs; release them separately. M7 closes the roadmap.
 | M0 | Stage 0 docs baseline | none |
 | M1 | Stage 1 complete and the 1.D link-form commit merged | none |
 | M1b | Stage 1b closed: step 0 done (branch `v1.x` cut) and steps 1–3 merged, with the Stage 1b DoD, `v1.x` gates and Acceptance blocks passing on `master` | none (first commits after the cut commit `$CUT`) |
-| M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance | branch `v2-dev` |
+| M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance | branch `v2-next` |
 | M3 | 2.2 + 2.3 + 2.4 + 2.5 | `v2.0.0`, `contrib/otel/v2.0.0` |
 | M4 | Stage 3: single-server chat | root `v2.1.0`; `v1.5.0` is tagged on branch `v1.x` when the Stage 3 upstream-chat parity DoD line passes (release commit per `CONTRIBUTING.md`, tag-time gates in Stage 1 Acceptance) |
 | M5 | Stage 4b: adapters and cluster chat acceptance | root `v2.2.0` first, then `adapters/redis/v2.0.0`, `adapters/nats/v2.0.0` |
 | M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `contrib/admin/v2.0.0`; adapter minor releases |
 | M7 | Stage 6: final comparative benchmark report and reproducible artifacts | report/artifact revision; no runtime release required |
+
+M2 is accepted when G2, the 2B join gate and the 2.1 exit have passed on one
+reviewed `master` commit. The owner declares acceptance and records that SHA in the
+transfer ledger of [issue #2](https://github.com/sshaplygin/go-socket.io/issues/2).
+Branch `v2-next` is created once from that commit as a frozen snapshot and receives
+no PRs; topic PRs keep targeting `master`. No CI or Dependabot trigger is wired for
+it, so it is not a working branch unless a roadmap step first adds the triggers. The
+legacy `v2-dev` branch (2021, head `063debc`) is unrelated and stays unchanged.
 
 Re-estimate stage 2 after G2 and adapters after the shared codec/conformance fixtures.
 The earlier 15–25 working-day estimate for stage 5 is provisional; measure the

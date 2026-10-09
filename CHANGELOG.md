@@ -22,19 +22,6 @@ All notable changes to this project are documented here. The format follows
   room membership and recipient selection, a Go fixture validator and a Node script that
   reproduces the fixtures; preparation for the stage 2.2 memory adapter, no change to the
   library.
-- `engineio/transport/websocket/internal/eio4`: Engine.IO v4 WebSocket packet codec with
-  fixtures, fuzz tests and a pinned Node oracle (`engine.io-parser@5.2.3`). Preparation
-  for stage 2.1: no production code references it yet.
-- `_experiments/eio4-websocket`: standalone module (not imported by the root module) with a
-  bounded `gobwas/ws` framing prototype and a Node `ws@8.18.3` peer that checks it; the root
-  `go.mod` does not depend on `gobwas/ws`. Preparation for stage 2.1, no change to the
-  library.
-- `_experiments/ws-bench`: standalone module (not imported by the root module) that compares
-  Gorilla WebSocket v1.5.3 with the `_experiments/eio4-websocket` gobwas prototype
-  (`gobwas/ws` v1.4.0) in echo and idle-connection workloads, with a harness, smoke tests and
-  a recorded exploratory measurement run. It measures a framing server's Go heap, not RSS,
-  and is not stage 2.1 acceptance; the root `go.mod` is unchanged. Preparation for stage
-  2.1, no change to the library.
 - `_experiments/sio5-codec`: standalone module (not imported by the root module) with a
   bounded Socket.IO protocol 5 wire codec (envelopes, complete binary groups, limits), Go
   tests, fuzz targets and a Node oracle pinned to `socket.io-parser` 4.2.7; preparation for
@@ -87,15 +74,58 @@ All notable changes to this project are documented here. The format follows
   session) and 1.24-1.28 s per run, which includes a one-second idle hold. These are one
   machine and one set of runs, advisory, not a performance claim; a run is shorter than the
   default 20 s ping interval, so heartbeat cost is not measured, and the Linux path was run
-  only on the CI runner, its figures are not recorded here; the AFTER numbers are
-  recorded by the swap PR with the same command. RSS is read with `ps -o rss=` after the
+  only on the CI runner, its figures are not recorded here; the AFTER numbers follow
+  below. RSS is read with `ps -o rss=` after the
   server ran `debug.FreeOSMemory`. A goroutine dump of the server at 50 sessions shows the
   two goroutines per session: the `net/http` handler goroutine of the upgrade request,
   blocked in the websocket transport's `ServeHTTP`, and the benchmark's own read loop
   (one `NextReader` per accepted session, as `socketio.Server` starts per connection).
 
+  AFTER the swap (`gobwas/ws` v1.4.0 transport, still the Engine.IO v3 handshake and
+  heartbeat), the library code of `fc9220f`, same machine, OS and Go (1.25.5), same command.
+  Four runs gave server RSS after 10000 sessions of 117.5, 115.5, 117.6 and 102.5 MiB (13.1-13.4
+  MiB before the first session; 10948, 10735, 10959 and 9391 B per session) and 10006 server
+  goroutines (6 before, 1.00 per session). The default (N=200) with `-benchmem -count=5` gave
+  18.9-19.5 MiB RSS (31048-33833 B per session), 206 goroutines (1.00 per session) and
+  1.48-1.97 s per run. The machine was not quiet: the load average was 21-39 (another
+  application used about 3.6 cores), so the connect phase (5.1-17.8 s here, against 0.5 s in
+  the BEFORE runs) is not comparable. To compare under that load, `ed94997` (gorilla,
+  the BEFORE library code) was run right before and after on the same machine: 270.8 and 234.6
+  MiB, 20006 goroutines, connect phase 15.8 and 7.0 s. Where the saving comes from: with the
+  websocket connection's `ServeHTTP` blocked until close, as it was, the same transport gave
+  277.5 and 280.8 MiB with 20006 goroutines, no change from the BEFORE figures. The 2.4 to
+  2.7 times lower RSS and the halved goroutine count come from `ServeHTTP` returning at once
+  after the hijack: the request goroutine and the `net/http` connection state it kept are
+  released, and the transport keeps no read buffer of its own (`ReadBufferSize` unset reads
+  the socket directly). One machine, advisory, not a performance claim; the benchmark does not
+  measure throughput, and a run is shorter than the ping interval.
+
 ### Changed
 
+- The WebSocket transport is rewritten on `github.com/gobwas/ws` v1.4.0 (stage 2.1);
+  `gorilla/websocket` leaves `go.mod`. The server upgrades with `ws.UpgradeHTTP` (HTTP/1.1
+  hijack only); the client dials with `ws.Dialer`. Each Engine.IO packet is one WebSocket
+  message, coded by the prepared v4 codec, now in package `websocket` (`Encode`, `Decode`,
+  `Packet`, `ErrTooLarge`, `ErrInvalidPacket`, `ErrInvalidLimit`): a binary message is the raw
+  data of a MESSAGE packet, without the type byte of v3, and `b` + base64 text is read as binary.
+  The handshake, heartbeat and `EIO` check are still Engine.IO v3, so a v3 peer that sends binary
+  over websocket no longer interoperates. A message is limited to `websocket.Transport.MaxPayload`
+  (new field, default 1 MiB as for polling), fragments together; the transport answered any
+  size before. A peer that violates the protocol is sent a close frame with status 1002, 1007
+  (invalid UTF-8) or 1009 (too large) before the TCP close. A response writer that is not an
+  `http.Hijacker` is answered with HTTP 501 and the log line `engineio: request rejected`
+  with `reason="no hijacker"`; a rejected handshake is reported as `websocket.HandshakeError`
+  (it replaces the gorilla `HandshakeError` check of `engineio.Server`). `websocket.DialError`
+  gains `Unwrap`. The connection's `ServeHTTP` returns at once instead of blocking until close.
+  Unchanged: `CheckOrigin` (nil means same origin), `ReadBufferSize` and `WriteBufferSize`,
+  `HandshakeTimeout`, `TLSClientConfig`, `Subprotocols`, `NetDial` and `Proxy`. `Proxy` supports
+  `http` proxies through CONNECT; any other scheme fails the dial (gorilla also
+  accepted SOCKS5 proxies). `ReadBufferSize` zero now reads the socket unbuffered, where gorilla
+  allocated 4 KiB per connection. `permessage-deflate` is not supported (the gorilla
+  transport never enabled it either). `x/sys` v0.6.0 enters the module graph through `gobwas/ws`.
+  The standalone `_experiments/eio4-websocket` (the framing prototype, its Go tests and its Node
+  `ws@8.18.3` peer, now `engineio/transport/websocket/testdata/reference` with `TestNodeOracle`)
+  and `_experiments/ws-bench` are deleted, with their entries above.
 - CI: `make examples` only checks that every `_examples/*/chat.go` is identical, and
   `make vuln` no longer scans the `_examples` modules: the legacy examples build against
   the removed v1 runtime until stage 2.5D migrates them. The `lint` job runs

@@ -53,7 +53,11 @@ import (
 // same file measures any WebSocket implementation behind them. The benchmark skips
 // outside linux and darwin (it needs ps and RLIMIT_NOFILE).
 //
-// Reported metrics (units chosen so that benchstat keeps them as separate columns):
+// Every run logs one line with the server RSS before and after, B/conn, goroutines and
+// the connect phase (visible in -bench output). The benchmark workflow's report tool
+// rejects any benchmark metric unit other than ns/op, B/op, allocs/op and MB/s, so the
+// custom metrics below are reported only when IDLE_CONNS is set, that is, in explicit
+// manual runs, never in "make bench" or the workflow:
 //
 //	ns/op                wall time of one whole run: start the server, dial N sessions,
 //	                     hold them idle for at least one second, tear down
@@ -82,11 +86,13 @@ func BenchmarkIdleConnections(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		last = runIdleIteration(b, n)
 	}
-	b.ReportMetric(last.connectUsPerConn, "connect-us/conn")
-	b.ReportMetric(last.rssPerConn, "rss-B/conn")
-	b.ReportMetric(last.rssTotalMiB, "rss-total-MiB")
-	b.ReportMetric(last.goroutinesPerConn, "goroutines/conn")
-	b.ReportMetric(last.goroutines, "server-goroutines")
+	if os.Getenv("IDLE_CONNS") != "" {
+		b.ReportMetric(last.connectUsPerConn, "connect-us/conn")
+		b.ReportMetric(last.rssPerConn, "rss-B/conn")
+		b.ReportMetric(last.rssTotalMiB, "rss-total-MiB")
+		b.ReportMetric(last.goroutinesPerConn, "goroutines/conn")
+		b.ReportMetric(last.goroutines, "server-goroutines")
+	}
 }
 
 // idleConns reads IDLE_CONNS: 1..100000, default 200.

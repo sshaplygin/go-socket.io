@@ -76,7 +76,8 @@ All notable changes to this project are documented here. The format follows
   28656 B per session), 20006 server goroutines (6 before, 2.00 per session) and a
   connect phase of 480, 531 and 539 ms (48.0, 53.1 and 53.9 us per session with 32
   parallel dialers). The default, `go test -run '^$' -bench BenchmarkIdleConnections
-  -benchmem -count=5 ./engineio/` (N=200), gave 20.8-21.3 MiB RSS (40305-42844 B per
+  -benchmem -count=5 ./engineio/` (N=200; its numbers are in the `--- BENCH` log line, because
+  the benchmark workflow's report tool accepts only the standard metric units), gave 20.8-21.3 MiB RSS (40305-42844 B per
   session, higher per session than at 10000), 406 server goroutines (2.00 per
   session) and 1.24-1.28 s per run, which includes a one-second idle hold. These are one
   machine and one set of runs, advisory, not a performance claim; the AFTER numbers are

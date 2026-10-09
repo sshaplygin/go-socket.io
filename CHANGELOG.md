@@ -79,9 +79,12 @@ All notable changes to this project are documented here. The format follows
   parallel dialers). The default, `go test -run '^$' -bench BenchmarkIdleConnections
   -benchmem -count=5 ./engineio/` (N=200; its numbers are in the `--- BENCH` log line, because
   the benchmark workflow's report tool accepts only the standard metric units), gave 20.8-21.3 MiB RSS (40305-42844 B per
-  session, higher per session than at 10000), 406 server goroutines (2.00 per
+  session, higher per session than at 10000 because one-time warm-up of a cold server is
+  counted), 406 server goroutines (2.00 per
   session) and 1.24-1.28 s per run, which includes a one-second idle hold. These are one
-  machine and one set of runs, advisory, not a performance claim; the AFTER numbers are
+  machine and one set of runs, advisory, not a performance claim; a run is shorter than the
+  default 20 s ping interval, so heartbeat cost is not measured, and the Linux path was run
+  only on the CI runner, its figures are not recorded here; the AFTER numbers are
   recorded by the swap PR with the same command. RSS is read with `ps -o rss=` after the
   server ran `debug.FreeOSMemory`. A goroutine dump of the server at 50 sessions shows the
   two goroutines per session: the `net/http` handler goroutine of the upgrade request,

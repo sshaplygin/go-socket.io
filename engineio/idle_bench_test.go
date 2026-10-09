@@ -75,6 +75,12 @@ import (
 // runtime has not yet returned to the system. RSS comes from "ps -o rss=" on the server
 // pid. The numbers describe one machine and one run; they are advisory.
 //
+// Limits of the measurement: a run lasts a few seconds, shorter than the default
+// 20 s Options.PingInterval, so the sessions are idle without any ping/pong and the
+// heartbeat cost is not measured. The server is cold when the sessions are opened, so
+// one-time warm-up (runtime and HTTP server structures) is counted in RSS and weighs
+// more per session the smaller N is.
+//
 // In a default run (IDLE_CONNS unset) the standard metrics are not the measured
 // quantity: ns/op includes the one-second hold and the subprocess start-up, and B/op and
 // allocs/op are those of the dialing client in this process, not of the server. They

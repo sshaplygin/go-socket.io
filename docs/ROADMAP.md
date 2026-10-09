@@ -1038,8 +1038,8 @@ rule is permanent (the Stage 1b freeze exempts such PRs only for the 1b window).
 command check of these clauses is the `_experiments stays standalone` line of the Stage
 1b DoD, which stays a gate after 1b by reference. The `experiments` CI job (`make
 experiments`, described in `CLAUDE.md`) does not run that line: per-module vet, lint and
-tests do not cover these clauses, and the two modules already on `master` landed
-without it. The PR that lands the next `_experiments` module adds the line to `make
+tests do not cover these clauses; the landing PRs of the two modules already on
+`master` (#44, #45) checked them by hand. The PR that lands the next `_experiments` module adds the line to `make
 experiments`; until it does, each landing PR runs the line by hand and records the
 result in its body. `make experiments` runs Go checks only, so a landing PR also records
 the Node oracle or script checks of its module that it ran by hand. A module lands in

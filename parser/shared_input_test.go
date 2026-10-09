@@ -32,31 +32,25 @@ var sharedArgs = []struct {
 	{"slice and array", []interface{}{"e", []*Buffer{{Data: []byte{1}}}, [2]*Buffer{{Data: []byte{2}}, {Data: []byte{3}}}}},
 }
 
-// deepCopy copies v including the unexported fields of Buffer, which reflect cannot set one by one.
+// deepCopy copies v. Set on a struct copies its unexported fields (Buffer's) with it.
 func deepCopy(v reflect.Value) reflect.Value {
-	if !v.IsValid() {
-		return v
-	}
 	out := reflect.New(v.Type()).Elem()
+	out.Set(v)
 	switch v.Kind() {
-	case reflect.Pointer:
+	case reflect.Pointer, reflect.Interface:
 		if !v.IsNil() {
-			p := reflect.New(v.Type().Elem())
-			p.Elem().Set(deepCopy(v.Elem()))
-			out.Set(p)
-		}
-	case reflect.Interface:
-		if !v.IsNil() {
-			out.Set(deepCopy(v.Elem()))
-		}
-	case reflect.Slice:
-		if !v.IsNil() {
-			out.Set(reflect.MakeSlice(v.Type(), v.Len(), v.Len()))
-			for i := 0; i < v.Len(); i++ {
-				out.Index(i).Set(deepCopy(v.Index(i)))
+			c := deepCopy(v.Elem())
+			if v.Kind() == reflect.Pointer {
+				out.Set(reflect.New(c.Type()))
+				out.Elem().Set(c)
+			} else {
+				out.Set(c)
 			}
 		}
-	case reflect.Array:
+	case reflect.Slice, reflect.Array:
+		if v.Kind() == reflect.Slice && !v.IsNil() {
+			out.Set(reflect.MakeSlice(v.Type(), v.Len(), v.Len()))
+		}
 		for i := 0; i < v.Len(); i++ {
 			out.Index(i).Set(deepCopy(v.Index(i)))
 		}
@@ -68,14 +62,11 @@ func deepCopy(v reflect.Value) reflect.Value {
 			}
 		}
 	case reflect.Struct:
-		out.Set(v) // unexported fields included
 		for i := 0; i < v.NumField(); i++ {
 			if out.Field(i).CanSet() {
 				out.Field(i).Set(deepCopy(v.Field(i)))
 			}
 		}
-	default:
-		out.Set(v)
 	}
 	return out
 }

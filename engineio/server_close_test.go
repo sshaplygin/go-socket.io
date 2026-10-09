@@ -1,4 +1,4 @@
-package engineio
+package engineio_test
 
 import (
 	"io"
@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
@@ -20,19 +22,19 @@ import (
 //
 // Covers 1I-T11 (S).
 func TestServerCloseClosesUnacceptedSessions(t *testing.T) {
-	svr := NewServer(nil)
+	svr := engineio.NewServer(nil)
 	httpSvr := httptest.NewServer(svr)
 	defer httpSvr.Close()
 
-	dial := func() Conn {
-		d := Dialer{Transports: []transport.Transport{websocket.Default}}
+	dial := func() engineio.Conn {
+		d := client.Dialer{Transports: []transport.Transport{websocket.Default}}
 		c, err := d.Dial(httpSvr.URL, nil)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = c.Close() })
 		return c
 	}
-	clients := []Conn{dial(), dial()}
-	require.Eventually(t, func() bool { return len(svr.connChan) == 1 }, time.Second, time.Millisecond,
+	clients := []engineio.Conn{dial(), dial()}
+	require.Eventually(t, func() bool { return engineio.ConnChanLen(svr) == 1 }, time.Second, time.Millisecond,
 		"a session in the hand-off buffer")
 	require.NoError(t, svr.Close())
 	clients = append(clients, dial())
@@ -40,7 +42,7 @@ func TestServerCloseClosesUnacceptedSessions(t *testing.T) {
 	deadline := time.After(time.Second)
 	errs := make(chan error, len(clients))
 	for _, c := range clients {
-		go func(c Conn) { _, _, err := c.NextReader(); errs <- err }(c)
+		go func(c engineio.Conn) { _, _, err := c.NextReader(); errs <- err }(c)
 	}
 	for range clients {
 		select {

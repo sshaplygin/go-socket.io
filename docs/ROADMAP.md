@@ -1858,14 +1858,33 @@ timeout is 5 s.
   plus an error for missing peers. Document membership staleness and distinguish
   known zero remote peers from unavailable discovery. `ServerSideEmit` follows the
   publication-only contract in 2.2. Inject `*nats.Conn`; reconnect is handled by the
-  client. For 2.2 *Readiness*, construction flushes after subscribing, with the
-  factory context, within a documented `SubscribeTimeout` option; the adapter is
-  restoring while `nc.IsConnected()` is false and until a flush succeeds after
-  reconnect, reading the connection status without replacing the application's
-  handlers; the expected peers are undetermined until one heartbeat interval after
-  construction. Test with an embedded `nats-server/v2`, no Docker; 4N-T1: after the
-  embedded server shuts down and `nc.IsConnected()` is false, `Sockets` returns the
-  local sockets and an error at once.
+  client. Heartbeats are sent every `HeartbeatInterval` (option, default 5 s, 200 ms in
+  tests). For 2.2 *Readiness*, construction flushes after subscribing with a context
+  derived by `context.WithTimeout` from the factory context and the documented
+  `SubscribeTimeout` option (default 10 s; `FlushWithContext` needs a deadline). The
+  flush confirms only the connected server: interest propagation to the other servers
+  of a NATS cluster, gateways and leafnodes is outside the guarantee, the adapter
+  README says so, and no case covers it. The adapter is restoring while
+  `nc.IsConnected()` is false and until a flush succeeds after reconnect, reading the
+  connection status without replacing the application's handlers; the expected peers
+  are undetermined until one `HeartbeatInterval` after construction. Test with an
+  embedded `nats-server/v2`, no Docker, and a test TCP proxy between client and server
+  that can stall forwarding after the handshake. *Nothing left* means the server's
+  subscription count is back to its value before construction within 1 s.
+  - 4N-T1: after the embedded server shuts down and `nc.IsConnected()` is false,
+    `Sockets` and `FetchSockets` return the local data and an error at once.
+  - 4N-T2: with the proxy stalled, construction with `SubscribeTimeout` 200 ms returns
+    an error within 1 s; with `SubscribeTimeout` 10 s and the factory context cancelled,
+    it returns an error at once. Each leaves nothing.
+  - 4N-T3: `Sockets` issued as soon as construction returns, with a peer adapter
+    running, returns the local sockets and an error at once; after
+    `HeartbeatInterval` plus 100 ms it returns the peer's sockets and nil within 1 s.
+  - 4N-T4: after 4N-T1, restarting the server on the same address and
+    `nc.IsConnected()` becoming true, `Sockets` returns the local sockets and nil within
+    2 s.
+  - 4N-T5: the application's `DisconnectedErrHandler` and `ReconnectHandler` count
+    their calls; across construction, the 4N-T1 shutdown, the 4N-T4 restart and the
+    adapter's `Close`, the first is called once and the second once.
 - Both adapters report through `Namespace.Hooks()` (paired `AdapterPublishStart/End`
   and `AdapterReceiveStart/End`) and use `Namespace.Logger()` for other library-owned diagnostics.
   The Redis adapter logs WARN `socketio: adapter publish failed` on a PUBLISH error,
@@ -1881,10 +1900,11 @@ timeout is 5 s.
   adapter hooks firing, and the generic 2.2 *Readiness* cases: for a backend with
   peers, a peer's broadcast issued as soon as construction returns gets a nil error
   with `Published` true and reaches the new adapter's socket within 1 s; a query
-  with no peer, issued after the backend's documented discovery delay (none for
-  Redis, one heartbeat interval for NATS), returns the local data and nil at once.
-  Held subscriptions and subscriber loss need a backend harness and stay in the
-  backend suites (4R, 4N).
+  with no peer, issued after the harness's `DiscoveryDelay` (0 for Redis, the
+  `HeartbeatInterval` plus 100 ms for NATS), returns the local data and nil at once.
+  They run as the subtests `Readiness/PeerBroadcast` and `Readiness/NoPeerQuery` of
+  `adaptertest.Run`. Held subscriptions and subscriber loss need a backend harness and
+  stay in the backend suites (4R, 4N).
 - `docs/ADAPTERS.md`; `adapters/<name>/README.md` for backend options; chat example
   supports both backends.
 - Restore the migrated Redis examples and add the chat's two-server compose
@@ -1900,8 +1920,14 @@ timeout is 5 s.
 
 DoD: `go mod graph` of the root module contains no redis or nats module; `adaptertest`
 passes for in-memory, Redis and NATS; Redis suite (testcontainers, two servers) and NATS
-suite (embedded server, two servers) pass under `-race`; every 4R and 4N case is named
-by a passing test under `-race` (the 4R cases on miniredis); cross-language CI test:
+suite (embedded server, two servers) pass under `-race`; every 4R and 4N case
+passes under `-race` as the test `Test4R_T<n>` or `Test4N_T<n>` (the 4R cases on
+miniredis), and so does each `adaptertest` `Readiness/` subtest of the Redis and NATS
+suites. In each adapter module `go test -race -count=1 -json -run
+'^(Test4R_T[1-6]|TestAdapterConformance)$' ./...` (`Test4N_T[1-5]` in `adapters/nats`)
+must report a pass for each of its ids and no skip, fail or missing id; a CI script
+(added with 4b) lists the ids and fails otherwise, and a PR that adds a case adds its
+id there; cross-language CI test:
 one Go server and one Node `socket.io@4` server with `@socket.io/redis-adapter` share
 Redis, a room broadcast from each side reaches a client on the other, and
 `fetchSockets` from Node lists the Go socket. Msgpack fixtures captured from notepack cross-decode in

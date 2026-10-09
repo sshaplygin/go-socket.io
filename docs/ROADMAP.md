@@ -1956,8 +1956,9 @@ new revision IDs; release them separately. M7 closes the roadmap.
 | M7 | Stage 6: final comparative benchmark report and reproducible artifacts | report/artifact revision; no runtime release required |
 
 M2 is accepted when G2, the 2B join gate and the 2.1 exit have passed on one
-reviewed `master` commit. The owner declares acceptance and records that SHA in the
-transfer ledger of [issue #2](https://github.com/sshaplygin/go-socket.io/issues/2).
+reviewed `master` commit. The 2B join gate also covers the 2.2 memory adapter and the
+2.3P codec, so at acceptance that code is on `master` but unreleased; M3 releases it.
+The owner declares acceptance and records that SHA in the transfer ledger of [issue #2](https://github.com/sshaplygin/go-socket.io/issues/2).
 Branch `v2-next` is created once from that commit as a frozen snapshot and receives
 no PRs; topic PRs keep targeting `master`. No CI or Dependabot trigger is wired for
 it, so it is not a working branch unless a roadmap step first adds the triggers. The

@@ -63,7 +63,8 @@ All notable changes to this project are documented here. The format follows
   Test code only, no change to the library.
 
   Baseline for roadmap 2.1, BEFORE the `gobwas/ws` swap (Engine.IO v3 server on
-  `gorilla/websocket` v1.5.3, the library as of `2ae258f`). Apple M1 Max (10 cores, 32 GiB),
+  `gorilla/websocket` v1.5.3, the library code of `cb0dd90`; the benchmark commits
+  add test files only, so the measured library code is identical). Apple M1 Max (10 cores, 32 GiB),
   macOS 26.2 (Darwin 25.2.0), Go 1.25.5 darwin/arm64, server and clients on loopback on the
   same machine. Three separate runs of
 

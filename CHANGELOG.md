@@ -21,6 +21,11 @@ All notable changes to this project are documented here. The format follows
   compiles the proposed typed v2 descriptor, client and hook signatures, with one
   positive fixture and 11 negative fixtures that must fail to compile under Go 1.22 with
   recorded diagnostics; preparation for stage 2.0, no change to the library.
+- `_experiments/v2-api`: the proposed `Adapter` and `AdapterFactory` signatures, the
+  27 observer hook signatures of roadmap 2.4 (`Hooks` in `socketio` and `engineio`),
+  observer options, an external-adapter fixture and a second positive fixture, plus six
+  more negative compile fixtures (17 in all); compile proof only, no adapter runtime,
+  hook dispatch or change to the library.
 
 ### Changed
 

@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/sshaplygin/go-socket.io/experiments/v2-api/parser"
 )
@@ -55,3 +56,9 @@ func (b BroadcastOperator) Except(rooms ...Room) BroadcastOperator {
 	return b
 }
 func (b BroadcastOperator) Local() BroadcastOperator { b.local = true; return b }
+
+// Hooks and Logger are prototype-only metadata accessors. No inheritance or
+// runtime observer wiring exists: they return nil, including on a nil receiver.
+// Production integration must supply nil-safe dispatch wrappers and logger policy.
+func (*Namespace) Hooks() *Hooks        { return nil }
+func (*Namespace) Logger() *slog.Logger { return nil }

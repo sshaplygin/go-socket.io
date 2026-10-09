@@ -1380,12 +1380,14 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
     during the call returns at once and the call's error matches `ErrNamespaceClosed`; the
     count is 1 when the call returns. A variant whose factory returns `ctx.Err()` instead
     returns an error that also matches `context.Canceled`.
-  - R2: a factory returning an adapter 300 ms after its context ends. `Shutdown` with a
-    1 s deadline does not return before the factory does, with a 20 ms deadline it returns
-    before it, and `Close` returns before it. With the caller waiting, its call returns
-    `ErrNamespaceClosed` only after the factory returned, and the count is then 1. With
-    every caller's `ctx` cancelled first, each call has returned an error matching its
-    `ctx.Err()` at once, and the count is 0 until the factory returns.
+  - R2: a factory returning an adapter 300 ms after its context ends, in two variants
+    (the caller waits; every caller's `ctx` cancelled first), each ending the server in
+    three runs of its own: `Shutdown` with a 1 s deadline does not return before the
+    factory does, with a 20 ms deadline it returns before it, and `Close` returns before
+    it. With the caller waiting, its call returns `ErrNamespaceClosed` only after the
+    factory returned, and the count is then 1. With every caller gone, each call has
+    returned an error matching its `ctx.Err()` at once, and the count read 100 ms after
+    the end began is 0; the settled reading is 1.
   - R3: while `Shutdown` drains (a handler blocks it) and after `Close`, calls for a
     registered namespace, for an unregistered one and for one whose creation was started
     before and is still held (the test releases that factory last) return

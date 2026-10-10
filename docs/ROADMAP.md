@@ -164,7 +164,7 @@ workers submit changes to these files through that integrator.
 | V1B | V1A | V1-3 to V1-7 in order: one integrator, the root files and `parser` are shared | per-PR DoD |
 | V1C | V1B | V1-8 (`.github/`, the conformance directory) | the `conformance` job green on `master` |
 | V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`) | Stage 7 DoD, then per-PR DoD |
-| V1E | V1D (V1-12 may start after V1-8) | V1-12 and V1-13, one directory per example | `make examples` |
+| V1E | V1D (V1-12 may start after V1-8) | V1-12 and V1-13, one directory per example | `make examples examples-node` |
 | V1F | V1E | V1-14 release preparation, no tag | MV1 DoD and Acceptance (Stage V1) |
 | 2B | G2, row R merged (its step C passed) and MV1 accepted | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
 | 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets`); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
@@ -1426,8 +1426,8 @@ first). Rows for a PR are the `Plan` entries naming it (`covers V1-<n>` below li
 | V1-9 | Stage 7 as written below: the `client` package, behaviour-preserving, its own DoD; its commits are titled `<type>(7.<n>)` as Stage 7 requires |
 | V1-10 | `client` I: websocket and upgrade, several namespaces per `Client`, DISCONNECT on close, connect timeout and `connect_error`, `path`/`query`/headers, emit buffering |
 | V1-11 | `client` II: reconnection with options and `reconnect*` events (O5), `once`/`off`/`id`/`connected`, flags |
-| V1-12 | Examples `_examples/ack` and `_examples/binary`, each with its own `go.mod` and a Node-client script run by the conformance job |
-| V1-13 | Examples `_examples/namespaces` (namespaces, rooms, auth) and `_examples/middleware`, same rules; `_examples/default-http` gets broadcast-except-sender |
+| V1-12 | Examples `_examples/ack` and `_examples/binary`, each with its own `go.mod`, a `client.js` (exit 0 on success) and a README. Also owns the `Makefile` `examples` change: every example module is built and vetted (`go build`, `go vet`), the identical-copy `cmp` runs only for directories that hold a `chat.go` (the new ones have none), and a new target `examples-node` starts each new example on a random port and runs its `client.js` with `socket.io-client@2.5.0`; the conformance job runs it; `CLAUDE.md` `make examples` line updated in the same PR |
+| V1-13 | Examples `_examples/namespaces` (namespaces, rooms, auth) and `_examples/middleware`, same rules, `examples-node` extended; `_examples/default-http` gets broadcast-except-sender, and every `chat.go` copy changes with it in the same PR |
 | V1-14 | Release preparation: rewrites every remaining `PEND` row to the owner's answer (`DEV` with its PROTOCOL.md deviation, `DROP`, or `DONE`), PROTOCOL.md deviations (D3, D4, O4), README supported versions, `CHANGELOG.md` `## Unreleased` complete, v1 migration notes; no tag |
 
 **Conformance contract (V1-8).** CI job `conformance` in `.github/workflows/ci.yaml`, a required
@@ -1485,7 +1485,7 @@ Node 2.5.0 server of the conformance job.
 
 ```sh
 rows() { awk -F' *[|] *' '$2 ~ /^[A-Z][0-9]+$/' docs/PARITY.md; }
-make lint test-race examples
+make lint test-race examples examples-node   # builds and vets all example modules, runs each new client.js
 test -z "$(rows | awk -F' *[|] *' '$3 ~ /(BUG|ADD|CHG|TEST|PEND)/')"   # no open row and no pending decision, in any entry of the plan (DONE V1-11; PEND O5 is open)
 for V in 1.7.4 2.5.0; do grep -q "socket.io-client.*$V" .github/workflows/ci.yaml || echo "missing client $V"; done
 cl() { awk '/^## Unreleased/{u=1;next} /^## /{u=0} u && /^### /{s=$2} u && s=="'$1'"' CHANGELOG.md; }

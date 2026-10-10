@@ -1427,7 +1427,7 @@ first). Rows for a PR are the `Plan` entries naming it (`covers V1-<n>` below li
 | V1-10 | `client` I: websocket and upgrade, several namespaces per `Client`, DISCONNECT on close, connect timeout and `connect_error`, `path`/`query`/headers, emit buffering |
 | V1-11 | `client` II: reconnection with options and `reconnect*` events (O5), `once`/`off`/`id`/`connected`, flags |
 | V1-12 | Examples `_examples/ack` and `_examples/binary`, each with its own `go.mod`, a `client.js` (exit 0 on success) and a README. Also owns the `Makefile` `examples` change: every example module is built and vetted (`go build`, `go vet`), the identical-copy `cmp` runs only for directories that hold a `chat.go` (the new ones have none), and a new target `examples-node` starts each new example on a random port and runs its `client.js` with `socket.io-client@2.5.0`; the conformance job runs it; `CLAUDE.md` `make examples` line updated in the same PR |
-| V1-13 | Examples `_examples/namespaces` (namespaces, rooms, auth) and `_examples/middleware`, same rules, `examples-node` extended; `_examples/default-http` gets broadcast-except-sender, and every `chat.go` copy changes with it in the same PR |
+| V1-13 | Examples `_examples/namespaces` (namespaces, rooms, auth) and `_examples/middleware`, same rules, `examples-node` extended; `_examples/default-http` gets broadcast-except-sender, and every `chat.go` copy changes with it in the same PR, except `redis-adapter` and `redis-adapter-unix-socket`: `Except` is not available over Redis in `v1.5.0` (D2, contract in V1-0), so they keep their `chat.go` with the `others()` helper, named in `CHAT_SKIP` of the Makefile (the copy check is `CHAT_COPIES`, the `chat.go` directories minus `CHAT_SKIP`) until V1R |
 | V1-14 | Release preparation: rewrites every remaining `PEND` row to the owner's answer (`DEV` with its PROTOCOL.md deviation, `DROP`, or `DONE`), PROTOCOL.md deviations (D3, D4, O4), README supported versions, `CHANGELOG.md` `## Unreleased` complete, v1 migration notes; no tag |
 
 **Conformance contract (V1-8).** CI job `conformance` in `.github/workflows/ci.yaml`, a required
@@ -1506,7 +1506,7 @@ resumes on the owner's order after MV1, not on the tag.
 **Stage V1R. Redis parity (next v1 minor, after MV1).** Scope, from D2: `Except` and
 broadcast-except-sender over Redis (A4), the `DB` option (A10), binary arguments across
 instances (B3), the 5 s `RoomLen`/`Rooms` waits (B4, 1.K), and `_examples/redis-adapter` turned
-into a cluster-correct two-instance chat; the mixed Go/Node cluster stays out (D3, A8, A9).
+into a cluster-correct two-instance chat that returns to the identical `chat.go` (`CHAT_SKIP` emptied); the mixed Go/Node cluster stays out (D3, A8, A9).
 Entry: MV1 accepted. The PR split is recorded here when the stage starts. DoD: `make lint
 test-race` with the two-instance tests under `-race`; no `REDIS` entry left in the `Plan`
 column (`rows | grep REDIS` prints nothing); the changelog `### Known limitations` of 1.K is

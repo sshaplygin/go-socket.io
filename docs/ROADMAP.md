@@ -212,29 +212,49 @@ A plain `git rebase <new master>` of a branch cut from `$OLDBASE` is wrong, not 
 recreates root files with the names B1 moved (`engineio/server.go`, `parser/*`, `logger/*`), so
 git does not follow the rename and applies the edit to the restored v1 file at the root, with or
 without a conflict (a scratch repository: a branch editing `engineio/server.go` rebased this way
-touched the root file only). The recipe rebases onto the B1 commit first, whose parent is
-`$OLDBASE`, and then onto `master`; the step B body records `$OLDBASE` and the B1 SHA as `$B1`
-(after the merge, the SHA B1 has on `master`):
+touched the root file only). Rebasing onto the B1 commit with `merge.directoryRenames` is not used
+either: git moves no new file in a new subdirectory or a new top-level directory, and the second
+rebase stops on an import block that B3 rewrites. The recipe replays the branch as patches, which
+carry modified, new, deleted and renamed files alike, on a fresh branch from the post-step-C
+`origin/master` (`bash`, not `zsh`):
 
 ```sh
-git -c merge.directoryRenames=true rebase --onto $B1 $OLDBASE   # the branch now sits on the pure rename and its edits land in v2/
-git rebase origin/master         # then on the merged step B (B1 is in its history)
-test -z "$(git diff --name-only origin/master...HEAD | grep -vE '^(v2/|docs/|\.github/)')"   # no Go path outside v2/
+BR=${BR:?the branch, e.g. origin/feat/x}; NEW=${NEW:?name of the new branch}; P=$(mktemp -d)
+FROM=$(git merge-base ${OLDBASE:?recorded in step A and in the step B body} $BR)
+git format-patch -q -o $P/v2 $FROM..$BR -- . ':!docs' ':!.github' ':!CLAUDE.md' ':!CONTRIBUTING.md' ':!LICENSE' ':!.gitignore'   # the module files
+git format-patch -q -o $P/shared $FROM..$BR -- docs .github CLAUDE.md CONTRIBUTING.md LICENSE .gitignore   # the root-only files, the list of B1
+perl -pi -e '$f=$1 if m{^diff --git a/(\S+)}; s#github\.com/sshaplygin/go-socket\.io(?!/v2)#github.com/sshaplygin/go-socket.io/v2#g if $f =~ /(\.go|go\.mod|\.toml)$/ && /^[ +-]/ && !/^(---|\+\+\+) /' $P/v2/*.patch   # the B3 rewrite, on the patch text
+git switch -c $NEW origin/master
+git am --directory=v2 $P/v2/*.patch   # skip when $P/v2 is empty (#60)
+git am -3 $P/shared/*.patch           # no --directory: these files stay at the root
+test -z "$(git diff --name-only origin/master...HEAD | grep -vE '^(v2/|docs/|\.github/|CLAUDE\.md|CONTRIBUTING\.md|LICENSE|\.gitignore)')"   # nothing outside v2/ and the root-only files
 ```
 
-`merge.directoryRenames=true` is required for a branch that adds a file in a directory B1 moved:
-without it the first rebase stops with a "file location" conflict (`UA v2/parser/newfile_x.go`),
-because git leaves the new file's destination to the user. If it still stops that way, `git add`
-the reported path (it is already under `v2/`) and `git rebase --continue`. On a scratch repository
-with B1 and B2 applied, a branch that added `parser/newfile_x.go` and edited `engineio/server.go`
-stopped at the first rebase without the option; with it both rebases succeeded and
-`git diff --name-only master...HEAD` printed `v2/engineio/server.go` and `v2/parser/newfile_x.go`,
-the root `engineio/server.go` unchanged. When a branch cannot be
-rebased (squashed history), `git format-patch $OLDBASE..HEAD --stdout | git am --directory=v2`
-on a branch cut from `master` gives the same paths; the import rewrite of step B3 follows either way.
+The B3 rewrite is applied to the patches, not after the replay, because a context line with the
+old module path never matches the rewritten file: `git am` stopped at an import block without it.
+`--directory=v2` puts a new file, wherever it sits, under `v2/`; binary and `testdata` files are
+in the patches (`format-patch` writes binary patches); `go.mod` and `go.sum` hunks land in
+`v2/go.mod` and `v2/go.sum` (a `go.sum` line needs no rewrite); `README.md`, `CHANGELOG.md`,
+`Makefile` and `.golangci.yml` hunks land in the per-module copies. A hunk in a file that B5
+rewrote (`docs/PROTOCOL.md`, `v2/README.md`, `v2/CHANGELOG.md`) may stop `git am`: resolve it by
+hand (`git am --show-current-patch=diff`, edit, `git add`, `git am --continue`) and list the file
+in the PR. A file on the root-only list that belongs in `v2/` is moved by hand and listed too. A
+commit that touches both kinds of file becomes two commits with the same subject.
+
+Replayed on the real branches in scratch worktrees, nothing pushed, on `origin/master`
+(`1392afe`) with B1 to B3 of this section applied (B4 and B5 not written yet): #62 (`f59eff9`,
+three commits, 13 files): both `git am` runs completed, the guard printed nothing, the 11 Go files
+equal the branch files with the B3 command applied, and `go build`, `go vet` and
+`go test -count=1 ./...` in `v2/` passed; the same command without the rewrite stopped at
+`v2/engineio/transport/polling/server.go`. #60 (`67ab45e`): no module patch, the shared series
+applied with `-3`, and its diff equals the diff of the branch against `1392afe`. A synthetic
+branch (an import line added next to the rewritten ones, a new file in a new subdirectory of a
+moved directory, a new top-level directory, a deleted file, a rename with an edit, a 2 KiB binary
+file, a `go.mod` require, a `go.sum` line, and hunks in `CHANGELOG.md`, `docs/`, `.github/` and
+`CONTRIBUTING.md`) landed with every file at its expected path, the binary file byte-identical.
 
 **B. One PR, merged with its commits kept** (`CONTRIBUTING.md` rule 5: B1 must stay a
-pure rename, the commit the recipe of step A rebases onto, so that the work above follows the files). Subjects
+pure rename, so that `git log --follow` and review of the moves work). Subjects
 `refactor(R.<n>): ...`; intermediate commits may not build, the head does.
 
 - B1. Pure `git mv`, no content edit; the root `README.md` and `CHANGELOG.md` move too:

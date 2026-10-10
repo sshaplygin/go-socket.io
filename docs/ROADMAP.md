@@ -1389,7 +1389,7 @@ package) is executed inside it as PR V1-9.
 | D2 | In-memory implementation first. Redis work (Except on the Redis path, the `DB` option, binary arguments across instances, the 5 s `RoomLen`/`Rooms` waits of 1.R, a cluster-correct two-instance chat example) is Stage V1R below, the next v1 minor. `v1.5.0` = memory parity + examples + finished Go client, tagged only on the owner's explicit order. |
 | D3 | A mixed Go/Node Redis cluster (the `socket.io-redis` wire format) is not in v1: a documented deviation (PROTOCOL.md); the v2 `adapter/codec` carries it. |
 | D4 | JSONP is declared unsupported and removed. |
-| D5 | New public API is accepted for v1: `Except` on `Server` (memory half in `v1.5.0`), a connect-rejection reason, per-namespace disconnect, and the other 2.x features the matrix marks ABSENT or PARTIAL unless the owner marks them out. The checklist is the `Plan` column of PARITY.md. |
+| D5 | New public API is accepted for v1: `Except` on `Server` (memory half in `v1.5.0`), a connect-rejection reason, per-namespace disconnect with the DISCONNECT packet the server then writes (K20, R9), and the other 2.x features the matrix marks ABSENT or PARTIAL unless the owner marks them out. The checklist is the `Plan` column of PARITY.md. |
 | D6 | The Go client is finished before the tag: websocket, several namespaces per `Client`, the close packet, and reconnection (the reference client has it, row C3). The `client` package of Stage 7 moves before the tag. |
 | D7 | Release gate clients: `socket.io-client` 1.7.4 and 2.5.0, in a CI job (1.0 to 1.3 are not guaranteed). |
 | D8 | Fixed as bugs, in the PRs named in PARITY.md: polling binary-mode UTF-16 length (P16, non-ASCII fails); an unknown namespace or rejected CONNECT answers an ERROR packet and keeps the root socket (S10, R8; socket.io 2.5.0 says `Invalid namespace`); `BroadcastToNamespace` duplicates per room (S12); random session id as `base64id` (E15); `Emit(ev, nil)` panic (B1); a wrong-type event argument closes the connection (B2); no payload size limit (E4: the limit is the reference's `maxHttpBufferSize` default, 1e6 bytes, by D1, with an `Options` field to raise it, an `ADD` entry of E4 that V1-0 specifies); no attachment-count cap (R6: a `5999999999999-` header took 19.5 s in one decode); JSONP `j` reflection (P5, closed by D4); `Server.Close` leaves sessions running (S17, E22); Redis `DB` ignored (A10, in V1R). O3 does not reopen any of them; it covers only the defaults they leave open. |
@@ -1405,7 +1405,7 @@ V1-14 does not merge until that PR has.
 
 Answers are needed before these merges: O1 and O2 before V1-0 (merging V1-0 without an owner
 comment accepts both recommendations), O5 before V1-11, O3, O4 and O6 before V1-14. V1-2 and
-V1-4 are not gated by O3, because D8 settles their rows. The PR body carries one line
+V1-4 are not gated by O3: none of their rows is `PEND O3`, D8 settles E4, S10 and R8, D5 settles R9 and K20. The PR body carries one line
 `Owner answer O<n>: <answer or accepted recommendation>` per decision it needs
 (`gh pr view <n> --json body -q .body | grep -c '^Owner answer O'` prints the count).
 
@@ -1413,7 +1413,7 @@ V1-4 are not gated by O3, because D8 settles their rows. The PR body carries one
 | --- | --- | --- | --- | --- |
 | O1 | What "parity" means (D1): functional parity of the wire and of the documented features, or the reference's API shape | Functional parity with an idiomatic Go API; a row is `PARITY` when a reference client or server cannot tell the difference | none | V1-0 records the answer |
 | O2 | Additive methods on the exported `Conn` and `Namespace` interfaces break external mocks (rows marked `(O2)`) | No change to existing method sets: new optional interfaces found by type assertion, plus helper functions; V1-0 records each | none; the `(O2)` `ADD` rows follow the answer | V1-0 records it |
-| O3 | The v1 defaults that D8 does not settle: the DISCONNECT packet written by the server (R9), CORS (S4, P8), ping defaults (E1, E2), `Conn.ID` per namespace (K1). The random session id (E15) and the ERROR packet (S10, R8) are D8 and proceed regardless | DISCONNECT written; keep S4, P8, E1, E2 and K1 and document them | S4, P8, K1, E1, E2 | V1-14 |
+| O3 | The v1 defaults that D8 does not settle: CORS (S4, P8), ping defaults (E1, E2), `Conn.ID` per namespace (K1). The payload limit (E4), the random session id (E15), the ERROR packet (S10, R8) and the DISCONNECT packet (R9) are D8 or D5 and proceed regardless | Keep S4, P8, E1, E2 and K1 and document them | S4, P8, K1, E1, E2 | V1-14 |
 | O4 | `perMessageDeflate`, `httpCompression`, `cookie` (E8, E9, E10), and the `compress` flag (K17, C11) in `v1.5.0` | No: documented unsupported deviations; reconsider after V1R | K17, E8, E9, E10, and the `PEND O4` entries of S21, C11 | V1-14 (C11: V1-11) |
 | O5 | Reconnection in the v1 client (C3): full reference options and `reconnect*` events or a minimal retry | Full options and events, because the reference client has them (D6); PR V1-11 is written for it | the `PEND O5` entry of C3 | V1-11 |
 | O6 | Engine-level surface: `engine` handle, `clients` map, engine events, engine socket state (S18, E17, E19, E20) | Out of `v1.5.0`: the pull model of `Accept` replaces the events; `Count` and `Remove` stay | S18, E17, E19, E20 | V1-14 |
@@ -1428,7 +1428,7 @@ first). Rows for a PR are the `Plan` entries naming it (`covers V1-<n>` below li
 | V1-1 | `engineio/transport/polling`: UTF-16 payload length (P16), JSONP removed with its PROTOCOL.md deviation (P5, P6), `OPTIONS` without `sid` (E14); the CORS default stays (S4, P8: O3), `OPTIONS` answers (P9) and overlapping polls (P18) are checked by V1-8 |
 | V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake method, liveness on any packet, request checker, `Server.Close` closes sessions |
 | V1-3 | `parser` and root defects: attachment cap, payload validation, `Emit(ev, nil)`, wrong-type argument, per-room duplicates |
-| V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written, `0/nsp,` reply form, disconnect reasons and `disconnecting` order, encode error |
+| V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written (R9), `0/nsp,` reply form, disconnect reasons and `disconnecting` order, encode error |
 | V1-5 | Namespace API: `Of`, `Use` and event middleware, connect-rejection reason, per-namespace disconnect, `connected`/`sockets`, `send`, `Server.Close` waiting for sessions |
 | V1-6 | Memory broadcast: `Except` and broadcast except the sender, room union with dedupe, id lists, `Join` of several rooms, `volatile` and `local` flags, callback-on-broadcast rule |
 | V1-7 | Dynamic namespaces, handshake data (query, headers, request, time), late ack and several listeners per event, adapter injection |

@@ -205,7 +205,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | R6 | BUG V1-3 | D8 | `maxAttachments` (10) -> "too many attachments" | index.js Decoder | ABSENT | `buffers := make([]Buffer, d.bufferCount)` with the client-supplied count, no cap (decoder.go:139). Probe: header `5999999999999-[...]` took **19.5 s** in one `DecodeArgs` call (T, on the archive copy) | - | N | 1 | T |
 | R7 | CHG V1-3 | D1 | payload validation per type (`invalid payload`, `Illegal attachments`) | isPayloadValid | PARTIAL | event name read by `readEvent` (decoder.go:297); other type checks not performed (not run) | - | N | 1 | U |
 | R8 | BUG V1-4 | D8 | ERROR packet encode/decode | parser | ABSENT | see S10, K22 | - | N | see S10 | R |
-| R9 | CHG V1-4 | D1 | DISCONNECT packet write by server | socket.js:483 | ABSENT | see K20 | - | N | see K20 | R |
+| R9 | CHG V1-4 | D5 | DISCONNECT packet write by server | socket.js:483 | ABSENT | see K20 | - | N | see K20 | R |
 | R10 | CHG V1-4 | D1 | encode failure -> `4"encode error"` | index.js:55 | PARTIAL (differs) | encode error reports to `OnError` and closes the connection (server.go:369-372) | - | N | 0 | R |
 | R11 | - | - | pluggable parser class | index.js:54 | N/A | see S6 | - | - | 0 | R |
 

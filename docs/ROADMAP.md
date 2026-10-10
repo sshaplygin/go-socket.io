@@ -182,18 +182,38 @@ merged into the old layout; it is merged forward after step C, by its author, on
 
 | Work | State | After step C |
 | --- | --- | --- |
-| #60 `docs: add 2.3M, the opt-in MessagePack parser` | open, edits `docs/ROADMAP.md` only | rebased on `master`; the path convention applies to its text |
-| #62 `feat(2.1): Engine.IO v4 handshake gate` | open | rebased: Go paths become `v2/<old path>`, imports `.../v2/...` (the rewrite command is in the step B body) |
+| #60 `docs: add 2.3M, the opt-in MessagePack parser` | open, edits `docs/ROADMAP.md` only | plain `git rebase` on `master` (no Go path involved); the path convention applies to its text |
+| #62 `feat(2.1): Engine.IO v4 handshake gate` | open | moved with the recipe below: Go paths become `v2/<old path>`, imports `.../v2/...` (the rewrite command is in the step B body) |
 | 2.1 D1, the 2.2 memory adapter | stopped before a PR | restarted on `v2/` |
 | forward-port of the `test-stress` target and of PR #52 (`parser` Buffer placeholder numbers) | stopped; `v1.x` already has both | v1 side: restored by B2; v2 side: a new PR on `v2/` |
 
 ```sh
 test "$(gh pr list --base master --state open --json number,author --jq '[.[]|select(.author.is_bot|not)|.number]|sort|join(",")')" = 60,62   # before the step B PR is opened
 V1TIP=$(git rev-parse origin/v1.x); echo $V1TIP   # the v1 tree B2 restores; the step B body records it
+OLDBASE=$(git rev-parse origin/master); echo $OLDBASE   # the last commit of the old layout; the step B body records it
 ```
 
+A plain `git rebase <new master>` of a branch cut from `$OLDBASE` is wrong, not only slow: B2
+recreates root files with the names B1 moved (`engineio/server.go`, `parser/*`, `logger/*`), so
+git does not follow the rename and applies the edit to the restored v1 file at the root, with or
+without a conflict (a scratch repository: a branch editing `engineio/server.go` rebased this way
+touched the root file only). The recipe rebases onto the B1 commit first, whose parent is
+`$OLDBASE`, and then onto `master`; the step B body records `$OLDBASE` and the B1 SHA as `$B1`
+(after the merge, the SHA B1 has on `master`):
+
+```sh
+git rebase --onto $B1 $OLDBASE   # the branch now sits on the pure rename and its edits land in v2/
+git rebase origin/master         # then on the merged step B (B1 is in its history)
+test -z "$(git diff --name-only origin/master...HEAD | grep -vE '^(v2/|docs/|\.github/)')"   # no Go path outside v2/
+```
+
+On the same scratch repository the recipe ended with the edit in `v2/engineio/server.go`, the root
+`engineio/server.go` unchanged, and the last command printing nothing. When a branch cannot be
+rebased (squashed history), `git format-patch $OLDBASE..HEAD --stdout | git am --directory=v2`
+on a branch cut from `master` gives the same paths; the import rewrite of step B3 follows either way.
+
 **B. One PR, merged with its commits kept** (`CONTRIBUTING.md` rule 5: B1 must stay a
-pure rename for `git rebase` of the work above to follow the files). Subjects
+pure rename, the commit the recipe of step A rebases onto, so that the work above follows the files). Subjects
 `refactor(R.<n>): ...`; intermediate commits may not build, the head does.
 
 - B1. Pure `git mv`, no content edit; the root `README.md` and `CHANGELOG.md` move too:

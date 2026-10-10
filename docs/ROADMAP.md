@@ -928,7 +928,7 @@ test -n "$K2"
 test -z "$(cd $TAG; eval "$K2")"
 git worktree remove --force $TAG
 # consumer build; the same function takes master before the tag
-consumer() ( d=$(mktemp -d $T/c.XXXXXX); cd $d; go mod init example.com/consumer; printf 'package main\n\nimport _ "github.com/sshaplygin/go-socket.io"\n\nfunc main() {}\n' >main.go; GOPROXY=direct go get github.com/sshaplygin/go-socket.io@$1; go build ./... )
+consumer() ( : ${T:?set T to a mktemp -d directory first}; d=$(mktemp -d $T/c.XXXXXX) && cd $d && go mod init example.com/consumer && printf 'package main\n\nimport _ "github.com/sshaplygin/go-socket.io"\n\nfunc main() {}\n' >main.go && GOPROXY=direct go get github.com/sshaplygin/go-socket.io@$1 && go build ./... )
 consumer v1.5.0
 ```
 

@@ -195,8 +195,8 @@ merged into the old layout; it is merged forward after step C, by its author, on
 
 | Work | State | After step C |
 | --- | --- | --- |
-| #60 `docs: add 2.3M, the opt-in MessagePack parser` | open, edits `docs/ROADMAP.md` only | plain `git rebase` on `master` (no Go path involved); the path convention applies to its text |
-| #62 `feat(2.1): Engine.IO v4 handshake gate` | open | moved with the recipe below: Go paths become `v2/<old path>`, imports `.../v2/...` (the import rewrite is the command of B3) |
+| #60 `docs: add 2.3M, the opt-in MessagePack parser` | open, edits `docs/API.md`, `docs/PROTOCOL.md` and `docs/ROADMAP.md`; does not merge during the freeze | the recipe below (shared series only, no module patch); its `docs/PROTOCOL.md` hunk (line 165 to 168) may conflict with the B5 edit of line 157; the path convention applies to its text |
+| #62 `feat(2.1): Engine.IO v4 handshake gate` | open, edits `engineio/` Go files, `CHANGELOG.md`, `docs/PROTOCOL.md` and `docs/ROADMAP.md`; does not merge during the freeze | the recipe below: Go paths become `v2/<old path>`, imports `.../v2/...` (the B3 command, applied to the patch text); its `docs/PROTOCOL.md` hunks (lines 146 to 153) may conflict with the B5 edit of line 157 |
 | 2.1 D1, the 2.2 memory adapter | stopped before a PR | restarted on `v2/` |
 | forward-port of the `test-stress` target and of PR #52 (`parser` Buffer placeholder numbers) | stopped; `v1.x` already has both | v1 side: restored by B2; v2 side: a new PR on `v2/` |
 

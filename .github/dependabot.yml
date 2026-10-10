@@ -1,15 +1,17 @@
 version: 2
 updates:
   - package-ecosystem: gomod
-    directory: "/"
+    # The v1 module at the repository root and the v2 module in v2/.
+    directories: ["/", "/v2"]
     schedule:
       interval: weekly
     groups:
       go-minor-patch:
         update-types: ["minor", "patch"]
   - package-ecosystem: gomod
-    # Standalone _experiments modules; the glob matches nothing until one is merged.
-    directories: ["/_experiments/*"]
+    # Standalone example and experiment modules, each with its own go.mod; add
+    # /v2/adapters/* and /v2/contrib/* here when those modules exist.
+    directories: ["/_examples/*", "/v2/_examples/*", "/v2/_experiments/*"]
     schedule:
       interval: weekly
     groups:
@@ -17,22 +19,6 @@ updates:
         update-types: ["minor", "patch"]
   - package-ecosystem: github-actions
     directory: "/"
-    schedule:
-      interval: weekly
-    groups:
-      actions:
-        patterns: ["*"]
-  - package-ecosystem: gomod
-    directory: "/"
-    target-branch: v1.x
-    schedule:
-      interval: weekly
-    groups:
-      go-minor-patch:
-        update-types: ["minor", "patch"]
-  - package-ecosystem: github-actions
-    directory: "/"
-    target-branch: v1.x
     schedule:
       interval: weekly
     groups:

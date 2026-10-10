@@ -1425,7 +1425,7 @@ first). Rows for a PR are the `Plan` entries naming it (`covers V1-<n>` below li
 | PR | Scope |
 | --- | --- |
 | V1-0 | Docs only: signatures and semantics of every `ADD` row as subsections of this stage (O2 mechanism, `Options` fields, errors); three-agent validation (CLAUDE.md) |
-| V1-1 | `engineio/transport/polling`: UTF-16 payload length, JSONP removed with its PROTOCOL.md deviation, CORS and `OPTIONS` without `sid`, overlap behaviour |
+| V1-1 | `engineio/transport/polling`: UTF-16 payload length (P16), JSONP removed with its PROTOCOL.md deviation (P5, P6), `OPTIONS` without `sid` (E14); the CORS default stays (S4, P8: O3), `OPTIONS` answers (P9) and overlapping polls (P18) are checked by V1-8 |
 | V1-2 | `engineio` server and session: random session id, payload limit, upgrade timeout, `allowUpgrades`, JSON error replies, handshake method, liveness on any packet, request checker, `Server.Close` closes sessions |
 | V1-3 | `parser` and root defects: attachment cap, payload validation, `Emit(ev, nil)`, wrong-type argument, per-room duplicates |
 | V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written, `0/nsp,` reply form, disconnect reasons and `disconnecting` order, encode error |

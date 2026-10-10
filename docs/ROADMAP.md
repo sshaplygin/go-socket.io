@@ -1403,11 +1403,16 @@ An answer that adds scope (a yes on O4 or O6, a minimal retry on O5 changing V1-
 this section first, in a docs PR that adds a PR with its rows, entry and DoD before V1-14;
 V1-14 does not merge until that PR has.
 
-Answers are needed before these merges: O1 and O2 before V1-0 (merging V1-0 without an owner
-comment accepts both recommendations), O5 before V1-11, O3, O4 and O6 before V1-14. V1-2 and
-V1-4 are not gated by O3: none of their rows is `PEND O3`, D8 settles E4, S10 and R8, D5 settles R9 and K20. The PR body carries one line
-`Owner answer O<n>: <answer or accepted recommendation>` per decision it needs
-(`gh pr view <n> --json body -q .body | grep -c '^Owner answer O'` prints the count).
+Answers are needed before these merges: O1 and O2 before V1-0, O5 before V1-11, O3, O4 and O6 before V1-14. V1-2 and
+V1-4 are not gated by O3: none of their rows is `PEND O3`, D8 settles E4, S10 and R8, D5 settles R9 and K20. Silence is not an answer: a PR does not merge, under the standing
+merge rule too, until the repository owner has answered each decision it needs in a comment of
+that PR (accepting a recommendation counts). The check runs before the merge, and the PR body
+carries one line `Owner answer O<n>: <answer> <URL of the comment>` per decision.
+
+```sh
+answered() { pr=$1; shift; owner=$(gh repo view --json owner -q .owner.login); for o in "$@"; do gh pr view "$pr" --json comments -q '.comments[] | select(.author.login == "'"$owner"'") | .body' | grep -qw "O$o" || { echo "no owner comment for O$o on #$pr" >&2; return 1; }; done; }
+answered 70 1 2   # V1-0, with its PR number; V1-11: answered <n> 5; V1-14: answered <n> 3 4 6
+```
 
 | ID | Question | Recommendation | `PEND` rows | Rewritten by |
 | --- | --- | --- | --- | --- |

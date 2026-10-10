@@ -10,8 +10,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sshaplygin/go-socket.io/adapter/codec"
-	"github.com/sshaplygin/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/v2/adapter/codec"
+	"github.com/sshaplygin/go-socket.io/v2/parser"
 )
 
 // unsupported lists the publications that are observations of the pinned adapter but

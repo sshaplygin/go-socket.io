@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
 )
 
 type fakeOneFrameDiscarder struct{}

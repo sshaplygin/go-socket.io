@@ -121,7 +121,7 @@ func anyUses(fset *token.FileSet, file *ast.File) []string {
 // Adapter.ServerSideEmit, which ROADMAP 2.2 fixes. Unexported declarations, type
 // parameter constraints and function bodies are not examined.
 func TestFrozenContract(t *testing.T) {
-	doc, err := os.ReadFile("docs/API.md")
+	doc, err := os.ReadFile("../docs/API.md")
 	if err != nil {
 		t.Fatal(err)
 	}

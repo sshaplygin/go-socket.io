@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 
-	sio "github.com/sshaplygin/go-socket.io"
-	"github.com/sshaplygin/go-socket.io/internal/fixtures/clientstub"
-	"github.com/sshaplygin/go-socket.io/parser"
+	sio "github.com/sshaplygin/go-socket.io/v2"
+	"github.com/sshaplygin/go-socket.io/v2/internal/fixtures/clientstub"
+	"github.com/sshaplygin/go-socket.io/v2/parser"
 )
 
 type Message struct {

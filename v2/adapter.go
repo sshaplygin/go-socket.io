@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/sshaplygin/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/v2/parser"
 )
 
 // Adapter keeps room membership of one namespace and delivers broadcasts. The

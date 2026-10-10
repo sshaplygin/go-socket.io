@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sshaplygin/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/v2/parser"
 )
 
 // wirePacket is the Go-origin packet in the lower-case spelling verify.mjs uses; the

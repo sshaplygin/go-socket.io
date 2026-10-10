@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sshaplygin/go-socket.io/adapter/codec"
+	"github.com/sshaplygin/go-socket.io/v2/adapter/codec"
 )
 
 func TestRequestRoundtrip(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	socketio "github.com/sshaplygin/go-socket.io"
-	"github.com/sshaplygin/go-socket.io/engineio"
+	socketio "github.com/sshaplygin/go-socket.io/v2"
+	"github.com/sshaplygin/go-socket.io/v2/engineio"
 )
 
 type chatEvent struct {

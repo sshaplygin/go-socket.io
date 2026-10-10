@@ -7,8 +7,8 @@ import (
 	"context"
 	"encoding/json"
 
-	sio "github.com/sshaplygin/go-socket.io"
-	"github.com/sshaplygin/go-socket.io/parser"
+	sio "github.com/sshaplygin/go-socket.io/v2"
+	"github.com/sshaplygin/go-socket.io/v2/parser"
 )
 
 type Adapter struct{}

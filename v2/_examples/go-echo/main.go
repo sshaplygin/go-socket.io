@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/labstack/echo"
 
-	socketio "github.com/sshaplygin/go-socket.io"
+	socketio "github.com/sshaplygin/go-socket.io/v2"
 )
 
 func main() {

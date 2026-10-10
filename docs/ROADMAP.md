@@ -319,6 +319,11 @@ pure rename, the commit the recipe of step A rebases onto, so that the work abov
   - `v2/CHANGELOG.md` `Removed` entries that say the code "stays on the branch `v1.x`" (the `parser`
     v4 codec, the Engine.IO v3 polling framing, the v1 root runtime): "stays in the v1 module at the
     repository root".
+  - `v2/server.go`, the package comment of the v2 root package (shown on pkg.go.dev for the v2
+    module; line 9 of this revision: "The v1 server, with the reflection based API, lives on the
+    branch v1.x."): v1 is in the repository-root module `github.com/sshaplygin/go-socket.io`. It is
+    the only `v1.x` in a Go file of `master` today; the restored root keeps its own `v1.x` mentions in
+    comments (`parser/encoder_buffer_test.go`), which stay because the v1 tree is the `v1.x` tip.
 
 **C. Verification**, on the head of the step B PR (`$V1TIP` from its body). The
 `api` function is the one of the Stage 1b Acceptance block, applied to the root module:
@@ -347,6 +352,7 @@ test -z "$(diff <(api $BASE) <(api .))"   # the v1 exported API is unchanged
 DB=$(grep -oE '"/[^"]*"' .github/dependabot.yml | tr -d '"')
 test -z "$(git grep -nE 'v1\.x|[Rr]emoved .*from [`]?master|on [`]?master[`]?' -- docs/PROTOCOL.md docs/API.md)"   # no protocol or API document says v1 lives on v1.x or was removed from master
 test -z "$(git grep -nE 'v1\.x|this branch|[Ss]tatus (of|on) [`]master|on [`]master' -- README.md v2/README.md engineio/README.md v2/engineio/README.md CHANGELOG.md v2/CHANGELOG.md _examples/README.md v2/_examples/README.md)"   # the READMEs, changelogs and example notes: no install line @v1.x, no 'this branch', no v1.x branch statement
+test -z "$(git grep -nE 'v1\.x' -- 'v2/*.go')"   # no Go comment of the v2 module (the package comment of v2/server.go) says v1 lives on v1.x
 test -z "$(git grep -nE 'v1\.x|[Rr]emoved .*from [`]?master' -- CLAUDE.md CONTRIBUTING.md | grep -v frozen)"   # these two may name the branch only on a line that says it is frozen
 test -z "$(for d in $(git ls-files 'go.mod' '*/go.mod' | xargs -n1 dirname | sed 's#^\.$##; s#^#/#'); do ok=; for g in $DB; do [[ $d == $g ]] && ok=1; done; test -n "$ok" || echo "no Dependabot entry: $d"; done)"   # every module has an entry
 ```

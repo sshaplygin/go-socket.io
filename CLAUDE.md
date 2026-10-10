@@ -102,7 +102,7 @@ golangci-lint, `make vuln` on ubuntu with the newest Go release from go.dev, bec
 (`make examples`, the identical-copy check only) and `experiments-v2` (`make experiments`;
 installs golangci-lint with `go install`). Dependabot groups Go minor/patch updates of every
 module (`/`, `/v2`, `/_examples/*`, `/v2/_examples/*`, `/v2/_experiments/*`) and Actions
-updates weekly; no entry targets the frozen branch `v1.x`.
+updates weekly.
 
 Benchmarks (`.github/workflows/benchmarks.yml`) compare the PR base and head on
 one Ubuntu runner with the same stable Go toolchain. Each side runs every benchmark of

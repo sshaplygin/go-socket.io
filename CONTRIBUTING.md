@@ -25,8 +25,9 @@ planned and in which order: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Releases
 
-This section owns the tagging rule, the rule of the frozen `v1.x` branch, the release-commit
-procedure and the `CHANGELOG.md` handling of the two modules; the roadmap links here.
+This section owns the release-commit procedure and the `CHANGELOG.md` handling of the two
+modules. The tag policy and the rule of the frozen `v1.x` branch are decisions of
+[docs/ROADMAP.md](docs/ROADMAP.md#repository-layout); the bullets below summarize them.
 
 - Two modules on one branch, `master`: v1 at the repository root
   (`github.com/sshaplygin/go-socket.io`) and v2 in `v2/`

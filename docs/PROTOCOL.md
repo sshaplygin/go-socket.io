@@ -71,10 +71,11 @@ server->>server: close old conn
 
 ## Implemented: Socket.IO protocol v4
 
-Branch `v1.x` only: the root package and `parser` (`parser.Buffer`, `Header.Query`).
-Stage 2.0 removed the v1 root runtime from `master` and stage 2.3P replaced the v4
-codec in `parser` there with the v5 codec (next section), so nothing in this section
-and in the deviations after it describes `master`.
+The v1 module at the repository root: the `socketio` package and `parser` (`parser.Buffer`,
+`Header.Query`). It runs over the root `engineio` package, the Engine.IO v3 implementation
+of the v1 module (XHR and JSONP polling with length-prefixed payloads, `gorilla/websocket`);
+the Engine.IO section above describes `v2/engineio`. The v2 module in `v2/` has no
+Socket.IO v4 code: its `v2/parser` holds the v5 codec of the next section.
 
 - Packet format `<type>[<attachments>-][<namespace>,][<ack id>][JSON]`. Types
   0 CONNECT, 1 DISCONNECT, 2 EVENT, 3 ACK, 4 ERROR, 5 BINARY_EVENT, 6 BINARY_ACK.
@@ -94,18 +95,18 @@ and in the deviations after it describes `master`.
   the websocket message limit is the transport's default 1 MiB, not the advertised value. The
   polling POST limit and the websocket limit are above.
 
-Socket.IO v4 runtime, branch `v1.x` only (stage 2.0 removed the runtime from `master`):
+Socket.IO v4 runtime (v1, repository root):
 
 - CONNECT to a namespace without a registered handler closes the connection instead
   of answering with an ERROR packet.
 - `Header.Query` is never exposed to handlers.
 
-## Implemented on master: Socket.IO protocol v5 wire codec
+## Implemented in `v2/`: Socket.IO protocol v5 wire codec
 
-Package `parser`, stage 2.3P. It converts packets to and from the wire format and has
-no runtime: nothing in the root package calls it before stage 2.3S. The wire format is
+Package `v2/parser`, stage 2.3P. It converts packets to and from the wire format and has
+no runtime: nothing in the `v2/` root package calls it before stage 2.3S. The wire format is
 that of `socket.io-parser` 4.2.7 (protocol 5), checked against it by the Node oracle in
-`parser/testdata/oracle` (run by hand, see its README; CI does not run it).
+`v2/parser/testdata/oracle` (run by hand, see its README; CI does not run it).
 
 - A message is one text frame, the envelope, followed by as many binary frames as the
   envelope announces. The envelope is `<type>[<attachments>-][<namespace>,][<ack id>][JSON]`.
@@ -154,7 +155,7 @@ Engine.IO v3 → v4:
 
 Socket.IO v4 → v5:
 
-| Area | v4 (branch `v1.x`) | v5 (target; the wire codec is on `master`, see above) |
+| Area | v4 (v1, repository root) | v5 (target; the wire codec is in `v2/parser`, see above) |
 | --- | --- | --- |
 | Root namespace | server connects `/` automatically | client must send `0`; server replies `0{"sid":"..."}` |
 | Socket id | equals the engine `sid` | separate id per (connection, namespace) |

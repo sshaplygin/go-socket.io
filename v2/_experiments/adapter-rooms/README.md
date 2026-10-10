@@ -4,7 +4,7 @@ This isolated preparation artifact captures the installed Node in-memory
 `Adapter` from **socket.io-adapter 2.5.5**, using **socket.io-parser 4.2.7** for
 packet encoding. It supplies membership and recipient fixtures for the future
 stage 2.2 Go memory adapter. Integration prerequisites and acceptance gates remain
-owned by [the roadmap](../../docs/ROADMAP.md); this corpus does not pass those
+owned by [the roadmap](../../../docs/ROADMAP.md); this corpus does not pass those
 gates or establish the final Go adapter API.
 
 `reference/package-lock.json` pins the complete Node dependency tree. The oracle

@@ -15,8 +15,8 @@ plan, including Socket.IO protocol v5 support, is in [docs/ROADMAP.md](docs/ROAD
 
 | Server | Socket.IO protocol | Engine.IO protocol | JavaScript client |
 | --- | --- | --- | --- |
-| v1.x (this branch) | v4 | v3 | `socket.io-client` 1.x and 2.x |
-| v2 (planned) | v5 | v4 | `socket.io-client` 3.x and 4.x |
+| v1 (this module, repository root) | v4 | v3 | `socket.io-client` 1.x and 2.x |
+| v2 (in development in [`v2/`](v2/README.md), no runtime yet) | v5 | v4 | `socket.io-client` 3.x and 4.x |
 
 Details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
@@ -25,10 +25,10 @@ Details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 Install the maintained fork directly:
 
 ```sh
-go get github.com/sshaplygin/go-socket.io@v1.x
+go get github.com/sshaplygin/go-socket.io@master
 ```
 
-Earlier tags use the upstream module path; use the `v1.x` branch until a release with the
+Earlier tags use the upstream module path; use `master` until a release with the
 fork's module path is tagged. Existing consumers must update their imports from
 `github.com/googollee/go-socket.io` to `github.com/sshaplygin/go-socket.io` and remove
 the former upstream-path `replace` directive, then run `go mod tidy`.

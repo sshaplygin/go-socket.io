@@ -1,14 +1,16 @@
 # Examples
 
-**Status on `master`.** These examples are written against the v1 server, which stage 2.0
-removed from the root package (it lives on branch `v1.x`). They do not build on `master`
-and no CI job builds or tests them; `make examples` only checks that every `chat.go` is
-identical. Stage 2.5D migrates them to the v2 API, and the Redis examples return with the
-Redis adapter in stage 4b. To run one now, check out `v1.x`.
+**Status in the v2 module.** These examples are written against the v1 server, which
+stage 2.0 removed from the v2 root package. The v1 server is the module at the repository
+root, and its examples, which build and run, are in the root
+[`_examples/`](../../_examples/README.md). The copies here do not build against the v2
+module and no CI job builds or tests them; `make examples` in `v2/` only checks that every
+`chat.go` is identical. Stage 2.5D migrates them to the v2 API, and the Redis examples
+return with the Redis adapter in stage 4b.
 
 Directories with a `go.mod` are standalone Go modules. Each carries a `replace`
-directive pointing at the repository root, so it builds against the checked-out
-fork. The `client` example uses the root module.
+directive pointing at `v2/`, the v2 module root, so it builds against the checked-out
+fork. The `client` example uses the v2 module.
 
 ```sh
 cd _examples/<name>
@@ -30,7 +32,7 @@ only in what it demonstrates: mounting, CORS, pprof, shutdown, Redis or Docker.
   `socket.io-client` 2.5.0 from jsDelivr with an integrity hash (this server speaks
   Engine.IO v3; cdn.socket.io has no 2.5.0 file), so it needs network access. Open <http://localhost:8000> in two tabs after starting a server.
 - **Test.** `default-http/chat_test.go` checks the chat logic with the Go client;
-  on `v1.x`, `make examples` runs it with `-race`.
+  in the v1 copy at the repository root, `make examples` runs it with `-race`.
 
 | Directory | Shows |
 | --- | --- |
@@ -55,7 +57,7 @@ users. The chat works inside one instance.
 `client` joins the chat of a running example and prints what it receives, for a second:
 
 ```sh
-go run ./_examples/client -addr http://127.0.0.1:8000 -name gopher   # from the repository root
+go run ./_examples/client -addr http://127.0.0.1:8000 -name gopher   # from v2/
 ```
 
 The Go client sends no close packet, so the server drops its session, and announces

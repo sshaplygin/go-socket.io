@@ -1,7 +1,0 @@
-{
-  "name": "eio4-gobwas-framing-reference",
-  "private": true,
-  "type": "module",
-  "scripts": { "test": "node verify.mjs" },
-  "dependencies": { "ws": "8.18.3" }
-}

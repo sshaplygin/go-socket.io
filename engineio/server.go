@@ -2,6 +2,7 @@ package engineio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,12 +11,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
-
 	"github.com/sshaplygin/go-socket.io/engineio/internal"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
+
+var _ http.Handler = (*Server)(nil)
 
 // Server is instance of server
 type Server struct {
@@ -135,11 +137,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		transportConn, err := srvTransport.Accept(w, r)
 		if err != nil {
-			// as on upgrade: the websocket library answered a HandshakeError itself
-			if _, ok := err.(websocket.HandshakeError); !ok {
-				http.Error(w, fmt.Sprintf("transport accept err: %s", err.Error()), http.StatusBadGateway)
-			}
-			s.reject(reqTransport, r.RemoteAddr, "accept", err)
+			s.acceptFailed(w, r, reqTransport, err, "transport accept err: ")
 			return
 		}
 
@@ -163,12 +161,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		transportConn, err := srvTransport.Accept(w, r)
 		if err != nil {
-			// don't call http.Error() for HandshakeErrors because
-			// they get handled by the websocket library internally.
-			if _, ok := err.(websocket.HandshakeError); !ok {
-				http.Error(w, err.Error(), http.StatusBadGateway)
-			}
-			s.reject(reqTransport, r.RemoteAddr, "accept", err)
+			s.acceptFailed(w, r, reqTransport, err, "")
 			return
 		}
 
@@ -229,6 +222,24 @@ func (s *Server) newSession(_ context.Context, conn transport.Conn, reqTransport
 	}(newSession)
 
 	return newSession, nil
+}
+
+// acceptFailed answers a request whose transport refused to accept it. A
+// websocket.HandshakeError has already been answered by the transport; a response
+// writer that cannot be hijacked is answered 501, logged with reason "no hijacker";
+// anything else is a 502 whose body starts with prefix.
+func (s *Server) acceptFailed(w http.ResponseWriter, r *http.Request, reqTransport string, err error, prefix string) {
+	var handshake websocket.HandshakeError
+	switch {
+	case errors.As(err, &handshake):
+		s.reject(reqTransport, r.RemoteAddr, "accept", err)
+	case errors.Is(err, websocket.ErrNotHijacker):
+		http.Error(w, "websocket upgrade is not supported by this connection", http.StatusNotImplemented)
+		s.reject(reqTransport, r.RemoteAddr, "no hijacker", err)
+	default:
+		http.Error(w, prefix+err.Error(), http.StatusBadGateway)
+		s.reject(reqTransport, r.RemoteAddr, "accept", err)
+	}
 }
 
 // reject logs a request ServeHTTP rejects or a failed session initialisation: at DEBUG

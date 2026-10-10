@@ -1,4 +1,4 @@
-package eio4
+package websocket
 
 import (
 	"bytes"

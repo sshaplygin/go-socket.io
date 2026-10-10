@@ -47,8 +47,8 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
   removed; `DEV` documented deviation, not closed in v1; `REDIS` the Redis follow-up stage;
   `PEND On` waits for pending decision `On`; `-` nothing to do. `(O2)` marks an addition that
   needs a method on the exported `Conn` or `Namespace`. The PR that closes a row rewrites the
-  kind to `DONE`, keeps its number, and adds a test comment `// Covers <ID>` (see the Stage V1
-  DoD).
+  kind to `DONE`, keeps its number, and adds the comment `// Covers <ID>` directly above the test function that closes it (the Stage V1
+  DoD finds the function with `go test -list`).
 - `Decision` names the owner decision behind the plan: `D1` to `D8` are the settled decisions and
   `O1` to `O6` the pending ones, both in ROADMAP Stage V1, which owns their text.
 

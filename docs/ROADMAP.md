@@ -1460,7 +1460,9 @@ in both directions; binary event and binary ack in both directions; non-ASCII te
 rooms and broadcast except the sender (K14); middleware rejection with its reason; a server-side
 disconnect seen as `io server disconnect` (K20); the upgrade; a reconnect. A second step runs the
 Go `client` against a Node `socket.io@2.5.0` server (from V1-10 on). Rows marked `TEST` in PARITY.md
-are closed by these scenarios. Scenario code and `package.json` live in a directory whose name starts
+are closed by a named test: P9 (OPTIONS answer), P15 (websocket framing), P17 (graceful close)
+and P18 (two overlapping polls, which a stock client never sends) by Go tests in the same
+package that start the server and use raw HTTP and websocket clients, N7 by a Go test in V1-6. Scenario code and `package.json` live in a directory whose name starts
 with `_` so the Go build skips it; V1-8 names it.
 
 Waves V1A to V1F are in *Execution and parallel work*.
@@ -1491,8 +1493,8 @@ test "$(rows | wc -l)" -eq 137   # 133 audit rows and B1 to B4: none lost, none 
 test -z "$(rows | awk -F' *[|] *' '{n=split($3,e,/; */); for(i=1;i<=n;i++) if (e[i] !~ /^(-|DEV|REDIS|(DONE|DROP) V1-[0-9]+|PEND O[1-6]|(BUG|ADD|CHG|TEST) V1-[0-9]+( [(]O2[)])?)$/) print $2}')"   # every entry of every plan is well formed
 N=${N:?the PR, e.g. V1-4}
 make lint test-race
-covers() { for id in $(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("(BUG|ADD|CHG|TEST|DONE|DROP) " pr "( |;|$)") {print $2}'); do git grep -qE "// Covers $id( |$)" -- '*_test.go' || echo $id; done; }
-test -z "$(covers $N)"   # a test marker for every row the PR names
+covers() { all=$(go test ./... -list . 2>/dev/null); for id in $(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("(BUG|ADD|CHG|TEST|DONE|DROP) " pr "( |;|$)") {print $2}'); do t=$(git grep -h -A4 -E "^// Covers $id( |$)" -- '*_test.go' | awk '/^func Test/{sub(/[(].*/,"",$2); print $2; exit}'); test -n "$t" && printf '%s\n' "$all" | grep -qx "$t" || echo $id; done; }
+test -z "$(covers $N)"   # every row the PR names has a `// Covers <ID>` above a test function that `go test -list` finds
 test -z "$(rows | awk -F' *[|] *' -v pr="$N" '$3 ~ ("(^|; )(BUG|ADD|CHG|TEST) " pr "( |;|$)")')"   # the PR rewrote its rows to DONE, in any entry of the plan
 ```
 

@@ -39,7 +39,15 @@ func newRecorder() *recorder { return &recorder{mu: new(sync.Mutex), recs: new([
 
 func (h *recorder) Enabled(context.Context, slog.Level) bool { return true }
 
+// bridged matches a message that the log package carried from the previous default handler into
+// slog.Default (slog.SetDefault redirects log's output there at INFO): a goroutine that outlives
+// an earlier test writes its line in the old handler's own format, never a library message.
+var bridged = regexp.MustCompile(`^(\d{4}/\d\d/\d\d \d\d:\d\d:\d\d(\.\d+)? )?(DEBUG|INFO|WARN|ERROR)([+-]\d+)? `)
+
 func (h *recorder) Handle(_ context.Context, r slog.Record) error {
+	if bridged.MatchString(r.Message) {
+		return nil
+	}
 	m := map[string]string{"msg": r.Message, "level": r.Level.String()}
 	add := func(a slog.Attr) bool { m[a.Key] = a.Value.String(); return true }
 	for _, a := range h.attrs {
@@ -270,6 +278,21 @@ func TestDialFailureRecords(t *testing.T) {
 	assert.Equal(t, "polling", loud[0]["transport"])
 	assert.Len(t, rec.find("engineio: transport dial failed"), 2)
 	assert.Len(t, rec.find("engineio: parse url failed"), 1)
+}
+
+// TestRecorderDropsBridgedLines checks that a line the log package carries from the old
+// default handler is not a record of the test, while a library record is.
+func TestRecorderDropsBridgedLines(t *testing.T) {
+	rec := newRecorder()
+	for _, msg := range []string{
+		`2026/10/09 22:50:11 WARN engineio: request rejected transport=polling reason=init err=EOF`,
+		`2026/10/09 21:22:17 DEBUG engineio: get request failed err="refused"`,
+		`engineio: request rejected`,
+	} {
+		require.NoError(t, rec.Handle(context.Background(), slog.NewRecord(time.Time{}, slog.LevelInfo, msg, 0)))
+	}
+	require.Len(t, rec.find(""), 1)
+	require.Len(t, rec.find("engineio: request rejected"), 1)
 }
 
 // TestClientPeerCloseRecords closes the accepted session of an engineio.Dialer client

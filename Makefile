@@ -12,6 +12,11 @@ test:
 test-race:
 	go test -race -count=1 ./...
 
+# Race tests of the packages that run goroutines per connection, repeated and shuffled.
+.PHONY: test-stress
+test-stress:
+	go test -race -count=5 -shuffle=on -cpu=1,4 . ./parser ./engineio/...
+
 .PHONY: bench
 bench:
 	go test -run '^$$' -bench . -benchmem ./...

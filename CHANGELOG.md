@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- parser: the encoder wrote the placeholder number and the binary flag into the caller's
+  `*parser.Buffer`, so one `*Buffer` in the arguments of a broadcast was written concurrently
+  by the encoders of several connections (a data race under `-race`), and the same `*Buffer`
+  twice in a packet got one number for both placeholders. The encoder now numbers private
+  copies and leaves the arguments untouched. A `*Buffer` behind an unexported field (an
+  embedded unexported slice type included; both panicked in `reflect` before) or an embedded
+  pointer to an unexported struct (it worked, by writing into the Buffer) makes `Encode`
+  return an error; an embedded unexported struct value with an exported `*Buffer` field works.
 - engineio: when the write deadline passed (or the payload was closed) while the session
   writer was writing a polling response, `Payload.FlushOut` returned at once and the GET
   handler answered with `http.Error` on the same `http.ResponseWriter` the writer was

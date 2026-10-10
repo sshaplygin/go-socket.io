@@ -72,6 +72,18 @@ func (f *fakeConn) NextReader() (session.FrameType, io.ReadCloser, error) {
 
 func (f *fakeConn) Close() error { f.closeOnce.Do(func() { close(f.closed) }); return nil }
 
+// closeAtEnd closes f at cleanup and waits for the serving conn c, so that its "socketio:
+// disconnect" records are logged before the test returns, not into the next test's recorder.
+func closeAtEnd(t *testing.T, f *fakeConn, c *conn) {
+	t.Cleanup(func() {
+		_ = f.Close()
+		select {
+		case <-c.done:
+		case <-time.After(waitFor):
+		}
+	})
+}
+
 func (f *fakeConn) ID() string           { return fmt.Sprintf("%p", f) }
 func (f *fakeConn) Context() interface{} { return nil }
 
@@ -195,6 +207,7 @@ func (p *peer) connect(t *testing.T) *peer {
 		p.send(t, "0")
 	}
 	p.nc = recv(t, p.conns, "root OnConnect")
+	closeAtEnd(t, p.fc, p.conn())
 	if p.emit = p.nc.Emit; p.cl != nil {
 		p.emit = p.cl.Emit
 	}
@@ -306,7 +319,7 @@ func TestBackpressureStalledMemberDoesNotBlockRoom(t *testing.T) {
 			healthy := newFakeConn(t)
 			p.srv.serveConn(healthy)
 			require.Equal(t, "0", recv(t, healthy.out, "the healthy member's CONNECT"))
-			recv(t, p.conns, "OnConnect of the healthy member")
+			closeAtEnd(t, healthy, recv(t, p.conns, "OnConnect of the healthy member").(*namespaceConn).conn)
 
 			p.stall(t, p.nc, defaultWriteBufferSize)
 			for i := 0; i < 2; i++ { // the first broadcast overflows the stalled member

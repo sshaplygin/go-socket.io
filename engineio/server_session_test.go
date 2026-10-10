@@ -3,6 +3,7 @@ package engineio
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -52,7 +53,10 @@ func (c *blockingConn) SetWriteDeadline(time.Time) error { return nil }
 // been written: the client may send its next request with that sid as soon
 // as it reads OPEN. A session whose handshake fails is removed again.
 func TestNewSessionRegistersBeforeHandshake(t *testing.T) {
-	s := NewServer(nil)
+	// The handshake goroutine removes the session and then logs the rejection: wait for that
+	// record, or it reaches the slog.Default recorder of the next log test.
+	rec := newRecorder()
+	s := NewServer(&Options{Logger: slog.New(rec)})
 	conn := newBlockingConn()
 
 	ses, err := s.newSession(context.Background(), conn, "polling")
@@ -66,4 +70,6 @@ func TestNewSessionRegistersBeforeHandshake(t *testing.T) {
 		_, ok := s.sessions.Get(ses.ID())
 		return !ok
 	}, 5*time.Second, 10*time.Millisecond, "session with a failed handshake stayed registered")
+	require.Eventually(t, func() bool { return len(rec.find("engineio: request rejected")) == 1 },
+		5*time.Second, time.Millisecond, "failed handshake not logged")
 }

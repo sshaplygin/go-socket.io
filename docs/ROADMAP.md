@@ -1,6 +1,6 @@
 # Roadmap
 
-Scope approved: 2026-09-28. Updated: 2026-10-09. Owner: Sam Shaplygin.
+Scope approved: 2026-09-28. Updated: 2026-10-10. Owner: Sam Shaplygin.
 
 This file owns scope, dependencies, implementation contracts and release gates.
 Current implementation: [PROTOCOL.md](PROTOCOL.md). Completed changes:
@@ -11,8 +11,8 @@ Current implementation: [PROTOCOL.md](PROTOCOL.md). Completed changes:
 
 The starting fork of `googollee/go-socket.io` supports Socket.IO protocol v4 over
 Engine.IO v3. Stage 0, toolchain/CI work and logger tasks 1.2/1.2a have landed;
-remaining work starts at stage 1 below. Existing application APIs stay on branch
-`v1.x` (cut in Stage 1b); v2 is a new core/API in this repository.
+remaining work starts at stage 1 below. Existing application APIs stay at the
+repository root (the v1 module); v2 is a new core/API in `v2/` (*Repository layout*).
 
 The Engine.IO v4 preparation from `codex/eio4-payload` (inspected at
 `ee682282997b19309036e9c6fef6e248e06bc230`) has landed in `master` and is in use: the polling
@@ -26,25 +26,119 @@ The other prepared experiments are listed in Stage 2 *Prepared components*.
 | Area | Decision | Contract owner |
 | --- | --- | --- |
 | Core | Own Engine.IO/Socket.IO core; no dependency on or rebase onto `zishang520/socket.io` | 2.0–2.3 |
-| Protocol | v2 supports Engine.IO v4 / Socket.IO protocol v5; old clients stay on branch `v1.x` | 2.1, 2.3 |
+| Protocol | v2 supports Engine.IO v4 / Socket.IO protocol v5; old clients (Engine.IO v3 / Socket.IO v4) use the v1 module at the repository root | 2.1, 2.3 |
 | API | Generic `Event[T]` / `AckEvent[T, R]` from the first v2 implementation; explicit raw escape hatch; no reflection-based dispatch | 2.0, 2.3 |
-| Modules | v1 root is `github.com/sshaplygin/go-socket.io`, independent of the upstream module; v2 root adds `/v2`; adapters and contrib have separate modules | 2.5, 4b, 5 |
+| Modules | v1 is the repository root module `github.com/sshaplygin/go-socket.io`, independent of the upstream module; v2 is the module in `v2/`, `github.com/sshaplygin/go-socket.io/v2`; adapters and contrib are separate modules under `v2/` | 2.5, 4b, 5 |
 | Go | Go 1.22 minimum for runtime modules; compatible dependencies pinned and minimum tested; build tools may use stable Go | Stage 1 DoD, 2.5 |
 | Transport | `gobwas/ws` + `wsutil` on server and client; standard `http.Handler` integration | 2.1 |
 | Brokers | Redis `go-redis/v9`, Node non-sharded adapter wire compatibility; NATS core pub/sub, no JetStream | 4b |
 | Logging | Application `slog.Handler` through an injected logger; instance routing, process-wide level override | 1.L (v1 records), 2.4 |
-| Observability | Nil-able hooks and logging in root; OTel bridge in `contrib/otel`; no OTel dependency in root | 2.4 |
-| Admin UI | Required final product stage, separate `contrib/admin`, unchanged official UI; commands disabled by default | 5 |
+| Observability | Nil-able hooks and logging in the root package of the v2 module; OTel bridge in `v2/contrib/otel`; no OTel dependency in the v2 module | 2.4 |
+| Admin UI | Required final product stage, separate `v2/contrib/admin`, unchanged official UI; commands disabled by default | 5 |
 | Benchmarks | Final comparative campaign after all product features: our v2, existing Go and official JS/TS implementations | 6 |
-| Client packages | Go client as its own package on both lines, scheduled last: v1 gets an additive `client` package in the v1.x module (the root `Client` stays as a deprecated wrapper); v2 keeps `client/` in the root module, no separate `go.mod` | 2.3C (v2), 7 (v1) |
+| Client packages | Go client as its own package on both lines, scheduled last: v1 gets an additive `client` package in the repository-root module (its root `Client` stays as a deprecated wrapper); v2 keeps `client/` in the v2 module, no separate `go.mod` | 2.3C (v2), 7 (v1) |
 | Documentation | English; each contract has one owner; other sections refer to it | CLAUDE.md |
+| Layout | Owner decision of 2026-10-10: the repository root is the v1 module (the v1 runtime restored at the root); v2 lives in `v2/` as its own module. Replaces "master root = v2 skeleton, v1 on branch `v1.x`" | Repository layout, Repository restructure |
+| Branch `v1.x` | Kept for now; receives no new work after the restructure. Its fate is the owner's later decision: deleting it is outward-facing and is neither done nor scheduled here | Repository layout |
+| Tags | No tag of any module until `master` has full support of the v1 protocol line (Socket.IO v4 / Engine.IO v3) with example implementations; `v1.5.0` is then tagged on `master` on the owner's explicit order, v2 tags after it. Replaces the M4 trigger | Repository layout, M4 |
+
+### Repository layout
+
+Target layout of the three decisions above. Until step B of *Repository restructure*
+merges, `master` still has the v2 skeleton at the root and `v1.x` still holds v1.
+
+| Where | Module | Holds |
+| --- | --- | --- |
+| repository root | `github.com/sshaplygin/go-socket.io` (v1) | the `v1.x` tip tree: v1 server and client, `engineio/`, `parser/`, `logger/`, `_examples/` (v1 examples, each with its own `go.mod`) |
+| `v2/` | `github.com/sshaplygin/go-socket.io/v2` | everything of Stage 2 and later: the API skeleton, `engineio/`, `parser/`, `logger/`, `adapter/`, `client/`, `adapters/*`, `contrib/*`, v2 `_examples/`, `_experiments/`, `testdata/`, `Makefile`, `.golangci.yml`, `CHANGELOG.md`, `README.md` |
+| shared, root only | none | `docs/`, `.github/`, `CLAUDE.md`, `CONTRIBUTING.md`, `LICENSE`, `.gitignore` |
+
+The two modules are independent: neither imports nor requires the other, there is no `go.work`, and
+step C enforces this with commands.
+
+Owners of the shared files. `docs/` is one tree for both lines (`ROADMAP.md`, `PROTOCOL.md`,
+`API.md`, and the later v2 files); a v2-only document says so in its title. `.github/` holds one
+workflow set and one `dependabot.yml` that cover every module. `CLAUDE.md` and `CONTRIBUTING.md`
+describe both. `README.md` at the root is the v1 README with one link to `v2/README.md`, which is
+what pkg.go.dev renders for the v2 module. `CHANGELOG.md` is per module: the root file records v1,
+`v2/CHANGELOG.md` records v2, and an entry is never repeated in the other. `LICENSE` stays at the
+root only: the extracted module of a `v2.0.0` tag on a scratch repository with a root `LICENSE` and a
+`v2/go.mod` held `LICENSE` and `go.mod` (`go mod download -json`). `Makefile` and `.golangci.yml` exist once per module.
+
+**Path convention.** Every path in the Baseline, in Stage 2 to Stage 6, in the Execution rows 2A
+to 6C and in the Stage 1b target tree is relative to `v2/` unless it starts with `root:` or names a shared
+file above, and "root" there (root package, root `go.mod`, root `v2.1.0`) means the root of the
+v2 module. `CHANGELOG.md`, `Makefile` and `README.md` in those stages are the `v2/` files, and a `make`
+target there is `make -C v2 <target>`. A path or tag that already starts with `v2/` or `root:`, and
+a full module path (`github.com/...`), is written out in full and is not shifted again
+(`v2/README.md` in 2.5 is the file, not `v2/v2/README.md`).
+A module path written `.../<dir>` is `github.com/sshaplygin/go-socket.io/v2/<dir>` (the
+`/vN` suffix it already carries stays). In Stage 2 to Stage 6 text a tag written `<dir>/vX.Y.Z` is
+`v2/<dir>/vX.Y.Z`, and the v2 module itself is tagged `vX.Y.Z`. The Tag column of *Milestones* is
+the exception: it gives the full git tag names, one notation, and is not shifted. Stage 1, Stage 7
+and Execution row 7A paths (`client/`, `_examples/client/`, `client.go`, `connection.go`) are
+relative to the repository root (the v1 module), Stage 1 in its pre-1b names. In those
+places, in the Decisions table, in *Milestones* and in *Out of scope*, "root" and "the root
+module" mean the repository-root module `github.com/sshaplygin/go-socket.io` (v1) unless the text
+names `v2/` or the v2 module; a row there that means the v2 root says so in words.
+
+**Tag forms.** Verified on a scratch repository with `go.mod` at the root, in `v2/` and in
+`v2/contrib/otel`, resolved through `file://` rewriting of the module's GitHub URL with
+`GOPROXY=direct` and an empty module cache (`go1.25.5`):
+
+```sh
+T=$(mktemp -d); M=github.com/sshaplygin/go-socket.io
+git init -q -b master $T/repo; cd $T/repo
+mkdir -p v2/contrib/otel; printf 'module %s\n\ngo 1.22\n' $M >go.mod
+printf 'module %s/v2\n\ngo 1.22\n' $M >v2/go.mod
+printf 'module %s/v2/contrib/otel/v2\n\ngo 1.22\n' $M >v2/contrib/otel/go.mod
+git add -A; git -c user.name=t -c user.email=t@t commit -qm init
+git tag v1.5.0; git tag v2.0.0; git tag v2/contrib/otel/v2.0.0
+printf '[url "file://%s/repo"]\n\tinsteadOf = https://github.com/sshaplygin/go-socket.io\n' $T >$T/gitconfig
+export GIT_CONFIG_GLOBAL=$T/gitconfig GOMODCACHE=$T/mod GOFLAGS=-modcacherw GOPROXY=direct GOPRIVATE=github.com/sshaplygin/\*
+cd $T; for q in $M@v1 $M/v2@v2 $M/v2/contrib/otel/v2@v2; do go list -m $q; done
+```
+
+```text
+github.com/sshaplygin/go-socket.io v1.5.0
+github.com/sshaplygin/go-socket.io/v2 v2.0.0
+github.com/sshaplygin/go-socket.io/v2/contrib/otel/v2 v2.0.0
+```
+
+So the forms are `v1.X.Y` (root), `v2.X.Y` (the v2 module, no prefix) and `v2/<dir>/vN.X.Y`
+(a nested module, with the module path ending in `/vN` for N >= 2). The same repository with the tags
+`v2/v2.0.0` and `contrib/otel/v2.0.0` instead resolves none of the three queries ("no matching
+versions"), so those two spellings are not used.
+
+**Links while no tag exists.** `go get github.com/sshaplygin/go-socket.io@master` for v1 and
+`go get github.com/sshaplygin/go-socket.io/v2@master` for v2 (a pseudo-version on the same scratch
+repository without tags: `v2.0.0-<date>-<sha>` for v2). pkg.go.dev links carry no version
+(`.../go-socket.io[/pkg]`, `.../go-socket.io/v2[/pkg]`). The v1 README sentence containing
+`until a release` stays and now names `master`.
+
+**Branch and tag policy.** All work lands on `master` by PR: a v1 change edits root files, a v2
+change edits `v2/` (CI path filters follow). `v1.x` stays at its current tip (recorded as
+`$V1TIP` in step B), no PR targets it, and the workflows and Dependabot configuration of `master` do
+not target it (the forward-port rule of `CONTRIBUTING.md` ends). No tag of any module is created, and none is scheduled, until the owner declares that `master`
+has full support of the v1 protocol line (Socket.IO v4 / Engine.IO v3 in the library's own
+terminology) with example implementations. The declaration is the owner's; before making it
+the owner reads items that already exist: `make examples` passes (the `_examples/*/chat.go`
+copies are identical and build); `docs/PROTOCOL.md` is true for its Engine.IO v3 and
+Socket.IO v4 sections; the root `CHANGELOG.md` `## Unreleased` section is ready to be renamed.
+`v1.5.0` is then tagged on `master` only on the owner's explicit order, by the release commit of
+`CONTRIBUTING.md`, followed by the Stage 1 tag-time gates; v2 tags come after it, each on the owner's order
+(M3 onward).
 
 ## Execution and parallel work
 
-Execution order: **1 → 1b → 2 → 3 → 4b → 5 → 6 → 7**. Admin UI remains the last
+Execution order: **1 → 1b → 2 → 3 → 4b → 5 → 6 → 7**, where row R (the restructure) sits inside Stage 2, between rows 2A and 2B. Admin UI remains the last
 product stage and starts after M5; the final benchmark campaign after M6; Stage 7, the last item, after M7.
-Branch `v1.x` is cut between stages 1 and 1b (1b step 0); the `v1.5.0` tag waits for
-the owner's command at M4 and does not gate any stage.
+Branch `v1.x` was cut between stages 1 and 1b (1b step 0) and is frozen (*Repository
+layout*); the restructure below (row R) moves v1 to the repository root and v2 to `v2/`.
+Stage 2 merges stop when step A starts, on the owner's order after the PR that records the
+restructure has merged, and resume after step C; until that order they proceed as before and
+move with the recipe of step A. No tag gates any stage or milestone: tags follow the owner's declaration, and the checks that need
+a tag run at tag time (*Milestones*).
 Numbers identify scope, not permission to start before a dependency passes.
 A prerequisite marked as a gate means its tests and integration must pass, not only
 that a draft API exists. Tasks in the same row may run concurrently in separate
@@ -59,11 +153,12 @@ workers submit changes to these files through that integrator.
 | 1C | 1B | 1.K known-limitation notes: the godoc of `Server.Adapter`, `RoomLen` and `Rooms` in `server.go` and the `### Known limitations` subsection of `CHANGELOG.md`; contract in the 1.K item | 1.K check, then M1 checks |
 | 1b | stage 1 and the 1.D link-form commit merged, `master` green (the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner, who is also the integrator for the CI, Dependabot and `CHANGELOG.md` files of steps 0b to 0d; moves/merges applied sequentially | M1b: the Stage 1b DoD, `v1.x` gates and Acceptance blocks |
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures; evidence: `make g2` (2.0 *G2 record*) |
-| 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
+| R | 2.0 on `master`; the owner's order | one integrator: steps A to C of *Repository restructure*; the 2.1, 2.2 and test-stress work stopped by the freeze resumes after C | step C commands pass on the merged `master` |
+| 2B | G2 and row R merged (its step C passed) | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
 | 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets`); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
 | 2E | 2D | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
-| 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 pre-release gate, then publication verification |
+| 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 acceptance; publication verification at tag time |
 | 3A | M3 | freeze chat event schema; then server, browser/CLI and load client in separate directories | M4 single-server acceptance |
 | 4A | M4 | freeze codec fixtures and adaptertest cases; then Redis and NATS modules independently | each passes shared conformance suite |
 | 4B | 4A | cluster chat profile; mixed Go/Node Redis tests in separate test directories | M5 cluster acceptance |
@@ -72,24 +167,255 @@ workers submit changes to these files through that integrator.
 | 6A | M6 | benchmark owner freezes versions, workload matrix, resource budgets and result schema | comparison contract and correctness checks pass |
 | 6B | 6A | our-v2, existing-Go and official-Node runners in separate directories; shared load generator owned by integrator | runners produce equivalent traffic/results |
 | 6C | 6B | measurements sequentially on reserved hosts; analysis/report follows complete raw results | M7 reproducibility and report acceptance |
-| 7A | M7 | 7.1 layering and package (`client/`, `_examples/client/`, root `client.go`, `connection.go`, `connection_handlers.go`, `namespace_conn.go`, `errors.go`) and 7.2 tests and docs, as commits of one PR to `v1.x`: the wrapper switch breaks the root tests until they are split, so no PR head may carry one without the other | Stage 7 DoD and Acceptance, then the owner's tag order (M8) |
+| 7A | M7 | 7.1 layering and package (`client/`, `_examples/client/`, root `client.go`, `connection.go`, `connection_handlers.go`, `namespace_conn.go`, `errors.go`) and 7.2 tests and docs, as commits of one PR to `master`: the wrapper switch breaks the root tests until they are split, so no PR head may carry one without the other | Stage 7 DoD and Acceptance, then the owner's tag order (M8) |
 
-Rows 1A and 1I, and the Stage 1 items, name files by their pre-1b paths; the Stage 1b
-source-to-target map owns the new names.
+Rows 1A and 1I, and the Stage 1 items, name files by their pre-1b paths (after the
+restructure: the root module); the Stage 1b source-to-target map owns the new names (after the
+restructure: the `v2/` tree). Rows 2A to 6C follow the path convention of *Repository layout*; row 7A names paths of the repository root (the v1 module).
 
 Mocks permit development against frozen contracts; they do not satisfy integration
 or release gates. A contract change updates its owning section and fixtures before
-consumers continue. Every join builds/tests the whole root module and affected child
+consumers continue. Every join builds/tests the whole v2 module and affected child
 modules; re-run affected gates after merges. Each work unit supplies its gate evidence.
 Apply the three-agent validation workflow in CLAUDE.md after plan edits; do not
 replace unresolved findings with optimistic estimates.
+
+## Repository restructure
+
+Moves `master` from "root = v2 skeleton, v1 on `v1.x`" to *Repository layout*, in the steps
+below, in this order. The PR that records this section moves no code, creates no tag and
+deletes no branch. Gate blocks run with `bash` and `set -e`, rules as in the Stage 1b DoD.
+
+**A. Freeze.** Starts on the owner's order, after the PR that records this section has merged.
+Until step B merges, no PR merges into `master` except step B, and none merges into `v1.x`: the
+step B tree is the `v1.x` tip recorded at the start, so a commit that lands on `v1.x` later would
+be dropped silently and the branch then declared frozen. Dependabot opens PRs with
+`target-branch: v1.x` (two entries in `dependabot.yml`) until B4 removes them; the open ones are
+closed, not merged. Open or stopped work is not
+merged into the old layout; it is merged forward after step C, by its author, on the new `master`:
+
+| Work | State | After step C |
+| --- | --- | --- |
+| #60 `docs: add 2.3M, the opt-in MessagePack parser` | open, edits `docs/API.md`, `docs/PROTOCOL.md` and `docs/ROADMAP.md`; does not merge during the freeze | the recipe below (shared series only, no module patch); its `docs/ROADMAP.md` hunks conflict with this section's own edits (four regions: the Decisions *Protocol* and *Wire format* rows, the Execution rows 2E and 2F beside its new 2CM, the Milestones rows M2 to M6, the Out of scope `adapters/redis` entry; its 2.3M hunks in Stage 2 apply cleanly) and its `docs/PROTOCOL.md` hunk (line 165 to 168) may conflict with the B5 edit of line 157: both resolved by hand as stated after the recipe; the path convention applies to its text |
+| #62 `feat(2.1): Engine.IO v4 handshake gate` | open, edits `engineio/` Go files, `CHANGELOG.md`, `docs/PROTOCOL.md` and `docs/ROADMAP.md`; does not merge during the freeze | the recipe below: Go paths become `v2/<old path>`, imports `.../v2/...` (the B3 command, applied to the patch text); its docs hunks apply cleanly to `master` plus this section's edits, only `docs/PROTOCOL.md` (lines 146 to 153) may conflict with the B5 edit of line 157 |
+| 2.1 D1, the 2.2 memory adapter | stopped before a PR | restarted on `v2/` |
+| forward-port of the `test-stress` target and of PR #52 (`parser` Buffer placeholder numbers) | stopped; `v1.x` already has both | v1 side: restored by B2; v2 side: a new PR on `v2/` |
+
+```sh
+git fetch -q origin   # the two SHAs below are read from remote-tracking refs: stale refs record a wrong $OLDBASE
+MISSING=$(for n in $(gh pr list --base master --state open --json number,author --jq '.[]|select(.author.is_bot|not)|.number'); do grep -q "^| #$n " docs/ROADMAP.md || echo "#$n"; done); echo "$MISSING"; test -z "$MISSING"   # prints each open PR without a row in the table above (the table is the list: add the row first); before the step B PR is opened
+test -z "$(gh pr list --base v1.x --state open --json number --jq '.[].number')"   # nothing waits to merge into v1.x (close Dependabot PRs first)
+V1TIP=$(git rev-parse origin/v1.x); echo $V1TIP   # the v1 tree B2 restores; the step B body records it
+OLDBASE=$(git rev-parse origin/master); echo $OLDBASE   # the last commit of the old layout; the step B body records it
+```
+
+A plain `git rebase <new master>` of a branch cut from `$OLDBASE` is wrong, not only slow: B2
+recreates root files with the names B1 moved (`engineio/server.go`, `parser/*`, `logger/*`), so
+git does not follow the rename and applies the edit to the restored v1 file at the root, with or
+without a conflict (a scratch repository: a branch editing `engineio/server.go` rebased this way
+touched the root file only). Rebasing onto the B1 commit with `merge.directoryRenames` is not used
+either: git moves no new file in a new subdirectory or a new top-level directory, and the second
+rebase stops on an import block that B3 rewrites. The recipe replays the branch as patches, which
+carry modified, new, deleted and renamed files alike, on a fresh branch from the post-step-C
+`origin/master` (`bash`, not `zsh`):
+
+```sh
+BR=${BR:?the branch, e.g. origin/feat/x}; NEW=${NEW:?name of the new branch}; P=$(mktemp -d)
+FROM=$(git merge-base ${OLDBASE:?recorded in step A and in the step B body} $BR)
+git format-patch -q -o $P/v2 $FROM..$BR -- . ':!docs' ':!.github' ':!CLAUDE.md' ':!CONTRIBUTING.md' ':!LICENSE' ':!.gitignore'   # the module files
+git format-patch -q -o $P/shared $FROM..$BR -- docs .github CLAUDE.md CONTRIBUTING.md LICENSE .gitignore   # the root-only files, the list of B1
+compgen -G "$P/v2/*.patch" >/dev/null && perl -pi -e '$f=$1 if m{^diff --git a/(\S+)}; s#github\.com/sshaplygin/go-socket\.io(?!/v2)#github.com/sshaplygin/go-socket.io/v2#g if $f =~ /(\.go|go\.mod|\.toml)$/ && /^[ +-]/ && !/^(---|\+\+\+) /; undef $f if eof' $P/v2/*.patch   # the B3 rewrite, on the patch text
+git switch -c $NEW origin/master
+compgen -G "$P/v2/*.patch" >/dev/null && git am --directory=v2 $P/v2/*.patch   # an empty glob skips the line (#60 has no module patch)
+compgen -G "$P/shared/*.patch" >/dev/null && git am -3 $P/shared/*.patch   # no --directory: these files stay at the root
+test -z "$(git diff --name-only origin/master...HEAD | grep -vE '^(v2/|docs/|\.github/|CLAUDE\.md|CONTRIBUTING\.md|LICENSE|\.gitignore)')"   # nothing outside v2/ and the root-only files
+```
+
+The B3 rewrite is applied to the patches, not after the replay, because a context line with the
+old module path never matches the rewritten file: `git am` stopped at an import block without it.
+`--directory=v2` puts a new file, wherever it sits, under `v2/`; binary and `testdata` files are
+in the patches (`format-patch` writes binary patches); `go.mod` and `go.sum` hunks land in
+`v2/go.mod` and `v2/go.sum` (a `go.sum` line needs no rewrite); `README.md`, `CHANGELOG.md`,
+`Makefile` and `.golangci.yml` hunks land in the per-module copies. A hunk in a file that this
+section or B5 rewrote (`docs/ROADMAP.md`, `docs/PROTOCOL.md`, `v2/README.md`, `v2/CHANGELOG.md`) may
+stop `git am`; when a long series stops, re-apply the root-only files as one diff, resolve the
+conflict regions by hand, commit, and list the file in the PR that carries it
+(`git am --abort; git diff $FROM $BR -- docs .github CLAUDE.md CONTRIBUTING.md LICENSE .gitignore | git apply --3way`;
+a single stop: `git am --show-current-patch=diff`, edit, `git add`, `git am --continue`). A file on the root-only list that belongs in `v2/` is moved by hand and listed too. A
+commit that touches both kinds of file becomes two commits with the same subject.
+
+Replayed on the real branches in scratch worktrees, nothing pushed, on `origin/master`
+(`1392afe`) with B1 to B3 of this section applied (B4 and B5 not written yet): #62 (`f59eff9`,
+three commits, 13 files): both `git am` runs completed, the guard printed nothing, the 10 Go files
+equal the branch files with the B3 command applied, and `go build`, `go vet` and
+`go test -count=1 ./...` in `v2/` passed; the same command without the rewrite stopped at
+`v2/engineio/transport/polling/server.go`. #60 (`67ab45e`): no module patch; on that `1392afe` alone the shared series
+applied with `-3` and its diff equals the diff of the branch against `1392afe`, but on the head of
+the PR that records this section `git am -3` stops in its first patch, and the one-diff form
+leaves four conflict regions in `docs/ROADMAP.md` (Decisions, Execution, Milestones, Out of scope)
+with `docs/API.md` and `docs/PROTOCOL.md` clean; #62 applies cleanly there. B4 and B5 are not
+written yet: the `docs/PROTOCOL.md` conflicts with B5 are untested. A synthetic
+branch (an import line added next to the rewritten ones, a new file in a new subdirectory of a
+moved directory, a new top-level directory, a deleted file, a rename with an edit, a 2 KiB binary
+file, a `go.mod` require, a `go.sum` line, and hunks in `CHANGELOG.md`, `docs/`, `.github/` and
+`CONTRIBUTING.md`) landed with every file at its expected path, the binary file byte-identical.
+
+**B. One PR, merged with its commits kept** (`CONTRIBUTING.md` rule 5: B1 must stay a
+pure rename, so that `git log --follow` and review of the moves work). Subjects
+`refactor(R.<n>): ...`; intermediate commits may not build, the head does.
+
+- B1. Pure `git mv`, no content edit; the root `README.md` and `CHANGELOG.md` move too:
+
+  ```sh
+  mkdir v2
+  for p in $(ls -A | grep -vxE '\.git|\.github|\.gitignore|docs|CLAUDE\.md|CONTRIBUTING\.md|LICENSE|v2'); do git mv $p v2/; done
+  ```
+
+- B2. The v1 tree at the root, from the recorded tip, as new files on top of the history:
+
+  ```sh
+  git restore --source=$V1TIP --staged --worktree -- . ':!:v2' ':!:.github' ':!:docs' ':!:CLAUDE.md' ':!:CONTRIBUTING.md' ':!:LICENSE' ':!:.gitignore'
+  ```
+
+- B3. The v2 module: `cd v2 && go mod edit -module github.com/sshaplygin/go-socket.io/v2` (this is
+  where `v2/go.mod` gets its `/v2` path; 2.5 does not change it), then, from the repository root,
+  every use of the module path in the `v2/` files of three kinds, `*.go`, `*go.mod` and `*.toml`,
+  gets the `/v2` infix:
+
+  ```sh
+  git ls-files -z 'v2/*.go' 'v2/*go.mod' 'v2/*.toml' | xargs -0 perl -pi -e 's#github\.com/sshaplygin/go-socket\.io(?!/v2)#github.com/sshaplygin/go-socket.io/v2#g'
+  ```
+
+  The `(?!/v2)` guard keeps a path that already ends in `/v2` (the `module` line just edited) from
+  becoming `/v2/v2`. The command covers imports, the `module`, `require` and `replace` lines of
+  every `go.mod` (`v2/_examples/*` and `v2/_experiments/*` get `.../v2/_examples/gf` and
+  `replace .../v2 => ../../`) and `v2/.deepsource.toml`. It leaves the Markdown files, which carry
+  badge, pkg.go.dev and install URLs and history entries that B5 edits by hand. On a scratch tree it
+  turned `module .../go-socket.io/_examples/gf` into `.../go-socket.io/v2/_examples/gf`, left
+  `module .../go-socket.io/v2` as it was and left a `.md` URL unchanged. The three reads of
+  `docs/API.md` in `v2/inventory_test.go` and `v2/frozen_test.go` become `../docs/API.md`.
+  `go vet ./...` in `v2/` is clean.
+- B4. CI and Dependabot: every `ci.yaml` job runs per module (`working-directory: v2` for the v2
+  jobs, a path filter per module), the benchmark workflow covers both modules (below),
+  Dependabot lists `/`, `/_examples/*`, `/v2`, `/v2/_examples/*`, `/v2/_experiments/*` (and
+  `/v2/adapters/*`, `/v2/contrib/*` when those exist) and loses the two `target-branch: v1.x`
+  entries; the branch triggers `branches: [v1.x]` exist only on the frozen branch and stay there.
+  The benchmark workflow (`benchmarks.yml`) runs `go test -run '^$' -bench . -benchmem -count=10
+  ./...` once in `.` and once in `v2` on each side (base and PR), appending to the same `base.txt`
+  and `pr.txt` (`tee -a`), with `base/go.sum`, `base/v2/go.sum`, `pr/go.sum` and `pr/v2/go.sum` in
+  `cache-dependency-path` and both module commands in the recorded `command`. Every benchmark on
+  `master` today (`engineio/idle_bench_test.go`, `engineio/packet`, `engineio/payload`,
+  `engineio/transport`) is in `v2/` afterwards, so a root-only run would silently drop the Stage 2.1
+  BEFORE/AFTER comparisons. The `v2` step on the base side runs only when `base/v2/go.mod` exists
+  (the step B PR itself has the old layout as base). The change detector (`relevant` in
+  `.github/benchmarks/main.go`) already treats `v2/**/*.go` as relevant and `v2/_examples` and
+  `v2/_experiments` as not, but it compares `go.mod`, `go.sum`, `go.work` and `go.work.sum` with the
+  whole path, so `v2/go.mod` and `v2/go.sum` (a dependency change) are not recognised: B4 compares
+  `path.Base(name)` and adds the cases `v2/engineio/x.go`, `v2/go.mod`, `v2/go.sum` (relevant) and
+  `v2/_examples/x/main.go` (not) to `.github/benchmarks/main_test.go`. The report groups by the
+  import path, and `.github/benchmarks/report/main_test.go` gets a case that
+  `github.com/sshaplygin/go-socket.io/v2/engineio` renders under the heading `v2/engineio`.
+- B5. Docs, one owner each: `Makefile` per module (`make -C v2 test-race`); `v2/CHANGELOG.md` is the
+  moved file without its `## v1.5.0 (unreleased, branch v1.x)` section (those entries are in the
+  restored root `CHANGELOG.md`); root `README.md` takes the `@master` link form and one link to
+  `v2/README.md`, whose install line is `.../v2@master`; `CLAUDE.md` (intro, layout table with a
+  `v2/` row per directory, commands per module, CI jobs, documentation map with `README.md` and
+  `CHANGELOG.md` per module); `CONTRIBUTING.md` (rule 2 without the `v1.x` branch, the Releases
+  section: tag forms of *Repository layout*, the owner's declaration, `v1.x` frozen, no
+  forward-ports, `CHANGELOG.md` per module, `v1.5.0` release commit on `master`);
+  the passages below that say v1 lives on `v1.x` or was removed from `master`, which decision 3
+  needs true before the owner's declaration (line numbers are those of this revision; the step C
+  grep is the source of truth):
+  - `docs/PROTOCOL.md` lines 74 to 77, the opening of the Socket.IO v4 section ("Branch `v1.x`
+    only ... nothing in this section describes `master`"): the section describes the root module
+    (the `socketio` package and `parser`, with `parser.Buffer` and `Header.Query`); the v5 codec of
+    `v2/parser` is the next section. Line 97, "Socket.IO v4 runtime, branch `v1.x` only (stage 2.0
+    removed the runtime from `master`)": "Socket.IO v4 runtime (v1, repository root)". Line 103,
+    the heading "Implemented on master: Socket.IO protocol v5 wire codec": "Implemented in `v2/`:
+    ...", and its text names `v2/parser` and the `v2/` root package. Line 157, the table header
+    "v4 (branch `v1.x`) | v5 (target; the wire codec is on `master`, see above)": "v4 (v1, repository
+    root) | v5 (target; the wire codec is in `v2/parser`, see above)".
+  - root `README.md` (the restored `v1.x` file): the table row "v1.x (this branch)", the install line
+    `@v1.x` and "use the `v1.x` branch until a release" become the `@master` form and a v2 row with
+    a link to `v2/README.md`. `v2/README.md` (the moved file): the "Status of `master`" paragraph,
+    the two table rows, the install line and the sentences "The v1 API, on the branch `v1.x`" and
+    "on `master` they no longer build" are rewritten for the v2 module (v1 is the repository root);
+    the v1 quick start stays in the root `README.md` only.
+  - `v2/_examples/README.md` lines 3 to 7 and 33 ("lives on branch `v1.x`", "check out `v1.x`"):
+    the v1 server is in the repository root, and the v1 examples are in the root `_examples/`.
+  - `v2/CHANGELOG.md` `Removed` entries that say the code "stays on the branch `v1.x`" (the `parser`
+    v4 codec, the Engine.IO v3 polling framing, the v1 root runtime): "stays in the v1 module at the
+    repository root".
+  - `v2/server.go`, the package comment of the v2 root package (shown on pkg.go.dev for the v2
+    module; line 9 of this revision: "The v1 server, with the reflection based API, lives on the
+    branch v1.x."): v1 is in the repository-root module `github.com/sshaplygin/go-socket.io`. It is
+    the only `v1.x` in a Go file of `master` today; the restored root keeps its own `v1.x` mentions in
+    comments (`parser/encoder_buffer_test.go`), which stay because the v1 tree is the `v1.x` tip.
+
+**C. Verification**, on the head of the step B PR (`$V1TIP` from its body). The
+`api` function is the one of the Stage 1b Acceptance block, applied to the root module:
+
+```sh
+V1TIP=${V1TIP:?the v1.x tip recorded in the step B PR}; MOD=$(go list -m); T=$(mktemp -d); BASE=$T/base
+git fetch -q origin v1.x
+test "$(git rev-parse origin/v1.x)" = "$V1TIP"   # v1.x did not move since step A; run again after the merge
+git worktree add -q --detach $BASE $V1TIP; trap 'git worktree remove --force $BASE; rm -rf $T' EXIT
+test "$MOD" = github.com/sshaplygin/go-socket.io
+test "$(cd v2 && go list -m)" = github.com/sshaplygin/go-socket.io/v2
+export GOWORK=off   # a go.work would let one module import the other unnoticed
+test -z "$(git ls-files '*go.work' '*go.work.sum')"   # and none is committed
+go build ./...
+go test -race -count=1 ./...
+(cd v2 && go build ./...)
+(cd v2 && go test -race -count=1 ./...)
+go test -count=1 ./.github/benchmarks ./.github/benchmarks/report   # the detector treats v2/ Go changes as relevant, the report groups v2/<pkg>
+test -z "$(go list ./... | grep '/v2')"   # the root module sees v1 only
+test -z "$(git ls-files 'v2/*.go' | xargs grep -HnE '"github\.com/sshaplygin/go-socket\.io(/[^"]*)?"' | grep -vE '"github\.com/sshaplygin/go-socket\.io/v2(/[^"]*)?"')"   # v2 imports no root-module package
+test -z "$(git ls-files 'v2/*go.mod' | xargs grep -HnE 'github\.com/sshaplygin/go-socket\.io +v')"   # no v2 go.mod requires the root module
+test -z "$(git diff --name-only $V1TIP HEAD -- . ':!:v2' ':!:.github' ':!:docs' ':!:CLAUDE.md' ':!:CONTRIBUTING.md' ':!:README.md' ':!:LICENSE' ':!:.gitignore')"   # the v1 tree is the v1.x tip
+eval "$(grep '^api() ' docs/ROADMAP.md)"   # an empty match makes the next line fail
+test -n "$(api . | head -1)"
+test -z "$(diff <(api $BASE) <(api .))"   # the v1 exported API is unchanged
+DB=$(grep -oE '"/[^"]*"' .github/dependabot.yml | tr -d '"')
+test -z "$(git grep -nE 'v1\.x|[Rr]emoved .*from [`]?master|on [`]?master[`]?' -- docs/PROTOCOL.md docs/API.md)"   # no protocol or API document says v1 lives on v1.x or was removed from master
+test -z "$(git grep -nE 'v1\.x|this branch|[Ss]tatus (of|on) [`]master|on [`]master' -- README.md v2/README.md engineio/README.md v2/engineio/README.md CHANGELOG.md v2/CHANGELOG.md _examples/README.md v2/_examples/README.md)"   # the READMEs, changelogs and example notes: no install line @v1.x, no 'this branch', no v1.x branch statement
+test -z "$(git grep -nE 'v1\.x' -- 'v2/*.go')"   # no Go comment of the v2 module (the package comment of v2/server.go) says v1 lives on v1.x
+test -z "$(git grep -nE 'v1\.x|[Rr]emoved .*from [`]?master' -- CLAUDE.md CONTRIBUTING.md | grep -v frozen)"   # these two may name the branch only on a line that says it is frozen
+test -z "$(for d in $(git ls-files 'go.mod' '*/go.mod' | xargs -n1 dirname | sed 's#^\.$##; s#^#/#'); do ok=; for g in $DB; do [[ $d == $g ]] && ok=1; done; test -n "$ok" || echo "no Dependabot entry: $d"; done)"   # every module has an entry
+```
+
+The CI run of the head is green in every job (`gh pr checks`), the benchmark report of the PR
+lists `v2/` packages (`gh pr view <n> --json comments --jq '.comments[].body' | grep -q 'v2/engineio'`;
+the base side has only root packages, so they show as added, not comparable), and `make lint` passes in both
+modules. After the merge, on the merged `master`, `consumer master` builds a consumer of the v1
+module and the `@master` query of the v2 module resolves, both with `GOPROXY=direct` so that no
+proxy cache answers; `$T` is set first because `consumer` creates its directory under it:
+
+```sh
+git fetch -q origin v1.x; test "$(git rev-parse origin/v1.x)" = "${V1TIP:?the v1.x tip recorded in the step B PR}"   # v1.x is still the tip step B restored
+T=$(mktemp -d); trap 'rm -rf $T' EXIT
+eval "$(grep '^consumer() ' docs/ROADMAP.md)"   # an empty match makes the next line fail
+consumer master
+cd $T && GOPROXY=direct go list -m github.com/sshaplygin/go-socket.io/v2@master
+```
+
+Then the work of step A resumes.
+
+**Superseded by the restructure** (history is not rewritten; these checks no longer run as
+written): Stage 1b, in *Base and branch `v1.x`*, the sentence that makes the `v1.5.0` tag on
+`v1.x` at M4 (the Tags decision replaces it), and step 0 (branch cut, `branches: [v1.x]`, Dependabot `target-branch`, the
+`## v1.5.0 (unreleased, branch v1.x)` heading), its `v1.x` gates block and `consumer v1.x`; in
+the Stage 1 DoD, the fifth `git grep` (`@master` is again the `go get` form of `README.md`
+until the tag, and the `until a release` sentence names `master`) and the 1.K remark that its
+`awk` is not for `master` (the root `CHANGELOG.md` is the `v1.x` file again); in the Stage 1
+tag-time gates, the ancestry lines and the `@v1.x` grep, rewritten above for `master`.
 
 ## Stage 0. Documentation baseline
 
 Landed. Maintain the documentation ownership map in CLAUDE.md; protocol facts,
 release history and implementation commands stay in their respective files.
 
-## Stage 1. Infrastructure and known bugs (released as `v1.5.0` at M4)
+## Stage 1. Infrastructure and known bugs (released as `v1.5.0` on the owner's order)
 
 No protocol changes. Allowed API changes are `engineio.Options.Logger`,
 `engineio.Options.WriteBufferSize` (temporary v1 placement), `socketio.ErrWriteBufferFull`,
@@ -621,7 +947,8 @@ Tasks:
     words `until a release` that tells users to use the branch until a release is
     tagged. The tag-time release commit and the reason for the branch name are owned by
     [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases); the tag-time gates are in the
-    Stage 1 Acceptance.
+    Stage 1 Acceptance. The `@v1.x` form is superseded: until a tag exists, `go get` uses
+    `@master` for v1 and `/v2@master` for v2 (*Repository layout*).
   - Already satisfied at `9716ec0` and guarded by the DoD: no `godoc.org` links;
     the README badges point at this fork.
 - **1.K Known limitations** (wave 1C, after wave 1B has merged, so no other task
@@ -708,11 +1035,11 @@ network; prints nothing; the same check runs on `$CUT` in the `v1.x` gates):
 test -z "$(for u in $(cat README.md engineio/README.md CHANGELOG.md | grep -o 'https://pkg.go.dev/[^) ]*' | sed 's/#.*//' | sort -u); do test "$(curl -s -o /dev/null -w '%{http_code}' $u)" = 200 || echo $u; done)"
 ```
 
-Tag-time gates (M4; run once, after the owner ordered the tag and the `v1.5.0` release
+Tag-time gates (run once, after the owner's declaration and explicit order, when the `v1.5.0` release
 commit of [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases) is tagged and pushed; `bash`
 and `set -e`, rules as in the Stage 1b DoD; not part of the stage 1 gate). The block
-proves that the tag sits on `v1.x` and not on `master`, that the released files carry
-`@v1.5.0` (the `go get` command and the pinned pkg.go.dev links) and no `@v1.x`, that the 1.K check passes on the tagged tree, and that a
+proves that the tag sits on `master` and not on the frozen `v1.x`, that the released files carry
+`@v1.5.0` (the `go get` command and the pinned pkg.go.dev links) and no `@master`, that the 1.K check passes on the tagged tree, and that a
 consumer that previously used upstream builds against the fork at the tag after
 updating its imports, without an upstream-path `replace` directive. Stage 1b runs
 `consumer v1.x` from the same definition at M1b closure:
@@ -720,11 +1047,11 @@ updating its imports, without an upstream-path `replace` directive. Stage 1b run
 ```sh
 T=$(mktemp -d); TAG=$T/tag
 git fetch --tags origin
-git merge-base --is-ancestor v1.5.0 origin/v1.x
-test -z "$(git tag --merged origin/master -l 'v1.5.*')"   # earlier v1.4.x tags stay reachable from master
+git merge-base --is-ancestor v1.5.0 origin/master
+test -z "$(git tag --merged origin/v1.x -l 'v1.5.*')"   # the frozen branch carries no v1.5 tag
 rel() { git show v1.5.0:CHANGELOG.md | awk '/^## /{s=($0 ~ /^## v1\.5\.0( |$)/)} s'; }
 test -n "$(rel)"
-test -z "$({ git show v1.5.0:README.md; git show v1.5.0:engineio/README.md; rel; } | grep -F '@v1.x')"
+test -z "$({ git show v1.5.0:README.md; git show v1.5.0:engineio/README.md; rel; } | grep -F '@master')"
 git show v1.5.0:README.md | grep -q '@v1\.5\.0'
 git show v1.5.0:engineio/README.md | grep -q '@v1\.5\.0'
 rel | grep -q '@v1\.5\.0'
@@ -740,12 +1067,19 @@ test -n "$K2"
 (cd $TAG; eval "$K1")
 test -z "$(cd $TAG; eval "$K2")"
 git worktree remove --force $TAG
-# consumer build; the same function takes v1.x before the tag
-consumer() ( d=$(mktemp -d $T/c.XXXXXX); cd $d; go mod init example.com/consumer; printf 'package main\n\nimport _ "github.com/sshaplygin/go-socket.io"\n\nfunc main() {}\n' >main.go; GOPROXY=direct go get github.com/sshaplygin/go-socket.io@$1; go build ./... )
+# consumer build; the same function takes master before the tag
+consumer() ( : ${T:?set T to a mktemp -d directory first}; d=$(mktemp -d $T/c.XXXXXX) && cd $d && go mod init example.com/consumer && printf 'package main\n\nimport _ "github.com/sshaplygin/go-socket.io"\n\nfunc main() {}\n' >main.go && GOPROXY=direct go get github.com/sshaplygin/go-socket.io@$1 && go build ./... )
 consumer v1.5.0
 ```
 
 ## Stage 1b. Package layout (prerequisite to stage 2)
+
+**History.** Stage 1b closed (M1b) before the restructure and is not re-run. Its layout
+(target tree, `api` block, map) describes the `v2/` tree, paths relative to `v2/`; the
+repository root keeps the pre-1b names of the v1 tree. Superseded by the 2026-10-10
+decisions: the sentence of *Base and branch `v1.x`* that makes the `v1.5.0` tag on `v1.x` at M4
+(the Tags decision replaces it), step 0 and its branch-specific files, the `v1.x` gates block
+and `consumer v1.x` (list in *Repository restructure*); the DoD and Acceptance blocks passed on `master` at M1b.
 
 Structural refactoring only: moves, explicit file merges, import rewrites and the API
 changes listed below; no behaviour change or new features. Keep the cyclic v1 root core
@@ -1030,7 +1364,7 @@ git worktree remove --force $BASE
 ## Stage 2. Socket.IO protocol v5 over Engine.IO protocol v4 (tag `v2.0.0`)
 
 Protocol deltas are listed in [PROTOCOL.md](PROTOCOL.md#planned-engineio-v4-and-socketio-v5).
-Stage 2 lands in the tree defined by stage 1b. New code for the `Socket` model goes to
+Stage 2 lands in `v2/`, in the tree defined by stage 1b (paths relative to `v2/`). New code for the `Socket` model goes to
 the root files `server.go`, `namespace.go`, `socket.go`, `packet_handlers.go`,
 `event.go`, `options.go`, `errors.go` and `adapter.go`; the client goes to `client/`.
 
@@ -1063,7 +1397,7 @@ runtime, its v1-specific tests, the v1 memory and Redis broadcast (`broadcast.go
 `redis_broadcast.go`, `adapter_options.go`, `helpers.go` and their tests, which stage 1b
 leaves in the root), `Server.Adapter` and the redigo dependency while introducing the v2
 skeleton. No `adapter/` directory exists until 2.2 creates `adapter/codec/`.
-Preserve v1 on branch `v1.x`; carry applicable regression scenarios into v2 fixtures.
+v1 stays at the repository root (*Repository layout*); carry applicable regression scenarios into v2 fixtures.
 Engine.IO/parser packages remain buildable until their replacements in 2B. Legacy
 application examples are excluded from v2 build jobs until migrated in 2.5D; Redis
 examples return in 4b. This transition must build/test the entire root module before G2.
@@ -1368,7 +1702,7 @@ Go/Node interoperability, 2.0 lifecycle tests and dispatch benchmark baseline.
   placeholder validation, wire errors and the `JSON[T]` argument codec beside them, and
   2.3S binds a codec to a descriptor, both without changing the frozen declarations. A
   value passed to a callee is borrowed for the call; a returned value is owned by the
-  caller. 2.3P is on `master` and unreleased (M3 releases it); the root calls none of it
+  caller. 2.3P is on `master` and unreleased (the M3 tags release it); the root calls none of it
   yet. What 2.3S still does with it: map `socketio.Options` to `parser.Limits`
   (`MaxEventBytes`, `MaxAttachments`, `AttachmentTimeout`), arm a timer on
   `Assembler.Deadline`, translate the parser errors into `ErrMessageTooLarge`,
@@ -1797,11 +2131,11 @@ transport and codec errors, without calling `slog.SetDefault`.
 
 `docs/MIGRATION.md` (including how v1 `Conn.Close` draining maps to v2 socket and
 session close, and the breaking changes recorded in Stage 1b), `docs/PROTOCOL.md` update, `docs/OBSERVABILITY.md`,
-`contrib/otel/README.md`, module path `.../v2`, tag `v2.0.0` and
-`contrib/otel/v2.0.0` from the same commit; branch `v1.x` already exists and is not created here (Stage 1b). After the
-v2 module path changes: README GoDoc badge and API reference link, `go.mod` and imports of
-every `_examples/*`, links in `engineio/README.md`, and the import paths of
-`contrib/otel` and `adapters/*`. Task 2.5D migrates all non-Redis examples to
+`contrib/otel/README.md`, tags `v2.0.0` and `v2/contrib/otel/v2.0.0` from the same commit, only
+after the owner's declaration and after `v1.5.0` (*Repository layout*). The module path `.../v2`, the
+`go.mod` and imports of every `v2/_examples/*` (B3) and the `v2/README.md` badge and links (B5) are
+set by the restructure and only verified here (the grep below and the Acceptance), not redone. 2.5
+writes the links in `engineio/README.md` and the import paths of `contrib/otel` and `adapters/*`. Task 2.5D migrates all non-Redis examples to
 `socket.io-client@4` and the generic API, pinning maintained framework versions
 compatible with Go 1.22; Redis examples remain deferred to 4b.
 
@@ -1814,27 +2148,26 @@ forbids direct `reflect` imports in production code outside `parser` (test refle
 is allowed); all stage-2 examples build and run against
 `socket.io-client@4`; `go vet`, lint, `-race` green; idle-connection benchmark numbers
 recorded; `docs/PROTOCOL.md` lists every unimplemented item; the stage 2.4 DoD holds at
-the tag. Router integration: the `examples` CI job starts `_examples/default-http`,
+the commit to be tagged. Router integration: the `examples` CI job starts `_examples/default-http`,
 `gin-gonic`, `go-echo`, `iris` and `gf`, and `TestFrameworkSmoke` in `_examples/smoke`
 (own `go.mod`) completes a websocket handshake and an `add user` event answered by `login` through
 each with the Go client; a test in `engineio` with a `ResponseWriter` that hides `http.Hijacker`
 gets HTTP 501. Links: `pkg.go.dev/github.com/sshaplygin/go-socket.io/v2` renders the
-tagged version, and the grep below has no active v2 code/module imports of the old
+module (the tagged version at tag time), and the grep below has no active v2 code/module imports of the old
 path; historical v1 decisions, migration examples and changelog entries are allowed:
 
 ```sh
-grep -rn 'googollee' --include='*.md' --include='go.mod' --include='*.go' .
+grep -rn 'googollee' --include='*.md' --include='go.mod' --include='*.go' v2 docs
 ```
 
 Acceptance: a browser page on `socket.io-client@4` from CDN connects to
 `_examples/default-http`, adds a user, receives `login`, and the server logs a
 clean disconnect on an explicit client disconnect. `docs/MIGRATION.md` is enough to port
 `_examples/gin-gonic` without reading library code. A handler with a wrong payload type
-fails at compile time. Every badge and link in `README.md` resolves to the v2 module.
-Pin Node, protocol-suite commits and client versions in CI; test source consumers
-against released root/contrib module versions without workspace `replace` directives.
-Publish the root tag before dependent module tags and verify each module's minimum
-Go version. Redis examples and cluster acceptance are explicitly deferred to 4b.
+fails at compile time. Every badge and link in `v2/README.md` resolves to the v2 module.
+Pin Node, protocol-suite commits and client versions in CI. At tag time: test source
+consumers against released root/contrib module versions without workspace `replace` directives,
+publish the root tag before dependent module tags, and verify each module's minimum Go version. Redis examples and cluster acceptance are explicitly deferred to 4b.
 
 ## Stage 3. Realtime chat example (`_examples/chat/`, own go.mod)
 
@@ -1864,7 +2197,7 @@ one client reaches another in the same room; `cmd/load` with 500 clients at 10 m
 reports p99 ack latency and no write-buffer overflow; integration test green in CI;
 `_examples/chat/README.md` documents only how to run it.
 
-DoD (upstream chat parity; the `v1.5.0` tag trigger): the vendored upstream client is
+DoD (upstream chat parity): the vendored upstream client is
 byte-identical to the pinned commit except the one `socket.io-client` script tag, which
 points to a pinned `socket.io-client` 4.x build, and it works against the Stage 3
 server on the default namespace with the upstream names and payloads: client to server
@@ -1889,8 +2222,8 @@ Each adapter has its own `go.mod` and CI job and is tagged independently
 (`adapters/redis/v2.0.0`, `adapters/nats/v2.0.0`). The root `go.mod` has no Redis or
 NATS dependency; it does carry `vmihailenco/msgpack/v5` (with its `tagparser/v2`), which
 `adapter/codec` imports since 2.2. Both depend on the root module as a normal versioned dependency and on
-`adapter/codec` for the message format. Release root `v2.2.0`, containing
-`adaptertest` and any shared-codec additions, before tagging adapter modules. Verify
+`adapter/codec` for the message format. At tag time (M5 is accepted before it): release root `v2.2.0`, containing
+`adaptertest` and any shared-codec additions, before tagging adapter modules, and verify
 root and adapter consumers/tests against published versions without local replacements.
 In this stage's tests (`adaptertest` and both backend suites) the adapter's request
 timeout is 5 s. A *recovery poll* calls `Sockets` every 50 ms and passes at the first nil
@@ -2119,7 +2452,7 @@ replay of missed messages and shared history remain outside this acceptance.
 
 ## Stage 5. Socket.IO Admin UI (required final product stage)
 
-Entry: M5. Output: module `github.com/sshaplygin/go-socket.io/contrib/admin/v2`
+Entry: M5. Output: module `github.com/sshaplygin/go-socket.io/v2/contrib/admin/v2`
 with its own CI/release and direct connection from the unchanged official UI.
 Support hosted and self-hosted static UI. Pin an upstream UI release and matching
 instrumentation commit in 5A; record them in the module README. Reference contracts:
@@ -2134,7 +2467,7 @@ Node is a compatibility-test dependency, not a Go server runtime dependency.
    incoming and outgoing event arguments, including broadcasts, for the detailed UI;
    payload capture is disabled when unused. Define an explicit data-update API rather
    than trying to observe arbitrary mutations of application-owned Go values. Keep
-   additions compatible with the released v2 API. Hook additions also update
+   additions compatible with the v2 API of Stage 2. Hook additions also update
    `LoggingHooks`, hook coverage tests and `docs/OBSERVABILITY.md`.
    Admin instrumentation inherits the owning server's logger through its namespace;
    authentication, queue overflow and shutdown diagnostics obey the stage 2.4
@@ -2202,7 +2535,7 @@ Node is a compatibility-test dependency, not a Go server runtime dependency.
    `contrib/admin/README.md` owns installation and configuration. Update the
    `CLAUDE.md` ownership/layout tables and add a README link. Extend the chat compose
    example with a pinned static Admin UI service and authenticated instrumentation
-   on each server. Release additive core changes as `v2.3.0`, the module as
+   on each server. At tag time, release additive core changes as `v2.3.0`, the module as
    `contrib/admin/v2.0.0`, and compatible adapter updates as minor releases.
 
 DoD: event fixtures from the pinned upstream instrumentation match the Go output,
@@ -2232,7 +2565,7 @@ acceptance completes product scope and opens the final benchmark stage.
 
 ## Stage 6. Final comparative benchmarks
 
-Entry: M6, including Admin UI and released adapter updates. Earlier microbenchmarks
+Entry: M6, including Admin UI and the adapter updates. Earlier microbenchmarks
 remain regression gates; this stage compares complete servers after product work.
 Owner freezes the matrix in 6A before measurements; runner implementation can then
 proceed independently in 6B. Reserved measurement hosts run one candidate at a time.
@@ -2240,7 +2573,7 @@ proceed independently in 6B. Reserved measurement hosts run one candidate at a t
 **Candidates and compatibility.** Compare our final v2, `zishang520/socket.io` and
 the official `socket.io` JS/TS server running on Node.js. Pin exact commits/tags,
 Go/Node versions, dependency lockfiles and build flags. Also record this fork's
-`v1.5.0` as a legacy baseline for shared scenarios, with a compatible EIO3 client;
+v1 line (the repository-root module `github.com/sshaplygin/go-socket.io` at a commit pinned in 6A; `v1.5.0` once tagged) as a legacy baseline for shared scenarios, with a compatible EIO3 client;
 report it separately from EIO4 comparisons. A feature support matrix must mark
 unsupported cases, never score them as zero throughput. Benchmark wrappers implement
 the same application logic and wire payload/ACK contract; TS source is built before
@@ -2296,21 +2629,21 @@ performance ranking. Investigate mismatches and limitations in the report. If th
 stage triggers code changes, rerun affected correctness gates and comparisons with
 new revision IDs; release them separately. M7 closes the benchmark scope; Stage 7 follows it.
 
-## Stage 7. Go client as a separate package (v1.x)
+## Stage 7. Go client as a separate package (v1, root module)
 
 Owner decision of 2026-10-09: the Go client is supported as a separate package for both
 lines, after everything else; the v2 half is 2.3C. Entry: M7 passed; the stage does not
-wait for the `v1.5.0` tag. The compatibility base is the `v1.x` commit `$TIP`; the release
-is the next `v1.x` minor after the latest `v1.x` tag at tag time (`$REL`; `v1.6.0` when
-`v1.5.0` is that tag), named in the owner's order; if no `v1.5.0` exists then, the order
-names the number and the first-release procedure of `CONTRIBUTING.md` applies. Nothing
-before M7 depends on it.
+wait for the `v1.5.0` tag. Work happens on `master` in the root module (v1 at the repository
+root, paths relative to it). The compatibility base is the `master` commit `$TIP`; the release
+is the next v1 minor after the latest v1 tag at tag time (`$REL`; `v1.6.0` when `v1.5.0` is that
+tag), named in the owner's order and strictly after `v1.5.0`; the Milestones tag rule has no
+exception. Nothing before M7 depends on it.
 
 **Contract (v1).** Additive: `client` behaves as today's root `socketio.Client`. The root
 `Client` and `NewClient` stay as a wrapper over it, their godoc starting a paragraph
 `Deprecated: use client.Client.` and `Deprecated: use client.NewClient.` (full stop
 included); no root export is removed, renamed or changed in behaviour, so the release is
-a MINOR one. All PRs target `v1.x`. The tag is
+a MINOR one. All PRs target `master` and change root-module files only. The tag is
 created only on the owner's order; `CHANGELOG.md` entries (`### Added` naming the import
 path `go-socket.io/client`, `### Deprecated` naming `Client` and `NewClient`) and the
 release commit follow [`CONTRIBUTING.md`](../CONTRIBUTING.md#releases).
@@ -2330,7 +2663,7 @@ handler dispatch, an unexported in-memory broadcast behind `Namespace.Join`, `Le
 `LeaveAll` and `Rooms`), without Redis and server-only code. The only server-path
 logic edit deletes `clientConnectPacketHandler` and `clientDisconnectPacketHandler` (`make
 lint` rejects unused code); the other root edits are the aliases, and `fmtNS`, used by the
-server, stays in the root `client.go`. Cost: a `v1.x` fix to a shared file names in its PR whether
+server, stays in the root `client.go`. Cost: a root fix to a shared file names in its PR whether
 `client/` needs the same change and makes it there.
 
 **`api` freeze (additive exported API of `client`).** Derived from `client.go`, `connection.go`,
@@ -2365,14 +2698,14 @@ on `client.Client` and `Server`) and `TestClientErrorIdentity` (`errors.Is` acro
 and `client` errors; `EmptyAddrErr` still matches).
 
 DoD, run with `bash` and `set -e` on the head of the Stage 7 PR (rules as in the Stage 1b
-DoD; the consumer check needs network). `$TIP` is the `v1.x` commit recorded in its body;
-stage commits are titled `<type>(7.<n>): ...`, so later `v1.x` patches are not judged:
+DoD; the consumer check needs network). `$TIP` is the `master` commit recorded in its body;
+stage commits are titled `<type>(7.<n>): ...`, so later commits are not judged:
 
 ```sh
-TIP=${TIP:?the v1.x commit recorded in the Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base; R=$PWD; git worktree add -q --detach $BASE $TIP; trap 'git worktree remove --force $BASE; rm -rf $T' EXIT
+TIP=${TIP:?the master commit recorded in the Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base; R=$PWD; git worktree add -q --detach $BASE $TIP; trap 'git worktree remove --force $BASE; rm -rf $T' EXIT
 make lint test-race
 D=$(go list -deps ./client); test -z "$(echo "$D" | grep -E "redigo|^$MOD(/|$)" | grep -vE "^$MOD/(client|engineio|parser|logger)(/|$)")"   # D is not piped inside test -z: a failing go list (import cycle) must stop the script
-test -n "$(go list -deps . | grep -x "$MOD/client")"; for X in Client NewClient; do test -n "$(go doc . $X | grep -E "^ *Deprecated: use client\.$X\.")"; done   # fails on v1.x: no notices
+test -n "$(go list -deps . | grep -x "$MOD/client")"; for X in Client NewClient; do test -n "$(go doc . $X | grep -E "^ *Deprecated: use client\.$X\.")"; done   # fails before the stage: no notices
 cl() { awk '/^## Unreleased/{u=1;next} /^## /{u=0} u && /^### /{s=$2} u && s=="'$1'"' CHANGELOG.md; }; test -n "$(cl Added | grep 'go-socket.io/client')"; test -n "$(cl Deprecated | grep NewClient)"
 test "$(go doc -short ./client | sed -E 's/^ +//; s/^(func [A-Za-z]+)\(.*/\1/; s/^((var|type) [A-Za-z]+).*/\1/' | paste -sd, -)" = "var ErrEmptyAddr,var ErrWriteBufferFull,type Client,func NewClient,type Conn,type Namespace"
 test "$(go doc -short ./client Client | grep '^func')" = "$(cd $BASE && go doc -short . Client | grep '^func')"; for X in Conn Namespace; do test "$(go doc ./client $X | grep -vE '^(package|    )|^\s*(//|$)')" = "$(cd $BASE && go doc . $X | grep -vE '^(package|    )|^\s*(//|$)')"; done
@@ -2424,9 +2757,9 @@ Acceptance: `_examples/client` imports `client` instead of the deprecated root `
 and `make examples` builds it; the owner runs it against `_examples/default-http` (the
 login event is received), then orders the tag (M8). Tag-time gate, after that order and
 the release commit: `cclient $REL` (the DoD function, tag in place of `.`) succeeds and
-`git merge-base --is-ancestor $REL origin/v1.x` holds; the release commit is
-forward-ported to `master` per `CONTRIBUTING.md`, the package is not. Out of scope: a
-separate `go.mod`, removing the root `Client` (v2 removes the v1 root runtime in 2.0), any
+`git merge-base --is-ancestor $REL origin/master` holds; the release commit and the
+package are both on `master`, so nothing is forward-ported. Out of scope: a
+separate `go.mod`, removing the root `Client` (the v1 runtime stays at the root), any
 change to the v1 server.
 
 ## Milestones
@@ -2436,19 +2769,31 @@ change to the v1 server.
 | M0 | Stage 0 docs baseline | none |
 | M1 | Stage 1 complete and the 1.D link-form commit merged | none |
 | M1b | Stage 1b closed: step 0 done (branch `v1.x` cut) and steps 1–3 merged, with the Stage 1b DoD, `v1.x` gates and Acceptance blocks passing on `master` | none (first commits after the cut commit `$CUT`) |
-| M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance; accepted at the 2B join, which also puts the 2.2 and 2.3P code on `master` unreleased (below) | branch `v2-next` |
-| M3 | 2.2 + 2.3 + 2.4 + 2.5 (2.2 and 2.3P are already on `master` at M2 acceptance; this milestone releases them) | `v2.0.0`, `contrib/otel/v2.0.0` |
-| M4 | Stage 3: single-server chat | root `v2.1.0`; `v1.5.0` is tagged on branch `v1.x` when the Stage 3 upstream-chat parity DoD line passes (release commit per `CONTRIBUTING.md`, tag-time gates in Stage 1 Acceptance) |
-| M5 | Stage 4b: adapters and cluster chat acceptance | root `v2.2.0` first, then `adapters/redis/v2.0.0`, `adapters/nats/v2.0.0` |
-| M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `contrib/admin/v2.0.0`; adapter minor releases |
+| M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance; accepted at the 2B join, which also puts the 2.2 and 2.3P code on `master` unreleased (below) | branch `v2-next` (a snapshot of `master`; v2 paths under `v2/`) |
+| M3 | 2.2 + 2.3 + 2.4 + 2.5 (2.2 and 2.3P are already on `master` at M2 acceptance; the M3 tags release them) | `v2.0.0`, `v2/contrib/otel/v2.0.0`, only after the owner's declaration and `v1.5.0` (*Repository layout*) |
+| M4 | Stage 3: single-server chat | `v2.1.0`; the Stage 3 upstream-chat parity DoD line is no longer the `v1.5.0` trigger (*Repository layout*) |
+| M5 | Stage 4b: adapters and cluster chat acceptance | `v2.2.0` first, then `v2/adapters/redis/v2.0.0`, `v2/adapters/nats/v2.0.0` |
+| M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `v2/contrib/admin/v2.0.0`; adapter minor releases |
 | M7 | Stage 6: final comparative benchmark report and reproducible artifacts | report/artifact revision; no runtime release required |
-| M8 | Stage 7: `client` package on `v1.x`, root `Client` deprecated; closes the roadmap | next `v1.x` minor after the latest `v1.x` tag (`v1.6.0` when that is `v1.5.0`), number named in the owner's order, on that order only |
+| M8 | Stage 7: `client` package in the repository-root (v1) module on `master`, its root `Client` deprecated; closes the roadmap | next v1 minor after the latest v1 tag, strictly after `v1.5.0` (`v1.6.0` when that is `v1.5.0`), number named in the owner's order, on that order only |
+
+Every tag in the Tag column is created only on the owner's explicit order, after the
+declaration of *Repository layout* and after `v1.5.0`; the column gives full git tag names
+(forms in *Repository layout*), so the path convention does not shift them again.
+
+**Tag-time checks.** No milestone waits for a tag. M3 and M5 are accepted on `master` before any
+tag exists, with child modules built through `replace .../v2 => ../..` (as in `v2/_examples/*`). The
+checks that need a created tag or a published module version run on the owner's order after the
+tag, and each is labelled "at tag time" where its section states it: Stage 2.5 (`pkg.go.dev`
+renders the tagged version; consumers against released versions without `replace`; the root tag
+before dependent module tags), row 2F (publication verification), Stage 4b (root `v2.2.0` before
+the adapters; consumers against published versions) and Stage 5 item 6 (the releases).
 
 M2 is accepted when G2, the 2B join gate and the 2.1 exit have passed on one
-reviewed `master` commit and `git ls-files '_experiments/*/go.mod'` prints nothing there
+reviewed `master` commit and `git ls-files 'v2/_experiments/*/go.mod'` prints nothing there
 (every consumer in *Prepared components* has landed, so no leftover experiment is
 allowed); the owner may not declare M2 otherwise. The 2B join gate also covers the 2.2 memory adapter and the
-2.3P codec, so at acceptance that code is on `master` but unreleased; M3 releases it.
+2.3P codec, so at acceptance that code is on `master` but unreleased until the M3 tags.
 The owner's declaration is what makes the commit reviewed: the owner records its SHA
 in the transfer ledger of [issue #2](https://github.com/sshaplygin/go-socket.io/issues/2)
 and only then creates branch `v2-next` once from that SHA as a frozen snapshot. It
@@ -2467,6 +2812,6 @@ snapshot/Node interoperability prototype before treating it as a delivery commit
 
 EIO=3 in v2; connection state recovery; WebTransport; permessage-deflate; sharded Redis
 adapter (Redis 7 sharded pub/sub); Redis Cluster, Ring and replica-routed clients for
-`adapters/redis` (see 4b `adapters/redis`); cluster broadcast-with-ack; NATS JetStream persistence;
+`v2/adapters/redis` (see 4b `adapters/redis`); cluster broadcast-with-ack; NATS JetStream persistence;
 framework-specific integration packages (gin, echo, iris, gf use `http.Handler`); trace
 context propagation through the Redis adapter.

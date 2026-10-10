@@ -396,7 +396,8 @@ cd $T && GOPROXY=direct go list -m github.com/sshaplygin/go-socket.io/v2@master
 Then the work of step A resumes.
 
 **Superseded by the restructure** (history is not rewritten; these checks no longer run as
-written): Stage 1b step 0 (branch cut, `branches: [v1.x]`, Dependabot `target-branch`, the
+written): Stage 1b, in *Base and branch `v1.x`*, the sentence that makes the `v1.5.0` tag on
+`v1.x` at M4 (the Tags decision replaces it), and step 0 (branch cut, `branches: [v1.x]`, Dependabot `target-branch`, the
 `## v1.5.0 (unreleased, branch v1.x)` heading), its `v1.x` gates block and `consumer v1.x`; in
 the Stage 1 DoD, the fifth `git grep` (`@master` is again the `go get` form of `README.md`
 until the tag, and the `until a release` sentence names `master`) and the 1.K remark that its
@@ -1070,8 +1071,9 @@ consumer v1.5.0
 **History.** Stage 1b closed (M1b) before the restructure and is not re-run. Its layout
 (target tree, `api` block, map) describes the `v2/` tree, paths relative to `v2/`; the
 repository root keeps the pre-1b names of the v1 tree. Superseded by the 2026-10-10
-decisions: step 0 and its branch-specific files, the `v1.x` gates block and `consumer v1.x`
-(list in *Repository restructure*); the DoD and Acceptance blocks passed on `master` at M1b.
+decisions: the sentence of *Base and branch `v1.x`* that makes the `v1.5.0` tag on `v1.x` at M4
+(the Tags decision replaces it), step 0 and its branch-specific files, the `v1.x` gates block
+and `consumer v1.x` (list in *Repository restructure*); the DoD and Acceptance blocks passed on `master` at M1b.
 
 Structural refactoring only: moves, explicit file merges, import rewrites and the API
 changes listed below; no behaviour change or new features. Keep the cyclic v1 root core

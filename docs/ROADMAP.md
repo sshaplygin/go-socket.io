@@ -203,7 +203,7 @@ merged into the old layout; it is merged forward after step C, by its author, on
 
 ```sh
 git fetch -q origin   # the two SHAs below are read from remote-tracking refs: stale refs record a wrong $OLDBASE
-test "$(gh pr list --base master --state open --json number,author --jq '[.[]|select(.author.is_bot|not)|.number]|sort|join(",")')" = 60,62   # before the step B PR is opened
+MISSING=$(for n in $(gh pr list --base master --state open --json number,author --jq '.[]|select(.author.is_bot|not)|.number'); do grep -q "^| #$n " docs/ROADMAP.md || echo "#$n"; done); echo "$MISSING"; test -z "$MISSING"   # prints each open PR without a row in the table above (the table is the list: add the row first); before the step B PR is opened
 test -z "$(gh pr list --base v1.x --state open --json number --jq '.[].number')"   # nothing waits to merge into v1.x (close Dependabot PRs first)
 V1TIP=$(git rev-parse origin/v1.x); echo $V1TIP   # the v1 tree B2 restores; the step B body records it
 OLDBASE=$(git rev-parse origin/master); echo $OLDBASE   # the last commit of the old layout; the step B body records it
@@ -226,8 +226,8 @@ git format-patch -q -o $P/v2 $FROM..$BR -- . ':!docs' ':!.github' ':!CLAUDE.md' 
 git format-patch -q -o $P/shared $FROM..$BR -- docs .github CLAUDE.md CONTRIBUTING.md LICENSE .gitignore   # the root-only files, the list of B1
 perl -pi -e '$f=$1 if m{^diff --git a/(\S+)}; s#github\.com/sshaplygin/go-socket\.io(?!/v2)#github.com/sshaplygin/go-socket.io/v2#g if $f =~ /(\.go|go\.mod|\.toml)$/ && /^[ +-]/ && !/^(---|\+\+\+) /' $P/v2/*.patch   # the B3 rewrite, on the patch text
 git switch -c $NEW origin/master
-git am --directory=v2 $P/v2/*.patch   # skip when $P/v2 is empty (#60)
-git am -3 $P/shared/*.patch           # no --directory: these files stay at the root
+compgen -G "$P/v2/*.patch" >/dev/null && git am --directory=v2 $P/v2/*.patch   # an empty glob skips the line (#60 has no module patch)
+compgen -G "$P/shared/*.patch" >/dev/null && git am -3 $P/shared/*.patch   # no --directory: these files stay at the root
 test -z "$(git diff --name-only origin/master...HEAD | grep -vE '^(v2/|docs/|\.github/|CLAUDE\.md|CONTRIBUTING\.md|LICENSE|\.gitignore)')"   # nothing outside v2/ and the root-only files
 ```
 
@@ -236,19 +236,25 @@ old module path never matches the rewritten file: `git am` stopped at an import 
 `--directory=v2` puts a new file, wherever it sits, under `v2/`; binary and `testdata` files are
 in the patches (`format-patch` writes binary patches); `go.mod` and `go.sum` hunks land in
 `v2/go.mod` and `v2/go.sum` (a `go.sum` line needs no rewrite); `README.md`, `CHANGELOG.md`,
-`Makefile` and `.golangci.yml` hunks land in the per-module copies. A hunk in a file that B5
-rewrote (`docs/PROTOCOL.md`, `v2/README.md`, `v2/CHANGELOG.md`) may stop `git am`: resolve it by
-hand (`git am --show-current-patch=diff`, edit, `git add`, `git am --continue`) and list the file
-in the PR. A file on the root-only list that belongs in `v2/` is moved by hand and listed too. A
+`Makefile` and `.golangci.yml` hunks land in the per-module copies. A hunk in a file that this
+section or B5 rewrote (`docs/ROADMAP.md`, `docs/PROTOCOL.md`, `v2/README.md`, `v2/CHANGELOG.md`) may
+stop `git am`; when a long series stops, re-apply the root-only files as one diff, resolve the
+conflict regions by hand, commit, and list the file in the PR that carries it
+(`git am --abort; git diff $FROM $BR -- docs .github CLAUDE.md CONTRIBUTING.md LICENSE .gitignore | git apply --3way`;
+a single stop: `git am --show-current-patch=diff`, edit, `git add`, `git am --continue`). A file on the root-only list that belongs in `v2/` is moved by hand and listed too. A
 commit that touches both kinds of file becomes two commits with the same subject.
 
 Replayed on the real branches in scratch worktrees, nothing pushed, on `origin/master`
 (`1392afe`) with B1 to B3 of this section applied (B4 and B5 not written yet): #62 (`f59eff9`,
-three commits, 13 files): both `git am` runs completed, the guard printed nothing, the 11 Go files
+three commits, 13 files): both `git am` runs completed, the guard printed nothing, the 10 Go files
 equal the branch files with the B3 command applied, and `go build`, `go vet` and
 `go test -count=1 ./...` in `v2/` passed; the same command without the rewrite stopped at
-`v2/engineio/transport/polling/server.go`. #60 (`67ab45e`): no module patch, the shared series
-applied with `-3`, and its diff equals the diff of the branch against `1392afe`. A synthetic
+`v2/engineio/transport/polling/server.go`. #60 (`67ab45e`): no module patch; on that `1392afe` alone the shared series
+applied with `-3` and its diff equals the diff of the branch against `1392afe`, but on the head of
+the PR that records this section `git am -3` stops in its first patch, and the one-diff form
+leaves four conflict regions in `docs/ROADMAP.md` (the rows named in the step A table) with
+`docs/API.md` and `docs/PROTOCOL.md` clean; #62 applies cleanly there. B4 and B5 are not
+written yet: the `docs/PROTOCOL.md` conflicts with B5 are untested. A synthetic
 branch (an import line added next to the rewritten ones, a new file in a new subdirectory of a
 moved directory, a new top-level directory, a deleted file, a rename with an edit, a 2 KiB binary
 file, a `go.mod` require, a `go.sum` line, and hunks in `CHANGELOG.md`, `docs/`, `.github/` and

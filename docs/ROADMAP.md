@@ -1403,11 +1403,17 @@ An answer that adds scope (a yes on O4 or O6, a minimal retry on O5 changing V1-
 this section first, in a docs PR that adds a PR with its rows, entry and DoD before V1-14;
 V1-14 does not merge until that PR has.
 
+Answers are needed before these merges: O1 and O2 before V1-0 (merging V1-0 without an owner
+comment accepts both recommendations), O5 before V1-11, O3, O4 and O6 before V1-14. V1-2 and
+V1-4 are not gated by O3, because D8 settles their rows. The PR body carries one line
+`Owner answer O<n>: <answer or accepted recommendation>` per decision it needs
+(`gh pr view <n> --json body -q .body | grep -c '^Owner answer O'` prints the count).
+
 | ID | Question | Recommendation | `PEND` rows | Rewritten by |
 | --- | --- | --- | --- | --- |
 | O1 | What "parity" means (D1): functional parity of the wire and of the documented features, or the reference's API shape | Functional parity with an idiomatic Go API; a row is `PARITY` when a reference client or server cannot tell the difference | none | V1-0 records the answer |
 | O2 | Additive methods on the exported `Conn` and `Namespace` interfaces break external mocks (rows marked `(O2)`) | No change to existing method sets: new optional interfaces found by type assertion, plus helper functions; V1-0 records each | none; the `(O2)` `ADD` rows follow the answer | V1-0 records it |
-| O3 | Changing v1 defaults in a minor: session id, ERROR and DISCONNECT packets, payload limit, CORS (S4), ping defaults (E1, E2), `Conn.ID` per namespace (K1) | Yes for the session id, the packets and a 1e6-byte payload limit with an option to raise it; keep S4, E1, E2 and K1 and document them | S4, P8, K1, E1, E2 | V1-14 |
+| O3 | The v1 defaults that D8 does not settle: the payload limit value and its option (the limit itself is E4, D8), the DISCONNECT packet written by the server (R9), CORS (S4, P8), ping defaults (E1, E2), `Conn.ID` per namespace (K1). The random session id (E15) and the ERROR packet (S10, R8) are D8 and proceed regardless | A 1e6-byte limit with an option to raise it, and DISCONNECT written; keep S4, P8, E1, E2 and K1 and document them | S4, P8, K1, E1, E2 | V1-14 |
 | O4 | `perMessageDeflate`, `httpCompression`, `cookie` (E8, E9, E10), and the `compress` flag (K17, C11) in `v1.5.0` | No: documented unsupported deviations; reconsider after V1R | K17, E8, E9, E10, and the `PEND O4` entries of S21, C11 | V1-14 (C11: V1-11) |
 | O5 | Reconnection in the v1 client (C3): full reference options and `reconnect*` events or a minimal retry | Full options and events, because the reference client has them (D6); PR V1-11 is written for it | the `PEND O5` entry of C3 | V1-11 |
 | O6 | Engine-level surface: `engine` handle, `clients` map, engine events, engine socket state (S18, E17, E19, E20) | Out of `v1.5.0`: the pull model of `Accept` replaces the events; `Count` and `Remove` stay | S18, E17, E19, E20 | V1-14 |

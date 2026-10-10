@@ -137,7 +137,8 @@ Branch `v1.x` was cut between stages 1 and 1b (1b step 0) and is frozen (*Reposi
 layout*); the restructure below (row R) moves v1 to the repository root and v2 to `v2/`.
 Stage 2 merges stop when step A starts, on the owner's order after the PR that records the
 restructure has merged, and resume after step C; until that order they proceed as before and
-move with the recipe of step A. No tag gates any stage: tags follow the owner's declaration.
+move with the recipe of step A. No tag gates any stage or milestone: tags follow the owner's declaration, and the checks that need
+a tag run at tag time (*Milestones*).
 Numbers identify scope, not permission to start before a dependency passes.
 A prerequisite marked as a gate means its tests and integration must pass, not only
 that a draft API exists. Tasks in the same row may run concurrently in separate
@@ -157,7 +158,7 @@ workers submit changes to these files through that integrator.
 | 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets`); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
 | 2E | 2D | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
-| 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 pre-release gate, then publication verification |
+| 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 acceptance; publication verification at tag time |
 | 3A | M3 | freeze chat event schema; then server, browser/CLI and load client in separate directories | M4 single-server acceptance |
 | 4A | M4 | freeze codec fixtures and adaptertest cases; then Redis and NATS modules independently | each passes shared conformance suite |
 | 4B | 4A | cluster chat profile; mixed Go/Node Redis tests in separate test directories | M5 cluster acceptance |
@@ -1693,7 +1694,7 @@ Go/Node interoperability, 2.0 lifecycle tests and dispatch benchmark baseline.
   placeholder validation, wire errors and the `JSON[T]` argument codec beside them, and
   2.3S binds a codec to a descriptor, both without changing the frozen declarations. A
   value passed to a callee is borrowed for the call; a returned value is owned by the
-  caller. 2.3P is on `master` and unreleased (M3 releases it); the root calls none of it
+  caller. 2.3P is on `master` and unreleased (the M3 tags release it); the root calls none of it
   yet. What 2.3S still does with it: map `socketio.Options` to `parser.Limits`
   (`MaxEventBytes`, `MaxAttachments`, `AttachmentTimeout`), arm a timer on
   `Assembler.Deadline`, translate the parser errors into `ErrMessageTooLarge`,
@@ -2139,12 +2140,12 @@ forbids direct `reflect` imports in production code outside `parser` (test refle
 is allowed); all stage-2 examples build and run against
 `socket.io-client@4`; `go vet`, lint, `-race` green; idle-connection benchmark numbers
 recorded; `docs/PROTOCOL.md` lists every unimplemented item; the stage 2.4 DoD holds at
-the tag. Router integration: the `examples` CI job starts `_examples/default-http`,
+the commit to be tagged. Router integration: the `examples` CI job starts `_examples/default-http`,
 `gin-gonic`, `go-echo`, `iris` and `gf`, and `TestFrameworkSmoke` in `_examples/smoke`
 (own `go.mod`) completes a websocket handshake and an `add user` event answered by `login` through
 each with the Go client; a test in `engineio` with a `ResponseWriter` that hides `http.Hijacker`
 gets HTTP 501. Links: `pkg.go.dev/github.com/sshaplygin/go-socket.io/v2` renders the
-tagged version, and the grep below has no active v2 code/module imports of the old
+module (the tagged version at tag time), and the grep below has no active v2 code/module imports of the old
 path; historical v1 decisions, migration examples and changelog entries are allowed:
 
 ```sh
@@ -2156,10 +2157,9 @@ Acceptance: a browser page on `socket.io-client@4` from CDN connects to
 clean disconnect on an explicit client disconnect. `docs/MIGRATION.md` is enough to port
 `_examples/gin-gonic` without reading library code. A handler with a wrong payload type
 fails at compile time. Every badge and link in `v2/README.md` resolves to the v2 module.
-Pin Node, protocol-suite commits and client versions in CI; test source consumers
-against released root/contrib module versions without workspace `replace` directives.
-Publish the root tag before dependent module tags and verify each module's minimum
-Go version. Redis examples and cluster acceptance are explicitly deferred to 4b.
+Pin Node, protocol-suite commits and client versions in CI. At tag time: test source
+consumers against released root/contrib module versions without workspace `replace` directives,
+publish the root tag before dependent module tags, and verify each module's minimum Go version. Redis examples and cluster acceptance are explicitly deferred to 4b.
 
 ## Stage 3. Realtime chat example (`_examples/chat/`, own go.mod)
 
@@ -2214,8 +2214,8 @@ Each adapter has its own `go.mod` and CI job and is tagged independently
 (`adapters/redis/v2.0.0`, `adapters/nats/v2.0.0`). The root `go.mod` has no Redis or
 NATS dependency; it does carry `vmihailenco/msgpack/v5` (with its `tagparser/v2`), which
 `adapter/codec` imports since 2.2. Both depend on the root module as a normal versioned dependency and on
-`adapter/codec` for the message format. Release root `v2.2.0`, containing
-`adaptertest` and any shared-codec additions, before tagging adapter modules. Verify
+`adapter/codec` for the message format. At tag time (M5 is accepted before it): release root `v2.2.0`, containing
+`adaptertest` and any shared-codec additions, before tagging adapter modules, and verify
 root and adapter consumers/tests against published versions without local replacements.
 In this stage's tests (`adaptertest` and both backend suites) the adapter's request
 timeout is 5 s. A *recovery poll* calls `Sockets` every 50 ms and passes at the first nil
@@ -2459,7 +2459,7 @@ Node is a compatibility-test dependency, not a Go server runtime dependency.
    incoming and outgoing event arguments, including broadcasts, for the detailed UI;
    payload capture is disabled when unused. Define an explicit data-update API rather
    than trying to observe arbitrary mutations of application-owned Go values. Keep
-   additions compatible with the released v2 API. Hook additions also update
+   additions compatible with the v2 API of Stage 2. Hook additions also update
    `LoggingHooks`, hook coverage tests and `docs/OBSERVABILITY.md`.
    Admin instrumentation inherits the owning server's logger through its namespace;
    authentication, queue overflow and shutdown diagnostics obey the stage 2.4
@@ -2527,7 +2527,7 @@ Node is a compatibility-test dependency, not a Go server runtime dependency.
    `contrib/admin/README.md` owns installation and configuration. Update the
    `CLAUDE.md` ownership/layout tables and add a README link. Extend the chat compose
    example with a pinned static Admin UI service and authenticated instrumentation
-   on each server. Release additive core changes as `v2.3.0`, the module as
+   on each server. At tag time, release additive core changes as `v2.3.0`, the module as
    `contrib/admin/v2.0.0`, and compatible adapter updates as minor releases.
 
 DoD: event fixtures from the pinned upstream instrumentation match the Go output,
@@ -2557,7 +2557,7 @@ acceptance completes product scope and opens the final benchmark stage.
 
 ## Stage 6. Final comparative benchmarks
 
-Entry: M6, including Admin UI and released adapter updates. Earlier microbenchmarks
+Entry: M6, including Admin UI and the adapter updates. Earlier microbenchmarks
 remain regression gates; this stage compares complete servers after product work.
 Owner freezes the matrix in 6A before measurements; runner implementation can then
 proceed independently in 6B. Reserved measurement hosts run one candidate at a time.
@@ -2763,7 +2763,7 @@ change to the v1 server.
 | M1 | Stage 1 complete and the 1.D link-form commit merged | none |
 | M1b | Stage 1b closed: step 0 done (branch `v1.x` cut) and steps 1–3 merged, with the Stage 1b DoD, `v1.x` gates and Acceptance blocks passing on `master` | none (first commits after the cut commit `$CUT`) |
 | M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance; accepted at the 2B join, which also puts the 2.2 and 2.3P code on `master` unreleased (below) | branch `v2-next` (a snapshot of `master`; v2 paths under `v2/`) |
-| M3 | 2.2 + 2.3 + 2.4 + 2.5 (2.2 and 2.3P are already on `master` at M2 acceptance; this milestone releases them) | `v2.0.0`, `v2/contrib/otel/v2.0.0`, only after the owner's declaration and `v1.5.0` (*Repository layout*) |
+| M3 | 2.2 + 2.3 + 2.4 + 2.5 (2.2 and 2.3P are already on `master` at M2 acceptance; the M3 tags release them) | `v2.0.0`, `v2/contrib/otel/v2.0.0`, only after the owner's declaration and `v1.5.0` (*Repository layout*) |
 | M4 | Stage 3: single-server chat | `v2.1.0`; the Stage 3 upstream-chat parity DoD line is no longer the `v1.5.0` trigger (*Repository layout*) |
 | M5 | Stage 4b: adapters and cluster chat acceptance | `v2.2.0` first, then `v2/adapters/redis/v2.0.0`, `v2/adapters/nats/v2.0.0` |
 | M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `v2/contrib/admin/v2.0.0`; adapter minor releases |
@@ -2774,11 +2774,19 @@ Every tag in the Tag column is created only on the owner's explicit order, after
 declaration of *Repository layout* and after `v1.5.0`; the column gives full git tag names
 (forms in *Repository layout*), so the path convention does not shift them again.
 
+**Tag-time checks.** No milestone waits for a tag. M3 and M5 are accepted on `master` before any
+tag exists, with child modules built through `replace .../v2 => ../..` (as in `v2/_examples/*`). The
+checks that need a created tag or a published module version run on the owner's order after the
+tag, and each is labelled "at tag time" where its section states it: Stage 2.5 (`pkg.go.dev`
+renders the tagged version; consumers against released versions without `replace`; the root tag
+before dependent module tags), row 2F (publication verification), Stage 4b (root `v2.2.0` before
+the adapters; consumers against published versions) and Stage 5 item 6 (the releases).
+
 M2 is accepted when G2, the 2B join gate and the 2.1 exit have passed on one
 reviewed `master` commit and `git ls-files 'v2/_experiments/*/go.mod'` prints nothing there
 (every consumer in *Prepared components* has landed, so no leftover experiment is
 allowed); the owner may not declare M2 otherwise. The 2B join gate also covers the 2.2 memory adapter and the
-2.3P codec, so at acceptance that code is on `master` but unreleased; M3 releases it.
+2.3P codec, so at acceptance that code is on `master` but unreleased until the M3 tags.
 The owner's declaration is what makes the commit reviewed: the owner records its SHA
 in the transfer ledger of [issue #2](https://github.com/sshaplygin/go-socket.io/issues/2)
 and only then creates branch `v2-next` once from that SHA as a frozen snapshot. It

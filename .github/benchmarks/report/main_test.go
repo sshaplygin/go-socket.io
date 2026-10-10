@@ -130,6 +130,16 @@ func TestPackageTables(t *testing.T) {
 	}
 }
 
+func TestV2ModulePackageHeading(t *testing.T) {
+	data := map[benchmark]*big.Rat{
+		{"github.com/sshaplygin/go-socket.io/v2/engineio", "IdleConnections-4"}: number("100"),
+	}
+	report := render(data, data, "base", "head", "details")
+	if !strings.Contains(report, "### v2/engineio\n") {
+		t.Fatalf("expected the v2 module package under the heading v2/engineio:\n%s", report)
+	}
+}
+
 func TestMarkdownEscaping(t *testing.T) {
 	data := map[benchmark]*big.Rat{{"p", "name|<tag>_`[x]"}: number("10")}
 	report := render(data, data, "base", "head", "```\nraw details\n```")

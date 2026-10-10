@@ -1398,6 +1398,10 @@ package) is executed inside it as PR V1-9.
 answers, and a PR that depends on an answer says so in its body. A `PEND` row is rewritten by
 the PR in the last column, to the answer or, when the owner accepts the recommendation, to
 the recommended outcome; MV1 needs every row rewritten, so it needs the owner's answers.
+The rewriting PR also records the answer as the next row of the decision table (D9, D10, ...).
+An answer that adds scope (a yes on O4 or O6, a minimal retry on O5 changing V1-11) amends
+this section first, in a docs PR that adds a PR with its rows, entry and DoD before V1-14;
+V1-14 does not merge until that PR has.
 
 | ID | Question | Recommendation | `PEND` rows | Rewritten by |
 | --- | --- | --- | --- | --- |

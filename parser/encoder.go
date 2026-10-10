@@ -161,55 +161,93 @@ func (e *Encoder) attachBuffer(v reflect.Value, index *uint64) ([][]byte, error)
 	return data, err
 }
 
+// numbering is the state of numberBuffers for the value v: the data found so far and repl, the
+// private copy of v that numbered children are stored into.
+type numbering struct {
+	e     *Encoder
+	index *uint64
+	v     reflect.Value
+	repl  reflect.Value
+	data  [][]byte
+}
+
+// own makes repl on first use.
+func (n *numbering) own() (reflect.Value, error) {
+	if n.repl.IsValid() {
+		return n.repl, nil
+	}
+	if !n.v.CanInterface() {
+		return reflect.Value{}, errUnsupportedBuffer
+	}
+	n.repl = reflect.New(n.v.Type()).Elem()
+	n.repl.Set(n.v)
+	switch n.v.Kind() {
+	case reflect.Slice:
+		n.repl.Set(reflect.MakeSlice(n.v.Type(), n.v.Len(), n.v.Len()))
+		reflect.Copy(n.repl, n.v)
+	case reflect.Map:
+		n.repl.Set(reflect.MakeMapWithSize(n.v.Type(), n.v.Len()))
+		for it := n.v.MapRange(); it.Next(); {
+			n.repl.SetMapIndex(it.Key(), it.Value())
+		}
+	}
+	return n.repl, nil
+}
+
+// child numbers the element c at i (or key) of a slice, array or map and stores it into repl.
+func (n *numbering) child(c reflect.Value, i int, key reflect.Value) error {
+	c, b, err := n.e.numberBuffers(c, n.index)
+	n.data = append(n.data, b...)
+	if err != nil || !c.IsValid() {
+		return err
+	}
+	r, err := n.own()
+	if err != nil {
+		return err
+	}
+	if n.v.Kind() == reflect.Map {
+		r.SetMapIndex(key, c)
+	} else {
+		r.Index(i).Set(c)
+	}
+	return nil
+}
+
+// fields numbers the Buffers in the fields of s, the struct v or an embedded unexported struct of
+// it at path, and stores them into repl; reflect refuses to set the embedded field itself.
+func (n *numbering) fields(s reflect.Value, path []int) error {
+	for i := 0; i < s.NumField(); i++ {
+		f := s.Field(i)
+		if f.Kind() == reflect.Struct {
+			if sf := s.Type().Field(i); sf.Anonymous && !sf.IsExported() {
+				if err := n.fields(f, append(path[:len(path):len(path)], i)); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		c, b, err := n.e.numberBuffers(f, n.index)
+		n.data = append(n.data, b...)
+		if err != nil {
+			return err
+		}
+		if c.IsValid() {
+			r, err := n.own()
+			if err != nil {
+				return err
+			}
+			r.FieldByIndex(append(path[:len(path):len(path)], i)).Set(c)
+		}
+	}
+	return nil
+}
+
 // numberBuffers returns the data of the Buffers in v and a replacement of v in which each Buffer
 // is a numbered copy. Values given to Emit or Broadcast are shared between connections: the
 // containers that hold a Buffer are copied, never changed. The Value is invalid if v has none.
 func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, [][]byte, error) {
-	var (
-		repl reflect.Value
-		data [][]byte
-	)
-	// own returns the private copy of v that numbered children are stored into (made on first use).
-	own := func() (reflect.Value, error) {
-		if repl.IsValid() {
-			return repl, nil
-		}
-		if !v.CanInterface() {
-			return reflect.Value{}, errUnsupportedBuffer
-		}
-		repl = reflect.New(v.Type()).Elem()
-		repl.Set(v)
-		switch v.Kind() {
-		case reflect.Slice:
-			repl.Set(reflect.MakeSlice(v.Type(), v.Len(), v.Len()))
-			reflect.Copy(repl, v)
-		case reflect.Map:
-			repl.Set(reflect.MakeMapWithSize(v.Type(), v.Len()))
-			for it := v.MapRange(); it.Next(); {
-				repl.SetMapIndex(it.Key(), it.Value())
-			}
-		}
-		return repl, nil
-	}
-	// child numbers the element at i (or key) of a slice, array or map and stores it into the copy.
-	child := func(c reflect.Value, i int, key reflect.Value) error {
-		c, b, err := e.numberBuffers(c, index)
-		data = append(data, b...)
-		if err != nil || !c.IsValid() {
-			return err
-		}
-		r, err := own()
-		if err != nil {
-			return err
-		}
-		if v.Kind() == reflect.Map {
-			r.SetMapIndex(key, c)
-		} else {
-			r.Index(i).Set(c)
-		}
-		return nil
-	}
-
+	n := numbering{e: e, index: index, v: v}
+	var err error
 	switch v.Kind() {
 	case reflect.Pointer, reflect.Interface:
 		if v.IsNil() {
@@ -236,67 +274,27 @@ func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, 
 			*index++
 			return reflect.ValueOf(numbered), [][]byte{src.Data}, nil
 		}
-		b, err := e.numberFields(v, own, index)
-		data = b
-		if err != nil {
-			return reflect.Value{}, nil, err
-		}
+		err = n.fields(v, nil)
 
 	case reflect.Array, reflect.Slice:
 		switch v.Type().Elem().Kind() {
 		case reflect.Struct, reflect.Pointer, reflect.Interface, reflect.Array, reflect.Slice, reflect.Map:
-			for i := 0; i < v.Len(); i++ {
-				if err := child(v.Index(i), i, reflect.Value{}); err != nil {
-					return reflect.Value{}, nil, err
-				}
+			for i := 0; i < v.Len() && err == nil; i++ {
+				err = n.child(v.Index(i), i, reflect.Value{})
 			}
 		}
 
 	case reflect.Map:
 		for _, key := range v.MapKeys() {
-			if err := child(v.MapIndex(key), 0, key); err != nil {
-				return reflect.Value{}, nil, err
+			if err = n.child(v.MapIndex(key), 0, key); err != nil {
+				break
 			}
 		}
 	}
-
-	return repl, data, nil
-}
-
-// numberFields numbers the Buffers in the fields of the struct s and stores them into dst(), the
-// copy of s. An embedded unexported struct is reached through the copy: reflect refuses to set it.
-func (e *Encoder) numberFields(s reflect.Value, dst func() (reflect.Value, error), index *uint64) ([][]byte, error) {
-	var data [][]byte
-	for i := 0; i < s.NumField(); i++ {
-		field := func() (reflect.Value, error) {
-			d, err := dst()
-			if err != nil {
-				return d, err
-			}
-			return d.Field(i), nil
-		}
-		if f := s.Type().Field(i); f.Anonymous && !f.IsExported() && f.Type.Kind() == reflect.Struct {
-			b, err := e.numberFields(s.Field(i), field, index)
-			data = append(data, b...)
-			if err != nil {
-				return nil, err
-			}
-			continue
-		}
-		c, b, err := e.numberBuffers(s.Field(i), index)
-		data = append(data, b...)
-		if err != nil {
-			return nil, err
-		}
-		if c.IsValid() {
-			d, err := field()
-			if err != nil {
-				return nil, err
-			}
-			d.Set(c)
-		}
+	if err != nil {
+		return reflect.Value{}, nil, err
 	}
-	return data, nil
+	return n.repl, n.data, nil
 }
 
 func (e *Encoder) writeBuffer(w io.WriteCloser, buffer []byte) error {

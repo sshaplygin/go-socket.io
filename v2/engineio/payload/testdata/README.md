@@ -23,7 +23,8 @@ checks each selected Go prefix's wire bytes, bound and maximality. The fixtures
 define no server-to-client response size policy; the Go client's response read limit
 is in docs/PROTOCOL.md.
 
-From the repository root:
+From `v2/`, the directory of the v2 module (at the repository root these paths name
+the v1 packages):
 
 ```sh
 go test -race -count=1 -cover ./engineio/payload
@@ -40,7 +41,7 @@ The reference dependencies are pinned to `engine.io-parser@5.2.3` (protocol 4) a
 `engine.io@6.6.4` and `engine.io-client@6.6.3`, including npm integrity hashes.
 The optional checks need Node
 18+ and loopback HTTP access. They are test tooling only: ordinary Go tests and
-the root module require neither Node nor npm. Both codec implementations independently
+the v2 module require neither Node nor npm. Both codec implementations independently
 encode packets to the expected wire body and decode that body to expected packets.
 
 The read-limit behavior was checked against the pinned

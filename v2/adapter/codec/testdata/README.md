@@ -9,7 +9,7 @@ fixtures come from and how to reproduce them.
 
 ## Reproduce
 
-Go side, from the repository root (Go 1.22+; no Node needed):
+Go side, from `v2/`, the directory of the v2 module (Go 1.22+; no Node needed):
 
 ```sh
 go test -race -count=1 ./adapter/codec

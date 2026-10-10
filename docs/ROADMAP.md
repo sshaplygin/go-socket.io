@@ -236,10 +236,25 @@ pure rename, the commit the recipe of step A rebases onto, so that the work abov
   `replace` lines of `v2/_examples/*` and `v2/_experiments/*` get the `/v2/` infix
   (`.../v2/_examples/gf`, `replace .../v2 => ../../`). `go vet ./...` in `v2/` is clean.
 - B4. CI and Dependabot: every `ci.yaml` job runs per module (`working-directory: v2` for the v2
-  jobs, a path filter per module), `benchmarks.yml` and its change detector accept `v2/` paths,
+  jobs, a path filter per module), the benchmark workflow covers both modules (below),
   Dependabot lists `/`, `/_examples/*`, `/v2`, `/v2/_examples/*`, `/v2/_experiments/*` (and
   `/v2/adapters/*`, `/v2/contrib/*` when those exist) and loses the two `target-branch: v1.x`
   entries; the branch triggers `branches: [v1.x]` exist only on the frozen branch and stay there.
+  The benchmark workflow (`benchmarks.yml`) runs `go test -run '^$' -bench . -benchmem -count=10
+  ./...` once in `.` and once in `v2` on each side (base and PR), appending to the same `base.txt`
+  and `pr.txt` (`tee -a`), with `base/go.sum`, `base/v2/go.sum`, `pr/go.sum` and `pr/v2/go.sum` in
+  `cache-dependency-path` and both module commands in the recorded `command`. Every benchmark on
+  `master` today (`engineio/idle_bench_test.go`, `engineio/packet`, `engineio/payload`,
+  `engineio/transport`) is in `v2/` afterwards, so a root-only run would silently drop the Stage 2.1
+  BEFORE/AFTER comparisons. The `v2` step on the base side runs only when `base/v2/go.mod` exists
+  (the step B PR itself has the old layout as base). The change detector (`relevant` in
+  `.github/benchmarks/main.go`) already treats `v2/**/*.go` as relevant and `v2/_examples` and
+  `v2/_experiments` as not, but it compares `go.mod`, `go.sum`, `go.work` and `go.work.sum` with the
+  whole path, so `v2/go.mod` and `v2/go.sum` (a dependency change) are not recognised: B4 compares
+  `path.Base(name)` and adds the cases `v2/engineio/x.go`, `v2/go.mod`, `v2/go.sum` (relevant) and
+  `v2/_examples/x/main.go` (not) to `.github/benchmarks/main_test.go`. The report groups by the
+  import path, and `.github/benchmarks/report/main_test.go` gets a case that
+  `github.com/sshaplygin/go-socket.io/v2/engineio` renders under the heading `v2/engineio`.
 - B5. Docs, one owner each: `Makefile` per module (`make -C v2 test-race`); `v2/CHANGELOG.md` is the
   moved file without its `## v1.5.0 (unreleased, branch v1.x)` section (those entries are in the
   restored root `CHANGELOG.md`); root `README.md` takes the `@master` link form and one link to
@@ -264,6 +279,7 @@ go build ./...
 go test -race -count=1 ./...
 (cd v2 && go build ./...)
 (cd v2 && go test -race -count=1 ./...)
+go test -count=1 ./.github/benchmarks ./.github/benchmarks/report   # the detector treats v2/ Go changes as relevant, the report groups v2/<pkg>
 test -z "$(go list ./... | grep '/v2')"   # the root module sees v1 only
 test -z "$(git ls-files 'v2/*.go' | xargs grep -HnE '"github\.com/sshaplygin/go-socket\.io(/[^"]*)?"' | grep -vE '"github\.com/sshaplygin/go-socket\.io/v2(/[^"]*)?"')"   # v2 imports no root-module package
 test -z "$(git ls-files 'v2/*go.mod' | xargs grep -HnE 'github\.com/sshaplygin/go-socket\.io +v')"   # no v2 go.mod requires the root module
@@ -275,7 +291,9 @@ DB=$(grep -oE '"/[^"]*"' .github/dependabot.yml | tr -d '"')
 test -z "$(for d in $(git ls-files 'go.mod' '*/go.mod' | xargs -n1 dirname | sed 's#^\.$##; s#^#/#'); do ok=; for g in $DB; do [[ $d == $g ]] && ok=1; done; test -n "$ok" || echo "no Dependabot entry: $d"; done)"   # every module has an entry
 ```
 
-The CI run of the head is green in every job (`gh pr checks`), and `make lint` passes in both
+The CI run of the head is green in every job (`gh pr checks`), the benchmark report of the PR
+lists `v2/` packages (`gh pr view <n> --json comments --jq '.comments[].body' | grep -q 'v2/engineio'`;
+the base side has only root packages, so they show as added, not comparable), and `make lint` passes in both
 modules. After the merge, on the merged `master`, `consumer master` builds a consumer of the v1
 module and the `@master` query of the v2 module resolves, both with `GOPROXY=direct` so that no
 proxy cache answers; `$T` is set first because `consumer` creates its directory under it:

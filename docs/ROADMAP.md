@@ -62,7 +62,7 @@ workers submit changes to these files through that integrator.
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
 | 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets`); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
-| 2CM | 2D | 2.3M opt-in MessagePack parser (new `parser/` msgpack files, the `Parser` option field through the integrator, server and client wiring); serial after 2D because 2D rewrites the logger call sites of `parser/`, the server and `client/` that 2.3M edits; its log sites use the 2D instance-logger contract | 2.3M DoD fence and the five-test Acceptance command (the oracle fixtures run in the DoD fence); the hook tests and the full Node run are M3 tag-time checks |
+| 2CM | 2D | 2.3M opt-in MessagePack parser (new `parser/` msgpack files, the `Parser` option field through the integrator, server and client wiring); serial after 2D because 2D rewrites the logger call sites of `parser/`, the server and `client/` that 2.3M edits; its log sites use the 2D instance-logger contract | 2.3M DoD fence and the five-test Acceptance command (the oracle fixtures run in the DoD fence); the hook tests are M3 tag-time checks; the Node interop tests run by hand at 2CM and again at tag time |
 | 2E | 2CM | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass, including the two MessagePack hook tests (2.3M *Hooks and preview*) |
 | 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 pre-release gate, which includes the 2.3M tag-time Acceptance (2.3M *Acceptance*), then publication verification |
 | 3A | M3 | freeze chat event schema; then server, browser/CLI and load client in separate directories | M4 single-server acceptance |
@@ -1607,14 +1607,15 @@ git diff --exit-code origin/master -- go.mod go.sum
 make g2
 ```
 
-Acceptance, Node installed. The first command of the fence is the 2CM gate part, run on the 2CM
-head; the M3 tag-time check (2E, 2F) repeats it on the tag commit and adds the hook-test command,
-whose tests 2.4E and 2.4S write. `TestMessagePackNodeClient` (`socket.io-client` 4.8.4 against the
-Go server) and `TestMessagePackNodeServer` (the Go client against a Node `socket.io` server) run
-the subtests `websocket` and `polling`: connect with auth, an event without and one with binary,
-and an ack, each direction. `TestMessagePackWireFrames` asserts every Socket.IO message is binary
-and ping, pong and upgrade stay text. `TestMessagePackLimitIsolation`: an oversize message closes
-only its own session.
+Acceptance, Node installed. The 2CM gate part is the `export` and the first test command with its
+count check (`N` equals 5), run on the 2CM head; the M3 tag-time check (2E, 2F) repeats it on the
+tag commit and adds the second test command (the hook tests, which 2.4E and 2.4S write).
+`TestMessagePackNodeClient` (`socket.io-client` 4.8.4 against the Go server) and
+`TestMessagePackNodeServer` (the Go client against a Node `socket.io` server) run the subtests
+`websocket` and `polling`: connect with auth, an event without and one with binary, and an ack,
+each direction. `TestMessagePackWireFrames` runs on both transports and asserts every Socket.IO
+message is binary (`b` on polling) and ping, pong and upgrade stay text.
+`TestMessagePackLimitIsolation`: an oversize message closes only its own session.
 
 ```sh
 export SOCKETIO_NODE_INTEROP=1

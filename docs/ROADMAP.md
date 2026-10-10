@@ -2124,10 +2124,10 @@ transport and codec errors, without calling `slog.SetDefault`.
 `docs/MIGRATION.md` (including how v1 `Conn.Close` draining maps to v2 socket and
 session close, and the breaking changes recorded in Stage 1b), `docs/PROTOCOL.md` update, `docs/OBSERVABILITY.md`,
 `contrib/otel/README.md`, tags `v2.0.0` and `v2/contrib/otel/v2.0.0` from the same commit, only
-after the owner's declaration and after `v1.5.0` (*Repository layout*). The module path `.../v2` is
-set by step B of the restructure, not here. After it: `v2/README.md` GoDoc badge and API reference link, `go.mod` and imports of
-every `_examples/*`, links in `engineio/README.md`, and the import paths of
-`contrib/otel` and `adapters/*`. Task 2.5D migrates all non-Redis examples to
+after the owner's declaration and after `v1.5.0` (*Repository layout*). The module path `.../v2`, the
+`go.mod` and imports of every `v2/_examples/*` (B3) and the `v2/README.md` badge and links (B5) are
+set by the restructure and only verified here (the grep below and the Acceptance), not redone. 2.5
+writes the links in `engineio/README.md` and the import paths of `contrib/otel` and `adapters/*`. Task 2.5D migrates all non-Redis examples to
 `socket.io-client@4` and the generic API, pinning maintained framework versions
 compatible with Go 1.22; Redis examples remain deferred to 4b.
 

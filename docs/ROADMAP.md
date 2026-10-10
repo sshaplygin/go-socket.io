@@ -138,8 +138,8 @@ workers submit changes to these files through that integrator.
 | 1B | 1I | 1.L Go files (logging, session close reasons, `logger` godoc; no Markdown except `CHANGELOG.md`); 1.D `README.md`, `engineio/README.md`, `logger/README.md`, `CLAUDE.md`, `CONTRIBUTING.md`; each writes its own `CHANGELOG.md` entries | M1 checks and v1 compatibility |
 | 1C | 1B | 1.K known-limitation notes: the godoc of `Server.Adapter`, `RoomLen` and `Rooms` in `server.go` and the `### Known limitations` subsection of `CHANGELOG.md`; contract in the 1.K item | 1.K check, then M1 checks |
 | 1b | stage 1 and the 1.D link-form commit merged, `master` green (the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner, who is also the integrator for the CI, Dependabot and `CHANGELOG.md` files of steps 0b to 0d; moves/merges applied sequentially | M1b: the Stage 1b DoD, `v1.x` gates and Acceptance blocks |
-| R | 2.0 on `master`; the owner's order | one integrator: steps A to C of *Repository restructure*; the 2.1, 2.2 and test-stress work stopped by the freeze resumes after C | step C commands pass on the merged `master` |
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures; evidence: `make g2` (2.0 *G2 record*) |
+| R | 2.0 on `master`; the owner's order | one integrator: steps A to C of *Repository restructure*; the 2.1, 2.2 and test-stress work stopped by the freeze resumes after C | step C commands pass on the merged `master` |
 | 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
 | 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets`); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
@@ -165,6 +165,99 @@ consumers continue. Every join builds/tests the whole root module and affected c
 modules; re-run affected gates after merges. Each work unit supplies its gate evidence.
 Apply the three-agent validation workflow in CLAUDE.md after plan edits; do not
 replace unresolved findings with optimistic estimates.
+
+## Repository restructure
+
+Moves `master` from "root = v2 skeleton, v1 on `v1.x`" to *Repository layout*, in the steps
+below, in this order. The PR that records this section moves no code, creates no tag and
+deletes no branch. Gate blocks run with `bash` and `set -e`, rules as in the Stage 1b DoD.
+
+**A. Freeze.** Starts on the owner's order, after the PR that records this section has merged.
+Until step B merges, no PR merges into `master` except step B. Open or stopped work is not
+merged into the old layout; it is merged forward after step C, by its author, on the new `master`:
+
+| Work | State | After step C |
+| --- | --- | --- |
+| #60 `docs: add 2.3M, the opt-in MessagePack parser` | open, edits `docs/ROADMAP.md` only | rebased on `master`; the path convention applies to its text |
+| #62 `feat(2.1): Engine.IO v4 handshake gate` | open | rebased: Go paths become `v2/<old path>`, imports `.../v2/...` (the rewrite command is in the step B body) |
+| 2.1 D1, the 2.2 memory adapter | stopped before a PR | restarted on `v2/` |
+| forward-port of the `test-stress` target and of PR #52 (`parser` Buffer placeholder numbers) | stopped; `v1.x` already has both | v1 side: restored by B2; v2 side: a new PR on `v2/` |
+
+```sh
+test "$(gh pr list --base master --state open --json number,author --jq '[.[]|select(.author.is_bot|not)|.number]|sort|join(",")')" = 60,62   # before the step B PR is opened
+V1TIP=$(git rev-parse origin/v1.x); echo $V1TIP   # the v1 tree B2 restores; the step B body records it
+```
+
+**B. One PR, merged with its commits kept** (`CONTRIBUTING.md` rule 5: B1 must stay a
+pure rename for `git rebase` of the work above to follow the files). Subjects
+`refactor(R.<n>): ...`; intermediate commits may not build, the head does.
+
+- B1. Pure `git mv`, no content edit; the root `README.md` and `CHANGELOG.md` move too:
+
+  ```sh
+  mkdir v2
+  for p in $(ls -A | grep -vxE '\.git|\.github|\.gitignore|docs|CLAUDE\.md|CONTRIBUTING\.md|LICENSE|v2'); do git mv $p v2/; done
+  ```
+
+- B2. The v1 tree at the root, from the recorded tip, as new files on top of the history:
+
+  ```sh
+  git restore --source=$V1TIP --staged --worktree -- . ':!:v2' ':!:.github' ':!:docs' ':!:CLAUDE.md' ':!:CONTRIBUTING.md' ':!:LICENSE' ':!:.gitignore'
+  ```
+
+- B3. The v2 module: `cd v2 && go mod edit -module github.com/sshaplygin/go-socket.io/v2` (this is
+  where `v2/go.mod` gets its `/v2` path; 2.5 does not change it), every import of the module in
+  `v2/` rewritten with `perl -pi` to `.../v2/...`, the three reads of `docs/API.md` in
+  `v2/inventory_test.go` and `v2/frozen_test.go` become `../docs/API.md`, the module paths and
+  `replace` lines of `v2/_examples/*` and `v2/_experiments/*` get the `/v2/` infix
+  (`.../v2/_examples/gf`, `replace .../v2 => ../../`). `go vet ./...` in `v2/` is clean.
+- B4. CI and Dependabot: every `ci.yaml` job runs per module (`working-directory: v2` for the v2
+  jobs, a path filter per module), `benchmarks.yml` and its change detector accept `v2/` paths,
+  Dependabot lists `/`, `/_examples/*`, `/v2`, `/v2/_examples/*`, `/v2/_experiments/*` (and
+  `/v2/adapters/*`, `/v2/contrib/*` when those exist) and loses the two `target-branch: v1.x`
+  entries; the branch triggers `branches: [v1.x]` exist only on the frozen branch and stay there.
+- B5. Docs, one owner each: `Makefile` per module (`make -C v2 test-race`); `v2/CHANGELOG.md` is the
+  moved file without its `## v1.5.0 (unreleased, branch v1.x)` section (those entries are in the
+  restored root `CHANGELOG.md`); root `README.md` takes the `@master` link form and one link to
+  `v2/README.md`, whose install line is `.../v2@master`; `CLAUDE.md` (intro, layout table with a
+  `v2/` row per directory, commands per module, CI jobs, documentation map with `README.md` and
+  `CHANGELOG.md` per module); `CONTRIBUTING.md` (rule 2 without the `v1.x` branch, the Releases
+  section: tag forms of *Repository layout*, the owner's declaration, `v1.x` frozen, no
+  forward-ports, `CHANGELOG.md` per module, `v1.5.0` release commit on `master`);
+  `docs/PROTOCOL.md` headings that say "on master" for v2 say `v2/`.
+
+**C. Verification**, on the head of the step B PR (`$V1TIP` from its body). The
+`api` function is the one of the Stage 1b Acceptance block, applied to the root module:
+
+```sh
+V1TIP=${V1TIP:?the v1.x tip recorded in the step B PR}; MOD=$(go list -m); T=$(mktemp -d); BASE=$T/base
+git worktree add -q --detach $BASE $V1TIP; trap 'git worktree remove --force $BASE; rm -rf $T' EXIT
+test "$MOD" = github.com/sshaplygin/go-socket.io
+test "$(cd v2 && go list -m)" = github.com/sshaplygin/go-socket.io/v2
+go build ./...
+go test -race -count=1 ./...
+(cd v2 && go build ./...)
+(cd v2 && go test -race -count=1 ./...)
+test -z "$(go list ./... | grep '/v2')"   # the root module sees v1 only
+test -z "$(git diff --name-only $V1TIP HEAD -- . ':!:v2' ':!:.github' ':!:docs' ':!:CLAUDE.md' ':!:CONTRIBUTING.md' ':!:README.md' ':!:LICENSE' ':!:.gitignore')"   # the v1 tree is the v1.x tip
+eval "$(grep '^api() ' docs/ROADMAP.md)"   # an empty match makes the next line fail
+test -n "$(api . | head -1)"
+test -z "$(diff <(api $BASE) <(api .))"   # the v1 exported API is unchanged
+DB=$(grep -oE '"/[^"]*"' .github/dependabot.yml | tr -d '"')
+test -z "$(for d in $(git ls-files 'go.mod' '*/go.mod' | xargs -n1 dirname | sed 's#^\.$##; s#^#/#'); do ok=; for g in $DB; do [[ $d == $g ]] && ok=1; done; test -n "$ok" || echo "no Dependabot entry: $d"; done)"   # every module has an entry
+```
+
+The CI run of the head is green in every job (`gh pr checks`), and `make lint` passes in both
+modules. After the merge: `eval "$(grep '^consumer() ' docs/ROADMAP.md)"; consumer master`
+builds a consumer of the v1 module, and `go list -m github.com/sshaplygin/go-socket.io/v2@master`
+resolves. Then the work of step A resumes.
+
+**Superseded by the restructure** (history is not rewritten; these checks no longer run): the
+Stage 1b step 0 (branch cut, `branches: [v1.x]`, Dependabot `target-branch`, the `## v1.5.0
+(unreleased, branch v1.x)` heading), its `v1.x` gates block and `consumer v1.x`; in the Stage 1
+DoD, the fifth `git grep` (`@master` is again the `go get` form of `README.md`, and the
+`go get` sentence containing `until a release` names `master`); in the Stage 1 tag-time
+gates, the two ancestry lines of `origin/v1.x`.
 
 ## Stage 0. Documentation baseline
 

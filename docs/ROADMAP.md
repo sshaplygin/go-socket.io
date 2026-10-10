@@ -1560,13 +1560,16 @@ root `go.mod` carries `vmihailenco/msgpack/v5` for `adapter/codec` (with that ch
 - **Node oracle.** `parser/testdata/msgpack/reference/` pins `socket.io-msgpack-parser` 3.0.2
   (resolving `notepack.io` 2.2.0), `socket.io` and `socket.io-client` 4.8.4 and `socket.io-parser`
   4.2.7, installed by `npm ci --ignore-scripts` from the committed lockfile on Node 22 or newer.
-  As for `sio5-codec`, capture and verify scripts sit beside it: Node encodes the corpus to hex
-  fixtures Go must decode to the expected `Packet`, and Go-encoded packets must decode in Node to
-  an equal object. The corpus covers every packet type, ID `0` and `2^53-1`, nested and unicode
+  As for the 2.3P oracle in `parser/testdata/oracle`, capture and verify scripts sit beside it:
+  Node encodes the corpus to hex fixtures committed beside them, which `TestMessagePackNodeFixtures`
+  (`parser`, no Node needed, so `test` runs it) decodes to the expected `Packet`; `verify.mjs`
+  runs a Go bridge that encodes the corpus itself, so no Go output is committed, and `npm test`
+  fails when the bridge fails or returns no packet or a packet Node decodes to a different
+  object. The corpus covers every packet type, ID `0` and `2^53-1`, nested and unicode
   data, `bin` placements, each extension case and the invalid inputs.
 - **Interop tests and CI.** `client/msgpack_interop_test.go` holds the two Node tests below; they
   run when `SOCKETIO_NODE_INTEROP=1`, and then a missing `node` fails. No `ci.yaml` job runs Node
-  and 2.3M adds none: Go decoding of the fixtures runs in `test`; the oracle and interop run by
+  and 2.3M adds none: `TestMessagePackNodeFixtures` runs in `test`; the oracle and interop run by
   hand in the 2CM gate and at M3 tag time, and the PR records their output and `node --version`.
 - **Hooks and preview (2.4).** The 2.4 text is unchanged; its DoD gains the two tests below. The
   2.4 redactor reads text envelopes, so with `Parser` MessagePack `PacketInfo.Preview` is empty
@@ -1584,15 +1587,17 @@ count makes an absent test fail: `TestParserDefaultIsJSON` (the zero `parser.For
 `TestOptionsParserNormalize` (root: zero is JSON, both constants kept, any other value fails
 `Normalize`); `TestServerClientParserWiring` (`client`: the format reaches the session and the
 dialed client; zero `Options` writes only text Socket.IO frames, `FormatMessagePack` none);
-`TestMessagePackPacketRoundTrip`, `TestMessagePackExtensions`, `TestMessagePackLimits` (one case
-per bound above), `FuzzMessagePackDecode` (seeded from the oracle corpus, clean 30 s) and
+`TestMessagePackNodeFixtures` (every committed Node fixture decodes to its expected `Packet`, and
+a corpus case without a fixture fails it), `TestMessagePackPacketRoundTrip`,
+`TestMessagePackExtensions`, `TestMessagePackLimits` (one case per bound above),
+`FuzzMessagePackDecode` (seeded from the oracle corpus, clean 30 s) and
 `TestMessagePackEncodeConcurrent` (32 goroutines, one shared `Packet` with three attachments,
 `-race`: the `Packet` equals its snapshot, every output equals the fixture).
 
 ```sh
 go test -race -count=1 ./parser/... . ./client
-N=$(go test -count=1 -json -run '^(TestParserDefaultIsJSON|TestOptionsParserNormalize|TestServerClientParserWiring|TestMessagePackPacketRoundTrip|TestMessagePackExtensions|TestMessagePackLimits|TestMessagePackEncodeConcurrent)$' ./parser . ./client | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
-[ "$N" -eq 7 ]
+N=$(go test -count=1 -json -run '^(TestParserDefaultIsJSON|TestOptionsParserNormalize|TestServerClientParserWiring|TestMessagePackNodeFixtures|TestMessagePackPacketRoundTrip|TestMessagePackExtensions|TestMessagePackLimits|TestMessagePackEncodeConcurrent)$' ./parser . ./client | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
+[ "$N" -eq 8 ]
 go test -run '^$' -fuzz '^FuzzMessagePackDecode$' -fuzztime 30s ./parser
 R=parser/testdata/msgpack/reference
 npm ci --ignore-scripts --no-audit --no-fund --prefix "$R"

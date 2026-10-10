@@ -40,7 +40,7 @@ Package `engineio`.
   message is limited to the transport's `MaxPayload` (default 1 MiB,
   `websocket.Transport.MaxPayload`), the fragments of one message together, checked before
   they are buffered. The peer is told why it is cut off with a close frame, then the TCP
-  connection closes: status 1009 for an oversized message, 1007 for invalid UTF-8 and
+  connection is half-closed, drained for at most one second and closed: status 1009 for an oversized message, 1007 for invalid UTF-8 and
   1002 for a framing violation (unmasked client frame, reserved bits or opcode, a stray
   continuation) or an invalid Engine.IO packet (empty text, unknown type byte, malformed
   base64). A received close frame is answered with its status and closes the connection. Ping

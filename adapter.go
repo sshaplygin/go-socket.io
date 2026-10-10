@@ -8,8 +8,8 @@ import (
 )
 
 // Adapter keeps room membership of one namespace and delivers broadcasts. The
-// in-memory implementation lands in 2.2 in this package; external adapters import
-// this package and the root never imports them.
+// in-memory implementation is NewMemoryAdapter in this package; external adapters
+// import this package and the root never imports them.
 //
 // Room mutations and SocketRooms are local; Sockets may query the cluster. An empty
 // room filter selects all. Broadcast unions rooms, deduplicates recipients, applies
@@ -41,7 +41,8 @@ type AdapterFactory func(ctx context.Context, nsp *Namespace) (Adapter, error)
 // server. A namespace hands it out through Namespace.LocalSockets; an adapter that
 // receives a broadcast from a peer selects local recipients from its own room
 // membership and calls Deliver for each. The memory adapter takes it as a constructor
-// argument, so its conformance tests run against a test double before the runtime exists.
+// argument (NewMemoryAdapter), so its conformance tests run against a test double
+// before the runtime exists.
 type LocalSockets interface {
 	// Deliver queues pkt on the local socket sid and returns nil only when it was
 	// enqueued; BroadcastResult.LocalRecipients counts those successes. A socket that
@@ -88,11 +89,12 @@ type RemoteSocket struct {
 
 // RedactHandshake returns a copy of the Handshake object h without the auth key and
 // without the authorization, cookie and proxy-authorization entries of headers (names
-// compared without case); every other key and header is kept byte for byte. It is the
-// one implementation of the RemoteSocket guarantee: the server uses it for local
-// snapshots and an adapter calls it on a Handshake decoded from a peer, because a Node
-// peer sends the omitted values. nil yields nil; h that is not a JSON object yields an
-// error. It lives in the root package, which adapters already import and which the
-// graph allows to call it without an import of adapter/...; the skeleton returns
-// ErrNotImplemented and stage 2.2 writes the body.
-func RedactHandshake(h json.RawMessage) (json.RawMessage, error) { return nil, ErrNotImplemented }
+// compared without case, ASCII only); every other key and header is kept with its
+// original key and value bytes, in source order, written without whitespace between
+// members. It is the one implementation of the RemoteSocket guarantee: the server uses
+// it for local snapshots and an adapter calls it on a Handshake decoded from a peer,
+// because a Node peer sends the omitted values. nil yields nil; h that is not exactly
+// one JSON object yields an error. A headers value that is not an object is kept as it
+// is. It lives in the root package, which adapters already import and which the graph
+// allows to call it without an import of adapter/....
+func RedactHandshake(h json.RawMessage) (json.RawMessage, error) { return redactHandshake(h) }

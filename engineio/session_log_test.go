@@ -57,7 +57,7 @@ func readAll(conn engineio.Conn) error {
 
 // upgrade moves the session of conn to websocket with a probe and an UPGRADE packet.
 func (f *logFixture) upgrade(t *testing.T, conn engineio.Conn) {
-	u, err := url.Parse(f.url + "/?EIO=3&sid=" + conn.ID())
+	u, err := url.Parse(f.url + "/?EIO=4&sid=" + conn.ID())
 	require.NoError(t, err)
 	f.cl, err = websocket.Default.Dial(u, nil)
 	require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestSessionCloseRecord(t *testing.T) {
 				t.Cleanup(func() { _ = f.srv.Close() })
 				f.url = ts.URL
 
-				u, err := url.Parse(ts.URL + "/?EIO=3")
+				u, err := url.Parse(ts.URL + "/?EIO=4")
 				require.NoError(t, err)
 				if tr == "polling" {
 					f.cl, err = polling.Default.Dial(u, nil)

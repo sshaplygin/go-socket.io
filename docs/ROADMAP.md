@@ -1462,7 +1462,8 @@ disconnect seen as `io server disconnect` (K20); the upgrade; a reconnect. A sec
 Go `client` against a Node `socket.io@2.5.0` server (from V1-10 on). Rows marked `TEST` in PARITY.md
 are closed by a named test: P9 (OPTIONS answer), P15 (websocket framing), P17 (graceful close)
 and P18 (two overlapping polls, which a stock client never sends) by Go tests in the same
-package that start the server and use raw HTTP and websocket clients, N7 by a Go test in V1-6. Scenario code and `package.json` live in a directory whose name starts
+package that start the server and use raw HTTP and websocket clients, N7 by a Go test in V1-6.
+Scenario code and `package.json` live in a directory whose name starts
 with `_` so the Go build skips it; V1-8 names it.
 
 Waves V1A to V1F are in *Execution and parallel work*.
@@ -1496,11 +1497,16 @@ make lint test-race
 covers() { all=$(go test ./... -list . 2>/dev/null); for id in $(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("(BUG|ADD|CHG|TEST|DONE|DROP) " pr "( |;|$)") {print $2}'); do t=$(git grep -h -A4 -E "^// Covers $id( |$)" -- '*_test.go' | awk '/^func Test/{sub(/[(].*/,"",$2); print $2; exit}'); test -n "$t" && printf '%s\n' "$all" | grep -qx "$t" || echo $id; done; }
 test -z "$(covers $N)"   # every row the PR names has a `// Covers <ID>` above a test function that `go test -list` finds
 test -z "$(rows | awk -F' *[|] *' -v pr="$N" '$3 ~ ("(^|; )(BUG|ADD|CHG|TEST) " pr "( |;|$)")')"   # the PR rewrote its rows to DONE, in any entry of the plan
+b=$(git show origin/master:docs/PARITY.md | awk -F' *[|] *' -v pr="$N" '$3 ~ ("(^|; )BUG " pr "( |;|$)")' | wc -l)
+test "$(gh pr view --json body -q .body | grep -c '^fails without the fix: Test')" -eq "$b"   # one line per BUG row of the base
 ```
 
-Checks specific to a PR, in addition: V1-1, V1-2 and V1-3 name the failing-before test of each
-`BUG` row in their body (a PR body line `fails without the fix: <test>` per row); V1-8 and later
-run `gh pr checks <n>` with `conformance` green; V1-10 and V1-11 run the Go client against the
+Checks specific to a PR, in addition: every PR that owns a `BUG` row (V1-1 to V1-5 as planned,
+and any later one) puts one body line `fails without the fix: <TestName>` per `BUG` row, the
+test being the one under that row's `// Covers`, and has run it red on the base with only the
+PR's test files applied. The DoD block counts the lines against the `BUG` rows of the base. `Server.Close` has two layers and two tests: V1-2 (E22)
+owns the `engineio` one (open sessions are closed), V1-5 (S17) the root one (`Close` returns after
+the sessions are gone). V1-8 and later run `gh pr checks <n>` with `conformance` green; V1-10 and V1-11 run the Go client against the
 Node 2.5.0 server of the conformance job. V1-12 and V1-13 run `make examples examples-node`
 on their head (V1-12 with `ack` and `binary` present; V1-13 and MV1 with all four new
 directories). The `cmp` step of `examples` covers every `CHAT_COPIES` file, so a copy that

@@ -1432,7 +1432,7 @@ first). Rows for a PR are the `Plan` entries naming it (`covers V1-<n>` below li
 | V1-5 | Namespace API: `Of`, `Use` and event middleware, connect-rejection reason, per-namespace disconnect, `connected`/`sockets`, `send`, `Server.Close` waiting for sessions |
 | V1-6 | Memory broadcast: `Except` and broadcast except the sender, room union with dedupe, id lists, `Join` of several rooms, `volatile` and `local` flags, callback-on-broadcast rule |
 | V1-7 | Dynamic namespaces, handshake data (query, headers, request, time), late ack and several listeners per event, adapter injection |
-| V1-8 | The `conformance` CI job (D7): Node `socket.io-client` 1.7.4 and 2.5.0 against the Go server, plus the Go client against a Node `socket.io` 2.5.0 server; required check |
+| V1-8 | The `conformance` CI job (D7): Node `socket.io-client` 1.7.4 and 2.5.0 against the Go server, plus the Go client against a Node `socket.io` 2.5.0 server; required check; also the `conformance` Makefile target and the CLAUDE.md lines (Commands, "tests need no external service") for the tag |
 | V1-9 | Stage 7 as written below: the `client` package, behaviour-preserving, its own DoD; its commits are titled `<type>(7.<n>)` as Stage 7 requires |
 | V1-10 | `client` I: websocket and upgrade, several namespaces per `Client`, DISCONNECT on close, connect timeout and `connect_error`, `path`/`query`/headers, emit buffering |
 | V1-11 | `client` II: reconnection with options and `reconnect*` events (O5), `once`/`off`/`id`/`connected`, flags |
@@ -1453,7 +1453,20 @@ V1R removes the entry.
 **Conformance contract (V1-8).** CI job `conformance` in `.github/workflows/ci.yaml`, a required
 check, on ubuntu with the Node LTS release from `actions/setup-node`. The clients are installed
 from npm under exact versions, `socket.io-client@1.7.4` and `socket.io-client@2.5.0`, one matrix
-entry each (D7), the version written literally in the workflow so that `grep 'socket.io-client@<version>'` finds it; the Go server under test is started by a Go test with a random port. Scenarios,
+entry each (D7), the version written literally in the workflow so that `grep 'socket.io-client@<version>'` finds it. The Go server under test is started by a Go test on a random port;
+that test needs Node and `npm`, so it sits behind the build tag `conformance` and is not part of
+`make test`, `make test-race` or `go test ./...` (CLAUDE.md: tests need no external service; V1-8
+adds the exception for the tag to that sentence). Layout, fixed here: the Go tests are
+`internal/conformance/*_test.go`, each file starting with `//go:build conformance`; the scenarios
+and `package.json` (`"private": true`, no dependencies: the job installs the client) are
+`internal/conformance/testdata/node/`, which the Go build skips. The job installs with
+`npm install --no-save --prefix internal/conformance/testdata/node <module>@<version>` and runs
+the new `make conformance` target, `go vet -tags conformance ./internal/conformance/... && go test
+-race -count=1 -tags conformance ./internal/conformance/...`; under the tag a missing `node` or
+`CONFORMANCE_NODE_MODULES` fails the test (a skip would make the job green without running a
+scenario), and no `TestMain` checks them, because `-list` runs `TestMain`. `covers` and the
+`Covers` markers find tagged tests with `go test -tags conformance ./... -list .` (the helper
+below uses it; the default list is a subset). Scenarios,
 each run by both clients over polling and over websocket: connect and disconnect on `/`; a
 namespace connect, an unknown namespace answered by ERROR with the root socket kept (S10); ack
 in both directions; binary event and binary ack in both directions; non-ASCII text (P16);
@@ -1463,8 +1476,7 @@ Go `client` against a Node `socket.io@2.5.0` server (from V1-10 on). Rows marked
 are closed by a named test: P9 (OPTIONS answer), P15 (websocket framing), P17 (graceful close)
 and P18 (two overlapping polls, which a stock client never sends) by Go tests in the same
 package that start the server and use raw HTTP and websocket clients, N7 by a Go test in V1-6.
-Scenario code and `package.json` live in a directory whose name starts
-with `_` so the Go build skips it; V1-8 names it.
+The Go `client` step uses `socket.io@2.5.0` installed the same way, from tagged tests of the same package.
 
 Waves V1A to V1F are in *Execution and parallel work*.
 
@@ -1494,8 +1506,8 @@ test "$(rows | wc -l)" -eq 137   # 133 audit rows and B1 to B4: none lost, none 
 test -z "$(rows | awk -F' *[|] *' '{n=split($3,e,/; */); for(i=1;i<=n;i++) if (e[i] !~ /^(-|DEV|REDIS|PEND O[1-6]|(DONE|DROP|BUG|ADD|CHG|TEST) V1-[0-9]+( [(]O2[)])?)$/) print $2}')"   # every entry of every plan is well formed
 N=${N:?the PR, e.g. V1-4}
 make lint test-race
-covers() { all=$(go test ./... -list . 2>/dev/null); for id in $(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("(BUG|ADD|CHG|TEST|DONE|DROP) " pr "( |;|$)") {print $2}'); do t=$(git grep -h -A4 -E "^// Covers $id( |$)" -- '*_test.go' | awk '/^func Test/{sub(/[(].*/,"",$2); print $2; exit}'); test -n "$t" && printf '%s\n' "$all" | grep -qx "$t" || echo $id; done; }
-test -z "$(covers $N)"   # every row the PR names has a `// Covers <ID>` above a test function that `go test -list` finds
+covers() { all=$(go test -tags conformance ./... -list . 2>/dev/null); for id in $(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("(BUG|ADD|CHG|TEST|DONE|DROP) " pr "( |;|$)") {print $2}'); do t=$(git grep -h -A4 -E "^// Covers $id( |$)" -- '*_test.go' | awk '/^func Test/{sub(/[(].*/,"",$2); print $2; exit}'); test -n "$t" && printf '%s\n' "$all" | grep -qx "$t" || echo $id; done; }
+test -z "$(covers $N)"   # every row the PR names has a `// Covers <ID>` above a test function that `go test -tags conformance -list` finds
 test -z "$(rows | awk -F' *[|] *' -v pr="$N" '$3 ~ ("(^|; )(BUG|ADD|CHG|TEST) " pr "( |;|$)")')"   # the PR rewrote its rows to DONE, in any entry of the plan
 b=$(git show origin/master:docs/PARITY.md | awk -F' *[|] *' -v pr="$N" '$3 ~ ("(^|; )BUG " pr "( |;|$)")' | wc -l)
 test "$(gh pr view --json body -q .body | grep -c '^fails without the fix: Test')" -eq "$b"   # one line per BUG row of the base

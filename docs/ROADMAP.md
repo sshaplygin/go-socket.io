@@ -33,10 +33,10 @@ The other prepared experiments are listed in Stage 2 *Prepared components*.
 | Transport | `gobwas/ws` + `wsutil` on server and client; standard `http.Handler` integration | 2.1 |
 | Brokers | Redis `go-redis/v9`, Node non-sharded adapter wire compatibility; NATS core pub/sub, no JetStream | 4b |
 | Logging | Application `slog.Handler` through an injected logger; instance routing, process-wide level override | 1.L (v1 records), 2.4 |
-| Observability | Nil-able hooks and logging in root; OTel bridge in `contrib/otel`; no OTel dependency in root | 2.4 |
-| Admin UI | Required final product stage, separate `contrib/admin`, unchanged official UI; commands disabled by default | 5 |
+| Observability | Nil-able hooks and logging in the root package of the v2 module; OTel bridge in `v2/contrib/otel`; no OTel dependency in the v2 module | 2.4 |
+| Admin UI | Required final product stage, separate `v2/contrib/admin`, unchanged official UI; commands disabled by default | 5 |
 | Benchmarks | Final comparative campaign after all product features: our v2, existing Go and official JS/TS implementations | 6 |
-| Client packages | Go client as its own package on both lines, scheduled last: v1 gets an additive `client` package in the root module (the root `Client` stays as a deprecated wrapper); v2 keeps `client/` in the v2 module, no separate `go.mod` | 2.3C (v2), 7 (v1) |
+| Client packages | Go client as its own package on both lines, scheduled last: v1 gets an additive `client` package in the repository-root module (its root `Client` stays as a deprecated wrapper); v2 keeps `client/` in the v2 module, no separate `go.mod` | 2.3C (v2), 7 (v1) |
 | Documentation | English; each contract has one owner; other sections refer to it | CLAUDE.md |
 | Layout | Owner decision of 2026-10-10: the repository root is the v1 module (the v1 runtime restored at the root); v2 lives in `v2/` as its own module. Replaces "master root = v2 skeleton, v1 on branch `v1.x`" | Repository layout, Repository restructure |
 | Branch `v1.x` | Kept for now; receives no new work after the restructure. Its fate is the owner's later decision: deleting it is outward-facing and is neither done nor scheduled here | Repository layout |
@@ -77,7 +77,10 @@ A module path written `.../<dir>` is `github.com/sshaplygin/go-socket.io/v2/<dir
 `v2/<dir>/vX.Y.Z`, and the v2 module itself is tagged `vX.Y.Z`. The Tag column of *Milestones* is
 the exception: it gives the full git tag names, one notation, and is not shifted. Stage 1, Stage 7
 and Execution row 7A paths (`client/`, `_examples/client/`, `client.go`, `connection.go`) are
-relative to the repository root (the v1 module), Stage 1 in its pre-1b names.
+relative to the repository root (the v1 module), Stage 1 in its pre-1b names. In those
+places, in the Decisions table, in *Milestones* and in *Out of scope*, "root" and "the root
+module" mean the repository-root module `github.com/sshaplygin/go-socket.io` (v1) unless the text
+names `v2/` or the v2 module; a row there that means the v2 root says so in words.
 
 **Tag forms.** Verified on a scratch repository with `go.mod` at the root, in `v2/` and in
 `v2/contrib/otel`, resolved through `file://` rewriting of the module's GitHub URL with
@@ -171,7 +174,7 @@ restructure: the `v2/` tree). Rows 2A to 6C follow the path convention of *Repos
 
 Mocks permit development against frozen contracts; they do not satisfy integration
 or release gates. A contract change updates its owning section and fixtures before
-consumers continue. Every join builds/tests the whole root module and affected child
+consumers continue. Every join builds/tests the whole v2 module and affected child
 modules; re-run affected gates after merges. Each work unit supplies its gate evidence.
 Apply the three-agent validation workflow in CLAUDE.md after plan edits; do not
 replace unresolved findings with optimistic estimates.
@@ -2536,7 +2539,7 @@ proceed independently in 6B. Reserved measurement hosts run one candidate at a t
 **Candidates and compatibility.** Compare our final v2, `zishang520/socket.io` and
 the official `socket.io` JS/TS server running on Node.js. Pin exact commits/tags,
 Go/Node versions, dependency lockfiles and build flags. Also record this fork's
-v1 line (the root module at a commit pinned in 6A; `v1.5.0` once tagged) as a legacy baseline for shared scenarios, with a compatible EIO3 client;
+v1 line (the repository-root module `github.com/sshaplygin/go-socket.io` at a commit pinned in 6A; `v1.5.0` once tagged) as a legacy baseline for shared scenarios, with a compatible EIO3 client;
 report it separately from EIO4 comparisons. A feature support matrix must mark
 unsupported cases, never score them as zero throughput. Benchmark wrappers implement
 the same application logic and wire payload/ACK contract; TS source is built before
@@ -2739,7 +2742,7 @@ change to the v1 server.
 | M5 | Stage 4b: adapters and cluster chat acceptance | `v2.2.0` first, then `v2/adapters/redis/v2.0.0`, `v2/adapters/nats/v2.0.0` |
 | M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `v2/contrib/admin/v2.0.0`; adapter minor releases |
 | M7 | Stage 6: final comparative benchmark report and reproducible artifacts | report/artifact revision; no runtime release required |
-| M8 | Stage 7: `client` package in the v1 root module on `master`, root `Client` deprecated; closes the roadmap | next v1 minor after the latest v1 tag (`v1.6.0` when that is `v1.5.0`), number named in the owner's order, on that order only |
+| M8 | Stage 7: `client` package in the repository-root (v1) module on `master`, its root `Client` deprecated; closes the roadmap | next v1 minor after the latest v1 tag (`v1.6.0` when that is `v1.5.0`), number named in the owner's order, on that order only |
 
 Every tag in the Tag column is created only on the owner's explicit order, after the
 declaration of *Repository layout* and after `v1.5.0`; the column gives full git tag names
@@ -2768,6 +2771,6 @@ snapshot/Node interoperability prototype before treating it as a delivery commit
 
 EIO=3 in v2; connection state recovery; WebTransport; permessage-deflate; sharded Redis
 adapter (Redis 7 sharded pub/sub); Redis Cluster, Ring and replica-routed clients for
-`adapters/redis` (see 4b `adapters/redis`); cluster broadcast-with-ack; NATS JetStream persistence;
+`v2/adapters/redis` (see 4b `adapters/redis`); cluster broadcast-with-ack; NATS JetStream persistence;
 framework-specific integration packages (gin, echo, iris, gf use `http.Handler`); trace
 context propagation through the Redis adapter.

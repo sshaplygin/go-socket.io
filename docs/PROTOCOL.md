@@ -4,17 +4,22 @@ This file owns the protocol facts: what the current code implements, known devia
 and the deltas planned for v2. Client version compatibility is summarised in
 [README.md](../README.md#compatibility).
 
-## Implemented: Engine.IO protocol v3
+## Implemented: Engine.IO protocol v4
 
-Package `engineio`.
+Package `engineio`. The handshake gate, the error bodies, the polling payload and the
+WebSocket framing are v4. The heartbeat and the `maxPayload` of the open packet are still
+the v3 behaviour listed below until PR D1 (server ping ticker) lands; that PR flips them.
 
-- Query parameter `EIO` is not checked; the server behaves as protocol v3 regardless.
+- Query parameter `EIO` must be `4` on every request, checked before the transport: a
+  missing or any other value is HTTP 400 with the error body below, code 5, and a
+  `engineio: request rejected` record with `reason="bad eio"`. The Go client
+  (`engineio/client`) sends `EIO=4`, replacing any `EIO` in the URL it is given.
 - Transports: `polling` (XHR only; the `j` JSONP parameter and the `b64` parameter are
   ignored, as in Engine.IO v4) and `websocket` (`gobwas/ws`). Order and upgrade path come from `engineio.Options.Transports`,
   default `[polling, websocket]`.
 - Handshake (`OPEN` packet) carries `sid`, `upgrades`, `pingInterval` (default 20 s),
   `pingTimeout` (default 60 s). There is no `maxPayload`.
-- Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`) and extends
+- Heartbeat (pending PR D1, still the v3 exchange): the client sends `PING` (`2`), the server answers `PONG` (`3`) and extends
   the read/write deadline by `pingTimeout`.
 - Polling payload (Engine.IO v4 framing, ahead of the rest of this section): packets are
   separated by the record separator `0x1e`; binary packets are base64 behind a `b`
@@ -28,8 +33,6 @@ Package `engineio`.
   `payload.ErrTooLarge`, which readers see. The client batches its POSTs up to the
   `maxPayload` of the open packet, and up to its `MaxPayload` (default 1 MiB) while the
   open packet carries none, as this server's does today. Sessions are looked up by `sid`; an unknown `sid` is HTTP 400.
-  The handshake, heartbeat and `EIO` check of this section are still v3 until the
-  rest of 2.1 lands; the heading of this section flips with that change.
 - WebSocket framing (Engine.IO v4, ahead of the rest of this section): one packet per data
   message. A text message is the type byte and the data; a binary message is the raw data of
   a MESSAGE packet with no type byte, and the text form `b` + base64 is read as a binary
@@ -66,8 +69,26 @@ server->>server: close old conn
 
   Implemented in `session.Session.upgrading`. If the client never sends `UPGRADE`, the
   paused polling connection is resumed.
-- Error responses are plain text with HTTP 400 (bad transport, bad sid) or 502
-  (request checker or transport accept failure).
+- Error responses of the handshake gate and of session lookup are JSON,
+  `{"code":N,"message":"..."}` with `Content-Type: application/json`, as in the Engine.IO
+  v4 specification:
+
+  | Code | Message | Status | Answered for |
+  | --- | --- | --- | --- |
+  | 0 | `Transport unknown` | 400 | `transport` is not a configured transport |
+  | 1 | `Session ID unknown` | 400 | `sid` names no session |
+  | 2 | `Bad handshake method` | 400 | a request without `sid` that is not GET (OPTIONS still reaches the polling transport, which answers the CORS preflight) |
+  | 3 | `Bad request` | 400 | an upgrade the transport order does not allow, a failed session initialisation, an HTTP method polling does not serve |
+  | 4 | `Forbidden` | 403 | `RequestChecker` returned an error |
+  | 5 | `Unsupported protocol version` | 400 | `EIO` missing or not `4` |
+
+  Still plain text: HTTP 502 for a transport accept failure, HTTP 501 for a websocket
+  upgrade on a response writer that cannot be hijacked, the polling body errors (HTTP 400
+  content type, HTTP 413, malformed payload) and the polling GET HTTP 500 whose body is
+  the error text. The polling GET 500 and the polling invalid-method 400 are logged as
+  `engineio: request rejected` with `reason` `flush` and `bad method`; `flush` is DEBUG when
+  the connection was closed or the payload had already failed with the same error, WARN
+  otherwise. The full `reason` list is owned by `docs/OBSERVABILITY.md` (stage 2.4).
 
 ## Implemented: Socket.IO protocol v4
 
@@ -143,14 +164,14 @@ Target of [ROADMAP.md](ROADMAP.md#stage-2-socketio-protocol-v5-over-engineio-pro
 
 Engine.IO v3 → v4:
 
-| Area | v3 (current) | v4 (target) |
+| Area | v3 | v4 (state) |
 | --- | --- | --- |
-| Query | `EIO` ignored | `EIO=4` required, otherwise HTTP 400 with JSON error code 5 |
-| Handshake | `sid`, `upgrades`, `pingInterval`, `pingTimeout` | plus `maxPayload` |
-| Heartbeat | client sends `2`, server answers `3` | server sends `2` every `pingInterval`, client answers `3` within `pingTimeout` |
+| Query | `EIO` ignored | `EIO=4` required, otherwise HTTP 400 with JSON error code 5 (done, see above) |
+| Handshake | `sid`, `upgrades`, `pingInterval`, `pingTimeout` | plus `maxPayload` (pending PR D1) |
+| Heartbeat | client sends `2`, server answers `3` | server sends `2` every `pingInterval`, client answers `3` within `pingTimeout` (pending PR D1; the code is still v3) |
 | WebSocket | one packet per frame, binary frames start with a type byte | unchanged; binary frames carry raw bytes (done, see above) |
 | Upgrade | `2probe` / `3probe` / `5` | unchanged, plus server sends `6` (NOOP) into the pending poll |
-| Errors | plain text | JSON `{"code": N, "message": "..."}`, codes 0..5 |
+| Errors | plain text | JSON `{"code": N, "message": "..."}`, codes 0..5 (done for the handshake gate and session lookup, see above) |
 
 Socket.IO v4 → v5:
 

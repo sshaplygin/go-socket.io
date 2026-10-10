@@ -31,7 +31,7 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (engineio.Conn, 
 	}
 
 	query := u.Query()
-	query.Set("EIO", "3")
+	query.Set("EIO", "4")
 	u.RawQuery = query.Encode()
 
 	var conn transport.Conn

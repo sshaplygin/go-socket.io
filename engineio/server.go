@@ -19,6 +19,9 @@ import (
 
 var _ http.Handler = (*Server)(nil)
 
+// protocolVersion is the only value of the EIO query parameter the server serves.
+const protocolVersion = "4"
+
 // Server is instance of server
 type Server struct {
 	pingInterval time.Duration
@@ -107,16 +110,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
 	reqTransport := query.Get("transport")
+	if eio := query.Get("EIO"); eio != protocolVersion {
+		internal.WriteError(w, http.StatusBadRequest, internal.CodeUnsupportedProto)
+		s.reject(reqTransport, r.RemoteAddr, "bad eio", nil)
+		return
+	}
+
 	srvTransport, ok := s.transports.Get(reqTransport)
 	if !ok {
-		http.Error(w, fmt.Sprintf("invalid transport: %s", reqTransport), http.StatusBadRequest)
+		internal.WriteError(w, http.StatusBadRequest, internal.CodeUnknownTransport)
 		s.reject(reqTransport, r.RemoteAddr, "bad transport", nil)
 		return
 	}
 
 	header, err := s.requestChecker(r)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("request checker err: %s", err.Error()), http.StatusBadGateway)
+		internal.WriteError(w, http.StatusForbidden, internal.CodeForbidden)
 		s.reject(reqTransport, r.RemoteAddr, "checker", err)
 		return
 	}
@@ -130,8 +139,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// if we can't find session in current session pool, let's create this. behaviour for new connections
 	if !ok {
 		if sid != "" {
-			http.Error(w, fmt.Sprintf("invalid sid value: %s", sid), http.StatusBadRequest)
+			internal.WriteError(w, http.StatusBadRequest, internal.CodeUnknownSID)
 			s.reject(reqTransport, r.RemoteAddr, "unknown sid", nil)
+			return
+		}
+
+		// A handshake is a GET. An OPTIONS preflight keeps reaching the transport,
+		// which answers it with the CORS headers.
+		if r.Method != http.MethodGet && r.Method != http.MethodOptions {
+			internal.WriteError(w, http.StatusBadRequest, internal.CodeBadHandshake)
+			s.reject(reqTransport, r.RemoteAddr, "bad handshake method", nil)
 			return
 		}
 
@@ -143,7 +160,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		reqSession, err = s.newSession(r.Context(), transportConn, reqTransport)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("create new session err: %s", err.Error()), http.StatusBadRequest)
+			internal.WriteError(w, http.StatusBadRequest, internal.CodeBadRequest)
 			s.reject(reqTransport, r.RemoteAddr, "init", err)
 			return
 		}
@@ -154,7 +171,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// try upgrade current connection
 	if current := reqSession.Transport(); current != reqTransport {
 		if !s.canUpgrade(current, reqTransport) {
-			http.Error(w, fmt.Sprintf("invalid transport upgrade: %s to %s", current, reqTransport), http.StatusBadRequest)
+			internal.WriteError(w, http.StatusBadRequest, internal.CodeBadRequest)
 			s.reject(reqTransport, r.RemoteAddr, "bad upgrade", nil)
 			return
 		}

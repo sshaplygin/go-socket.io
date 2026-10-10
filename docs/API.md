@@ -10,7 +10,8 @@ declaration. This file lists signatures and does not restate behaviour. A signat
 change updates this file, the fixtures and the owning roadmap section in one PR.
 
 Every path in this file is relative to `v2/`, the v2 module
-`github.com/sshaplygin/go-socket.io/v2`; "the root" and "the root package" are the root of
+`github.com/sshaplygin/go-socket.io/v2`, except the shared files `docs/` and `.github/`,
+which stay at the repository root (`docs/OBSERVABILITY.md` is a root `docs/` file); "the root" and "the root package" are the root of
 that module (`v2/`, package `socketio`), not the v1 module at the repository root, and a
 `make` target runs there (`make -C v2 graph`).
 

@@ -1517,9 +1517,11 @@ root `go.mod` carries `vmihailenco/msgpack/v5` for `adapter/codec` (with that ch
 `parser` does not import it.
 
 - **Selection (additive to G2).** `parser.Format` (`uint8`): `FormatJSON`, the zero value, and
-  `FormatMessagePack`. The root `Options` and `client.Options` (2.3C) gain `Parser parser.Format`;
+  `FormatMessagePack`. The root `Options` gains `Parser parser.Format`;
   zero and every existing literal keep JSON, any other value fails `Options.Normalize`.
-  `NewServer` stores it once for every session and namespace; the client takes it at dial.
+  `NewServer` stores it once for every session and namespace. `client.Options` does not exist
+  on `master`: the 2.3C implementation declares the options of the client, and 2.3M adds the
+  same field there, taken at dial, where an unknown value fails with the same error.
   `Endpoint`, `Adapter` and `Packet` are format-agnostic, so no frozen declaration changes:
   [API.md](API.md) lists the field under *Not frozen* and the 2.3M PR moves it into the inventory
   with a positive fixture and a negative one (untyped string). No negotiation: Node has none

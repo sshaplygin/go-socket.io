@@ -1575,13 +1575,16 @@ root `go.mod` carries `vmihailenco/msgpack/v5` for `adapter/codec` (with that ch
   run when `SOCKETIO_NODE_INTEROP=1`, and then a missing `node` fails. No `ci.yaml` job runs Node
   and 2.3M adds none: `TestMessagePackNodeFixtures` runs in `test`; the oracle and interop run by
   hand in the 2CM gate and at M3 tag time, and the PR records their output and `node --version`.
-- **Hooks and preview (2.4).** The 2.4 text is unchanged; its DoD gains the two tests below. The
-  2.4 redactor reads text envelopes, so with `Parser` MessagePack `PacketInfo.Preview` is empty
-  even if `PayloadPreviewBytes` > 0 (fail closed), the classifier reads the packet type from the
-  first `type` key without decoding `data`, and `PacketRead`/`PacketWrite` report the binary frame
-  type and size. `TestMessagePackHookPreview`: a CONNECT with auth `{"token":"secret"}` over both
-  transports with `PayloadPreviewBytes` 256 reaches no hook. `TestMessagePackHookLabels`: the 2.3P
-  corpus in both formats gives equal `PacketInfo` types.
+- **Hooks and preview (2.4).** The 2.4 behaviour text is unchanged; its DoD gains the two tests
+  below. The 2.4 redactor reads text envelopes, so with `Parser` MessagePack `PacketInfo.Preview`
+  is empty even if `PayloadPreviewBytes` > 0 (fail closed). The Socket.IO classifier (row *Payload
+  preview redaction*, 2.4E and 2.4S) reads the packet type by scanning the top-level keys for
+  `type`, never assuming it comes first, and skips the other values with the decoder's bounds
+  without decoding `data`. `PacketRead` and `PacketWrite` report `Type` (the Engine.IO type,
+  message), the binary `Frame` and the size. `TestMessagePackHookPreview`: a CONNECT with auth
+  `{"token":"secret"}` over both transports with `PayloadPreviewBytes` 256 reaches no hook.
+  `TestMessagePackHookLabels`: the 2.3P corpus in both formats gives equal classifier labels
+  (Socket.IO packet type, namespace, event name); `Frame` and `Bytes` may differ.
 - Out of scope: autodetection, custom parsers, the v1 line, a speed claim over JSON
   (`BenchmarkMessagePack{Encode,Decode}` are advisory).
 

@@ -80,7 +80,11 @@ func testDialOpen(t *testing.T, delayedPOST bool) {
 		if r.Method == http.MethodPost {
 			b, err := io.ReadAll(r.Body)
 			posted <- postResult{sid: sid, body: b, err: err}
+			return
 		}
+		// A poll with nothing to deliver stays open, as on a real server; an empty
+		// answer is an invalid payload that fails the connection under the writer.
+		<-r.Context().Done()
 	}
 
 	httpSvr := httptest.NewServer(http.HandlerFunc(handler))

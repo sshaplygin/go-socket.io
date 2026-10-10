@@ -1,10 +1,13 @@
-// Package eio4 encodes Engine.IO v4 packets carried by WebSocket data messages.
-// It is staged for the v2 transport rewrite; the v1 transport does not use it.
+// Package websocket is the Engine.IO WebSocket transport, built on gobwas/ws.
 //
-// This package handles message contents only. The WebSocket transport must handle
-// RFC 6455 headers, masking, fragmentation, control frames and bounded reads.
-// Engine.IO PING/PONG packets are distinct from WebSocket ping/pong control frames.
-package eio4
+// The codec (Encode, Decode) handles the contents of one WebSocket data message
+// as an Engine.IO v4 packet; message.go handles RFC 6455 headers, masking,
+// fragmentation, control frames and bounded reads. Engine.IO PING/PONG packets
+// are distinct from WebSocket ping/pong control frames.
+//
+// permessage-deflate is not negotiated: the handshake never offers or accepts
+// an extension.
+package websocket
 
 import (
 	"bytes"
@@ -18,11 +21,11 @@ import (
 
 var (
 	// ErrInvalidPacket indicates malformed data or an unrepresentable packet.
-	ErrInvalidPacket = errors.New("eio4: invalid websocket packet")
+	ErrInvalidPacket = errors.New("websocket: invalid packet")
 	// ErrTooLarge indicates message contents exceed the caller's byte limit.
-	ErrTooLarge = errors.New("eio4: websocket packet too large")
+	ErrTooLarge = errors.New("websocket: packet too large")
 	// ErrInvalidLimit indicates a nonpositive message size limit.
-	ErrInvalidLimit = errors.New("eio4: message size limit must be positive")
+	ErrInvalidLimit = errors.New("websocket: message size limit must be positive")
 )
 
 // Packet contains data without an Engine.IO type prefix. Binary packets must

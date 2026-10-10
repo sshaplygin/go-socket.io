@@ -2,8 +2,8 @@ package negative
 
 import (
 	"context"
-	sio "github.com/sshaplygin/go-socket.io"
-	"github.com/sshaplygin/go-socket.io/parser"
+	sio "github.com/sshaplygin/go-socket.io/v2"
+	"github.com/sshaplygin/go-socket.io/v2/parser"
 )
 
 type Invalid struct{}

@@ -1,12 +1,12 @@
-module github.com/sshaplygin/go-socket.io/_examples/redis-adapter
+module github.com/sshaplygin/go-socket.io/v2/_examples/redis-adapter
 
 go 1.22
 
-replace github.com/sshaplygin/go-socket.io => ../../
+replace github.com/sshaplygin/go-socket.io/v2 => ../../
 
 require (
 	github.com/gin-gonic/gin v1.7.7
-	github.com/sshaplygin/go-socket.io v0.0.0-00010101000000-000000000000
+	github.com/sshaplygin/go-socket.io/v2 v0.0.0-00010101000000-000000000000
 )
 
 require (

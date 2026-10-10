@@ -11,11 +11,11 @@ import (
 	"net/url"
 	"sync/atomic"
 
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/engineio/payload"
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
-	"github.com/sshaplygin/go-socket.io/engineio/transport/utils"
-	"github.com/sshaplygin/go-socket.io/logger"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/payload"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/transport/utils"
+	"github.com/sshaplygin/go-socket.io/v2/logger"
 )
 
 type clientConn struct {

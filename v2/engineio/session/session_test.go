@@ -14,9 +14,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
 )
 
 // recordingHandler is a slog.Handler that keeps every record it receives.

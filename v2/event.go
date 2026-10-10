@@ -3,7 +3,7 @@ package socketio
 import (
 	"context"
 
-	"github.com/sshaplygin/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/v2/parser"
 )
 
 // Args2 is an event payload that expands to exactly two positional arguments. An

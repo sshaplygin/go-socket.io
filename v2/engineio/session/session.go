@@ -11,12 +11,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/internal"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/engineio/payload"
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
-	"github.com/sshaplygin/go-socket.io/logger"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/internal"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/payload"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/v2/logger"
 )
 
 // Pauser is connection which can be paused and resumes.

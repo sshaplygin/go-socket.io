@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/payload"
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/payload"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
 )
 
 // Transport is the transport of polling.

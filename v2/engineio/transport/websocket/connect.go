@@ -11,9 +11,9 @@ import (
 
 	"github.com/gobwas/ws"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
 )
 
 // conn implements transport.Conn on a messageConn: every Engine.IO packet is one

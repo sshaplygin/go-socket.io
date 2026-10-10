@@ -15,9 +15,9 @@ import (
 
 	"github.com/gobwas/ws"
 
-	"github.com/sshaplygin/go-socket.io/engineio/payload"
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
-	"github.com/sshaplygin/go-socket.io/engineio/transport/utils"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/payload"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/transport/utils"
 )
 
 // ErrNotHijacker is returned by Accept when the response writer does not

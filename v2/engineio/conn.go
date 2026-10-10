@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
 )
 
 // Conn is connection by client session

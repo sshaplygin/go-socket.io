@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/internal"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
-	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/internal"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/session"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/transport/websocket"
 )
 
 var _ http.Handler = (*Server)(nil)

@@ -10,10 +10,10 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
-	"github.com/sshaplygin/go-socket.io/logger"
+	"github.com/sshaplygin/go-socket.io/v2/engineio"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/v2/logger"
 )
 
 // Dialer is dialer configure.

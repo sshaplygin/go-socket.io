@@ -3,7 +3,7 @@ package socketio
 import (
 	"context"
 
-	"github.com/sshaplygin/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/v2/parser"
 )
 
 // Room names a set of sockets of one namespace.

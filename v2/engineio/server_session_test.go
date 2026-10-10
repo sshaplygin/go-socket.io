@@ -12,8 +12,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
 )
 
 // blockingConn is a transport.Conn whose NextReader and NextWriter block

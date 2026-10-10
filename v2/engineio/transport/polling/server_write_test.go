@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
 )
 
 // gatedResponse is a ResponseWriter whose first Write blocks until release is closed;

@@ -7,8 +7,8 @@ package clientstub
 import (
 	"context"
 
-	socketio "github.com/sshaplygin/go-socket.io"
-	"github.com/sshaplygin/go-socket.io/parser"
+	socketio "github.com/sshaplygin/go-socket.io/v2"
+	"github.com/sshaplygin/go-socket.io/v2/parser"
 )
 
 // Client implements socketio.ClientRegistration.

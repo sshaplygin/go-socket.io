@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
 )
 
 // SessionInfo identifies an Engine.IO session in hook calls.

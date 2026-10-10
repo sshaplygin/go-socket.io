@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/sshaplygin/go-socket.io/v2/engineio"
 )
 
 // Options configures a Server. The field names are the contract; the defaults and

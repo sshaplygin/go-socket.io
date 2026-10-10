@@ -249,9 +249,18 @@ test -z "$(for d in $(git ls-files 'go.mod' '*/go.mod' | xargs -n1 dirname | sed
 ```
 
 The CI run of the head is green in every job (`gh pr checks`), and `make lint` passes in both
-modules. After the merge: `eval "$(grep '^consumer() ' docs/ROADMAP.md)"; consumer master`
-builds a consumer of the v1 module, and `go list -m github.com/sshaplygin/go-socket.io/v2@master`
-resolves. Then the work of step A resumes.
+modules. After the merge, on the merged `master`, `consumer master` builds a consumer of the v1
+module and the `@master` query of the v2 module resolves, both with `GOPROXY=direct` so that no
+proxy cache answers; `$T` is set first because `consumer` creates its directory under it:
+
+```sh
+T=$(mktemp -d); trap 'rm -rf $T' EXIT
+eval "$(grep '^consumer() ' docs/ROADMAP.md)"   # an empty match makes the next line fail
+consumer master
+cd $T && GOPROXY=direct go list -m github.com/sshaplygin/go-socket.io/v2@master
+```
+
+Then the work of step A resumes.
 
 **Superseded by the restructure** (history is not rewritten; these checks no longer run as
 written): Stage 1b step 0 (branch cut, `branches: [v1.x]`, Dependabot `target-branch`, the

@@ -6,7 +6,8 @@ and the deltas planned for v2. Client version compatibility is summarised in
 
 ## Implemented: Engine.IO protocol v3
 
-Package `engineio`.
+Package `v2/engineio`, the v2 module. The root `engineio` package of the v1 module is
+described in [its own section](#implemented-engineio-protocol-v3-in-the-v1-module).
 
 - Query parameter `EIO` is not checked; the server behaves as protocol v3 regardless.
 - Transports: `polling` (XHR only; the `j` JSONP parameter and the `b64` parameter are
@@ -69,12 +70,32 @@ server->>server: close old conn
 - Error responses are plain text with HTTP 400 (bad transport, bad sid) or 502
   (request checker or transport accept failure).
 
+## Implemented: Engine.IO protocol v3 in the v1 module
+
+Package `engineio` of the v1 module at the repository root.
+
+- Query parameter `EIO` is not checked; the server behaves as protocol v3 regardless.
+- Transports: `polling` (XHR and JSONP via the `j` query parameter) and `websocket`
+  (`gorilla/websocket`). Order and upgrade path come from `engineio.Options.Transports`,
+  default `[polling, websocket]`.
+- Handshake (`OPEN` packet) carries `sid`, `upgrades`, `pingInterval` (default 20 s),
+  `pingTimeout` (default 60 s). There is no `maxPayload`.
+- Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`) and extends
+  the read/write deadline by `pingTimeout`.
+- Polling payload: packets are length-prefixed (`<length>:<packet>`), lengths count
+  UTF-16 code units; binary packets are base64 with a `b` prefix. Sessions are looked up
+  by `sid`; an unknown `sid` is HTTP 400.
+- WebSocket: one packet per frame; a binary frame starts with the packet type byte.
+- Upgrade polling → websocket: the sequence of the previous section, implemented in the
+  same `session.Session.upgrading`.
+- Error responses are plain text with HTTP 400 (bad transport, bad sid) or 502
+  (request checker or transport accept failure).
+
 ## Implemented: Socket.IO protocol v4
 
 The v1 module at the repository root: the `socketio` package and `parser` (`parser.Buffer`,
-`Header.Query`). It runs over the root `engineio` package, the Engine.IO v3 implementation
-of the v1 module (XHR and JSONP polling with length-prefixed payloads, `gorilla/websocket`);
-the Engine.IO section above describes `v2/engineio`. The v2 module in `v2/` has no
+`Header.Query`). It runs over the root `engineio` package of the previous section. The
+v2 module in `v2/` has no
 Socket.IO v4 code: its `v2/parser` holds the v5 codec of the next section.
 
 - Packet format `<type>[<attachments>-][<namespace>,][<ack id>][JSON]`. Types
@@ -91,9 +112,15 @@ Socket.IO v4 code: its `v2/parser` holds the v5 codec of the next section.
 
 ## Known deviations from the v3/v4 specs
 
+Engine.IO, `v2/engineio`:
+
 - No `maxPayload` handshake field is sent yet (the client reads it when present), and
   the websocket message limit is the transport's default 1 MiB, not the advertised value. The
   polling POST limit and the websocket limit are above.
+
+Engine.IO v3 runtime (v1, repository root `engineio`):
+
+- No `maxPayload` handshake field and no payload size limit.
 
 Socket.IO v4 runtime (v1, repository root):
 

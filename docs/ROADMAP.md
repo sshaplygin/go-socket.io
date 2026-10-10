@@ -1444,15 +1444,18 @@ with `_` so the Go build skips it; V1-8 names it.
 Waves V1A to V1F are in *Execution and parallel work*.
 
 Entry of a wave, `bash` and `set -e`, after the DoD helpers `rows` and `covers` below are defined
-(wave V1A needs one `### V1-<n> contract` heading per `ADD` PR, written by V1-0):
+(wave V1A needs one `### V1-<n> contract` heading per `ADD` PR, written by V1-0). Each gate is a
+separate command, and `wave` exits on the first open PR: in a `&&` list a failing non-final
+command does not trigger `set -e`, so predecessors are never chained with `&&`.
 
 ```sh
-done_pr() { test -z "$(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("^(BUG|ADD|CHG|TEST) " pr "( |;|$)")')" && test -z "$(covers $1)"; }
-for n in 2 5 6 7 10 11; do grep -q "^### V1-$n contract" docs/ROADMAP.md || echo "V1A: no contract V1-$n"; done   # prints nothing
-done_pr V1-1 && done_pr V1-2                                     # entry of V1B
-for n in 3 4 5 6 7; do done_pr V1-$n; done                       # entry of V1C
-done_pr V1-8; grep -q '^  conformance:' .github/workflows/ci.yaml   # entry of V1D
-done_pr V1-10 && done_pr V1-11; test -f client/client.go         # entry of V1E (V1-12 needs only V1-8)
+done_pr() { test -z "$(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("^(BUG|ADD|CHG|TEST) " pr "( |;|$)")')" || return 1; test -z "$(covers $1)"; }
+wave() { for n in "$@"; do done_pr V1-$n || { echo "open: V1-$n" >&2; exit 1; }; done; }
+for n in 2 5 6 7 10 11; do grep -q "^### V1-$n contract" docs/ROADMAP.md || { echo "V1A: no contract V1-$n" >&2; exit 1; }; done
+wave 1 2                                                       # entry of V1B
+wave 3 4 5 6 7                                                 # entry of V1C
+wave 8; grep -q '^  conformance:' .github/workflows/ci.yaml    # entry of V1D
+wave 10 11; test -f client/client.go                           # entry of V1E (V1-12 needs only V1-8)
 test -f _examples/ack/go.mod -a -f _examples/binary/go.mod -a -f _examples/namespaces/go.mod -a -f _examples/middleware/go.mod   # entry of V1F
 ```
 

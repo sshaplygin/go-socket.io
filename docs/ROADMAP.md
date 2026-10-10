@@ -1544,18 +1544,22 @@ root `go.mod` carries `vmihailenco/msgpack/v5` for `adapter/codec` (with that ch
   and non-string map keys are wire errors. One `Packet` is encoded for many connections: the
   encoder only reads `Data` and `Attachments` and returns a fresh buffer.
 - **Mismatch.** A text message where msgpack is configured, or a binary message with no attachment
-  pending where JSON is, is a malformed envelope: the session closes with `parse error`
-  (`engineio.CloseParseError`) within 100 ms of the first CONNECT, with no CONNECT_ERROR and no
-  handler run. `TestMessagePackMismatch` (`client`) covers server JSON with client MessagePack and
-  the reverse, each over websocket and polling, and asserts all four effects.
+  pending where JSON is, is a malformed envelope, closed by the 2.3S malformed-envelope close
+  (`parse error`, `engineio.CloseParseError`): the transport closes within 100 ms of the first
+  CONNECT, with no CONNECT_ERROR and no handler run. `engineio.Conn.Close` takes no reason, so
+  `TestMessagePackMismatch` (`client`) asserts those three effects, not the reason: it is the one
+  of the 2.3 malformed-envelope close, and 2.4E's `SessionClose` reports it. The test
+  covers server JSON with client MessagePack and the reverse, each over websocket and polling.
 - **Untrusted input.** A message is limited by `MaxEventBytes` (1 MiB, `bin` included, also
-  counted on the JSON-equivalent form: `ErrMessageTooLarge`), `MaxAttachments`
-  (`ErrTooManyAttachments`) and depth 64 (`ErrDepth`; 2.3 defines none, the default of
-  `Limits.MaxDepth` in `sio5-codec`), counted on msgpack levels in `data` as a `parser` constant
-  by an iterative or bounded reader. A declared array, map, str, bin or ext length (a 5-byte
+  counted on the JSON-equivalent form: `parser.ErrTooLarge`, which 2.3S maps to
+  `ErrMessageTooLarge`), `MaxAttachments` (`ErrTooManyAttachments`) and depth (`ErrDepth`, `Limits.MaxDepth`, default
+  `parser.DefaultMaxDepth` = 64 from 2.3P), counted on msgpack levels in `data`, by an iterative
+  or bounded reader. A declared array, map, str, bin or ext length (a 5-byte
   message may declare 2^32-1) is checked against the bytes left before any allocation, which
   `TestMessagePackLimits` shows with `testing.AllocsPerRun`. Duplicate or non-UTF-8 keys, trailing
-  bytes, truncation, unknown extensions and an empty message are errors; nothing panics. The
+  bytes, truncation, unknown extensions and an empty message are errors, as are the envelope
+  fields the 2.3P text decoder rejects (namespace, ID range, `data` shape per type, event name);
+  nothing panics. The
   attachment timeout does not apply: a packet is one message.
 - **Node oracle.** `parser/testdata/msgpack/reference/` pins `socket.io-msgpack-parser` 3.0.2
   (resolving `notepack.io` 2.2.0), `socket.io` and `socket.io-client` 4.8.4 and `socket.io-parser`

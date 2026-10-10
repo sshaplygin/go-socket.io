@@ -1449,7 +1449,7 @@ separate command, and `wave` exits on the first open PR: in a `&&` list a failin
 command does not trigger `set -e`, so predecessors are never chained with `&&`.
 
 ```sh
-done_pr() { test -z "$(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("^(BUG|ADD|CHG|TEST) " pr "( |;|$)")')" || return 1; test -z "$(covers $1)"; }
+done_pr() { test -z "$(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("(^|; )(BUG|ADD|CHG|TEST) " pr "( |;|$)")')" || return 1; test -z "$(covers $1)"; }
 wave() { for n in "$@"; do done_pr V1-$n || { echo "open: V1-$n" >&2; exit 1; }; done; }
 for n in 2 5 6 7 10 11; do grep -q "^### V1-$n contract" docs/ROADMAP.md || { echo "V1A: no contract V1-$n" >&2; exit 1; }; done
 wave 1 2                                                       # entry of V1B
@@ -1466,12 +1466,12 @@ Stage 1b DoD; the awk reads the pipe-delimited rows of PARITY.md (`$2` is the ID
 rows() { awk -F' *[|] *' '$2 ~ /^[A-Z][0-9]+$/' docs/PARITY.md; }
 test "$(go list -m)" = github.com/sshaplygin/go-socket.io; test -f v2/go.mod   # entry: the restructure has merged
 test "$(rows | wc -l)" -eq 137   # 133 audit rows and B1 to B4: none lost, none added silently
-test -z "$(rows | awk -F' *[|] *' '$3 !~ /^(-|DONE|DROP|DEV|REDIS|PEND O[1-6]|(BUG|ADD|CHG|TEST) V1-[0-9]+)/')"   # every row has a plan
+test -z "$(rows | awk -F' *[|] *' '{n=split($3,e,/; */); for(i=1;i<=n;i++) if (e[i] !~ /^(-|DEV|REDIS|(DONE|DROP) V1-[0-9]+|PEND O[1-6]|(BUG|ADD|CHG|TEST) V1-[0-9]+( [(]O2[)])?)$/) print $2}')"   # every entry of every plan is well formed
 N=${N:?the PR, e.g. V1-4}
 make lint test-race
 covers() { for id in $(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("(BUG|ADD|CHG|TEST|DONE|DROP) " pr "( |;|$)") {print $2}'); do git grep -qE "// Covers $id( |$)" -- '*_test.go' || echo $id; done; }
 test -z "$(covers $N)"   # a test marker for every row the PR names
-test -z "$(rows | awk -F' *[|] *' -v pr="$N" '$3 ~ ("^(BUG|ADD|CHG|TEST) " pr "( |;|$)")')"   # the PR rewrote its rows to DONE
+test -z "$(rows | awk -F' *[|] *' -v pr="$N" '$3 ~ ("(^|; )(BUG|ADD|CHG|TEST) " pr "( |;|$)")')"   # the PR rewrote its rows to DONE, in any entry of the plan
 ```
 
 Checks specific to a PR, in addition: V1-1, V1-2 and V1-3 name the failing-before test of each
@@ -1484,7 +1484,7 @@ Node 2.5.0 server of the conformance job.
 ```sh
 rows() { awk -F' *[|] *' '$2 ~ /^[A-Z][0-9]+$/' docs/PARITY.md; }
 make lint test-race examples
-test -z "$(rows | awk -F' *[|] *' '$3 ~ /^(BUG|ADD|CHG|TEST|PEND)/')"   # no open row and no pending decision
+test -z "$(rows | awk -F' *[|] *' '$3 ~ /(BUG|ADD|CHG|TEST|PEND)/')"   # no open row and no pending decision, in any entry of the plan (DONE V1-11; PEND O5 is open)
 for V in 1.7.4 2.5.0; do grep -q "socket.io-client.*$V" .github/workflows/ci.yaml || echo "missing client $V"; done
 cl() { awk '/^## Unreleased/{u=1;next} /^## /{u=0} u && /^### /{s=$2} u && s=="'$1'"' CHANGELOG.md; }
 test -n "$(cl Removed | grep -i jsonp)"; test -n "$(cl Added | grep 'go-socket.io/client')"

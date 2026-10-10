@@ -412,7 +412,8 @@ consumer master
 cd $T && GOPROXY=direct go list -m github.com/sshaplygin/go-socket.io/v2@master
 ```
 
-Then the work of step A resumes.
+Then Stage V1 starts; the work stopped in step A is replayed or restarted as the table says and
+merges after MV1.
 
 **Superseded by the restructure** (history is not rewritten; these checks no longer run as
 written): Stage 1b, in *Base and branch `v1.x`*, the sentence that makes the `v1.5.0` tag on

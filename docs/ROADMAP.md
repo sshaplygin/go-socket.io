@@ -2628,9 +2628,8 @@ lines, after everything else; the v2 half is 2.3C. Entry: M7 passed; the stage d
 wait for the `v1.5.0` tag. Work happens on `master` in the root module (v1 at the repository
 root, paths relative to it). The compatibility base is the `master` commit `$TIP`; the release
 is the next v1 minor after the latest v1 tag at tag time (`$REL`; `v1.6.0` when
-`v1.5.0` is that tag), named in the owner's order; if no `v1.5.0` exists then, the order
-names the number and the first-release procedure of `CONTRIBUTING.md` applies. Nothing
-before M7 depends on it.
+`v1.5.0` is that tag), named in the owner's order and strictly after `v1.5.0`, which has no
+fallback (*Repository layout*). Nothing before M7 depends on it.
 
 **Contract (v1).** Additive: `client` behaves as today's root `socketio.Client`. The root
 `Client` and `NewClient` stay as a wrapper over it, their godoc starting a paragraph
@@ -2768,7 +2767,7 @@ change to the v1 server.
 | M5 | Stage 4b: adapters and cluster chat acceptance | `v2.2.0` first, then `v2/adapters/redis/v2.0.0`, `v2/adapters/nats/v2.0.0` |
 | M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `v2/contrib/admin/v2.0.0`; adapter minor releases |
 | M7 | Stage 6: final comparative benchmark report and reproducible artifacts | report/artifact revision; no runtime release required |
-| M8 | Stage 7: `client` package in the repository-root (v1) module on `master`, its root `Client` deprecated; closes the roadmap | next v1 minor after the latest v1 tag (`v1.6.0` when that is `v1.5.0`), number named in the owner's order, on that order only |
+| M8 | Stage 7: `client` package in the repository-root (v1) module on `master`, its root `Client` deprecated; closes the roadmap | next v1 minor after the latest v1 tag, strictly after `v1.5.0` (`v1.6.0` when that is `v1.5.0`), number named in the owner's order, on that order only |
 
 Every tag in the Tag column is created only on the owner's explicit order, after the
 declaration of *Repository layout* and after `v1.5.0`; the column gives full git tag names

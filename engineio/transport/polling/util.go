@@ -18,23 +18,21 @@ func (a Addr) String() string {
 	return a.Host
 }
 
-func mimeIsSupportBinary(m string) (bool, error) {
+// contentType is the type of every polling body of Engine.IO v4 in both directions.
+const contentType = "text/plain; charset=UTF-8"
+
+// checkContentType accepts text/plain in UTF-8, the only type v4 polling uses.
+// application/octet-stream, which v3 used for binary payloads, is invalid.
+func checkContentType(m string) error {
 	typ, params, err := mime.ParseMediaType(m)
 	if err != nil {
-		return false, err
+		return err
 	}
-
-	switch typ {
-	case "application/octet-stream":
-		return true, nil
-
-	case "text/plain":
-		charset := strings.ToLower(params["charset"])
-		if charset != "utf-8" {
-			return false, errors.New("invalid charset")
-		}
-		return false, nil
+	if typ != "text/plain" {
+		return errors.New("invalid content-type")
 	}
-
-	return false, errors.New("invalid content-type")
+	if strings.ToLower(params["charset"]) != "utf-8" {
+		return errors.New("invalid charset")
+	}
+	return nil
 }

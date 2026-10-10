@@ -126,6 +126,22 @@ Additions only; nothing existing changed.
 | `parser/value.go` | `BinaryValue` | `SocketIOBinary() []byte` |
 | `parser/value.go` | `ArgumentCodec` | `ArgumentCodec[T any]{Encode func(T) (Arguments, error); Decode func(Arguments) (T, error)}` |
 
+Stage 2.3P (`parser/`) added to this package without changing a declaration above. The
+reference is the godoc of the package; here only what binds other stages:
+
+- `Type` holds the base type only: `Connect`, `Disconnect`, `Event`, `Ack`, `ConnectError`
+  (0 to 4). A BINARY_EVENT or BINARY_ACK is an `Event` or `Ack` with `Attachments`; the
+  wire digits 5 and 6 are never a `Type`. `Error` was renamed `ConnectError`.
+- `Packet.Namespace` is `"/"` after `Decode`; `Encode` accepts `""` and `"/"` for the
+  default namespace. `Packet.Data` is the payload array as sent, including the event name.
+- `Encode`, `Decode`, `Assembler` and `Limits` (`MaxEventBytes`, `MaxAttachments`,
+  `MaxDepth`, `AttachmentTimeout`; zero selects the default, negative is `ErrLimit`);
+  `EventPacket`, `AckPacket`, `EventArguments`, `AckArguments`, `Arguments.Validate`,
+  `Concat`, `Arguments.Slice`, `Placeholder`; `JSON[T]`; the error sentinels `ErrInvalid`,
+  `ErrLimit`, `ErrTooLarge`, `ErrAttachments`, `ErrTooManyAttachments`, `ErrDepth`,
+  `ErrArity`, `ErrUnsupported`, `ErrUnexpectedFrame` and `ErrAttachmentTimeout`.
+- `parser` imports nothing of this module.
+
 Engine.IO hook fields (`engineio.Hooks`):
 
 | Field | Function signature |
@@ -140,6 +156,27 @@ Engine.IO hook fields (`engineio.Hooks`):
 | `PacketRead`, `PacketWrite` | `func(ctx, SessionInfo, PacketInfo)` |
 | `PingSent` | `func(ctx, SessionInfo)` |
 | `PongReceived` | `func(ctx, SessionInfo, time.Duration)` |
+
+### Package `adapter/codec`
+
+Added by stage 2.2, after G2; it is not part of the freeze. The package is the shared
+message format of the broker adapters, with wire types of its own because it never
+imports the root. Behaviour (limits, errors, supported request types) is in its godoc.
+
+| File | Declaration | Signature |
+| --- | --- | --- |
+| `adapter/codec/broadcast.go` | `Broadcast` | `{UID string; Packet parser.Packet; Options Options}` |
+| `adapter/codec/broadcast.go` | `EncodeBroadcast`, `DecodeBroadcast` | `EncodeBroadcast(Broadcast) ([]byte, error)`; `DecodeBroadcast([]byte, Limits) (Broadcast, error)` |
+| `adapter/codec/request.go` | `RequestType` and `RequestAllRooms`, `RequestRemoteJoin`, `RequestRemoteLeave`, `RequestRemoteDisconnect`, `RequestFetchSockets`, `RequestServerSideEmit` | `type RequestType uint8`, the values 1 to 6 of the Node enumeration |
+| `adapter/codec/request.go` | `Request` | `{UID, RequestID string; Type RequestType; Options *Options; Rooms []string; Close bool; Data json.RawMessage}` |
+| `adapter/codec/request.go` | `EncodeRequest`, `DecodeRequest` | `EncodeRequest(Request) ([]byte, error)`; `DecodeRequest([]byte, Limits) (Request, error)` |
+| `adapter/codec/response.go` | `Response` | `{RequestID string; Rooms []string; Sockets []json.RawMessage}` |
+| `adapter/codec/response.go` | `EncodeResponse`, `DecodeResponse` | `EncodeResponse(Response) ([]byte, error)`; `DecodeResponse([]byte, Limits) (Response, error)` |
+| `adapter/codec/response.go` | `Response.SocketIDs`, `Response.RemoteSockets` | `(Response) SocketIDs() ([]string, error)`; `(Response) RemoteSockets() ([]RemoteSocket, error)` |
+| `adapter/codec/response.go` | `NewRoomsResponse`, `NewSocketIDsResponse`, `NewRemoteSocketsResponse` | `NewRoomsResponse(string, []string) Response`; `NewSocketIDsResponse(string, []string) Response`; `NewRemoteSocketsResponse(string, []RemoteSocket) (Response, error)` |
+| `adapter/codec/types.go` | `Options`, `Flags`, `RemoteSocket` | `{Rooms, Except []string; Flags *Flags}`; `{Volatile, Compress *bool; Timeout *int64}`; `{ID string; Rooms []string; Handshake, Data json.RawMessage}` |
+| `adapter/codec/types.go` | `Limits` and `DefaultMaxMessageBytes`, `DefaultMaxDepth`, `DefaultMaxAttachments`, `MaxDepthCeiling` | `{MaxMessageBytes, MaxDepth, MaxAttachments int}`; zero selects the default, negative or a MaxDepth above `MaxDepthCeiling` (1000) is rejected |
+| `adapter/codec/types.go` | `ErrMalformed`, `ErrUnsupported`, `ErrLimit`, `ErrInvalid` | sentinel errors matched with `errors.Is` |
 
 ## Frozen contract
 
@@ -184,7 +221,6 @@ defined by the stage named; all are additions to the frozen declarations.
 | Item | Defined by |
 | --- | --- |
 | Payload preview redaction: the `engineio` redactor type and its `Options` field | 2.4E, with the Socket.IO supplier in 2.4S |
-| Stream encoder and decoder, placeholder validation and wire errors of `parser` | 2.3P |
 | Binding a codec to an event descriptor; constructors without handler reflection | 2.3S |
 | Lifecycle context of `Socket` and `Namespace`, socket disconnect, connection callbacks, `Socket.Data` and handshake accessors | 2.3S |
 | Delivery of a received `ServerSideEmit` to application handlers, and acknowledgements of server-side emits | 4b, additively, with 2.3S for the namespace side |
@@ -211,7 +247,8 @@ and `make freeze` in the `lint` job and the fixtures in every `go test ./...`, i
 ```text
 socketio (.)  ──> engineio ──> engineio/{frame,packet,payload,session,transport/...,internal}
      │                 └─────> logger
-     └──────────> parser ──> engineio/frame, logger
+     └──────────> parser ──> standard library only
+adapter/codec ──> parser, github.com/vmihailenco/msgpack/v5 (never socketio)
 internal/fixtures/{positive,externaladapter,clientstub} ──> socketio, parser
 internal/fixtures/positive ──> engineio, engineio/{frame,packet}
 logger ──> standard library only
@@ -229,15 +266,16 @@ packages that do not exist yet):
   the fixtures under `internal/fixtures` do today, and the future `client/` (it needs
   `RawEvent`, `Endpoint` and `ClientRawHandler`), external adapters and `contrib/...`
   will. The root never imports any of them;
-- `adapter/codec` never imports the root (it depends on `parser` and wire types), and the
+- `adapter/codec` (exists since 2.2) never imports the root (it depends on `parser`, wire types of its
+  own and `vmihailenco/msgpack/v5`, the only third-party package it imports), and the
   root never imports `adapter/...`, so the shared `RedactHandshake` lives in the root: the
   root calls it for local snapshots and each adapter package, which imports the root, for
   decoded peer snapshots (`TestForbiddenEdge` allows `adapter/<name> -> .` and forbids
   `adapter/codec -> .`; the `externaladapter` fixture calls it);
 - `engineio/...` never imports `parser`: the Socket.IO layer supplies payload
   redaction;
-- `parser` imports only `engineio/frame` and `logger`; `logger` imports nothing of this
-  module.
+- `parser` may import only `engineio/frame` and `logger` (today it imports neither);
+  `logger` imports nothing of this module.
 
 Command: `make graph` (runs `go test -count=1 -run '^(TestPackageGraph|TestForbiddenEdge)$' .`; set
 `SOCKETIO_PRINT_GRAPH=1` and `-v` to print every edge).

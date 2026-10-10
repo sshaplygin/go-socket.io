@@ -1,6 +1,7 @@
 package polling
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"time"
@@ -13,6 +14,13 @@ import (
 type Transport struct {
 	Client      *http.Client
 	CheckOrigin func(r *http.Request) bool
+
+	// MaxPayload limits, in wire bytes, one body this transport reads: a POST on
+	// the server, a GET response (the open response included) on the client; a
+	// client response over it ends the session with payload.ErrTooLarge. On the client it also
+	// bounds the bodies of its POSTs until the server advertises its own
+	// maxPayload. Zero means payload.DefaultMaxPayload.
+	MaxPayload int
 }
 
 // Default is the default transport.
@@ -45,30 +53,36 @@ func (t *Transport) Dial(u *url.URL, requestHeader http.Header) (transport.Conn,
 		client = Default.Client
 	}
 
-	return dial(client, u, requestHeader)
+	return dial(client, u, requestHeader, t.MaxPayload)
 }
 
-func dial(client *http.Client, url *url.URL, requestHeader http.Header) (*clientConn, error) {
+func dial(client *http.Client, url *url.URL, requestHeader http.Header, maxPayload int) (*clientConn, error) {
 	if client == nil {
 		client = &http.Client{}
 	}
-	req, err := http.NewRequest("", url.String(), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, "", url.String(), nil)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	for k, v := range requestHeader {
 		req.Header[k] = v
 	}
-	supportBinary := req.URL.Query().Get("b64") == ""
-	if supportBinary {
-		req.Header.Set("Content-Type", "application/octet-stream")
-	} else {
-		req.Header.Set("Content-Type", "text/plain;charset=UTF-8")
+	// Engine.IO v4 polling bodies are always text; binary packets are base64.
+	req.Header.Set("Content-Type", contentType)
+
+	// Until the server advertises its maxPayload, which this repo's server does
+	// not yet, the POSTs are bound by the transport's limit.
+	if maxPayload <= 0 {
+		maxPayload = payload.DefaultMaxPayload
 	}
 
 	return &clientConn{
-		Payload:    payload.New(supportBinary),
+		Payload:    payload.New(maxPayload, maxPayload),
 		httpClient: client,
 		request:    *req,
+		ctx:        ctx,
+		cancel:     cancel,
 	}, nil
 }

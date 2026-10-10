@@ -96,7 +96,7 @@ A future Go conformance test can replay the setup operations through its finaliz
 adapter interface, compare membership/query sets, and collect enqueue attempts
 for the expected recipients. Adapt ID-room setup at the Socket layer and compare
 semantic sets, without making Go iterate in Node's insertion order. Shared room
-selection is complementary to the sibling `adapter-wire` publication fixtures;
+selection is complementary to the publication fixtures in `adapter/codec/testdata`;
 there is no copied Redis fixture engine, cluster broadcast, broadcast ACK, or
 server-side emit scope here.
 

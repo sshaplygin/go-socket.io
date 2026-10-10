@@ -12,6 +12,9 @@ type ConnParameters struct {
 	PingTimeout  time.Duration
 	SID          string
 	Upgrades     []string
+	// MaxPayload is the largest HTTP polling request body, in bytes, that the
+	// server accepts; zero means the peer did not advertise one.
+	MaxPayload int
 }
 
 type jsonParameters struct {
@@ -19,6 +22,7 @@ type jsonParameters struct {
 	Upgrades     []string `json:"upgrades"`
 	PingInterval int      `json:"pingInterval"`
 	PingTimeout  int      `json:"pingTimeout"`
+	MaxPayload   int      `json:"maxPayload,omitempty"`
 }
 
 // ReadConnParameters reads ConnParameters from r.
@@ -33,6 +37,7 @@ func ReadConnParameters(r io.Reader) (ConnParameters, error) {
 		Upgrades:     param.Upgrades,
 		PingInterval: time.Duration(param.PingInterval) * time.Millisecond,
 		PingTimeout:  time.Duration(param.PingTimeout) * time.Millisecond,
+		MaxPayload:   param.MaxPayload,
 	}, nil
 }
 
@@ -43,6 +48,7 @@ func (p ConnParameters) WriteTo(w io.Writer) (int64, error) {
 		Upgrades:     p.Upgrades,
 		PingInterval: int(p.PingInterval / time.Millisecond),
 		PingTimeout:  int(p.PingTimeout / time.Millisecond),
+		MaxPayload:   p.MaxPayload,
 	}
 	writer := writer{
 		w: w,

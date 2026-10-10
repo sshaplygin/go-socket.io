@@ -111,9 +111,13 @@ the base has no `v2/go.mod`);
 pinned `benchstat` reports timing and allocation deltas in the job summary, a
 14-day artifact and one updated PR comment (same-repository PRs except Dependabot).
 Forks and Dependabot retain the summary and artifact. Performance deltas are
-advisory; build and benchmark failures fail the check.
+advisory; build and benchmark failures fail the check. The summary and the comment are
+rendered by the pinned `sshaplygin/benchmark-report` action with
+`.github/benchmarks/benchmark-report.json`, one table per package headed by its full import
+path (`github.com/sshaplygin/go-socket.io/v2/<pkg>` for the v2 module).
 
-The Go report formatter produces separate Markdown timing tables per package
+The in-repo Go report formatter (`.github/benchmarks/report`; the workflow runs only its
+tests) produces separate Markdown timing tables per package
 (a package of the v2 module is headed `v2/<pkg>`),
 with median values, percentage changes and advisory markers at ±20% (using the
 displayed, rounded percentage). The full

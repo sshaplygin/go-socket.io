@@ -17,10 +17,10 @@ the repository root has its own [CHANGELOG.md](../CHANGELOG.md).
   package. Decoders are bounded (message size, nesting depth, binary values) and have fuzz
   targets; the 22 publications captured from Node and the pinned Node oracle are in
   `adapter/codec/testdata`, and the supported ones re-encode to Node's exact bytes. It adds
-  `github.com/vmihailenco/msgpack/v5` to the root `go.mod`. Nothing uses the package yet
+  `github.com/vmihailenco/msgpack/v5` to `v2/go.mod`. Nothing uses the package yet
   (the memory adapter and the broker adapters come later), so the library behaviour is
   unchanged.
-- `_experiments/adapter-rooms`: standalone module (not imported by the root module) with
+- `_experiments/adapter-rooms`: standalone module (not imported by the v2 module) with
   22 fixtures captured from the Node in-memory adapter (`socket.io-adapter` 2.5.5) for
   room membership and recipient selection, a Go fixture validator and a Node script that
   reproduces the fixtures; preparation for the stage 2.2 memory adapter, no change to the
@@ -157,8 +157,8 @@ the repository root has its own [CHANGELOG.md](../CHANGELOG.md).
 - CI: `make experiments` vets, format-checks, lints and race-tests every standalone
   `_experiments/*/go.mod` module in a new `experiments` job; `make vuln` and Dependabot
   (`gomod`, weekly) cover those modules too.
-- CI: `make experiments` first checks that `_experiments` stays standalone (no root
-  import, no `go.work`, every Go file under a `go.mod` of its own).
+- CI: `make experiments` first checks that `_experiments` stays standalone (no import
+  of the v2 module, no `go.work`, every Go file under a `go.mod` of its own).
 - `engineio/payload` and the polling transport use the Engine.IO v4 polling payload
   (stage 2.1): records separated by `0x1e`, binary packets as `b` + base64, always
   `text/plain; charset=UTF-8`. The prepared codec moved from `engineio/payload/internal/eio4`

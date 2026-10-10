@@ -119,6 +119,12 @@ the repository root has its own [CHANGELOG.md](../CHANGELOG.md).
 
 ### Changed
 
+- The module path is `github.com/sshaplygin/go-socket.io/v2`, and the module lives in `v2/`
+  of the repository (repository restructure, step B). Imports of the v2 packages change from
+  `github.com/sshaplygin/go-socket.io/<pkg>` to `github.com/sshaplygin/go-socket.io/v2/<pkg>`.
+  The repository root is the v1 module again: `go get github.com/sshaplygin/go-socket.io@master`
+  now resolves to v1, and the v2 module is
+  `go get github.com/sshaplygin/go-socket.io/v2@master`.
 - The WebSocket transport is rewritten on `github.com/gobwas/ws` v1.4.0 (stage 2.1);
   `gorilla/websocket` leaves `go.mod`. The server upgrades with `ws.UpgradeHTTP` (HTTP/1.1
   hijack only); the client dials with `ws.Dialer`. Each Engine.IO packet is one WebSocket

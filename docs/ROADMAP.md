@@ -263,7 +263,18 @@ pure rename, the commit the recipe of step A rebases onto, so that the work abov
   `CHANGELOG.md` per module); `CONTRIBUTING.md` (rule 2 without the `v1.x` branch, the Releases
   section: tag forms of *Repository layout*, the owner's declaration, `v1.x` frozen, no
   forward-ports, `CHANGELOG.md` per module, `v1.5.0` release commit on `master`);
-  `docs/PROTOCOL.md` headings that say "on master" for v2 say `v2/`.
+  the passages below that say v1 lives on `v1.x` or was removed from `master`, which decision 3
+  needs true before the owner's declaration (line numbers are those of this revision; the step C
+  grep is the source of truth):
+  - `docs/PROTOCOL.md` lines 74 to 77, the opening of the Socket.IO v4 section ("Branch `v1.x`
+    only ... nothing in this section describes `master`"): the section describes the root module
+    (the `socketio` package and `parser`, with `parser.Buffer` and `Header.Query`); the v5 codec of
+    `v2/parser` is the next section. Line 97, "Socket.IO v4 runtime, branch `v1.x` only (stage 2.0
+    removed the runtime from `master`)": "Socket.IO v4 runtime (v1, repository root)". Line 103,
+    the heading "Implemented on master: Socket.IO protocol v5 wire codec": "Implemented in `v2/`:
+    ...", and its text names `v2/parser` and the `v2/` root package. Line 157, the table header
+    "v4 (branch `v1.x`) | v5 (target; the wire codec is on `master`, see above)": "v4 (v1, repository
+    root) | v5 (target; the wire codec is in `v2/parser`, see above)".
 
 **C. Verification**, on the head of the step B PR (`$V1TIP` from its body). The
 `api` function is the one of the Stage 1b Acceptance block, applied to the root module:
@@ -288,6 +299,8 @@ eval "$(grep '^api() ' docs/ROADMAP.md)"   # an empty match makes the next line 
 test -n "$(api . | head -1)"
 test -z "$(diff <(api $BASE) <(api .))"   # the v1 exported API is unchanged
 DB=$(grep -oE '"/[^"]*"' .github/dependabot.yml | tr -d '"')
+test -z "$(git grep -nE 'v1\.x|[Rr]emoved .*from [`]?master|on [`]?master[`]?' -- docs/PROTOCOL.md docs/API.md)"   # no protocol or API document says v1 lives on v1.x or was removed from master
+test -z "$(git grep -nE 'v1\.x|[Rr]emoved .*from [`]?master' -- CLAUDE.md CONTRIBUTING.md | grep -v frozen)"   # these two may name the branch only on a line that says it is frozen
 test -z "$(for d in $(git ls-files 'go.mod' '*/go.mod' | xargs -n1 dirname | sed 's#^\.$##; s#^#/#'); do ok=; for g in $DB; do [[ $d == $g ]] && ok=1; done; test -n "$ok" || echo "no Dependabot entry: $d"; done)"   # every module has an entry
 ```
 

@@ -193,11 +193,12 @@ merged into the old layout; it is merged forward after step C, by its author, on
 | Work | State | After step C |
 | --- | --- | --- |
 | #60 `docs: add 2.3M, the opt-in MessagePack parser` | open, edits `docs/ROADMAP.md` only | plain `git rebase` on `master` (no Go path involved); the path convention applies to its text |
-| #62 `feat(2.1): Engine.IO v4 handshake gate` | open | moved with the recipe below: Go paths become `v2/<old path>`, imports `.../v2/...` (the rewrite command is in the step B body) |
+| #62 `feat(2.1): Engine.IO v4 handshake gate` | open | moved with the recipe below: Go paths become `v2/<old path>`, imports `.../v2/...` (the import rewrite is the command of B3) |
 | 2.1 D1, the 2.2 memory adapter | stopped before a PR | restarted on `v2/` |
 | forward-port of the `test-stress` target and of PR #52 (`parser` Buffer placeholder numbers) | stopped; `v1.x` already has both | v1 side: restored by B2; v2 side: a new PR on `v2/` |
 
 ```sh
+git fetch -q origin   # the two SHAs below are read from remote-tracking refs: stale refs record a wrong $OLDBASE
 test "$(gh pr list --base master --state open --json number,author --jq '[.[]|select(.author.is_bot|not)|.number]|sort|join(",")')" = 60,62   # before the step B PR is opened
 test -z "$(gh pr list --base v1.x --state open --json number --jq '.[].number')"   # nothing waits to merge into v1.x (close Dependabot PRs first)
 V1TIP=$(git rev-parse origin/v1.x); echo $V1TIP   # the v1 tree B2 restores; the step B body records it
@@ -213,13 +214,19 @@ touched the root file only). The recipe rebases onto the B1 commit first, whose 
 (after the merge, the SHA B1 has on `master`):
 
 ```sh
-git rebase --onto $B1 $OLDBASE   # the branch now sits on the pure rename and its edits land in v2/
+git -c merge.directoryRenames=true rebase --onto $B1 $OLDBASE   # the branch now sits on the pure rename and its edits land in v2/
 git rebase origin/master         # then on the merged step B (B1 is in its history)
 test -z "$(git diff --name-only origin/master...HEAD | grep -vE '^(v2/|docs/|\.github/)')"   # no Go path outside v2/
 ```
 
-On the same scratch repository the recipe ended with the edit in `v2/engineio/server.go`, the root
-`engineio/server.go` unchanged, and the last command printing nothing. When a branch cannot be
+`merge.directoryRenames=true` is required for a branch that adds a file in a directory B1 moved:
+without it the first rebase stops with a "file location" conflict (`UA v2/parser/newfile_x.go`),
+because git leaves the new file's destination to the user. If it still stops that way, `git add`
+the reported path (it is already under `v2/`) and `git rebase --continue`. On a scratch repository
+with B1 and B2 applied, a branch that added `parser/newfile_x.go` and edited `engineio/server.go`
+stopped at the first rebase without the option; with it both rebases succeeded and
+`git diff --name-only master...HEAD` printed `v2/engineio/server.go` and `v2/parser/newfile_x.go`,
+the root `engineio/server.go` unchanged. When a branch cannot be
 rebased (squashed history), `git format-patch $OLDBASE..HEAD --stdout | git am --directory=v2`
 on a branch cut from `master` gives the same paths; the import rewrite of step B3 follows either way.
 
@@ -241,11 +248,23 @@ pure rename, the commit the recipe of step A rebases onto, so that the work abov
   ```
 
 - B3. The v2 module: `cd v2 && go mod edit -module github.com/sshaplygin/go-socket.io/v2` (this is
-  where `v2/go.mod` gets its `/v2` path; 2.5 does not change it), every import of the module in
-  `v2/` rewritten with `perl -pi` to `.../v2/...`, the three reads of `docs/API.md` in
-  `v2/inventory_test.go` and `v2/frozen_test.go` become `../docs/API.md`, the module paths and
-  `replace` lines of `v2/_examples/*` and `v2/_experiments/*` get the `/v2/` infix
-  (`.../v2/_examples/gf`, `replace .../v2 => ../../`). `go vet ./...` in `v2/` is clean.
+  where `v2/go.mod` gets its `/v2` path; 2.5 does not change it), then, from the repository root,
+  every use of the module path in the `v2/` files of three kinds, `*.go`, `*go.mod` and `*.toml`,
+  gets the `/v2` infix:
+
+  ```sh
+  git ls-files -z 'v2/*.go' 'v2/*go.mod' 'v2/*.toml' | xargs -0 perl -pi -e 's#github\.com/sshaplygin/go-socket\.io(?!/v2)#github.com/sshaplygin/go-socket.io/v2#g'
+  ```
+
+  The `(?!/v2)` guard keeps a path that already ends in `/v2` (the `module` line just edited) from
+  becoming `/v2/v2`. The command covers imports, the `module`, `require` and `replace` lines of
+  every `go.mod` (`v2/_examples/*` and `v2/_experiments/*` get `.../v2/_examples/gf` and
+  `replace .../v2 => ../../`) and `v2/.deepsource.toml`. It leaves the Markdown files, which carry
+  badge, pkg.go.dev and install URLs and history entries that B5 edits by hand. On a scratch tree it
+  turned `module .../go-socket.io/_examples/gf` into `.../go-socket.io/v2/_examples/gf`, left
+  `module .../go-socket.io/v2` as it was and left a `.md` URL unchanged. The three reads of
+  `docs/API.md` in `v2/inventory_test.go` and `v2/frozen_test.go` become `../docs/API.md`.
+  `go vet ./...` in `v2/` is clean.
 - B4. CI and Dependabot: every `ci.yaml` job runs per module (`working-directory: v2` for the v2
   jobs, a path filter per module), the benchmark workflow covers both modules (below),
   Dependabot lists `/`, `/_examples/*`, `/v2`, `/v2/_examples/*`, `/v2/_experiments/*` (and

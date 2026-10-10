@@ -183,8 +183,3 @@ the repository root has its own [CHANGELOG.md](../CHANGELOG.md).
   API, the memory and Redis broadcast, `Server.Adapter` and the `redigo` dependency (and
   the test-only `miniredis` and the `uuid` dependency with it). The v1 code stays in the v1
   module at the repository root.
-
-## v1.4.2 and earlier
-
-See the upstream release notes at
-<https://github.com/googollee/go-socket.io/releases>.

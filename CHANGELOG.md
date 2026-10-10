@@ -116,6 +116,19 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `engineio.Server` requires `EIO=4` (stage 2.1): a missing or other value is HTTP 400 with
+  the Engine.IO v4 error body `{"code":5,"message":"Unsupported protocol version"}`, and the
+  dialer in `engineio/client` sends `EIO=4` instead of `EIO=3`, so a v3 client no longer
+  connects. The other rejections carry the same JSON body: unknown transport (code 0,
+  400), unknown `sid` (1, 400), a handshake that is not a GET (2, 400), an upgrade the
+  transport order does not allow, a failed session initialisation and an HTTP method polling
+  does not serve (3, 400) and a `RequestChecker` error (4, now HTTP 403; it was 502 with
+  the error text). A handshake with a method other than GET or OPTIONS no longer creates a
+  session. The polling GET 500 and the invalid-method 400 are logged as `engineio: request
+  rejected` with `reason` `flush` (DEBUG when the connection was closed or the payload had
+  already failed with the same error, WARN otherwise) and `bad method`; the handshake gate adds the reasons
+  `bad eio` and `bad handshake method`. The server's heartbeat and the `maxPayload` of the
+  open packet are not part of this change.
 - The WebSocket transport is rewritten on `github.com/gobwas/ws` v1.4.0 (stage 2.1);
   `gorilla/websocket` leaves `go.mod`. The server upgrades with `ws.UpgradeHTTP` (HTTP/1.1
   hijack only); the client dials with `ws.Dialer`. Each Engine.IO packet is one WebSocket

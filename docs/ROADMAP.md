@@ -131,7 +131,7 @@ Socket.IO v4 sections; the root `CHANGELOG.md` `## Unreleased` section is ready 
 
 ## Execution and parallel work
 
-Execution order: **1 → 1b → 2 → 3 → 4b → 5 → 6 → 7**. Admin UI remains the last
+Execution order: **1 → 1b → 2 → 3 → 4b → 5 → 6 → 7**, where row R (the restructure) sits inside Stage 2, between rows 2A and 2B. Admin UI remains the last
 product stage and starts after M5; the final benchmark campaign after M6; Stage 7, the last item, after M7.
 Branch `v1.x` was cut between stages 1 and 1b (1b step 0) and is frozen (*Repository
 layout*); the restructure below (row R) moves v1 to the repository root and v2 to `v2/`.

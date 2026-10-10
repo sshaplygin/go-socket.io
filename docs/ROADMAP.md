@@ -131,8 +131,10 @@ Socket.IO v4 sections; the root `CHANGELOG.md` `## Unreleased` section is ready 
 Execution order: **1 → 1b → 2 → 3 → 4b → 5 → 6 → 7**. Admin UI remains the last
 product stage and starts after M5; the final benchmark campaign after M6; Stage 7, the last item, after M7.
 Branch `v1.x` was cut between stages 1 and 1b (1b step 0) and is frozen (*Repository
-layout*); the restructure below (row R) moves v1 to the repository root and v2 to `v2/`
-before the next Stage 2 merge. No tag gates any stage: tags follow the owner's declaration.
+layout*); the restructure below (row R) moves v1 to the repository root and v2 to `v2/`.
+Stage 2 merges stop when step A starts, on the owner's order after the PR that records the
+restructure has merged, and resume after step C; until that order they proceed as before and
+move with the recipe of step A. No tag gates any stage: tags follow the owner's declaration.
 Numbers identify scope, not permission to start before a dependency passes.
 A prerequisite marked as a gate means its tests and integration must pass, not only
 that a draft API exists. Tasks in the same row may run concurrently in separate
@@ -148,7 +150,7 @@ workers submit changes to these files through that integrator.
 | 1b | stage 1 and the 1.D link-form commit merged, `master` green (the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner, who is also the integrator for the CI, Dependabot and `CHANGELOG.md` files of steps 0b to 0d; moves/merges applied sequentially | M1b: the Stage 1b DoD, `v1.x` gates and Acceptance blocks |
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures; evidence: `make g2` (2.0 *G2 record*) |
 | R | 2.0 on `master`; the owner's order | one integrator: steps A to C of *Repository restructure*; the 2.1, 2.2 and test-stress work stopped by the freeze resumes after C | step C commands pass on the merged `master` |
-| 2B | G2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
+| 2B | G2 and row R merged (its step C passed) | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
 | 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets`); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
 | 2E | 2D | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |

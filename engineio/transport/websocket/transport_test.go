@@ -193,7 +193,8 @@ func TestMaxPayload(t *testing.T) {
 
 // A peer that is still sending when it is cut off must receive the close frame:
 // the server half-closes and drains instead of resetting the connection with
-// unread data in its receive buffer.
+// unread data in its receive buffer, also when the consumer calls Close as soon as
+// the read error is returned.
 func TestCloseFrameSurvivesUnreadData(t *testing.T) {
 	accepted := make(chan transport.Conn, 1)
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -211,6 +212,9 @@ func TestCloseFrameSurvivesUnreadData(t *testing.T) {
 	go func() { _ = wsutil.WriteClientBinary(raw, bytes.Repeat([]byte{1}, 256<<10)) }()
 	_, _, _, err = srv.NextReader()
 	require.ErrorIs(t, err, ErrTooLarge)
+	// The consumer closes on the read error, as engineio.Session does; the close
+	// frame must still reach the peer.
+	require.NoError(t, srv.Close())
 	require.NoError(t, raw.SetReadDeadline(time.Now().Add(5*time.Second)))
 	f, err := ws.ReadFrame(raw)
 	require.NoError(t, err)

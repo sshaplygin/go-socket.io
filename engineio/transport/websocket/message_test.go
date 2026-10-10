@@ -384,3 +384,141 @@ func TestLocalErrorsAndCloseUnblocks(t *testing.T) {
 		t.Fatal("write on a closed connection succeeded")
 	}
 }
+
+// closeRecorder reports the moment the socket is really closed.
+type closeRecorder struct {
+	*net.TCPConn
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (c *closeRecorder) Close() error {
+	c.once.Do(func() { close(c.closed) })
+	return c.TCPConn.Close()
+}
+
+// tcpPair returns the two ends of a loopback TCP connection.
+func tcpPair(t *testing.T) (server, client *net.TCPConn) {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	type result struct {
+		c   net.Conn
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		c, err := l.Accept()
+		ch <- result{c, err}
+	}()
+	d, err := net.Dial("tcp", l.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := <-ch
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	t.Cleanup(func() { _ = r.c.Close(); _ = d.Close() })
+	return r.c.(*net.TCPConn), d.(*net.TCPConn)
+}
+
+// The consumer calls Close as soon as the read error comes back. The close frame
+// must still be readable, followed by EOF, while the peer has 256 KiB or more
+// unread in the socket, and the socket must be closed within closeTimeout.
+func TestCloseDuringDrainKeepsFrameDeliverable(t *testing.T) {
+	big := bytes.Repeat([]byte{1}, 256<<10)
+	cases := []struct {
+		name  string
+		code  ws.StatusCode
+		write func(w io.Writer) error
+	}{
+		{"too large", ws.StatusMessageTooBig, func(w io.Writer) error {
+			return wsutil.WriteClientBinary(w, big)
+		}},
+		{"invalid utf-8", ws.StatusInvalidFramePayloadData, func(w io.Writer) error {
+			if err := wsutil.WriteClientText(w, []byte{0xff}); err != nil {
+				return err
+			}
+			return wsutil.WriteClientBinary(w, big)
+		}},
+		{"unmasked frame", ws.StatusProtocolError, func(w io.Writer) error {
+			if err := ws.WriteFrame(w, ws.NewTextFrame([]byte("x"))); err != nil {
+				return err
+			}
+			return wsutil.WriteClientBinary(w, big)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, p := tcpPair(t)
+			rec := &closeRecorder{TCPConn: s, closed: make(chan struct{})}
+			c, err := newMessageConn(rec, nil, false, 1024, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			go func() { _ = tc.write(p) }()
+			if _, _, err := c.readMessage(); err == nil {
+				t.Fatal("readMessage succeeded; want a violation")
+			}
+			start := time.Now()
+			_ = c.Close()
+			select {
+			case <-rec.closed:
+				t.Fatal("Close closed the socket while the close frame was draining")
+			default:
+			}
+			if _, _, err := c.readMessage(); !errors.Is(err, net.ErrClosed) {
+				t.Errorf("readMessage after Close = %v; want net.ErrClosed", err)
+			}
+			if err := c.writeMessage(ws.OpBinary, []byte("x")); !errors.Is(err, net.ErrClosed) {
+				t.Errorf("writeMessage after Close = %v; want net.ErrClosed", err)
+			}
+
+			if err := p.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			f, err := ws.ReadFrame(p)
+			if err != nil {
+				t.Fatalf("close frame: %v", err)
+			}
+			if f.Header.OpCode != ws.OpClose {
+				t.Fatalf("opcode %v; want close", f.Header.OpCode)
+			}
+			if code, _ := ws.ParseCloseFrameData(f.Payload); code != tc.code {
+				t.Errorf("status %d; want %d", code, tc.code)
+			}
+			if _, err := ws.ReadFrame(p); !errors.Is(err, io.EOF) {
+				t.Errorf("after the close frame: %v; want EOF", err)
+			}
+			// The peer keeps its side open, so only the drain timeout ends this.
+			select {
+			case <-rec.closed:
+			case <-time.After(closeTimeout + 3*time.Second):
+				t.Fatal("socket still open after closeTimeout")
+			}
+			if d := time.Since(start); d > closeTimeout+2*time.Second {
+				t.Errorf("socket closed after %v; want about closeTimeout", d)
+			}
+		})
+	}
+}
+
+// Without a close frame to protect, Close closes the socket at once.
+func TestCloseWithoutFrameClosesAtOnce(t *testing.T) {
+	s, _ := tcpPair(t)
+	rec := &closeRecorder{TCPConn: s, closed: make(chan struct{})}
+	c, err := newMessageConn(rec, nil, false, 1024, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = c.Close()
+	select {
+	case <-rec.closed:
+	default:
+		t.Fatal("Close left the socket open")
+	}
+}

@@ -43,6 +43,11 @@ type messageConn struct {
 	closeErr  error
 	closed    atomic.Bool
 	closing   atomic.Bool
+	// draining is set while a close frame is being sent and, after a successful
+	// half-close, until drainAndClose has closed the socket. Close only marks the
+	// connection closed in that window; the socket close is left to closeWith and
+	// drainAndClose.
+	draining atomic.Bool
 
 	total int64 // Data bytes declared across the current message's fragments.
 }
@@ -188,6 +193,7 @@ func closeStatus(err error) ws.StatusCode {
 // before the peer has read it.
 func (c *messageConn) closeWith(code ws.StatusCode) {
 	if code != 0 && c.closing.CompareAndSwap(false, true) && !c.closed.Load() {
+		c.draining.Store(true)
 		_ = c.raw.SetWriteDeadline(time.Now().Add(closeTimeout))
 		c.writeMu.Lock()
 		frame := ws.NewCloseFrame(ws.NewCloseFrameBody(code, ""))
@@ -200,7 +206,7 @@ func (c *messageConn) closeWith(code ws.StatusCode) {
 			halfClosed = cw.CloseWrite() == nil
 		}
 		if !halfClosed {
-			_ = c.Close()
+			_ = c.closeNow()
 		}
 		c.writeMu.Unlock()
 		if halfClosed {
@@ -216,11 +222,25 @@ func (c *messageConn) closeWith(code ws.StatusCode) {
 func (c *messageConn) drainAndClose() {
 	_ = c.raw.SetReadDeadline(time.Now().Add(closeTimeout))
 	_, _ = io.CopyN(io.Discard, c.raw, 1<<20)
-	_ = c.Close()
+	_ = c.closeNow()
 }
 
-// Close is idempotent and does not wait for the read or write mutex.
+// Close is idempotent and does not wait for the read or write mutex. Reads and
+// writes fail with net.ErrClosed from the call on. While a close frame is being
+// sent or the half-closed socket is drained, the socket itself stays open, so
+// that the consumer closing the connection on the read error cannot reset it
+// before the peer has read the frame; closeWith or drainAndClose closes it
+// within closeTimeout (plus the 1 MiB drain bound). Otherwise it closes at once.
 func (c *messageConn) Close() error {
+	if c.draining.Load() {
+		c.closed.Store(true)
+		return nil
+	}
+	return c.closeNow()
+}
+
+// closeNow marks the connection closed and closes the socket.
+func (c *messageConn) closeNow() error {
 	c.closeOnce.Do(func() {
 		c.closed.Store(true)
 		c.closeErr = c.raw.Close()

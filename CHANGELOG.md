@@ -127,7 +127,7 @@ All notable changes to this project are documented here. The format follows
   (new field, default 1 MiB as for polling), fragments together; the transport answered any
   size before. A peer that violates the protocol is sent a close frame with status 1002, 1007
   (invalid UTF-8) or 1009 (too large), then a TCP half-close and up to one second of draining
-  before the socket is closed, so the frame is not lost to a reset. A response writer that is not an
+  before the socket is closed, so the frame is not lost to a reset; a `Close` by the consumer during that window fails further reads and writes at once and leaves the socket close to the drain. A response writer that is not an
   `http.Hijacker` is answered with HTTP 501 and the log line `engineio: request rejected`
   with `reason="no hijacker"`; a rejected handshake is reported as `websocket.HandshakeError`
   (it replaces the gorilla `HandshakeError` check of `engineio.Server`). `websocket.DialError`

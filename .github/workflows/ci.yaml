@@ -10,9 +10,49 @@ on:
   schedule:
     - cron: '0 8 * * 1' # Mondays 08:00 UTC
 
+# Two independent modules: v1 at the repository root (github.com/sshaplygin/go-socket.io)
+# and v2 in v2/ (github.com/sshaplygin/go-socket.io/v2). Every job below belongs to one of
+# them; the changes job is the path filter that decides which modules a pull request runs.
 jobs:
-  lint:
-    name: Lint
+  changes:
+    name: Changed modules
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      v1: ${{ steps.filter.outputs.v1 }}
+      v2: ${{ steps.filter.outputs.v2 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Path filter per module
+        id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # Push and schedule run both modules. A pull request runs v1 for any file outside
+        # v2/, and v2 for v2/, .github/ (workflows, Dependabot, benchmark tools) and
+        # docs/API.md, which the v2 tests read.
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT" != pull_request ]]; then
+            echo v1=true | tee -a "$GITHUB_OUTPUT"
+            echo v2=true | tee -a "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(git diff --name-only "$(git merge-base "$BASE_SHA" "$HEAD_SHA")" "$HEAD_SHA")
+          v1=false; v2=false
+          if grep -qvE '^v2/' <<<"$files"; then v1=true; fi
+          if grep -qE '^(v2/|\.github/|docs/API\.md$)' <<<"$files"; then v2=true; fi
+          echo "v1=$v1" | tee -a "$GITHUB_OUTPUT"
+          echo "v2=$v2" | tee -a "$GITHUB_OUTPUT"
+
+  lint-v1:
+    name: Lint v1
+    needs: changes
+    if: needs.changes.outputs.v1 == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -29,10 +69,6 @@ jobs:
         run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
       - name: Vet
         run: go vet ./...
-      - name: Package graph
-        run: make graph
-      - name: Frozen contract
-        run: make freeze
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
@@ -52,8 +88,57 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           make vuln
 
-  test:
-    name: Test ${{ matrix.os }} Go ${{ matrix.go }}
+  lint-v2:
+    name: Lint v2
+    needs: changes
+    if: needs.changes.outputs.v2 == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+          cache-dependency-path: v2/go.sum
+      - name: Go Tidy
+        run: go mod tidy && git diff --exit-code
+      - name: Go Mod Verify
+        run: go mod verify
+      - name: Format
+        run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
+      - name: Vet
+        run: go vet ./...
+      - name: Package graph
+        run: make graph
+      - name: Frozen contract
+        run: make freeze
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+          working-directory: v2
+      - name: govulncheck
+        # As in lint-v1: scan with the newest Go release from go.dev.
+        run: |
+          set -eu
+          version="$(curl -fsS 'https://go.dev/VERSION?m=text' | head -n 1)"
+          if ! printf '%s\n' "$version" | grep -Eq '^go1\.[0-9]+(\.[0-9]+)?$'; then
+            echo "unexpected Go version from go.dev: '$version'" >&2
+            exit 1
+          fi
+          export GOTOOLCHAIN="$version"
+          go version
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          make vuln
+
+  test-v1:
+    name: Test v1 ${{ matrix.os }} Go ${{ matrix.go }}
+    needs: changes
+    if: needs.changes.outputs.v1 == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -72,8 +157,51 @@ jobs:
       - name: Tests with race detector
         run: go test -race -count=1 ./...
 
-  min-go:
-    name: Test ubuntu-latest Go 1.22 (GOTOOLCHAIN=local)
+  test-v2:
+    name: Test v2 ${{ matrix.os }} Go ${{ matrix.go }}
+    needs: changes
+    if: needs.changes.outputs.v2 == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['stable', 'oldstable']
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          check-latest: true
+          cache-dependency-path: v2/go.sum
+      - name: Go version
+        run: go version
+      - name: Tests with race detector
+        run: go test -race -count=1 ./...
+
+  stress-v1:
+    name: Stress v1 (race, repeated, shuffled)
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.v1 == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+      - name: Repeated race tests
+        run: make test-stress
+
+  min-go-v1:
+    name: Test v1 ubuntu-latest Go 1.22 (GOTOOLCHAIN=local)
+    needs: changes
+    if: needs.changes.outputs.v1 == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -95,8 +223,38 @@ jobs:
       - name: Tests with race detector
         run: go test -race -count=1 ./...
 
-  examples:
-    name: Build examples
+  min-go-v2:
+    name: Test v2 ubuntu-latest Go 1.22 (GOTOOLCHAIN=local)
+    needs: changes
+    if: needs.changes.outputs.v2 == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # As in min-go-v1, for the v2 module.
+      GOTOOLCHAIN: local
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+          cache-dependency-path: v2/go.sum
+      - name: Go version
+        run: |
+          go version
+          go version | grep -q ' go1\.22\.'
+      - name: Build
+        run: go build ./...
+      - name: Tests with race detector
+        run: go test -race -count=1 ./...
+
+  examples-v1:
+    name: Build examples v1
+    needs: changes
+    if: needs.changes.outputs.v1 == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -105,21 +263,46 @@ jobs:
         with:
           go-version: stable
           check-latest: true
-      # Stage 2.0 removed the v1 root runtime the application examples build against,
-      # so only the identical-copy check of chat.go runs until 2.5D migrates them.
-      - name: Check the shared example sources
+      - name: Build every example module
         run: make examples
 
-  experiments:
-    name: Experiments
+  examples-v2:
+    name: Check examples v2
+    needs: changes
+    if: needs.changes.outputs.v2 == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: v2
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: stable
           check-latest: true
+          cache-dependency-path: v2/go.sum
+      # Stage 2.0 removed the runtime the v2/_examples applications build against, so only
+      # the identical-copy check of chat.go runs until 2.5D migrates them.
+      - name: Check the shared example sources
+        run: make examples
+
+  experiments-v2:
+    name: Experiments v2
+    needs: changes
+    if: needs.changes.outputs.v2 == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+          cache-dependency-path: v2/go.sum
       - name: Install golangci-lint
         # The lint action runs one working directory; make experiments lints each module.
         run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest

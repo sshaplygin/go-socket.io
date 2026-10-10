@@ -81,13 +81,25 @@ jobs:
           go-version: stable
           cache-dependency-path: |
             base/go.sum
+            base/v2/go.sum
             pr/go.sum
-      - name: Benchmark base
+            pr/v2/go.sum
+      # Two modules: the v1 module at the root and the v2 module in v2/. Both append to the
+      # same file per side. A base from before the restructure has no v2/go.mod (its v2 code
+      # is at the root), so its v2 step is skipped.
+      - name: Benchmark base, v1 module
         working-directory: base
-        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... | tee ../base.txt
-      - name: Benchmark PR
+        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... | tee -a ../base.txt
+      - name: Benchmark base, v2 module
+        if: hashFiles('base/v2/go.mod') != ''
+        working-directory: base/v2
+        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... | tee -a ../../base.txt
+      - name: Benchmark PR, v1 module
         working-directory: pr
-        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... | tee ../pr.txt
+        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... | tee -a ../pr.txt
+      - name: Benchmark PR, v2 module
+        working-directory: pr/v2
+        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... | tee -a ../../pr.txt
       - name: Record completed inputs
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -98,7 +110,7 @@ jobs:
           toolchain=$(go env GOVERSION)
           goos=$(go env GOOS)
           goarch=$(go env GOARCH)
-          command="go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./..."
+          command="go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... (in . and in v2)"
           for side in base head; do
             revision=$BASE_SHA
             file=base.txt

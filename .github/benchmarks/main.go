@@ -71,8 +71,12 @@ func relevant(name string) bool {
 			return false
 		}
 	}
-	if name == "go.mod" || name == "go.sum" || name == "go.work" || name == "go.work.sum" ||
-		strings.Contains("/"+name, "/testdata/") {
+	// Module files by base name: the v1 module at the root, the v2 module in v2/.
+	switch path.Base(name) {
+	case "go.mod", "go.sum", "go.work", "go.work.sum":
+		return true
+	}
+	if strings.Contains("/"+name, "/testdata/") {
 		return true
 	}
 	switch path.Ext(name) {

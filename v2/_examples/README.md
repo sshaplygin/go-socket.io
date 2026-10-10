@@ -54,10 +54,12 @@ the connections of its own instance, so with two instances behind Redis, users o
 different instances do not see each other's events and each instance counts only its own
 users. The chat works inside one instance.
 
-`client` joins the chat of a running example and prints what it receives, for a second:
+`client` joins the chat of a running example and prints what it receives, for a second.
+This copy does not build until stage 2.5D (it calls the v1 `socketio.NewClient`); run the v1
+copy from the repository root:
 
 ```sh
-go run ./_examples/client -addr http://127.0.0.1:8000 -name gopher   # from v2/
+go run ./_examples/client -addr http://127.0.0.1:8000 -name gopher   # from the repository root (v1)
 ```
 
 The Go client sends no close packet, so the server drops its session, and announces

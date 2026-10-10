@@ -29,7 +29,7 @@ API skeleton without runtime (stage 2.0), and the v1 server and client live on b
 | `internal/fixtures/` | compile-only packages built by the root fixtures: positive usage, an external adapter and a client stand-in; `testdata/negative/` holds the programs that must not compile |
 | `_examples/` | runnable examples, each with its own `go.mod`; excluded from the root build by the `_` prefix |
 | `_experiments/` | standalone prototypes, each with its own `go.mod`, never imported by the root module; built by `make experiments` |
-| `docs/` | protocol notes, roadmap, v2 API signature inventory |
+| `docs/` | protocol notes, roadmap, v1 parity matrix, v2 API signature inventory |
 
 Runtime model: `engineio.Server` accepts HTTP requests and emits `engineio.Conn`
 sessions. The root package has no runtime yet: every operation that needs one returns
@@ -126,6 +126,7 @@ owner below and put it there.
 | `CHANGELOG.md` | released changes per tag | plans |
 | `docs/ROADMAP.md` | planned stages, DoD, acceptance criteria, milestones, decisions | anything already released |
 | `docs/API.md` | method-signature inventory of the v2 skeleton, the frozen-contract record, package graph and its rules, compile fixtures | behaviour (ROADMAP, godoc) |
+| `docs/PARITY.md` | the v1 parity matrix against the Node reference (socket.io 2.5.0 / engine.io 3.6.2): per-row status, evidence, verification mark and plan (kind, PR, owner decision) | PR order, PR scope and release gates (ROADMAP), protocol description (PROTOCOL.md), API usage |
 | `docs/PROTOCOL.md` | which parts of Engine.IO / Socket.IO protocols are implemented, deviations, upgrade sequence | API usage |
 | `docs/MIGRATION.md` (from v2) | v1 → v2 API mapping | protocol |
 | `docs/ADAPTERS.md` (from v2) | `Adapter` contract, thread-safety rules, conformance suite, shared message format | backend-specific options (`adapters/<name>/README.md`) |

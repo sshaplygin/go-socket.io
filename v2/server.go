@@ -6,7 +6,7 @@
 // authenticate, connect, send, acknowledge, join a room or close returns
 // ErrNotImplemented, and NewServer returns no server. The runtime is added by the
 // stages listed in docs/ROADMAP.md (2.1 to 2.4). The v1 server, with the reflection
-// based API, lives on the branch v1.x.
+// based API, is the repository-root module github.com/sshaplygin/go-socket.io.
 package socketio
 
 import (

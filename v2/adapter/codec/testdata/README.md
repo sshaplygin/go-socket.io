@@ -4,7 +4,7 @@
 the `adapter/codec` tests decode and re-encode. `reference/` is the Node program that
 captured them and that checks the codec's output with Node's own decoders. The format
 the codec implements is described in its godoc; the stage plan is in
-[docs/ROADMAP.md](../../../docs/ROADMAP.md) (2.2 and 4b). This file covers where the
+[docs/ROADMAP.md](../../../../docs/ROADMAP.md) (2.2 and 4b). This file covers where the
 fixtures come from and how to reproduce them.
 
 ## Reproduce

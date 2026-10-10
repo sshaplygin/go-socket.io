@@ -9,6 +9,11 @@ explicitly not. The skeleton is declarations only. Every operation that needs th
 declaration. This file lists signatures and does not restate behaviour. A signature
 change updates this file, the fixtures and the owning roadmap section in one PR.
 
+Every path in this file is relative to `v2/`, the v2 module
+`github.com/sshaplygin/go-socket.io/v2`; "the root" and "the root package" are the root of
+that module (`v2/`, package `socketio`), not the v1 module at the repository root, and a
+`make` target runs there (`make -C v2 graph`).
+
 `ctx` is `context.Context`. The inventory is checked: `TestInventoryListsEveryExportedSignature`
 fails when an exported identifier of the root package has no entry below,
 `TestInventoryResultTypesMatchDeclarations` fails when the result types written here differ
@@ -238,8 +243,8 @@ the frozen declarations, no bare `any` in an exported function, method, func typ
 method or struct field of the frozen files; type parameter constraints and unexported
 declarations are not examined, and `TestAnyUsesDetects` pins the shapes it catches) and the compile fixtures
 (`go test -run TestCompileContracts .`) with the inventory check. CI runs `make graph`
-and `make freeze` in the `lint` job and the fixtures in every `go test ./...`, including
-`min-go` on Go 1.22 with `GOTOOLCHAIN=local`.
+and `make freeze` in the `lint-v2` job and the fixtures in every `go test ./...` of `v2/`, including
+`min-go-v2` on Go 1.22 with `GOTOOLCHAIN=local`.
 
 ## Package graph
 
@@ -289,5 +294,5 @@ taking `ctx`, both hook structs, hook chaining, option composition, `Server` as 
 emitted or broadcast payload, `Args2` order, auth handler, client handler, adapter
 factory without `ctx`, adapter method set, creating call without `ctx` or error, hook
 return, layer and constructor argument, Engine.IO packet identity. `TestCompileContracts`
-runs both and is part of `go test ./...`, so the `min-go` job runs it on Go 1.22 with
+runs both and is part of `go test ./...`, so the `min-go-v2` job runs it on Go 1.22 with
 `GOTOOLCHAIN=local`.

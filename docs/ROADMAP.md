@@ -224,7 +224,7 @@ BR=${BR:?the branch, e.g. origin/feat/x}; NEW=${NEW:?name of the new branch}; P=
 FROM=$(git merge-base ${OLDBASE:?recorded in step A and in the step B body} $BR)
 git format-patch -q -o $P/v2 $FROM..$BR -- . ':!docs' ':!.github' ':!CLAUDE.md' ':!CONTRIBUTING.md' ':!LICENSE' ':!.gitignore'   # the module files
 git format-patch -q -o $P/shared $FROM..$BR -- docs .github CLAUDE.md CONTRIBUTING.md LICENSE .gitignore   # the root-only files, the list of B1
-perl -pi -e '$f=$1 if m{^diff --git a/(\S+)}; s#github\.com/sshaplygin/go-socket\.io(?!/v2)#github.com/sshaplygin/go-socket.io/v2#g if $f =~ /(\.go|go\.mod|\.toml)$/ && /^[ +-]/ && !/^(---|\+\+\+) /; undef $f if eof' $P/v2/*.patch   # the B3 rewrite, on the patch text
+compgen -G "$P/v2/*.patch" >/dev/null && perl -pi -e '$f=$1 if m{^diff --git a/(\S+)}; s#github\.com/sshaplygin/go-socket\.io(?!/v2)#github.com/sshaplygin/go-socket.io/v2#g if $f =~ /(\.go|go\.mod|\.toml)$/ && /^[ +-]/ && !/^(---|\+\+\+) /; undef $f if eof' $P/v2/*.patch   # the B3 rewrite, on the patch text
 git switch -c $NEW origin/master
 compgen -G "$P/v2/*.patch" >/dev/null && git am --directory=v2 $P/v2/*.patch   # an empty glob skips the line (#60 has no module patch)
 compgen -G "$P/shared/*.patch" >/dev/null && git am -3 $P/shared/*.patch   # no --directory: these files stay at the root

@@ -15,8 +15,8 @@ its dependency hashes in `package-lock.json`. It drives the real Node `Encoder` 
   rejected by Go on purpose (the list is in docs/PROTOCOL.md), and six cover the
   byte, attachment-count and depth limits.
 
-CI does not run it: it needs Node and npm. Run it from the repository root after a change
-to the wire format:
+CI does not run it: it needs Node and npm. Run it from `v2/`, the directory of the v2 module,
+after a change to the wire format:
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund --prefix parser/testdata/oracle

@@ -13,7 +13,8 @@ Raw binary has no Engine.IO type byte in v4; every byte belongs to MESSAGE data.
 Text fallback uses `b` plus base64 and decodes back to a binary MESSAGE. Text has
 no polling separator restriction because WebSocket supplies message boundaries.
 
-From the repository root:
+From `v2/`, the directory of the v2 module (at the repository root these paths name
+the v1 packages):
 
 ```sh
 go test -race -count=1 -cover ./engineio/transport/websocket

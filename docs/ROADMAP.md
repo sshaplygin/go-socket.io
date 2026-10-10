@@ -66,14 +66,18 @@ root only: the extracted module of a `v2.0.0` tag on a scratch repository with a
 `v2/go.mod` held `LICENSE` and `go.mod` (`go mod download -json`). `Makefile` and `.golangci.yml` exist once per module.
 
 **Path convention.** Every path in the Baseline, in Stage 2 to Stage 6, in the Execution rows 2A
-and later and in the Stage 1b target tree is relative to `v2/` unless it starts with `root:` or names a shared
+to 6C and in the Stage 1b target tree is relative to `v2/` unless it starts with `root:` or names a shared
 file above, and "root" there (root package, root `go.mod`, root `v2.1.0`) means the root of the
 v2 module. `CHANGELOG.md`, `Makefile` and `README.md` in those stages are the `v2/` files, and a `make`
-target there is `make -C v2 <target>`.
+target there is `make -C v2 <target>`. A path or tag that already starts with `v2/` or `root:`, and
+a full module path (`github.com/...`), is written out in full and is not shifted again
+(`v2/README.md` in 2.5 is the file, not `v2/v2/README.md`).
 A module path written `.../<dir>` is `github.com/sshaplygin/go-socket.io/v2/<dir>` (the
-`/vN` suffix it already carries stays). A tag written `<dir>/vX.Y.Z` is `v2/<dir>/vX.Y.Z`, and
-the v2 module itself is tagged `vX.Y.Z`. Stage 1 and Stage 7 paths are relative to the
-repository root (the v1 module), Stage 1 in its pre-1b names.
+`/vN` suffix it already carries stays). In Stage 2 to Stage 6 text a tag written `<dir>/vX.Y.Z` is
+`v2/<dir>/vX.Y.Z`, and the v2 module itself is tagged `vX.Y.Z`. The Tag column of *Milestones* is
+the exception: it gives the full git tag names, one notation, and is not shifted. Stage 1, Stage 7
+and Execution row 7A paths (`client/`, `_examples/client/`, `client.go`, `connection.go`) are
+relative to the repository root (the v1 module), Stage 1 in its pre-1b names.
 
 **Tag forms.** Verified on a scratch repository with `go.mod` at the root, in `v2/` and in
 `v2/contrib/otel`, resolved through `file://` rewriting of the module's GitHub URL with
@@ -161,7 +165,7 @@ workers submit changes to these files through that integrator.
 
 Rows 1A and 1I, and the Stage 1 items, name files by their pre-1b paths (after the
 restructure: the root module); the Stage 1b source-to-target map owns the new names (after the
-restructure: the `v2/` tree). Rows 2A and later follow the path convention of *Repository layout*.
+restructure: the `v2/` tree). Rows 2A to 6C follow the path convention of *Repository layout*; row 7A names paths of the repository root (the v1 module).
 
 Mocks permit development against frozen contracts; they do not satisfy integration
 or release gates. A contract change updates its owning section and fixtures before
@@ -2710,15 +2714,15 @@ change to the v1 server.
 | M1b | Stage 1b closed: step 0 done (branch `v1.x` cut) and steps 1–3 merged, with the Stage 1b DoD, `v1.x` gates and Acceptance blocks passing on `master` | none (first commits after the cut commit `$CUT`) |
 | M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance; accepted at the 2B join, which also puts the 2.2 and 2.3P code on `master` unreleased (below) | branch `v2-next` (a snapshot of `master`; v2 paths under `v2/`) |
 | M3 | 2.2 + 2.3 + 2.4 + 2.5 (2.2 and 2.3P are already on `master` at M2 acceptance; this milestone releases them) | `v2.0.0`, `v2/contrib/otel/v2.0.0`, only after the owner's declaration and `v1.5.0` (*Repository layout*) |
-| M4 | Stage 3: single-server chat | root `v2.1.0`; the Stage 3 upstream-chat parity DoD line is no longer the `v1.5.0` trigger (*Repository layout*) |
-| M5 | Stage 4b: adapters and cluster chat acceptance | root `v2.2.0` first, then `adapters/redis/v2.0.0`, `adapters/nats/v2.0.0` |
-| M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `contrib/admin/v2.0.0`; adapter minor releases |
+| M4 | Stage 3: single-server chat | `v2.1.0`; the Stage 3 upstream-chat parity DoD line is no longer the `v1.5.0` trigger (*Repository layout*) |
+| M5 | Stage 4b: adapters and cluster chat acceptance | `v2.2.0` first, then `v2/adapters/redis/v2.0.0`, `v2/adapters/nats/v2.0.0` |
+| M6 | Stage 5: Admin UI observation and cluster administration | `v2.3.0`, `v2/contrib/admin/v2.0.0`; adapter minor releases |
 | M7 | Stage 6: final comparative benchmark report and reproducible artifacts | report/artifact revision; no runtime release required |
 | M8 | Stage 7: `client` package in the v1 root module on `master`, root `Client` deprecated; closes the roadmap | next v1 minor after the latest v1 tag (`v1.6.0` when that is `v1.5.0`), number named in the owner's order, on that order only |
 
 Every tag in the Tag column is created only on the owner's explicit order, after the
-declaration of *Repository layout* and after `v1.5.0`; the names follow its path convention
-(`adapters/redis/v2.0.0` is `v2/adapters/redis/v2.0.0`).
+declaration of *Repository layout* and after `v1.5.0`; the column gives full git tag names
+(forms in *Repository layout*), so the path convention does not shift them again.
 
 M2 is accepted when G2, the 2B join gate and the 2.1 exit have passed on one
 reviewed `master` commit and `git ls-files 'v2/_experiments/*/go.mod'` prints nothing there

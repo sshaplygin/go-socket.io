@@ -1395,16 +1395,18 @@ package) is executed inside it as PR V1-9.
 | D8 | Fixed as bugs, in the PRs named in PARITY.md: polling binary-mode UTF-16 length (P16, non-ASCII fails); an unknown namespace or rejected CONNECT answers an ERROR packet and keeps the root socket (S10, R8; socket.io 2.5.0 says `Invalid namespace`); `BroadcastToNamespace` duplicates per room (S12); random session id as `base64id` (E15); `Emit(ev, nil)` panic (B1); a wrong-type event argument closes the connection (B2); no payload size limit (E4); no attachment-count cap (R6: a `5999999999999-` header took 19.5 s in one decode); JSONP `j` reflection (P5, closed by D4); `Server.Close` leaves sessions running (S17, E22); Redis `DB` ignored (A10, in V1R). |
 
 **Owner decisions pending.** Not decided; the plan follows each recommendation until the owner
-answers, and a PR that depends on an answer says so in its body.
+answers, and a PR that depends on an answer says so in its body. A `PEND` row is rewritten by
+the PR in the last column, to the answer or, when the owner accepts the recommendation, to
+the recommended outcome; MV1 needs every row rewritten, so it needs the owner's answers.
 
-| ID | Question | Recommendation |
-| --- | --- | --- |
-| O1 | What "parity" means (D1): functional parity of the wire and of the documented features, or the reference's API shape | Functional parity with an idiomatic Go API; a row is `PARITY` when a reference client or server cannot tell the difference |
-| O2 | Additive methods on the exported `Conn` and `Namespace` interfaces break external mocks (rows marked `(O2)`) | No change to existing method sets: new optional interfaces found by type assertion, plus helper functions; V1-0 records each |
-| O3 | Changing v1 defaults in a minor: session id, ERROR and DISCONNECT packets, payload limit, CORS (S4), ping defaults (E1, E2), `Conn.ID` per namespace (K1) | Yes for the session id, the packets and a 1e6-byte payload limit with an option to raise it; keep S4, E1, E2 and K1 and document them |
-| O4 | `perMessageDeflate`, `httpCompression`, `cookie` (E8, E9, E10), and the `compress` flag (K17, C11) in `v1.5.0` | No: documented unsupported deviations; reconsider after V1R |
-| O5 | Reconnection in the v1 client (C3): full reference options and `reconnect*` events or a minimal retry | Full options and events, because the reference client has them (D6); PR V1-11 is written for it |
-| O6 | Engine-level surface: `engine` handle, `clients` map, engine events, engine socket state (S18, E17, E19, E20) | Out of `v1.5.0`: the pull model of `Accept` replaces the events; `Count` and `Remove` stay |
+| ID | Question | Recommendation | `PEND` rows | Rewritten by |
+| --- | --- | --- | --- | --- |
+| O1 | What "parity" means (D1): functional parity of the wire and of the documented features, or the reference's API shape | Functional parity with an idiomatic Go API; a row is `PARITY` when a reference client or server cannot tell the difference | none | V1-0 records the answer |
+| O2 | Additive methods on the exported `Conn` and `Namespace` interfaces break external mocks (rows marked `(O2)`) | No change to existing method sets: new optional interfaces found by type assertion, plus helper functions; V1-0 records each | none; the `(O2)` `ADD` rows follow the answer | V1-0 records it |
+| O3 | Changing v1 defaults in a minor: session id, ERROR and DISCONNECT packets, payload limit, CORS (S4), ping defaults (E1, E2), `Conn.ID` per namespace (K1) | Yes for the session id, the packets and a 1e6-byte payload limit with an option to raise it; keep S4, E1, E2 and K1 and document them | S4, P8, K1, E1, E2 | V1-14 |
+| O4 | `perMessageDeflate`, `httpCompression`, `cookie` (E8, E9, E10), and the `compress` flag (K17, C11) in `v1.5.0` | No: documented unsupported deviations; reconsider after V1R | K17, E8, E9, E10, and the `PEND O4` entries of S21, C11 | V1-14 (C11: V1-11) |
+| O5 | Reconnection in the v1 client (C3): full reference options and `reconnect*` events or a minimal retry | Full options and events, because the reference client has them (D6); PR V1-11 is written for it | the `PEND O5` entry of C3 | V1-11 |
+| O6 | Engine-level surface: `engine` handle, `clients` map, engine events, engine socket state (S18, E17, E19, E20) | Out of `v1.5.0`: the pull model of `Accept` replaces the events; `Count` and `Remove` stay | S18, E17, E19, E20 | V1-14 |
 
 **PR sequence.** Commits are titled `<type>(V1.<n>): ...`. A PR whose `Plan` rows include `ADD`
 changes the public API only as recorded by V1-0 (CLAUDE.md: public API goes through the roadmap
@@ -1426,7 +1428,7 @@ first). Rows for a PR are the `Plan` entries naming it (`covers V1-<n>` below li
 | V1-11 | `client` II: reconnection with options and `reconnect*` events (O5), `once`/`off`/`id`/`connected`, flags |
 | V1-12 | Examples `_examples/ack` and `_examples/binary`, each with its own `go.mod` and a Node-client script run by the conformance job |
 | V1-13 | Examples `_examples/namespaces` (namespaces, rooms, auth) and `_examples/middleware`, same rules; `_examples/default-http` gets broadcast-except-sender |
-| V1-14 | Release preparation: PROTOCOL.md deviations (D3, D4, O4), README supported versions, `CHANGELOG.md` `## Unreleased` complete, v1 migration notes; no tag |
+| V1-14 | Release preparation: rewrites every remaining `PEND` row to the owner's answer (`DEV` with its PROTOCOL.md deviation, `DROP`, or `DONE`), PROTOCOL.md deviations (D3, D4, O4), README supported versions, `CHANGELOG.md` `## Unreleased` complete, v1 migration notes; no tag |
 
 **Conformance contract (V1-8).** CI job `conformance` in `.github/workflows/ci.yaml`, a required
 check, on ubuntu with the Node LTS release from `actions/setup-node`. The clients are installed

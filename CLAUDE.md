@@ -81,8 +81,11 @@ they can contain C code. Validate the detector with `go test ./.github/benchmark
   fixture of `parser/packet_test.go` concurrently on one shared value and compares it with a
   deep copy, so a new fixture is covered by adding it to that table. The broadcast-level test
   covers `BroadcastToRoom` and `BroadcastToNamespace` only, not `Emit` with an ack or the Redis
-  broadcast. One `make test-stress` takes about 70 s and leaves about 13k sockets in TIME_WAIT:
-  do not run two at once, and on macOS wait 30 s between runs.
+  broadcast. One `make test-stress` takes 80 to 110 s on an idle machine (about 100 s on CI)
+  and leaves about 13k sockets in TIME_WAIT: do not run two at once, and on macOS wait 30 s
+  between runs. It needs an unloaded machine: on a heavily loaded host a failure in a timing
+  test (`TestSessionCloseRecord`, the lifecycle tests) is rerun before it is treated as a
+  regression.
 - Every fix carries a test that fails without it. Concurrency fixes are verified under
   `-race`.
 - Public API changes go through `docs/ROADMAP.md` first.

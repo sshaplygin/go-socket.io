@@ -23,8 +23,9 @@ lint:
 	go vet ./...
 	golangci-lint run ./...
 
-# The legacy _examples modules are not scanned: they build against the removed v1 root
-# runtime until stage 2.5D migrates them (docs/ROADMAP.md, 2.0).
+# The legacy _examples modules are not scanned: they are written against the v1 API, which
+# the v2 root package does not have, and do not build until stage 2.5D migrates them
+# (docs/ROADMAP.md, 2.0).
 .PHONY: vuln
 vuln:
 	set -e; \
@@ -37,8 +38,9 @@ vuln:
 cover:
 	go test -count=1 -coverprofile=c.out ./... && go tool cover -html=c.out
 
-# The legacy application examples are written against the v1 root runtime that stage 2.0
-# removed, so they are not built or tested until stage 2.5D migrates them. The check that
+# The legacy application examples are written against the v1 API, which stage 2.0 removed
+# from the v2 root package (v1 is the module at the repository root), so they are not built
+# or tested until stage 2.5D migrates them. The check that
 # every chat.go is identical to _examples/default-http/chat.go still runs, on the files
 # only.
 .PHONY: examples

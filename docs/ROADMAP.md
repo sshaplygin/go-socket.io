@@ -1479,7 +1479,10 @@ test -z "$(rows | awk -F' *[|] *' -v pr="$N" '$3 ~ ("(^|; )(BUG|ADD|CHG|TEST) " 
 Checks specific to a PR, in addition: V1-1, V1-2 and V1-3 name the failing-before test of each
 `BUG` row in their body (a PR body line `fails without the fix: <test>` per row); V1-8 and later
 run `gh pr checks <n>` with `conformance` green; V1-10 and V1-11 run the Go client against the
-Node 2.5.0 server of the conformance job.
+Node 2.5.0 server of the conformance job. V1-12 and V1-13 run `make examples examples-node`
+on their head (V1-12 with `ack` and `binary` present; V1-13 and MV1 with all four new
+directories). The `cmp` step of `examples` covers every `CHAT_COPIES` file, so a copy that
+V1-13 leaves behind fails there.
 
 **MV1 DoD** (V1-14 head, then again on the merged `master`):
 

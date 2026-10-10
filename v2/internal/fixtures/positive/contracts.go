@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"time"
 
-	sio "github.com/sshaplygin/go-socket.io"
-	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/internal/fixtures/externaladapter"
+	sio "github.com/sshaplygin/go-socket.io/v2"
+	"github.com/sshaplygin/go-socket.io/v2/engineio"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/v2/internal/fixtures/externaladapter"
 )
 
 // These callbacks are compile fixtures only, never runtime instrumentation.

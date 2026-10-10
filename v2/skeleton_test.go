@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	sio "github.com/sshaplygin/go-socket.io"
-	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/parser"
+	sio "github.com/sshaplygin/go-socket.io/v2"
+	"github.com/sshaplygin/go-socket.io/v2/engineio"
+	"github.com/sshaplygin/go-socket.io/v2/parser"
 )
 
 // TestSkeletonRuntimeIsExplicitlyUnavailable pins that nothing in the skeleton

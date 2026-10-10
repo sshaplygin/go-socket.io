@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
 )
 
 func assertPacket(t testing.TB, got, want Packet) {

@@ -1,4 +1,4 @@
-module github.com/sshaplygin/go-socket.io
+module github.com/sshaplygin/go-socket.io/v2
 
 go 1.22
 

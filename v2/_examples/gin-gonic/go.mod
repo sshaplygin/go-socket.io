@@ -1,10 +1,10 @@
-module github.com/sshaplygin/go-socket.io/_examples/gin-gonic
+module github.com/sshaplygin/go-socket.io/v2/_examples/gin-gonic
 
 go 1.22
 
 require (
 	github.com/gin-gonic/gin v1.7.7
-	github.com/sshaplygin/go-socket.io v0.0.0-00010101000000-000000000000
+	github.com/sshaplygin/go-socket.io/v2 v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -27,4 +27,4 @@ require (
 	gopkg.in/yaml.v2 v2.2.8 // indirect
 )
 
-replace github.com/sshaplygin/go-socket.io => ../../
+replace github.com/sshaplygin/go-socket.io/v2 => ../../

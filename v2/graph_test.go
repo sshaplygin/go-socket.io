@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-const modulePath = "github.com/sshaplygin/go-socket.io"
+const modulePath = "github.com/sshaplygin/go-socket.io/v2"
 
 // packageGraph returns the import edges between packages of this module, without
 // test files, keyed by import path relative to the module ("." is the root).

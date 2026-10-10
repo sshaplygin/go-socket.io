@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sshaplygin/go-socket.io/adapter/codec"
-	"github.com/sshaplygin/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/v2/adapter/codec"
+	"github.com/sshaplygin/go-socket.io/v2/parser"
 	"github.com/vmihailenco/msgpack/v5"
 )
 

@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/internal/logtest"
+	"github.com/sshaplygin/go-socket.io/v2/engineio"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/internal/logtest"
 )
 
 // plainWriter hides http.Hijacker, as a wrapping middleware or HTTP/2 does.

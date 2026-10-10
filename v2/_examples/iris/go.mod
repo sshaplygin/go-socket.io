@@ -1,10 +1,10 @@
-module github.com/sshaplygin/go-socket.io/_examples/iris
+module github.com/sshaplygin/go-socket.io/v2/_examples/iris
 
 go 1.22
 
 require (
 	github.com/kataras/iris/v12 v12.1.8
-	github.com/sshaplygin/go-socket.io v0.0.0-00010101000000-000000000000
+	github.com/sshaplygin/go-socket.io/v2 v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -54,4 +54,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/sshaplygin/go-socket.io => ../../
+replace github.com/sshaplygin/go-socket.io/v2 => ../../

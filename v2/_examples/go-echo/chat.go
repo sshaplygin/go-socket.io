@@ -9,7 +9,7 @@ import (
 	"log"
 	"sync"
 
-	socketio "github.com/sshaplygin/go-socket.io"
+	socketio "github.com/sshaplygin/go-socket.io/v2"
 )
 
 const chatRoom = "chat"

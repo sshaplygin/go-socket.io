@@ -6,7 +6,7 @@ import (
 
 	"github.com/kataras/iris/v12"
 
-	socketio "github.com/sshaplygin/go-socket.io"
+	socketio "github.com/sshaplygin/go-socket.io/v2"
 )
 
 func main() {

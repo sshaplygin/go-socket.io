@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sshaplygin/go-socket.io/adapter/codec"
+	"github.com/sshaplygin/go-socket.io/v2/adapter/codec"
 )
 
 // seedFixtures adds every recorded publication of the given kind to the corpus, so

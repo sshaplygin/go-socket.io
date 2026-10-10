@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"unicode/utf8"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
 )
 
 const separator = byte(0x1e)

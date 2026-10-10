@@ -3,7 +3,7 @@ package socketio
 import (
 	"context"
 
-	"github.com/sshaplygin/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/v2/parser"
 )
 
 // Endpoint is the packet send and acknowledgement surface shared by server sockets

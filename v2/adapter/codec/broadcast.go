@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/sshaplygin/go-socket.io/parser"
+	"github.com/sshaplygin/go-socket.io/v2/parser"
 	"github.com/vmihailenco/msgpack/v5"
 )
 

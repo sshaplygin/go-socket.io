@@ -15,7 +15,7 @@ import (
 // function, method and type of the root package must appear in the inventory by name
 // (methods as Type.Method), so a declaration added without an inventory row fails.
 func TestInventoryListsEveryExportedSignature(t *testing.T) {
-	raw, err := os.ReadFile("docs/API.md")
+	raw, err := os.ReadFile("../docs/API.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func checkResults(t *testing.T, sig, owner, name string, ft *ast.FuncType) {
 // documented function, method and interface method with the AST. The first column of
 // checks is the part of a signature a consumer cannot guess from the name.
 func TestInventoryResultTypesMatchDeclarations(t *testing.T) {
-	raw, err := os.ReadFile("docs/API.md")
+	raw, err := os.ReadFile("../docs/API.md")
 	if err != nil {
 		t.Fatal(err)
 	}

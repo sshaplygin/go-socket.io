@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/sshaplygin/go-socket.io/engineio/payload"
-	"github.com/sshaplygin/go-socket.io/logger"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/payload"
+	"github.com/sshaplygin/go-socket.io/v2/logger"
 )
 
 type serverConn struct {

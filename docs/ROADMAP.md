@@ -2635,9 +2635,9 @@ Owner decision of 2026-10-09: the Go client is supported as a separate package f
 lines, after everything else; the v2 half is 2.3C. Entry: M7 passed; the stage does not
 wait for the `v1.5.0` tag. Work happens on `master` in the root module (v1 at the repository
 root, paths relative to it). The compatibility base is the `master` commit `$TIP`; the release
-is the next v1 minor after the latest v1 tag at tag time (`$REL`; `v1.6.0` when
-`v1.5.0` is that tag), named in the owner's order and strictly after `v1.5.0`, which has no
-fallback (*Repository layout*). Nothing before M7 depends on it.
+is the next v1 minor after the latest v1 tag at tag time (`$REL`; `v1.6.0` when `v1.5.0` is that
+tag), named in the owner's order and strictly after `v1.5.0`; the Milestones tag rule has no
+exception. Nothing before M7 depends on it.
 
 **Contract (v1).** Additive: `client` behaves as today's root `socketio.Client`. The root
 `Client` and `NewClient` stay as a wrapper over it, their godoc starting a paragraph

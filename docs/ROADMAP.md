@@ -53,6 +53,9 @@ merges, `master` still has the v2 skeleton at the root and `v1.x` still holds v1
 | `v2/` | `github.com/sshaplygin/go-socket.io/v2` | everything of Stage 2 and later: the API skeleton, `engineio/`, `parser/`, `logger/`, `adapter/`, `client/`, `adapters/*`, `contrib/*`, v2 `_examples/`, `_experiments/`, `testdata/`, `Makefile`, `.golangci.yml`, `CHANGELOG.md`, `README.md` |
 | shared, root only | none | `docs/`, `.github/`, `CLAUDE.md`, `CONTRIBUTING.md`, `LICENSE`, `.gitignore` |
 
+The two modules are independent: neither imports nor requires the other, there is no `go.work`, and
+step C enforces this with commands.
+
 Owners of the shared files. `docs/` is one tree for both lines (`ROADMAP.md`, `PROTOCOL.md`,
 `API.md`, and the later v2 files); a v2-only document says so in its title. `.github/` holds one
 workflow set and one `dependabot.yml` that cover every module. `CLAUDE.md` and `CONTRIBUTING.md`
@@ -235,11 +238,15 @@ V1TIP=${V1TIP:?the v1.x tip recorded in the step B PR}; MOD=$(go list -m); T=$(m
 git worktree add -q --detach $BASE $V1TIP; trap 'git worktree remove --force $BASE; rm -rf $T' EXIT
 test "$MOD" = github.com/sshaplygin/go-socket.io
 test "$(cd v2 && go list -m)" = github.com/sshaplygin/go-socket.io/v2
+export GOWORK=off   # a go.work would let one module import the other unnoticed
+test -z "$(git ls-files '*go.work' '*go.work.sum')"   # and none is committed
 go build ./...
 go test -race -count=1 ./...
 (cd v2 && go build ./...)
 (cd v2 && go test -race -count=1 ./...)
 test -z "$(go list ./... | grep '/v2')"   # the root module sees v1 only
+test -z "$(git ls-files 'v2/*.go' | xargs grep -HnE '"github\.com/sshaplygin/go-socket\.io(/[^"]*)?"' | grep -vE '"github\.com/sshaplygin/go-socket\.io/v2(/[^"]*)?"')"   # v2 imports no root-module package
+test -z "$(git ls-files 'v2/*go.mod' | xargs grep -HnE 'github\.com/sshaplygin/go-socket\.io +v')"   # no v2 go.mod requires the root module
 test -z "$(git diff --name-only $V1TIP HEAD -- . ':!:v2' ':!:.github' ':!:docs' ':!:CLAUDE.md' ':!:CONTRIBUTING.md' ':!:README.md' ':!:LICENSE' ':!:.gitignore')"   # the v1 tree is the v1.x tip
 eval "$(grep '^api() ' docs/ROADMAP.md)"   # an empty match makes the next line fail
 test -n "$(api . | head -1)"

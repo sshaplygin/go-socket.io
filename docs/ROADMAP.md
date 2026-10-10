@@ -275,6 +275,17 @@ pure rename, the commit the recipe of step A rebases onto, so that the work abov
     ...", and its text names `v2/parser` and the `v2/` root package. Line 157, the table header
     "v4 (branch `v1.x`) | v5 (target; the wire codec is on `master`, see above)": "v4 (v1, repository
     root) | v5 (target; the wire codec is in `v2/parser`, see above)".
+  - root `README.md` (the restored `v1.x` file): the table row "v1.x (this branch)", the install line
+    `@v1.x` and "use the `v1.x` branch until a release" become the `@master` form and a v2 row with
+    a link to `v2/README.md`. `v2/README.md` (the moved file): the "Status of `master`" paragraph,
+    the two table rows, the install line and the sentences "The v1 API, on the branch `v1.x`" and
+    "on `master` they no longer build" are rewritten for the v2 module (v1 is the repository root);
+    the v1 quick start stays in the root `README.md` only.
+  - `v2/_examples/README.md` lines 3 to 7 and 33 ("lives on branch `v1.x`", "check out `v1.x`"):
+    the v1 server is in the repository root, and the v1 examples are in the root `_examples/`.
+  - `v2/CHANGELOG.md` `Removed` entries that say the code "stays on the branch `v1.x`" (the `parser`
+    v4 codec, the Engine.IO v3 polling framing, the v1 root runtime): "stays in the v1 module at the
+    repository root".
 
 **C. Verification**, on the head of the step B PR (`$V1TIP` from its body). The
 `api` function is the one of the Stage 1b Acceptance block, applied to the root module:
@@ -300,6 +311,7 @@ test -n "$(api . | head -1)"
 test -z "$(diff <(api $BASE) <(api .))"   # the v1 exported API is unchanged
 DB=$(grep -oE '"/[^"]*"' .github/dependabot.yml | tr -d '"')
 test -z "$(git grep -nE 'v1\.x|[Rr]emoved .*from [`]?master|on [`]?master[`]?' -- docs/PROTOCOL.md docs/API.md)"   # no protocol or API document says v1 lives on v1.x or was removed from master
+test -z "$(git grep -nE 'v1\.x|this branch|[Ss]tatus (of|on) [`]master|on [`]master' -- README.md v2/README.md engineio/README.md v2/engineio/README.md CHANGELOG.md v2/CHANGELOG.md _examples/README.md v2/_examples/README.md)"   # the READMEs, changelogs and example notes: no install line @v1.x, no 'this branch', no v1.x branch statement
 test -z "$(git grep -nE 'v1\.x|[Rr]emoved .*from [`]?master' -- CLAUDE.md CONTRIBUTING.md | grep -v frozen)"   # these two may name the branch only on a line that says it is frozen
 test -z "$(for d in $(git ls-files 'go.mod' '*/go.mod' | xargs -n1 dirname | sed 's#^\.$##; s#^#/#'); do ok=; for g in $DB; do [[ $d == $g ]] && ok=1; done; test -n "$ok" || echo "no Dependabot entry: $d"; done)"   # every module has an entry
 ```

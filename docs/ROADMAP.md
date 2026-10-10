@@ -1430,6 +1430,16 @@ first). Rows for a PR are the `Plan` entries naming it (`covers V1-<n>` below li
 | V1-13 | Examples `_examples/namespaces` (namespaces, rooms, auth) and `_examples/middleware`, same rules, `examples-node` extended; `_examples/default-http` gets broadcast-except-sender, and every `chat.go` copy changes with it in the same PR, except `redis-adapter` and `redis-adapter-unix-socket`: `Except` is not available over Redis in `v1.5.0` (D2, contract in V1-0), so they keep their `chat.go` with the `others()` helper, named in `CHAT_SKIP` of the Makefile (the copy check is `CHAT_COPIES`, the `chat.go` directories minus `CHAT_SKIP`) until V1R |
 | V1-14 | Release preparation: rewrites every remaining `PEND` row to the owner's answer (`DEV` with its PROTOCOL.md deviation, `DROP`, or `DONE`), PROTOCOL.md deviations (D3, D4, O4), README supported versions, `CHANGELOG.md` `## Unreleased` complete, v1 migration notes; no tag |
 
+**`Except` with the Redis adapter in `v1.5.0` (rows A4, K14, S21; D2).** The exported `Broadcast`
+interface keeps its method set, so `redis_broadcast.go` and external adapters compile
+unchanged (O2 mechanism). The `Except` options are an optional interface that the memory
+broadcast implements. When the configured `Broadcast` does not implement it, `Server`'s
+`Except` and broadcast-except-sender return an error wrapping `ErrExceptUnsupported` and send
+nothing, never a delivery to every instance including the sender. V1-0 records the names;
+V1-6 tests the error with a fake `Broadcast` and asserts that the Redis type does not
+implement the interface; V1-14 lists it under `### Known limitations` of the changelog, and
+V1R removes the entry.
+
 **Conformance contract (V1-8).** CI job `conformance` in `.github/workflows/ci.yaml`, a required
 check, on ubuntu with the Node LTS release from `actions/setup-node`. The clients are installed
 from npm under exact versions, `socket.io-client@1.7.4` and `socket.io-client@2.5.0`, one matrix

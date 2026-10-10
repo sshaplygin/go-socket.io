@@ -177,7 +177,11 @@ below, in this order. The PR that records this section moves no code, creates no
 deletes no branch. Gate blocks run with `bash` and `set -e`, rules as in the Stage 1b DoD.
 
 **A. Freeze.** Starts on the owner's order, after the PR that records this section has merged.
-Until step B merges, no PR merges into `master` except step B. Open or stopped work is not
+Until step B merges, no PR merges into `master` except step B, and none merges into `v1.x`: the
+step B tree is the `v1.x` tip recorded at the start, so a commit that lands on `v1.x` later would
+be dropped silently and the branch then declared frozen. Dependabot opens PRs with
+`target-branch: v1.x` (two entries in `dependabot.yml`) until B4 removes them; the open ones are
+closed, not merged. Open or stopped work is not
 merged into the old layout; it is merged forward after step C, by its author, on the new `master`:
 
 | Work | State | After step C |
@@ -189,6 +193,7 @@ merged into the old layout; it is merged forward after step C, by its author, on
 
 ```sh
 test "$(gh pr list --base master --state open --json number,author --jq '[.[]|select(.author.is_bot|not)|.number]|sort|join(",")')" = 60,62   # before the step B PR is opened
+test -z "$(gh pr list --base v1.x --state open --json number --jq '.[].number')"   # nothing waits to merge into v1.x (close Dependabot PRs first)
 V1TIP=$(git rev-parse origin/v1.x); echo $V1TIP   # the v1 tree B2 restores; the step B body records it
 OLDBASE=$(git rev-parse origin/master); echo $OLDBASE   # the last commit of the old layout; the step B body records it
 ```
@@ -292,6 +297,8 @@ pure rename, the commit the recipe of step A rebases onto, so that the work abov
 
 ```sh
 V1TIP=${V1TIP:?the v1.x tip recorded in the step B PR}; MOD=$(go list -m); T=$(mktemp -d); BASE=$T/base
+git fetch -q origin v1.x
+test "$(git rev-parse origin/v1.x)" = "$V1TIP"   # v1.x did not move since step A; run again after the merge
 git worktree add -q --detach $BASE $V1TIP; trap 'git worktree remove --force $BASE; rm -rf $T' EXIT
 test "$MOD" = github.com/sshaplygin/go-socket.io
 test "$(cd v2 && go list -m)" = github.com/sshaplygin/go-socket.io/v2
@@ -324,6 +331,7 @@ module and the `@master` query of the v2 module resolves, both with `GOPROXY=dir
 proxy cache answers; `$T` is set first because `consumer` creates its directory under it:
 
 ```sh
+git fetch -q origin v1.x; test "$(git rev-parse origin/v1.x)" = "${V1TIP:?the v1.x tip recorded in the step B PR}"   # v1.x is still the tip step B restored
 T=$(mktemp -d); trap 'rm -rf $T' EXIT
 eval "$(grep '^consumer() ' docs/ROADMAP.md)"   # an empty match makes the next line fail
 consumer master

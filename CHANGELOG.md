@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- engineio: a binary polling payload (the default when the client does not send `b64=1`)
+  gave each packet the UTF-16 code-unit length of the text payload instead of its length in
+  bytes. A client that polls without `b64=1` (the browser build of `socket.io-client` 2.x
+  with XHR2; in Node, engine.io-client sends `b64=1` and gets the text payload) therefore
+  failed the poll with a parser error on any non-ASCII text, and its POST holding a
+  non-ASCII string packet was read past its end; reproduced with engine.io-parser 2.2.1,
+  not with a browser. Lengths
+  in a binary payload now count bytes, as engine.io-parser 2.2.1 does; the text payload
+  keeps UTF-16 code units (`engineio/payload/encoder.go:144`, `decoder.go:55` at
+  `18af32b`).
 - parser: the encoder wrote the placeholder number and the binary flag into the caller's
   `*parser.Buffer`, so one `*Buffer` in the arguments of a broadcast was written concurrently
   by the encoders of several connections (a data race under `-race`), and the same `*Buffer`
@@ -255,6 +265,13 @@ All notable changes to this project are documented here. The format follows
   [`logger`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/logger), whose
   godoc now documents the levels, the message pattern and the attribute keys of library
   records (roadmap task 1.L).
+
+### Removed
+
+- engineio: JSONP polling. The `j` query parameter is ignored: a poll answers the ordinary
+  payload with the usual headers instead of `___eio[<j>]("...")`, in which `j` was copied
+  from the query unvalidated. A JSONP form POST (`d=`) is rejected with HTTP 400, as it was
+  before. Clients must use XHR polling or websocket (roadmap Stage V1, decision D4).
 
 ### Known limitations
 

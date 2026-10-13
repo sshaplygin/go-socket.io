@@ -1430,7 +1430,8 @@ first). Rows for a PR are the `Plan` entries naming it (`covers V1-<n>` below li
 The exported-API diff checks (the Stage 1b `api` block against `$CUT`, step C of the restructure
 against `$V1TIP`) close before this stage and are not re-run in it; no Stage V1 gate diffs the
 exported API, so the methods D10 adds need no allow-list entry: the V1-0 contracts record them,
-V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `$TIP`, which has them.
+V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `$TIP`, which has them
+(the client side of each: Stage 7, *D10 methods and the alias*).
 
 | PR | Scope |
 | --- | --- |
@@ -1448,7 +1449,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-11 | `client` II: reconnection with options and `reconnect*` events (D12), `once`/`off`/`id`/`connected`, flags (`compress` is V1-15's) |
 | V1-12 | Examples `_examples/ack` and `_examples/binary`, each with its own `go.mod`, a `client.js` (exit 0 on success) and a README. Also owns the `Makefile` `examples` change: every example module is built and vetted (`go build`, `go vet`), the identical-copy `cmp` runs only for directories that hold a `chat.go` (the new ones have none), and a new target `examples-node` starts each new example on a random port and runs its `client.js` with `socket.io-client@2.5.0`; the conformance job runs it; `CLAUDE.md` `make examples` line updated in the same PR |
 | V1-13 | Examples `_examples/namespaces` (namespaces, rooms, auth) and `_examples/middleware`, same rules, `examples-node` extended; `_examples/default-http` gets broadcast-except-sender, and every `chat.go` copy changes with it in the same PR, except `redis-adapter` and `redis-adapter-unix-socket`: `Except` is not available over Redis in `v1.5.0` (D2, contract in V1-0), so they keep their `chat.go` with the `others()` helper, named in `CHAT_SKIP` of the Makefile (the copy check is `CHAT_COPIES`, the `chat.go` directories minus `CHAT_SKIP`) until V1R |
-| V1-14 | Release preparation: rewrites every remaining `PEND` row to the owner's answer (`DEV` with its PROTOCOL.md deviation, `DROP`, or `DONE`), PROTOCOL.md deviations (D3, D4) as the headings `### Deviation D3: mixed Go/Node Redis cluster` and `### Deviation D4: JSONP unsupported` under *Known deviations from the v3/v4 specs* (the unique strings the MV1 DoD greps for), README supported versions, `CHANGELOG.md` `## Unreleased` complete, v1 migration notes. D10 communication: one `### Changed` entry that names `Conn`, `Namespace` and `Broadcast` and every method V1-0 added to each, says that implementers and mocks of them stop compiling in this minor release, and carries the migration note (add the methods, or embed the interface in a mock); the default changes of V1-15 are `### Changed` entries too; no tag |
+| V1-14 | Release preparation: rewrites every remaining `PEND` row to the owner's answer (`DEV` with its PROTOCOL.md deviation, `DROP`, or `DONE`), PROTOCOL.md deviations (D3, D4) as the headings `### Deviation D3: mixed Go/Node Redis cluster` and `### Deviation D4: JSONP unsupported` under *Known deviations from the v3/v4 specs* (the unique strings the MV1 DoD greps for), README supported versions, `CHANGELOG.md` `## Unreleased` complete, v1 migration notes. D10 communication: one `### Changed` entry that names `Conn`, `Namespace` and `Broadcast` and every method V1-0 added to each, says that implementers and mocks of them stop compiling in this minor release, and what a client connection returns for the server-only ones (Stage 7), and carries the migration note (add the methods, or embed the interface in a mock); the default changes of V1-15 are `### Changed` entries too; no tag |
 | V1-15 | Compression and cookies (D11): `perMessageDeflate` for the websocket transport (E8), `httpCompression` for polling responses (E9), the `cookie` option (E10), the per-emit `compress` flag of `Conn` (K17), of server broadcasts (S21) and of the client (C11); contract and checks in *Compression and cookies (V1-15)* below |
 
 **`Except` with the Redis adapter in `v1.5.0` (rows A4, K14, S21; D2, D10).** Decided here by
@@ -2900,7 +2901,8 @@ taken after V1-7 and V1-8; the release is `v1.5.0` (`$REL`), on the owner's orde
 the same Milestones tag rule. V1-10 and V1-11 then finish the client on top of this stage; this
 stage stays a behaviour-preserving extraction. The `api` freeze below is the contract at the
 time it was written: the DoD compares with `$TIP`, which includes what V1-5 to V1-7 added to
-`Conn` and `Namespace` (D10), so the listing there is the method sets minus those additions.
+`Conn` and `Namespace` (D10; this stage implements them on the client side as
+*D10 methods and the alias* below says), so the listing there is the method sets minus those additions.
 
 **Contract (v1).** Additive: `client` behaves as today's root `socketio.Client`. The root
 `Client` and `NewClient` stay as a wrapper over it, their godoc starting a paragraph
@@ -2928,6 +2930,19 @@ logic edit deletes `clientConnectPacketHandler` and `clientDisconnectPacketHandl
 lint` rejects unused code); the other root edits are the aliases, and `fmtNS`, used by the
 server, stays in the root `client.go`. Cost: a root fix to a shared file names in its PR whether
 `client/` needs the same change and makes it there.
+
+**D10 methods and the alias.** Through the alias, every method D10 adds to `Conn` or `Namespace`
+(V1-5 to V1-7 before this stage, V1-10, V1-11 and V1-15 after it) is in both method sets, so the
+server's and the client's connection types implement all of them. A method with no client
+meaning (request, handshake data, engine connection, broadcast except the sender, `Use`) is a
+client-side stub returning the zero value, or, if it returns an error, an error V1-0 names; its
+godoc says what a client connection returns, and so does V1-14's `### Changed` entry. This stub
+is the only server-only code `client` carries. A client feature with no server meaning
+(reconnection, C3; the options of C4, C6) goes on `*client.Client`, never on `Conn`; one with a
+meaning on both sides (`connected` of C8, the flags of C11) is a D10 method both implement. The
+types in these signatures are declared in `client` (or `engineio`, `parser`) and aliased in the
+root like `Conn`; V1-0 adds their names to the `go doc -short ./client` line of the DoD below
+and to the freeze listing.
 
 **`api` freeze (additive exported API of `client`).** Derived from `client.go`, `connection.go`,
 `namespace_conn.go` and `errors.go` at `$TIP`; deliberately not an `api` fence, which the

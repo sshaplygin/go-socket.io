@@ -162,7 +162,7 @@ workers submit changes to these files through that integrator.
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures; evidence: `make g2` (2.0 *G2 record*) |
 | R | 2.0 on `master`; the owner's order | one integrator: steps A to C of *Repository restructure*; the 2.1, 2.2 and test-stress work stopped by the freeze resumes after MV1 (its open PRs are replayed after C and wait) | step C commands pass on the merged `master` |
 | V1A | row R step C passed; V1-0 merged | V1-1 (`engineio/payload`, `engineio/transport/polling`, its own new `engineio/polling_*_test.go` files) and V1-2 (`engineio`) in separate worktrees | per-PR DoD (Stage V1) |
-| V1B | V1A | V1-3 to V1-7 in order: one integrator, the root files and `parser` are shared; beside them V1-16, then V1-17, then V1-18 (`engineio/` and its transports, which V1-3 to V1-7 do not edit; their root edits, `Server.Engine` and the `CHANGELOG.md` entries, go through the integrator) | per-PR DoD |
+| V1B | V1A | V1-3 to V1-7 in order: one integrator, the root files and `parser` are shared; beside them V1-16 (after V1-4 has merged: V1-4 is the single owner of the close-cause plumbing in `engineio/session`, K24, the one `engineio/` edit among V1-3 to V1-7; V1-16 and V1-17 rewrite the same file, so they rebase on it, and V1-17's `error` hook reports the cause V1-4 exposes), then V1-17, then V1-18 (`engineio/` and its transports, which V1-3, V1-5, V1-6 and V1-7 do not edit; their root edits, `Server.Engine` and the `CHANGELOG.md` entries, go through the integrator) | per-PR DoD |
 | V1C | V1B | V1-8, then V1-20 (`.github/`, the `Makefile`, `CLAUDE.md`, the conformance directory, `internal/parity`; the V1-8 author integrates) | the `conformance` job and the `parity-check` and `cover-check` step green on `master` |
 | V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`); beside them V1-19 (new files under `internal/conformance` and its `testdata/node`, no workflow edit) | Stage 7 DoD, then per-PR DoD; the V1-19 block |
 | V1E | V1D (V1-12 may start after V1-8) | V1-12 and V1-13, one directory per example; beside them V1-15 (needs V1-2, V1-6 and V1-11: `engineio` options and handshake, `engineio/transport/websocket`, `engineio/transport/polling`, the root emit and broadcast flags, `client/`, new files under `internal/conformance`). The V1-12 author integrates the wave's shared files (`Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md`): V1-13's `Makefile` edit merges after V1-12, and V1-15 edits none of them, since `make conformance` already runs every tagged test of `internal/conformance` | `make examples`, then `examples-node` once per gate client (the two lines of the per-PR checks of V1-12 and V1-13); the per-PR DoD and the V1-15 block (Stage V1) |
@@ -1448,11 +1448,11 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 
 | PR | Scope |
 | --- | --- |
-| V1-0 | Docs only: signatures and semantics of every `ADD` row as subsections of this stage (the methods added to `Conn`, `Namespace`, `Broadcast` and `engineio.Conn` by D10 and D16, `Options` fields and per-emit flags, those of V1-15, V1-16, V1-17 and V1-18 included, errors); three-agent validation (CLAUDE.md) |
+| V1-0 | Docs only: signatures and semantics of every `ADD` row as subsections of this stage (the methods added to `Conn`, `Namespace`, `Broadcast` and `engineio.Conn` by D10 and D16, `Options` fields and per-emit flags, those of V1-15, V1-16, V1-17 and V1-18 included, errors, and the close error type of `engineio/session` that V1-4 adds for K24 as `### V1-4 contract`); three-agent validation (CLAUDE.md) |
 | V1-1 | `engineio/payload` and `engineio/transport/polling`: binary payload length in bytes, not UTF-16 units (P16), JSONP removed with its PROTOCOL.md deviation (P5, P6); the CORS default is V1-18's (S4, P8: D15), `OPTIONS` answers (P9) and overlapping polls (P18) are checked by V1-8 |
 | V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake must be GET with the reference answer (HTTP 400 `{"code":2,"message":"Bad handshake method"}`, P12), which also closes `OPTIONS` without `sid` (E14: today it creates a session in `Server.ServeHTTP`), liveness on any packet with the reference's close rule: the session closes with reason `ping timeout` after `PingInterval + PingTimeout` without any received packet, the window re-armed by every packet (engine.io 3.6.2 `socket.js:136-142`; today `session.go:78,223,397-409` arms a deadline of `PingTimeout` alone, re-armed by a PING only, which under the new defaults would close an idle client 20 s after each of its 25 s pings), and the reference defaults `PingInterval` 25 s and `PingTimeout` 20 s (E1, E2: D15; a `### Changed` entry names both values and the window; the test `TestPingTimeoutIdleClient` and its command are in the per-PR checks below), request checker, `Server.Close` closes sessions |
 | V1-3 | `parser` and root defects: attachment cap, payload validation, `Emit(ev, nil)`, wrong-type argument, per-room duplicates |
-| V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written (R9), `0/nsp,` reply form, disconnect reasons and `disconnecting` order, encode error |
+| V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written (R9), `0/nsp,` reply form, disconnect reasons (K24: the engine's close cause, recorded by `session.go:134` and only logged today, is exposed from `engineio/session` as an exported error type that `NextReader` returns wrapped after the close, and the root maps it to `transport close`, `ping timeout` and `transport error`; the type is V1-0's `### V1-4 contract`, and this is the one `engineio/` edit among V1-3 to V1-7, so V1-4 merges before V1-16, wave V1B) and `disconnecting` order, encode error |
 | V1-5 | Namespace API: `Of`, `Use` and event middleware, connect-rejection reason, per-namespace disconnect, `connected`/`sockets`, `send`, `Server.Close` waiting for sessions, `Conn.ID()` as `/ns#id` outside the root namespace (K1: D15; a `### Changed` entry names it) |
 | V1-6 | Memory broadcast: `Except` and broadcast except the sender (new `Broadcast` methods; the Redis type returns `ErrExceptUnsupported` and drops a message with unknown `opts` entries or keys), room union with dedupe, id lists, `Join` of several rooms, `volatile` and `local` flags, callback-on-broadcast rule |
 | V1-7 | Dynamic namespaces, handshake data (query, headers, request, time), late ack and several listeners per event, adapter injection |
@@ -1656,8 +1656,9 @@ observes through the API, as in 3.6.2, where the constructor reaches `open` befo
 `connection` subtest asserts `open`), `TestEngineSocketEvents` (E19: every socket-level hook fires once in a polling
 session upgraded to websocket, in the order above), and `TestEngineServerEvents` with the
 subtests `connection` (which also asserts `ReadyState` `open` in the hook), `initial_headers`,
-`headers` and `connection_error` (the four D16 events; not a row, so counted below). Entry: V1-2 merged (the `engineio` server and session
-files it rewrites). Besides the per-PR DoD, on the V1-17 head:
+`headers` and `connection_error` (the four D16 events; not a row, so counted below). Entry: V1-2 and V1-4 merged (the `engineio` server and session
+files V1-2 rewrites; the close cause V1-4 exposes from `engineio/session`, which V1-17's
+`error` hook reports). Besides the per-PR DoD, on the V1-17 head:
 
 ```sh
 E17='TestEngineServerEvents/(connection|initial_headers|headers|connection_error)'
@@ -1799,14 +1800,15 @@ v() { git show "$2:Makefile" | awk -F'[:?]?= *' -v k="$1" '$1 ~ "^" k " *$" {pri
 Waves V1A to V1F are in *Execution and parallel work*.
 
 Entry of a wave, `bash` and `set -e`, after the DoD helpers `rows` and `covers` below are defined
-(wave V1A needs one `### V1-<n> contract` heading per `ADD` PR, written by V1-0). Each gate is a
+(wave V1A needs one `### V1-<n> contract` heading per PR that adds exported API, the `ADD`
+PRs and V1-4 with its close error, written by V1-0). Each gate is a
 separate command, and `wave` exits on the first open PR: in a `&&` list a failing non-final
 command does not trigger `set -e`, so predecessors are never chained with `&&`.
 
 ```sh
 done_pr() { test -z "$(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("(^|; )(BUG|ADD|CHG|TEST) " pr "( |;|$)")')" || return 1; test -z "$(covers $1)"; }
 wave() { for n in "$@"; do done_pr V1-$n || { echo "open: V1-$n" >&2; exit 1; }; done; }
-for n in 2 5 6 7 10 11 15 16 17 18; do grep -q "^### V1-$n contract" docs/ROADMAP.md || { echo "V1A: no contract V1-$n" >&2; exit 1; }; done
+for n in 2 4 5 6 7 10 11 15 16 17 18; do grep -q "^### V1-$n contract" docs/ROADMAP.md || { echo "V1A: no contract V1-$n" >&2; exit 1; }; done
 wave 1 2                                                       # entry of V1B
 wave 3 4 5 6 7 16 17 18                                        # entry of V1C
 wave 8; grep -q '^  conformance:' .github/workflows/ci.yaml    # entry of V1D, with the next line

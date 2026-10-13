@@ -1615,15 +1615,25 @@ returning one of the four 3.6.2 states as an `engineio.ReadyState` (`opening`, `
 transport (`polling` or `websocket`, so after an upgrade the new one), and `Upgraded()`
 (E20; `close(discard)` and `send` are `Close` and `NextWriter`, already there). The methods
 are added directly to the interface, as D10 does for `Conn` (*How the plan applies*):
-`engineio.Server`'s sessions implement them, the test fakes of this module are updated, and
-V1-14's `### Changed` entry names `engineio.Conn`. The socket.io `Conn` reaches them through the
+`engineio.Server`'s sessions implement them, the test fakes of this module are updated, and so
+is the engine client (`engineio/client.go`, `type client`, which `Dial` returns and the root
+`socketio.Client` wraps at `client.go:92`), which already has `Transport()` (`client.go:50`):
+its `ReadyState()` is `open` once `Dial` has returned and `closed` after `Close` or after
+the ping loop fails (`pingFailed`, which closes the connection), never `opening` or
+`closing`, since `Dial` returns an open connection and `Close` is synchronous;
+`Upgraded()` is false until V1-10's client upgrade switches the transport and true after
+it; `Transport()` keeps its value. Stage 7's *D10 methods and the alias* covers the root
+`Conn`; this sentence covers the `engineio.Conn` side of the client, and V1-0's
+`### V1-16 contract` lists both. V1-14's `### Changed` entry names `engineio.Conn`. The
+socket.io `Conn` reaches them through the
 engine-connection accessor of K4, which V1-7 adds under D10: V1-7 returns the `engineio.Conn`,
 V1-16 gives it the state, so the two PRs do not conflict. V1-17: the events are observer hooks,
 a struct of func fields on `engineio.Options` in the shape of `v2/engineio/hooks.go` (D13: the
 same shape, not the same signatures, since v1 has no context plumbing); a nil field is ignored,
 a set one is called synchronously on the goroutine of the event, so a hook that blocks delays
 that session only, and a hook must not call back into the session it observes. Server-level:
-`connection` fires when a session is created, before `Accept` returns it; `initial_headers`
+`connection` fires when a session is created, after its handshake and before `Accept`
+returns it, so the session is `open` in the hook (3.6.2 `server.js:342`); `initial_headers`
 fires once per session with the request and the response headers of the handshake response
 (the polling handshake and the websocket upgrade), before they are written; `headers` fires
 with the request and the headers of every response of a session (each polling response, the
@@ -1638,12 +1648,15 @@ accepted, the transport switched), `flush` and `drain` (a polling write batch st
 hook does not replace `Accept`, which stays the way the socket.io server takes sessions.
 Named tests, each under the `// Covers` of its row: `TestServerEngine` (S18),
 `TestEngineClients` (E17: two sessions, the map has both ids and `Count` agrees; a closed
-one leaves it), `TestEngineConnState` (E20: `opening` before the handshake completes, `open`
-after, `websocket` and `Upgraded` true after the probe, `closing` and `closed` around
-`Close`), `TestEngineSocketEvents` (E19: every socket-level hook fires once in a polling
+one leaves it), `TestEngineConnState` (E20: `open` once `Accept` has returned the session,
+`websocket` and `Upgraded` true after the probe, `closing` and `closed` around `Close`;
+`opening` is the state between the session's creation and the OPEN packet, which no caller
+observes through the API, as in 3.6.2, where the constructor reaches `open` before
+`connection` fires (`socket.js:26,45,61`, `server.js:342`), so no test asserts it and V1-17's
+`connection` subtest asserts `open`), `TestEngineSocketEvents` (E19: every socket-level hook fires once in a polling
 session upgraded to websocket, in the order above), and `TestEngineServerEvents` with the
-subtests `connection`, `initial_headers`, `headers` and `connection_error` (the four D16
-events; not a row, so counted below). Entry: V1-2 merged (the `engineio` server and session
+subtests `connection` (which also asserts `ReadyState` `open` in the hook), `initial_headers`,
+`headers` and `connection_error` (the four D16 events; not a row, so counted below). Entry: V1-2 merged (the `engineio` server and session
 files it rewrites). Besides the per-PR DoD, on the V1-17 head:
 
 ```sh

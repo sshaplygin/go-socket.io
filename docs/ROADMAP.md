@@ -1430,8 +1430,8 @@ first). Rows for a PR are the `Plan` entries naming it (`covers V1-<n>` below li
 | PR | Scope |
 | --- | --- |
 | V1-0 | Docs only: signatures and semantics of every `ADD` row as subsections of this stage (O2 mechanism, `Options` fields, errors); three-agent validation (CLAUDE.md) |
-| V1-1 | `engineio/transport/polling`: UTF-16 payload length (P16), JSONP removed with its PROTOCOL.md deviation (P5, P6), `OPTIONS` without `sid` (E14); the CORS default stays (S4, P8: O3), `OPTIONS` answers (P9) and overlapping polls (P18) are checked by V1-8 |
-| V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake method, liveness on any packet, request checker, `Server.Close` closes sessions |
+| V1-1 | `engineio/transport/polling`: UTF-16 payload length (P16), JSONP removed with its PROTOCOL.md deviation (P5, P6); the CORS default stays (S4, P8: O3), `OPTIONS` answers (P9) and overlapping polls (P18) are checked by V1-8 |
+| V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake must be GET with the reference answer (HTTP 400 `{"code":2,"message":"Bad handshake method"}`, P12), which also closes `OPTIONS` without `sid` (E14: today it creates a session in `Server.ServeHTTP`), liveness on any packet, request checker, `Server.Close` closes sessions |
 | V1-3 | `parser` and root defects: attachment cap, payload validation, `Emit(ev, nil)`, wrong-type argument, per-room duplicates |
 | V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written (R9), `0/nsp,` reply form, disconnect reasons and `disconnecting` order, encode error |
 | V1-5 | Namespace API: `Of`, `Use` and event middleware, connect-rejection reason, per-namespace disconnect, `connected`/`sockets`, `send`, `Server.Close` waiting for sessions |

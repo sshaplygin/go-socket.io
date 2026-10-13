@@ -1545,6 +1545,7 @@ run in the `conformance` job, green per the per-PR DoD. Besides the per-PR DoD, 
 ```sh
 V15='TestPerMessageDeflateNegotiated|TestPerMessageDeflateLimit|TestPollingHTTPCompression|TestHandshakeCookie|TestEmitCompressFlag|TestBroadcastCompressFlag|TestClientCompress'
 test "$(go test -race -count=1 -json -run "^($V15)\$" ./... | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test' | sort -u | wc -l)" -eq 7   # all seven exist and pass
+for p in TestPerMessageDeflateNegotiated:E8 TestPerMessageDeflateLimit:E8 TestPollingHTTPCompression:E9 TestHandshakeCookie:E10 TestEmitCompressFlag:K17 TestBroadcastCompressFlag:S21 TestClientCompress:C11; do git grep -h -B4 -E "^func ${p%%:*}[(]" -- '*_test.go' | grep -qE "^// Covers ${p#*:}( |$)" || { echo "no // Covers ${p#*:} above ${p%%:*}" >&2; exit 1; }; done   # each under its row's marker, which covers alone does not prove for rows shared with V1-6 and V1-11
 V15C='TestConformancePerMessageDeflate|TestConformanceClientPerMessageDeflate'
 test "$(go test -tags conformance -list "^($V15C)\$" ./internal/conformance/... | grep -cE "^($V15C)\$")" -eq 2   # both scenarios exist (-list needs no Node)
 ```

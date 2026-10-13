@@ -1405,7 +1405,7 @@ package) is executed inside it as PR V1-9.
 | D14 | (2026-10-13, code sharing between the modules; the recommendation accepted as worded.) The two modules stay independent: no third shared module, no cross-`require`, no `go.work`. The byte-identical foundation (`logger`, `engineio/frame`, the `engineio/transport` interfaces and manager, the session id generator and manager, `engineio/packet`, `transport/utils`, `payload/pauser.go`; about 650 non-test lines was the estimate in the question, the measured count is in *Shared-file drift check*) is kept as copies guarded by a CI drift check, `make sync-check`: a manifest of shared files compared between the root and `v2/` after the import-path rewrite. A file leaves the manifest in the PR that intentionally diverges it, with the reason. The check is its own PR (*Shared-file drift check* below). |
 | D15 | (2026-10-14, answer to O3; not the recommendation.) CORS is enabled by default, as in the reference, and an option disables it (S4, P8). The other defaults are aligned to the reference: `pingInterval` 25000 ms and `pingTimeout` 20000 ms of engine.io 3.6.2 (E1, E2), and `Conn.ID()` in a non-root namespace is `/ns#id` (K1). |
 | D16 | (2026-10-14, answer to O6; not the recommendation.) The full engine layer as in Node is in `v1.5.0`: the `engine` handle, the `clients` map and count, the engine events (`connection`, `initial_headers`, `headers`, `connection_error`) and the engine socket state (`readyState`, `transport`, `upgraded`); rows S18, E17, E19, E20. Code work, so it adds PRs to this stage: V1-16 and V1-17. |
-| D17 | (2026-10-14, tests and examples.) Working examples that run against `socket.io-client` 1.7 and 2.5. Mandatory tests that check the contract between JS and Go (the same scenario run against the reference Node server and against the Go server, the observable results compared) and the API coverage (every reference API row of PARITY.md has a test, enforced by a gate; coverage of the Go API). PRs V1-19 and V1-20; the examples are V1-12 and V1-13. |
+| D17 | (2026-10-14, tests and examples.) Working examples that run against `socket.io-client` 1.7 and 2.5. Mandatory tests that check the contract between JS and Go and the API coverage. |
 
 **How the plan applies D10, D11, D13, D15, D16 and D17** (plan choices, not the owner's words). The
 plan reads D13's "fixed" API as the API released by the first tag of a major line (`v1.5.0`
@@ -1430,7 +1430,11 @@ on its transports only (`polling.js:405`, `websocket.js:36`, where the cookie is
 V1-17 defines them over the 3.6.2 behaviour they observe (the handshake response and the
 rejections of P11), beside the socket-level events of E19. The engine socket state (E20) adds
 methods to the exported `engineio.Conn`, so that interface follows the D10 rule too: external
-implementers and mocks of it stop compiling, and V1-14's `### Changed` entry names it. D17's
+implementers and mocks of it stop compiling, and V1-14's `### Changed` entry names it. The
+plan reads D17's JS/Go contract tests as differential tests, the same scenario run against
+the reference Node server and against the Go server with the observable results compared
+(V1-19), and its API coverage as two gates, a test for every reference API row of PARITY.md
+and the coverage of the Go API (V1-20); the examples are V1-12 and V1-13. D17's
 API-coverage gate (V1-20) reads the `// Covers` markers the per-PR DoD already requires; its
 Go API coverage is a ratchet from a measured baseline, not a target chosen here. Silence is
 not an answer: a decision row is recorded only from a comment of the repository owner on the

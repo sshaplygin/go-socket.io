@@ -140,8 +140,13 @@ func (e *encoder) calcCodeUnitLength() int64 {
 
 	return int64(l)
 }
+
+// writeBinaryHeader writes the header of a packet in a binary payload. The length is
+// in bytes, the packet type byte included, for string and binary frames alike, as in
+// encodePayloadAsBinary of engine.io-parser 2.2.1 (a string packet is UTF-8 encoded
+// there before it is measured).
 func (e *encoder) writeBinaryHeader() error {
-	l := int64(e.calcCodeUnitLength()) // length for packet type
+	l := int64(e.frameCache.Len()) + 1 // length for packet type
 	b := e.pt.StringByte()
 	if e.ft == frame.Binary {
 		b = e.pt.BinaryByte()

@@ -1396,7 +1396,7 @@ package) is executed inside it as PR V1-9.
 | D7 | Release gate clients: `socket.io-client` 1.7.4 and 2.5.0, in a CI job (1.0 to 1.3 are not guaranteed). |
 | D8 | Fixed as bugs, in the PRs named in PARITY.md: polling binary-mode UTF-16 length (P16, non-ASCII fails); an unknown namespace or rejected CONNECT answers an ERROR packet and keeps the root socket (S10, R8; socket.io 2.5.0 says `Invalid namespace`); `BroadcastToNamespace` duplicates per room (S12); random session id as `base64id` (E15); `Emit(ev, nil)` panic (B1); a wrong-type event argument closes the connection (B2); no payload size limit (E4: the limit is the reference's `maxHttpBufferSize` default, 1e6 bytes, by D1, with an `Options` field to raise it, an `ADD` entry of E4 that V1-0 specifies); no attachment-count cap (R6: a `5999999999999-` header took 19.5 s in one decode); JSONP `j` reflection (P5, closed by D4); `Server.Close` leaves sessions running (S17, E22); Redis `DB` ignored (A10, in V1R). O3 does not reopen any of them; it covers only the defaults they leave open. |
 | D9 | (2026-10-13, answer to O1.) Parity means functional parity of the wire and of the documented features with an idiomatic Go API: a row is `PARITY` when a reference client or server cannot tell the difference; the reference's API shape is not copied. |
-| D10 | (2026-10-13, answer to O2; not the recommendation.) An `ADD` row that needs a method on the exported `Conn` or `Namespace` adds it directly to the interface; the optional-interface mechanism is rejected. The owner confirmed it after being shown that external implementers and mocks of those interfaces stop compiling: the version has not been raised since the original library, so the API may be broken now (D13), and the break is recorded (V1-14: `### Changed` entry with a migration note). |
+| D10 | (2026-10-13, answer to O2; not the recommendation.) An `ADD` row that needs a method on the exported `Conn` or `Namespace` adds it directly to the interface. The owner confirmed it after being shown that external implementers and mocks of those interfaces stop compiling: the version has not been raised since the original library, so the API may be broken now (D13), and the break is recorded (V1-14: `### Changed` entry with a migration note). |
 | D11 | (2026-10-13, answer to O4; not the recommendation.) `perMessageDeflate`, `httpCompression`, `cookie` (E8, E9, E10) and the `compress` flag (K17, C11) are in `v1.5.0`, as PR V1-15 below; they are not deviations. |
 | D12 | (2026-10-13, answer to O5.) The v1 client gets the full reconnection options and the `reconnect*` events of the reference client (C3), as PR V1-11 is written. |
 | D13 | (2026-10-13, engineering rules.) Packages are reused between v1 and v2 as far as possible; code is not duplicated without real necessity. An API released by the first tag of a major line (`v1.5.0` for v1, `v2.0.0` for v2) is not broken inside that major; backward compatibility is kept except across the majors v1 and v2. Before the first tag of a line its API may still change. |
@@ -1467,10 +1467,10 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 
 **`Except` with the Redis adapter in `v1.5.0` (rows A4, K14, S21; D2, D10).** Decided here by
 the rule of D10: the `Except` options are methods added directly to the exported `Broadcast`
-interface, not an optional interface. Keeping its method set rested on the optional-interface
-mechanism that D10 rejects; `redis_broadcast.go` is in this module and changes in V1-6 anyway,
-and an external `Broadcast` cannot be injected before V1-7 (S5), so only mocks break, the
-breakage D10 accepts and V1-14 documents. The Redis `Broadcast` implements the new methods by
+interface. That is the simplest mechanism consistent with D10: one interface for the server to
+call, the same rule as `Conn` and `Namespace`; `redis_broadcast.go` is in this module and
+changes in V1-6 anyway, and an external `Broadcast` cannot be injected before V1-7 (S5), so only
+mocks break, the breakage D10 accepts and V1-14 documents. The Redis `Broadcast` implements the new methods by
 returning an error wrapping `ErrExceptUnsupported` and sending nothing; `Server`'s `Except` and
 broadcast-except-sender return that error, never a delivery to every instance including the
 sender. V1-0 records the names; V1-6 tests the error with a fake `Broadcast` that returns it

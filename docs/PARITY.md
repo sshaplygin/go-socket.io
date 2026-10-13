@@ -39,12 +39,13 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
   (`N`), or `-`. PRs = the audit's rough PR estimate, 0 for PARITY; the plan is in `Plan`.
 - Adding methods to the exported `Conn` / `Namespace` interfaces breaks external implementers
   (mocks); decision D10 (ROADMAP Stage V1) adds them directly, and `v1.5.0` documents the
-  change; the exported `Broadcast` follows the same rule. `D10` in `Decision` marks the rows
+  change; the plan applies the same rule to the exported `Broadcast`. `D10` in `Decision` marks the rows
   whose plan puts a method on `Conn`, `Namespace` (the per-connection view embedded in `Conn`)
   or `Broadcast`. The V1-0 contracts are the list of those methods: a contract that puts one on
   an untagged row adds `D10` to it in the same PR. Untagged on purpose: the server namespace
   object of S8 (S14, S16, N2, N4), the ack parameter of a handler (K26), handler registration on
-  the server (K28).
+  the server (K28), the flags of server broadcasts (S21: `Server` is a struct; the flags reach
+  `Broadcast` through the methods of A4).
 - `Plan` is `<kind> V1-<n>` with the PR of ROADMAP Stage V1 that closes the row, several
   entries separated by `;`. Kinds: `BUG` fixed as a bug (a behaviour change); `ADD` new public
   API; `CHG` behaviour or internal change without new API; `TEST` a test verifies an unverified

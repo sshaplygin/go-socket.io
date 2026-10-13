@@ -1461,6 +1461,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-16 | Engine layer I (D16): `Server.Engine()`, the `*engineio.Server` the socket.io server runs on (S18); `engineio.Server.Clients()`, a snapshot of the open sessions by id, beside `Count` (E17); the engine socket state on `engineio.Conn`, `ReadyState()`, `Transport()` and `Upgraded()` (E20), which the engine-connection accessor of K4 (V1-7) reaches from a socket; contract and checks in *Engine layer (V1-16, V1-17)* below |
 | V1-17 | Engine layer II (D16): the engine events as observer hooks on `engineio.Options`: the server-level `connection`, `initial_headers`, `headers` and `connection_error` named by D16, and the socket-level `flush`, `drain`, `packet`, `packetCreate`, `heartbeat`, `upgrading`, `upgrade` and `error` of E19; contract and checks in *Engine layer (V1-16, V1-17)* below |
 | V1-18 | CORS (D15): the server-level default that accepts every origin and writes the headers of `polling-xhr.js:48-62` on every polling response (P8), one `engineio.Options` field that disables it (S4), the per-transport `CheckOrigin` kept as the override; `### Changed` entry; contract and checks in *CORS default and option (V1-18)* below |
+| V1-19 | Differential JS/Go contract tests (D17): the scenarios of *Differential contract tests (V1-19)* below, each run by the conformance job's Node client against the reference `socket.io@2.5.0` server and against the Go server, the two transcripts compared; new files under `internal/conformance` and its `testdata/node`, tag `conformance`, no new Go dependency |
 
 **`Except` with the Redis adapter in `v1.5.0` (rows A4, K14, S21; D2, D10).** Decided here by
 the rule of D10: the `Except` options are methods added directly to the exported `Broadcast`
@@ -1510,7 +1511,8 @@ namespace connect, an unknown namespace answered by ERROR with the root socket k
 in both directions; binary event and binary ack in both directions; non-ASCII text (P16);
 rooms and broadcast except the sender (K14); middleware rejection with its reason; a server-side
 disconnect seen as `io server disconnect` (K20); the upgrade; a reconnect. A second step runs the
-Go `client` against a Node `socket.io@2.5.0` server (from V1-10 on). Rows marked `TEST` in PARITY.md
+Go `client` against a Node `socket.io@2.5.0` server (from V1-10 on); V1-8 installs
+`socket.io@2.5.0` the same way, so that step and V1-19 edit no workflow. Rows marked `TEST` in PARITY.md
 are closed by a named test: P9 (OPTIONS answer), P15 (websocket framing), P17 (graceful close)
 and P18 (two overlapping polls, which a stock client never sends) by Go tests in the same
 package that start the server and use raw HTTP and websocket clients, N7 by a Go test in V1-6.
@@ -1639,6 +1641,47 @@ cross-origin websocket upgrade accepted) and `TestCORSDisabled` (S4: with the fi
 CORS header on any polling response, the cross-origin upgrade refused with HTTP 403, and a
 transport's `CheckOrigin` still honoured either way). Entry: V1-2 merged (the `Options`
 fields it adds; the transports are V1-1's, merged).
+
+**Differential contract tests (V1-19; D17).** The conformance scenarios of V1-8 assert what
+the plan expects; D17 asks for the reference itself as the oracle. `TestDifferential` in
+`internal/conformance/differential_test.go` (tag `conformance`, the V1-8 layout and rules)
+starts, per scenario, the Go server with the scenario's handlers and the reference server
+`testdata/node/reference-server.js` (`socket.io@2.5.0`, installed by the job as V1-8 says)
+with the same handlers written in JS, then runs `testdata/node/differential-client.js` with
+the job's client version (the matrix entry: 1.7.4 and 2.5.0) against each server, once over
+polling and once over websocket; the client prints a JSON transcript of what it observed,
+and the test normalises both transcripts and compares them with `reflect.DeepEqual`,
+printing the first difference. Compared exactly: the names and arguments of every event the
+client receives and of every ack it gets back (JSON-decoded values, so number formatting
+does not count), the order of events on one socket, the payload of an `error` event
+(`Invalid namespace`, a middleware reason), the reason of each `disconnect` event, the
+`connect` and `disconnect` sequence of each namespace socket, the HTTP status and JSON body
+of a rejected handshake (P11, P12), the CORS headers of a polling response (P8), the
+`pingInterval` and `pingTimeout` of the OPEN packet (E1, E2) and binary payloads (compared as
+bytes). Normalised before the comparison: session ids and `socket.id` values (replaced by the
+index of the connection in the transcript; `/ns#id` keeps its prefix, K1), `handshake.time`
+and `issued` (present and parseable only), and the order of events across different sockets
+(sorted by socket, then by sequence). Not compared: wire bytes (the Go encoder's trailing
+`\n` of R2 is invisible to a client), timing, and HTTP headers other than the CORS ones.
+Scenarios, the table in the test using these names: `connect-root` (connect and disconnect on
+`/`, `socket.id` shape), `namespace` (connect to `/chat`, then to an unknown namespace: ERROR
+with the root socket kept, S10), `middleware-reject` (a middleware error with its reason,
+S11), `ack-both-ways` (K26, K27), `binary` (binary event and ack both ways, R4),
+`non-ascii` (P16), `rooms` (join, `to(room)`, broadcast except the sender, leave; K11, K14,
+S13), `server-disconnect` (`disconnect()` seen as `io server disconnect`, `disconnect(true)`
+as `transport close`; K20, K24), `handshake-data` (query and a header echoed back; K5, K7),
+`rejected-handshake` (bad method, unknown sid, unknown transport by raw HTTP; P11, P12, P13),
+`cors` (a polling GET with and without `Origin`; P8), `open-packet` (E1, E2). Twelve scenarios
+over two transports: twenty-four subtests per matrix entry. A scenario whose feature the Go
+server lacks fails, so V1-19 enters after the server PRs it exercises: V1-3 to V1-7 and
+V1-18 (wave V1B) and V1-8 (the job, the installs, the layout). The job runs it as part of
+`make conformance`, with no workflow change. Besides the per-PR DoD, on its head:
+
+```sh
+for s in connect-root namespace middleware-reject ack-both-ways binary non-ascii rooms server-disconnect handshake-data rejected-handshake cors open-packet; do grep -q "\"$s\"" internal/conformance/differential_test.go || { echo "no scenario $s" >&2; exit 1; }; done   # the twelve scenarios of the list exist by name
+test "$(go test -tags conformance -list '^TestDifferential$' ./internal/conformance/... | grep -c '^TestDifferential$')" -eq 1   # -list needs no Node
+test "$(go test -race -count=1 -tags conformance -json -run '^TestDifferential$' ./internal/conformance/... | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")))|.Test' | sort -u | wc -l)" -eq 24   # every scenario passes over both transports (needs Node and the installs, as the job has)
+```
 
 Waves V1A to V1F are in *Execution and parallel work*.
 

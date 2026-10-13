@@ -165,7 +165,7 @@ workers submit changes to these files through that integrator.
 | V1B | V1A | V1-3 to V1-7 in order: one integrator, the root files and `parser` are shared; beside them V1-16, then V1-17, then V1-18 (`engineio/` and its transports, which V1-3 to V1-7 do not edit; their root edits, `Server.Engine` and the `CHANGELOG.md` entries, go through the integrator) | per-PR DoD |
 | V1C | V1B | V1-8, then V1-20 (`.github/`, the `Makefile`, `CLAUDE.md`, the conformance directory, `internal/parity`; the V1-8 author integrates) | the `conformance` job and the `parity-check` and `cover-check` step green on `master` |
 | V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`); beside them V1-19 (new files under `internal/conformance` and its `testdata/node`, no workflow edit) | Stage 7 DoD, then per-PR DoD; the V1-19 block |
-| V1E | V1D (V1-12 may start after V1-8) | V1-12 and V1-13, one directory per example; beside them V1-15 (needs V1-2, V1-6 and V1-11: `engineio` options and handshake, `engineio/transport/websocket`, `engineio/transport/polling`, the root emit and broadcast flags, `client/`, new files under `internal/conformance`). The V1-12 author integrates the wave's shared files (`Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md`): V1-13's `Makefile` edit merges after V1-12, and V1-15 edits none of them, since `make conformance` already runs every tagged test of `internal/conformance` | `make examples examples-node`; the per-PR DoD and the V1-15 block (Stage V1) |
+| V1E | V1D (V1-12 may start after V1-8) | V1-12 and V1-13, one directory per example; beside them V1-15 (needs V1-2, V1-6 and V1-11: `engineio` options and handshake, `engineio/transport/websocket`, `engineio/transport/polling`, the root emit and broadcast flags, `client/`, new files under `internal/conformance`). The V1-12 author integrates the wave's shared files (`Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md`): V1-13's `Makefile` edit merges after V1-12, and V1-15 edits none of them, since `make conformance` already runs every tagged test of `internal/conformance` | `make examples`, then `examples-node` once per gate client (the two lines of the per-PR checks of V1-12 and V1-13); the per-PR DoD and the V1-15 block (Stage V1) |
 | V1F | V1E | V1-14 release preparation, no tag | MV1 DoD and Acceptance (Stage V1) |
 | SY | row R step C passed | the PR SYNC (Stage V1, *Shared-file drift check*): root `Makefile`, `.github/workflows/ci.yaml`, `.github/sync-manifest`, `CLAUDE.md`; it runs beside V1A or V1B, whose PRs are not planned to edit those files, and never beside V1C or V1E, which edit `ci.yaml` and the `Makefile` | the SYNC DoD; the `sync-check` job green on `master` |
 | 2B | G2, row R merged (its step C passed), MV1 accepted and SYNC merged | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
@@ -1460,7 +1460,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-9 | Stage 7 as written below: the `client` package, behaviour-preserving, its own DoD; its commits are titled `<type>(7.<n>)` as Stage 7 requires |
 | V1-10 | `client` I: websocket and upgrade, several namespaces per `Client`, DISCONNECT on close, connect timeout and `connect_error`, `path`/`query`/headers, emit buffering |
 | V1-11 | `client` II: reconnection with options and `reconnect*` events (D12), `once`/`off`/`id`/`connected`, flags (`compress` is V1-15's) |
-| V1-12 | Examples `_examples/ack` and `_examples/binary`, each with its own `go.mod`, a `client.js` (exit 0 on success) and a README. Also owns the `Makefile` `examples` change: every example module is built and vetted (`go build`, `go vet`), the identical-copy `cmp` runs only for directories that hold a `chat.go` (the new ones have none), and a new target `examples-node` starts each example that has a `client.js` on a random port and runs it with the `socket.io-client` installed under `CONFORMANCE_NODE_MODULES` (the conformance job's matrix entry, so 1.7.4 and 2.5.0 both: D17); `_examples/default-http` gets a `client.js` too (`add user` answered by `login`, what the page does), so the existing chat runs under both versions; the conformance job runs the target in each matrix entry; `CLAUDE.md` `make examples` line updated in the same PR |
+| V1-12 | Examples `_examples/ack` and `_examples/binary`, each with its own `go.mod`, a `client.js` (exit 0 on success) and a README. Also owns the `Makefile` `examples` change: every example module is built and vetted (`go build`, `go vet`), the identical-copy `cmp` runs only for directories that hold a `chat.go` (the new ones have none), and a new target `examples-node` starts each example that has a `client.js` on a random port and runs it with `node`, `NODE_PATH` set to `CONFORMANCE_NODE_MODULES` (V1-8: the client install of the conformance job's matrix entry, so 1.7.4 and 2.5.0 both in the job: D17); with the variable unset the target fails with a message naming it, as the tagged tests do, and never skips; a local run installs each version with the V1-8 `npm install` line into a temporary prefix and runs the target once per version (the command block of the per-PR checks and of the MV1 DoD); `_examples/default-http` gets a `client.js` too (`add user` answered by `login`, what the page does), so the existing chat runs under both versions; the conformance job runs the target in each matrix entry; `CLAUDE.md` `make examples` line updated in the same PR |
 | V1-13 | Examples `_examples/namespaces` (namespaces, rooms, auth) and `_examples/middleware`, same rules, `examples-node` extended; `_examples/default-http` gets broadcast-except-sender, and every `chat.go` copy changes with it in the same PR, except `redis-adapter` and `redis-adapter-unix-socket`: `Except` is not available over Redis in `v1.5.0` (D2, contract in V1-0), so they keep their `chat.go` with the `others()` helper, named in `CHAT_SKIP` of the Makefile (the copy check is `CHAT_COPIES`, the `chat.go` directories minus `CHAT_SKIP`) until V1R; the browser page for 1.7 (D17): `_examples/asset/index-1.7.html`, the upstream page loading `socket.io-client@1.7.4` from jsDelivr with its integrity hash, beside `index.html` (2.5.0), so every example that mounts `asset/` serves both, and `_examples/README.md` says which URL opens each |
 | V1-14 | Release preparation: PROTOCOL.md deviations (D3, D4) as the headings `### Deviation D3: mixed Go/Node Redis cluster` and `### Deviation D4: JSONP unsupported` under *Known deviations from the v3/v4 specs* (the unique strings the MV1 DoD greps for), README supported versions, `CHANGELOG.md` `## Unreleased` complete, v1 migration notes. D10 communication: one `### Changed` entry that names `Conn`, `Namespace`, `Broadcast` and `engineio.Conn` and every method V1-0 added to each, says that implementers and mocks of them stop compiling in this minor release, and what a client connection returns for the server-only ones (Stage 7), and carries the migration note (add the methods, or embed the interface in a mock); the default changes of V1-15 are `### Changed` entries too (the `io` cookie set after every polling handshake, polling responses of 1024 bytes or more compressed when the client accepts it), each naming the reference option (`cookie`, `httpCompression`), as are the D15 defaults written by V1-2 (`PingInterval`, `PingTimeout`), V1-5 (`Conn.ID`) and V1-18 (CORS); no tag |
 | V1-15 | Compression and cookies (D11): `perMessageDeflate` for the websocket transport (E8), `httpCompression` for polling responses (E9), the `cookie` option (E10), the per-emit `compress` flag of `Conn` (K17), of server broadcasts (S21) and of the client (C11); contract and checks in *Compression and cookies (V1-15)* below |
@@ -1516,9 +1516,20 @@ that test needs Node and `npm`, so it sits behind the build tag `conformance` an
 adds the exception for the tag to that sentence). Layout, fixed here: the Go tests are
 `internal/conformance/*_test.go`, each file starting with `//go:build conformance`; the scenarios
 and `package.json` (`"private": true`, no dependencies: the job installs the client) are
-`internal/conformance/testdata/node/`, which the Go build skips. The job installs with
-`npm install --no-save --prefix internal/conformance/testdata/node <module>@<version>` and runs
-the new `make conformance` target, `go vet -tags conformance ./internal/conformance/... && go test
+`internal/conformance/testdata/node/`, which the Go build skips. Two installs with separate
+prefixes: the job installs the matrix entry's client with `npm install --no-save --prefix
+internal/conformance/testdata/node socket.io-client@<version>` and the reference server with
+`npm install --no-save --prefix internal/conformance/testdata/node/server socket.io@2.5.0`,
+under its own prefix because `socket.io@2.5.0` depends on `socket.io-client@2.5.0`, which must
+not shadow the 1.7.4 entry's client (a second `--no-save` install into one prefix recomputes
+the tree from a `package.json` that lists neither). The server scripts live in
+`testdata/node/server/` (its own `package.json`, `"private": true`, no dependencies) and
+resolve `socket.io` from the `node_modules` beside them; the client scripts in
+`testdata/node/` resolve `socket.io-client` from theirs. The job exports
+`CONFORMANCE_NODE_MODULES=internal/conformance/testdata/node/node_modules`, the client
+install, which the tagged tests and `examples-node` (V1-12) pass to `node` as `NODE_PATH`, so
+a script outside `testdata/node` (an example's `client.js`) finds the same client. It then
+runs the new `make conformance` target, `go vet -tags conformance ./internal/conformance/... && go test
 -race -count=1 -tags conformance ./internal/conformance/...`; under the tag a missing `node` or
 `CONFORMANCE_NODE_MODULES` fails the test (a skip would make the job green without running a
 scenario), and no `TestMain` checks them, because `-list` runs `TestMain`. `covers` and the
@@ -1529,12 +1540,13 @@ namespace connect, an unknown namespace answered by ERROR with the root socket k
 in both directions; binary event and binary ack in both directions; non-ASCII text (P16);
 rooms and broadcast except the sender (K14); middleware rejection with its reason; a server-side
 disconnect seen as `io server disconnect` (K20); the upgrade; a reconnect. A second step runs the
-Go `client` against a Node `socket.io@2.5.0` server (from V1-10 on); V1-8 installs
-`socket.io@2.5.0` the same way, so that step and V1-19 edit no workflow. Rows marked `TEST` in PARITY.md
+Go `client` against a Node `socket.io@2.5.0` server (from V1-10 on), a script in
+`testdata/node/server/` started by tagged tests of the same package; V1-8 installs
+`socket.io@2.5.0` under the server prefix from the start, so that step and V1-19 edit no
+workflow. Rows marked `TEST` in PARITY.md
 are closed by a named test: P9 (OPTIONS answer), P15 (websocket framing), P17 (graceful close)
 and P18 (two overlapping polls, which a stock client never sends) by Go tests in the same
 package that start the server and use raw HTTP and websocket clients, N7 by a Go test in V1-6.
-The Go `client` step uses `socket.io@2.5.0` installed the same way, from tagged tests of the same package.
 
 **Compression and cookies (V1-15; rows E8, E9, E10, K17, S21, C11; D11).** V1-0 writes
 `### V1-15 contract` with the `engineio.Options` fields and the flag methods. Defaults are
@@ -1664,7 +1676,7 @@ fields it adds; the transports are V1-1's, merged).
 the plan expects; D17 asks for the reference itself as the oracle. `TestDifferential` in
 `internal/conformance/differential_test.go` (tag `conformance`, the V1-8 layout and rules)
 starts, per scenario, the Go server with the scenario's handlers and the reference server
-`testdata/node/reference-server.js` (`socket.io@2.5.0`, installed by the job as V1-8 says)
+`testdata/node/server/reference-server.js` (`socket.io@2.5.0` under the server prefix of V1-8)
 with the same handlers written in JS, then runs `testdata/node/differential-client.js` with
 the job's client version (the matrix entry: 1.7.4 and 2.5.0) against each server, once over
 polling and once over websocket; the client prints a JSON transcript of what it observed,
@@ -1808,9 +1820,16 @@ test "$(go test -race -count=1 -json -run '^TestPingTimeoutIdleClient$' ./engine
 ```
 
 V1-8 and later run `gh pr checks <n>` with `conformance` green; V1-10, V1-11 and V1-15 run the Go client against the
-Node 2.5.0 server of the conformance job. V1-12 and V1-13 run `make examples examples-node`
-on their head (V1-12 with `ack` and `binary` present; V1-13 and MV1 with all four new
-directories). The `cmp` step of `examples` covers every `CHAT_COPIES` file, so a copy that
+Node 2.5.0 server of the conformance job. V1-12 and V1-13 run `make examples` and then
+`examples-node` once per gate client on their head (V1-12 with `ack` and `binary` present;
+V1-13 and MV1 with all four new directories), the two lines the MV1 DoD repeats:
+
+```sh
+make examples   # builds and vets every example module, cmp of the chat copies
+for V in 1.7.4 2.5.0; do d=$(mktemp -d); npm install --no-save --prefix "$d" socket.io-client@$V; CONFORMANCE_NODE_MODULES="$d/node_modules" make examples-node; done   # each client.js under both gate clients, the install line of V1-8 (D17)
+```
+
+The `cmp` step of `examples` covers every `CHAT_COPIES` file, so a copy that
 V1-13 leaves behind fails there. V1-6, on its head, counts the four Redis-less tests of the
 Redis `Broadcast` named in *`Except` with the Redis adapter*:
 
@@ -1823,7 +1842,8 @@ test "$(go test -race -count=1 -json -run "^($V6)\$" . | jq -r 'select(.Action==
 
 ```sh
 rows() { awk -F' *[|] *' '$2 ~ /^[A-Z][0-9]+$/' docs/PARITY.md; }
-make lint test-race examples examples-node   # builds and vets all example modules, runs each new client.js
+make lint test-race examples   # builds and vets all example modules, cmp of the chat copies
+for V in 1.7.4 2.5.0; do d=$(mktemp -d); npm install --no-save --prefix "$d" socket.io-client@$V; CONFORMANCE_NODE_MODULES="$d/node_modules" make examples-node; done   # each client.js under both gate clients (D17), as the per-PR checks of V1-12 and V1-13
 test -z "$(rows | awk -F' *[|] *' '$3 ~ /(BUG|ADD|CHG|TEST)/')"   # no open row, in any entry of the plan (a row with several entries is open while one of them is)
 for V in 1.7.4 2.5.0; do grep -q "socket.io-client@$V" .github/workflows/ci.yaml || { echo "missing client $V" >&2; exit 1; }; done
 cl() { awk -v want="$1" 'function out() { if (e != "") print e; e = "" } /^## Unreleased/ {u = 1; next} /^## / {out(); u = 0} u && /^### / {out(); s = $2; next} u && s == want { if (/^- /) { out(); e = $0 } else if (/^  +[^ ]/ && e != "") e = e " " $0; else out() } END {out()}' CHANGELOG.md; }   # one line per entry of that subsection of Unreleased, continuation lines joined

@@ -2470,7 +2470,9 @@ transport and codec errors, without calling `slog.SetDefault`.
 
 `docs/MIGRATION.md` (including how v1 `Conn.Close` draining maps to v2 socket and
 session close, the breaking changes recorded in Stage 1b, and the `v1.5.0` features v2 does not
-carry, permessage-deflate (V1-15, D11; *Out of scope*) first among them), `docs/PROTOCOL.md` update, `docs/OBSERVABILITY.md`,
+carry: permessage-deflate (V1-15, D11; *Out of scope*), and `httpCompression`, the `io` cookie
+and the per-emit `compress` flag of V1-15, which no v2 stage plans (`BroadcastFlags` is
+`{Local bool}`)), `docs/PROTOCOL.md` update, `docs/OBSERVABILITY.md`,
 `contrib/otel/README.md`, tags `v2.0.0` and `v2/contrib/otel/v2.0.0` from the same commit, only
 after the owner's declaration and after `v1.5.0` (*Repository layout*). The module path `.../v2`, the
 `go.mod` and imports of every `v2/_examples/*` (B3) and the `v2/README.md` badge and links (B5) are

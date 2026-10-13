@@ -368,51 +368,63 @@ func TestPayloadInOutPause(t *testing.T) {
 
 	p := New(true)
 
-	var wg sync.WaitGroup
+	// feedInDone and flushOutDone are closed when FeedIn and FlushOut
+	// return.
+	feedInDone := make(chan struct{})
+	flushOutDone := make(chan struct{})
+	var flushed []byte
 
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer close(feedInDone)
 
 		err := p.FeedIn(bytes.NewReader([]byte("1:0")), false)
-		must.NoError(err)
+		assert.NoError(t, err)
 	}()
 
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer close(flushOutDone)
 
 		b := bytes.NewBuffer(nil)
 		err := p.FlushOut(b)
-		must.NoError(err)
-
-		should.Equal([]byte{0x0, 0x1, 0xff, '6'}, b.Bytes())
+		assert.NoError(t, err)
+		flushed = b.Bytes()
 	}()
 
+	// Pause only after FeedIn and FlushOut have both registered with the
+	// pauser; a Pause before that makes them fail with ErrPaused instead.
+	waitWorkers(t, p, 2)
+
+	paused := make(chan struct{})
 	go func() {
-		time.Sleep(time.Second / 10 * 3)
-
-		_, _, r, err := p.NextReader()
-		defer func() {
-			must.NoError(r.Close())
-		}()
-		must.NoError(err)
-
-		_, err = io.Copy(io.Discard, r)
-		must.NoError(err)
+		p.Pause()
+		close(paused)
 	}()
+	waitClosed(t, p.pauser.PausingTrigger(), "Pause to start")
 
-	//wait other run
-	time.Sleep(time.Second / 10)
+	// FlushOut has no NextWriter to serve, so Pause makes it flush a NOOP
+	// and return.
+	waitClosed(t, flushOutDone, "FlushOut to return")
+	should.Equal([]byte{0x0, 0x1, 0xff, '6'}, flushed)
 
-	start := time.Now()
-	p.Pause()
-	end := time.Now()
-	should.True(end.Sub(start) >= time.Second/10)
+	// FeedIn still waits for a NextReader, so Pause must keep waiting.
+	select {
+	case <-paused:
+		t.Fatal("Pause returned while FeedIn was waiting for NextReader")
+	case <-time.After(stillOpenWindow):
+	}
 
-	wg.Wait()
+	// NextReader still works while Pause is waiting; reading and closing
+	// the frame lets FeedIn return and Pause finish.
+	_, _, r, err := p.NextReader()
+	must.NoError(err)
+	_, err = io.Copy(io.Discard, r)
+	must.NoError(err)
+	must.NoError(r.Close())
 
-	_, _, _, err := p.NextReader()
+	waitClosed(t, feedInDone, "FeedIn to return")
+	waitClosed(t, paused, "Pause to return")
+
+	_, _, _, err = p.NextReader()
 	op, ok := err.(Error)
 	should.True(ok)
 	should.True(op.Temporary())
@@ -599,6 +611,26 @@ func testPayloadNextClosePause(t *testing.T, readerFirst bool) {
 	err = p.FlushOut(b)
 	should.Nil(err)
 	should.Equal([]byte{0x0, 0x1, 0xff, '6'}, b.Bytes())
+}
+
+// waitWorkers fails the test if the pauser of p does not count n workers
+// within ten seconds.
+func waitWorkers(t *testing.T, p *Payload, n int) {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		p.pauser.l.Lock()
+		worker := p.pauser.worker
+		p.pauser.l.Unlock()
+		if worker == n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %d pauser workers, have %d", n, worker)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 // waitClosed fails the test if ch is not closed within ten seconds.

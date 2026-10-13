@@ -160,7 +160,7 @@ workers submit changes to these files through that integrator.
 | 1b | stage 1 and the 1.D link-form commit merged, `master` green (the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner, who is also the integrator for the CI, Dependabot and `CHANGELOG.md` files of steps 0b to 0d; moves/merges applied sequentially | M1b: the Stage 1b DoD, `v1.x` gates and Acceptance blocks |
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures; evidence: `make g2` (2.0 *G2 record*) |
 | R | 2.0 on `master`; the owner's order | one integrator: steps A to C of *Repository restructure*; the 2.1, 2.2 and test-stress work stopped by the freeze resumes after MV1 (its open PRs are replayed after C and wait) | step C commands pass on the merged `master` |
-| V1A | row R step C passed; V1-0 merged | V1-1 (`engineio/transport/polling`) and V1-2 (`engineio`) in separate worktrees | per-PR DoD (Stage V1) |
+| V1A | row R step C passed; V1-0 merged | V1-1 (`engineio/payload`, `engineio/transport/polling`, its own new `engineio/polling_*_test.go` files) and V1-2 (`engineio`) in separate worktrees | per-PR DoD (Stage V1) |
 | V1B | V1A | V1-3 to V1-7 in order: one integrator, the root files and `parser` are shared | per-PR DoD |
 | V1C | V1B | V1-8 (`.github/`, the conformance directory) | the `conformance` job green on `master` |
 | V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`) | Stage 7 DoD, then per-PR DoD |
@@ -1430,7 +1430,7 @@ first). Rows for a PR are the `Plan` entries naming it (`covers V1-<n>` below li
 | PR | Scope |
 | --- | --- |
 | V1-0 | Docs only: signatures and semantics of every `ADD` row as subsections of this stage (O2 mechanism, `Options` fields, errors); three-agent validation (CLAUDE.md) |
-| V1-1 | `engineio/transport/polling`: UTF-16 payload length (P16), JSONP removed with its PROTOCOL.md deviation (P5, P6); the CORS default stays (S4, P8: O3), `OPTIONS` answers (P9) and overlapping polls (P18) are checked by V1-8 |
+| V1-1 | `engineio/payload` and `engineio/transport/polling`: binary payload length in bytes, not UTF-16 units (P16), JSONP removed with its PROTOCOL.md deviation (P5, P6); the CORS default stays (S4, P8: O3), `OPTIONS` answers (P9) and overlapping polls (P18) are checked by V1-8 |
 | V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake must be GET with the reference answer (HTTP 400 `{"code":2,"message":"Bad handshake method"}`, P12), which also closes `OPTIONS` without `sid` (E14: today it creates a session in `Server.ServeHTTP`), liveness on any packet, request checker, `Server.Close` closes sessions |
 | V1-3 | `parser` and root defects: attachment cap, payload validation, `Emit(ev, nil)`, wrong-type argument, per-room duplicates |
 | V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written (R9), `0/nsp,` reply form, disconnect reasons and `disconnecting` order, encode error |

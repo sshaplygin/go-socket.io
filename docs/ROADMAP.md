@@ -1604,7 +1604,7 @@ rows() { awk -F' *[|] *' '$2 ~ /^[A-Z][0-9]+$/' docs/PARITY.md; }
 make lint test-race examples examples-node   # builds and vets all example modules, runs each new client.js
 test -z "$(rows | awk -F' *[|] *' '$3 ~ /(BUG|ADD|CHG|TEST|PEND)/')"   # no open row and no pending decision, in any entry of the plan (DONE V1-11; PEND O6 is open)
 for V in 1.7.4 2.5.0; do grep -q "socket.io-client@$V" .github/workflows/ci.yaml || { echo "missing client $V" >&2; exit 1; }; done
-cl() { awk '/^## Unreleased/{u=1;next} /^## /{u=0} u && /^### /{s=$2} u && s=="'$1'"' CHANGELOG.md; }
+cl() { awk -v want="$1" 'function out() { if (e != "") print e; e = "" } /^## Unreleased/ {u = 1; next} /^## / {out(); u = 0} u && /^### / {out(); s = $2; next} u && s == want { if (/^- /) { out(); e = $0 } else if (/^  +[^ ]/ && e != "") e = e " " $0; else out() } END {out()}' CHANGELOG.md; }   # one line per entry of that subsection of Unreleased, continuation lines joined
 test -n "$(cl Removed | grep -i jsonp)"; test -n "$(cl Added | grep 'go-socket.io/client')"
 test -n "$(cl Changed | grep -w Conn | grep -w Namespace | grep -w Broadcast)"   # D10: one entry names the three interfaces
 grep -q '^### Deviation D4: JSONP unsupported' docs/PROTOCOL.md; grep -q '^### Deviation D3: mixed Go/Node Redis cluster' docs/PROTOCOL.md   # the V1-14 headings; master's PROTOCOL.md already mentions JSONP

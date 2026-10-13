@@ -1735,7 +1735,12 @@ ignored. `make cover-check` runs `go test -count=1 -coverpkg=./... -coverprofile
 the number of exported functions and methods (name starting with an upper-case letter, in
 a non-test file of the module) reported at `0.0%` must be at most `API_UNCOVERED_MAX`,
 printing those functions; both are variables of the `Makefile`. Baseline, measured at
-`0d9e594` (the base of this plan) by those two commands: 88.2 % of statements and 24
+`0d9e594` (the base of this plan) by `go test -count=1 -coverpkg=./... -coverprofile=c.out
+./... && go tool cover -func=c.out`, its `total:` line and `go tool cover -func=c.out | awk
+'$3=="0.0%" && $2 ~ /^[A-Z]/'` (the rule V1-20 implements; `cover -func` lists no test
+file, so the non-test condition is implicit): 88.2 % of statements (88.1 % on a second run
+of the same tree, since a timing-dependent test moves the total by a tenth; one more reason
+the floor is measured on V1-20's head and only kept from falling) and 24
 exported functions at 0.0 % (the 7 exported test fakes of `engineio/packet/fake_*.go`,
 `engineio.Server.Addr`, three methods of the engine client in `engineio/client.go`, the 9
 delegating methods of `namespace_handler.go:44-53`, `polling/server.go:41 URL`,

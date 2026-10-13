@@ -75,15 +75,18 @@ server->>server: close old conn
 Package `engineio` of the v1 module at the repository root.
 
 - Query parameter `EIO` is not checked; the server behaves as protocol v3 regardless.
-- Transports: `polling` (XHR and JSONP via the `j` query parameter) and `websocket`
-  (`gorilla/websocket`). Order and upgrade path come from `engineio.Options.Transports`,
+- Transports: `polling` (XHR only; JSONP is removed and the `j` query parameter is
+  ignored) and `websocket` (`gorilla/websocket`). Order and upgrade path come from `engineio.Options.Transports`,
   default `[polling, websocket]`.
 - Handshake (`OPEN` packet) carries `sid`, `upgrades`, `pingInterval` (default 20 s),
   `pingTimeout` (default 60 s). There is no `maxPayload`.
 - Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`) and extends
   the read/write deadline by `pingTimeout`.
-- Polling payload: packets are length-prefixed (`<length>:<packet>`), lengths count
-  UTF-16 code units; binary packets are base64 with a `b` prefix. Sessions are looked up
+- Polling payload: with `b64=1` packets are length-prefixed (`<length>:<packet>`),
+  lengths count UTF-16 code units, and binary packets are base64 with a `b` prefix.
+  Otherwise the payload is binary: per packet a `0` (string) or `1` (binary) byte, the
+  length as one byte per decimal digit, `0xff`, then the packet, the length counting
+  bytes (UTF-8 for a string packet), as engine.io-parser 2.x. Sessions are looked up
   by `sid`; an unknown `sid` is HTTP 400.
 - WebSocket: one packet per frame; a binary frame starts with the packet type byte.
 - Upgrade polling → websocket: the sequence of the previous section, implemented in the

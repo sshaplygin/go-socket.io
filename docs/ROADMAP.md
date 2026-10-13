@@ -1795,7 +1795,10 @@ grep -qE '^COVER_FLOOR *[:?]?= *[0-9]+(\.[0-9]+)?$' Makefile; grep -qE '^API_UNC
 grep -q 'make parity-check' CLAUDE.md; grep -q 'make cover-check' CLAUDE.md; grep -q 'make parity-check cover-check' .github/workflows/ci.yaml   # the Commands lines and the lint-v1 step
 ```
 
-From V1-20 on, the per-PR DoD adds one line for the ratchet, run before `make lint test-race`:
+After V1-20 has merged, the per-PR DoD of every later PR adds one line for the ratchet, run
+before `make lint test-race`. V1-20 itself does not run it: on its head `origin/master` has
+no `COVER_FLOOR` or `API_UNCOVERED_MAX` yet, so the line would fail there, and its body
+quotes the measured values instead, as above:
 
 ```sh
 v() { git show "$2:Makefile" | awk -F'[:?]?= *' -v k="$1" '$1 ~ "^" k " *$" {print $2}'; }; test "$(echo "$(v COVER_FLOOR HEAD) >= $(v COVER_FLOOR origin/master)" | bc)" -eq 1; test "$(v API_UNCOVERED_MAX HEAD)" -le "$(v API_UNCOVERED_MAX origin/master)"   # a PR never lowers the floor or raises the ceiling

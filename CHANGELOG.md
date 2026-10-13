@@ -9,8 +9,11 @@ All notable changes to this project are documented here. The format follows
 
 - engineio: a binary polling payload (the default when the client does not send `b64=1`)
   gave each packet the UTF-16 code-unit length of the text payload instead of its length in
-  bytes, so `socket.io-client` 2.x failed the poll with a parser error on any non-ASCII
-  text, and a client POST holding a non-ASCII string packet was read past its end. Lengths
+  bytes. A client that polls without `b64=1` (the browser build of `socket.io-client` 2.x
+  with XHR2; in Node, engine.io-client sends `b64=1` and gets the text payload) therefore
+  failed the poll with a parser error on any non-ASCII text, and its POST holding a
+  non-ASCII string packet was read past its end; reproduced with engine.io-parser 2.2.1,
+  not with a browser. Lengths
   in a binary payload now count bytes, as engine.io-parser 2.2.1 does; the text payload
   keeps UTF-16 code units (`engineio/payload/encoder.go:144`, `decoder.go:55` at
   `18af32b`).

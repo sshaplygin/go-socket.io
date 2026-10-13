@@ -1454,7 +1454,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-3 | `parser` and root defects: attachment cap, payload validation, `Emit(ev, nil)`, wrong-type argument, per-room duplicates |
 | V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written (R9), `0/nsp,` reply form, disconnect reasons and `disconnecting` order, encode error |
 | V1-5 | Namespace API: `Of`, `Use` and event middleware, connect-rejection reason, per-namespace disconnect, `connected`/`sockets`, `send`, `Server.Close` waiting for sessions |
-| V1-6 | Memory broadcast: `Except` and broadcast except the sender (new `Broadcast` methods; the Redis type returns `ErrExceptUnsupported`), room union with dedupe, id lists, `Join` of several rooms, `volatile` and `local` flags, callback-on-broadcast rule |
+| V1-6 | Memory broadcast: `Except` and broadcast except the sender (new `Broadcast` methods; the Redis type returns `ErrExceptUnsupported` and drops a message with unknown `opts`), room union with dedupe, id lists, `Join` of several rooms, `volatile` and `local` flags, callback-on-broadcast rule |
 | V1-7 | Dynamic namespaces, handshake data (query, headers, request, time), late ack and several listeners per event, adapter injection |
 | V1-8 | The `conformance` CI job (D7): Node `socket.io-client` 1.7.4 and 2.5.0 against the Go server, plus the Go client against a Node `socket.io` 2.5.0 server; required check; also the `conformance` Makefile target and the CLAUDE.md lines (Commands, "tests need no external service") for the tag |
 | V1-9 | Stage 7 as written below: the `client` package, behaviour-preserving, its own DoD; its commits are titled `<type>(7.<n>)` as Stage 7 requires |
@@ -1476,7 +1476,15 @@ broadcast-except-sender return that error, never a delivery to every instance in
 sender. V1-0 records the names; V1-6 tests the error with a fake `Broadcast` that returns it
 (the caller gets it, nothing is sent) and with the Redis type's method, which returns it before
 any Redis I/O, so the test needs no Redis server; V1-14 lists it under `### Known limitations`
-of the changelog, and V1R implements the methods over Redis and removes the entry.
+of the changelog, and V1R implements the methods over Redis and removes the entry. The decoder
+`v1.5.0` ships must stay safe when V1R extends the Go-only Redis message, since D13 freezes it
+at the tag: today `onMessage` uses `opts[0]` (room) and `opts[1]` (event) and ignores the rest
+(`redis_broadcast.go:375-393`), so it would deliver a V1R `Except` broadcast to the excluded
+sockets. V1-6 makes it drop and log a message whose `opts` has more than those two entries,
+delivering nothing; `TestRedisBroadcastDropsUnknownOpts` feeds `onMessage` one and asserts that
+no connection receives it (no Redis server). V1R adds an entry only for a non-default value (an
+exclusion, `compress` false), so a plain broadcast still reaches `v1.5.0` instances; in a mixed
+cluster an `Except` broadcast misses their sockets instead of reaching excluded ones.
 
 **Conformance contract (V1-8).** CI job `conformance` in `.github/workflows/ci.yaml`, a required
 check, on ubuntu with the Node LTS release from `actions/setup-node`. The clients are installed
@@ -1636,6 +1644,8 @@ resumes on the owner's order after MV1, not on the tag.
 broadcast-except-sender over Redis (A4), the `compress` flag across instances (S21), the `DB` option (A10), binary arguments across
 instances (B3), the 5 s `RoomLen`/`Rooms` waits (B4, 1.K), and `_examples/redis-adapter` turned
 into a cluster-correct two-instance chat that returns to the identical `chat.go` (`CHAT_SKIP` emptied); the mixed Go/Node cluster stays out (D3, A8, A9).
+New message entries follow the forward rule of *`Except` with the Redis adapter*; the changelog
+says that during a rolling upgrade from `v1.5.0` its instances miss `Except` broadcasts.
 Entry: MV1 accepted. The PR split is recorded here when the stage starts. DoD: `make lint
 test-race` with the two-instance tests under `-race`; no `REDIS` entry left in the `Plan`
 column (`rows | grep REDIS` prints nothing); the changelog `### Known limitations` of 1.K is

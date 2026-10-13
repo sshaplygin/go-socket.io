@@ -135,7 +135,8 @@ on the owner's order after MV1 and does not wait for the tag.
 
 Execution order: **1 → 1b → 2A → R → V1 → V1R → 2B … → 3 → 4b → 5 → 6**, where 2A is the landed
 Stage 2.0, row R (the restructure) follows it, Stage V1 completes and releases v1 before the
-rest of Stage 2 (owner decision of 2026-10-10), V1R (Redis parity) follows MV1, and Stage 7 is
+rest of Stage 2 (owner decision of 2026-10-10), V1R (Redis parity) follows MV1, the PR SYNC
+(shared-file drift check, D14) runs beside V1 and merges before 2B, and Stage 7 is
 executed inside V1 as PR V1-9. Whether V1R precedes the Stage 2 continuation or runs beside it
 (its files are the root module's, the continuation's are under `v2/`) is the owner's order.
 Admin UI remains the last product stage and starts after M5; the final benchmark campaign after M6.
@@ -166,7 +167,8 @@ workers submit changes to these files through that integrator.
 | V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`) | Stage 7 DoD, then per-PR DoD |
 | V1E | V1D (V1-12 may start after V1-8) | V1-12 and V1-13, one directory per example; beside them V1-15 (needs V1-2, V1-6 and V1-11: `engineio` options and handshake, `engineio/transport/websocket`, `engineio/transport/polling`, the root emit and broadcast flags, `client/`, the conformance directory) | `make examples examples-node`; the per-PR DoD and the V1-15 block (Stage V1) |
 | V1F | V1E | V1-14 release preparation, no tag | MV1 DoD and Acceptance (Stage V1) |
-| 2B | G2, row R merged (its step C passed) and MV1 accepted | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
+| SY | row R step C passed | the PR SYNC (Stage V1, *Shared-file drift check*): root `Makefile`, `.github/workflows/ci.yaml`, `.github/sync-manifest`, `CLAUDE.md`; it runs beside V1A or V1B, whose PRs are not planned to edit those files, and never beside V1-8 or V1E, which edit `ci.yaml` and the `Makefile` | the SYNC DoD; the `sync-check` job green on `master` |
+| 2B | G2, row R merged (its step C passed), MV1 accepted and SYNC merged | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
 | 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets`); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
 | 2E | 2D | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
@@ -1632,6 +1634,37 @@ V1-7 add are what `client` takes over at `$TIP`. Stage 7 keeps its contract, DoD
 Acceptance where they are (one owner, no copy); only its entry, position and release change
 (see there). The finishing features (V1-10, V1-11) are additive changes of `client/` made after
 that DoD, so Stage 7 stays a behaviour-preserving extraction that can be reviewed alone.
+
+**Shared-file drift check (PR SYNC, D14; outside the V1 sequence).** One PR adds the root
+`Makefile` target `sync-check`, the manifest `.github/sync-manifest` (one line
+`<root path> <v2/ path>` per shared file, `#` comments), a `sync-check` job in
+`.github/workflows/ci.yaml` that runs on every push and pull request with no path filter (a
+change on either side can break it), and the `make sync-check` line of the CLAUDE.md
+Commands. The target rewrites `github.com/sshaplygin/go-socket.io/v2` to
+`github.com/sshaplygin/go-socket.io` in each `v2/` copy and compares it with `cmp` to the root
+file. The manifest holds the D14 list as measured at `18af32b`: 13 non-test files, 724 lines
+(`logger/logger.go`; `engineio/frame/frame.go`; `engineio/transport/transport.go`,
+`manager.go` and `errors.go`; `engineio/session/session_id_generator.go` and
+`session_manager.go`, which `v2/` names `id_generator.go` and `manager.go`;
+`engineio/packet/decoder.go`, `encoder.go`, `packet.go` and `types.go`;
+`engineio/transport/utils/clock.go`; `engineio/payload/pauser.go`), plus
+`engineio/internal/shutdown.go` (8 lines), identical too; the test fakes of `engineio/packet`
+differ and stay out. From SYNC on, a PR that changes a manifest file makes the same change in
+its copy (D13) or removes the pair, with a body line `sync-check left out: <path>: <reason>`.
+Entry: row R step C passed; wave SY of *Execution and parallel work*. DoD, `bash` and `set -e`:
+
+```sh
+test "$(go list -m)" = github.com/sshaplygin/go-socket.io; test -f v2/go.mod   # entry: the restructure has merged
+m=.github/sync-manifest
+awk '!/^#/ && NF {print $1; print $2}' "$m" | xargs ls >/dev/null   # every listed path exists
+test "$(awk '!/^#/ && NF' "$m" | wc -l)" -eq "$((14 - $(gh pr view --json body -q .body | grep -c '^sync-check left out: ')))"   # the 14 files, less each one a V1 PR diverged before SYNC, named in the body with its reason
+make sync-check   # every pair is identical after the import-path rewrite
+f=$(awk '!/^#/ && NF {print $2; exit}' "$m"); echo '// drift' >>"$f"; if make sync-check; then exit 1; fi; git checkout -- "$f"   # a changed v2/ copy fails the check
+grep -q '^  sync-check:' .github/workflows/ci.yaml; grep -q 'make sync-check' CLAUDE.md
+```
+
+`gh pr checks` of the SYNC PR shows the `sync-check` job green; the owner makes it a required
+check.
 
 ## Stage 2. Socket.IO protocol v5 over Engine.IO protocol v4 (tag `v2.0.0`)
 

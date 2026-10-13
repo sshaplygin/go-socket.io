@@ -1462,6 +1462,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-17 | Engine layer II (D16): the engine events as observer hooks on `engineio.Options`: the server-level `connection`, `initial_headers`, `headers` and `connection_error` named by D16, and the socket-level `flush`, `drain`, `packet`, `packetCreate`, `heartbeat`, `upgrading`, `upgrade` and `error` of E19; contract and checks in *Engine layer (V1-16, V1-17)* below |
 | V1-18 | CORS (D15): the server-level default that accepts every origin and writes the headers of `polling-xhr.js:48-62` on every polling response (P8), one `engineio.Options` field that disables it (S4), the per-transport `CheckOrigin` kept as the override; `### Changed` entry; contract and checks in *CORS default and option (V1-18)* below |
 | V1-19 | Differential JS/Go contract tests (D17): the scenarios of *Differential contract tests (V1-19)* below, each run by the conformance job's Node client against the reference `socket.io@2.5.0` server and against the Go server, the two transcripts compared; new files under `internal/conformance` and its `testdata/node`, tag `conformance`, no new Go dependency |
+| V1-20 | API-coverage gate (D17): `make parity-check`, a Go test that fails when a PARITY.md row with a `DONE` entry (with `PARITY_STRICT=1`, also `ADD`, `CHG`, `BUG` or `TEST`) has no `// Covers <ID>` marker above a test function, and `make cover-check`, the statement-coverage floor and the ceiling on exported functions no test executes, both ratchets from the values measured on its head; `Makefile`, `internal/parity`, a `lint-v1` step in `.github/workflows/ci.yaml`, the CLAUDE.md Commands lines; checks in *API coverage gate (V1-20)* below |
 
 **`Except` with the Redis adapter in `v1.5.0` (rows A4, K14, S21; D2, D10).** Decided here by
 the rule of D10: the `Except` options are methods added directly to the exported `Broadcast`
@@ -1681,6 +1682,54 @@ V1-18 (wave V1B) and V1-8 (the job, the installs, the layout). The job runs it a
 for s in connect-root namespace middleware-reject ack-both-ways binary non-ascii rooms server-disconnect handshake-data rejected-handshake cors open-packet; do grep -q "\"$s\"" internal/conformance/differential_test.go || { echo "no scenario $s" >&2; exit 1; }; done   # the twelve scenarios of the list exist by name
 test "$(go test -tags conformance -list '^TestDifferential$' ./internal/conformance/... | grep -c '^TestDifferential$')" -eq 1   # -list needs no Node
 test "$(go test -race -count=1 -tags conformance -json -run '^TestDifferential$' ./internal/conformance/... | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")))|.Test' | sort -u | wc -l)" -eq 24   # every scenario passes over both transports (needs Node and the installs, as the job has)
+```
+
+**API coverage gate (V1-20; D17).** Two gates, both `Makefile` targets of the root, run by
+CI on every v1 change as a step of the `lint-v1` job (ubuntu, the newest Go), and listed in
+the CLAUDE.md Commands. `make parity-check` runs `go test -count=1 -run '^TestParityCovers$'
+./internal/parity`: a Go test (portable, so it also runs under `make test` and the `test-v1`
+matrix) that reads `docs/PARITY.md` with the row rule of the DoD helper `rows` (`$2` matches
+`^[A-Z][0-9]+$`, `$3` is the plan), walks every `*_test.go` of the root module (directories
+holding another `go.mod`, `_examples/` and `v2/`, are skipped), collects each `// Covers <ID>`
+line whose ID has the row shape and the `func Test...` declaration that follows it within
+four lines (the `covers` rule), and fails naming each row that has a `DONE` entry and no
+such marker, and each marker whose ID is no row. With `PARITY_STRICT=1` it also demands a
+marker for a row with an `ADD`, `CHG`, `BUG` or `TEST` entry: the MV1 DoD runs it so, when
+every such row is `DONE` anyway; CI runs it without, because an open row has no test yet.
+The Stage 1 and Stage 7 markers (`// Covers 1B-T1 (S, C)`) do not have the row shape and are
+ignored. `make cover-check` runs `go test -count=1 -coverpkg=./... -coverprofile=<tmp> ./...`
+(cross-package, since a root test that exercises `engineio` counts for its API) and reads
+`go tool cover -func=<tmp>`: the `total:` percentage must be at least `COVER_FLOOR`, and
+the number of exported functions and methods (name starting with an upper-case letter, in
+a non-test file of the module) reported at `0.0%` must be at most `API_UNCOVERED_MAX`,
+printing those functions; both are variables of the `Makefile`. Baseline, measured at
+`0d9e594` (the base of this plan) by those two commands: 88.2 % of statements and 24
+exported functions at 0.0 % (the 7 exported test fakes of `engineio/packet/fake_*.go`,
+`engineio.Server.Addr`, three methods of the engine client in `engineio/client.go`, the 9
+delegating methods of `namespace_handler.go:44-53`, `polling/server.go:41 URL`,
+`errors.go:43 Error` and two `logger` methods). V1-20 sets the two variables to the values it
+measures on its own head, which is why no number is fixed here, and its body quotes them.
+Ratchet: a later PR may raise `COVER_FLOOR` and lower `API_UNCOVERED_MAX`, never the
+reverse, which the per-PR DoD checks against `origin/master`; MV1 requires
+`API_UNCOVERED_MAX` 0, the measurable form of D17's "coverage of the API": an exported
+function no test executes is the gap, and the 24 above are all reachable without an
+external service (a function that is not would be named in the `Makefile` with the reason
+and excluded; none at `0d9e594`). The floor is only kept from falling; D17 names no
+percentage, so none is set. Entry: V1-8 merged (the same files, `.github/` and the
+`Makefile`, and the `-list` rule for tagged tests that `TestParityCovers` shares with
+`covers`). Besides the per-PR DoD, on its head:
+
+```sh
+make parity-check   # passes on the head: every DONE row has its marker
+printf '| Z9 | DONE V1-1 | D1 | probe |\n' >>docs/PARITY.md; if make parity-check; then exit 1; fi; git checkout -- docs/PARITY.md   # a DONE row without a marker fails it
+grep -qE '^COVER_FLOOR *[:?]?= *[0-9]+(\.[0-9]+)?$' Makefile; grep -qE '^API_UNCOVERED_MAX *[:?]?= *[0-9]+$' Makefile; make cover-check   # the two ratchets exist and hold on the head
+grep -q 'make parity-check' CLAUDE.md; grep -q 'make cover-check' CLAUDE.md; grep -q 'make parity-check cover-check' .github/workflows/ci.yaml   # the Commands lines and the lint-v1 step
+```
+
+From V1-20 on, the per-PR DoD adds one line for the ratchet, run before `make lint test-race`:
+
+```sh
+v() { git show "$2:Makefile" | awk -F'[:?]?= *' -v k="$1" '$1 ~ "^" k " *$" {print $2}'; }; test "$(echo "$(v COVER_FLOOR HEAD) >= $(v COVER_FLOOR origin/master)" | bc)" -eq 1; test "$(v API_UNCOVERED_MAX HEAD)" -le "$(v API_UNCOVERED_MAX origin/master)"   # a PR never lowers the floor or raises the ceiling
 ```
 
 Waves V1A to V1F are in *Execution and parallel work*.

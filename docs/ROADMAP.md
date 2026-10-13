@@ -1553,7 +1553,8 @@ extension is negotiated when on and not when off; a frame below the threshold or
 `compress` false has RSV1 clear, read from the raw frame), `TestPerMessageDeflateLimit` (E8
 with E4: a compressed message under 1e6 bytes on the wire that inflates to 1e8 bytes closes the
 session with 1009 while the process's `runtime.MemStats.TotalAlloc` grows by less than 2e7
-bytes), `TestPollingHTTPCompression` (E9:
+bytes; it calls no `t.Parallel`, so no other test of its package binary runs beside it and the
+bound measures only that message), `TestPollingHTTPCompression` (E9:
 gzip and deflate above the threshold, none below it or without `Accept-Encoding`),
 `TestHandshakeCookie` (E10: default, custom name and path, `HttpOnly` off, the full-cookie form,
 off; set again on a later poll of the session, absent after a websocket-first handshake), `TestEmitCompressFlag` (K17),

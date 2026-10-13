@@ -1690,7 +1690,10 @@ S13), `server-disconnect` (`disconnect()` seen as `io server disconnect`, `disco
 as `transport close`; K20, K24), `handshake-data` (query and a header echoed back; K5, K7),
 `rejected-handshake` (bad method, unknown sid, unknown transport by raw HTTP; P11, P12, P13),
 `cors` (a polling GET with and without `Origin`; P8), `open-packet` (E1, E2). Twelve scenarios
-over two transports: twenty-four subtests per matrix entry. A scenario whose feature the Go
+over two transports: twenty-four subtests per matrix entry, named flat as
+`<scenario>-<transport>` (one `t.Run` level, `TestDifferential/connect-root-polling`, no
+scenario-level parent subtest), so `go test -json` reports one pass per pair and the count
+of the command below is 24. A scenario whose feature the Go
 server lacks fails, so V1-19 enters after the server PRs it exercises: V1-3 to V1-7 and
 V1-18 (wave V1B) and V1-8 (the job, the installs, the layout). The job runs it as part of
 `make conformance`, with no workflow change. Besides the per-PR DoD, on its head:

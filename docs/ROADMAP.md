@@ -2448,7 +2448,8 @@ transport and codec errors, without calling `slog.SetDefault`.
 ### 2.5 Docs and release
 
 `docs/MIGRATION.md` (including how v1 `Conn.Close` draining maps to v2 socket and
-session close, and the breaking changes recorded in Stage 1b), `docs/PROTOCOL.md` update, `docs/OBSERVABILITY.md`,
+session close, the breaking changes recorded in Stage 1b, and the `v1.5.0` features v2 does not
+carry, permessage-deflate (V1-15, D11; *Out of scope*) first among them), `docs/PROTOCOL.md` update, `docs/OBSERVABILITY.md`,
 `contrib/otel/README.md`, tags `v2.0.0` and `v2/contrib/otel/v2.0.0` from the same commit, only
 after the owner's declaration and after `v1.5.0` (*Repository layout*). The module path `.../v2`, the
 `go.mod` and imports of every `v2/_examples/*` (B3) and the `v2/README.md` badge and links (B5) are
@@ -3147,7 +3148,7 @@ snapshot/Node interoperability prototype before treating it as a delivery commit
 
 ## Out of scope
 
-EIO=3 in v2; in v1: JSONP and a mixed Go/Node Redis cluster on the `socket.io-redis` wire format (Stage V1, D3 and D4); connection state recovery; WebTransport; permessage-deflate in v2 (v1 has it: V1-15, D11); sharded Redis
+EIO=3 in v2; in v1: JSONP and a mixed Go/Node Redis cluster on the `socket.io-redis` wire format (Stage V1, D3 and D4); connection state recovery; WebTransport; permessage-deflate in v2 (v1 has it: V1-15, D11; a user moving from `v1.5.0` loses it, which `docs/MIGRATION.md` says, 2.5); sharded Redis
 adapter (Redis 7 sharded pub/sub); Redis Cluster, Ring and replica-routed clients for
 `v2/adapters/redis` (see 4b `adapters/redis`); cluster broadcast-with-ack; NATS JetStream persistence;
 framework-specific integration packages (gin, echo, iris, gf use `http.Handler`); trace

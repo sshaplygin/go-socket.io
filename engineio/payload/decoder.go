@@ -53,6 +53,11 @@ func (d *decoder) Read(p []byte) (int, error) {
 		return d.b64Reader.Read(p)
 	}
 	dd, err := d.limitReader.Read(p)
+	if d.supportBinary {
+		// a binary payload counts bytes (decodePayloadAsBinary of engine.io-parser 2.2.1)
+		return dd, err
+	}
+	// a text payload counts UTF-16 code units: extend the limit by the extra bytes
 	unicodeCount := 0
 	for i := range p[:dd] {
 		b := p[i]

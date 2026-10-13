@@ -39,7 +39,12 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
   (`N`), or `-`. PRs = the audit's rough PR estimate, 0 for PARITY; the plan is in `Plan`.
 - Adding methods to the exported `Conn` / `Namespace` interfaces breaks external implementers
   (mocks); decision D10 (ROADMAP Stage V1) adds them directly, and `v1.5.0` documents the
-  change. The rows that need such a method carry `D10` in `Decision`.
+  change; the exported `Broadcast` follows the same rule. `D10` in `Decision` marks the rows
+  whose plan puts a method on `Conn`, `Namespace` (the per-connection view embedded in `Conn`)
+  or `Broadcast`. The V1-0 contracts are the list of those methods: a contract that puts one on
+  an untagged row adds `D10` to it in the same PR. Untagged on purpose: the server namespace
+  object of S8 (S14, S16, N2, N4), the ack parameter of a handler (K26), handler registration on
+  the server (K28).
 - `Plan` is `<kind> V1-<n>` with the PR of ROADMAP Stage V1 that closes the row, several
   entries separated by `;`. Kinds: `BUG` fixed as a bug (a behaviour change); `ADD` new public
   API; `CHG` behaviour or internal change without new API; `TEST` a test verifies an unverified
@@ -110,9 +115,9 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | K12 | - | - | `leave(room, cb)`, `leaveAll()` | socket.js:269,287 | PARITY | `Leave`, `LeaveAll` namespace_conn.go:106-112 | same | - | 0 | R |
 | K13 | - | - | `emit(ev, ...args[, ack])` to this client | socket.js:140-181 | PARITY | `Conn.Emit` namespace_conn.go:68-100; trailing func is the ack callback (not sent), called on ACK | `Emit` | - | 0 | R |
 | K14 | ADD V1-6 | D5, D10 | `socket.broadcast.emit` / `socket.to(room).emit` (everyone except sender) | socket.js:170-175,191 | ABSENT | workaround: `ForEach` + id compare, as `others()` in `_examples/default-http/chat.go:60-67`, whose comment says "the library has no broadcast that skips the sender". **This is the upstream-chat gap** | - | Y | 2 | R |
-| K15 | ADD V1-5 | D5 | `send` / `write` | socket.js:204 | ABSENT | sugar; `Emit("message", ...)` equivalent | - | Y (sugar) | 0-1 | R |
-| K16 | ADD V1-6 | D5 | flag `volatile` (drop if transport not writable) | socket.js:39; client.js:167 | ABSENT | none; Go queue overflow closes the conn instead (namespace_conn.go:21-30, errors.go:25-33) | - | Y | 2 | R |
-| K17 | ADD V1-15 | D11 | `compress(bool)` | socket.js:497 | ABSENT | none; needs permessage-deflate (E8) | - | Y | 1 + E8 | R |
+| K15 | ADD V1-5 | D5, D10 | `send` / `write` | socket.js:204 | ABSENT | sugar; `Emit("message", ...)` equivalent | - | Y (sugar) | 0-1 | R |
+| K16 | ADD V1-6 | D5, D10 | flag `volatile` (drop if transport not writable) | socket.js:39; client.js:167 | ABSENT | none; Go queue overflow closes the conn instead (namespace_conn.go:21-30, errors.go:25-33) | - | Y | 2 | R |
+| K17 | ADD V1-15 | D11, D10 | `compress(bool)` | socket.js:497 | ABSENT | none; needs permessage-deflate (E8) | - | Y | 1 + E8 | R |
 | K18 | - | - | `binary(bool)` | socket.js:510 | N/A | Go decides by `parser.Buffer` | - | - | 0 | R |
 | K19 | - | - | flags `json`, `local` | socket.js:39-44 | N/A | `json` is a no-op; `local` only matters to a cluster adapter | - | - | 0 | R |
 | K20 | ADD V1-5 | D5, D10 | `disconnect(close)`: DISCONNECT packet to the client for one namespace, or close the connection | socket.js:478-487 | PARTIAL | `Conn.Close()` closes the **whole** engine connection and all namespaces (connection.go:115-129); the server never writes a DISCONNECT packet (grep: no `parser.Disconnect` write). A Node client then sees a transport close and reconnects, instead of `io server disconnect` | `Conn.Close` | Y (`Disconnect`) | 1-2 | R |
@@ -120,7 +125,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | K22 | CHG V1-4 | D1 | client `ERROR` packet becomes socket `error` | socket.js:345 | ABSENT | `serveRead` switch has no `parser.Error` case (server.go:401-410) | - | N | 0-1 | R |
 | K23 | CHG V1-4 | D1 | event `disconnecting` (rooms still joined) | socket.js:449 | PARTIAL | `OnDisconnect` on connection close runs before `LeaveAll` (connection.go:167-171), but the client-initiated path calls `LeaveAll` before the handler (connection_handlers.go:141-149): inconsistent | `OnDisconnect` | Y | 1 | R |
 | K24 | CHG V1-4 | D1 | event `disconnect` with reason (`client namespace disconnect`, `server namespace disconnect`, `transport close`, `transport error`, `ping timeout`, `forced close`) | socket.js:421,484 | PARTIAL | reason is always `"client namespace disconnect"` on connection close, even when the server closed (connection.go:170, types.go:15; known defect pinned lifecycle_test.go:117-121); engine close reasons are only logged (session.go:47-52) | `OnDisconnect(Conn, string)` | N | 1-2 | R |
-| K25 | ADD V1-5 | D5 | `use(fn)` event middleware `fn(event, next)` | socket.js:548 | ABSENT | none | - | Y | 2 | R |
+| K25 | ADD V1-5 | D5, D10 | `use(fn)` event middleware `fn(event, next)` | socket.js:548 | ABSENT | none | - | Y | 2 | R |
 | K26 | ADD V1-7 | D5 | ack of client events: handler gets a callback `ack(...)`, may be called later, once only | socket.js:376-393 | PARTIAL | ack is the handler's return values, sent when it returns and when `len(ret)>0` or the client asked (connection_handlers.go:78-81). No late/async ack, no ack-callback parameter | handler return values | Y | 1-2 | R |
 | K27 | - | - | server to client ack callback | socket.js:153-161,401-410 | PARITY | `Emit(..., func(args))` ack stored per conn and dropped when called (namespace_conn.go:77-90, connection_handlers.go:9-47) | `Emit` | - | 0 | R |
 | K28 | ADD V1-7 | D5 | many listeners per event, `on/once/off` | EventEmitter | PARTIAL | one handler per event and namespace, set again to replace (namespace_handler.go:67-72); handlers are per namespace, not per socket | `OnEvent` | Y | 1 | R |
@@ -133,7 +138,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | A1 | CHG V1-6 | D1 | `rooms`, `sids` maps | adapter 21-26 | PARTIAL | `rooms map[room]map[id]Conn` only (broadcast.go:24-28); per-conn room lookup scans all rooms (broadcast.go:155-165) | internal | N | 0-1 | R |
 | A2 | ADD V1-7 | D5 | `add/addAll(id, rooms, cb)` | adapter 43-65 | PARTIAL | `Broadcast.Join(room, Conn)` takes a `Conn` not an id, one room (broadcast.go:10) | `Join` | Y | 1 | R |
 | A3 | - | - | `del`, `delAll` | adapter 76-108 | PARITY | `Leave`, `LeaveAll` broadcast.go:50-75 | same | - | 0 | R |
-| A4 | ADD V1-6; REDIS | D5, D2 | `broadcast(packet, {rooms, except, flags})` once per socket | adapter 122-163 | PARTIAL | `Send(room)`/`SendAll` only; no except, no flags, no multi-room dedupe (broadcast.go:86-97; duplicate defect lifecycle_test.go:82-92) | `Send`, `SendAll` | Y (options) | 2 | R |
+| A4 | ADD V1-6; REDIS | D5, D2, D10 | `broadcast(packet, {rooms, except, flags})` once per socket | adapter 122-163 | PARTIAL | `Send(room)`/`SendAll` only; no except, no flags, no multi-room dedupe (broadcast.go:86-97; duplicate defect lifecycle_test.go:82-92) | `Send`, `SendAll` | Y (options) | 2 | R |
 | A5 | ADD V1-6 | D5 | `clients(rooms, cb)` ids | adapter 173-211 | PARTIAL | `Len(room)`, `ForEach` (broadcast.go:100-126); no ids | `Len`, `ForEach` | Y | 1 | R |
 | A6 | - | - | `clientRooms(id, cb)` | adapter 220 | PARITY | `Conn.Rooms()`; `Broadcast.Rooms(conn)` broadcast.go:131 | `Rooms` | - | 0 | R |
 | A7 | - | - | `allRooms(cb)` **[not in socket.io-adapter 1.1.2; Redis 5.4.0 only]** | redis index.js:553 | PARITY | `Server.Rooms(ns)` server.go:299, `Broadcast.AllRooms` | `Rooms` | - | 0 | R |

@@ -1661,7 +1661,21 @@ accepts a cross-origin request (today gorilla's same-origin default refuses it w
 `CheckOrigin` is nil). The `OPTIONS` answer (P9) is unchanged. One `engineio.Options` field
 switches the default off: then the polling transport writes no CORS header and the websocket
 transport applies gorilla's same-origin check, the behaviour of `v1.x` with a nil
-`CheckOrigin`, so a browser page on another origin is refused by the browser itself. A
+`CheckOrigin`, so a browser page on another origin is refused by the browser itself.
+Mechanism: the decision stays in the transports, which have no access to `Options`
+(`server_options.go:30-31`): `polling/server.go:63-75` writes the headers when the
+transport's `CheckOrigin` (or `polling.Default`'s) is set and accepts the request, and
+`websocket/transport.go:83-88` hands `CheckOrigin` to gorilla's `Upgrader` inside `Accept`,
+so the websocket same-origin check is gorilla's, applied there. `engineio.NewServer` carries
+the option to them where it resolves `Options.Transports` (`getTransport`,
+`server_options.go:82-90`): for
+each of this module's two transports (`*polling.Transport`, `*websocket.Transport`, by type
+switch) whose `CheckOrigin` is nil, it uses a copy of the transport with `CheckOrigin` set to
+a function that accepts every origin when the default is on, and the transport as given when
+it is off; `polling.Default` and `websocket.Default` are never mutated, and a transport of
+another package is used as given. No file under `engineio/transport/` changes, so the
+`transport.Transport` interface (`engineio/transport/transport.go`, a SYNC manifest file) is
+untouched and V1-18 has no `sync-check` consequence. A
 transport whose `CheckOrigin` is set keeps it, on or off: it is the `fn(origin, cb)` form of
 `origins`, and the examples that set one (`_examples/default-http`, through `allowOriginFunc`
 in `main.go`) keep working unchanged. `NewServer(nil)` gets the default. The `### Changed`

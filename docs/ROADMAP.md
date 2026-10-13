@@ -1527,7 +1527,12 @@ chooses. The E4 limit applies to the inflated message, as `ws` applies `maxPaylo
 on the wire must not inflate past 1e6 bytes; the Go client's read limit, when it has one, is
 enforced the same way. `### V1-15 contract` states this rule and the close code (1009). The client
 offers permessage-deflate with threshold 1024, as `engine.io-client` 3.5.6 and 1.8.6 (the two
-gate clients) do under Node, and its emit takes the same flag. V1-15 also updates PROTOCOL.md
+gate clients) do under Node, and its emit takes the same flag. Over the Redis `Broadcast` the
+flag is not carried: the Go-only Redis message has no flags, so V1-0 keeps the flag apart from
+the `Except` options, the Redis type accepts a broadcast with `compress` false without
+`ErrExceptUnsupported`, honours it for its own connections and publishes without it, and the
+other instances send with the default (`true`). V1-14 lists this under `### Known limitations`
+beside the `Except` entry; V1R carries the flag (S21) and removes the entry. V1-15 also updates PROTOCOL.md
 (v1 implements them) and adds two tagged tests to `internal/conformance`:
 `TestConformancePerMessageDeflate` (the matrix's Node client sends and receives a 4 KB event
 over websocket against a Go server with `perMessageDeflate` on; the test asserts from the
@@ -1628,7 +1633,7 @@ policy*) and orders the release commit and the `v1.5.0` tag; v2 work (Stage 2 co
 resumes on the owner's order after MV1, not on the tag.
 
 **Stage V1R. Redis parity (next v1 minor, after MV1).** Scope, from D2: `Except` and
-broadcast-except-sender over Redis (A4), the `DB` option (A10), binary arguments across
+broadcast-except-sender over Redis (A4), the `compress` flag across instances (S21), the `DB` option (A10), binary arguments across
 instances (B3), the 5 s `RoomLen`/`Rooms` waits (B4, 1.K), and `_examples/redis-adapter` turned
 into a cluster-correct two-instance chat that returns to the identical `chat.go` (`CHAT_SKIP` emptied); the mixed Go/Node cluster stays out (D3, A8, A9).
 Entry: MV1 accepted. The PR split is recorded here when the stage starts. DoD: `make lint

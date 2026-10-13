@@ -80,7 +80,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | S18 | PEND O6 | O6 | `engine` / `eio` property | index.js:425 | PARTIAL | engine unexported; only `Count()` server.go:307 and `Remove(sid)` server.go:312 | `Server.Count` | Y | 1 | R |
 | S19 | - | - | `set(key,val)` legacy BC, `bind`, `onconnection`, `httpServer`, `checkRequest` | index.js:143,424-443 | N/A | deprecated or JS plumbing | - | - | 0 | R |
 | S20 | - | - | event `connection` / `connect` | namespace.js:189-190 | PARITY | `OnConnect(ns, func(Conn) error)` server.go:122; one handler per namespace, a second call replaces it (namespace_handler.go:55-57) | `OnConnect` | - | 0 | R |
-| S21 | ADD V1-6; ADD V1-15 | D5, D11 | flags `volatile`, `local`, `json`, `compress(b)`, `binary(b)` on server | index.js:509-523; namespace.js:32 | ABSENT | none. `json` is a no-op in 2.5.0 (N/A); `binary` is decided by `parser.Buffer` in Go (N/A); `volatile`, `compress`, `local` ABSENT, see K18-K20 | - | Y | see K | R |
+| S21 | ADD V1-6; ADD V1-15; REDIS | D5, D11, D2 | flags `volatile`, `local`, `json`, `compress(b)`, `binary(b)` on server | index.js:509-523; namespace.js:32 | ABSENT | none. `json` is a no-op in 2.5.0 (N/A); `binary` is decided by `parser.Buffer` in Go (N/A); `volatile`, `compress`, `local` ABSENT, see K18-K20 | - | Y | see K | R |
 
 ## 2. Namespace (`socket.io/lib/namespace.js`)
 

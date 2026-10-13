@@ -1458,6 +1458,8 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-13 | Examples `_examples/namespaces` (namespaces, rooms, auth) and `_examples/middleware`, same rules, `examples-node` extended; `_examples/default-http` gets broadcast-except-sender, and every `chat.go` copy changes with it in the same PR, except `redis-adapter` and `redis-adapter-unix-socket`: `Except` is not available over Redis in `v1.5.0` (D2, contract in V1-0), so they keep their `chat.go` with the `others()` helper, named in `CHAT_SKIP` of the Makefile (the copy check is `CHAT_COPIES`, the `chat.go` directories minus `CHAT_SKIP`) until V1R |
 | V1-14 | Release preparation: PROTOCOL.md deviations (D3, D4) as the headings `### Deviation D3: mixed Go/Node Redis cluster` and `### Deviation D4: JSONP unsupported` under *Known deviations from the v3/v4 specs* (the unique strings the MV1 DoD greps for), README supported versions, `CHANGELOG.md` `## Unreleased` complete, v1 migration notes. D10 communication: one `### Changed` entry that names `Conn`, `Namespace`, `Broadcast` and `engineio.Conn` and every method V1-0 added to each, says that implementers and mocks of them stop compiling in this minor release, and what a client connection returns for the server-only ones (Stage 7), and carries the migration note (add the methods, or embed the interface in a mock); the default changes of V1-15 are `### Changed` entries too (the `io` cookie set after every polling handshake, polling responses of 1024 bytes or more compressed when the client accepts it), each naming the reference option (`cookie`, `httpCompression`), as are the D15 defaults written by V1-2 (`PingInterval`, `PingTimeout`), V1-5 (`Conn.ID`) and V1-18 (CORS); no tag |
 | V1-15 | Compression and cookies (D11): `perMessageDeflate` for the websocket transport (E8), `httpCompression` for polling responses (E9), the `cookie` option (E10), the per-emit `compress` flag of `Conn` (K17), of server broadcasts (S21) and of the client (C11); contract and checks in *Compression and cookies (V1-15)* below |
+| V1-16 | Engine layer I (D16): `Server.Engine()`, the `*engineio.Server` the socket.io server runs on (S18); `engineio.Server.Clients()`, a snapshot of the open sessions by id, beside `Count` (E17); the engine socket state on `engineio.Conn`, `ReadyState()`, `Transport()` and `Upgraded()` (E20), which the engine-connection accessor of K4 (V1-7) reaches from a socket; contract and checks in *Engine layer (V1-16, V1-17)* below |
+| V1-17 | Engine layer II (D16): the engine events as observer hooks on `engineio.Options`: the server-level `connection`, `initial_headers`, `headers` and `connection_error` named by D16, and the socket-level `flush`, `drain`, `packet`, `packetCreate`, `heartbeat`, `upgrading`, `upgrade` and `error` of E19; contract and checks in *Engine layer (V1-16, V1-17)* below |
 
 **`Except` with the Redis adapter in `v1.5.0` (rows A4, K14, S21; D2, D10).** Decided here by
 the rule of D10: the `Except` options are methods added directly to the exported `Broadcast`
@@ -1567,6 +1569,53 @@ test "$(go test -race -count=1 -json -run "^($V15)\$" ./... | jq -r 'select(.Act
 for p in TestPerMessageDeflateNegotiated:E8 TestPerMessageDeflateLimit:E8 TestPollingHTTPCompression:E9 TestHandshakeCookie:E10 TestEmitCompressFlag:K17 TestBroadcastCompressFlag:S21 TestClientCompress:C11; do git grep -h -B4 -E "^func ${p%%:*}[(]" -- '*_test.go' | grep -qE "^// Covers ${p#*:}( |$)" || { echo "no // Covers ${p#*:} above ${p%%:*}" >&2; exit 1; }; done   # each under its row's marker, which covers alone does not prove for rows shared with V1-6 and V1-11
 V15C='TestConformancePerMessageDeflate|TestConformanceClientPerMessageDeflate'
 test "$(go test -tags conformance -list "^($V15C)\$" ./internal/conformance/... | grep -cE "^($V15C)\$")" -eq 2   # both scenarios exist (-list needs no Node)
+```
+
+**Engine layer (V1-16, V1-17; rows S18, E17, E19, E20; D16).** V1-0 writes `### V1-16
+contract` and `### V1-17 contract`, with the names; the semantics are fixed here. V1-16:
+`Server.Engine()` returns the `*engineio.Server` that `NewServer` created, never nil (S18;
+`Server` is a struct, so S18 is not a D10 row). `engineio.Server.Clients()` returns a copy of
+the open sessions keyed by id, taken under the server's lock, so a caller iterates without
+holding it; `Count()` stays (E16) and `Remove(sid)` too. `engineio.Conn` gains `ReadyState()`,
+returning one of the four 3.6.2 states as an `engineio.ReadyState` (`opening`, `open`,
+`closing`, `closed`, the strings of `socket.js`), `Transport()`, the name of the current
+transport (`polling` or `websocket`, so after an upgrade the new one), and `Upgraded()`
+(E20; `close(discard)` and `send` are `Close` and `NextWriter`, already there). The methods
+are added directly to the interface, as D10 does for `Conn` (*How the plan applies*):
+`engineio.Server`'s sessions implement them, the test fakes of this module are updated, and
+V1-14's `### Changed` entry names `engineio.Conn`. The socket.io `Conn` reaches them through the
+engine-connection accessor of K4, which V1-7 adds under D10: V1-7 returns the `engineio.Conn`,
+V1-16 gives it the state, so the two PRs do not conflict. V1-17: the events are observer hooks,
+a struct of func fields on `engineio.Options` in the shape of `v2/engineio/hooks.go` (D13: the
+same shape, not the same signatures, since v1 has no context plumbing); a nil field is ignored,
+a set one is called synchronously on the goroutine of the event, so a hook that blocks delays
+that session only, and a hook must not call back into the session it observes. Server-level:
+`connection` fires when a session is created, before `Accept` returns it; `initial_headers`
+fires once per session with the request and the response headers of the handshake response
+(the polling handshake and the websocket upgrade), before they are written; `headers` fires
+with the request and the headers of every response of a session (each polling response, the
+upgrade response once), after `initial_headers` on the handshake, so V1-15's cookie is visible
+in it; `connection_error` fires when `ServeHTTP` rejects a request, with the request, the code
+and the message of P11 (0 `Transport unknown`, 1 `Session ID unknown`, 2 `Bad handshake
+method`, 3 `Bad request`, 4 `Forbidden`) and the error of a request checker. Socket-level, each
+with the `engineio.Conn`: `packet` (a packet read, with its type), `packetCreate` (a packet
+about to be written), `heartbeat` (a ping received), `upgrading` and `upgrade` (the probe
+accepted, the transport switched), `flush` and `drain` (a polling write batch starts and ends),
+`error` (the error that closes the session, before `close`). `connection` is E18's event: the
+hook does not replace `Accept`, which stays the way the socket.io server takes sessions.
+Named tests, each under the `// Covers` of its row: `TestServerEngine` (S18),
+`TestEngineClients` (E17: two sessions, the map has both ids and `Count` agrees; a closed
+one leaves it), `TestEngineConnState` (E20: `opening` before the handshake completes, `open`
+after, `websocket` and `Upgraded` true after the probe, `closing` and `closed` around
+`Close`), `TestEngineSocketEvents` (E19: every socket-level hook fires once in a polling
+session upgraded to websocket, in the order above), and `TestEngineServerEvents` with the
+subtests `connection`, `initial_headers`, `headers` and `connection_error` (the four D16
+events; not a row, so counted below). Entry: V1-2 merged (the `engineio` server and session
+files it rewrites). Besides the per-PR DoD, on the V1-17 head:
+
+```sh
+E17='TestEngineServerEvents/(connection|initial_headers|headers|connection_error)'
+test "$(go test -race -count=1 -json -run "^$E17\$" ./engineio | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")))|.Test' | sort -u | wc -l)" -eq 4   # the four D16 server-level events have a passing subtest each
 ```
 
 Waves V1A to V1F are in *Execution and parallel work*.

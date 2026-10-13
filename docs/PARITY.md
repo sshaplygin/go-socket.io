@@ -39,9 +39,10 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
   (`N`), or `-`. PRs = the audit's rough PR estimate, 0 for PARITY; the plan is in `Plan`.
 - Adding methods to the exported `Conn` / `Namespace` interfaces breaks external implementers
   (mocks); decision D10 (ROADMAP Stage V1) adds them directly, and `v1.5.0` documents the
-  change; the plan applies the same rule to the exported `Broadcast`. `D10` in `Decision` marks the rows
-  whose plan puts a method on `Conn`, `Namespace` (the per-connection view embedded in `Conn`)
-  or `Broadcast`. The V1-0 contracts are the list of those methods: a contract that puts one on
+  change; the plan applies the same rule to the exported `Broadcast` and to `engineio.Conn`
+  (E20, D16). `D10` in `Decision` marks the rows
+  whose plan puts a method on `Conn`, `Namespace` (the per-connection view embedded in `Conn`),
+  `Broadcast` or `engineio.Conn`. The V1-0 contracts are the list of those methods: a contract that puts one on
   an untagged row adds `D10` to it in the same PR. Untagged on purpose: the server namespace
   object of S8 (S14, S16, N2, N4), the ack parameter of a handler (K26), handler registration on
   the server (K28), the flags of server broadcasts (S21: `Server` is a struct; the flags reach
@@ -51,11 +52,11 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
   API; `CHG` behaviour or internal change without new API; `TEST` a test verifies an unverified
   claim and the row changes only if the test disagrees; `DROP` declared unsupported and
   removed; `DEV` documented deviation, not closed in v1; `REDIS` the Redis follow-up stage;
-  `PEND On` waits for pending decision `On`; `-` nothing to do. The PR that closes a row rewrites the
+  `-` nothing to do. The PR that closes a row rewrites the
   kind to `DONE`, keeps its number, and adds the comment `// Covers <ID>` directly above the test function that closes it (the Stage V1
   DoD finds the function with `go test -list`).
-- `Decision` names the owner decision behind the plan: `D1` to `D14` are the settled decisions and
-  `O3` and `O6` the pending ones, both in ROADMAP Stage V1, which owns their text.
+- `Decision` names the owner decision behind the plan: `D1` to `D17`, all settled, in ROADMAP
+  Stage V1, which owns their text; no decision is pending.
 
 ## 1. Server (`socket.io/lib/index.js`)
 
@@ -64,7 +65,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | S1 | - | - | `new Server(srv, opts)` | index.js:43 | PARITY | `NewServer(*engineio.Options)` server.go:35 | `NewServer` | - | 0 | R |
 | S2 | - | - | `path` option / `path()` | index.js:210 | PARITY | Server is an `http.Handler` (server.go:117); path is the mux pattern | mux registration | - | 0 | R |
 | S3 | - | - | `serveClient` (serves `/socket.io.js`) | index.js:105,335 | N/A | JS client bundle serving; examples serve static files with `http.FileServer` | - | - | 0 | R |
-| S4 | PEND O3 | O3 | `origins` option / `origins()` (default `*:*`, list or `fn(origin, cb)`) | index.js:69-95,243 | PARTIAL | no server-level setting; per-transport `CheckOrigin func(*http.Request) bool` polling/transport.go:15, websocket/transport.go:35. Default `nil`: polling sends no CORS header (polling/server.go:75), websocket uses gorilla same-origin default | `polling.Transport.CheckOrigin`, `websocket.Transport.CheckOrigin` | N (helper optional) | 1 | R |
+| S4 | ADD V1-18 | D15 | `origins` option / `origins()` (default `*:*`, list or `fn(origin, cb)`) | index.js:69-95,243 | PARTIAL | no server-level setting; per-transport `CheckOrigin func(*http.Request) bool` polling/transport.go:15, websocket/transport.go:35. Default `nil`: polling sends no CORS header (polling/server.go:75), websocket uses gorilla same-origin default | `polling.Transport.CheckOrigin`, `websocket.Transport.CheckOrigin` | Y (the option that disables the default) | 1 | R |
 | S5 | ADD V1-7 | D5 | `adapter(v)` pluggable adapter class | index.js:224 | PARTIAL | only `Server.Adapter(*RedisAdapterOptions)` server.go:75; `Broadcast` interface is exported (broadcast.go:9) but cannot be injected (namespace_handler.go:25-38) | `Server.Adapter` | Y | 2 | R |
 | S6 | - | - | `parser` option (custom parser) | index.js:54 | N/A | fixed parser package; custom parsers not a v1 goal (msgpack is a v2 roadmap item) | - | - | 0 | R |
 | S7 | - | - | `attach` / `listen(srv or port)` | index.js:259 | PARITY | `ServeHTTP` + `Serve()` server.go:117,172 (idiomatic Go; `listen(port)` convenience not needed) | `Server.ServeHTTP`, `Serve` | - | 0 | R |
@@ -78,7 +79,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | S15 | ADD V1-6 | D5 | `clients(cb)` list of socket ids (all, or `in(room)`) | namespace.js:270; adapter 173 | PARTIAL | no id list; `ForEach(ns, room, f)` server.go:317 needs a room, `RoomLen`/`Rooms` count only | `Server.ForEach`, `RoomLen` | Y | 1 | R |
 | S16 | ADD V1-5 | D5 | `nsp.connected`, `nsp.sockets` maps | namespace.js:55-56 | ABSENT | none | - | Y | 1 | R |
 | S17 | BUG V1-5 | D8 | `close(fn)` closes all clients + http server | index.js:485-499 | PARTIAL | `Server.Close` server.go:101 stops accepting (`Serve` returns nil) and stops Redis; **does not close open sessions** (doc server.go:95-97; engineio/server.go:53-55) | `Server.Close`, example `_examples/graceful-shutdown` | Y (Shutdown) | 1-2 | R |
-| S18 | PEND O6 | O6 | `engine` / `eio` property | index.js:425 | PARTIAL | engine unexported; only `Count()` server.go:307 and `Remove(sid)` server.go:312 | `Server.Count` | Y | 1 | R |
+| S18 | ADD V1-16 | D16 | `engine` / `eio` property | index.js:425 | PARTIAL | engine unexported; only `Count()` server.go:307 and `Remove(sid)` server.go:312 | `Server.Count` | Y | 1 | R |
 | S19 | - | - | `set(key,val)` legacy BC, `bind`, `onconnection`, `httpServer`, `checkRequest` | index.js:143,424-443 | N/A | deprecated or JS plumbing | - | - | 0 | R |
 | S20 | - | - | event `connection` / `connect` | namespace.js:189-190 | PARITY | `OnConnect(ns, func(Conn) error)` server.go:122; one handler per namespace, a second call replaces it (namespace_handler.go:55-57) | `OnConnect` | - | 0 | R |
 | S21 | ADD V1-6; ADD V1-15; REDIS | D5, D11, D2 | flags `volatile`, `local`, `json`, `compress(b)`, `binary(b)` on server | index.js:509-523; namespace.js:32 | ABSENT | none. `json` is a no-op in 2.5.0 (N/A); `binary` is decided by `parser.Buffer` in Go (N/A); `volatile`, `compress`, `local` ABSENT, see K18-K20 | - | Y | see K | R |
@@ -102,7 +103,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 
 | ID | Plan | Decision | Reference item | Ref | Status | Go evidence | Nearest Go API | API? | PRs | Ver |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| K1 | PEND O3 | O3 | `id` (`/` : engine id, other nsp: `nsp#id`) | socket.js:64 | PARTIAL | `Conn.ID()` returns the engine sid for every namespace (connection.go:60) | `Conn.ID` | N | 0-1 | R |
+| K1 | CHG V1-5 | D15 | `id` (`/` : engine id, other nsp: `nsp#id`) | socket.js:64 | PARTIAL | `Conn.ID()` returns the engine sid for every namespace (connection.go:60) | `Conn.ID` | N | 0-1 | R |
 | K2 | - | - | `rooms` | socket.js:67 | PARITY | `Conn.Rooms()` namespace_conn.go:114; includes the sid room (lifecycle_test.go:75) | `Conn.Rooms` | - | 0 | R |
 | K3 | - | - | `client` | socket.js:65 | N/A | no per-engine `Client` object in Go; conn-level state is internal | - | - | 0 | R |
 | K4 | ADD V1-7 | D5, D10 | `conn` (engine socket: transport, readyState, upgraded) | socket.js:66 | PARTIAL | `Conn` exposes only `ID/URL/LocalAddr/RemoteAddr/RemoteHeader` (connection.go:60-65); `Session.Transport()` (session.go:101) is not reachable | - | Y | 1 | R |
@@ -151,8 +152,8 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 
 | ID | Plan | Decision | Reference item | Ref | Status | Go evidence | Nearest Go API | API? | PRs | Ver |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| E1 | PEND O3 | O3 | `pingTimeout` (20000) **D** | server.js:40 | PARTIAL | `Options.PingTimeout` default **60 s** (server_options.go:68-73). Semantics differ: Node closes after `pingInterval + pingTimeout` without any packet (engine socket.js:136-142), Go sets read/write deadline `PingTimeout` after each PING (session.go:397-409) | `Options.PingTimeout` | N | 1 | R |
-| E2 | PEND O3 | O3 | `pingInterval` (25000) **D** | server.js:41 | PARITY | `Options.PingInterval`, default **20 s**, advertised in OPEN (server_options.go:75-80, parameters.go:17-22); default value differs | `Options.PingInterval` | N | 0 | R |
+| E1 | CHG V1-2 | D15 | `pingTimeout` (20000) **D** | server.js:40 | PARTIAL | `Options.PingTimeout` default **60 s** (server_options.go:68-73). Semantics differ: Node closes after `pingInterval + pingTimeout` without any packet (engine socket.js:136-142), Go sets read/write deadline `PingTimeout` after each PING (session.go:397-409) | `Options.PingTimeout` | N | 1 | R |
+| E2 | CHG V1-2 | D15 | `pingInterval` (25000) **D** | server.js:41 | PARITY | `Options.PingInterval`, default **20 s**, advertised in OPEN (server_options.go:75-80, parameters.go:17-22); default value differs | `Options.PingInterval` | N | 0 | R |
 | E3 | ADD V1-2 | D5 | `upgradeTimeout` (10000) **D** | server.js:42; socket.js:189 | ABSENT | probe waits up to `PingTimeout` (session.go:412-422) | - | Y | 1 | R |
 | E4 | BUG V1-2; ADD V1-2 | D8, D1 | `maxHttpBufferSize` (1e6; also ws `maxPayload`) **D** | server.js:43,111 | ABSENT | no cap on polling POST bodies or ws messages (no `SetReadLimit`; PROTOCOL.md "no payload size limit"). Security-relevant | - | Y | 1-2 | R |
 | E5 | CHG V1-2 | D1 | `allowRequest(req, fn(err, ok))` **D** | server.js:46,135-167 | PARTIAL | `Options.RequestChecker func(*http.Request) (http.Header, error)` server_options.go:23; called on **every** request, not only handshakes (engineio/server.go:115); error answers HTTP 502 text, Node 403 JSON code 4 | `RequestChecker` | N | 1 | R |
@@ -167,10 +168,10 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | E14 | CHG V1-2 | D1 | `attach` opts `path`, `handlePreflightRequest`, `destroyUpgrade`, `destroyUpgradeTimeout` **D** | server.js:440-499 | PARTIAL | path via mux; OPTIONS handled by the polling transport after a session exists (polling/server.go:101-107). An OPTIONS without `sid` goes through `Accept` and `newSession` (engineio/server.go:136-153) which, by reading, creates a session (not run). `destroyUpgrade` is net/http's job | - | N | 1 | R/U |
 | E15 | BUG V1-2 | D8 | `generateId(req)` **D** | server.js:278 | PARTIAL | `Options.SessionIDGenerator` `NewID()` without the request (session_id_generator.go). **Default is a sequential base36 counter** (server_options.go:92-97; session_id_generator.go), Node uses random `base64id`: session ids are guessable | `SessionIDGenerator` | N (default) | 1 | R |
 | E16 | - | - | `clientsCount` **D** | server.js:35 | PARITY | `Server.Count()` server.go:307 | `Count` | - | 0 | R |
-| E17 | PEND O6 | O6 | `clients` map **D** | server.js:34 | ABSENT | none | - | Y | 1 | R |
+| E17 | ADD V1-16 | D16 | `clients` map **D** | server.js:34 | ABSENT | none | - | Y | 1 | R |
 | E18 | - | - | `connection` event **D** | server.js:342 | PARITY | pull model `engineio.Server.Accept()` engineio/server.go:65 | `Accept` | - | 0 | R |
-| E19 | PEND O6 | O6 | engine events `flush`, `drain`, socket `packet`, `packetCreate`, `heartbeat`, `upgrading`, `upgrade`, `error` **D** | socket.js | ABSENT | observer hooks are planned for v2 | - | Y | 1-2 | R |
-| E20 | PEND O6 | O6 | engine socket `close(discard)`, `send`, `readyState`, `upgraded`, `transport` **D** | socket.js:364,462 | PARTIAL | `Conn.Close`, `NextWriter`; state not exposed | - | Y | 1 | R |
+| E19 | ADD V1-17 | D16 | engine events `flush`, `drain`, socket `packet`, `packetCreate`, `heartbeat`, `upgrading`, `upgrade`, `error` **D** | socket.js | ABSENT | none; v2 has observer hooks (`v2/engineio/hooks.go`), whose shape V1-17 reuses (D13) | - | Y | 1-2 | R |
+| E20 | ADD V1-16 | D16, D10 | engine socket `close(discard)`, `send`, `readyState`, `upgraded`, `transport` **D** | socket.js:364,462 | PARTIAL | `Conn.Close`, `NextWriter`; state not exposed | - | Y | 1 | R |
 | E21 | - | - | `handleRequest`, `handleUpgrade` **D** | server.js:214,351 | PARITY | `ServeHTTP` handles both (engineio/server.go:104) | `ServeHTTP` | - | 0 | R |
 | E22 | BUG V1-2 | D8 | `close()` closes all clients **D** | server.js:191 | PARTIAL | `engineio.Server.Close` keeps accepted sessions open (engineio/server.go:53-55) | `Close` | N | 1 | R |
 | E23 | - | - | `EIO` query parameter check | server.js (none) | PARITY | neither checks it in 3.x (PROTOCOL.md) | - | - | 0 | R |
@@ -186,7 +187,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | P5 | DONE V1-1 | D4 | JSONP GET `___eio[<j>]("...")`, `j` reduced to digits | polling-jsonp.js:24,56-74 | ABSENT | removed by V1-1 (D4): `j` is ignored, a poll answers the ordinary payload and headers, nothing of `j` is written (`TestPollingIgnoresJSONPCallback`). Audit: `___eio[` + raw `j` + `]("`, `j` not sanitised | - | N | 1 | T |
 | P6 | DONE V1-1 | D4 | JSONP POST (`application/x-www-form-urlencoded`, field `d`, escaped `\n`) | polling-jsonp.js:39-54 | ABSENT | removed with JSONP (D4): POST accepts only `application/octet-stream` or `text/plain; charset=utf-8` (polling/util.go:21-40); a form POST, with or without `j`, is HTTP 400 and reaches no session (`TestPollingRejectsJSONPFormPost`) | - | N | 1 | T |
 | P7 | - | - | `b64=1` base64 text payload; `supportsBinary` otherwise | server.js:304-308; polling.js | PARITY | polling/server.go:31,126-131; payload/encoder.go b64 writer | - | - | 0 | R |
-| P8 | PEND O3 | O3 | XHR CORS headers on every polling response | polling-xhr.js:48-62 | PARTIAL | only if `CheckOrigin` is set; default nil sends none (polling/server.go:70-85, transport.go:19-24) | `CheckOrigin` | N | 1 (with S4) | R |
+| P8 | CHG V1-18 | D15 | XHR CORS headers on every polling response | polling-xhr.js:48-62 | PARTIAL | only if `CheckOrigin` is set; default nil sends none (polling/server.go:70-85, transport.go:19-24) | `CheckOrigin` | N | 1 (with S4) | R |
 | P9 | TEST V1-8 | D7 | OPTIONS answer with `Access-Control-Allow-Headers: Content-Type` | polling-xhr.js:32-41 | PARITY | polling/server.go:101-107 (see E14 for the no-sid case) | - | - | 0 | R/U |
 | P10 | - | - | IE `X-XSS-Protection: 0` | polling.js:398-403 | PARITY | polling/server.go:65-67 | - | - | 0 | R |
 | P11 | CHG V1-2 | D1 | error replies JSON `{code,message}`, codes 0-4, CORS headers on 400, 403 for rejected | server.js:72-86,243-268 | ABSENT | plain `http.Error` text, 400/502 (engineio/server.go:110,117,131,159) | - | N | 1 | R |

@@ -1647,7 +1647,7 @@ policy*) and orders the release commit and the `v1.5.0` tag; v2 work (Stage 2 co
 resumes on the owner's order after MV1, not on the tag.
 
 **Stage V1R. Redis parity (next v1 minor, after MV1).** Scope, from D2: `Except` and
-broadcast-except-sender over Redis (A4), the `compress` flag across instances (S21), the `DB` option (A10), binary arguments across
+broadcast-except-sender over Redis (A4), the `volatile` (A4) and `compress` (S21) flags across instances, the `DB` option (A10), binary arguments across
 instances (B3), the 5 s `RoomLen`/`Rooms` waits (B4, 1.K), and `_examples/redis-adapter` turned
 into a cluster-correct two-instance chat that returns to the identical `chat.go` (`CHAT_SKIP` emptied); the mixed Go/Node cluster stays out (D3, A8, A9).
 New message entries follow the forward rule of *`Except` with the Redis adapter*; the changelog

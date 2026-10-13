@@ -1420,7 +1420,10 @@ this fork's v1 line, as D4's removal of JSONP in the same release does. A new ma
 open to v1 in any case: `/v2` is the path of the v2 module. D15's CORS option switches a
 server-level default off; the per-transport `CheckOrigin` stays as the override for its
 transport (V1-18). D15's ping defaults and `Conn.ID` format go to the PRs that own those
-files, V1-2 and V1-5, as `CHG` rows. Of the four engine events D16 names, engine.io 3.6.2
+files, V1-2 and V1-5, as `CHG` rows; V1-2 changes the close rule to the reference's together
+with the values (E1, the V1-2 row), because the values alone would close every idle client:
+today's deadline, `PingTimeout` after a PING, is shorter than the advertised `PingInterval`
+once both are the reference's. Of the four engine events D16 names, engine.io 3.6.2
 (the v1 reference, D1) has `connection` (E18, the pull model of `Accept`) and emits `headers`
 on its transports only (`polling.js:405`, `websocket.js:36`, where the cookie is added);
 `initial_headers` and `connection_error` are events of engine.io 4.x that the owner named, so
@@ -1447,7 +1450,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | --- | --- |
 | V1-0 | Docs only: signatures and semantics of every `ADD` row as subsections of this stage (the methods added to `Conn`, `Namespace`, `Broadcast` and `engineio.Conn` by D10 and D16, `Options` fields and per-emit flags, those of V1-15, V1-16, V1-17 and V1-18 included, errors); three-agent validation (CLAUDE.md) |
 | V1-1 | `engineio/payload` and `engineio/transport/polling`: binary payload length in bytes, not UTF-16 units (P16), JSONP removed with its PROTOCOL.md deviation (P5, P6); the CORS default is V1-18's (S4, P8: D15), `OPTIONS` answers (P9) and overlapping polls (P18) are checked by V1-8 |
-| V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake must be GET with the reference answer (HTTP 400 `{"code":2,"message":"Bad handshake method"}`, P12), which also closes `OPTIONS` without `sid` (E14: today it creates a session in `Server.ServeHTTP`), liveness on any packet, the reference defaults `PingInterval` 25 s and `PingTimeout` 20 s (E1, E2: D15; a `### Changed` entry names both), request checker, `Server.Close` closes sessions |
+| V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake must be GET with the reference answer (HTTP 400 `{"code":2,"message":"Bad handshake method"}`, P12), which also closes `OPTIONS` without `sid` (E14: today it creates a session in `Server.ServeHTTP`), liveness on any packet with the reference's close rule: the session closes with reason `ping timeout` after `PingInterval + PingTimeout` without any received packet, the window re-armed by every packet (engine.io 3.6.2 `socket.js:136-142`; today `session.go:78,223,397-409` arms a deadline of `PingTimeout` alone, re-armed by a PING only, which under the new defaults would close an idle client 20 s after each of its 25 s pings), and the reference defaults `PingInterval` 25 s and `PingTimeout` 20 s (E1, E2: D15; a `### Changed` entry names both values and the window; the test `TestPingTimeoutIdleClient` and its command are in the per-PR checks below), request checker, `Server.Close` closes sessions |
 | V1-3 | `parser` and root defects: attachment cap, payload validation, `Emit(ev, nil)`, wrong-type argument, per-room duplicates |
 | V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written (R9), `0/nsp,` reply form, disconnect reasons and `disconnecting` order, encode error |
 | V1-5 | Namespace API: `Of`, `Use` and event middleware, connect-rejection reason, per-namespace disconnect, `connected`/`sockets`, `send`, `Server.Close` waiting for sessions, `Conn.ID()` as `/ns#id` outside the root namespace (K1: D15; a `### Changed` entry names it) |
@@ -1789,7 +1792,19 @@ and any later one) puts one body line `fails without the fix: <TestName>` per `B
 test being the one under that row's `// Covers`, and has run it red on the base with only the
 PR's test files applied. The DoD block counts the lines against the `BUG` rows of the base. `Server.Close` has two layers and two tests: V1-2 (E22)
 owns the `engineio` one (open sessions are closed), V1-5 (S17) the root one (`Close` returns after
-the sessions are gone). V1-8 and later run `gh pr checks <n>` with `conformance` green; V1-10, V1-11 and V1-15 run the Go client against the
+the sessions are gone). V1-2, on its head, counts `TestPingTimeoutIdleClient` (E1, under
+`// Covers E1`; in package `session`, which reads the cause the session records): with
+`PingInterval` 100 ms and `PingTimeout` 50 ms (small values keep the test fast; the default
+values are asserted beside it), a client that sends only PING at the interval is still open
+after 500 ms, ten times `PingTimeout`, and a client that sends nothing is closed with reason
+`ping timeout` within 1 s; it is red on the base, where the pinging client is closed 50 ms
+after its first PING:
+
+```sh
+test "$(go test -race -count=1 -json -run '^TestPingTimeoutIdleClient$' ./engineio/... | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test' | sort -u | wc -l)" -eq 1   # the reference close window: an idle client pinging at the interval stays, a silent one is closed
+```
+
+V1-8 and later run `gh pr checks <n>` with `conformance` green; V1-10, V1-11 and V1-15 run the Go client against the
 Node 2.5.0 server of the conformance job. V1-12 and V1-13 run `make examples examples-node`
 on their head (V1-12 with `ack` and `binary` present; V1-13 and MV1 with all four new
 directories). The `cmp` step of `examples` covers every `CHAT_COPIES` file, so a copy that

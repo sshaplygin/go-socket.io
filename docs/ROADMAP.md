@@ -1448,7 +1448,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-3 | `parser` and root defects: attachment cap, payload validation, `Emit(ev, nil)`, wrong-type argument, per-room duplicates |
 | V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written (R9), `0/nsp,` reply form, disconnect reasons and `disconnecting` order, encode error |
 | V1-5 | Namespace API: `Of`, `Use` and event middleware, connect-rejection reason, per-namespace disconnect, `connected`/`sockets`, `send`, `Server.Close` waiting for sessions, `Conn.ID()` as `/ns#id` outside the root namespace (K1: D15; a `### Changed` entry names it) |
-| V1-6 | Memory broadcast: `Except` and broadcast except the sender (new `Broadcast` methods; the Redis type returns `ErrExceptUnsupported` and drops a message with unknown `opts`), room union with dedupe, id lists, `Join` of several rooms, `volatile` and `local` flags, callback-on-broadcast rule |
+| V1-6 | Memory broadcast: `Except` and broadcast except the sender (new `Broadcast` methods; the Redis type returns `ErrExceptUnsupported` and drops a message with unknown `opts` entries or keys), room union with dedupe, id lists, `Join` of several rooms, `volatile` and `local` flags, callback-on-broadcast rule |
 | V1-7 | Dynamic namespaces, handshake data (query, headers, request, time), late ack and several listeners per event, adapter injection |
 | V1-8 | The `conformance` CI job (D7): Node `socket.io-client` 1.7.4 and 2.5.0 against the Go server, plus the Go client against a Node `socket.io` 2.5.0 server; required check; also the `conformance` Makefile target and the CLAUDE.md lines (Commands, "tests need no external service") for the tag |
 | V1-9 | Stage 7 as written below: the `client` package, behaviour-preserving, its own DoD; its commits are titled `<type>(7.<n>)` as Stage 7 requires |
@@ -1480,14 +1480,25 @@ of the changelog, and V1R implements the methods over Redis and removes the entr
 at the tag: today `onMessage` uses `opts[0]` (room) and `opts[1]` (event) and ignores the rest
 (`redis_broadcast.go:375-393`), so it would deliver a V1R `Except` broadcast to the excluded
 sockets. V1-6 makes it drop and log a message whose `opts` has more than those two entries,
-delivering nothing; `TestRedisBroadcastDropsUnknownOpts` feeds `onMessage` one and asserts that
-no connection receives it (no Redis server). V1R adds an entry only for a non-default value (an
-exclusion, `compress` false), so a plain broadcast still reaches `v1.5.0` instances; in a mixed
-cluster an `Except` broadcast misses their sockets instead of reaching excluded ones.
+or whose top-level keys are not exactly `opts` and `args`, delivering nothing;
+`TestRedisBroadcastDropsUnknownOpts` feeds `onMessage` a message with a third `opts` entry and
+`TestRedisBroadcastDropsUnknownKeys` one with an extra top-level key, and each asserts that no
+connection receives it (no Redis server). The forward rule for V1R, which that decoder must
+survive: every new field of the message goes into `opts`, never into a new top-level key, and
+an entry is added only for a non-default value (an exclusion, `volatile`, `compress` false, a
+room union or an id list, and a marker whenever B3 changes how `args` are encoded, so that a
+`v1.5.0` instance drops such a message instead of decoding its arguments wrongly). A plain
+broadcast therefore still reaches `v1.5.0` instances, and in a mixed cluster every broadcast
+that carries an entry misses their sockets instead of reaching excluded ones or arriving
+corrupted. In `v1.5.0` the Redis `Broadcast` sends a room union (S13) as one message per
+room, so the local instance dedupes and another instance delivers once per room a socket is
+in, and answers an id list (S15, A5) from this instance's connections only; V1-14 lists both
+under `### Known limitations`, V1R carries them.
 The V1-6 flags on the Redis `Broadcast`: `local` delivers to this instance's connections and
 publishes nothing, as the reference adapter does; `volatile` is honoured for this instance's
 connections and not carried, so other instances send normally. V1-6 tests both without a Redis
-server, V1-14 lists `volatile` under `### Known limitations` beside `compress`, and V1R carries
+server (`TestRedisBroadcastLocalFlag`, `TestRedisBroadcastVolatileFlag`; counted in the V1-6
+block below), V1-14 lists `volatile` under `### Known limitations` beside `compress`, and V1R carries
 it (A4).
 
 **Conformance contract (V1-8).** CI job `conformance` in `.github/workflows/ci.yaml`, a required
@@ -1779,7 +1790,13 @@ the sessions are gone). V1-8 and later run `gh pr checks <n>` with `conformance`
 Node 2.5.0 server of the conformance job. V1-12 and V1-13 run `make examples examples-node`
 on their head (V1-12 with `ack` and `binary` present; V1-13 and MV1 with all four new
 directories). The `cmp` step of `examples` covers every `CHAT_COPIES` file, so a copy that
-V1-13 leaves behind fails there.
+V1-13 leaves behind fails there. V1-6, on its head, counts the four Redis-less tests of the
+Redis `Broadcast` named in *`Except` with the Redis adapter*:
+
+```sh
+V6='TestRedisBroadcastDropsUnknownOpts|TestRedisBroadcastDropsUnknownKeys|TestRedisBroadcastLocalFlag|TestRedisBroadcastVolatileFlag'
+test "$(go test -race -count=1 -json -run "^($V6)\$" . | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test' | sort -u | wc -l)" -eq 4   # the decoder guard, the unknown-key guard and the two flags, without a Redis server
+```
 
 **MV1 DoD** (V1-14 head, then again on the merged `master`):
 
@@ -1813,11 +1830,15 @@ policy*) and orders the release commit and the `v1.5.0` tag; v2 work (Stage 2 co
 resumes on the owner's order after MV1, not on the tag.
 
 **Stage V1R. Redis parity (next v1 minor, after MV1).** Scope, from D2: `Except` and
-broadcast-except-sender over Redis (A4), the `volatile` (A4) and `compress` (S21) flags across instances, the `DB` option (A10), binary arguments across
+broadcast-except-sender over Redis (A4), the `volatile` (A4) and `compress` (S21) flags across instances, a room union as one
+message and id lists across instances (S13, S15, A5), the `DB` option (A10), binary arguments across
 instances (B3), the 5 s `RoomLen`/`Rooms` waits (B4, 1.K), and `_examples/redis-adapter` turned
 into a cluster-correct two-instance chat that returns to the identical `chat.go` (`CHAT_SKIP` emptied); the mixed Go/Node cluster stays out (D3, A8, A9).
-New message entries follow the forward rule of *`Except` with the Redis adapter*; the changelog
-says that during a rolling upgrade from `v1.5.0` its instances miss `Except` broadcasts.
+New message entries follow the forward rule of *`Except` with the Redis adapter* (every new
+field inside `opts`, an entry only for a non-default value, a marker when the `args` encoding
+changes); the changelog names every broadcast kind whose message carries an entry and which
+`v1.5.0` instances therefore miss during a rolling upgrade: `Except`, `volatile`, `compress`
+false, a room union, an id list and, if B3 adds its marker, binary arguments.
 Entry: MV1 accepted. The PR split is recorded here when the stage starts. DoD: `make lint
 test-race` with the two-instance tests under `-race`; no `REDIS` entry left in the `Plan`
 column (`rows | grep REDIS` prints nothing); the changelog `### Known limitations` of 1.K is

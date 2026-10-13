@@ -170,7 +170,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | E16 | - | - | `clientsCount` **D** | server.js:35 | PARITY | `Server.Count()` server.go:307 | `Count` | - | 0 | R |
 | E17 | ADD V1-16 | D16 | `clients` map **D** | server.js:34 | ABSENT | none | - | Y | 1 | R |
 | E18 | - | - | `connection` event **D** | server.js:342 | PARITY | pull model `engineio.Server.Accept()` engineio/server.go:65 | `Accept` | - | 0 | R |
-| E19 | ADD V1-17 | D16 | engine events `flush`, `drain`, socket `packet`, `packetCreate`, `heartbeat`, `upgrading`, `upgrade`, `error` **D** | socket.js | ABSENT | none; v2 has observer hooks (`v2/engineio/hooks.go`), whose shape V1-17 reuses (D13) | - | Y | 1-2 | R |
+| E19 | ADD V1-17 | D16 | engine events `flush`, `drain`, socket `packet`, `packetCreate`, `heartbeat`, `upgrading`, `upgrade`, `error` **D** | socket.js | ABSENT | none; v2 has observer hooks (`v2/engineio/hooks.go`) | - | Y | 1-2 | R |
 | E20 | ADD V1-16 | D16, D10 | engine socket `close(discard)`, `send`, `readyState`, `upgraded`, `transport` **D** | socket.js:364,462 | PARTIAL | `Conn.Close`, `NextWriter`; state not exposed | - | Y | 1 | R |
 | E21 | - | - | `handleRequest`, `handleUpgrade` **D** | server.js:214,351 | PARITY | `ServeHTTP` handles both (engineio/server.go:104) | `ServeHTTP` | - | 0 | R |
 | E22 | BUG V1-2 | D8 | `close()` closes all clients **D** | server.js:191 | PARTIAL | `engineio.Server.Close` keeps accepted sessions open (engineio/server.go:53-55) | `Close` | N | 1 | R |

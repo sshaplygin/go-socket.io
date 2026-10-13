@@ -1485,6 +1485,11 @@ delivering nothing; `TestRedisBroadcastDropsUnknownOpts` feeds `onMessage` one a
 no connection receives it (no Redis server). V1R adds an entry only for a non-default value (an
 exclusion, `compress` false), so a plain broadcast still reaches `v1.5.0` instances; in a mixed
 cluster an `Except` broadcast misses their sockets instead of reaching excluded ones.
+The V1-6 flags on the Redis `Broadcast`: `local` delivers to this instance's connections and
+publishes nothing, as the reference adapter does; `volatile` is honoured for this instance's
+connections and not carried, so other instances send normally. V1-6 tests both without a Redis
+server, V1-14 lists `volatile` under `### Known limitations` beside `compress`, and V1R carries
+it (A4).
 
 **Conformance contract (V1-8).** CI job `conformance` in `.github/workflows/ci.yaml`, a required
 check, on ubuntu with the Node LTS release from `actions/setup-node`. The clients are installed

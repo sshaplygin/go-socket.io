@@ -1,8 +1,6 @@
 package polling
 
 import (
-	"fmt"
-	"html/template"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,7 +16,9 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
-func TestServerJSONP(t *testing.T) {
+// TestServerIgnoresJSONPParameter checks that `j` no longer selects JSONP (ROADMAP
+// Stage V1, D4): the response is the ordinary payload, not a script.
+func TestServerIgnoresJSONPParameter(t *testing.T) {
 	must := require.New(t)
 
 	var scValue atomic.Value
@@ -73,7 +73,7 @@ func TestServerJSONP(t *testing.T) {
 	}()
 
 	{
-		u := httpSvr.URL + "?j=jsonp_f1"
+		u := httpSvr.URL + "?b64=1&j=jsonp_f1"
 		resp, err := http.Get(u)
 		require.NoError(t, err)
 
@@ -82,14 +82,14 @@ func TestServerJSONP(t *testing.T) {
 			require.NoError(t, err)
 		}()
 
-		assert.Equal(t, "text/javascript; charset=UTF-8", resp.Header.Get("Content-Type"))
+		assert.Equal(t, "text/plain; charset=UTF-8", resp.Header.Get("Content-Type"))
 		bs, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 
-		assert.Equal(t, fmt.Sprintf("___eio[jsonp_f1](\"%s\");", template.JSEscapeString("10:b4aGVsbG8=")), string(bs))
+		assert.Equal(t, "10:b4aGVsbG8=", string(bs))
 	}
 	{
-		u := httpSvr.URL + "?j=jsonp_f2"
+		u := httpSvr.URL + "?b64=1&j=jsonp_f2"
 		resp, err := http.Get(u)
 		require.NoError(t, err)
 
@@ -98,11 +98,11 @@ func TestServerJSONP(t *testing.T) {
 			require.NoError(t, err)
 		}()
 
-		assert.Equal(t, "text/javascript; charset=UTF-8", resp.Header.Get("Content-Type"))
+		assert.Equal(t, "text/plain; charset=UTF-8", resp.Header.Get("Content-Type"))
 
 		bs, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		assert.Equal(t, "___eio[jsonp_f2](\"6:4world\");", string(bs))
+		assert.Equal(t, "6:4world", string(bs))
 	}
 
 	wg.Wait()

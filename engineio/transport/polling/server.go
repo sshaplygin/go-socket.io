@@ -1,8 +1,6 @@
 package polling
 
 import (
-	"bytes"
-	"html/template"
 	"io"
 	"net"
 	"net/http"
@@ -22,16 +20,12 @@ type serverConn struct {
 	localAddr    Addr
 	remoteAddr   Addr
 	url          url.URL
-	jsonp        string
 }
 
+// newServerConn creates the polling connection of a request. JSONP is not supported
+// (ROADMAP Stage V1, D4): the `j` parameter is ignored like any unknown parameter.
 func newServerConn(t *Transport, r *http.Request) *serverConn {
-	query := r.URL.Query()
-	jsonp := query.Get("j")
-	supportBinary := query.Get("b64") == ""
-	if jsonp != "" {
-		supportBinary = false
-	}
+	supportBinary := r.URL.Query().Get("b64") == ""
 
 	return &serverConn{
 		Payload:       payload.New(supportBinary),
@@ -41,7 +35,6 @@ func newServerConn(t *Transport, r *http.Request) *serverConn {
 		localAddr:     Addr{r.Host},
 		remoteAddr:    Addr{r.RemoteAddr},
 		url:           *r.URL,
-		jsonp:         jsonp,
 	}
 }
 
@@ -73,14 +66,12 @@ func (c *serverConn) SetHeaders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if checkOrigin != nil && checkOrigin(r) {
-		if r.URL.Query().Get("j") == "" {
-			origin := r.Header.Get("Origin")
-			if origin == "" {
-				w.Header().Set("Access-Control-Allow-Origin", "*")
-			} else {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Credentials", "true")
-			}
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 	}
 }
@@ -99,30 +90,13 @@ func (p *progressWriter) Write(b []byte) (int, error) {
 func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodOptions:
-		if r.URL.Query().Get("j") == "" {
-			c.SetHeaders(w, r)
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-			w.WriteHeader(200)
-		}
+		c.SetHeaders(w, r)
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.WriteHeader(200)
 
 	case http.MethodGet:
 		c.SetHeaders(w, r)
 
-		if jsonp := r.URL.Query().Get("j"); jsonp != "" {
-			buf := bytes.NewBuffer(nil)
-			if err := c.Payload.FlushOut(buf); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			w.Header().Set("Content-Type", "text/javascript; charset=UTF-8")
-			pl := template.JSEscapeString(buf.String())
-
-			_, _ = w.Write([]byte("___eio[" + jsonp + "](\""))
-			_, _ = w.Write([]byte(pl))
-			_, _ = w.Write([]byte("\");"))
-
-			return
-		}
 		if c.supportBinary {
 			w.Header().Set("Content-Type", "application/octet-stream")
 		} else {

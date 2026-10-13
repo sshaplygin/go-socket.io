@@ -1411,31 +1411,35 @@ transports. A break of implementers in a minor release departs from the SemVer r
 this fork's v1 line, as D4's removal of JSONP in the same release does. A new major is not
 open to v1 in any case: `/v2` is the path of the v2 module.
 
-**Owner decisions pending.** Not decided; the plan follows each recommendation until the owner
-answers, and a PR that depends on an answer says so in its body. A `PEND` row is rewritten by
-the PR in the last column, to the answer or, when the owner accepts the recommendation, to
-the recommended outcome; MV1 needs every row rewritten, so it needs the owner's answers.
-The rewriting PR also records the answer as the next row of the decision table (D15, D16).
-An answer that adds scope (a yes on O6) amends this section first, in a docs PR that adds a
-PR with its rows, entry and DoD, as V1-15 was added for D11; V1-14 does not merge until that
-PR has.
+**Owner decisions pending.** Not recorded yet; the plan follows each recommendation until a
+docs PR records the owner's answer, and a PR that depends on an answer says so in its body.
+A `PEND` row is rewritten by the PR in the last column, to the answer or, when the owner
+accepts the recommendation, to the recommended outcome; MV1 needs every row rewritten, so it needs the owner's answers.
+An answer to O3 or O6 other than its recommendation is code work, so it adds scope: it
+amends this section first, in a docs PR that records it as the next row of the decision table
+(D15 for O3, D16 for O6), rewrites its `PEND` rows to the PRs that implement it and adds
+those PRs with their rows, entry and DoD, as V1-15 was added for D11. Only an accepted
+recommendation is left to V1-14, which rewrites its rows and records its decision row.
 
-Answers are needed before these merges: O3 and O6 before V1-14 (the remaining `PEND` rows);
-O1, O2, O4 and O5 are answered (D9 to D12), so no other PR waits for an answer. V1-2 and
-V1-4 are not gated by O3: none of their rows is `PEND O3`, D8 settles E4, S10 and R8, D5 settles R9 and K20. Silence is not an answer: a PR does not merge, under the standing
+The owner answered O3 and O6 after the owner comment on the PR of this section (#68), neither
+by the recommendation; the docs PR that records D15 and D16 carries both answers with the
+owner's comment on that PR. Answers are needed before these merges: V1-0 (the contracts O6
+adds and the `Conn.ID` of K1), V1-2 (the ping defaults E1 and E2) and V1-14 do not merge
+until that docs PR has merged. O1, O2, O4 and O5 are answered (D9 to D12). V1-4 is not
+gated by O3: none of its rows is `PEND O3`, D8 settles E4, S10 and R8, D5 settles R9 and K20. Silence is not an answer: a PR does not merge, under the standing
 merge rule too, until the repository owner has answered each decision it needs in a comment of
 that PR (accepting a recommendation counts). The check runs before the merge, and the PR body
 carries one line `Owner answer O<n>: <answer> <URL of the comment>` per decision.
 
 ```sh
 answered() { pr=$1; shift; owner=$(gh repo view --json owner -q .owner.login); for o in "$@"; do gh pr view "$pr" --json comments -q '.comments[] | select(.author.login == "'"$owner"'") | .body' | grep -qw "O$o" || { echo "no owner comment for O$o on #$pr" >&2; return 1; }; done; }
-answered "${PR:?the number of the V1-14 PR}" 3 6   # V1-14, the only PR that needs an answer
+answered "${PR:?the number of the docs PR that records D15 and D16}" 3 6   # V1-0, V1-2 and V1-14 wait for its merge
 ```
 
 | ID | Question | Recommendation | `PEND` rows | Rewritten by |
 | --- | --- | --- | --- | --- |
-| O3 | The v1 defaults that D8 does not settle: CORS (S4, P8), ping defaults (E1, E2), `Conn.ID` per namespace (K1). The payload limit (E4), the random session id (E15), the ERROR packet (S10, R8) and the DISCONNECT packet (R9) are D8 or D5 and proceed regardless | Keep S4, P8, E1, E2 and K1 and document them | S4, P8, K1, E1, E2 | V1-14 |
-| O6 | Engine-level surface: `engine` handle, `clients` map, engine events, engine socket state (S18, E17, E19, E20) | Out of `v1.5.0`: the pull model of `Accept` replaces the events; `Count` and `Remove` stay | S18, E17, E19, E20 | V1-14 |
+| O3 | The v1 defaults that D8 does not settle: CORS (S4, P8), ping defaults (E1, E2), `Conn.ID` per namespace (K1). The payload limit (E4), the random session id (E15), the ERROR packet (S10, R8) and the DISCONNECT packet (R9) are D8 or D5 and proceed regardless | Keep S4, P8, E1, E2 and K1 and document them | S4, P8, K1, E1, E2 | the docs PR of D15 |
+| O6 | Engine-level surface: `engine` handle, `clients` map, engine events, engine socket state (S18, E17, E19, E20) | Out of `v1.5.0`: the pull model of `Accept` replaces the events; `Count` and `Remove` stay | S18, E17, E19, E20 | the docs PR of D16 |
 
 **PR sequence.** Commits are titled `<type>(V1.<n>): ...`. A PR whose `Plan` rows include `ADD`
 changes the public API only as recorded by V1-0 (CLAUDE.md: public API goes through the roadmap
@@ -1462,7 +1466,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-11 | `client` II: reconnection with options and `reconnect*` events (D12), `once`/`off`/`id`/`connected`, flags (`compress` is V1-15's) |
 | V1-12 | Examples `_examples/ack` and `_examples/binary`, each with its own `go.mod`, a `client.js` (exit 0 on success) and a README. Also owns the `Makefile` `examples` change: every example module is built and vetted (`go build`, `go vet`), the identical-copy `cmp` runs only for directories that hold a `chat.go` (the new ones have none), and a new target `examples-node` starts each new example on a random port and runs its `client.js` with `socket.io-client@2.5.0`; the conformance job runs it; `CLAUDE.md` `make examples` line updated in the same PR |
 | V1-13 | Examples `_examples/namespaces` (namespaces, rooms, auth) and `_examples/middleware`, same rules, `examples-node` extended; `_examples/default-http` gets broadcast-except-sender, and every `chat.go` copy changes with it in the same PR, except `redis-adapter` and `redis-adapter-unix-socket`: `Except` is not available over Redis in `v1.5.0` (D2, contract in V1-0), so they keep their `chat.go` with the `others()` helper, named in `CHAT_SKIP` of the Makefile (the copy check is `CHAT_COPIES`, the `chat.go` directories minus `CHAT_SKIP`) until V1R |
-| V1-14 | Release preparation: rewrites every remaining `PEND` row to the owner's answer (`DEV` with its PROTOCOL.md deviation, `DROP`, or `DONE`), PROTOCOL.md deviations (D3, D4) as the headings `### Deviation D3: mixed Go/Node Redis cluster` and `### Deviation D4: JSONP unsupported` under *Known deviations from the v3/v4 specs* (the unique strings the MV1 DoD greps for), README supported versions, `CHANGELOG.md` `## Unreleased` complete, v1 migration notes. D10 communication: one `### Changed` entry that names `Conn`, `Namespace` and `Broadcast` and every method V1-0 added to each, says that implementers and mocks of them stop compiling in this minor release, and what a client connection returns for the server-only ones (Stage 7), and carries the migration note (add the methods, or embed the interface in a mock); the default changes of V1-15 are `### Changed` entries too (the `io` cookie set after every polling handshake, polling responses of 1024 bytes or more compressed when the client accepts it), each naming the reference option (`cookie`, `httpCompression`); no tag |
+| V1-14 | Release preparation: rewrites every `PEND` row the docs PR of D15 and D16 leaves, which only an accepted recommendation does (`DEV` with its PROTOCOL.md deviation, `DROP`, or `DONE`), PROTOCOL.md deviations (D3, D4) as the headings `### Deviation D3: mixed Go/Node Redis cluster` and `### Deviation D4: JSONP unsupported` under *Known deviations from the v3/v4 specs* (the unique strings the MV1 DoD greps for), README supported versions, `CHANGELOG.md` `## Unreleased` complete, v1 migration notes. D10 communication: one `### Changed` entry that names `Conn`, `Namespace` and `Broadcast` and every method V1-0 added to each, says that implementers and mocks of them stop compiling in this minor release, and what a client connection returns for the server-only ones (Stage 7), and carries the migration note (add the methods, or embed the interface in a mock); the default changes of V1-15 are `### Changed` entries too (the `io` cookie set after every polling handshake, polling responses of 1024 bytes or more compressed when the client accepts it), each naming the reference option (`cookie`, `httpCompression`); no tag |
 | V1-15 | Compression and cookies (D11): `perMessageDeflate` for the websocket transport (E8), `httpCompression` for polling responses (E9), the `cookie` option (E10), the per-emit `compress` flag of `Conn` (K17), of server broadcasts (S21) and of the client (C11); contract and checks in *Compression and cookies (V1-15)* below |
 
 **`Except` with the Redis adapter in `v1.5.0` (rows A4, K14, S21; D2, D10).** Decided here by

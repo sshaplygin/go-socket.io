@@ -1462,7 +1462,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-11 | `client` II: reconnection with options and `reconnect*` events (D12), `once`/`off`/`id`/`connected`, flags (`compress` is V1-15's) |
 | V1-12 | Examples `_examples/ack` and `_examples/binary`, each with its own `go.mod`, a `client.js` (exit 0 on success) and a README. Also owns the `Makefile` `examples` change: every example module is built and vetted (`go build`, `go vet`), the identical-copy `cmp` runs only for directories that hold a `chat.go` (the new ones have none), and a new target `examples-node` starts each new example on a random port and runs its `client.js` with `socket.io-client@2.5.0`; the conformance job runs it; `CLAUDE.md` `make examples` line updated in the same PR |
 | V1-13 | Examples `_examples/namespaces` (namespaces, rooms, auth) and `_examples/middleware`, same rules, `examples-node` extended; `_examples/default-http` gets broadcast-except-sender, and every `chat.go` copy changes with it in the same PR, except `redis-adapter` and `redis-adapter-unix-socket`: `Except` is not available over Redis in `v1.5.0` (D2, contract in V1-0), so they keep their `chat.go` with the `others()` helper, named in `CHAT_SKIP` of the Makefile (the copy check is `CHAT_COPIES`, the `chat.go` directories minus `CHAT_SKIP`) until V1R |
-| V1-14 | Release preparation: rewrites every remaining `PEND` row to the owner's answer (`DEV` with its PROTOCOL.md deviation, `DROP`, or `DONE`), PROTOCOL.md deviations (D3, D4) as the headings `### Deviation D3: mixed Go/Node Redis cluster` and `### Deviation D4: JSONP unsupported` under *Known deviations from the v3/v4 specs* (the unique strings the MV1 DoD greps for), README supported versions, `CHANGELOG.md` `## Unreleased` complete, v1 migration notes. D10 communication: one `### Changed` entry that names `Conn`, `Namespace` and `Broadcast` and every method V1-0 added to each, says that implementers and mocks of them stop compiling in this minor release, and what a client connection returns for the server-only ones (Stage 7), and carries the migration note (add the methods, or embed the interface in a mock); the default changes of V1-15 are `### Changed` entries too (the `io` cookie set by every handshake, polling responses of 1024 bytes or more compressed when the client accepts it), each naming the reference option (`cookie`, `httpCompression`); no tag |
+| V1-14 | Release preparation: rewrites every remaining `PEND` row to the owner's answer (`DEV` with its PROTOCOL.md deviation, `DROP`, or `DONE`), PROTOCOL.md deviations (D3, D4) as the headings `### Deviation D3: mixed Go/Node Redis cluster` and `### Deviation D4: JSONP unsupported` under *Known deviations from the v3/v4 specs* (the unique strings the MV1 DoD greps for), README supported versions, `CHANGELOG.md` `## Unreleased` complete, v1 migration notes. D10 communication: one `### Changed` entry that names `Conn`, `Namespace` and `Broadcast` and every method V1-0 added to each, says that implementers and mocks of them stop compiling in this minor release, and what a client connection returns for the server-only ones (Stage 7), and carries the migration note (add the methods, or embed the interface in a mock); the default changes of V1-15 are `### Changed` entries too (the `io` cookie set after every polling handshake, polling responses of 1024 bytes or more compressed when the client accepts it), each naming the reference option (`cookie`, `httpCompression`); no tag |
 | V1-15 | Compression and cookies (D11): `perMessageDeflate` for the websocket transport (E8), `httpCompression` for polling responses (E9), the `cookie` option (E10), the per-emit `compress` flag of `Conn` (K17), of server broadcasts (S21) and of the client (C11); contract and checks in *Compression and cookies (V1-15)* below |
 
 **`Except` with the Redis adapter in `v1.5.0` (rows A4, K14, S21; D2, D10).** Decided here by
@@ -1511,9 +1511,14 @@ The Go `client` step uses `socket.io@2.5.0` installed the same way, from tagged 
 engine.io 3.6.2's (D1, D9; as E4 takes its limit), from its `lib/server.js:47-61,317-329` and
 `lib/transports/polling.js:289-300`: `perMessageDeflate` off, threshold 1024 bytes when on;
 `httpCompression` on, threshold 1024 bytes, gzip or deflate as `Accept-Encoding` allows, only
-when a packet of the response has `compress` set; the handshake response sets the cookie `io`
-with `Path=/`, `HttpOnly` and `SameSite=Strict`, with fields for the name, the path (no path:
-no `HttpOnly`) and to switch it off. The `compress` flag is true unless set false on an emit
+when a packet of the response has `compress` set. The cookie `io` (`Path=/`, `HttpOnly`,
+`SameSite=Strict`) is set on every response of the polling transport that made the handshake,
+since engine.io adds it on that transport's `headers` event (`polling.js:395-405`); a
+websocket-first handshake sets none, since 3.6.2 listens for `headers` on the connected `ws`
+socket (`transports/websocket.js:31`), which never emits it (ws 7.5.10 emits it on the server
+only), and a reference client cannot tell the difference (D9). Fields: the name, the path (no
+path: no `HttpOnly`), `HttpOnly` (`cookieHttpOnly`), switching it off, and a full cookie for the
+object form of `cookie` (`server.js:319-320`: domain, expiry, `Secure`, `SameSite`). The `compress` flag is true unless set false on an emit
 (socket.io 2.5.0); `false` sends that packet uncompressed on either transport. The threshold
 applies to the whole encoded packet, which the transport buffers up to the threshold before it
 chooses. The E4 limit applies to the inflated message, as `ws` applies `maxPayload` (engine.io
@@ -1537,7 +1542,8 @@ with E4: a compressed message under 1e6 bytes on the wire that inflates to 1e8 b
 session with 1009 while the process's `runtime.MemStats.TotalAlloc` grows by less than 2e7
 bytes), `TestPollingHTTPCompression` (E9:
 gzip and deflate above the threshold, none below it or without `Accept-Encoding`),
-`TestHandshakeCookie` (E10: default, custom name and path, off), `TestEmitCompressFlag` (K17),
+`TestHandshakeCookie` (E10: default, custom name and path, `HttpOnly` off, the full-cookie form,
+off; set again on a later poll of the session, absent after a websocket-first handshake), `TestEmitCompressFlag` (K17),
 `TestBroadcastCompressFlag` (S21), `TestClientCompress` (C11, untagged: the Go client against an
 in-process Go server). These seven need no Node and run under `./...`; the two conformance tests
 run in the `conformance` job, green per the per-PR DoD. Besides the per-PR DoD, on its head:

@@ -3005,8 +3005,13 @@ server, stays in the root `client.go`. Cost: a root fix to a shared file names i
 server's and the client's connection types implement all of them. A method with no client
 meaning (request, handshake data, engine connection, broadcast except the sender, `Use`) is a
 client-side stub returning the zero value, or, if it returns an error, an error V1-0 names; its
-godoc says what a client connection returns, and so does V1-14's `### Changed` entry. This stub
-is the only server-only code `client` carries. A client feature with no server meaning
+godoc says what a client connection returns, and so does V1-14's `### Changed` entry. A stub
+without an error result is documented as a no-op (`Use` registers nothing) or as returning nil
+on a client connection (the request and engine-connection accessors), and V1-0 lists each
+stub's behaviour. Stubs, not a smaller `client.Conn` embedded by a larger root `Conn`: the
+alias keeps one `Conn` type, so a handler written as `func(socketio.Conn, ...)` for today's
+`Client` still receives the client's connection, which a split would make a different type.
+This stub is the only server-only code `client` carries. A client feature with no server meaning
 (reconnection, C3; the options of C4, C6) goes on `*client.Client`, never on `Conn`; one with a
 meaning on both sides (`connected` of C8, the flags of C11) is a D10 method both implement. The
 types in these signatures are declared in `client` (or `engineio`, `parser`) and aliased in the

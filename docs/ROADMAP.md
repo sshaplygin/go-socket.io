@@ -1401,13 +1401,16 @@ package) is executed inside it as PR V1-9.
 | D10 | (2026-10-13, answer to O2; not the recommendation.) An `ADD` row that needs a method on the exported `Conn` or `Namespace` adds it directly to the interface. The owner confirmed it after being shown that external implementers and mocks of those interfaces stop compiling: the version has not been raised since the original library, so the API may be broken now (D13), and the break is recorded (V1-14: `### Changed` entry with a migration note). |
 | D11 | (2026-10-13, answer to O4; not the recommendation.) `perMessageDeflate`, `httpCompression`, `cookie` (E8, E9, E10) and the `compress` flag (K17, C11) are in `v1.5.0`, as PR V1-15 below; they are not deviations. |
 | D12 | (2026-10-13, answer to O5.) The v1 client gets the full reconnection options and the `reconnect*` events of the reference client (C3), as PR V1-11 is written. |
-| D13 | (2026-10-13, engineering rules.) Packages are reused between v1 and v2 as far as possible; code is not duplicated without real necessity. An API released by the first tag of a major line (`v1.5.0` for v1, `v2.0.0` for v2) is not broken inside that major; backward compatibility is kept except across the majors v1 and v2. Before the first tag of a line its API may still change. |
-| D14 | (2026-10-13, code sharing between the modules.) The two modules stay independent: no third shared module, no cross-`require`, no `go.work`. The byte-identical foundation (`logger`, `engineio/frame`, the `engineio/transport` interfaces and manager, the session id generator and manager, `engineio/packet`, `transport/utils`, `payload/pauser.go`; about 650 non-test lines) is kept as copies guarded by a CI drift check, `make sync-check`: a manifest of shared files compared between the root and `v2/` after the import-path rewrite. A file leaves the manifest in the PR that intentionally diverges it, with the reason. The check is its own PR (*Shared-file drift check* below). |
+| D13 | (2026-10-13, engineering rules.) Packages are reused between v1 and v2 as far as possible; code is not duplicated without real necessity. Once the API is fixed it is not broken; backward compatibility is kept except across the majors v1 and v2. |
+| D14 | (2026-10-13, code sharing between the modules; the recommendation accepted as worded.) The two modules stay independent: no third shared module, no cross-`require`, no `go.work`. The byte-identical foundation (`logger`, `engineio/frame`, the `engineio/transport` interfaces and manager, the session id generator and manager, `engineio/packet`, `transport/utils`, `payload/pauser.go`; about 650 non-test lines was the estimate in the question, the measured count is in *Shared-file drift check*) is kept as copies guarded by a CI drift check, `make sync-check`: a manifest of shared files compared between the root and `v2/` after the import-path rewrite. A file leaves the manifest in the PR that intentionally diverges it, with the reason. The check is its own PR (*Shared-file drift check* below). |
 | D15 | (2026-10-14, answer to O3; not the recommendation.) CORS is enabled by default, as in the reference, and an option disables it (S4, P8). The other defaults are aligned to the reference: `pingInterval` 25000 ms and `pingTimeout` 20000 ms of engine.io 3.6.2 (E1, E2), and `Conn.ID()` in a non-root namespace is `/ns#id` (K1). |
 | D16 | (2026-10-14, answer to O6; not the recommendation.) The full engine layer as in Node is in `v1.5.0`: the `engine` handle, the `clients` map and count, the engine events (`connection`, `initial_headers`, `headers`, `connection_error`) and the engine socket state (`readyState`, `transport`, `upgraded`); rows S18, E17, E19, E20. Code work, so it adds PRs to this stage: V1-16 and V1-17. |
 | D17 | (2026-10-14, tests and examples.) Working examples that run against `socket.io-client` 1.7 and 2.5. Mandatory tests that check the contract between JS and Go (the same scenario run against the reference Node server and against the Go server, the observable results compared) and the API coverage (every reference API row of PARITY.md has a test, enforced by a gate; coverage of the Go API). PRs V1-19 and V1-20; the examples are V1-12 and V1-13. |
 
-**How the plan applies D10, D11, D13, D15, D16 and D17** (plan choices, not the owner's words). The V1-0
+**How the plan applies D10, D11, D13, D15, D16 and D17** (plan choices, not the owner's words). The
+plan reads D13's "fixed" API as the API released by the first tag of a major line (`v1.5.0`
+for v1, `v2.0.0` for v2): inside that major it is not broken, and before the first tag of a
+line it may still change. The V1-0
 contracts list the methods D10 adds, and PARITY.md tags their rows `D10`. The exported
 `Broadcast` follows the same rule (*`Except` with the Redis adapter* below). D11's `compress`
 flag also covers server broadcasts (S21), because a server emit and a broadcast reach the same
@@ -2659,7 +2662,9 @@ transport and codec errors, without calling `slog.SetDefault`.
 session close, the breaking changes recorded in Stage 1b, and the `v1.5.0` features v2 does not
 carry: permessage-deflate (V1-15, D11; *Out of scope*), and `httpCompression`, the `io` cookie
 and the per-emit `compress` flag of V1-15, which no v2 stage plans (`BroadcastFlags` is
-`{Local bool}`)), `docs/PROTOCOL.md` update, `docs/OBSERVABILITY.md`,
+`{Local bool}`); leaving those three out of v2 is a plan choice of this stage, not an owner
+decision, and the owner has not been asked: 2.5 puts the question before it starts, and a
+yes adds them to a v2 stage first, with the migration item rewritten), `docs/PROTOCOL.md` update, `docs/OBSERVABILITY.md`,
 `contrib/otel/README.md`, tags `v2.0.0` and `v2/contrib/otel/v2.0.0` from the same commit, only
 after the owner's declaration and after `v1.5.0` (*Repository layout*). The module path `.../v2`, the
 `go.mod` and imports of every `v2/_examples/*` (B3) and the `v2/README.md` badge and links (B5) are

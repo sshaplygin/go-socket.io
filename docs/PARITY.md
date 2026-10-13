@@ -225,10 +225,10 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | C5 | ADD V1-10 | D6 | websocket transport and upgrade | engine.io-client | ABSENT | `Connect` dials polling only (client.go:79-81) although `websocket.Transport.Dial` exists | - | Y | 1 | R |
 | C6 | ADD V1-10 | D6 | `query`, `path`, `extraHeaders` options | manager.js:44 | PARTIAL | query kept from URL (client.go:46-60); path fixed `/socket.io`; headers `nil` (client.go:85) | - | Y | 1 | R |
 | C7 | - | - | `emit` with ack, `on(event)`, `connect/disconnect/error` events | socket.js:136 | PARITY | `Client.Emit`, `OnEvent`, `OnConnect`, `OnDisconnect`, `OnError` client.go:111-162; single handler per event | - | - | 0 | R |
-| C8 | ADD V1-11 | D6 | `once/off`, `ping/pong` events, `socket.id/connected` | socket.js | ABSENT | none | - | Y | 1 | R |
+| C8 | ADD V1-11 | D6, D10 | `once/off`, `ping/pong` events, `socket.id/connected` | socket.js | ABSENT | none | - | Y | 1 | R |
 | C9 | CHG V1-10 | D6 | emit before connect is buffered | socket.js:345 | ABSENT | logged and dropped (client.go:113-119) | - | N | 1 | R |
 | C10 | CHG V1-10 | D6 | client sends DISCONNECT on close | socket.js:398-420 | ABSENT | `Client.Close` closes the conn only (client.go:107, connection.go:115) | - | N | 1 | R |
-| C11 | ADD V1-11; ADD V1-15 | D6, D11 | flags `volatile`, `compress`, `binary` | socket.js:422-440 | ABSENT | none | - | Y | see K | R |
+| C11 | ADD V1-11; ADD V1-15 | D6, D11, D10 | flags `volatile`, `compress`, `binary` | socket.js:422-440 | ABSENT | none | - | Y | see K | R |
 
 ## Go-only (implemented-only) surface, not in the reference
 

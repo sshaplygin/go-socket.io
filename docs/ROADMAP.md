@@ -1675,6 +1675,11 @@ file. The manifest holds the D14 list as measured at `18af32b`: 13 non-test file
 `engineio/internal/shutdown.go` (8 lines), identical too; the test fakes of `engineio/packet`
 differ and stay out. From SYNC on, a PR that changes a manifest file makes the same change in
 its copy (D13) or removes the pair, with a body line `sync-check left out: <path>: <reason>`.
+The V1 PR expected to change one is V1-2 (E15: the random default id in
+`session_id_generator.go`, also wanted by v2, whose engine.io reference uses `base64id` too);
+it mirrors the change into the `v2/` copy whether it merges before or after SYNC, so the pair
+stays, and so does any other V1 PR that edits a listed file without diverging it on purpose.
+A removed pair returns to the manifest in the PR that makes the two files identical again.
 Entry: row R step C passed; wave SY of *Execution and parallel work*. DoD, `bash` and `set -e`:
 
 ```sh

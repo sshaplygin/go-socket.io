@@ -1500,7 +1500,13 @@ engine.io 3.6.2's (D1, D9; as E4 takes its limit), from its `lib/server.js:47-61
 when a packet of the response has `compress` set; the handshake response sets the cookie `io`
 with `Path=/`, `HttpOnly` and `SameSite=Strict`, with fields for the name, the path (no path:
 no `HttpOnly`) and to switch it off. The `compress` flag is true unless set false on an emit
-(socket.io 2.5.0); `false` sends that packet uncompressed on either transport. The client
+(socket.io 2.5.0); `false` sends that packet uncompressed on either transport. The threshold
+applies to the whole encoded packet, which the transport buffers up to the threshold before it
+chooses. The E4 limit applies to the inflated message, as `ws` applies `maxPayload` (engine.io
+`server.js:111`) after inflating: gorilla's `SetReadLimit` counts wire bytes (v1.5.3
+`conn.go:917-924`), so with compression on it is not the E4 check, and a message of a few KB
+on the wire must not inflate past 1e6 bytes; the Go client's read limit, when it has one, is
+enforced the same way. `### V1-15 contract` states this rule and the close code (1009). The client
 offers permessage-deflate with threshold 1024, as `engine.io-client` 3.5.6 and 1.8.6 (the two
 gate clients) do under Node, and its emit takes the same flag. V1-15 also updates PROTOCOL.md
 (v1 implements them) and the conformance job: both Node clients send and receive a 4 KB event
@@ -1510,14 +1516,17 @@ same against Node `socket.io@2.5.0` with `perMessageDeflate: true`. Entry: V1-2,
 merged (engineio options and handshake, broadcast flags, the client's websocket and flags).
 Named tests, each under the `// Covers` of its row: `TestPerMessageDeflateNegotiated` (E8: the
 extension is negotiated when on and not when off; a frame below the threshold or sent with
-`compress` false has RSV1 clear, read from the raw frame), `TestPollingHTTPCompression` (E9:
+`compress` false has RSV1 clear, read from the raw frame), `TestPerMessageDeflateLimit` (E8
+with E4: a compressed message under 1e6 bytes on the wire that inflates to 1e8 bytes closes the
+session with 1009 while the process's `runtime.MemStats.TotalAlloc` grows by less than 2e7
+bytes), `TestPollingHTTPCompression` (E9:
 gzip and deflate above the threshold, none below it or without `Accept-Encoding`),
 `TestHandshakeCookie` (E10: default, custom name and path, off), `TestEmitCompressFlag` (K17),
 `TestBroadcastCompressFlag` (S21), `TestClientCompress` (C11). Besides the per-PR DoD, on its head:
 
 ```sh
-V15='TestPerMessageDeflateNegotiated|TestPollingHTTPCompression|TestHandshakeCookie|TestEmitCompressFlag|TestBroadcastCompressFlag|TestClientCompress'
-test "$(go test -race -count=1 -json -run "^($V15)\$" ./... | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test' | sort -u | wc -l)" -eq 6   # all six exist and pass
+V15='TestPerMessageDeflateNegotiated|TestPerMessageDeflateLimit|TestPollingHTTPCompression|TestHandshakeCookie|TestEmitCompressFlag|TestBroadcastCompressFlag|TestClientCompress'
+test "$(go test -race -count=1 -json -run "^($V15)\$" ./... | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test' | sort -u | wc -l)" -eq 7   # all seven exist and pass
 ```
 
 Waves V1A to V1F are in *Execution and parallel work*.

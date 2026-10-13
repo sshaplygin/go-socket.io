@@ -1377,7 +1377,7 @@ git worktree remove --force $BASE
 
 ## Stage V1. Complete v1 (repository-root module), then `v1.5.0`
 
-Owner decisions of 2026-10-10 (D1 to D8) and 2026-10-13 (D9 to D12), recorded as given. The stage starts when row R has passed step C
+Owner decisions of 2026-10-10 (D1 to D8) and 2026-10-13 (D9 to D14), recorded as given. The stage starts when row R has passed step C
 and ends before the Stage 2 continuation. Paths and `make` targets are those of the repository
 root (the v1 module). [PARITY.md](PARITY.md) owns every matrix row (status, evidence, plan,
 decision tag); this section owns the order, the PR scope and the gates. Stage 7 (the `client`
@@ -1397,12 +1397,14 @@ package) is executed inside it as PR V1-9.
 | D10 | (2026-10-13, answer to O2; not the recommendation.) An `ADD` row that needs a method on the exported `Conn` or `Namespace` adds it directly to the interface (the V1-0 contracts list the methods; PARITY.md tags their rows `D10`); the optional-interface mechanism is rejected. External implementers and mocks of those interfaces stop compiling, so `v1.5.0` documents it as a change that breaks implementers (V1-14: `### Changed` entry with a migration note). The exported `Broadcast` follows the same rule (*`Except` with the Redis adapter* below). |
 | D11 | (2026-10-13, answer to O4; not the recommendation.) `perMessageDeflate`, `httpCompression`, `cookie` (E8, E9, E10) and the `compress` flag (K17, S21, C11) are in `v1.5.0`, as PR V1-15 below; they are not deviations. |
 | D12 | (2026-10-13, answer to O5.) The v1 client gets the full reconnection options and the `reconnect*` events of the reference client (C3), as PR V1-11 is written. |
+| D13 | (2026-10-13, engineering rules.) Packages are reused between v1 and v2 as far as possible; code is not duplicated without real necessity. An API released by the first tag of a major line (`v1.5.0` for v1, `v2.0.0` for v2) is not broken inside that major; backward compatibility is kept except across the majors v1 and v2. Before the first tag of a line its API may still change. |
+| D14 | (2026-10-13, code sharing between the modules.) The two modules stay independent: no third shared module, no cross-`require`, no `go.work`. The byte-identical foundation (`logger`, `engineio/frame`, the `engineio/transport` interfaces and manager, the session id generator and manager, `engineio/packet`, `transport/utils`, `payload/pauser.go`; about 650 non-test lines) is kept as copies guarded by a CI drift check, `make sync-check`: a manifest of shared files compared between the root and `v2/` after the import-path rewrite. A file leaves the manifest in the PR that intentionally diverges it, with the reason. The check is its own PR (*Shared-file drift check* below). |
 
 **Owner decisions pending.** Not decided; the plan follows each recommendation until the owner
 answers, and a PR that depends on an answer says so in its body. A `PEND` row is rewritten by
 the PR in the last column, to the answer or, when the owner accepts the recommendation, to
 the recommended outcome; MV1 needs every row rewritten, so it needs the owner's answers.
-The rewriting PR also records the answer as the next row of the decision table (D13, D14).
+The rewriting PR also records the answer as the next row of the decision table (D15, D16).
 An answer that adds scope (a yes on O6) amends this section first, in a docs PR that adds a
 PR with its rows, entry and DoD, as V1-15 was added for D11; V1-14 does not merge until that
 PR has.

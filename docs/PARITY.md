@@ -53,7 +53,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
   `PEND On` waits for pending decision `On`; `-` nothing to do. The PR that closes a row rewrites the
   kind to `DONE`, keeps its number, and adds the comment `// Covers <ID>` directly above the test function that closes it (the Stage V1
   DoD finds the function with `go test -list`).
-- `Decision` names the owner decision behind the plan: `D1` to `D12` are the settled decisions and
+- `Decision` names the owner decision behind the plan: `D1` to `D14` are the settled decisions and
   `O3` and `O6` the pending ones, both in ROADMAP Stage V1, which owns their text.
 
 ## 1. Server (`socket.io/lib/index.js`)

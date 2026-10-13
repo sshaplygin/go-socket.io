@@ -1460,6 +1460,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-15 | Compression and cookies (D11): `perMessageDeflate` for the websocket transport (E8), `httpCompression` for polling responses (E9), the `cookie` option (E10), the per-emit `compress` flag of `Conn` (K17), of server broadcasts (S21) and of the client (C11); contract and checks in *Compression and cookies (V1-15)* below |
 | V1-16 | Engine layer I (D16): `Server.Engine()`, the `*engineio.Server` the socket.io server runs on (S18); `engineio.Server.Clients()`, a snapshot of the open sessions by id, beside `Count` (E17); the engine socket state on `engineio.Conn`, `ReadyState()`, `Transport()` and `Upgraded()` (E20), which the engine-connection accessor of K4 (V1-7) reaches from a socket; contract and checks in *Engine layer (V1-16, V1-17)* below |
 | V1-17 | Engine layer II (D16): the engine events as observer hooks on `engineio.Options`: the server-level `connection`, `initial_headers`, `headers` and `connection_error` named by D16, and the socket-level `flush`, `drain`, `packet`, `packetCreate`, `heartbeat`, `upgrading`, `upgrade` and `error` of E19; contract and checks in *Engine layer (V1-16, V1-17)* below |
+| V1-18 | CORS (D15): the server-level default that accepts every origin and writes the headers of `polling-xhr.js:48-62` on every polling response (P8), one `engineio.Options` field that disables it (S4), the per-transport `CheckOrigin` kept as the override; `### Changed` entry; contract and checks in *CORS default and option (V1-18)* below |
 
 **`Except` with the Redis adapter in `v1.5.0` (rows A4, K14, S21; D2, D10).** Decided here by
 the rule of D10: the `Except` options are methods added directly to the exported `Broadcast`
@@ -1617,6 +1618,27 @@ files it rewrites). Besides the per-PR DoD, on the V1-17 head:
 E17='TestEngineServerEvents/(connection|initial_headers|headers|connection_error)'
 test "$(go test -race -count=1 -json -run "^$E17\$" ./engineio | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")))|.Test' | sort -u | wc -l)" -eq 4   # the four D16 server-level events have a passing subtest each
 ```
+
+**CORS default and option (V1-18; rows S4, P8; D15).** V1-0 writes `### V1-18 contract` with
+the field's name. Default, as socket.io 2.5.0 with `origins` at `*:*` over engine.io 3.6.2:
+every origin is accepted; a polling response to a request with an `Origin` header carries
+`Access-Control-Allow-Origin: <that origin>` and `Access-Control-Allow-Credentials: true`,
+one without it carries `Access-Control-Allow-Origin: *` (`polling-xhr.js:48-62`; today
+`polling/server.go:63-75` writes them only when a `CheckOrigin` is set); the websocket upgrade
+accepts a cross-origin request (today gorilla's same-origin default refuses it when
+`CheckOrigin` is nil). The `OPTIONS` answer (P9) is unchanged. One `engineio.Options` field
+switches the default off: then the polling transport writes no CORS header and the websocket
+transport applies gorilla's same-origin check, the behaviour of `v1.x` with a nil
+`CheckOrigin`, so a browser page on another origin is refused by the browser itself. A
+transport whose `CheckOrigin` is set keeps it, on or off: it is the `fn(origin, cb)` form of
+`origins`, and the examples that set one (`_examples/default-http`, through `allowOriginFunc`
+in `main.go`) keep working unchanged. `NewServer(nil)` gets the default. The `### Changed`
+entry names CORS and the field. Named tests, under the `// Covers` of their rows:
+`TestCORSDefault` (P8: the two header forms on polling responses of a session, a
+cross-origin websocket upgrade accepted) and `TestCORSDisabled` (S4: with the field set, no
+CORS header on any polling response, the cross-origin upgrade refused with HTTP 403, and a
+transport's `CheckOrigin` still honoured either way). Entry: V1-2 merged (the `Options`
+fields it adds; the transports are V1-1's, merged).
 
 Waves V1A to V1F are in *Execution and parallel work*.
 

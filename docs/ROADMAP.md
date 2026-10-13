@@ -1509,10 +1509,12 @@ on the wire must not inflate past 1e6 bytes; the Go client's read limit, when it
 enforced the same way. `### V1-15 contract` states this rule and the close code (1009). The client
 offers permessage-deflate with threshold 1024, as `engine.io-client` 3.5.6 and 1.8.6 (the two
 gate clients) do under Node, and its emit takes the same flag. V1-15 also updates PROTOCOL.md
-(v1 implements them) and the conformance job: both Node clients send and receive a 4 KB event
-over websocket against a server with `perMessageDeflate` on, and the Go test asserts from the
-recorded upgrade response that `permessage-deflate` was negotiated; the Go client step does the
-same against Node `socket.io@2.5.0` with `perMessageDeflate: true`. Entry: V1-2, V1-6 and V1-11
+(v1 implements them) and adds two tagged tests to `internal/conformance`:
+`TestConformancePerMessageDeflate` (the matrix's Node client sends and receives a 4 KB event
+over websocket against a Go server with `perMessageDeflate` on; the test asserts from the
+recorded upgrade response that `permessage-deflate` was negotiated) and
+`TestConformanceClientPerMessageDeflate` (the Go client does the same against Node
+`socket.io@2.5.0` with `perMessageDeflate: true`). Entry: V1-2, V1-6 and V1-11
 merged (engineio options and handshake, broadcast flags, the client's websocket and flags).
 Named tests, each under the `// Covers` of its row: `TestPerMessageDeflateNegotiated` (E8: the
 extension is negotiated when on and not when off; a frame below the threshold or sent with
@@ -1522,11 +1524,15 @@ session with 1009 while the process's `runtime.MemStats.TotalAlloc` grows by les
 bytes), `TestPollingHTTPCompression` (E9:
 gzip and deflate above the threshold, none below it or without `Accept-Encoding`),
 `TestHandshakeCookie` (E10: default, custom name and path, off), `TestEmitCompressFlag` (K17),
-`TestBroadcastCompressFlag` (S21), `TestClientCompress` (C11). Besides the per-PR DoD, on its head:
+`TestBroadcastCompressFlag` (S21), `TestClientCompress` (C11, untagged: the Go client against an
+in-process Go server). These seven need no Node and run under `./...`; the two conformance tests
+run in the `conformance` job, green per the per-PR DoD. Besides the per-PR DoD, on its head:
 
 ```sh
 V15='TestPerMessageDeflateNegotiated|TestPerMessageDeflateLimit|TestPollingHTTPCompression|TestHandshakeCookie|TestEmitCompressFlag|TestBroadcastCompressFlag|TestClientCompress'
 test "$(go test -race -count=1 -json -run "^($V15)\$" ./... | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test' | sort -u | wc -l)" -eq 7   # all seven exist and pass
+V15C='TestConformancePerMessageDeflate|TestConformanceClientPerMessageDeflate'
+test "$(go test -tags conformance -list "^($V15C)\$" ./internal/conformance/... | grep -cE "^($V15C)\$")" -eq 2   # both scenarios exist (-list needs no Node)
 ```
 
 Waves V1A to V1F are in *Execution and parallel work*.

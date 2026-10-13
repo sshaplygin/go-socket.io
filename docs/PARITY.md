@@ -25,7 +25,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 
 ## Reading the tables
 
-- Status: `PARITY` (same observable behaviour, API shape may differ), `PARTIAL`, `ABSENT`,
+- Status: `PARITY` (same observable behaviour, API shape may differ: D9), `PARTIAL`, `ABSENT`,
   `N/A` (JS-only or not part of the reference). Status, evidence and `Ver` are the audit result
   at the compared revision; the PR that closes a row updates them in the same change.
 - Basis: every row comes from the **installed source** ("implemented"). The socket.io 2.5.0
@@ -37,20 +37,19 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
   (stated as a hypothesis).
 - API? = closing the row needs a NEW PUBLIC Go API (`Y`), only behaviour/internal change
   (`N`), or `-`. PRs = the audit's rough PR estimate, 0 for PARITY; the plan is in `Plan`.
-- v1 is "additive": adding methods to the exported `Conn` / `Namespace` interfaces breaks
-  external implementers (mocks); any `Y` row on those interfaces needs an owner decision
-  (pending decision O2, ROADMAP Stage V1).
+- Adding methods to the exported `Conn` / `Namespace` interfaces breaks external implementers
+  (mocks); decision D10 (ROADMAP Stage V1) adds them directly, and `v1.5.0` documents the
+  change. The rows that need such a method carry `D10` in `Decision`.
 - `Plan` is `<kind> V1-<n>` with the PR of ROADMAP Stage V1 that closes the row, several
   entries separated by `;`. Kinds: `BUG` fixed as a bug (a behaviour change); `ADD` new public
   API; `CHG` behaviour or internal change without new API; `TEST` a test verifies an unverified
   claim and the row changes only if the test disagrees; `DROP` declared unsupported and
   removed; `DEV` documented deviation, not closed in v1; `REDIS` the Redis follow-up stage;
-  `PEND On` waits for pending decision `On`; `-` nothing to do. `(O2)` marks an addition that
-  needs a method on the exported `Conn` or `Namespace`. The PR that closes a row rewrites the
+  `PEND On` waits for pending decision `On`; `-` nothing to do. The PR that closes a row rewrites the
   kind to `DONE`, keeps its number, and adds the comment `// Covers <ID>` directly above the test function that closes it (the Stage V1
   DoD finds the function with `go test -list`).
-- `Decision` names the owner decision behind the plan: `D1` to `D8` are the settled decisions and
-  `O1` to `O6` the pending ones, both in ROADMAP Stage V1, which owns their text.
+- `Decision` names the owner decision behind the plan: `D1` to `D12` are the settled decisions and
+  `O3` and `O6` the pending ones, both in ROADMAP Stage V1, which owns their text.
 
 ## 1. Server (`socket.io/lib/index.js`)
 
@@ -76,7 +75,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | S18 | PEND O6 | O6 | `engine` / `eio` property | index.js:425 | PARTIAL | engine unexported; only `Count()` server.go:307 and `Remove(sid)` server.go:312 | `Server.Count` | Y | 1 | R |
 | S19 | - | - | `set(key,val)` legacy BC, `bind`, `onconnection`, `httpServer`, `checkRequest` | index.js:143,424-443 | N/A | deprecated or JS plumbing | - | - | 0 | R |
 | S20 | - | - | event `connection` / `connect` | namespace.js:189-190 | PARITY | `OnConnect(ns, func(Conn) error)` server.go:122; one handler per namespace, a second call replaces it (namespace_handler.go:55-57) | `OnConnect` | - | 0 | R |
-| S21 | ADD V1-6; PEND O4 | D5, O4 | flags `volatile`, `local`, `json`, `compress(b)`, `binary(b)` on server | index.js:509-523; namespace.js:32 | ABSENT | none. `json` is a no-op in 2.5.0 (N/A); `binary` is decided by `parser.Buffer` in Go (N/A); `volatile`, `compress`, `local` ABSENT, see K18-K20 | - | Y | see K | R |
+| S21 | ADD V1-6; ADD V1-15 | D5, D11 | flags `volatile`, `local`, `json`, `compress(b)`, `binary(b)` on server | index.js:509-523; namespace.js:32 | ABSENT | none. `json` is a no-op in 2.5.0 (N/A); `binary` is decided by `parser.Buffer` in Go (N/A); `volatile`, `compress`, `local` ABSENT, see K18-K20 | - | Y | see K | R |
 
 ## 2. Namespace (`socket.io/lib/namespace.js`)
 
@@ -100,23 +99,23 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | K1 | PEND O3 | O3 | `id` (`/` : engine id, other nsp: `nsp#id`) | socket.js:64 | PARTIAL | `Conn.ID()` returns the engine sid for every namespace (connection.go:60) | `Conn.ID` | N | 0-1 | R |
 | K2 | - | - | `rooms` | socket.js:67 | PARITY | `Conn.Rooms()` namespace_conn.go:114; includes the sid room (lifecycle_test.go:75) | `Conn.Rooms` | - | 0 | R |
 | K3 | - | - | `client` | socket.js:65 | N/A | no per-engine `Client` object in Go; conn-level state is internal | - | - | 0 | R |
-| K4 | ADD V1-7 (O2) | D5, O2 | `conn` (engine socket: transport, readyState, upgraded) | socket.js:66 | PARTIAL | `Conn` exposes only `ID/URL/LocalAddr/RemoteAddr/RemoteHeader` (connection.go:60-65); `Session.Transport()` (session.go:101) is not reachable | - | Y | 1 | R |
-| K5 | ADD V1-7 (O2) | D5, O2 | `request` (`http.IncomingMessage`) | socket.js:102 | ABSENT | workaround: `Options.ConnInitor(*http.Request, engineio.Conn)` server_options.go:24, engineio/server.go:153 + `SetContext`. Root conn copies the context (connection.go:219-221); namespaces created later do not (connection_handlers.go:109) (not run) | `ConnInitor`, `Conn.Context` | Y | 1 | R/U |
+| K4 | ADD V1-7 | D5, D10 | `conn` (engine socket: transport, readyState, upgraded) | socket.js:66 | PARTIAL | `Conn` exposes only `ID/URL/LocalAddr/RemoteAddr/RemoteHeader` (connection.go:60-65); `Session.Transport()` (session.go:101) is not reachable | - | Y | 1 | R |
+| K5 | ADD V1-7 | D5, D10 | `request` (`http.IncomingMessage`) | socket.js:102 | ABSENT | workaround: `Options.ConnInitor(*http.Request, engineio.Conn)` server_options.go:24, engineio/server.go:153 + `SetContext`. Root conn copies the context (connection.go:219-221); namespaces created later do not (connection_handlers.go:109) (not run) | `ConnInitor`, `Conn.Context` | Y | 1 | R/U |
 | K6 | - | - | `handshake.headers` | socket.js:122 | PARITY | `Conn.RemoteHeader()` connection.go:65 | `RemoteHeader` | - | 0 | R |
-| K7 | ADD V1-7 (O2) | D5, O2 | `handshake.query` (request query merged with nsp query) | socket.js:116-129 | PARTIAL | `Conn.URL().Query()`: engine request query only; nsp query dropped (N8) | `Conn.URL` | Y | 1 | R |
+| K7 | ADD V1-7 | D5, D10 | `handshake.query` (request query merged with nsp query) | socket.js:116-129 | PARTIAL | `Conn.URL().Query()`: engine request query only; nsp query dropped (N8) | `Conn.URL` | Y | 1 | R |
 | K8 | - | - | `handshake.address` | socket.js:124 | PARITY | `Conn.RemoteAddr()` | `RemoteAddr` | - | 0 | R |
 | K9 | - | - | `handshake.url` | socket.js:128 | PARITY | `Conn.URL()` (request URL, no scheme/host) | `URL` | - | 0 | R |
-| K10 | ADD V1-7 (O2) | D5, O2 | `handshake.time`, `issued`, `secure`, `xdomain` | socket.js:123-127 | ABSENT | none (derivable from request but not exposed) | - | Y | 1 (with K7) | R |
-| K11 | ADD V1-6 (O2) | D5, O2 | `join(room \| rooms[], cb)` | socket.js:236 | PARTIAL | `Conn.Join(room string)` only: one room, no callback, no error (namespace_conn.go:102) | `Join` | Y (variadic) | 1 | R |
+| K10 | ADD V1-7 | D5, D10 | `handshake.time`, `issued`, `secure`, `xdomain` | socket.js:123-127 | ABSENT | none (derivable from request but not exposed) | - | Y | 1 (with K7) | R |
+| K11 | ADD V1-6 | D5, D10 | `join(room \| rooms[], cb)` | socket.js:236 | PARTIAL | `Conn.Join(room string)` only: one room, no callback, no error (namespace_conn.go:102) | `Join` | Y (variadic) | 1 | R |
 | K12 | - | - | `leave(room, cb)`, `leaveAll()` | socket.js:269,287 | PARITY | `Leave`, `LeaveAll` namespace_conn.go:106-112 | same | - | 0 | R |
 | K13 | - | - | `emit(ev, ...args[, ack])` to this client | socket.js:140-181 | PARITY | `Conn.Emit` namespace_conn.go:68-100; trailing func is the ack callback (not sent), called on ACK | `Emit` | - | 0 | R |
-| K14 | ADD V1-6 (O2) | D5, O2 | `socket.broadcast.emit` / `socket.to(room).emit` (everyone except sender) | socket.js:170-175,191 | ABSENT | workaround: `ForEach` + id compare, as `others()` in `_examples/default-http/chat.go:60-67`, whose comment says "the library has no broadcast that skips the sender". **This is the upstream-chat gap** | - | Y | 2 | R |
+| K14 | ADD V1-6 | D5, D10 | `socket.broadcast.emit` / `socket.to(room).emit` (everyone except sender) | socket.js:170-175,191 | ABSENT | workaround: `ForEach` + id compare, as `others()` in `_examples/default-http/chat.go:60-67`, whose comment says "the library has no broadcast that skips the sender". **This is the upstream-chat gap** | - | Y | 2 | R |
 | K15 | ADD V1-5 | D5 | `send` / `write` | socket.js:204 | ABSENT | sugar; `Emit("message", ...)` equivalent | - | Y (sugar) | 0-1 | R |
 | K16 | ADD V1-6 | D5 | flag `volatile` (drop if transport not writable) | socket.js:39; client.js:167 | ABSENT | none; Go queue overflow closes the conn instead (namespace_conn.go:21-30, errors.go:25-33) | - | Y | 2 | R |
-| K17 | PEND O4 | O4 | `compress(bool)` | socket.js:497 | ABSENT | none; needs permessage-deflate (E8) | - | Y | 1 + E8 | R |
+| K17 | ADD V1-15 | D11 | `compress(bool)` | socket.js:497 | ABSENT | none; needs permessage-deflate (E8) | - | Y | 1 + E8 | R |
 | K18 | - | - | `binary(bool)` | socket.js:510 | N/A | Go decides by `parser.Buffer` | - | - | 0 | R |
 | K19 | - | - | flags `json`, `local` | socket.js:39-44 | N/A | `json` is a no-op; `local` only matters to a cluster adapter | - | - | 0 | R |
-| K20 | ADD V1-5 (O2) | D5, O2 | `disconnect(close)`: DISCONNECT packet to the client for one namespace, or close the connection | socket.js:478-487 | PARTIAL | `Conn.Close()` closes the **whole** engine connection and all namespaces (connection.go:115-129); the server never writes a DISCONNECT packet (grep: no `parser.Disconnect` write). A Node client then sees a transport close and reconnects, instead of `io server disconnect` | `Conn.Close` | Y (`Disconnect`) | 1-2 | R |
+| K20 | ADD V1-5 | D5, D10 | `disconnect(close)`: DISCONNECT packet to the client for one namespace, or close the connection | socket.js:478-487 | PARTIAL | `Conn.Close()` closes the **whole** engine connection and all namespaces (connection.go:115-129); the server never writes a DISCONNECT packet (grep: no `parser.Disconnect` write). A Node client then sees a transport close and reconnects, instead of `io server disconnect` | `Conn.Close` | Y (`Disconnect`) | 1-2 | R |
 | K21 | - | - | event `error` | socket.js:429-436 | PARITY | `OnError(ns, func(Conn, error))` server.go:142 | `OnError` | - | 0 | R |
 | K22 | CHG V1-4 | D1 | client `ERROR` packet becomes socket `error` | socket.js:345 | ABSENT | `serveRead` switch has no `parser.Error` case (server.go:401-410) | - | N | 0-1 | R |
 | K23 | CHG V1-4 | D1 | event `disconnecting` (rooms still joined) | socket.js:449 | PARTIAL | `OnDisconnect` on connection close runs before `LeaveAll` (connection.go:167-171), but the client-initiated path calls `LeaveAll` before the handler (connection_handlers.go:141-149): inconsistent | `OnDisconnect` | Y | 1 | R |
@@ -153,9 +152,9 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | E5 | CHG V1-2 | D1 | `allowRequest(req, fn(err, ok))` **D** | server.js:46,135-167 | PARTIAL | `Options.RequestChecker func(*http.Request) (http.Header, error)` server_options.go:23; called on **every** request, not only handshakes (engineio/server.go:115); error answers HTTP 502 text, Node 403 JSON code 4 | `RequestChecker` | N | 1 | R |
 | E6 | - | - | `transports` (order, default polling, websocket) **D** | server.js:44 | PARITY | `Options.Transports []transport.Transport`; order is the upgrade path (server_options.go:82-90, manager.go:36-45) | `Options.Transports` | - | 0 | R |
 | E7 | ADD V1-2 | D5 | `allowUpgrades` **D** | server.js:45,122 | PARTIAL | no switch; only by removing a transport from the list | `Options.Transports` | Y | 1 | R |
-| E8 | PEND O4 | O4 | `perMessageDeflate` **D** | server.js:50,107 | ABSENT | gorilla `Upgrader` built without compression (websocket/transport.go:83-87); PROTOCOL.md lists it as "not planned" for v2 | - | Y | 1 | R |
-| E9 | PEND O4 | O4 | `httpCompression` (gzip/deflate for polling) **D** | server.js:51; polling.js:289-320 | ABSENT | none; could be HTTP middleware | - | Y | 1 | R |
-| E10 | PEND O4 | O4 | `cookie`, `cookiePath`, `cookieHttpOnly` (`io` cookie, sticky sessions) **D** | server.js:47-49,317-329 | ABSENT | no Set-Cookie (grep). `RequestChecker` headers could carry one but the sid is not known then | - | Y | 1 | R |
+| E8 | ADD V1-15 | D11 | `perMessageDeflate` **D** | server.js:50,107 | ABSENT | gorilla `Upgrader` built without compression (websocket/transport.go:83-87); PROTOCOL.md lists it as "not planned" for v2 | - | Y | 1 | R |
+| E9 | ADD V1-15 | D11 | `httpCompression` (gzip/deflate for polling) **D** | server.js:51; polling.js:289-320 | ABSENT | none; could be HTTP middleware | - | Y | 1 | R |
+| E10 | ADD V1-15 | D11 | `cookie`, `cookiePath`, `cookieHttpOnly` (`io` cookie, sticky sessions) **D** | server.js:47-49,317-329 | ABSENT | no Set-Cookie (grep). `RequestChecker` headers could carry one but the sid is not known then | - | Y | 1 | R |
 | E11 | - | - | `wsEngine` **D** | server.js:39 | N/A | selects a Node module; Go uses gorilla/websocket | - | - | 0 | R |
 | E12 | - | - | `initialPacket` **D** | server.js:52; socket.js:72 | N/A | see N10 | - | - | 0 | R |
 | E13 | - | - | `cors` **[not in ref: appears in engine.io 4.x]** | - | N/A | 3.6.2 has `handlePreflightRequest` + socket.io `origins` | - | - | 0 | R |
@@ -215,7 +214,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | C1 | - | - | `io(url, opts)` / `Manager` / `socket(nsp)` | client lib/index.js:36; manager.js:370 | PARTIAL | `NewClient(addr, *engineio.Options)` client.go:41; one `Client` = one connection = one namespace (client.go:25-37) | `NewClient` | - | 0 | R |
 | C2 | ADD V1-10 | D6 | multiplexing namespaces on one connection | manager.js:370 | ABSENT | none | - | Y | 2 | R |
-| C3 | ADD V1-11; PEND O5 | D6, O5 | reconnection (options + events `reconnect*`) | manager.js:127-190,519-580 | ABSENT | none | - | Y | 2 | R |
+| C3 | ADD V1-11 | D6, D12 | reconnection (options + events `reconnect*`) | manager.js:127-190,519-580 | ABSENT | none | - | Y | 2 | R |
 | C4 | ADD V1-10 | D6 | `timeout`, `connect_error`, `connect_timeout` | manager.js:191,221-290 | ABSENT | `Connect()` returns an error (client.go:78-103), no timeout option | - | Y | 1 | R |
 | C5 | ADD V1-10 | D6 | websocket transport and upgrade | engine.io-client | ABSENT | `Connect` dials polling only (client.go:79-81) although `websocket.Transport.Dial` exists | - | Y | 1 | R |
 | C6 | ADD V1-10 | D6 | `query`, `path`, `extraHeaders` options | manager.js:44 | PARTIAL | query kept from URL (client.go:46-60); path fixed `/socket.io`; headers `nil` (client.go:85) | - | Y | 1 | R |
@@ -223,7 +222,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | C8 | ADD V1-11 | D6 | `once/off`, `ping/pong` events, `socket.id/connected` | socket.js | ABSENT | none | - | Y | 1 | R |
 | C9 | CHG V1-10 | D6 | emit before connect is buffered | socket.js:345 | ABSENT | logged and dropped (client.go:113-119) | - | N | 1 | R |
 | C10 | CHG V1-10 | D6 | client sends DISCONNECT on close | socket.js:398-420 | ABSENT | `Client.Close` closes the conn only (client.go:107, connection.go:115) | - | N | 1 | R |
-| C11 | ADD V1-11; PEND O4 | D6, O4 | flags `volatile`, `compress`, `binary` | socket.js:422-440 | ABSENT | none | - | Y | see K | R |
+| C11 | ADD V1-11; ADD V1-15 | D6, D11 | flags `volatile`, `compress`, `binary` | socket.js:422-440 | ABSENT | none | - | Y | see K | R |
 
 ## Go-only (implemented-only) surface, not in the reference
 

@@ -1480,7 +1480,9 @@ interface. That is the simplest mechanism consistent with D10: one interface for
 call, the same rule as `Conn` and `Namespace`; `redis_broadcast.go` is in this module and
 changes in V1-6 anyway, and an external `Broadcast` cannot be injected before V1-7 (S5), so only
 mocks break, the breakage D10 accepts and V1-14 documents. The Redis `Broadcast` implements the new methods by
-returning an error wrapping `ErrExceptUnsupported` and sending nothing; `Server`'s `Except` and
+returning an error wrapping `ErrExceptUnsupported` and sending nothing; D5's `Except` on
+`Server`, which V1-6 offers as `Server.Of(nsp).Except(ids...)` (the `ServerNamespace` form,
+`### V1-6 contract`; no `Server` method takes a namespace string for it), and
 broadcast-except-sender return that error, never a delivery to every instance including the
 sender. V1-0 records the names; V1-6 tests the error with a fake `Broadcast` that returns it
 (the caller gets it, nothing is sent) and with the Redis type's method, which returns it before
@@ -2526,7 +2528,9 @@ type Emitter interface {
 	Send(args ...interface{}) error
 }
 
-// ServerNamespace gains the builder entry points and the id list.
+// ServerNamespace gains the builder entry points and the id list. Server.Of(nsp).Except
+// is D5's Except on Server (D9: the namespace form; no Server method takes the namespace
+// as a string for it).
 func (n *ServerNamespace) To(rooms ...string) Emitter   { return nil }
 func (n *ServerNamespace) Except(ids ...string) Emitter { return nil }
 func (n *ServerNamespace) Volatile() Emitter            { return nil }

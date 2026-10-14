@@ -1452,7 +1452,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 
 | PR | Scope |
 | --- | --- |
-| V1-0 | Docs only: signatures and semantics of every `ADD` row as subsections of this stage (the methods added to `Conn`, `Namespace`, `Broadcast` and `engineio.Conn` by D10 and D16, `Options` fields and per-emit flags, those of V1-15, V1-16, V1-17 and V1-18 included, errors, and the close error type of `engineio/session` that V1-4 adds for K24 as `### V1-4 contract`); three-agent validation (CLAUDE.md) |
+| V1-0 | Docs only: signatures and semantics of every `ADD` row as subsections of this stage (the methods added to `Conn`, `Namespace`, `Broadcast` and `engineio.Conn` by D10 and D16, `Options` fields and per-emit flags, those of V1-15, V1-16, V1-17 and V1-18 included, errors, and the close error type of `engineio/session` that V1-4 adds for K24 with the `Writable` methods V1-4 adds for V1-6's K16 as `### V1-4 contract`); three-agent validation (CLAUDE.md) |
 | V1-1 | `engineio/payload` and `engineio/transport/polling`: binary payload length in bytes, not UTF-16 units (P16), JSONP removed with its PROTOCOL.md deviation (P5, P6); the CORS default is V1-18's (S4, P8: D15), `OPTIONS` answers (P9) and overlapping polls (P18) are checked by V1-8 |
 | V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake must be GET with the reference answer (HTTP 400 `{"code":2,"message":"Bad handshake method"}`, P12), which also closes `OPTIONS` without `sid` (E14: today it creates a session in `Server.ServeHTTP`), liveness on any packet with the reference's close rule: the session closes with reason `ping timeout` after `PingInterval + PingTimeout` without any received packet, the window re-armed by every packet (engine.io 3.6.2 `socket.js:136-142`; today `session.go:78,223,397-409` arms a deadline of `PingTimeout` alone, re-armed by a PING only, which under the new defaults would close an idle client 20 s after each of its 25 s pings), and the reference defaults `PingInterval` 25 s and `PingTimeout` 20 s (E1, E2: D15; a `### Changed` entry names both values and the window; the test `TestPingTimeoutIdleClient` and its command are in the per-PR checks below), request checker, `Server.Close` closes sessions; the engine prerequisite of V1-7, so that it edits no `engineio/` file: `Options.ConnInitor` runs on the session's goroutine after the OPEN packet and before `Accept` returns the session (K5, `### V1-7 contract`; the change is in `### V1-2 contract`) |
 | V1-3 | `parser` and root defects: attachment cap, payload validation, `Emit(ev, nil)`, wrong-type argument, per-room duplicates |
@@ -2011,7 +2011,7 @@ check.
 **V1-0 contracts.** The subsections below are the public-API record of Stage V1, the V1-0
 row: one `### V1-<n> contract` per PR that adds exported API (the `ADD` PRs 2, 5, 6, 7, 10,
 11, 15, 16, 17 and 18) and `### V1-4 contract` for the close error type of
-`engineio/session`. They were written against the code at `2667c25` (file and line
+`engineio/session` and the writability report that V1-6's `Volatile` reads. They were written against the code at `2667c25` (file and line
 references are to that tree) and the installed reference sources (engine.io 3.6.2,
 socket.io 2.5.0, socket.io-adapter 1.1.2, socket.io-client 2.5.0, engine.io-client 3.5.6).
 Each contract lists every `ADD` row of its PR, the Go declarations (every ```` ```go ````

@@ -3210,6 +3210,35 @@ func (c *serverConn) SetSessionID(id string) {}
 ```
 
 ```go
+package session
+
+import "io"
+
+// NextWriterCompress implements engineio.CompressWriter for a server session: the
+// writer of NextWriter with the compress flag passed to the transport connection's
+// NextWriterCompress when it has one; NextWriter is NextWriterCompress(typ, true).
+func (s *Session) NextWriterCompress(typ FrameType, compress bool) (io.WriteCloser, error) {
+	return nil, nil
+}
+```
+
+```go
+package engineio
+
+import (
+	"io"
+
+	"github.com/sshaplygin/go-socket.io/engineio/session"
+)
+
+// NextWriterCompress implements CompressWriter for the engine client returned by
+// Dialer.Dial, as Session.NextWriterCompress does for a server session.
+func (c *client) NextWriterCompress(typ session.FrameType, compress bool) (io.WriteCloser, error) {
+	return nil, nil
+}
+```
+
+```go
 package client
 
 // Options gains PerMessageDeflate; the fields of V1-10 and V1-11 stay.

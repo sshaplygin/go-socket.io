@@ -2577,7 +2577,14 @@ trailing func (so V1-5's "returns nil" is superseded here); the legacy
 return no error, keep registering one callback per connection, which N7's test records
 and their godoc states; no reference client can observe either (D9). A5 and S15: `IDs`
 is `clients` of `socket.io-adapter` 1.1.2 (`index.js:173-211`); `Socket(id)` of V1-5
-turns an id into its `Conn`. K11: a `Join` with a room already joined is a no-op for that
+turns an id into its `Conn`. A1: the memory type keeps, beside `rooms` (room to sockets),
+the per-socket map of the adapter's `sids` (`index.js:21-26`: socket id to its rooms),
+updated together under the same lock by `Join`, `Leave`, `LeaveAll` and `Clear`, so
+`Rooms(conn)` and `LeaveAll` read one entry instead of scanning every room
+(`getRoomsByConn`, `broadcast.go:155-165`, goes); `IDs` with no room lists the keys of
+that map. N3: the per-namespace forms of `to`, `in`, `emit`, `send` and `clients` are the
+`ServerNamespace` methods of V1-5 and this contract; the `Server.Broadcast*` methods
+that take the namespace as a string stay as they are (N7 records their callback rule). K11: a `Join` with a room already joined is a no-op for that
 room (`socket.js:236-246`). K14: `To` and `Broadcast` pass `Except: []string{c.ID()}`,
 so over the Redis `Broadcast` of `v1.5.0` their `Emit` returns `ErrExceptUnsupported`
 (the `_examples/default-http` `others()` helper stays for the Redis examples, V1-13); on
@@ -2600,7 +2607,12 @@ subtest each for `c.Volatile().To(room)` and `c.Volatile().Except(id)`, which re
 room or the namespace minus `id` and not the sender, and for `c.Volatile().Local()`, which
 reaches the sender only; a subtest on the root `Client`'s connection gets `ErrServerOnly`
 from `To`, `Broadcast` and `Volatile().To(room)` and the server receives nothing),
-`TestVolatileEmit` (K16: a polling client with no poll waiting gets nothing, a websocket
+`TestBroadcastRoomsMaps` (A1: after `Join` of three rooms, `Leave` of one and
+`LeaveAll`, `Rooms(conn)`, `AllRooms`, `Len` and `IDs` agree with the two maps at every
+step, and a socket left in no room is gone from both), `TestServerNamespaceMethods` (N3:
+`Server.Of("/chat").To(room).Emit`, `.Emit`, `.Send` and `.SocketIDs` reach or list the
+same sockets as `BroadcastToRoom`, `BroadcastToNamespace` and `RoomLen` of the same
+namespace), `TestVolatileEmit` (K16: a polling client with no poll waiting gets nothing, a websocket
 client gets the packet), `TestServerBroadcastFlags` (S21: `Volatile` and `Local` on
 `ServerNamespace`), `TestRoomUnion` (S13: a socket in two rooms of a `To(a, b)` receives
 once), `TestBroadcastCallback` (N7: `ErrBroadcastAck` on the new paths, the legacy

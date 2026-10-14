@@ -161,7 +161,7 @@ workers submit changes to these files through that integrator.
 | 1b | stage 1 and the 1.D link-form commit merged, `master` green (the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner, who is also the integrator for the CI, Dependabot and `CHANGELOG.md` files of steps 0b to 0d; moves/merges applied sequentially | M1b: the Stage 1b DoD, `v1.x` gates and Acceptance blocks |
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures; evidence: `make g2` (2.0 *G2 record*) |
 | R | 2.0 on `master`; the owner's order | one integrator: steps A to C of *Repository restructure*; the 2.1, 2.2 and test-stress work stopped by the freeze resumes after MV1 (its open PRs are replayed after C and wait) | step C commands pass on the merged `master` |
-| V1A | row R step C passed; V1-0 merged | V1-1 (`engineio/payload`, `engineio/transport/polling`, its own new `engineio/polling_*_test.go` files) and V1-2 (`engineio`) in separate worktrees | per-PR DoD (Stage V1) |
+| V1A | row R step C passed; V1-0 merged | V1-1 (`engineio/payload`, `engineio/transport/polling`, its own new `engineio/polling_*_test.go` files) and V1-2 (`engineio`, `engineio/session`, and the `SetReadLimit` methods of `engineio/transport/polling` and `engineio/transport/websocket`, written after V1-1 has merged) in separate worktrees | per-PR DoD (Stage V1) |
 | V1B | V1A | V1-3 to V1-7 in order: one integrator, the root files and `parser` are shared; beside them V1-16 (after V1-4 has merged: V1-4 is the single owner of the close-cause plumbing in `engineio/session`, K24, and of the writability report that V1-6's `Volatile` reads (`Writable` on `*session.Session`, the engine client of `engineio/client.go` and the connections of `engineio/transport/polling` and `engineio/transport/websocket`, K16), the one `engineio/` edit among V1-3 to V1-7; V1-16 and V1-17 rewrite the same file, so they rebase on it, and V1-17's `error` hook reports the cause V1-4 exposes), then V1-17, then V1-18 (`engineio/` and its transports, which V1-3, V1-5, V1-6 and V1-7 do not edit; their root edits, `Server.Engine` and the `CHANGELOG.md` entries, go through the integrator) | per-PR DoD |
 | V1C | V1B | V1-8, then V1-20 (`.github/`, the `Makefile`, `CLAUDE.md`, the conformance directory, `internal/parity`; the V1-8 author integrates) | the `conformance` job and the `parity-check` and `cover-check` step green on `master` |
 | V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`, and for V1-10 `engineio/client.go`, the engine client's close reasons, and `engineio/dialer.go`, `Dialer.Upgrade`, `### V1-10 contract`); beside them V1-19 (new files under `internal/conformance` and its `testdata/node`, no workflow edit) | Stage 7 DoD, then per-PR DoD; the V1-19 block |
@@ -2138,9 +2138,8 @@ new sid. A body of exactly the limit is accepted. A websocket message longer tha
 limit closes the connection with close code 1009 (`message too big`, what `ws` 7.5.10 does
 for `maxPayload`), through gorilla's `SetReadLimit` on the plain connection; with
 compression the limit counts inflated bytes, the rule and test of `### V1-15 contract`.
-The limit is checked by the transport, which the session configures from the parameter
-V1-2 adds to `session.New` (a value, not an `Options` dependency: `session` does not
-import `engineio`). E7: with `DisableUpgrades` the OPEN packet's `upgrades` is `[]`
+The limit is checked by the transport connection, which the session configures through
+the setter of the plumbing fences below (`session.New` keeps its signature). E7: with `DisableUpgrades` the OPEN packet's `upgrades` is `[]`
 (`transport.ConnParameters.Upgrades` empty, as `Server.upgrades()` returns `[]` when
 `allowUpgrades` is false, 3.6.2 `server.js:122`) and a request with a live sid on another
 transport is answered HTTP 400 `{"code":3,"message":"Bad request"}`, the P11 reply form of
@@ -2165,6 +2164,44 @@ the session from `Accept`, for a polling and a websocket handshake, 50 sessions 
 websocket subtest is red on the base, where the race detector reports the initor's write
 against the receiver's read, or the record is missing; the polling subtest is green on
 the base and guards that the order and the live Context are kept).
+
+Plumbing of E3 and E4: `session` cannot import `engineio`, and `session.New`, an exported
+function of a public package, keeps its signature, so the values reach the session through
+a setter called as V1-17's `SetHooks` is, and the transport connections through an optional
+interface, the pattern of V1-15's `SetSessionID`:
+
+```go
+package session
+
+import "time"
+
+// SetLimits sets the largest message, in bytes, that the session's transport
+// connections accept, and the bound of an upgrade (Options.MaxHTTPBufferSize and
+// Options.UpgradeTimeout after their defaults). engineio.Server.newSession calls it
+// after New and before InitSession, on the request goroutine. A session on which it is
+// never called uses 1e6 bytes and 10 seconds. The session passes maxMessageSize to its
+// handshake connection here and to an upgrade's probe connection in Upgrade, each
+// through the optional interface interface{ SetReadLimit(int64) } when implemented.
+func (s *Session) SetLimits(maxMessageSize int64, upgradeTimeout time.Duration) {}
+```
+
+```go
+package polling
+
+// SetReadLimit caps the body of one POST at n bytes: a longer body is read no further
+// (http.MaxBytesReader) and is answered 413, and the session closes with cause
+// transport error.
+func (c *serverConn) SetReadLimit(n int64) {}
+```
+
+```go
+package websocket
+
+// SetReadLimit caps one message at n bytes: a longer one closes the connection with
+// close code 1009 (gorilla's SetReadLimit on the plain connection; with
+// permessage-deflate the inflated-size rule of the V1-15 contract applies).
+func (c *conn) SetReadLimit(n int64) {}
+```
 
 ### V1-4 contract
 

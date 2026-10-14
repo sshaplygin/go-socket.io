@@ -3300,8 +3300,12 @@ type Options struct {
 ```
 
 Plumbing, so that no SYNC manifest file changes: the flag travels from `Emit` through
-the packet queue (`parser.Payload` gains an unexported field read by the root's
-`queueWriter`, `connection.go:327-344`) to `engineio.CompressWriter`, which
+the root's packet queue, whose element becomes a root-local unexported struct of the
+`parser.Payload` and the compress bool (`writeChan`, `connection.go:80,274-285`; `parser`
+is unchanged, since package `socketio` cannot read an unexported field of a `parser`
+type), and `serveWrite` (`server.go:359-377`) hands the flag of the packet it encodes to
+the root's `queueWriter` (`connection.go:327-344`), whose `NextWriter` calls
+`engineio.CompressWriter` with it, which
 `*session.Session` and the engine client implement over the optional
 `transport.CompressWriter` (`NextWriterCompress(ft frame.Type, pt packet.Type, compress
 bool)`, declared in a new file `engineio/transport/compress.go`, outside the manifest)

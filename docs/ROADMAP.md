@@ -2504,7 +2504,7 @@ type Broadcast interface {
 // broadcast from the socket, exactly what Namespace.To or Namespace.Broadcast would have
 // started, with the flags kept: c.Volatile().To(r) is c.To(r).Volatile() and
 // c.Volatile().Except(ids...) is c.Broadcast().Except(ids...), so the sender never
-// receives it (socket.io 2.5.0 socket.js:140-175: any room or the broadcast flag goes to
+// receives it (socket.io 2.5.0 socket.js:140-178: any room or the broadcast flag goes to
 // the adapter with except [this.id]). The interface is declared once, in package client
 // from V1-9 on and aliased in the root (Stage 7, D10 methods and the alias), so both sides
 // implement it.

@@ -2023,7 +2023,13 @@ method on it: V1-16 gives it real methods) and `faultConn` (`log_test.go`, embed
 `*fakeConn`); the `transport.Conn` fakes of the `engineio` and `session` tests
 (`scriptConn`, `closingConn`, `heldConn`, `pausableConn`, `failingConn`, `blockingConn`,
 `brokenConn`) implement `transport.Conn`, which no contract changes (it is a SYNC manifest
-file), so they are untouched. No test of the repository mocks `Conn`, `Namespace` or
+file), so they are untouched. Two root test types stand in for `Conn` the way `*fakeConn`
+does for `engineio.Conn`: `redisTestConn` (`redis_broadcast_test.go:30`) and `emitConn`
+(`backpressure_test.go:775`) embed a nil `Conn`, define only `ID` and `Emit`, and are
+passed to `Broadcast.Join` and `Send`; they compile unchanged after every D10 addition and
+panic when the library calls any other method on them, so a PR whose broadcast code calls
+a new `Conn` method on its recipients (V1-6's `SendTo` of the memory and Redis types, if it
+reads more than `ID` and `Emit`) gives them that method in the same PR. No test mocks `Namespace` or
 `Broadcast` today (V1-6 adds the first `Broadcast` fake, for `ErrExceptUnsupported`).
 The check that every `ADD` row of PARITY.md is named in the contract of its PR, `bash`:
 

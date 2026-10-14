@@ -2796,7 +2796,7 @@ method (Stage 7, *D10 methods and the alias*; the rule that each stub's godoc st
 an `Emitter` whose `Emit` and `Send` return `ErrServerOnly`; `Connected` (V1-11) works;
 `EngineConn` and `Request` return nil; `Handshake` returns the zero value; `ID` returns
 the engine sid in the root namespace and `<nsp>#<sid>` elsewhere, the reference client's
-`socket.id` (`manager.js:300-306`, `generateId`). Named tests, each under the `// Covers`
+`socket.id` (`manager.js:109-110`, `generateId`, called at `:96,378`). Named tests, each under the `// Covers`
 of its row, all against an in-process Go server unless said otherwise:
 `TestClientNamespaces` (C2: two sockets, one connected before `Connect` and one after,
 each `OnConnect` once, an event per namespace, `Socket.Close` of one leaves the other),

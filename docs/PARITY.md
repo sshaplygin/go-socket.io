@@ -141,7 +141,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | A2 | ADD V1-7 | D5 | `add/addAll(id, rooms, cb)` | adapter 43-65 | PARTIAL | `Broadcast.Join(room, Conn)` takes a `Conn` not an id, one room (broadcast.go:10) | `Join` | Y | 1 | R |
 | A3 | - | - | `del`, `delAll` | adapter 76-108 | PARITY | `Leave`, `LeaveAll` broadcast.go:50-75 | same | - | 0 | R |
 | A4 | ADD V1-6; REDIS | D5, D2, D10 | `broadcast(packet, {rooms, except, flags})` once per socket | adapter 122-163 | PARTIAL | `Send(room)`/`SendAll` only; no except, no flags, no multi-room dedupe (broadcast.go:86-97; duplicate defect lifecycle_test.go:82-92) | `Send`, `SendAll` | Y (options) | 2 | R |
-| A5 | ADD V1-6; REDIS | D5, D2 | `clients(rooms, cb)` ids | adapter 173-211 | PARTIAL | `Len(room)`, `ForEach` (broadcast.go:100-126); no ids | `Len`, `ForEach` | Y | 1 | R |
+| A5 | ADD V1-6; REDIS | D5, D2, D10 | `clients(rooms, cb)` ids | adapter 173-211 | PARTIAL | `Len(room)`, `ForEach` (broadcast.go:100-126); no ids | `Len`, `ForEach` | Y | 1 | R |
 | A6 | - | - | `clientRooms(id, cb)` | adapter 220 | PARITY | `Conn.Rooms()`; `Broadcast.Rooms(conn)` broadcast.go:131 | `Rooms` | - | 0 | R |
 | A7 | - | - | `allRooms(cb)` **[not in socket.io-adapter 1.1.2; Redis 5.4.0 only]** | redis index.js:553 | PARITY | `Server.Rooms(ns)` server.go:299, `Broadcast.AllRooms` | `Rooms` | - | 0 | R |
 | A8 | DEV | D3 | `remoteJoin`, `remoteLeave`, `remoteDisconnect`, `customRequest` **[Redis 5.4.0 only, not core adapter]** | redis index.js:598,640,680,721 | ABSENT | none | - | Y | 2-3 (needs A9 first) | R |

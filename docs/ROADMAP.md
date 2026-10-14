@@ -2471,6 +2471,705 @@ once), `TestBroadcastCallback` (N7: `ErrBroadcastAck` on the new paths, the lega
 behaviour recorded) and the four Redis-less tests of *`Except` with the Redis adapter*,
 counted by the V1-6 block above.
 
+### V1-7 contract
+
+Rows: S5 (pluggable adapter), S9 (dynamic namespaces), N5 (`adapter` handle), N8
+(namespace CONNECT query), K4 (`conn`), K5 (`request`), K7 (`handshake.query`), K10
+(`handshake.time`, `issued`, `secure`, `xdomain`), K26 (late ack), K28 (several listeners
+per event), A2 (`addAll`). D10 tags: K4, K5, K7, K10 carry it (`Conn` methods); K26 and
+K28 are untagged on purpose (PARITY.md, *Reading the tables*) and this contract keeps them
+off `Conn`.
+
+```go
+package socketio
+
+import (
+	"net/http"
+	"net/url"
+	"time"
+
+	"github.com/sshaplygin/go-socket.io/engineio"
+)
+
+// AdapterFunc builds the Broadcast of a namespace; it is called once per namespace,
+// under the Server's creation lock, when the namespace is first registered or Of is
+// called. An error leaves the namespace with a no-op Broadcast and is reported as a
+// Redis construction error is today (Adapter, Serve).
+type AdapterFunc func(namespace string) (Broadcast, error)
+
+// SetAdapter installs f for the namespaces created after the call; the last of
+// Adapter and SetAdapter wins. Adapter is SetAdapter with the Redis constructor.
+func (s *Server) SetAdapter(f AdapterFunc) {}
+
+// OfFunc registers a dynamic namespace (socket.io 2.5.0 of(fn), of(regexp)): a CONNECT
+// to a name that no registered namespace has is offered to every match function in
+// registration order, with the namespace query of the CONNECT packet; the first that
+// returns true creates the namespace, which then exists as if Of had been called, with
+// the handlers, listeners and middleware the returned parent holds at that moment. A
+// name no function accepts is answered "Invalid namespace" (S10). match runs on the
+// read goroutine of the connecting client. For a regexp, pass re.MatchString wrapped.
+func (s *Server) OfFunc(match func(name string, query url.Values) bool) *ServerNamespace {
+	return nil
+}
+
+// Adapter returns the Broadcast of the namespace, nil when its construction failed or
+// the namespace is a dynamic parent.
+func (n *ServerNamespace) Adapter() Broadcast { return nil }
+
+// On adds a listener for event, called after the ones registered before it; the
+// returned func removes it. Once is On for the first event only. Off removes every
+// listener of event, the OnEvent one included. OnEvent replaces every listener of
+// event with f, as today. All listeners of one event take the same parameter types
+// (the arguments are decoded once); On panics, as OnEvent does for a non-func, when
+// f's parameter types differ from a listener already registered.
+func (n *ServerNamespace) On(event string, f interface{}) (off func())   { return nil }
+func (n *ServerNamespace) Once(event string, f interface{}) (off func()) { return nil }
+func (n *ServerNamespace) Off(event string)                              {}
+
+// AckFunc is the acknowledgement callback of an event handler: a handler (OnEvent, On,
+// Once) whose last parameter has this type receives one and owns the ACK: the first
+// call sends an ACK packet with args, later calls do nothing, and the call may come
+// from any goroutine after the handler returned (a late ack). The handler's return
+// values are then not sent. When the client did not ask for an acknowledgement the
+// callback does nothing.
+type AckFunc func(args ...interface{})
+
+// Handshake is the handshake data of a namespace socket (socket.io 2.5.0
+// socket.handshake), built from the handshake request of the connection.
+type Handshake struct {
+	// Headers of the handshake request (Conn.RemoteHeader).
+	Headers http.Header
+	// Time the socket was created; both the reference's time and issued.
+	Time time.Time
+	// Address is the remote address (Conn.RemoteAddr().String()).
+	Address string
+	// XDomain reports an Origin header on the handshake request.
+	XDomain bool
+	// Secure reports a TLS handshake request.
+	Secure bool
+	// URL is the handshake request URL (Conn.URL).
+	URL url.URL
+	// Query is the handshake request query merged with the query of the namespace
+	// CONNECT packet ("/chat?x=1"), the latter winning on a shared key.
+	Query url.Values
+}
+
+// Conn gains the connection-level accessors.
+type Conn interface {
+	// EngineConn returns the engine.io connection the socket runs on, whose state
+	// V1-16 exposes; nil on a client connection.
+	EngineConn() engineio.Conn
+	// Request returns the handshake request of the connection (the polling GET or the
+	// websocket upgrade), as the engine received it: its Body is consumed and its
+	// Context is done once the handshake response was written, so it serves for the
+	// URL, headers, TLS state and remote address only. nil on a client connection.
+	Request() *http.Request
+	// Handshake returns the handshake data of this namespace socket; the zero value on
+	// a client connection.
+	Handshake() Handshake
+}
+```
+
+Semantics. S5: `SetAdapter` replaces the Redis-only construction of
+`namespace_handler.go:25-38` with `AdapterFunc`; `Server.Adapter(opts)` keeps its
+signature and installs the Redis constructor through it. An injected `Broadcast`
+implements the whole interface, V1-6's `SendTo` and `IDs` included; its methods are
+called concurrently from handler goroutines and from `Server` methods, and `SendTo` must
+call `Emit` without holding its own lock (the rule of V1-6), which the `Broadcast` godoc
+states, the v1 counterpart of v2's `docs/ADAPTERS.md`. S9: the parent returned by `OfFunc`
+holds registrations and copies them into each child on creation (`parent-namespace.js:
+30-37`), so a registration made after a child exists does not reach that child, as in the
+reference; the parent's `Emit`, `Send` and builder (`To`, `Except`, `Volatile`, `Local`)
+broadcast to every child (`parent-namespace.js:16-26`), its `Sockets` and `SocketIDs`
+return the union of its children's, its `Adapter` is nil; a child gets its own
+`Broadcast` from the adapter in force. N5: `Adapter` is the handle; `Server.Rooms`,
+`RoomLen` and `ForEach` keep working. N8 and K7: the decoder already parses the namespace
+query into `parser.Header.Query` (`decoder.go:268-273`); V1-7 stores it on the namespace
+connection, and `Handshake().Query` merges it over `Conn.URL().Query()`
+(`socket.js:116-120`). K4: `EngineConn` returns the `engineio.Conn` embedded in `conn`
+(`connection.go:69`). K5: the root keeps the handshake request per session by wrapping
+`Options.ConnInitor` in `NewServer` (the user's initor, if any, is called after the
+record is made; `engineio/server.go:153` calls it with the request and the session) and
+drops the record when the connection ends, so no `engineio` file changes for it. K10: the
+fields as commented; `Secure` is `r.TLS != nil`, `XDomain` the presence of `Origin`
+(`socket.js:123-127`); one `time.Time` stands for `time` and `issued`. K26: `AckFunc`;
+today's rule (return values sent when non-empty or when the client asked,
+`connection_handlers.go:78-81`) stays for handlers without one. With several listeners
+(K28) the ACK is sent once: by the first listener in order that returns a non-empty value
+list, or, when any listener of the event takes an `AckFunc`, only by a callback call (no
+automatic empty ACK then); otherwise an empty ACK after the last listener when the client
+asked. K28: listeners run in registration order on the read goroutine; one added or
+removed during a dispatch takes effect from the next event; `Once` removes itself before
+it runs. A2: no new method. `Conn.Join(rooms...)` of V1-6 calls `Broadcast.Join` once per
+room in order, so an injected adapter sees every room; the reference's `addAll` exists to
+update its `sids` and `rooms` maps together, which a Go adapter does inside its own
+`Join`, and D9 keeps the `Conn` argument (the id is `connection.ID()`), so the row closes
+with the injection of S5 and a test, not a method. Named tests, each under the
+`// Covers` of its row: `TestSetAdapter` (S5: an injected fake receives `Join`, `SendTo`
+and `IDs`; a constructor error surfaces through `Serve` as the Redis one does),
+`TestDynamicNamespaces` (S9: a match creates the child with the parent's handlers, a
+second CONNECT reuses it, a rejected name gets `Invalid namespace`, the parent's `Emit`
+reaches two children), `TestNamespaceAdapter` (N5), `TestNamespaceConnectQuery` (N8),
+`TestConnEngineConn` (K4), `TestConnRequest` (K5: method, URL and a header of the
+handshake request; nil on the client side from V1-9), `TestHandshakeQuery` (K7: the
+merge and the override), `TestHandshakeData` (K10: `Time` within the test's window,
+`XDomain` with and without `Origin`, `Secure` over `httptest.NewTLSServer`),
+`TestLateAck` (K26: the ACK sent from another goroutine after the handler returned, a
+second call ignored, no ACK when the client did not ask), `TestEventListeners` (K28:
+order, `Once`, `off()`, `Off`, `OnEvent` replacing, the panic on differing parameter
+types) and `TestAdapterJoinRooms` (A2).
+
+### V1-10 contract
+
+Rows: C2 (several namespaces on one connection), C4 (`timeout`, `connect_error`,
+`connect_timeout`), C5 (websocket and upgrade), C6 (`query`, `path`, `extraHeaders`);
+with them C9 (`CHG`, emit before connect buffered) and C10 (`CHG`, DISCONNECT on close).
+Package `client` (Stage 7, merged as V1-9 before this PR); the root keeps only its
+deprecated `Client` wrapper, which gains nothing. The reference is socket.io-client 2.5.0
+(`lib/manager.js`, `lib/socket.js`) over engine.io-client 3.5.6.
+
+```go
+package client
+
+import (
+	"errors"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"time"
+
+	"github.com/sshaplygin/go-socket.io/engineio/transport"
+)
+
+// ErrConnectTimeout is returned by Connect when the engine connection is not open
+// within Options.Timeout (the reference's connect_timeout).
+var ErrConnectTimeout = errors.New("client: connect timeout")
+
+// ErrServerOnly is returned by a server-only method called on a client connection:
+// the Emit of an Emitter started by Conn.To or Conn.Broadcast.
+var ErrServerOnly = errors.New("client: server-only method on a client connection")
+
+// Options configures a Client made by New. NewClient(addr, *engineio.Options) stays as
+// Stage 7 froze it and maps WriteBufferSize, PingTimeout and Logger onto an Options.
+// V1-11 adds the reconnection fields, V1-15 PerMessageDeflate.
+type Options struct {
+	// Transports in upgrade order; nil means polling then websocket, the reference
+	// client's default: the first is dialled, the others are probed in order (C5).
+	Transports []transport.Transport
+	// Path of the engine.io endpoint; "" means "/socket.io".
+	Path string
+	// Query is added to the engine request query of every request. The query of a
+	// namespace goes in the socket name ("/chat?x=1"), see Client.Socket.
+	Query url.Values
+	// Header is sent with every request (the reference's extraHeaders).
+	Header http.Header
+	// Timeout bounds Connect and each reconnection attempt, from the dial to the OPEN
+	// packet. 0 means 20 seconds, the reference default; a negative value means no bound.
+	Timeout time.Duration
+	// WriteBufferSize and Logger are engineio.Options' fields of the same names.
+	WriteBufferSize int
+	Logger          *slog.Logger
+}
+
+// New returns a Client for addr, "http://host:port[/namespace]": the path names the
+// namespace of the Client's own Emit and On* methods, "/" when empty, as NewClient
+// reads it. Nothing is dialled until Connect.
+func New(addr string, opts *Options) (*Client, error) { return nil, nil }
+
+// Socket returns the socket of namespace nsp, creating it: a name with a query
+// ("/chat?x=1") sends that query in its CONNECT packet (N8 on the server). Once the
+// Client is connected a new socket sends its CONNECT at once; before, Connect sends
+// it. The Client's own Emit, Send, OnConnect, OnDisconnect, OnError and OnEvent are
+// those of Socket(<namespace of addr>).
+func (c *Client) Socket(nsp string) *Socket { return nil }
+
+// Socket is one namespace of a Client (socket.io-client 2.5.0 Socket). Its handlers
+// receive the Conn of that namespace, as the Client's do today. V1-11 adds ID,
+// Connected, On, Once and Off.
+type Socket struct{}
+
+func (s *Socket) Namespace() string                        { return "" }
+func (s *Socket) Emit(event string, args ...interface{})   {}
+func (s *Socket) Send(args ...interface{})                 {}
+func (s *Socket) OnConnect(f func(Conn) error)             {}
+func (s *Socket) OnDisconnect(f func(Conn, string))        {}
+func (s *Socket) OnError(f func(Conn, error))              {}
+func (s *Socket) OnEvent(event string, f interface{})      {}
+func (s *Socket) Close() error                             { return nil }
+```
+
+Semantics. C2: one engine connection, one `Socket` per namespace; the root namespace
+is connected by the server (N10), the others by a CONNECT per socket, sent by `Connect`
+for the sockets that exist then and by `Socket` afterwards (`socket.js:107`). `Connect`
+returns once the engine connection is open and the CONNECT packets are queued; each
+socket's `OnConnect` runs when the server's CONNECT reply arrives, on the read goroutine.
+`Socket.Close` is the reference's `socket.disconnect()`: a DISCONNECT packet for that
+namespace and `OnDisconnect` with `io client disconnect`; the connection closes when the
+last socket has closed (`socket.js:383-397`, `io.destroy`). `Client.Close` does that for
+every socket, then closes the engine connection (C10). `OnDisconnect` reasons on the
+client are the reference client's: `io client disconnect`, `io server disconnect` (a
+DISCONNECT packet from the server), and the engine reasons `transport close`, `ping
+timeout` and `transport error` (`socket.js:208-213`, `manager.js:500-511`), the last
+three read from the `*session.CloseError` that V1-4 gives `NextReader`; V1-10 makes the
+engine client (`engineio/client.go`) return it too: `transport close` for a CLOSE packet,
+`ping timeout` when the read deadline armed by the last PONG passes (`client.go:70`),
+`transport error` for any other failure, `forced close` after `Close`. C4: `Timeout` as
+commented; `Connect` returns the dial error (the reference's `connect_error`) or
+`ErrConnectTimeout` (its `connect_timeout`) and leaves the Client in the state before the
+call, so `Connect` can be called again; no event is needed for a synchronous call. C5:
+`engineio.Dialer` gains the field `Upgrade bool`: when true, `Dial` dials `Transports[0]`
+and probes each following transport in order as engine.io-client 3.5.6 does (`2probe`,
+`3probe`, `5`, then the switch), staying on the current transport when a probe fails;
+when false it keeps today's rule (`dialer.go:36-104`, the last transport first with
+fallback), so `Dialer` users are unchanged. `client` sets `Upgrade` and
+`Transports: []transport.Transport{polling.Default, websocket.Default}` by default, and
+a `Transports` of one entry dials it directly (`websocket.Default` alone: a
+websocket-first connection, which V1-15's cookie rule distinguishes). C6: `Path`, `Query`
+and `Header` as commented; `Header` reaches every request, the websocket upgrade included
+(the `requestHeader` of `Transport.Dial`). C9: an `Emit` on a socket that is not yet
+connected is queued and sent after the server's CONNECT reply (`socket.js:160-164`), at
+most `WriteBufferSize` packets, beyond which `Emit` drops the packet and logs at WARN;
+today it is logged and dropped (`client.go:113-119`). Client-side behaviour of every D10
+method (Stage 7, *D10 methods and the alias*; the rule that each stub's godoc states it):
+`Send`, `Volatile` and `Compress` (V1-15) work as on the server; `Disconnect` is
+`Socket.Close` of that namespace; `Use` (event middleware) registers nothing; `Join`,
+`Leave`, `LeaveAll` and `Rooms` keep the local rooms of today; `To` and `Broadcast` return
+an `Emitter` whose `Emit` and `Send` return `ErrServerOnly`; `Connected` (V1-11) works;
+`EngineConn` and `Request` return nil; `Handshake` returns the zero value; `ID` returns
+the engine sid in the root namespace and `<nsp>#<sid>` elsewhere, the reference client's
+`socket.id` (`manager.js:300-306`, `generateId`). Named tests, each under the `// Covers`
+of its row, all against an in-process Go server unless said otherwise:
+`TestClientNamespaces` (C2: two sockets, one connected before `Connect` and one after,
+each `OnConnect` once, an event per namespace, `Socket.Close` of one leaves the other),
+`TestClientConnectTimeout` (C4: a server that accepts TCP and never answers; `Connect`
+returns `ErrConnectTimeout` within `Timeout` + 1 s and a second `Connect` against a real
+server works), `TestClientWebsocketUpgrade` (C5: with the default `Transports` the server
+session's `Transport()` is `websocket` after the connect, with `polling.Default` alone it
+stays `polling`, with `websocket.Default` alone the handshake is a websocket upgrade),
+`TestClientOptions` (C6: the path, the query and a header seen by the server's
+`Handshake` and `Request`), `TestClientEmitBuffered` (C9: an `Emit` before `Connect`
+arrives after the CONNECT reply, in order with later ones) and
+`TestClientCloseSendsDisconnect` (C10: the server's `OnDisconnect` reason is `client
+namespace disconnect` for `Socket.Close` and `Client.Close`). The conformance step of
+V1-8 that runs the Go client against the Node `socket.io@2.5.0` server runs green on the
+V1-10 head (the per-PR checks above).
+
+### V1-11 contract
+
+Rows: C3 (reconnection), C8 (`once`, `off`, `ping`, `pong`, `socket.id`, `connected`),
+C11 (the `volatile` flag; `compress` is V1-15's, `binary` has no Go counterpart, as K18
+says, so the row closes with the two flags). D10 tags: C8 and C11 carry it; the
+`Connected` method is the one addition to `Namespace`, implemented by both sides.
+
+```go
+package client
+
+import "time"
+
+// Options gains the reconnection fields (socket.io-client 2.5.0 Manager options).
+type Options struct {
+	// DisableReconnection turns automatic reconnection off; false, the zero value, is
+	// the reference default reconnection: true.
+	DisableReconnection bool
+	// ReconnectionAttempts is the number of attempts before giving up; 0 means
+	// unlimited (the reference's Infinity).
+	ReconnectionAttempts int
+	// ReconnectionDelay is the delay before the first attempt; 0 means 1 second.
+	ReconnectionDelay time.Duration
+	// ReconnectionDelayMax caps the delay; 0 means 5 seconds.
+	ReconnectionDelayMax time.Duration
+	// RandomizationFactor is the jitter of the delay, in (0, 1]; 0 means 0.5 and a
+	// negative value means no jitter.
+	RandomizationFactor float64
+}
+
+// The reconnection events of the reference Manager; a nil f removes the handler.
+// OnReconnectAttempt is the reference's reconnect_attempt and reconnecting, fired at
+// the same moment there.
+func (c *Client) OnReconnectAttempt(f func(attempt int)) {}
+func (c *Client) OnReconnect(f func(attempt int))        {}
+func (c *Client) OnReconnectError(f func(err error))     {}
+func (c *Client) OnReconnectFailed(f func())             {}
+
+// OnPing fires when the client writes a PING, OnPong when the PONG arrives, with the
+// round trip (the reference's ping and pong events).
+func (c *Client) OnPing(f func())                      {}
+func (c *Client) OnPong(f func(latency time.Duration)) {}
+
+// ID returns the socket id the server assigned (Conn.ID of the connection) and "" while
+// not connected; Connected reports whether the namespace is connected now.
+func (s *Socket) ID() string      { return "" }
+func (s *Socket) Connected() bool { return false }
+
+// On, Once and Off are the listener methods of V1-7's ServerNamespace, for one socket.
+func (s *Socket) On(event string, f interface{}) (off func())   { return nil }
+func (s *Socket) Once(event string, f interface{}) (off func()) { return nil }
+func (s *Socket) Off(event string)                              {}
+
+// Namespace gains Connected on both sides.
+type Namespace interface {
+	// Connected reports whether this namespace socket is connected: true from the
+	// CONNECT reply (client) or OnConnect (server) until Disconnect, Close or the
+	// connection's close.
+	Connected() bool
+}
+```
+
+Semantics. C3: when the engine connection closes for a reason other than `Client.Close`
+or the last socket's `Close`, every socket's `OnDisconnect` runs with the engine reason,
+then the Client reconnects unless `DisableReconnection`: attempt n waits
+`min(ReconnectionDelayMax, ReconnectionDelay * 2^(n-1))` with the jitter of `backo2`
+(`deviation = floor(rand * factor * delay)`, added or subtracted by a second random bit,
+then capped), fires `OnReconnectAttempt(n)`, dials with `Timeout`, and on failure fires
+`OnReconnectError(err)` and schedules the next attempt, or `OnReconnectFailed` after
+`ReconnectionAttempts` failures, after which `Connect` may be called again; on success it
+fires `OnReconnect(n)` once the engine connection is open and before the sockets'
+CONNECT packets are sent, after which each socket's `OnConnect` runs again on its CONNECT
+reply (`manager.js:519-580`). A socket closed by the server (`io server disconnect`) is
+not reconnected, and when every socket is gone the connection closes without
+reconnecting (`socket.js:216-245`). A socket's `Emit` during a reconnection is buffered
+as C9 says. Goroutine rule: one goroutine of the Client runs the reconnection loop and
+the four reconnect handlers, after the previous connection's read, write and error
+goroutines have ended, so no two handlers of one Client run concurrently; `OnPing` and
+`OnPong` run on the engine client's ping goroutine and read goroutine respectively, so
+they must not block. C8: `ID`, `Connected`, `On`, `Once`, `Off` as commented; `Off`
+removes the `OnEvent` handler too, the rule of V1-7. C11: `Volatile` on the client's
+`Conn` and the `Emitter` it returns are V1-6's, over the engine client's writability
+(the same optional interface). Named tests, each under the `// Covers` of its row:
+`TestClientReconnect` (C3: an in-process server closed and reopened on the same address;
+`OnReconnectAttempt` and `OnReconnectError` while it is down, `OnReconnect` and the
+sockets' `OnConnect` once it is back, with small delays; with `ReconnectionAttempts` 2
+against a server that stays down, `OnReconnectFailed` after two attempts; with
+`DisableReconnection`, no attempt; after a server-side `Disconnect`, no attempt),
+`TestClientSocketState` (C8: `ID` in both forms, `Connected` before, during and after,
+`On`, `Once`, `off()` and `Off`, `OnPing` and `OnPong` with a small `PingInterval`) and
+`TestClientVolatile` (C11: a volatile emit over polling with no poll in flight is dropped,
+over websocket it arrives). The conformance step against the Node `socket.io@2.5.0`
+server (V1-8) runs green on the V1-11 head, the reconnect scenario included.
+
+### V1-15 contract
+
+Rows: E8 (`perMessageDeflate`), E9 (`httpCompression`), E10 (`cookie`), K17
+(`compress` on a socket), S21 (`compress` on server broadcasts), C11 (`compress` on the
+client). The semantics, defaults, the inflated-size rule of E4 and the Redis rule are
+fixed in *Compression and cookies (V1-15)* above; this contract names the fields, the
+methods and the plumbing. D10 tags: K17 and C11 carry it (`Compress` on `Namespace`).
+
+```go
+package engineio
+
+import (
+	"io"
+	"net/http"
+
+	"github.com/sshaplygin/go-socket.io/engineio/session"
+)
+
+// Options gains the compression and cookie fields; the defaults are engine.io 3.6.2's.
+type Options struct {
+	// PerMessageDeflate offers the permessage-deflate websocket extension. false, the
+	// zero value, is the reference default. When on, a frame whose encoded packet is
+	// shorter than CompressionThreshold, or whose packet carries compress false, is
+	// written uncompressed.
+	PerMessageDeflate bool
+
+	// DisableHTTPCompression turns the gzip and deflate compression of polling
+	// responses off; false is the reference default httpCompression: true. When on, a
+	// response of CompressionThreshold bytes or more is compressed with the encoding
+	// Accept-Encoding allows (gzip preferred), only when a packet of the response
+	// carries compress true.
+	DisableHTTPCompression bool
+
+	// CompressionThreshold is the size, in bytes of the encoded packet (websocket) or
+	// of the response body (polling), from which compression applies; 0 means 1024.
+	CompressionThreshold int
+
+	// Cookie is the session cookie set on every response of the polling transport
+	// that made the handshake, with Value replaced by the session id. nil means the
+	// reference default: Name "io", Path "/", HttpOnly true, SameSite Strict. A
+	// non-nil cookie is written as given (Name "" means "io"), so the object form of
+	// the reference's cookie (Domain, Expires, Secure, SameSite) is this field, and
+	// the reference's rule that a cookie without a path is not HttpOnly is the
+	// caller's choice of HttpOnly.
+	Cookie *http.Cookie
+
+	// DisableCookie sets no cookie (the reference's cookie: false).
+	DisableCookie bool
+}
+
+// CompressWriter is implemented by a Conn that honours the per-packet compress flag:
+// *session.Session and the engine client. NextWriter is NextWriterCompress(ft, true).
+// An optional interface, not a Conn method, so mocks of Conn are unaffected; a Conn
+// without it sends every packet with the default.
+type CompressWriter interface {
+	NextWriterCompress(ft session.FrameType, compress bool) (io.WriteCloser, error)
+}
+```
+
+```go
+package socketio
+
+// Compress starts an emit to this socket whose packet carries the compress flag on;
+// every other emit carries true, the socket.io 2.5.0 default. false sends the packet
+// uncompressed on either transport.
+func (n *ServerNamespace) Compress(on bool) Emitter { return nil }
+
+// BroadcastOptions gains the flag, kept apart from the Except options: the Redis
+// Broadcast accepts it without ErrExceptUnsupported, honours it for this instance's
+// sockets and does not carry it (V1-14 Known limitations; V1R carries it).
+type BroadcastOptions struct {
+	// NoCompress sends the packet uncompressed; the zero value is the default, true.
+	NoCompress bool
+}
+
+// Emitter and Namespace gain Compress with the same meaning; on a client connection
+// it works (C11).
+type Emitter interface {
+	Compress(on bool) Emitter
+}
+
+type Namespace interface {
+	Compress(on bool) Emitter
+}
+```
+
+Plumbing, so that no SYNC manifest file changes: the flag travels from `Emit` through
+the packet queue (`parser.Payload` gains an unexported field read by the root's
+`queueWriter`, `connection.go:327-344`) to `engineio.CompressWriter`, which
+`*session.Session` and the engine client implement over the optional
+`transport.CompressWriter` (`NextWriterCompress(ft frame.Type, pt packet.Type, compress
+bool)`, declared in a new file `engineio/transport/compress.go`, outside the manifest)
+that the websocket connection (`gorilla` `EnableWriteCompression(false)` for that
+message) and the polling connection (the flag kept per packet in the payload, so the
+response is compressed when any packet of it carries true) implement; a transport
+without it ignores the flag. `engineio.NewServer` carries `PerMessageDeflate`,
+`DisableHTTPCompression`, `CompressionThreshold` and the cookie to the two transports of
+this module through the copy mechanism of *CORS default and option (V1-18)*: new exported
+fields `websocket.Transport.EnableCompression` and `CompressionThreshold`,
+`polling.Transport.Compression`, `CompressionThreshold` and `Cookie` (zero values off, the
+server-level defaults are `Options`'s); the session id reaches the polling connection
+through the optional `interface{ SetSessionID(string) }` that `session.New` calls on its
+connection when implemented, before the handshake response, so the cookie is on it.
+The inflated-size rule of E4: with the extension negotiated, the websocket reader counts
+inflated bytes and closes with 1009 at `MaxHTTPBufferSize`, since gorilla's `SetReadLimit`
+counts wire bytes (the paragraph above, `TestPerMessageDeflateLimit`). Client:
+`client.Options.PerMessageDeflate bool` offers the extension with threshold 1024 as
+engine.io-client 3.5.6 does, through `websocket.Transport.EnableCompression` on `Dial`;
+the client has no read limit, as the reference client has none. Named tests: the seven
+of *Compression and cookies (V1-15)*, each under the `// Covers` of its row
+(`TestPerMessageDeflateNegotiated` and `TestPerMessageDeflateLimit` E8,
+`TestPollingHTTPCompression` E9, `TestHandshakeCookie` E10, `TestEmitCompressFlag` K17,
+`TestBroadcastCompressFlag` S21, `TestClientCompress` C11), and the two tagged conformance
+tests, counted by the V1-15 block above.
+
+### V1-16 contract
+
+Rows: S18 (`engine`), E17 (`clients`), E20 (`readyState`, `upgraded`, `transport`;
+`close(discard)` and `send` are `Close` and `NextWriter`). The semantics are fixed in
+*Engine layer (V1-16, V1-17)* above; this contract names the declarations and the
+implementers. D10 tag: E20 carries it (`engineio.Conn` methods).
+
+```go
+package session
+
+// ReadyState is the state of a session, the readyState strings of engine.io 3.6.2.
+type ReadyState string
+
+const (
+	// StateOpening: from New until the OPEN packet has been written.
+	StateOpening ReadyState = "opening"
+	// StateOpen: the OPEN packet is written and the session is not closing.
+	StateOpen ReadyState = "open"
+	// StateClosing: a close has started (Close, a close cause observed, Server.Close)
+	// and the transport connection is not closed yet.
+	StateClosing ReadyState = "closing"
+	// StateClosed: the transport connection is closed.
+	StateClosed ReadyState = "closed"
+)
+
+// ReadyState returns the state now; Upgraded reports a completed upgrade; Transport is
+// the name of the current transport (already there, session.go:101).
+func (s *Session) ReadyState() ReadyState { return StateClosed }
+func (s *Session) Upgraded() bool         { return false }
+```
+
+```go
+package engineio
+
+import "github.com/sshaplygin/go-socket.io/engineio/session"
+
+// ReadyState and its four values are session's, re-exported.
+type ReadyState = session.ReadyState
+
+const (
+	StateOpening = session.StateOpening
+	StateOpen    = session.StateOpen
+	StateClosing = session.StateClosing
+	StateClosed  = session.StateClosed
+)
+
+// Conn gains the engine socket state (D10: implementers and mocks must add them).
+type Conn interface {
+	// ReadyState returns the state of the connection now.
+	ReadyState() ReadyState
+	// Transport returns the name of the current transport, "polling" or "websocket";
+	// after an upgrade the new one.
+	Transport() string
+	// Upgraded reports whether an upgrade has completed.
+	Upgraded() bool
+}
+
+// Clients returns a copy of the open sessions keyed by session id, taken under the
+// server's lock: a session is in it from its registration, before the handshake
+// response (so a Conn in it may be opening), until it is removed (Server.Remove, which
+// the socket.io server calls when a connection's read goroutine ends). Count is its
+// length.
+func (s *Server) Clients() map[string]Conn { return nil }
+```
+
+```go
+package socketio
+
+import "github.com/sshaplygin/go-socket.io/engineio"
+
+// Engine returns the engine.io server this server runs on, the one NewServer created;
+// never nil.
+func (s *Server) Engine() *engineio.Server { return nil }
+```
+
+Implementers of the three `engineio.Conn` methods, updated in this PR: `*session.Session`
+(`Transport` exists; `ReadyState` reads the `opened` and `closed` fields under
+`upgradeLocker` and a new flag set when the transport connection's `Close` has
+returned; `Upgraded` a flag set by `switchTransport`); the engine client (`engineio/
+client.go`, `Transport` exists at `:50`; `ReadyState` `open` after `Dial`, `closed` after
+`Close` or the ping-loop exit as the paragraph above fixes, never `opening` or
+`closing`; `Upgraded` false until V1-10's upgrade switched the transport, true after);
+the root test fake `*fakeConn` (`backpressure_test.go`), which gets real methods
+(`open`, `"fake"`, false) instead of relying on its nil embedded `engineio.Conn`; and
+through it `faultConn` (`log_test.go`). V1-14's `### Changed` entry names the three
+methods. `Clients` adds `Manager.All() map[string]*Session` to `engineio/session/
+session_manager.go`, a SYNC manifest file (D14: the same method is added to the `v2/`
+copy, `v2/engineio/session/manager.go`, so the pair stays identical after the
+import-path rewrite, with or without the SYNC PR merged). Goroutine rule: the three
+state methods and `Clients` may be called from any goroutine; a hook of V1-17 may call
+them on the session it observes (the one read-only exception to "must not call back").
+Named tests, each under the `// Covers` of its row: `TestServerEngine` (S18),
+`TestEngineClients` (E17), `TestEngineConnState` (E20) as the paragraph above describes,
+and `TestEngineClientState` (E20 stacked: the engine client is `open` after `Dial`,
+`closed` after `Close`, and `closed` after the ping loop has exited through the deferred
+close of `serve()`, driven as `TestClientPingFailureRecord` of `engineio/
+session_log_test.go` drives it).
+
+### V1-17 contract
+
+Row: E19 (the socket-level engine events), with the four server-level events D16 names
+(`connection`, `initial_headers`, `headers`, `connection_error`), which have no row and
+are counted by the V1-17 block above. The semantics of every hook, the goroutine rule
+(synchronous on the goroutine of the event, a blocking hook delays that session only,
+no call back into the session except the read-only state methods of V1-16) and the
+order are fixed in *Engine layer (V1-16, V1-17)* above; this contract names the type.
+
+```go
+package engineio
+
+import (
+	"net/http"
+
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/engineio/packet"
+)
+
+// Hooks are the engine events of engine.io 3.6.2 as observer callbacks, the shape of
+// v2/engineio/hooks.go without its contexts (D13, D16). A nil field is ignored; a set
+// one is called synchronously on the goroutine of the event. Header values are
+// borrowed for the call: a hook that keeps them copies them. Options.Hooks holds one;
+// nil means no observer.
+type Hooks struct {
+	// Connection fires once per session, after its handshake response and before
+	// Accept returns it; c.ReadyState() is StateOpen in the hook.
+	Connection func(c Conn)
+	// InitialHeaders fires once per session with the handshake request and the
+	// headers of its response, before they are written; a hook may add to h.
+	InitialHeaders func(r *http.Request, h http.Header)
+	// Headers fires with every response of a session (each polling response, the
+	// websocket upgrade response once), after InitialHeaders on the handshake, before
+	// the headers are written; V1-15's cookie is in h.
+	Headers func(r *http.Request, h http.Header)
+	// ConnectionError fires when ServeHTTP rejects a request, with the engine.io 3.6.2
+	// code and message (0 Transport unknown, 1 Session ID unknown, 2 Bad handshake
+	// method, 3 Bad request, 4 Forbidden) and, for a request checker rejection, its
+	// error.
+	ConnectionError func(r *http.Request, code int, message string, err error)
+
+	// Packet fires for every packet read from the client, PacketCreate for every
+	// packet about to be written, each with the packet and frame types.
+	Packet       func(c Conn, pt packet.Type, ft frame.Type)
+	PacketCreate func(c Conn, pt packet.Type, ft frame.Type)
+	// Heartbeat fires when a PING is received, before the PONG is written.
+	Heartbeat func(c Conn)
+	// Upgrading fires when the probe is accepted, Upgrade when the transport has
+	// switched; transport is the name of the new one.
+	Upgrading func(c Conn, transport string)
+	Upgrade   func(c Conn, transport string)
+	// Flush fires when a polling write batch starts, Drain when it has been written.
+	Flush func(c Conn)
+	Drain func(c Conn)
+	// Error fires with the transport error that closes the session (V1-4's cause
+	// transport error), before the close; a peer close or a ping timeout fires nothing.
+	Error func(c Conn, err error)
+}
+
+// Options gains the observer.
+type Options struct {
+	Hooks *Hooks
+}
+```
+
+Plumbing: the socket-level hooks fire inside `session.Session`, which cannot import
+`engineio`, so `session` exports a `Hooks` struct of the same eight socket-level fields
+over `*Session` (plumbing, not user API: `engineio.NewServer` builds it from
+`Options.Hooks` by wrapping each set field, and `session.New` takes it); `Connection`
+fires in `engineio.Server.newSession` after `InitSession` and before the hand-off to
+`Accept`; `InitialHeaders` and `Headers` fire from the engine server and the session's
+`ServeHTTP` (`engineio/server.go:104-184`, `session.go:342-350`) on the headers of the
+`http.ResponseWriter` before the transport writes them, for the websocket upgrade before
+`Transport.Accept` (gorilla writes `w.Header()` into the upgrade response,
+`websocket/transport.go:88`), and for every polling response through a header-observing
+`ResponseWriter` wrapper the session installs, so no transport file changes;
+`ConnectionError` fires beside the `reject` calls of `engineio/server.go:234-245`, with
+the P11 codes V1-2 introduces. Named tests, each under the `// Covers` of its row:
+`TestEngineSocketEvents` (E19) and `TestEngineServerEvents` with its four subtests, as
+the paragraph above describes.
+
+### V1-18 contract
+
+Rows: S4 (the option that disables the default), with P8 (`CHG`, the headers on every
+polling response). The default, the mechanism (the transport copies made by
+`engineio.NewServer`, no file under `engineio/transport/` changed) and the tests are
+fixed in *CORS default and option (V1-18)* above; this contract names the field.
+
+```go
+package engineio
+
+// Options gains the one CORS switch.
+type Options struct {
+	// DisableCORS switches the server-level CORS default off. By default every origin
+	// is accepted, as socket.io 2.5.0 with origins "*:*": a polling response carries
+	// Access-Control-Allow-Origin with the request's Origin and
+	// Access-Control-Allow-Credentials true, or Access-Control-Allow-Origin * without an
+	// Origin header, and a cross-origin websocket upgrade is accepted. With the field
+	// set, polling responses carry no CORS header and the websocket upgrade applies
+	// gorilla's same-origin check, the v1.x behaviour with a nil CheckOrigin. A
+	// transport whose CheckOrigin is set keeps it either way: it is the origins
+	// function of the reference.
+	DisableCORS bool
+}
+```
+
+Named tests, under the `// Covers` of their rows: `TestCORSDefault` (P8) and
+`TestCORSDisabled` (S4), as the paragraph above describes. V1-14's `### Changed` entry
+names CORS and `DisableCORS`.
+
 ## Stage 2. Socket.IO protocol v5 over Engine.IO protocol v4 (tag `v2.0.0`)
 
 Protocol deltas are listed in [PROTOCOL.md](PROTOCOL.md#planned-engineio-v4-and-socketio-v5).
@@ -3801,7 +4500,18 @@ This stub is the only server-only code `client` carries. A client feature with n
 meaning on both sides (`connected` of C8, the flags of C11) is a D10 method both implement. The
 types in these signatures are declared in `client` (or `engineio`, `parser`) and aliased in the
 root like `Conn`; V1-0 adds their names to the `go doc -short ./client` line of the DoD below
-and to the freeze listing.
+and to the freeze listing. At `$TIP` they are `AckFunc` (K26), `Emitter` (K14, K16; an
+interface, so the client's own implementation returns `ErrServerOnly` where the server's
+broadcasts) and `Handshake` (K7, K10), with the error `ErrServerOnly` of the stubs, all
+declared in `client` and aliased in the root (`type AckFunc = client.AckFunc`, `type
+Emitter = client.Emitter`, `type Handshake = client.Handshake`, `var ErrServerOnly =
+client.ErrServerOnly`); `ServerNamespace`, `BroadcastOptions` and `AdapterFunc` appear in
+no `Conn` or `Namespace` signature and stay in the root. `go doc -short` prints vars and
+types in name order, so the DoD line below lists `ErrServerOnly` between `ErrEmptyAddr`
+and `ErrWriteBufferFull`, and the three types in name order among `Client`, `Conn` and
+`Namespace`. V1-10 and V1-11 then add `Options`, `New`, `Socket` and `ErrConnectTimeout`
+to the package (the `### V1-10 contract` and `### V1-11 contract` of Stage V1), after this
+DoD has run.
 
 **`api` freeze (additive exported API of `client`).** Derived from `client.go`, `connection.go`,
 `namespace_conn.go` and `errors.go` at `$TIP`; deliberately not an `api` fence, which the
@@ -3811,14 +4521,15 @@ parameter names included (`go doc -short` compares them), blocks the stage. The 
 grouped `var ( ... )` block, and the export check would lose the second.
 
 ```text
-var ErrEmptyAddr, var ErrWriteBufferFull
+var ErrEmptyAddr, var ErrServerOnly, var ErrWriteBufferFull
 func NewClient(addr string, opts *engineio.Options) (*Client, error)
 type Client struct (unexported fields), methods on *Client:
   Connect() error; Close() error; Emit(event string, args ...interface{})
   OnConnect(f func(Conn) error); OnDisconnect(f func(Conn, string))
   OnError(f func(Conn, error)); OnEvent(event string, f interface{})
 type Conn interface and type Namespace interface: method sets exactly as at $TIP
-not exported: EmptyAddrErr (the root keeps it), Server, Broadcast, EachFunc, RedisAdapterOptions
+type AckFunc, type Emitter (interface), type Handshake (struct): as the V1-0 contracts declare them
+not exported: EmptyAddrErr (the root keeps it), Server, ServerNamespace, Broadcast, BroadcastOptions, AdapterFunc, EachFunc, RedisAdapterOptions
 ```
 
 **Tests.** A test that reaches the unexported `dial`, `conn` or `createNamespace` of a
@@ -3844,7 +4555,7 @@ make lint test-race
 D=$(go list -deps ./client); test -z "$(echo "$D" | grep -E "redigo|^$MOD(/|$)" | grep -vE "^$MOD/(client|engineio|parser|logger)(/|$)")"   # D is not piped inside test -z: a failing go list (import cycle) must stop the script
 test -n "$(go list -deps . | grep -x "$MOD/client")"; for X in Client NewClient; do test -n "$(go doc . $X | grep -E "^ *Deprecated: use client\.$X\.")"; done   # fails before the stage: no notices
 cl() { awk '/^## Unreleased/{u=1;next} /^## /{u=0} u && /^### /{s=$2} u && s=="'$1'"' CHANGELOG.md; }; test -n "$(cl Added | grep 'go-socket.io/client')"; test -n "$(cl Deprecated | grep NewClient)"
-test "$(go doc -short ./client | sed -E 's/^ +//; s/^(func [A-Za-z]+)\(.*/\1/; s/^((var|type) [A-Za-z]+).*/\1/' | paste -sd, -)" = "var ErrEmptyAddr,var ErrWriteBufferFull,type Client,func NewClient,type Conn,type Namespace"
+test "$(go doc -short ./client | sed -E 's/^ +//; s/^(func [A-Za-z]+)\(.*/\1/; s/^((var|type) [A-Za-z]+).*/\1/' | paste -sd, -)" = "var ErrEmptyAddr,var ErrServerOnly,var ErrWriteBufferFull,type AckFunc,type Client,func NewClient,type Conn,type Emitter,type Handshake,type Namespace"
 test "$(go doc -short ./client Client | grep '^func')" = "$(cd $BASE && go doc -short . Client | grep '^func')"; for X in Conn Namespace; do test "$(go doc ./client $X | grep -vE '^(package|    )|^\s*(//|$)')" = "$(cd $BASE && go doc . $X | grep -vE '^(package|    )|^\s*(//|$)')"; done
 test -z "$(diff <(cd $BASE && go doc -short . | grep -oE '^(var|type) [A-Za-z]+' | sort) <(go doc -short . | grep -oE '^(var|type) [A-Za-z]+' | sort))"
 S7=$(git log -E --no-merges --grep='^[a-z]+\(7\.' --format=%H $TIP..HEAD); test -n "$S7"

@@ -2825,6 +2825,18 @@ func (s *Socket) OnEvent(event string, f interface{})    {}
 func (s *Socket) Close() error                           { return nil }
 ```
 
+```go
+package engineio
+
+// Dialer gains Upgrade (C5); the existing fields stay.
+type Dialer struct {
+	// Upgrade dials Transports[0], then probes each following transport in order as
+	// engine.io-client 3.5.6 does, staying on the current transport when a probe fails.
+	// false, the zero value, keeps today's rule: the last transport first, with fallback.
+	Upgrade bool
+}
+```
+
 Semantics. C2: one engine connection, one `Socket` per namespace; the root namespace
 is connected by the server (N10), the others by a CONNECT per socket, sent by `Connect`
 for the sockets that exist then and by `Socket` afterwards (`socket.js:107`). `Connect`
@@ -3069,6 +3081,98 @@ type Namespace interface {
 }
 ```
 
+The transport-level additions, each in a file outside the SYNC manifest
+(`engineio/transport/compress.go` is new; the `Transport` structs of the two transports
+gain fields, their connections gain methods):
+
+```go
+package transport
+
+import (
+	"io"
+
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/engineio/packet"
+)
+
+// CompressWriter is implemented by a transport connection that honours the per-packet
+// compress flag; NextWriter is NextWriterCompress(ft, pt, true). Optional: a connection
+// without it ignores the flag.
+type CompressWriter interface {
+	NextWriterCompress(ft frame.Type, pt packet.Type, compress bool) (io.WriteCloser, error)
+}
+```
+
+```go
+package websocket
+
+import (
+	"io"
+
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/engineio/packet"
+)
+
+// Transport gains the compression fields; the existing fields stay. The zero values
+// are off; engineio.NewServer copies Options.PerMessageDeflate and
+// CompressionThreshold into them, client.Options.PerMessageDeflate sets
+// EnableCompression on Dial with CompressionThreshold 1024.
+type Transport struct {
+	EnableCompression    bool
+	CompressionThreshold int
+}
+
+// NextWriterCompress implements transport.CompressWriter: compress false writes the
+// message with EnableWriteCompression(false).
+func (c *conn) NextWriterCompress(ft frame.Type, pt packet.Type, compress bool) (io.WriteCloser, error) {
+	return nil, nil
+}
+```
+
+```go
+package polling
+
+import (
+	"io"
+	"net/http"
+
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/engineio/packet"
+)
+
+// Transport gains the compression and cookie fields; the existing fields stay. The zero
+// values are off (Cookie nil: no cookie); engineio.NewServer copies
+// DisableHTTPCompression (negated), CompressionThreshold and the effective cookie of
+// Options (the default "io" cookie for a nil Options.Cookie, nil with DisableCookie).
+type Transport struct {
+	Compression          bool
+	CompressionThreshold int
+	Cookie               *http.Cookie
+}
+
+// NextWriterCompress implements transport.CompressWriter: the flag is kept per packet
+// and the response is compressed when any packet of it carries true.
+func (c *serverConn) NextWriterCompress(ft frame.Type, pt packet.Type, compress bool) (io.WriteCloser, error) {
+	return nil, nil
+}
+
+// SetSessionID gives the connection the session id for the cookie's Value. session.New
+// calls it through the optional interface interface{ SetSessionID(string) } before the
+// handshake response, so the cookie is on that response.
+func (c *serverConn) SetSessionID(id string) {}
+```
+
+```go
+package client
+
+// Options gains PerMessageDeflate; the fields of V1-10 and V1-11 stay.
+type Options struct {
+	// PerMessageDeflate offers the permessage-deflate extension on the websocket
+	// transport, threshold 1024, as engine.io-client 3.5.6 does; false is off.
+	PerMessageDeflate bool
+}
+```
+
 Plumbing, so that no SYNC manifest file changes: the flag travels from `Emit` through
 the packet queue (`parser.Payload` gains an unexported field read by the root's
 `queueWriter`, `connection.go:327-344`) to `engineio.CompressWriter`, which
@@ -3127,6 +3231,11 @@ const (
 // the name of the current transport (already there, session.go:101).
 func (s *Session) ReadyState() ReadyState { return StateClosed }
 func (s *Session) Upgraded() bool         { return false }
+
+// All returns a copy of the registered sessions keyed by session id, taken under the
+// manager's lock (session_manager.go, a SYNC manifest file: v2 gets the same method).
+// engineio.Server.Clients filters it by state.
+func (m *Manager) All() map[string]*Session { return nil }
 ```
 
 ```go
@@ -3264,9 +3373,39 @@ type Options struct {
 Plumbing: the socket-level hooks fire inside `session.Session`, which cannot import
 `engineio`, so `session` exports a `Hooks` struct of the same eight socket-level fields
 over `*Session` (plumbing, not user API: `engineio.NewServer` builds it from
-`Options.Hooks` by wrapping each set field, and `session.New` takes it); `Connection`
-fires in `engineio.Server.newSession` after `InitSession` and before the hand-off to
-`Accept`; `InitialHeaders` and `Headers` fire from the engine server and the session's
+`Options.Hooks` by wrapping each set field, and the engine server installs it with
+`SetHooks` between `session.New` and `InitSession`, so `session.New`, an exported function
+of a public package, keeps its signature):
+
+```go
+package session
+
+import (
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/engineio/packet"
+)
+
+// Hooks is the socket-level half of engineio.Hooks over *Session: engineio.NewServer
+// wraps each set field of engineio.Options.Hooks into the field of the same name. A nil
+// field is ignored. Plumbing for the engine server, not user API.
+type Hooks struct {
+	Packet       func(s *Session, pt packet.Type, ft frame.Type)
+	PacketCreate func(s *Session, pt packet.Type, ft frame.Type)
+	Heartbeat    func(s *Session)
+	Upgrading    func(s *Session, transport string)
+	Upgrade      func(s *Session, transport string)
+	Flush        func(s *Session)
+	Drain        func(s *Session)
+	Error        func(s *Session, err error)
+}
+
+// SetHooks installs h; the engine server calls it after New and before InitSession,
+// on the goroutine that created the session, so every event of the session is observed.
+func (s *Session) SetHooks(h *Hooks) {}
+```
+
+The server-level hooks: `Connection` fires in `engineio.Server.newSession` after
+`InitSession` and before the hand-off to `Accept`; `InitialHeaders` and `Headers` fire from the engine server and the session's
 `ServeHTTP` (`engineio/server.go:104-184`, `session.go:342-350`) on the headers of the
 `http.ResponseWriter` before the transport writes them, for the websocket upgrade before
 `Transport.Accept` (gorilla writes `w.Header()` into the upgrade response,

@@ -3079,8 +3079,11 @@ against a server that stays down, `OnReconnectFailed` after two attempts; with
 `DisableReconnection`, no attempt; after a server-side `Disconnect`, no attempt),
 `TestClientSocketState` (C8: `ID` in both forms, `Connected` before, during and after,
 `On`, `Once`, `off()` and `Off`, `OnPing` and `OnPong` with a small `PingInterval`) and
-`TestClientVolatile` (C11: a volatile emit over polling with no poll in flight is dropped,
-over websocket it arrives). The conformance step against the Node `socket.io@2.5.0`
+`TestClientVolatile` (C11, the client-side rule of the V1-4 polling fence, engine.io-client
+3.5.6's polling `writable`: over polling, a volatile emit made while a POST of the client
+is in flight, the in-process test server holding that POST's response until the emit has
+returned, is dropped, and one made with no POST in flight arrives; over websocket an idle
+client's volatile emit arrives). The conformance step against the Node `socket.io@2.5.0`
 server (V1-8) runs green on the V1-11 head, the reconnect scenario included.
 
 ### V1-15 contract

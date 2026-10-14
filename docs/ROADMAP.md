@@ -2347,6 +2347,13 @@ var ErrExceptUnsupported = errors.New("socketio: broadcast except is not support
 // "Callbacks are not supported when broadcasting"). Nothing is sent.
 var ErrBroadcastAck = errors.New("socketio: callbacks are not supported when broadcasting")
 
+// ErrServerOnly is returned by Emit and Send of an Emitter that To or Broadcast started
+// on a client connection, whose namespace has no Broadcast to deliver through: the root
+// Client's connection (client.go:165 creates its handlers with a nil adapter), and from
+// V1-9 on the client package's, which declares the variable then (Stage 7, D10 methods and
+// the alias) while the root keeps the name as an alias. Nothing is sent.
+var ErrServerOnly = errors.New("socketio: server-only method on a client connection")
+
 // BroadcastOptions selects the targets and flags of one broadcast, the opts of
 // socket.io-adapter 1.1.2 broadcast(packet, opts). The zero value is every socket of the
 // namespace with no flag. V1-15 adds NoCompress.
@@ -2418,9 +2425,11 @@ type Namespace interface {
 	// room is joined before the next one is attempted. No error: the memory adapter
 	// cannot fail and the Redis one registers locally (socket.io 2.5.0 join(rooms, cb)).
 	Join(rooms ...string)
-	// To starts a broadcast to the sockets in any of rooms except this one.
+	// To starts a broadcast to the sockets in any of rooms except this one. On a client
+	// connection the Emitter's Emit and Send return ErrServerOnly.
 	To(rooms ...string) Emitter
-	// Broadcast starts a broadcast to every socket of the namespace except this one.
+	// Broadcast starts a broadcast to every socket of the namespace except this one. On
+	// a client connection the Emitter's Emit and Send return ErrServerOnly.
 	Broadcast() Emitter
 	// Volatile starts an emit to this socket that is dropped when the connection
 	// cannot take it now.
@@ -2452,7 +2461,11 @@ is `clients` of `socket.io-adapter` 1.1.2 (`index.js:173-211`); `Socket(id)` of 
 turns an id into its `Conn`. K11: a `Join` with a room already joined is a no-op for that
 room (`socket.js:236-246`). K14: `To` and `Broadcast` pass `Except: []string{c.ID()}`,
 so over the Redis `Broadcast` of `v1.5.0` their `Emit` returns `ErrExceptUnsupported`
-(the `_examples/default-http` `others()` helper stays for the Redis examples, V1-13). K16
+(the `_examples/default-http` `others()` helper stays for the Redis examples, V1-13); on
+the root `Client`'s connection, the same `*namespaceConn` type whose handlers
+`client.go:165` creates with a nil adapter, `Emit` and `Send` of the `Emitter` return
+`ErrServerOnly` and send nothing, from V1-6 on, so the client-side meaning of the two
+methods is fixed before V1-9 copies the type into `client`. K16
 and S21: the flags on `ServerNamespace` apply to a namespace broadcast; `json` is a no-op
 in 2.5.0 and `binary` is decided by `parser.Buffer`, both N/A as PARITY.md says.
 Ordering: packets to one socket from one goroutine arrive in call order, broadcasts
@@ -2463,7 +2476,9 @@ returns `ErrExceptUnsupported` makes `Conn.Broadcast().Emit` return it with noth
 `TestRedisBroadcastExceptUnsupported` (A4 stacked, no Redis server: the Redis type's
 `SendTo` with `Except` returns it before any I/O, the pool untouched), `TestBroadcastIDs`
 (A5), `TestNamespaceSocketIDs` (S15), `TestConnJoinRooms` (K11), `TestBroadcastExceptSender`
-(K14: `To` and `Broadcast` from a handler reach the other sockets and not the sender),
+(K14: `To` and `Broadcast` from a handler reach the other sockets and not the sender; a
+subtest on the root `Client`'s connection gets `ErrServerOnly` from both and the server
+receives nothing),
 `TestVolatileEmit` (K16: a polling client with no poll waiting gets nothing, a websocket
 client gets the packet), `TestServerBroadcastFlags` (S21: `Volatile` and `Local` on
 `ServerNamespace`), `TestRoomUnion` (S13: a socket in two rooms of a `To(a, b)` receives
@@ -2645,9 +2660,8 @@ import (
 // within Options.Timeout (the reference's connect_timeout).
 var ErrConnectTimeout = errors.New("client: connect timeout")
 
-// ErrServerOnly is returned by a server-only method called on a client connection:
-// the Emit of an Emitter started by Conn.To or Conn.Broadcast.
-var ErrServerOnly = errors.New("client: server-only method on a client connection")
+// ErrServerOnly already exists here: declared by V1-6 in the root (the V1-6 contract),
+// moved into this package and aliased in the root by V1-9 (Stage 7). Not redeclared.
 
 // Options configures a Client made by New. NewClient(addr, *engineio.Options) stays as
 // Stage 7 froze it and maps WriteBufferSize, PingTimeout and Logger onto an Options.
@@ -4498,15 +4512,18 @@ alias keeps one `Conn` type, so a handler written as `func(socketio.Conn, ...)` 
 This stub is the only server-only code `client` carries. A client feature with no server meaning
 (reconnection, C3; the options of C4, C6) goes on `*client.Client`, never on `Conn`; one with a
 meaning on both sides (`connected` of C8, the flags of C11) is a D10 method both implement. The
-types in these signatures are declared in `client` (or `engineio`, `parser`) and aliased in the
-root like `Conn`; V1-0 adds their names to the `go doc -short ./client` line of the DoD below
-and to the freeze listing. At `$TIP` they are `AckFunc` (K26), `Emitter` (K14, K16; an
-interface, so the client's own implementation returns `ErrServerOnly` where the server's
-broadcasts) and `Handshake` (K7, K10), with the error `ErrServerOnly` of the stubs, all
-declared in `client` and aliased in the root (`type AckFunc = client.AckFunc`, `type
-Emitter = client.Emitter`, `type Handshake = client.Handshake`, `var ErrServerOnly =
-client.ErrServerOnly`); `ServerNamespace`, `BroadcastOptions` and `AdapterFunc` appear in
-no `Conn` or `Namespace` signature and stay in the root. `go doc -short` prints vars and
+types in these signatures are moved by this stage from the root into `client` (or exist in
+`engineio`, `parser`) and aliased in the root like `Conn`; V1-0 adds their names to the `go
+doc -short ./client` line of the DoD below and to the freeze listing. At `$TIP` the root
+declares `AckFunc` (K26, V1-7), `Emitter` (K14, K16, V1-6; an interface, so the client's
+own implementation returns `ErrServerOnly` where the server's broadcasts), `Handshake`
+(K7, K10, V1-7) and the error `ErrServerOnly` (V1-6, root `errors.go`, the one declaration
+of it in the plan); this stage moves the four into `client` and the root keeps each name as
+an alias (`type AckFunc = client.AckFunc`, `type Emitter = client.Emitter`, `type Handshake
+= client.Handshake`, `var ErrServerOnly = client.ErrServerOnly`), so the root's exported
+var and type names at the stage head are those of `$TIP` and the `diff` line of the DoD
+below holds by construction; `ServerNamespace`, `BroadcastOptions` and `AdapterFunc` appear
+in no `Conn` or `Namespace` signature and stay in the root. `go doc -short` prints vars and
 types in name order, so the DoD line below lists `ErrServerOnly` between `ErrEmptyAddr`
 and `ErrWriteBufferFull`, and the three types in name order among `Client`, `Conn` and
 `Namespace`. V1-10 and V1-11 then add `Options`, `New`, `Socket` and `ErrConnectTimeout`

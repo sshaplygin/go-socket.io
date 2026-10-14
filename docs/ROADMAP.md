@@ -1869,6 +1869,7 @@ N=${N:?the PR, e.g. V1-4}
 make lint test-race
 covers() { all=$(go test -tags conformance ./... -list . 2>/dev/null); for id in $(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("(BUG|ADD|CHG|TEST|DONE|DROP) " pr "( |;|$)") {print $2}'); do t=$(git grep -h -A4 -E "^// Covers $id( |$)" -- '*_test.go' | awk '/^func Test/{sub(/[(].*/,"",$2); print $2; exit}'); test -n "$t" && printf '%s\n' "$all" | grep -qx "$t" || echo $id; done; }
 test -z "$(covers $N)"   # every row the PR names has a `// Covers <ID>` above a test function that `go test -tags conformance -list` finds
+for s in V1-6:TestVolatileEmit:K16 V1-7:TestConnRequest:K5; do test "${s%%:*}" = "$N" || continue; p=${s#*:}; t=${p%%:*}; go test -tags conformance ./... -list "^$t\$" 2>/dev/null | grep -qx "$t" || { echo "no test $t" >&2; exit 1; }; git grep -h -B4 -E "^func $t[(]" -- '*_test.go' | grep -qE "^// Covers ${p#*:}( |$)" || { echo "no // Covers ${p#*:} above $t" >&2; exit 1; }; done   # rows whose marker an earlier PR wrote first (K5 by V1-2, K16 by V1-4), which covers alone would accept
 test -z "$(rows | awk -F' *[|] *' -v pr="$N" '$3 ~ ("(^|; )(BUG|ADD|CHG|TEST) " pr "( |;|$)")')"   # the PR rewrote its rows to DONE, in any entry of the plan
 b=$(git show origin/master:docs/PARITY.md | awk -F' *[|] *' -v pr="$N" '$3 ~ ("(^|; )BUG " pr "( |;|$)")' | wc -l)
 test "$(gh pr view --json body -q .body | grep -c '^fails without the fix: Test')" -eq "$b"   # one line per BUG row of the base
@@ -2158,7 +2159,8 @@ POST of limit+1 bytes is accepted) and `TestDisableUpgrades` (E7: the OPEN packe
 `"upgrades":[]` and a websocket request with the session's sid is answered 400 with code
 3; with the field false the OPEN packet lists `websocket` and the upgrade succeeds) and
 `TestConnInitorBeforeAccept` (K5 stacked, the row stays `ADD V1-7` until V1-7 closes
-it: under `-race`, an initor that records the request's URL on the session, and that
+it, and the per-PR DoD still requires V1-7's `TestConnRequest` under its own marker:
+under `-race`, an initor that records the request's URL on the session, and that
 `r.Context().Err()` is nil during the call, is observed by the goroutine that receives
 the session from `Accept`, for a polling and a websocket handshake, 50 sessions each; the
 websocket subtest is red on the base, where the race detector reports the initor's write
@@ -2334,7 +2336,8 @@ func (c *conn) Writable() bool { return false }
 
 The fences show the shape; each body is implemented as its comment says, under the lock
 that already guards the state it reads. Named test: `TestSessionWritable` (package
-`session`, under `// Covers K16`, the row staying `ADD V1-6` until V1-6 closes it: a
+`session`, under `// Covers K16`, the row staying `ADD V1-6` until V1-6 closes it, and the
+per-PR DoD still requires V1-6's `TestVolatileEmit` under its own marker: a
 polling session is writable only while a poll waits, a websocket session not while a
 writer is open, no session after its close; a `scriptConn` without the method counts as
 writable).

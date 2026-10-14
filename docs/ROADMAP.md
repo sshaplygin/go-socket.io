@@ -1530,9 +1530,16 @@ the tree from a `package.json` that lists neither). The server scripts live in
 `testdata/node/server/` (its own `package.json`, `"private": true`, no dependencies) and
 resolve `socket.io` from the `node_modules` beside them; the client scripts in
 `testdata/node/` resolve `socket.io-client` from theirs. The job exports
-`CONFORMANCE_NODE_MODULES=internal/conformance/testdata/node/node_modules`, the client
-install, which the tagged tests and `examples-node` (V1-12) pass to `node` as `NODE_PATH`, so
-a script outside `testdata/node` (an example's `client.js`) finds the same client. It then
+`CONFORMANCE_NODE_MODULES=$GITHUB_WORKSPACE/internal/conformance/testdata/node/node_modules`,
+the client install as an absolute path, which the tagged tests and `examples-node` (V1-12)
+pass to `node` as `NODE_PATH` unchanged, so a script outside `testdata/node` (an example's
+`client.js`) finds the same client. The value must be absolute because its consumers run
+`node` from other working directories: the tagged tests from `internal/conformance` (the
+`go test` cwd of the package) and `examples-node` from each example's directory, where a
+path relative to the repository root resolves to nothing. Each consumer checks it
+(`filepath.IsAbs` in the tests, `case "$CONFORMANCE_NODE_MODULES" in /*) ;; *) exit 1;; esac`
+in the target) and fails naming the variable when it is relative, so a wrong export fails
+where it is consumed instead of running a scenario without the client. It then
 runs the new `make conformance` target, `go vet -tags conformance ./internal/conformance/... && go test
 -race -count=1 -tags conformance ./internal/conformance/...`; under the tag a missing `node` or
 `CONFORMANCE_NODE_MODULES` fails the test (a skip would make the job green without running a
@@ -1623,8 +1630,13 @@ are added directly to the interface, as D10 does for `Conn` (*How the plan appli
 is the engine client (`engineio/client.go`, `type client`, which `Dial` returns and the root
 `socketio.Client` wraps at `client.go:92`), which already has `Transport()` (`client.go:50`):
 its `ReadyState()` is `open` once `Dial` has returned and `closed` after `Close` or after
-the ping loop fails (`pingFailed`, which closes the connection), never `opening` or
-`closing`, since `Dial` returns an open connection and `Close` is synchronous;
+the ping loop fails, never `opening` or `closing`, since `Dial` returns an open connection
+and `Close` is synchronous. On the ping-failure path `pingFailed` only logs: the connection
+is closed by the deferred `conn.Close()` of `serve()` (`client.go:113-117`), which bypasses
+`client.Close()` and so, today, the `close` channel. V1-16 makes that defer go through the
+same state transition as `Close` (the `closeOnce` body, then `conn.Close()`), so
+`ReadyState()` is `closed` after the ping loop has returned by any path, and the test
+`TestEngineClientState` of `### V1-16 contract` asserts it on that path;
 `Upgraded()` is false until V1-10's client upgrade switches the transport and true after
 it; `Transport()` keeps its value. Stage 7's *D10 methods and the alias* covers the root
 `Conn`; this sentence covers the `engineio.Conn` side of the client, and V1-0's
@@ -1853,8 +1865,15 @@ the sessions are gone). V1-2, on its head, counts `TestPingTimeoutIdleClient` (E
 `PingInterval` 100 ms and `PingTimeout` 50 ms (small values keep the test fast; the default
 values are asserted beside it), a client that sends only PING at the interval is still open
 after 500 ms, ten times `PingTimeout`, and a client that sends nothing is closed with reason
-`ping timeout` within 1 s; it is red on the base, where the pinging client is closed 50 ms
-after its first PING:
+`ping timeout` within 1 s. The session fakes of that package cannot carry it: `scriptConn`
+and its relatives answer `SetReadDeadline` with nil and never time out, so a session over
+them is closed by nothing. The test drives the session over a real connection (a
+`net.Pipe` or loopback websocket `transport.Conn`, whose read deadline fires) or over a
+new fake whose `SetReadDeadline` arms a timer that fails the next `NextReader` once it
+passes; either way the close comes from the deadline, not from the script running out.
+It is red on the base, where the pinging client is closed 50 ms after its first PING, and
+the V1-2 body proves it with the `BUG`-row rule (`fails without the fix:
+TestPingTimeoutIdleClient`, run on the base with only the PR's test files applied):
 
 ```sh
 test "$(go test -race -count=1 -json -run '^TestPingTimeoutIdleClient$' ./engineio/... | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test' | sort -u | wc -l)" -eq 1   # the reference close window: an idle client pinging at the interval stays, a silent one is closed

@@ -2662,19 +2662,22 @@ func (n *ServerNamespace) Off(event string)                              {}
 type AckFunc func(args ...interface{})
 
 // Handshake is the handshake data of a namespace socket (socket.io 2.5.0
-// socket.handshake), built from the handshake request of the connection.
+// socket.handshake), built from the handshake request of the connection that
+// Conn.Request returns, never from the current transport, so a socket connected after
+// the websocket upgrade reports the polling handshake's values, as the reference does.
 type Handshake struct {
-	// Headers of the handshake request (Conn.RemoteHeader).
+	// Headers of the handshake request (Request().Header).
 	Headers http.Header
 	// Time the socket was created; both the reference's time and issued.
 	Time time.Time
-	// Address is the remote address (Conn.RemoteAddr().String()).
+	// Address is the remote address of the handshake request (Request().RemoteAddr,
+	// host and port as net/http gives it; the reference's remoteAddress has no port).
 	Address string
 	// XDomain reports an Origin header on the handshake request.
 	XDomain bool
 	// Secure reports a TLS handshake request.
 	Secure bool
-	// URL is the handshake request URL (Conn.URL).
+	// URL is the handshake request URL (*Request().URL).
 	URL url.URL
 	// Query is the handshake request query merged with the query of the namespace
 	// CONNECT packet ("/chat?x=1"), the latter winning on a shared key.
@@ -2714,7 +2717,7 @@ return the union of its children's, its `Adapter` is nil; a child gets its own
 `Broadcast` from the adapter in force. N5: `Adapter` is the handle; `Server.Rooms`,
 `RoomLen` and `ForEach` keep working. N8 and K7: the decoder already parses the namespace
 query into `parser.Header.Query` (`decoder.go:268-273`); V1-7 stores it on the namespace
-connection, and `Handshake().Query` merges it over `Conn.URL().Query()`
+connection, and `Handshake().Query` merges it over `Request().URL.Query()`
 (`socket.js:116-120`). K4: `EngineConn` returns the `engineio.Conn` embedded in `conn`
 (`connection.go:69`). K5: the root keeps the handshake request per session by wrapping
 `Options.ConnInitor` in `NewServer` (the user's initor, if any, is called after the
@@ -2728,8 +2731,13 @@ before any CONNECT is dispatched, root `OnConnect` and the V1-5 middleware inclu
 V1-7 edits no `engineio/` file; at `2667c25` the initor runs on the request goroutine
 concurrently with `Accept`, which is why the guarantee needs V1-2 (merged in wave V1A).
 K10: the
-fields as commented; `Secure` is `r.TLS != nil`, `XDomain` the presence of `Origin`
-(`socket.js:123-127`); one `time.Time` stands for `time` and `issued`. K26: `AckFunc`;
+fields as commented, all from the kept handshake request `r` of K5 (`socket.js:121-129`
+reads `this.request`, the handshake request, never the current transport's;
+`Conn.RemoteHeader`, `RemoteAddr` and `URL` read the current transport under
+`upgradeLocker`, `engineio/session/session.go:258-283`, so after an upgrade they are the
+websocket request's and are not used); `Secure` is `r.TLS != nil`, `XDomain` the presence
+of `Origin` (`socket.js:123-127`); `Address` keeps the port of `r.RemoteAddr` (D9: the Go
+form; `net.SplitHostPort` gives the reference's value); one `time.Time` stands for `time` and `issued`. K26: `AckFunc`;
 today's rule (return values sent when non-empty or when the client asked,
 `connection_handlers.go:78-81`) stays for handlers without one. With several listeners
 (K28) the ACK is sent once: by the first listener in order that returns a non-empty value
@@ -2753,7 +2761,9 @@ middleware, both non-nil on every one of 20 connections under `-race`; nil on th
 side from V1-9), `TestHandshakeQuery` (K7: the merge and the override),
 `TestHandshakeData` (K10: `Time` within the test's window, `XDomain` with and without
 `Origin`, `Secure` over `httptest.NewTLSServer`, the fields read inside the root
-`OnConnect` and inside a namespace middleware under `-race`, as `TestConnRequest` does),
+`OnConnect` and inside a namespace middleware under `-race`, as `TestConnRequest` does;
+a `/chat` socket connected after the websocket upgrade reports the polling handshake's
+`Headers`, `URL` and `Address`, a header set only on the upgrade request being absent),
 `TestLateAck` (K26: the ACK sent from another goroutine after the handler returned, a
 second call ignored, no ACK when the client did not ask), `TestEventListeners` (K28:
 order, `Once`, `off()`, `Off`, `OnEvent` replacing, the panic on differing parameter

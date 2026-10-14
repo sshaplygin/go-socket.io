@@ -162,7 +162,7 @@ workers submit changes to these files through that integrator.
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures; evidence: `make g2` (2.0 *G2 record*) |
 | R | 2.0 on `master`; the owner's order | one integrator: steps A to C of *Repository restructure*; the 2.1, 2.2 and test-stress work stopped by the freeze resumes after MV1 (its open PRs are replayed after C and wait) | step C commands pass on the merged `master` |
 | V1A | row R step C passed; V1-0 merged | V1-1 (`engineio/payload`, `engineio/transport/polling`, its own new `engineio/polling_*_test.go` files) and V1-2 (`engineio`) in separate worktrees | per-PR DoD (Stage V1) |
-| V1B | V1A | V1-3 to V1-7 in order: one integrator, the root files and `parser` are shared; beside them V1-16 (after V1-4 has merged: V1-4 is the single owner of the close-cause plumbing in `engineio/session`, K24, the one `engineio/` edit among V1-3 to V1-7; V1-16 and V1-17 rewrite the same file, so they rebase on it, and V1-17's `error` hook reports the cause V1-4 exposes), then V1-17, then V1-18 (`engineio/` and its transports, which V1-3, V1-5, V1-6 and V1-7 do not edit; their root edits, `Server.Engine` and the `CHANGELOG.md` entries, go through the integrator) | per-PR DoD |
+| V1B | V1A | V1-3 to V1-7 in order: one integrator, the root files and `parser` are shared; beside them V1-16 (after V1-4 has merged: V1-4 is the single owner of the close-cause plumbing in `engineio/session`, K24, and of the writability report that V1-6's `Volatile` reads (`Writable` on `*session.Session`, the engine client of `engineio/client.go` and the connections of `engineio/transport/polling` and `engineio/transport/websocket`, K16), the one `engineio/` edit among V1-3 to V1-7; V1-16 and V1-17 rewrite the same file, so they rebase on it, and V1-17's `error` hook reports the cause V1-4 exposes), then V1-17, then V1-18 (`engineio/` and its transports, which V1-3, V1-5, V1-6 and V1-7 do not edit; their root edits, `Server.Engine` and the `CHANGELOG.md` entries, go through the integrator) | per-PR DoD |
 | V1C | V1B | V1-8, then V1-20 (`.github/`, the `Makefile`, `CLAUDE.md`, the conformance directory, `internal/parity`; the V1-8 author integrates) | the `conformance` job and the `parity-check` and `cover-check` step green on `master` |
 | V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`); beside them V1-19 (new files under `internal/conformance` and its `testdata/node`, no workflow edit) | Stage 7 DoD, then per-PR DoD; the V1-19 block |
 | V1E | V1D (V1-12 may start after V1-8) | V1-12 and V1-13, one directory per example; beside them V1-15 (needs V1-2, V1-6 and V1-11: `engineio` options and handshake, `engineio/transport/websocket`, `engineio/transport/polling`, the root emit and broadcast flags, `client/`, new files under `internal/conformance`). The V1-12 author integrates the wave's shared files (`Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md`): V1-13's `Makefile` edit merges after V1-12, and V1-15 edits none of them, since `make conformance` already runs every tagged test of `internal/conformance` | `make examples`, then `examples-node` once per gate client (the two lines of the per-PR checks of V1-12 and V1-13); the per-PR DoD and the V1-15 block (Stage V1) |
@@ -1456,7 +1456,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-1 | `engineio/payload` and `engineio/transport/polling`: binary payload length in bytes, not UTF-16 units (P16), JSONP removed with its PROTOCOL.md deviation (P5, P6); the CORS default is V1-18's (S4, P8: D15), `OPTIONS` answers (P9) and overlapping polls (P18) are checked by V1-8 |
 | V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake must be GET with the reference answer (HTTP 400 `{"code":2,"message":"Bad handshake method"}`, P12), which also closes `OPTIONS` without `sid` (E14: today it creates a session in `Server.ServeHTTP`), liveness on any packet with the reference's close rule: the session closes with reason `ping timeout` after `PingInterval + PingTimeout` without any received packet, the window re-armed by every packet (engine.io 3.6.2 `socket.js:136-142`; today `session.go:78,223,397-409` arms a deadline of `PingTimeout` alone, re-armed by a PING only, which under the new defaults would close an idle client 20 s after each of its 25 s pings), and the reference defaults `PingInterval` 25 s and `PingTimeout` 20 s (E1, E2: D15; a `### Changed` entry names both values and the window; the test `TestPingTimeoutIdleClient` and its command are in the per-PR checks below), request checker, `Server.Close` closes sessions; the engine prerequisite of V1-7, so that it edits no `engineio/` file: `Options.ConnInitor` runs on the session's goroutine after the OPEN packet and before `Accept` returns the session (K5, `### V1-7 contract`; the change is in `### V1-2 contract`) |
 | V1-3 | `parser` and root defects: attachment cap, payload validation, `Emit(ev, nil)`, wrong-type argument, per-room duplicates |
-| V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written (R9), `0/nsp,` reply form, disconnect reasons (K24: the engine's close cause, recorded by `session.go:134` and only logged today, is exposed from `engineio/session` as an exported error type that `NextReader` returns wrapped after the close, and the root maps it to `transport close`, `ping timeout` and `transport error`; the type is V1-0's `### V1-4 contract`, and this is the one `engineio/` edit among V1-3 to V1-7, so V1-4 merges before V1-16, wave V1B) and `disconnecting` order, encode error |
+| V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written (R9), `0/nsp,` reply form, disconnect reasons (K24: the engine's close cause, recorded by `session.go:134` and only logged today, is exposed from `engineio/session` as an exported error type that `NextReader` returns wrapped after the close, and the root maps it to `transport close`, `ping timeout` and `transport error`; the type is V1-0's `### V1-4 contract`), the writability report `Writable` of the session, the engine client and the polling and websocket connections that V1-6's `Volatile` reads (K16, the same contract; the two are the one `engineio/` edit among V1-3 to V1-7, so V1-4 merges before V1-6 and V1-16, wave V1B), and `disconnecting` order, encode error |
 | V1-5 | Namespace API: `Of`, `Use` and event middleware, connect-rejection reason, per-namespace disconnect, `connected`/`sockets`, `send`, `Server.Close` waiting for sessions, `Conn.ID()` as `/ns#id` outside the root namespace (K1: D15; a `### Changed` entry names it) |
 | V1-6 | Memory broadcast: `Except` and broadcast except the sender (new `Broadcast` methods; the Redis type returns `ErrExceptUnsupported` and drops a message with unknown `opts` entries or keys), room union with dedupe, id lists, `Join` of several rooms, `volatile` and `local` flags, callback-on-broadcast rule |
 | V1-7 | Dynamic namespaces, handshake data (query, headers, request, time), late ack and several listeners per event, adapter injection |
@@ -2142,8 +2142,10 @@ initor's write against the receiver's read, or the record is missing).
 
 ### V1-4 contract
 
-V1-4 has no `ADD` row; its one exported addition is the close error type of
-`engineio/session` that K24 (`CHG V1-4`) needs: the engine's close cause, recorded by
+V1-4 has no `ADD` row; it makes two exported additions in `engineio/`, being the one
+`engineio/` editor among V1-3 to V1-7 (wave V1B): the writability report that V1-6's
+`Volatile` (K16, `### V1-6 contract`) reads, at the end of this contract, and the close
+error type of `engineio/session` that K24 (`CHG V1-4`) needs: the engine's close cause, recorded by
 `Session.observe` (`engineio/session/session.go:133-136`) into the unexported
 `closeCause` and only logged today (`:122-129`), reaches the root, which today reports
 `client namespace disconnect` for every connection close (`connection.go:170`,
@@ -2223,6 +2225,56 @@ sends CLOSE, one that stops sending with small ping values, one whose connection
 test resets, `Conn.Close` from a handler and `Server.Close`; each `OnDisconnect` reason
 per the map above; the two existing tests that pin the old reason,
 `lifecycle_test.go:117-121`, are rewritten to the new one in the same PR).
+
+Writability, for K16 of V1-6, which edits no `engineio/` file. `*session.Session` and
+the engine client (`*client`, `engineio/client.go`) gain `Writable`, and each transport
+connection they use gains the same method, which they read through the optional
+interface `interface{ Writable() bool }` by a type assertion, so `transport.Conn` (a
+SYNC manifest file) does not change and a transport connection without the method counts
+as writable:
+
+```go
+package session
+
+// Writable reports whether the session's transport can take a frame now: false while a
+// frame writer obtained from NextWriter is open, while the transport connection reports
+// itself not writable, and once the session has closed. A transport connection without
+// a Writable method counts as writable. The root reads it through the optional
+// interface interface{ Writable() bool } to drop a volatile packet (K16).
+func (s *Session) Writable() bool { return false }
+```
+
+```go
+package engineio
+
+// Writable reports, for the engine client returned by Dialer.Dial, what
+// Session.Writable reports for a server session, over the client's transport connection.
+func (c *client) Writable() bool { return false }
+```
+
+```go
+package polling
+
+// Writable reports, for the server connection, that a poll request is waiting and no
+// response is being written; for the client connection, that no POST is in flight.
+func (c *serverConn) Writable() bool { return false }
+
+func (c *clientConn) Writable() bool { return false }
+```
+
+```go
+package websocket
+
+// Writable reports that no message writer of the connection is open.
+func (c *conn) Writable() bool { return false }
+```
+
+The fences show the shape; each body is implemented as its comment says, under the lock
+that already guards the state it reads. Named test: `TestSessionWritable` (package
+`session`, under `// Covers K16`, the row staying `ADD V1-6` until V1-6 closes it: a
+polling session is writable only while a poll waits, a websocket session not while a
+writer is open, no session after its close; a `scriptConn` without the method counts as
+writable).
 
 ### V1-5 contract
 
@@ -2492,9 +2544,9 @@ message per room for a union, `Local` publishes nothing, `Volatile` honoured loc
 not carried. Writable, for `Volatile`: the packet is dropped at `Emit` when the
 connection's outbound queue already holds a packet or the engine connection reports that
 its transport cannot take a frame now, read through the optional interface `interface{
-Writable() bool }` that `*session.Session` and the engine client implement (polling:
-a poll request is waiting and no write is in progress; websocket: no write is in
-progress); a connection without the method is always writable. The reference checks
+Writable() bool }` that `*session.Session` and the engine client implement from V1-4 on
+(`### V1-4 contract`, the writability fences; V1-6 edits no `engineio/` file); a
+connection without the method, `*fakeConn` included, is always writable. The reference checks
 `transport.writable` at packet time (`client.js:167`); the queue condition is the Go
 equivalent, since a queued packet means the transport did not take the previous one.
 N7: `Emitter.Emit`, `ServerNamespace.Emit` and `Send` return `ErrBroadcastAck` for a

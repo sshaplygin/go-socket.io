@@ -2402,7 +2402,7 @@ type Emitter interface {
 }
 
 // ServerNamespace gains the builder entry points and the id list.
-func (n *ServerNamespace) To(rooms ...string) Emitter  { return nil }
+func (n *ServerNamespace) To(rooms ...string) Emitter   { return nil }
 func (n *ServerNamespace) Except(ids ...string) Emitter { return nil }
 func (n *ServerNamespace) Volatile() Emitter            { return nil }
 func (n *ServerNamespace) Local() Emitter               { return nil }
@@ -2688,14 +2688,14 @@ func (c *Client) Socket(nsp string) *Socket { return nil }
 // Connected, On, Once and Off.
 type Socket struct{}
 
-func (s *Socket) Namespace() string                        { return "" }
-func (s *Socket) Emit(event string, args ...interface{})   {}
-func (s *Socket) Send(args ...interface{})                 {}
-func (s *Socket) OnConnect(f func(Conn) error)             {}
-func (s *Socket) OnDisconnect(f func(Conn, string))        {}
-func (s *Socket) OnError(f func(Conn, error))              {}
-func (s *Socket) OnEvent(event string, f interface{})      {}
-func (s *Socket) Close() error                             { return nil }
+func (s *Socket) Namespace() string                      { return "" }
+func (s *Socket) Emit(event string, args ...interface{}) {}
+func (s *Socket) Send(args ...interface{})               {}
+func (s *Socket) OnConnect(f func(Conn) error)           {}
+func (s *Socket) OnDisconnect(f func(Conn, string))      {}
+func (s *Socket) OnError(f func(Conn, error))            {}
+func (s *Socket) OnEvent(event string, f interface{})    {}
+func (s *Socket) Close() error                           { return nil }
 ```
 
 Semantics. C2: one engine connection, one `Socket` per namespace; the root namespace

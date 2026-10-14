@@ -1468,7 +1468,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-13 | Examples `_examples/namespaces` (namespaces, rooms, auth) and `_examples/middleware`, same rules, `examples-node` extended; `_examples/default-http` gets broadcast-except-sender, and every `chat.go` copy changes with it in the same PR, except `redis-adapter` and `redis-adapter-unix-socket`: `Except` is not available over Redis in `v1.5.0` (D2, contract in V1-0), so they keep their `chat.go` with the `others()` helper, named in `CHAT_SKIP` of the Makefile (the copy check is `CHAT_COPIES`, the `chat.go` directories minus `CHAT_SKIP`) until V1R; the browser page for 1.7 (D17): `_examples/asset/index-1.7.html`, the upstream page loading `socket.io-client@1.7.4` from jsDelivr with its integrity hash, beside `index.html` (2.5.0), so every example that mounts `asset/` serves both, and `_examples/README.md` says which URL opens each |
 | V1-14 | Release preparation: PROTOCOL.md deviations (D3, D4) as the headings `### Deviation D3: mixed Go/Node Redis cluster` and `### Deviation D4: JSONP unsupported` under *Known deviations from the v3/v4 specs* (the unique strings the MV1 DoD greps for), README supported versions, `CHANGELOG.md` `## Unreleased` complete, v1 migration notes. D10 communication: one `### Changed` entry that names `Conn`, `Namespace`, `Broadcast` and `engineio.Conn` and every method V1-0 added to each, and the one changed signature, V1-6's `Namespace.Join(room string)` to `Join(rooms ...string)` (both forms; callers compile unchanged, implementers do not), says that implementers and mocks of them stop compiling in this minor release, and what a client connection returns for the server-only ones (Stage 7), and carries the migration note (add the methods, or embed the interface in a mock); the default changes of V1-15 are `### Changed` entries too (the `io` cookie set after every polling handshake, polling responses of 1024 bytes or more compressed when the client accepts it), each naming the reference option (`cookie`, `httpCompression`), as are the D15 defaults written by V1-2 (`PingInterval`, `PingTimeout`), V1-5 (`Conn.ID`) and V1-18 (CORS); no tag |
 | V1-15 | Compression and cookies (D11): `perMessageDeflate` for the websocket transport (E8), `httpCompression` for polling responses (E9), the `cookie` option (E10), the per-emit `compress` flag of `Conn` (K17), of server broadcasts (S21) and of the client (C11); contract and checks in *Compression and cookies (V1-15)* below |
-| V1-16 | Engine layer I (D16): `Server.Engine()`, the `*engineio.Server` the socket.io server runs on (S18); `engineio.Server.Clients()`, a snapshot of the open sessions by id, beside `Count` (E17); the engine socket state on `engineio.Conn`, `ReadyState()`, `Transport()` and `Upgraded()` (E20), which the engine-connection accessor of K4 (V1-7) reaches from a socket; contract and checks in *Engine layer (V1-16, V1-17)* below |
+| V1-16 | Engine layer I (D16): `Server.Engine()`, the `*engineio.Server` the socket.io server runs on (S18); `engineio.Server.Clients()`, a snapshot of the open and closing sessions by id, beside `Count` (E17); the engine socket state on `engineio.Conn`, `ReadyState()`, `Transport()` and `Upgraded()` (E20), which the engine-connection accessor of K4 (V1-7) reaches from a socket; contract and checks in *Engine layer (V1-16, V1-17)* below |
 | V1-17 | Engine layer II (D16): the engine events as observer hooks on `engineio.Options`: the server-level `connection`, `initial_headers`, `headers` and `connection_error` named by D16, and the socket-level `flush`, `drain`, `packet`, `packetCreate`, `heartbeat`, `upgrading`, `upgrade` and `error` of E19; contract and checks in *Engine layer (V1-16, V1-17)* below |
 | V1-18 | CORS (D15): the server-level default that accepts every origin and writes the headers of `polling-xhr.js:48-62` on every polling response (P8), one `engineio.Options` field that disables it (S4), the per-transport `CheckOrigin` kept as the override; `### Changed` entry; contract and checks in *CORS default and option (V1-18)* below |
 | V1-19 | Differential JS/Go contract tests (D17): the scenarios of *Differential contract tests (V1-19)* below, each run by the conformance job's Node client against the reference `socket.io@2.5.0` server and against the Go server, the two transcripts compared; new files under `internal/conformance` and its `testdata/node`, tag `conformance`, no new Go dependency |
@@ -1621,8 +1621,17 @@ test "$(go test -tags conformance -list "^($V15C)\$" ./internal/conformance/... 
 contract` and `### V1-17 contract`, with the names; the semantics are fixed here. V1-16:
 `Server.Engine()` returns the `*engineio.Server` that `NewServer` created, never nil (S18;
 `Server` is a struct, so S18 is not a D10 row). `engineio.Server.Clients()` returns a copy of
-the open sessions keyed by id, taken under the server's lock, so a caller iterates without
-holding it; `Count()` stays (E16) and `Remove(sid)` too. `engineio.Conn` gains `ReadyState()`,
+the sessions whose `ReadyState()` is `open` or `closing`, keyed by id, taken under the
+server's lock, so a caller iterates without holding it. That is the membership of 3.6.2's
+`clients` (`server.js:334-341`: a socket enters after its constructor has set it `open`
+and leaves on its `close` event): a session registered for its handshake but still
+`opening` is not listed, and one whose state is `closed` is not listed from that moment,
+whether or not anything has called `Remove`. The filter is on the state, so the session
+manager's lifetime rule is unchanged: a session stays registered until `Remove` (which the
+socket.io server calls when a connection's read goroutine ends, `server.go:334`), the
+init failure or `Server.Close` drops it. `Count()` stays (E16) and keeps counting the
+registered sessions, so it can exceed `len(Clients())` by the sessions still opening or
+closed and not yet removed; `Remove(sid)` stays too. `engineio.Conn` gains `ReadyState()`,
 returning one of the four 3.6.2 states as an `engineio.ReadyState` (`opening`, `open`,
 `closing`, `closed`, the strings of `socket.js`), `Transport()`, the name of the current
 transport (`polling` or `websocket`, so after an upgrade the new one), and `Upgraded()`
@@ -1665,11 +1674,14 @@ accepted, the transport switched), `flush` and `drain` (a polling write batch st
 `error` (the error that closes the session, before `close`). `connection` is E18's event: the
 hook does not replace `Accept`, which stays the way the socket.io server takes sessions.
 Named tests, each under the `// Covers` of its row: `TestServerEngine` (S18),
-`TestEngineClients` (E17: two sessions, the map has both ids and `Count` agrees; a closed
-one leaves it), `TestEngineConnState` (E20: `open` once `Accept` has returned the session,
+`TestEngineClients` (E17: two open sessions, the map has both ids and `Count` agrees; one
+closed by its `Close`, with no `Remove` call, is absent from every snapshot taken after its
+`ReadyState` is `closed`, while `Count` still
+includes it until `Remove`), `TestEngineConnState` (E20: `open` once `Accept` has returned the session,
 `websocket` and `Upgraded` true after the probe, `closing` and `closed` around `Close`;
 `opening` is the state between the session's creation and the OPEN packet, which no caller
-observes through the API, as in 3.6.2, where the constructor reaches `open` before
+observes through the API (`Clients()` leaves it out; `Accept` and the `connection` hook get
+the session `open`), as in 3.6.2, where the constructor reaches `open` before
 `connection` fires (`socket.js:26,45,61`, `server.js:342`), so no test asserts it and V1-17's
 `connection` subtest asserts `open`), `TestEngineSocketEvents` (E19: every socket-level hook fires once in a polling
 session upgraded to websocket, in the order above), and `TestEngineServerEvents` with the
@@ -3264,11 +3276,10 @@ type Conn interface {
 	Upgraded() bool
 }
 
-// Clients returns a copy of the open sessions keyed by session id, taken under the
-// server's lock: a session is in it from its registration, before the handshake
-// response (so a Conn in it may be opening), until it is removed (Server.Remove, which
-// the socket.io server calls when a connection's read goroutine ends). Count is its
-// length.
+// Clients returns a copy, taken under the server's lock, of the sessions whose
+// ReadyState is StateOpen or StateClosing, keyed by session id: the membership of
+// engine.io 3.6.2's clients (the rule is fixed in the Engine layer paragraph of the
+// roadmap). Count keeps counting the registered sessions.
 func (s *Server) Clients() map[string]Conn { return nil }
 ```
 

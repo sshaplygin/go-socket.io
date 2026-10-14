@@ -1602,7 +1602,9 @@ bytes; it calls no `t.Parallel`, so no other test of its package binary runs bes
 bound measures only that message), `TestPollingHTTPCompression` (E9:
 gzip and deflate above the threshold, none below it or without `Accept-Encoding`),
 `TestHandshakeCookie` (E10: default, custom name and path, `HttpOnly` off, the full-cookie form,
-off; set again on a later poll of the session, absent after a websocket-first handshake), `TestEmitCompressFlag` (K17),
+off; set again on a later poll of the session, absent after a websocket-first handshake), `TestEmitCompressFlag` (K17; a subtest for
+`c.Compress(false).To(room)`: the room's other sockets get the packet uncompressed and
+the sender gets nothing),
 `TestBroadcastCompressFlag` (S21), `TestClientCompress` (C11, untagged: the Go client against an
 in-process Go server). These seven need no Node and run under `./...`; the two conformance tests
 run in the `conformance` job, green per the per-PR DoD. Besides the per-PR DoD, on its head:
@@ -2379,8 +2381,9 @@ var ErrExceptUnsupported = errors.New("socketio: broadcast except is not support
 // "Callbacks are not supported when broadcasting"). Nothing is sent.
 var ErrBroadcastAck = errors.New("socketio: callbacks are not supported when broadcasting")
 
-// ErrServerOnly is returned by Emit and Send of an Emitter that To or Broadcast started
-// on a client connection, whose namespace has no Broadcast to deliver through: the root
+// ErrServerOnly is returned by Emit and Send of a broadcast Emitter (one that To or
+// Broadcast started, or that To or Except switched from a single-socket target) on a
+// client connection, whose namespace has no Broadcast to deliver through: the root
 // Client's connection (client.go:165 creates its handlers with a nil adapter), and from
 // V1-9 on the client package's, which declares the variable then (Stage 7, D10 methods and
 // the alias) while the root keeps the name as an alias. Nothing is sent.
@@ -2418,14 +2421,24 @@ type Broadcast interface {
 // Emitter is a pending emit: a target plus flags, built by chaining and sent by Emit or
 // Send. Values are immutable: each method returns a new Emitter, so one can be kept and
 // reused. ServerNamespace.To, Except, Volatile and Local start one that targets the
-// namespace; Namespace.To, Broadcast, Volatile and Compress (V1-15) start one that
-// targets the namespace except the socket (To, Broadcast) or the socket itself
-// (Volatile, Compress). The interface is declared once, in package client from V1-9 on
-// and aliased in the root (Stage 7, D10 methods and the alias), so both sides implement it.
+// namespace; Namespace.To and Broadcast start a broadcast from the socket: the namespace
+// (or the rooms) with the socket's own ID in Except. Namespace.Volatile and Compress
+// (V1-15) start one that targets the socket itself, and it stays so while only Volatile,
+// Compress and Local are chained (Local is a no-op on it, as the local flag of socket.io
+// 2.5.0 is on a single-socket emit). The first To or Except on it turns it into a
+// broadcast from the socket, exactly what Namespace.To or Namespace.Broadcast would have
+// started, with the flags kept: c.Volatile().To(r) is c.To(r).Volatile() and
+// c.Volatile().Except(ids...) is c.Broadcast().Except(ids...), so the sender never
+// receives it (socket.io 2.5.0 socket.js:140-175: any room or the broadcast flag goes to
+// the adapter with except [this.id]). The interface is declared once, in package client
+// from V1-9 on and aliased in the root (Stage 7, D10 methods and the alias), so both sides
+// implement it.
 type Emitter interface {
-	// To adds rooms to the target: the sockets in any of them, once each.
+	// To adds rooms to the target: the sockets in any of them, once each. On a
+	// single-socket target it switches to a broadcast from the socket (see above).
 	To(rooms ...string) Emitter
-	// Except adds ids of sockets that receive nothing.
+	// Except adds ids of sockets that receive nothing. On a single-socket target it
+	// switches to a broadcast from the socket (see above).
 	Except(ids ...string) Emitter
 	// Volatile marks the packet volatile: a socket whose connection cannot take it now
 	// is skipped, as socket.io 2.5.0 does when the transport is not writable.
@@ -2509,8 +2522,10 @@ returns `ErrExceptUnsupported` makes `Conn.Broadcast().Emit` return it with noth
 `SendTo` with `Except` returns it before any I/O, the pool untouched), `TestBroadcastIDs`
 (A5), `TestNamespaceSocketIDs` (S15), `TestConnJoinRooms` (K11), `TestBroadcastExceptSender`
 (K14: `To` and `Broadcast` from a handler reach the other sockets and not the sender; a
-subtest on the root `Client`'s connection gets `ErrServerOnly` from both and the server
-receives nothing),
+subtest each for `c.Volatile().To(room)` and `c.Volatile().Except(id)`, which reach the
+room or the namespace minus `id` and not the sender, and for `c.Volatile().Local()`, which
+reaches the sender only; a subtest on the root `Client`'s connection gets `ErrServerOnly`
+from `To`, `Broadcast` and `Volatile().To(room)` and the server receives nothing),
 `TestVolatileEmit` (K16: a polling client with no poll waiting gets nothing, a websocket
 client gets the packet), `TestServerBroadcastFlags` (S21: `Volatile` and `Local` on
 `ServerNamespace`), `TestRoomUnion` (S13: a socket in two rooms of a `To(a, b)` receives
@@ -2980,9 +2995,18 @@ type BroadcastOptions struct {
 	// NoCompress sends the packet uncompressed; the zero value is the default, true.
 	NoCompress bool
 }
+```
+
+V1-15 runs after V1-9, so `Emitter` and `Namespace` are declared in `client` and the root
+sees the additions through its aliases (Stage 7, *D10 methods and the alias*):
+
+```go
+package client
 
 // Emitter and Namespace gain Compress with the same meaning; on a client connection
-// it works (C11).
+// it works (C11). Namespace.Compress starts a single-socket Emitter, which a later To or
+// Except switches to a broadcast from the socket with the flag kept (the Emitter godoc
+// of the V1-6 contract): c.Compress(false).To(room) is c.To(room).Compress(false).
 type Emitter interface {
 	Compress(on bool) Emitter
 }

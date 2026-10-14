@@ -1454,7 +1454,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | --- | --- |
 | V1-0 | Docs only: signatures and semantics of every `ADD` row as subsections of this stage (the methods added to `Conn`, `Namespace`, `Broadcast` and `engineio.Conn` by D10 and D16, `Options` fields and per-emit flags, those of V1-15, V1-16, V1-17 and V1-18 included, errors, and the close error type of `engineio/session` that V1-4 adds for K24 as `### V1-4 contract`); three-agent validation (CLAUDE.md) |
 | V1-1 | `engineio/payload` and `engineio/transport/polling`: binary payload length in bytes, not UTF-16 units (P16), JSONP removed with its PROTOCOL.md deviation (P5, P6); the CORS default is V1-18's (S4, P8: D15), `OPTIONS` answers (P9) and overlapping polls (P18) are checked by V1-8 |
-| V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake must be GET with the reference answer (HTTP 400 `{"code":2,"message":"Bad handshake method"}`, P12), which also closes `OPTIONS` without `sid` (E14: today it creates a session in `Server.ServeHTTP`), liveness on any packet with the reference's close rule: the session closes with reason `ping timeout` after `PingInterval + PingTimeout` without any received packet, the window re-armed by every packet (engine.io 3.6.2 `socket.js:136-142`; today `session.go:78,223,397-409` arms a deadline of `PingTimeout` alone, re-armed by a PING only, which under the new defaults would close an idle client 20 s after each of its 25 s pings), and the reference defaults `PingInterval` 25 s and `PingTimeout` 20 s (E1, E2: D15; a `### Changed` entry names both values and the window; the test `TestPingTimeoutIdleClient` and its command are in the per-PR checks below), request checker, `Server.Close` closes sessions |
+| V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake must be GET with the reference answer (HTTP 400 `{"code":2,"message":"Bad handshake method"}`, P12), which also closes `OPTIONS` without `sid` (E14: today it creates a session in `Server.ServeHTTP`), liveness on any packet with the reference's close rule: the session closes with reason `ping timeout` after `PingInterval + PingTimeout` without any received packet, the window re-armed by every packet (engine.io 3.6.2 `socket.js:136-142`; today `session.go:78,223,397-409` arms a deadline of `PingTimeout` alone, re-armed by a PING only, which under the new defaults would close an idle client 20 s after each of its 25 s pings), and the reference defaults `PingInterval` 25 s and `PingTimeout` 20 s (E1, E2: D15; a `### Changed` entry names both values and the window; the test `TestPingTimeoutIdleClient` and its command are in the per-PR checks below), request checker, `Server.Close` closes sessions; the engine prerequisite of V1-7, so that it edits no `engineio/` file: `Options.ConnInitor` runs on the session's goroutine after the OPEN packet and before `Accept` returns the session (K5, `### V1-7 contract`; the change is in `### V1-2 contract`) |
 | V1-3 | `parser` and root defects: attachment cap, payload validation, `Emit(ev, nil)`, wrong-type argument, per-room duplicates |
 | V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written (R9), `0/nsp,` reply form, disconnect reasons (K24: the engine's close cause, recorded by `session.go:134` and only logged today, is exposed from `engineio/session` as an exported error type that `NextReader` returns wrapped after the close, and the root maps it to `transport close`, `ping timeout` and `transport error`; the type is V1-0's `### V1-4 contract`, and this is the one `engineio/` edit among V1-3 to V1-7, so V1-4 merges before V1-16, wave V1B) and `disconnecting` order, encode error |
 | V1-5 | Namespace API: `Of`, `Use` and event middleware, connect-rejection reason, per-namespace disconnect, `connected`/`sockets`, `send`, `Server.Close` waiting for sessions, `Conn.ID()` as `/ns#id` outside the root namespace (K1: D15; a `### Changed` entry names it) |
@@ -2045,7 +2045,10 @@ existing ones, so `NewServer(nil)` keeps working:
 ```go
 package engineio
 
-import "time"
+import (
+	"net/http"
+	"time"
+)
 
 // Options is the server configuration. The existing fields stay; V1-2 adds these three.
 type Options struct {
@@ -2067,9 +2070,27 @@ type Options struct {
 	// false, the zero value, is the engine.io 3.6.2 default allowUpgrades: true.
 	DisableUpgrades bool
 }
+
+// ConnInitorFunc exists (types.go:11); V1-2 changes when it runs, not its signature: it
+// is called once per session, with the handshake request, after the OPEN packet has
+// been written and before Accept returns the session, on the session's goroutine, not
+// the request's, so the request's Body is consumed and its Context may be done; the
+// request serves for its URL, headers, TLS state and remote address. A session whose
+// OPEN packet could not be written is not initialised and not accepted. Today it runs
+// on the request goroutine (server.go:153) concurrently with Accept.
+type ConnInitorFunc func(*http.Request, Conn)
 ```
 
-Semantics. E3: today `session.upgrading` (`engineio/session/session.go:412-595`) waits
+Semantics. The initor: `Server.ServeHTTP` calls `s.connInitor(r, reqSession)` at
+`server.go:153` after `newSession` returned, while the goroutine `newSession` started at
+`:213-229` runs `InitSession` and sends the session to `connChan`, so `Accept` and the
+root's `serveConn` can run before the initor did. V1-2 passes `r` to `newSession` and
+calls the initor inside that goroutine, after `InitSession` succeeded and before the
+`connChan` send (the channel send happens before the receive in `Accept`), so everything
+the initor did is visible to the code that receives the session; the ServeHTTP call site
+is removed. This is the engine prerequisite of K5 (`### V1-7 contract`), whose root wrapper
+records the request per session: with the old order, `Conn.Request()` could be nil in the
+first handler of a connection. E3: today `session.upgrading` (`engineio/session/session.go:412-595`) waits
 `PingTimeout` for the probe PING (`:414`) and without bound for the UPGRADE packet
 (`:548`). With the field, the whole sequence (probe PING read, PONG written, UPGRADE read)
 has `UpgradeTimeout` from `Session.Upgrade`; when it passes, the probe connection is
@@ -2104,7 +2125,12 @@ bytes is answered with close code 1009; `default`, `Options{}` gives 1e6; it is 
 of the `fails without the fix:` body line of E4's `BUG` entry, red on the base where the
 POST of limit+1 bytes is accepted) and `TestDisableUpgrades` (E7: the OPEN packet carries
 `"upgrades":[]` and a websocket request with the session's sid is answered 400 with code
-3; with the field false the OPEN packet lists `websocket` and the upgrade succeeds).
+3; with the field false the OPEN packet lists `websocket` and the upgrade succeeds) and
+`TestConnInitorBeforeAccept` (K5 stacked, the row stays `ADD V1-7` until V1-7 closes
+it: under `-race`, an initor that records the request's URL on the session is observed
+by the goroutine that receives the session from `Accept`, for a polling and a websocket
+handshake, 50 sessions each; red on the base, where the race detector reports the
+initor's write against the receiver's read, or the record is missing).
 
 ### V1-4 contract
 
@@ -2577,9 +2603,11 @@ type Conn interface {
 	// Request returns the handshake request of the connection (the polling GET or the
 	// websocket upgrade), as the engine received it: its Body is consumed and its
 	// Context is done once the handshake response was written, so it serves for the
-	// URL, headers, TLS state and remote address only. nil on a client connection.
+	// URL, headers, TLS state and remote address only. Non-nil from the first call of
+	// any handler or middleware of the connection on; nil on a client connection.
 	Request() *http.Request
-	// Handshake returns the handshake data of this namespace socket; the zero value on
+	// Handshake returns the handshake data of this namespace socket, filled from the
+	// first call of any handler or middleware of the connection on; the zero value on
 	// a client connection.
 	Handshake() Handshake
 }
@@ -2604,8 +2632,16 @@ connection, and `Handshake().Query` merges it over `Conn.URL().Query()`
 (`socket.js:116-120`). K4: `EngineConn` returns the `engineio.Conn` embedded in `conn`
 (`connection.go:69`). K5: the root keeps the handshake request per session by wrapping
 `Options.ConnInitor` in `NewServer` (the user's initor, if any, is called after the
-record is made; `engineio/server.go:153` calls it with the request and the session) and
-drops the record when the connection ends, so no `engineio` file changes for it. K10: the
+record is made) in a map keyed by session id under a mutex, and drops the record when
+the connection's read goroutine ends. The guarantee, `Request()` non-nil and
+`Handshake()` filled from the first handler or middleware call of the connection on,
+rests on V1-2's order of the initor (`### V1-2 contract`, the first paragraph of its
+semantics): the engine calls it after the OPEN packet and before the `connChan` send
+that `Accept` receives, so the record exists before `Serve` starts `serveConn` and
+before any CONNECT is dispatched, root `OnConnect` and the V1-5 middleware included.
+V1-7 edits no `engineio/` file; at `2667c25` the initor runs on the request goroutine
+concurrently with `Accept`, which is why the guarantee needs V1-2 (merged in wave V1A).
+K10: the
 fields as commented; `Secure` is `r.TLS != nil`, `XDomain` the presence of `Origin`
 (`socket.js:123-127`); one `time.Time` stands for `time` and `issued`. K26: `AckFunc`;
 today's rule (return values sent when non-empty or when the client asked,
@@ -2626,9 +2662,12 @@ and `IDs`; a constructor error surfaces through `Serve` as the Redis one does),
 second CONNECT reuses it, a rejected name gets `Invalid namespace`, the parent's `Emit`
 reaches two children), `TestNamespaceAdapter` (N5), `TestNamespaceConnectQuery` (N8),
 `TestConnEngineConn` (K4), `TestConnRequest` (K5: method, URL and a header of the
-handshake request; nil on the client side from V1-9), `TestHandshakeQuery` (K7: the
-merge and the override), `TestHandshakeData` (K10: `Time` within the test's window,
-`XDomain` with and without `Origin`, `Secure` over `httptest.NewTLSServer`),
+handshake request, asserted inside the root `OnConnect` and inside a `/chat` namespace
+middleware, both non-nil on every one of 20 connections under `-race`; nil on the client
+side from V1-9), `TestHandshakeQuery` (K7: the merge and the override),
+`TestHandshakeData` (K10: `Time` within the test's window, `XDomain` with and without
+`Origin`, `Secure` over `httptest.NewTLSServer`, the fields read inside the root
+`OnConnect` and inside a namespace middleware under `-race`, as `TestConnRequest` does),
 `TestLateAck` (K26: the ACK sent from another goroutine after the handler returned, a
 second call ignored, no ACK when the client did not ask), `TestEventListeners` (K28:
 order, `Once`, `off()`, `Off`, `OnEvent` replacing, the panic on differing parameter

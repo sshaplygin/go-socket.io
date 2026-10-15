@@ -1658,7 +1658,8 @@ same state transition as `Close` (the `closeOnce` body, then `conn.Close()`), so
 `ReadyState()` is `closed` after the ping loop has returned by any path, and the test
 `TestEngineClientState` of `### V1-16 contract` asserts it on that path;
 `Upgraded()` is false until V1-10's client upgrade switches the transport and true after
-it; `Transport()` keeps its value. Stage 7's *D10 methods and the alias* covers the root
+it; `Transport()` keeps its meaning, the name of the current transport, so it changes at
+that switch (`### V1-10 contract`, *Observable rules of the probe*). Stage 7's *D10 methods and the alias* covers the root
 `Conn`; this sentence covers the `engineio.Conn` side of the client, and V1-0's
 `### V1-16 contract` lists both. V1-14's `### Changed` entry names `engineio.Conn`. The
 socket.io `Conn` reaches them through the

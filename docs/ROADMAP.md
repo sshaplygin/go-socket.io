@@ -164,7 +164,7 @@ workers submit changes to these files through that integrator.
 | V1A | row R step C passed; V1-0 merged | V1-1 (`engineio/payload`, `engineio/transport/polling`, its own new `engineio/polling_*_test.go` files) and V1-2 (`engineio`, `engineio/session`, and the `SetReadLimit` methods of `engineio/transport/polling` and `engineio/transport/websocket`, written after V1-1 has merged) in separate worktrees | per-PR DoD (Stage V1) |
 | V1B | V1A | V1-3 to V1-7 in order: one integrator, the root files and `parser` are shared; beside them V1-16 (after V1-4 has merged: V1-4 is the single owner of the close-cause plumbing in `engineio/session` and its aliases in a new file of `engineio`, K24, and of the writability report that V1-6's `Volatile` reads (`Writable` on `*session.Session`, the engine client of `engineio/client.go` and the connections of `engineio/transport/polling` and `engineio/transport/websocket`, K16), the one `engineio/` edit among V1-3 to V1-7; V1-16 and V1-17 rewrite the same file, so they rebase on it, and V1-17's `error` hook reports the cause V1-4 exposes), then V1-17, then V1-18 (`engineio/` and its transports, which V1-3, V1-5, V1-6 and V1-7 do not edit; their root edits, `Server.Engine` and the `CHANGELOG.md` entries, go through the integrator) | per-PR DoD |
 | V1C | V1B | V1-8, then V1-20 (`.github/`, the `Makefile`, `CLAUDE.md`, the conformance directory, `internal/parity`; the V1-8 author integrates) | the `conformance` job and the `parity-check` and `cover-check` step green on `master` |
-| V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`, and for V1-10 `engineio/client.go`, the engine client's close reasons, and `engineio/dialer.go`, `Dialer.Upgrade`, `### V1-10 contract`); beside them V1-19 (new files under `internal/conformance` and its `testdata/node`, no workflow edit) | Stage 7 DoD, then per-PR DoD; the V1-19 block |
+| V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`, and for V1-10 `engineio/client.go`, the engine client's close reasons, and `engineio/dialer.go`, `Dialer.Upgrade`, `### V1-10 contract`; for V1-11 the same two `engineio/` files again, `Dialer.OnPing` and `OnPong` and their calls in the engine client, `### V1-11 contract`); beside them V1-19 (new files under `internal/conformance` and its `testdata/node`, no workflow edit) | Stage 7 DoD, then per-PR DoD; the V1-19 block |
 | V1E | V1D (V1-12 may start after V1-8) | V1-12 and V1-13, one directory per example; beside them V1-15 (needs V1-2, V1-6 and V1-11: `engineio` options and handshake, `engineio/transport/websocket`, `engineio/transport/polling`, the root emit and broadcast flags, `client/`, new files under `internal/conformance`). The V1-12 author integrates the wave's shared files (`Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md`): V1-13's `Makefile` edit merges after V1-12, and V1-15 edits none of them, since `make conformance` already runs every tagged test of `internal/conformance` | `make examples`, then `examples-node` once per gate client (the two lines of the per-PR checks of V1-12 and V1-13); the per-PR DoD and the V1-15 block (Stage V1) |
 | V1F | V1E | V1-14 release preparation, no tag | MV1 DoD and Acceptance (Stage V1) |
 | SY | row R step C passed | the PR SYNC (Stage V1, *Shared-file drift check*): root `Makefile`, `.github/workflows/ci.yaml`, `.github/sync-manifest`, `CLAUDE.md`; it runs beside V1A or V1B, whose PRs are not planned to edit those files, and never beside V1C or V1E, which edit `ci.yaml` and the `Makefile` | the SYNC DoD; the `sync-check` job green on `master` |
@@ -3076,6 +3076,29 @@ type Namespace interface {
 }
 ```
 
+Plumbing of `OnPing` and `OnPong`: at `2667c25` the engine client writes PING itself, in
+`serve()` (`engineio/client.go:119-128`), and consumes PONG inside `NextReader`
+(`:68-72`, which only re-arms the read deadline), so package `client` sees neither
+event. V1-11 adds two observer fields to `engineio.Dialer` (`engineio/dialer.go`; V1-10
+adds `Upgrade` to the same struct and merges first), which `Dial` copies into the
+connection it returns; `client.New` sets them to the funcs that fire the two handlers:
+
+```go
+package engineio
+
+import "time"
+
+// Dialer gains the heartbeat observers; the existing fields and V1-10's Upgrade stay.
+type Dialer struct {
+	// OnPing is called after each PING packet has been written, on the connection's
+	// ping goroutine (serve); OnPong when NextReader consumes the PONG, on the goroutine
+	// that called NextReader, with the time since that PING. A nil field is not called;
+	// a set one must not block.
+	OnPing func()
+	OnPong func(rtt time.Duration)
+}
+```
+
 Semantics. C3: when the engine connection closes for a reason other than `Client.Close`
 or the last socket's `Close`, every socket's `OnDisconnect` runs with the engine reason,
 then the Client reconnects unless `DisableReconnection`: attempt n waits
@@ -3091,9 +3114,10 @@ not reconnected, and when every socket is gone the connection closes without
 reconnecting (`socket.js:216-245`). A socket's `Emit` during a reconnection is buffered
 as C9 says. Goroutine rule: one goroutine of the Client runs the reconnection loop and
 the four reconnect handlers, after the previous connection's read, write and error
-goroutines have ended, so no two handlers of one Client run concurrently; `OnPing` and
-`OnPong` run on the engine client's ping goroutine and read goroutine respectively, so
-they must not block. C8: `ID`, `Connected`, `On`, `Once`, `Off` as commented; `Off`
+goroutines have ended, so no two handlers of one Client run concurrently; `OnPing` runs on the engine
+client's ping goroutine and `OnPong` on the Client's read goroutine (the one that calls
+`NextReader`, where the engine client consumes the PONG), through the `Dialer` fields
+above, so neither may block. C8: `ID`, `Connected`, `On`, `Once`, `Off` as commented; `Off`
 removes the `OnEvent` handler too, the rule of V1-7. C11: `Volatile` on the client's
 `Conn` and the `Emitter` it returns are V1-6's, over the engine client's writability
 (the same optional interface). Named tests, each under the `// Covers` of its row:

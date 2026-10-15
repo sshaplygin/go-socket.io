@@ -2595,10 +2595,14 @@ type BroadcastOptions struct {
 // Broadcast is the room and delivery adapter of a namespace. The existing methods stay;
 // V1-6 adds these two (D10: implementers and mocks must add them).
 type Broadcast interface {
-	// SendTo delivers event with args per opts, once per socket, calling each target's
-	// Emit on the caller's goroutine without holding the adapter's lock. It returns an
-	// error wrapping ErrExceptUnsupported, delivering nothing, when opts.Except is not
-	// empty and the adapter cannot exclude.
+	// SendTo delivers event with args per opts, once per socket, on the caller's
+	// goroutine without holding the adapter's lock, through each target's single-socket
+	// Emitter: target.Emit(event, args...) with no flag, target.Volatile().Emit with
+	// opts.Volatile, target.Compress(false).Emit with opts.NoCompress (V1-15), both
+	// chained when both are set. An adapter uses nothing else of a target, so an
+	// injected Broadcast (V1-7) honours the flags exactly as the memory type does. It
+	// returns an error wrapping ErrExceptUnsupported, delivering nothing, when
+	// opts.Except is not empty and the adapter cannot exclude.
 	SendTo(opts BroadcastOptions, event string, args ...interface{}) error
 
 	// IDs returns the ids of the sockets in any of rooms, once each, or of every socket
@@ -2715,7 +2719,9 @@ in 2.5.0 and `binary` is decided by `parser.Buffer`, both N/A as PARITY.md says.
 Ordering: packets to one socket from one goroutine arrive in call order, broadcasts
 included, since every path queues through that socket's `conn.write`. Named tests, each
 under the `// Covers` of its row: `TestBroadcastSendTo` (A4: rooms union with dedupe,
-`Except`, `Volatile`, `Local` on the memory type; a fake `Broadcast` whose `SendTo`
+`Except`, `Volatile` (a target whose connection is not writable gets nothing, the others
+get the packet: the flag went through each target's `Volatile()` Emitter), `Local` on
+the memory type; a fake `Broadcast` whose `SendTo`
 returns `ErrExceptUnsupported` makes `Conn.Broadcast().Emit` return it with nothing sent),
 `TestRedisBroadcastExceptUnsupported` (A4 stacked, no Redis server: the Redis type's
 `SendTo` with `Except` returns it before any I/O, the pool untouched), `TestBroadcastIDs`
@@ -3255,6 +3261,7 @@ func (n *ServerNamespace) Compress(on bool) Emitter { return nil }
 // sockets and does not carry it (V1-14 Known limitations; V1R carries it).
 type BroadcastOptions struct {
 	// NoCompress sends the packet uncompressed; the zero value is the default, true.
+	// SendTo passes it as target.Compress(false) (its godoc, the V1-6 contract).
 	NoCompress bool
 }
 ```

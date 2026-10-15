@@ -2399,8 +2399,21 @@ package websocket
 func (c *conn) Writable() bool { return false }
 ```
 
-The fences show the shape; each body is implemented as its comment says, under the lock
-that already guards the state it reads. Named tests: `TestSessionWritable` (package
+The fences show the shape; each body is implemented as its comment says, over this state.
+`*session.Session`: an atomic count of the open `frameWriter`s it returns (`session.go:294`)
+and `closed` under `upgradeLocker`, then the transport connection's report. The engine
+client: the same count over its writers and its `close` channel, then the connection's
+report. The polling server connection, which has no lock today (`polling/server.go:14-23`):
+a flag under a new `sync.Mutex` of `serverConn`, set before the GET branch calls `FlushOut`
+and cleared by the first `Write` of its `progressWriter` and when `FlushOut` returns
+(`:79-115`); the payload's own state (`Payload.flushing` and `writerChan`,
+`payload.go:34-36, 161-164, 193`) is unexported and is not read, so `engineio/payload` is
+not edited. The polling client connection, which has no lock either (`connect.go:20-26`): a
+flag under a new `sync.Mutex` of `clientConn`, set by the first write into a POST body
+(`servePost` wraps its buffer) and cleared once that POST's response has been read, the
+flag V1-10's `WaitPosts` also reads. The websocket connection: an atomic flag set when the
+wrapper's `NextWriter` returns a writer and cleared by that writer's `Close`
+(`websocket/wrapper.go:103-130`). Named tests: `TestSessionWritable` (package
 `session`, under `// Covers K16`, the row staying `ADD V1-6` until V1-6 closes it, and the
 per-PR DoD still requires V1-6's `TestVolatileEmit` under its own marker: a
 polling session is writable only while a poll waits, a websocket session not while a
@@ -3132,8 +3145,8 @@ OPEN packet read, `serve()` started) and then starts one probe goroutine, owned 
 returned connection. Its steps run under one `UpgradeTimeout` timer, a context that
 `Close` also cancels: (1) dial the probe transport with the sid of the OPEN packet and the
 Dialer's header; (2) hold writes: new `NextWriter` calls, the caller's and the ping loop's,
-wait; the goroutine waits until every writer handed out before has been closed (a wrapper
-of the returned writer counts them) and `WaitPosts` of the polling connection has
+wait; the goroutine waits until every writer handed out before has been closed (the count of
+open writers that V1-4's `Writable` keeps) and `WaitPosts` of the polling connection has
 returned; (3) write `2probe` and read one packet on the probe connection, whose only reader
 the goroutine is until the switch; anything but `3probe` fails the probe; (4) `PausePolls`:
 no GET starts after the one in flight, and the goroutine waits until that GET's payload,
@@ -3164,10 +3177,9 @@ in step 2 wait at most `UpgradeTimeout`. The client does not call `Payload.Pause
 polling connection: the pausing trigger makes a waiting `FlushOut` write a NOOP
 (`payload.go:189-191`) that `servePost` would POST to a server answering 400 once paused,
 after which `servePost` closes the connection (`connect.go:136-146`). `WaitPosts` and
-`PausePolls` read state that `clientConn` keeps under a new mutex (it has none today,
-`connect.go:20-26`): a flag set by the first write into a POST body (`servePost` wraps its
-buffer) and cleared once that POST's response has been read, and a flag set before each
-GET and cleared once its `FeedIn` has returned; while polls are paused `serveGet` waits
+`PausePolls` read state under the mutex V1-4 gives `clientConn` (`### V1-4 contract`,
+writability): the POST flag of its `Writable`, and a flag V1-10 adds, set before each GET
+and cleared once its `FeedIn` has returned; while polls are paused `serveGet` waits
 before starting a GET, and returns when the connection is closed. Files:
 `engineio/dialer.go`, `engineio/client.go`, `engineio/transport/polling/connect.go` and
 the new `engineio/client_upgrade_test.go`; none is a SYNC manifest file. C6: `Path`, `Query`

@@ -2561,7 +2561,10 @@ message, the connection and root socket kept, no `OnConnect`; an `OnConnect` err
 the same packet), `TestNamespaceSend` (S14), `TestNamespaceSockets` (S16, N4 stacked:
 two connected sockets, one disconnects, one is rejected by middleware), `TestConnSend`
 (K15), `TestConnDisconnect` (K20: the packet, the reason, the other namespace still
-open, `Close` writing one packet per namespace), `TestEventMiddleware` (K25),
+open, `Close` writing one packet per namespace; the `Conn.Close` case of V1-4's
+`TestOnDisconnectReason`, which expects `forced close`, is rewritten in this PR to expect
+`server namespace disconnect`, as V1-4 rewrites `lifecycle_test.go:117-121`),
+`TestEventMiddleware` (K25),
 `TestConnIDNamespace` (K1: the two id forms and the sid room) and `TestServerCloseWaits`
 (S17: the `fails without the fix:` test, red on the base where `Close` returns with
 sessions open).

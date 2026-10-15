@@ -3215,14 +3215,23 @@ between them, so a POST is in flight when `3probe` arrives, from `Dial`'s return
 its condition does not hold within 5 s; then each side writes an end marker, each reader
 reads to the other's marker within 5 s, and every number arrives exactly once and in order
 on both sides, so writes made before, during and after the probe are all checked),
-`TestClientUpgradeProbeFails` (subtests `rejected`, the handler answers the websocket
-request 400; `wrong-answer`, the handler upgrades it with gorilla itself and answers
-`2probe` with `3wrong`; `unread`, `UpgradeTimeout` 200 ms and a client that does not call
-`NextReader` while the server has written a message; each waits, with a deadline, for the
-DEBUG record `engineio: upgrade probe failed` (the recorder of `session_log_test.go`),
-then asserts `Transport()` `polling`, `Upgraded()` false, and a message each way over
-polling, the one the `unread` server wrote included); these three pass under `go test
--race -count=20 -run 'Upgrade' ./engineio ./client` on the V1-10 head. The other named
+`TestClientUpgradeProbeFails` (the client's reader runs on its own goroutine from `Dial`'s
+return in every subtest but `unread`, where it starts after the failure record; the test
+routes `logger.Log`, the client's logger, to one recorder with `slog.SetDefault` and gives
+the server its own `Options.Logger` with another, and each subtest waits, with a deadline
+of `UpgradeTimeout` plus 1 s, for the client's record: message `engineio: upgrade probe
+failed`, attribute `transport` `websocket`, no `sid` attribute. Subtests: `rejected`, the
+handler answers the websocket request 400; `wrong-answer`, the handler upgrades it with
+gorilla itself and answers `2probe` with `3wrong`; `stalled`, `UpgradeTimeout` 200 ms and a
+handler that hijacks the websocket request and never answers, the probe transport's
+`HandshakeTimeout` 0, so only the timer ends the wait, `Close` returns within 1 s after the
+assertions and cleanup releases the stalled request; `unread`, `UpgradeTimeout` 200 ms and
+a client that does not call `NextReader` while the server has written a message. Each then
+asserts `Transport()` `polling`, `Upgraded()` false, and a message each way over polling,
+the client's written at once after the record and the one the `unread` server wrote
+included; that outcome does not depend on goroutine timing, since the server never paused
+polling (P4)); these four pass under `go test -race -count=20 -run 'Upgrade' ./engineio
+./client` on the V1-10 head. The other named
 tests assert no transport, since every packet crosses either one:
 `TestClientOptions` (C6: the path, the query and a header seen by the server's
 `Handshake` and `Request`), `TestClientEmitBuffered` (C9: an `Emit` before `Connect`

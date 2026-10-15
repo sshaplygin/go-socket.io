@@ -164,7 +164,7 @@ workers submit changes to these files through that integrator.
 | V1A | row R step C passed; V1-0 merged | V1-1 (`engineio/payload`, `engineio/transport/polling`, its own new `engineio/polling_*_test.go` files) and V1-2 (`engineio`, `engineio/session`, and the `SetReadLimit` methods of `engineio/transport/polling` and `engineio/transport/websocket`, written after V1-1 has merged) in separate worktrees | per-PR DoD (Stage V1) |
 | V1B | V1A | V1-3 to V1-7 in order: one integrator, the root files and `parser` are shared; beside them V1-16 (after V1-4 has merged: V1-4 is the single owner of the close-cause plumbing in `engineio/session` and its aliases in a new file of `engineio`, K24, and of the writability report that V1-6's `Volatile` reads (`Writable` on `*session.Session`, the engine client of `engineio/client.go` and the connections of `engineio/transport/polling` and `engineio/transport/websocket`, K16), the one `engineio/` edit among V1-3 to V1-7; V1-16 and V1-17 rewrite the same file, so they rebase on it, and V1-17's `error` hook reports the cause V1-4 exposes; V1-16 also edits `engineio/session/session_manager.go` and its mirror `v2/engineio/session/manager.go`, `Manager.All`, the one `v2/` file a V1B PR touches, by the rule of *Shared-file drift check*), then V1-17, then V1-18 (`engineio/` and its transports, which V1-3, V1-5, V1-6 and V1-7 do not edit; their root edits, `Server.Engine` and the `CHANGELOG.md` entries, go through the integrator) | per-PR DoD |
 | V1C | V1B | V1-8, then V1-20 (`.github/`, the `Makefile`, `CLAUDE.md`, the conformance directory, `internal/parity`; the V1-8 author integrates) | the `conformance` job and the `parity-check` and `cover-check` step green on `master` |
-| V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`, and for V1-10 `engineio/client.go`, the engine client's close reasons, and `engineio/dialer.go`, `Dialer.Upgrade`, `### V1-10 contract`; for V1-11 the same two `engineio/` files again, `Dialer.OnPing` and `OnPong` and their calls in the engine client, `### V1-11 contract`); beside them V1-19 (new files under `internal/conformance` and its `testdata/node`, no workflow edit) | Stage 7 DoD, then per-PR DoD; the V1-19 block |
+| V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`, and for V1-10 `engineio/client.go`, the engine client's close reasons, its lock and the probe goroutine, `engineio/dialer.go`, `Dialer.Upgrade` and `UpgradeTimeout`, `engineio/transport/polling/connect.go`, the polling client's `WaitPosts`, `PausePolls` and `ResumePolls`, and the new `engineio/client_upgrade_test.go`, none of them a SYNC manifest file, `### V1-10 contract`; for V1-11 the same two `engineio/` files again, `Dialer.OnPing` and `OnPong` and their calls in the engine client, `### V1-11 contract`); beside them V1-19 (new files under `internal/conformance` and its `testdata/node`, no workflow edit) | Stage 7 DoD, then per-PR DoD; the V1-19 block |
 | V1E | V1D (V1-12 may start after V1-8) | V1-12 and V1-13, one directory per example; beside them V1-15 (needs V1-2, V1-6 and V1-11: `engineio` options and handshake, `engineio/transport/websocket`, `engineio/transport/polling`, the new `engineio/transport/compress.go`, `engineio/session` (`Session.NextWriterCompress`, the `SetSessionID` call of `session.New`), `engineio/client.go` (the engine client's `NextWriterCompress`), the root emit and broadcast flags and its queue element, `client/`, new files under `internal/conformance`; `parser` is unchanged). The V1-12 author integrates the wave's shared files (`Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md`): V1-13's `Makefile` edit merges after V1-12, and V1-15 edits none of them, since `make conformance` already runs every tagged test of `internal/conformance` | `make examples`, then `examples-node` once per gate client (the two lines of the per-PR checks of V1-12 and V1-13); the per-PR DoD and the V1-15 block (Stage V1) |
 | V1F | V1E | V1-14 release preparation, no tag | MV1 DoD and Acceptance (Stage V1) |
 | SY | row R step C passed | the PR SYNC (Stage V1, *Shared-file drift check*): root `Makefile`, `.github/workflows/ci.yaml`, `.github/sync-manifest`, `CLAUDE.md`; it runs beside V1A or V1B, whose PRs are not planned to edit those files, and never beside V1C or V1E, which edit `ci.yaml` and the `Makefile` | the SYNC DoD; the `sync-check` job green on `master` |
@@ -3020,13 +3020,47 @@ func (s *Socket) Close() error                           { return nil }
 ```go
 package engineio
 
-// Dialer gains Upgrade (C5); the existing fields stay.
+import "time"
+
+// Dialer gains Upgrade and UpgradeTimeout (C5); the existing field stays.
 type Dialer struct {
-	// Upgrade dials Transports[0], then probes each following transport in order as
-	// engine.io-client 3.5.6 does, staying on the current transport when a probe fails.
-	// false, the zero value, keeps today's rule: the last transport first, with fallback.
+	// Upgrade makes Dial open Transports[0] and return once its OPEN packet has been
+	// read, as engine.io-client 3.5.6 does. The upgrade probe then runs on a goroutine
+	// of the returned connection, for each transport of Transports[1:] that the OPEN
+	// packet's upgrades lists, one at a time in order; the connection stays usable on
+	// Transports[0] while it runs, and a probe that fails or times out leaves it there.
+	// false, the zero value, keeps today's rule: the last transport first, with
+	// fallback, and no probe.
 	Upgrade bool
+	// UpgradeTimeout bounds one probe, from the dial of the probe transport until the
+	// UPGRADE packet has been written. 0 or a negative value means 10 seconds, the
+	// upgradeTimeout of the engine.io 3.6.2 server (engine.io-client 3.5.6 has no
+	// client-side bound).
+	UpgradeTimeout time.Duration
 }
+```
+
+```go
+package polling
+
+import "context"
+
+// The polling client connection (clientConn, connect.go) gains three methods for the
+// upgrade of the engine client, which reaches them through an unexported interface of
+// engineio/client.go: exported methods of an unexported type, executed by the C5 tests.
+
+// WaitPosts returns once no POST request is in flight: every POST body written into
+// has had its response read. It returns ctx.Err() if ctx is done first.
+func (c *clientConn) WaitPosts(ctx context.Context) error { return nil }
+
+// PausePolls stops starting GET requests and returns once the one in flight has
+// completed and its payload has been consumed through NextReader (its FeedIn has
+// returned). It returns ctx.Err() if ctx is done first; polls stay paused until
+// ResumePolls.
+func (c *clientConn) PausePolls(ctx context.Context) error { return nil }
+
+// ResumePolls undoes PausePolls: serveGet starts the next GET request.
+func (c *clientConn) ResumePolls() {}
 ```
 
 Semantics. C2: one engine connection, one `Socket` per namespace; the root namespace
@@ -3048,14 +3082,80 @@ engine client (`engineio/client.go`) return it too: `transport close` for a CLOS
 commented; `Connect` returns the dial error (the reference's `connect_error`) or
 `ErrConnectTimeout` (its `connect_timeout`) and leaves the Client in the state before the
 call, so `Connect` can be called again; no event is needed for a synchronous call. C5:
-`engineio.Dialer` gains the field `Upgrade bool`: when true, `Dial` dials `Transports[0]`
-and probes each following transport in order as engine.io-client 3.5.6 does (`2probe`,
-`3probe`, `5`, then the switch), staying on the current transport when a probe fails;
-when false it keeps today's rule (`dialer.go:36-104`, the last transport first with
-fallback), so `Dialer` users are unchanged. `client` sets `Upgrade` and
-`Transports: []transport.Transport{polling.Default, websocket.Default}` by default, and
-a `Transports` of one entry dials it directly (`websocket.Default` alone: a
-websocket-first connection, which V1-15's cookie rule distinguishes). C6: `Path`, `Query`
+`engineio.Dialer` gains `Upgrade` and `UpgradeTimeout` as commented; with `Upgrade` false
+`Dial` keeps today's rule (`dialer.go:36-104`, the last transport first with fallback), so
+`Dialer` users are unchanged. `client` sets `Upgrade` and the default `Transports` of C4
+(polling, then websocket), and a `Transports` of one entry dials it directly (websocket
+alone: a websocket-first connection, which V1-15's cookie rule distinguishes).
+
+*The reference mechanism*, read in engine.io-client 3.5.6 as installed for this contract:
+`onOpen` emits `open`, flushes, and only then starts the probes (`lib/socket.js:411-426`),
+so the socket is in use on polling while they run; `probe` (`:295-403`) sends `2probe` on
+the new transport (`:311`), on `3probe` sets `upgrading` and pauses polling (`:314-322`),
+and in the pause callback switches with `setTransport` (`:260-286`), sends `5` and flushes
+the write buffer on the new transport (`:329-334`); `flush` sends nothing while
+`upgrading` (`:566-576`), so writes made during the pause wait in `writeBuffer`; polling's
+`pause` (`lib/transports/polling.js:73-107`) waits for the in-flight poll (`pollComplete`,
+emitted at `:152-154` after the poll's packets were dispatched) and the in-flight write
+(`drain`, `:197-203`); an error or close of the probe leaves the current transport
+(`socket.js:357-376`). The reference starts all probes together (`:422-423`) and the first
+to succeed aborts the others (`:379-384`); the Go client probes one at a time in order,
+the same order for v1's one upgrade, websocket. *The Go server's side* at `2667c25`:
+`session.upgrading` (`engineio/session/session.go:412-595`) answers `2probe` with
+`3probe`, then pauses the polling connection (`:538`): the pending GET is answered with a
+NOOP (`payload/payload.go:189-191`, the reference's noop, 3.6.2 `socket.js:224-229`), a
+later GET with a NOOP at once (`payload.go:166-168`), and a POST that arrives once the
+pause has completed is answered 400 (`FeedIn` refuses it, `payload.go:102-104`,
+`polling/server.go:128-131`), where 3.6.2 accepts POSTs until `5` (`socket.js:197-215`);
+on `5` it switches (`switchTransport`, `session.go:605-619`), and a failed probe resumes
+polling (`:541-545`). Hence the one ordering difference of the Go client: it stops handing
+writes to polling before it sends `2probe`, not on `3probe`, so no POST reaches a server
+that has paused.
+
+*The Go client mechanism.* `Dial` with `Upgrade` returns once `Transports[0]` is open (its
+OPEN packet read, `serve()` started) and then starts one probe goroutine, owned by the
+returned connection. Its steps run under one `UpgradeTimeout` timer, a context that
+`Close` also cancels: (1) dial the probe transport with the sid of the OPEN packet and the
+Dialer's header; (2) hold writes: new `NextWriter` calls, the caller's and the ping loop's,
+wait; the goroutine waits until every writer handed out before has been closed (a wrapper
+of the returned writer counts them) and `WaitPosts` of the polling connection has
+returned; (3) write `2probe` and read one packet on the probe connection, whose only reader
+the goroutine is until the switch; anything but `3probe` fails the probe; (4) `PausePolls`:
+no GET starts after the one in flight, and the goroutine waits until that GET's payload,
+data or the server's NOOP, has been consumed. The goroutine never calls `NextReader` of
+the polling connection: the caller's reader (the socket.io client's read loop) consumes
+the payload, as the reference's `pollComplete` follows the dispatch of the poll's packets,
+so no packet of the old transport is dropped; (5) write `5` on the probe connection; the
+timer is not checked after it, since the server switches on `5`; (6) switch under the
+engine client's new lock, a `sync.RWMutex` guarding `conn`, `transport`, V1-16's
+`upgraded` flag and a `closed` flag set by `Close` (`switchTransport` and `replaced`,
+`session.go:605-628`, are the model): if `closed` is set the probe connection is closed
+instead; otherwise `conn` becomes the probe connection, `transport` its name, `upgraded`
+true, its read and write deadlines are armed as after a PONG (`client.go:70`), and the
+held writers are released onto it; (7) close the old polling connection, which ends a
+caller's `NextReader` waiting on it with an error. `NextReader`, `NextWriter`, `serve()`
+and the deadline calls read `conn` under the lock (today `client.go:61-94` and `:112-143`
+read `c.conn` with none) and, on an error from a connection that `replaced` reports as
+switched, retry on the new one, as `session.nextReader` and `nextWriter` do
+(`session.go:352-395`). `Transport()` and V1-16's `Upgraded()` read under the lock:
+`polling` and false until step 6, the probe transport's name and true after it. A failure
+at any step before 5, or the timer, closes the probe connection, calls `ResumePolls` if
+step 4 was reached, releases the held writers onto polling and logs at DEBUG `engineio:
+upgrade probe failed` with the transport and the error, the server's message
+(`session.go:416`); `Transport()` stays `polling`, `Upgraded()` false, and the connection
+goes on. An `engineio` user that does not call `NextReader` leaves the in-flight poll
+unconsumed: step 4 waits until the timer, the probe fails and polling stays; writes held
+in step 2 wait at most `UpgradeTimeout`. The client does not call `Payload.Pause` of its
+polling connection: the pausing trigger makes a waiting `FlushOut` write a NOOP
+(`payload.go:189-191`) that `servePost` would POST to a server answering 400 once paused,
+after which `servePost` closes the connection (`connect.go:136-146`). `WaitPosts` and
+`PausePolls` read state that `clientConn` keeps under a new mutex (it has none today,
+`connect.go:20-26`): a flag set by the first write into a POST body (`servePost` wraps its
+buffer) and cleared once that POST's response has been read, and a flag set before each
+GET and cleared once its `FeedIn` has returned; while polls are paused `serveGet` waits
+before starting a GET, and returns when the connection is closed. Files:
+`engineio/dialer.go`, `engineio/client.go`, `engineio/transport/polling/connect.go` and
+the new `engineio/client_upgrade_test.go`; none is a SYNC manifest file. C6: `Path`, `Query`
 and `Header` as commented; `Header` reaches every request, the websocket upgrade included
 (the `requestHeader` of `Transport.Dial`). C9: an `Emit` on a socket that is not yet
 connected is queued and sent after the server's CONNECT reply (`socket.js:160-164`), at
@@ -3074,9 +3174,28 @@ of its row, all against an in-process Go server unless said otherwise:
 each `OnConnect` once, an event per namespace, `Socket.Close` of one leaves the other),
 `TestClientConnectTimeout` (C4: a server that accepts TCP and never answers; `Connect`
 returns `ErrConnectTimeout` within `Timeout` + 1 s and a second `Connect` against a real
-server works), `TestClientWebsocketUpgrade` (C5: with the default `Transports` the server
-session's `Transport()` is `websocket` after the connect, with `polling.Default` alone it
-stays `polling`, with `websocket.Default` alone the handshake is a websocket upgrade),
+server works), `TestClientWebsocketUpgrade` (C5: with the default `Transports` the test
+waits, with a 5 s deadline and no sleep, until the server session's `Transport()` is
+`websocket` and `Upgraded()` of the engine connection the Client holds is true, not at
+`Connect`'s return; with polling alone both stay `polling` and false after an event has
+crossed; with websocket alone the handshake is a websocket upgrade), and in
+`engineio/client_upgrade_test.go`, each also under `// Covers C5`: `TestClientUpgradeOrder`
+(an `engineio.Server` behind an `httptest` handler that holds the websocket request until
+the server has read the client's first 10 messages, so they cross polling; the client
+writes numbered messages from `Dial`'s return until its `Upgraded()` is true and then 10
+more, the server from `Accept` until its session's `Transport()` is `websocket` and then
+10 more, then each side writes an end marker; each side reads to the other's marker, and
+every number arrives exactly once and in order on both sides, so writes made before,
+during and after the probe are all checked),
+`TestClientUpgradeProbeFails` (subtests `rejected`, the handler answers the websocket
+request 400; `wrong-answer`, the handler upgrades it with gorilla itself and answers
+`2probe` with `3wrong`; `unread`, `UpgradeTimeout` 200 ms and a client that does not call
+`NextReader` while the server has written a message; each waits, with a deadline, for the
+DEBUG record `engineio: upgrade probe failed` (the recorder of `session_log_test.go`),
+then asserts `Transport()` `polling`, `Upgraded()` false, and a message each way over
+polling, the one the `unread` server wrote included); these three pass under `go test
+-race -count=20 -run 'Upgrade' ./engineio ./client` on the V1-10 head. The other named
+tests assert no transport, since every packet crosses either one:
 `TestClientOptions` (C6: the path, the query and a header seen by the server's
 `Handshake` and `Request`), `TestClientEmitBuffered` (C9: an `Emit` before `Connect`
 arrives after the CONNECT reply, in order with later ones) and
@@ -3150,7 +3269,7 @@ Plumbing of `OnPing` and `OnPong`: at `2667c25` the engine client writes PING it
 `serve()` (`engineio/client.go:119-128`), and consumes PONG inside `NextReader`
 (`:68-72`, which only re-arms the read deadline), so package `client` sees neither
 event. V1-11 adds two observer fields to `engineio.Dialer` (`engineio/dialer.go`; V1-10
-adds `Upgrade` to the same struct and merges first), which `Dial` copies into the
+adds `Upgrade` and `UpgradeTimeout` to the same struct and merges first), which `Dial` copies into the
 connection it returns; `client.New` sets them to the funcs that fire the two handlers:
 
 ```go

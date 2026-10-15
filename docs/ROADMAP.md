@@ -2958,8 +2958,11 @@ var ErrConnectTimeout = errors.New("client: connect timeout")
 // moved into this package and aliased in the root by V1-9 (Stage 7). Not redeclared.
 
 // Options configures a Client made by New. NewClient(addr, *engineio.Options) stays as
-// Stage 7 froze it and maps WriteBufferSize, PingTimeout and Logger onto an Options.
-// V1-11 adds the reconnection fields, V1-15 PerMessageDeflate.
+// Stage 7 froze it: it maps WriteBufferSize and Logger onto an Options and keeps the
+// engineio.Options' PingTimeout as the drain deadline of Close (the unexported limits
+// both constructors build, connection.go:29-40 and the Close godoc of client.go:104-106
+// at 2667c25); Options has no such field, so a Client made by New drains for the
+// default, one minute. V1-11 adds the reconnection fields, V1-15 PerMessageDeflate.
 type Options struct {
 	// Transports in upgrade order; nil means polling then websocket, the reference
 	// client's default: the first is dialled, the others are probed in order (C5).
@@ -2981,14 +2984,16 @@ type Options struct {
 
 // New returns a Client for addr, "http://host:port[/namespace]": the path names the
 // namespace of the Client's own Emit and On* methods, "/" when empty, as NewClient
-// reads it. Nothing is dialled until Connect.
+// reads it. It returns ErrEmptyAddr for an empty addr and the url.Parse error for one
+// that does not parse, as NewClient does; a nil opts means the defaults of every field.
+// Nothing is dialled until Connect.
 func New(addr string, opts *Options) (*Client, error) { return nil, nil }
 
 // Socket returns the socket of namespace nsp, creating it: a name with a query
 // ("/chat?x=1") sends that query in its CONNECT packet (N8 on the server). Once the
 // Client is connected a new socket sends its CONNECT at once; before, Connect sends
-// it. The Client's own Emit, Send, OnConnect, OnDisconnect, OnError and OnEvent are
-// those of Socket(<namespace of addr>).
+// it. The Client's own Emit, OnConnect, OnDisconnect, OnError and OnEvent (the frozen
+// set of Stage 7; Client has no Send) are those of Socket(<namespace of addr>).
 func (c *Client) Socket(nsp string) *Socket { return nil }
 
 // Socket is one namespace of a Client (socket.io-client 2.5.0 Socket). Its handlers

@@ -3172,9 +3172,17 @@ goroutines have ended, so no two handlers of one Client run concurrently; `OnPin
 client's ping goroutine and `OnPong` on the Client's read goroutine (the one that calls
 `NextReader`, where the engine client consumes the PONG), through the `Dialer` fields
 above, so neither may block. C8: `ID`, `Connected`, `On`, `Once`, `Off` as commented; `Off`
-removes the `OnEvent` handler too, the rule of V1-7. C11: `Volatile` on the client's
-`Conn` and the `Emitter` it returns are V1-6's, over the engine client's writability
-(the same optional interface). Named tests, each under the `// Covers` of its row:
+removes the `OnEvent` handler too, the rule of V1-7. C11: socket.io-client 2.5.0 has no
+`volatile` flag (its `lib/socket.js` defines `compress`, `:422-424`, and `binary`,
+`:435-436`, only; the flag arrived in the 3.x client), so the client's `Volatile` is a
+D10 extension, not reference parity: `Namespace.Volatile` is in both method sets by the
+alias rule (Stage 7, *D10 methods and the alias*), its semantics are V1-6's over the
+engine client's writability (the same optional interface), and the `writable` flag of
+engine.io-client 3.5.6's polling transport, false while its POST is pending, is only the
+model for that writability; the row closes by D9 and D10 (PARITY.md records it in C11's evidence). A volatile emit on a
+socket that is not connected yet (before the CONNECT reply, or during a reconnection) is
+dropped, where C9 buffers a plain emit: the connection cannot take it now. Named tests,
+each under the `// Covers` of its row:
 `TestClientReconnect` (C3: an in-process server closed and reopened on the same address;
 `OnReconnectAttempt` and `OnReconnectError` while it is down, `OnReconnect` and the
 sockets' `OnConnect` once it is back, with small delays; with `ReconnectionAttempts` 2
@@ -3182,11 +3190,12 @@ against a server that stays down, `OnReconnectFailed` after two attempts; with
 `DisableReconnection`, no attempt; after a server-side `Disconnect`, no attempt),
 `TestClientSocketState` (C8: `ID` in both forms, `Connected` before, during and after,
 `On`, `Once`, `off()` and `Off`, `OnPing` and `OnPong` with a small `PingInterval`) and
-`TestClientVolatile` (C11, the client-side rule of the V1-4 polling fence, engine.io-client
-3.5.6's polling `writable`: over polling, a volatile emit made while a POST of the client
-is in flight, the in-process test server holding that POST's response until the emit has
+`TestClientVolatile` (C11, the D10 extension above over the client-side rule of the V1-4
+polling fence: over polling, a volatile emit made while a POST of the client is in
+flight, the in-process test server holding that POST's response until the emit has
 returned, is dropped, and one made with no POST in flight arrives; over websocket an idle
-client's volatile emit arrives). The conformance step against the Node `socket.io@2.5.0`
+client's volatile emit arrives; a volatile emit before the CONNECT reply is dropped while
+a plain emit made beside it is buffered and arrives). The conformance step against the Node `socket.io@2.5.0`
 server (V1-8) runs green on the V1-11 head, the reconnect scenario included.
 
 ### V1-15 contract

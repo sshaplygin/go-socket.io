@@ -229,7 +229,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | C8 | ADD V1-11 | D6, D10 | `once/off`, `ping/pong` events, `socket.id/connected` | socket.js | ABSENT | none | - | Y | 1 | R |
 | C9 | CHG V1-10 | D6 | emit before connect is buffered | socket.js:345 | ABSENT | logged and dropped (client.go:113-119) | - | N | 1 | R |
 | C10 | CHG V1-10 | D6 | client sends DISCONNECT on close | socket.js:398-420 | ABSENT | `Client.Close` closes the conn only (client.go:107, connection.go:115) | - | N | 1 | R |
-| C11 | ADD V1-11; ADD V1-15 | D6, D11, D10 | flags `volatile`, `compress`, `binary` | socket.js:422-440 | ABSENT | none | - | Y | see K | R |
+| C11 | ADD V1-11; ADD V1-15 | D6, D11, D10 | flags `volatile`, `compress`, `binary` | socket.js:422-440 | ABSENT | none; the 2.5.0 client defines `compress` (socket.js:422-424) and `binary` (:435-436) only, no `volatile`, so the client `Volatile` is the D10 method of V1-11 (a Go extension, not a reference behaviour) | - | Y | see K | R |
 
 ## Go-only (implemented-only) surface, not in the reference
 

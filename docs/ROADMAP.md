@@ -161,7 +161,7 @@ workers submit changes to these files through that integrator.
 | 1b | stage 1 and the 1.D link-form commit merged, `master` green (the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner, who is also the integrator for the CI, Dependabot and `CHANGELOG.md` files of steps 0b to 0d; moves/merges applied sequentially | M1b: the Stage 1b DoD, `v1.x` gates and Acceptance blocks |
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures; evidence: `make g2` (2.0 *G2 record*) |
 | R | 2.0 on `master`; the owner's order | one integrator: steps A to C of *Repository restructure*; the 2.1, 2.2 and test-stress work stopped by the freeze resumes after MV1 (its open PRs are replayed after C and wait) | step C commands pass on the merged `master` |
-| V1A | row R step C passed; V1-0 merged | V1-1 (`engineio/payload`, `engineio/transport/polling`, its own new `engineio/polling_*_test.go` files) and V1-2 (`engineio`, `engineio/session`, among them `session_id_generator.go` and its mirror `v2/engineio/session/id_generator.go` (E15, the one `v2/` file a V1A PR touches, by the rule of *Shared-file drift check*), and the `SetReadLimit` methods of `engineio/transport/polling` and `engineio/transport/websocket`, with P4's probe window in `engineio/payload/payload.go` (`Payload.AnswerPoll`, `### V1-2 contract`), not in the manifest file `payload/pauser.go`, and P4's v1 upgrade bullet in `docs/PROTOCOL.md`, written after V1-1 has merged) in separate worktrees | per-PR DoD (Stage V1) |
+| V1A | row R step C passed; V1-0 merged | V1-1 (`engineio/payload`, `engineio/transport/polling`, its own new `engineio/polling_*_test.go` files) and V1-2 (`engineio`, `engineio/session`, among them `session_id_generator.go` and its mirror `v2/engineio/session/id_generator.go` (E15, the one `v2/` file a V1A PR touches, by the rule of *Shared-file drift check*), and the `SetReadLimit` methods of `engineio/transport/polling` and `engineio/transport/websocket`, with P4's probe window in `engineio/payload/payload.go` (`Payload.AnswerPoll`, `### V1-2 contract`), not in the manifest file `payload/pauser.go`, and the v1 lines of `docs/PROTOCOL.md` that `### V1-2 contract` lists, P4's upgrade bullet among them, written after V1-1 has merged) in separate worktrees | per-PR DoD (Stage V1) |
 | V1B | V1A | V1-3 to V1-7 in order: one integrator, the root files and `parser` are shared; beside them V1-16 (after V1-4 has merged: V1-4 is the single owner of the close-cause plumbing in `engineio/session` and its aliases in a new file of `engineio`, K24, and of the writability report that V1-6's `Volatile` reads (`Writable` on `*session.Session`, the engine client of `engineio/client.go` and the connections of `engineio/transport/polling` and `engineio/transport/websocket`, K16), the one `engineio/` edit among V1-3 to V1-7; V1-16 and V1-17 rewrite the same file, so they rebase on it, and V1-17's `error` hook reports the cause V1-4 exposes; V1-16 also edits `engineio/session/session_manager.go` and its mirror `v2/engineio/session/manager.go`, `Manager.All`, the one `v2/` file a V1B PR touches, by the rule of *Shared-file drift check*), then V1-17, then V1-18 (`engineio/` and its transports, which V1-3, V1-5, V1-6 and V1-7 do not edit; their root edits, `Server.Engine` and the `CHANGELOG.md` entries, go through the integrator) | per-PR DoD |
 | V1C | V1B | V1-8, then V1-20 (`.github/`, the `Makefile`, `CLAUDE.md`, the conformance directory, `internal/parity`; the V1-8 author integrates) | the `conformance` job and the `parity-check` and `cover-check` step green on `master` |
 | V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`, and for V1-10 `engineio/client.go`, the engine client's close reasons and the upgrade probe, `engineio/dialer.go`, `Dialer.Upgrade` and `UpgradeTimeout`, `engineio/transport/polling/connect.go`, the polling client's part of the probe (no exported identifier), and the new `engineio/client_upgrade_test.go`, none of them a SYNC manifest file, `### V1-10 contract`; for V1-11 the same two `engineio/` files again, `Dialer.OnPing` and `OnPong` and their calls in the engine client, `### V1-11 contract`); beside them V1-19 (new files under `internal/conformance` and its `testdata/node`, no workflow edit) | Stage 7 DoD, then per-PR DoD; the V1-19 block |
@@ -1454,7 +1454,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | --- | --- |
 | V1-0 | Docs only: signatures and semantics of every `ADD` row as subsections of this stage (the methods added to `Conn`, `Namespace`, `Broadcast` and `engineio.Conn` by D10 and D16, `Options` fields and per-emit flags, those of V1-15, V1-16, V1-17 and V1-18 included, errors, and the close error type of `engineio/session` that V1-4 adds for K24 with the `Writable` methods V1-4 adds for V1-6's K16 as `### V1-4 contract`); three-agent validation (CLAUDE.md) |
 | V1-1 | `engineio/payload` and `engineio/transport/polling`: binary payload length in bytes, not UTF-16 units (P16), JSONP removed with its PROTOCOL.md deviation (P5, P6); the CORS default is V1-18's (S4, P8: D15), `OPTIONS` answers (P9) and overlapping polls (P18) are checked by V1-8 |
-| V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake must be GET with the reference answer (HTTP 400 `{"code":2,"message":"Bad handshake method"}`, P12), which also closes `OPTIONS` without `sid` (E14: today it creates a session in `Server.ServeHTTP`), liveness on any packet with the reference's close rule: the session closes with reason `ping timeout` after `PingInterval + PingTimeout` without any received packet, the window re-armed by every packet (engine.io 3.6.2 `socket.js:136-142`; today `session.go:78,223,397-409` arms a deadline of `PingTimeout` alone, re-armed by a PING only, which under the new defaults would close an idle client 20 s after each of its 25 s pings), and the reference defaults `PingInterval` 25 s and `PingTimeout` 20 s (E1, E2: D15; a `### Changed` entry names both values and the window; the test `TestPingTimeoutIdleClient` and its command are in the per-PR checks below), request checker, `Server.Close` closes sessions, the upgrade probe's polling pause moved from the server's `3probe` to the client's `5`, as engine.io 3.6.2 does, so a POST in that window is accepted where it gets 400 today (P4; a `### Changed` entry; `### V1-2 contract`); the engine half of V1-7's K5, so that it edits no `engineio/` file: the session keeps its handshake request (`Session.SetRequest` and `Request`, `### V1-2 contract`), and `Options.ConnInitor` runs on the handshake request's goroutine, with the request live, before the OPEN packet is written and so before `Accept` returns the session, for a websocket-first handshake as a polling one already does (the `SetContext` workaround of K5's evidence races with the root's copy of the context today; the change is in `### V1-2 contract`) |
+| V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake must be GET with the reference answer (HTTP 400 `{"code":2,"message":"Bad handshake method"}`, P12), which also closes `OPTIONS` without `sid` (E14: today it creates a session in `Server.ServeHTTP`), liveness on any packet with the reference's close rule: the session closes with reason `ping timeout` after `PingInterval + PingTimeout` without any received packet, the window re-armed by every packet (engine.io 3.6.2 `socket.js:136-142`; today `session.go:78,223,397-409` arms a deadline of `PingTimeout` alone, re-armed by a PING only, which under the new defaults would close an idle client 20 s after each of its 25 s pings), and the reference defaults `PingInterval` 25 s and `PingTimeout` 20 s (E1, E2: D15; a `### Changed` entry names both values and the window; the test `TestPingTimeoutIdleClient` and its command are in the per-PR checks below), request checker, `Server.Close` closes sessions, the upgrade probe's polling pause moved from the server's `3probe` to the client's `5`, as engine.io 3.6.2 does, so a POST in that window is accepted where it gets 400 today (P4; a `### Changed` entry; `### V1-2 contract`); the engine half of V1-7's K5, so that it edits no `engineio/` file: the session keeps its handshake request (`Session.SetRequest` and `Request`, `### V1-2 contract`), and `Options.ConnInitor` runs on the handshake request's goroutine, with the request live, before the OPEN packet is written and so before `Accept` returns the session, for a websocket-first handshake as a polling one already does (the `SetContext` workaround of K5's evidence races with the root's copy of the context today; the change is in `### V1-2 contract`); the lines of the v1 Engine.IO section of `docs/PROTOCOL.md` that these changes make false (handshake defaults, heartbeat, error replies, payload limit, upgrade), rewritten as `### V1-2 contract` lists them and checked by the per-PR checks below |
 | V1-3 | `parser` and root defects: attachment cap, payload validation, `Emit(ev, nil)`, wrong-type argument, per-room duplicates |
 | V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written (R9), `0/nsp,` reply form, disconnect reasons (K24: the engine's close cause, recorded by `session.go:134` and only logged today, is exposed from `engineio/session` as an exported error type that `NextReader` returns wrapped after the close, and the root maps it to `transport close`, `ping timeout` and `transport error`; the type is V1-0's `### V1-4 contract`), the writability report `Writable` of the session, the engine client and the polling and websocket connections that V1-6's `Volatile` reads (K16, the same contract; the two are the one `engineio/` edit among V1-3 to V1-7, so V1-4 merges before V1-6 and V1-16, wave V1B), and `disconnecting` order, encode error |
 | V1-5 | Namespace API: `Of`, `Use` and event middleware, connect-rejection reason, per-namespace disconnect, `connected`/`sockets`, `send`, `Server.Close` waiting for sessions, `Conn.ID()` as `/ns#id` outside the root namespace (K1: D15; a `### Changed` entry names it) |
@@ -1902,12 +1902,21 @@ passes; either way the close comes from the deadline, not from the script runnin
 It is red on the base, where the pinging client is closed 50 ms after its first PING, and
 the V1-2 body proves it with the `BUG`-row rule (`fails without the fix:
 TestPingTimeoutIdleClient`, run on the base with only the PR's test files applied), and
-checks the v1 upgrade bullet of `docs/PROTOCOL.md` that `### V1-2 contract` gives it (P4):
+checks the v1 lines of `docs/PROTOCOL.md` that `### V1-2 contract` gives it (the upgrade
+bullet of P4 and the four lines of its second `text` fence, each old text gone and each new
+one present; `v1p` prints the v1 Engine.IO section only, since the v2 section keeps its
+copies of the old handshake, heartbeat and error text):
 
 ```sh
 test "$(go test -race -count=1 -json -run '^TestPingTimeoutIdleClient$' ./engineio/... | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test' | sort -u | wc -l)" -eq 1   # the reference close window: an idle client pinging at the interval stays, a silent one is closed
 grep -qF 'the polling connection is paused only on `5`, then the session switches to the' docs/PROTOCOL.md; grep -qF '  unpaused. Implemented in `session.Session.upgrading`.' docs/PROTOCOL.md   # V1-2's own v1 upgrade bullet (P4)
 test -z "$(grep -n 'the sequence of the previous section, implemented in the' docs/PROTOCOL.md)"; grep -q 'paused polling connection is resumed' docs/PROTOCOL.md   # the v1 bullet no longer inherits the v2 note, which stays for v2
+v1p() { sed -n '/^## Implemented: Engine.IO protocol v3 in the v1 module$/,/^## Implemented: Socket.IO protocol v4$/p' docs/PROTOCOL.md; }
+test -z "$(v1p | grep -F -e '`pingInterval` (default 20 s)' -e '`pingTimeout` (default 60 s)')"; test -n "$(v1p | grep -F '  25 s) and `pingTimeout` (default 20 s). There is no `maxPayload`: protocol v3 has none.')"   # handshake (:81-82; E1, E2, E7, E15, P12)
+test -z "$(v1p | grep -F 'the read/write deadline by `pingTimeout`')"; test -n "$(v1p | grep -F '  without one, the session closes with reason `ping timeout`.')"   # heartbeat (:83-84; E1, P3)
+test -n "$(v1p | grep -F -e '- Message limit: `Options.MaxHTTPBufferSize`, default 1e6 bytes. A longer polling POST')"   # message limit (E4)
+test -z "$(v1p | grep -F 'plain text with HTTP 400')"; test -n "$(v1p | grep -F -e '- Rejected requests are answered with JSON `{"code":<n>,"message":"<text>"}`, as in')"   # errors (:94-95; E5, E7, P11, P12)
+test -z "$(grep -F -e 'no payload size limit' -e 'Engine.IO v3 runtime (v1, repository root' docs/PROTOCOL.md)"   # the v1 entry of Known deviations (:124-126) is gone
 ```
 
 V1-8 and later run `gh pr checks <n>` with `conformance` green; V1-10, V1-11 and V1-15 run the Go client against the
@@ -2238,7 +2247,40 @@ bullet with its own, and leaves the v2 section as it is:
   unpaused. Implemented in `session.Session.upgrading`.
 ```
 
-The V1-2 per-PR check below greps for it. Observable change: a
+The other V1-2 rows make more of that v1 section false, and V1-2 rewrites those lines in
+the same change, so that the section is true at its head (line numbers at `2667c25`):
+the handshake bullet (`:81-82`, `pingInterval` default 20 s and `pingTimeout` default
+60 s; E1, E2, D15, joined by the random `sid` of E15, the `upgrades` of E7 and the GET of
+P12), the heartbeat bullet (`:83-84`, a PONG that extends the read/write deadline by
+`pingTimeout`; E1, P3), the error bullet (`:94-95`, plain text with HTTP 400 or 502; E5,
+P11, P12 and E7's code 3) and the v1 entry of *Known deviations from the v3/v4 specs*
+(`:124-126`, the line "Engine.IO v3 runtime (v1, repository root `engineio`):" and its
+bullet "No `maxPayload` handshake field and no payload size limit"), which V1-2 deletes:
+E4 adds the limit, as a new bullet after the WebSocket bullet (`:91`), and protocol v3
+defines no `maxPayload` field, which the handshake bullet now says. The transports bullet
+(`:77-80`) and the polling payload bullet of V1-1 (`:85-90`) stay; the v2 section's copies
+of the handshake, heartbeat and error bullets (`:16-19`, `:70-71`) describe `v2/engineio`
+and stay too. V1-2's lines, each replacing the bullet named above:
+
+```text
+- Handshake: a GET without `sid` opens a session (any other method is answered HTTP 400
+  with code 2, below). The `OPEN` packet carries `sid` (random, as engine.io's
+  `base64id`), `upgrades` (`[]` with `Options.DisableUpgrades`), `pingInterval` (default
+  25 s) and `pingTimeout` (default 20 s). There is no `maxPayload`: protocol v3 has none.
+- Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`). Every packet
+  the session reads re-arms a window of `pingInterval + pingTimeout`; when it passes
+  without one, the session closes with reason `ping timeout`.
+- Message limit: `Options.MaxHTTPBufferSize`, default 1e6 bytes. A longer polling POST
+  body is answered HTTP 413 (plain text) and closes the session; a longer websocket
+  message closes the connection with close code 1009.
+- Rejected requests are answered with JSON `{"code":<n>,"message":"<text>"}`, as in
+  engine.io 3.6.2: HTTP 400 with code 0 `Transport unknown`, 1 `Session ID unknown`, 2
+  `Bad handshake method` or 3 `Bad request` (also a transport that cannot accept the
+  request, except a websocket handshake that gorilla/websocket answers itself), and HTTP
+  403 with code 4 when `Options.RequestChecker` rejects the request.
+```
+
+The V1-2 per-PR check below greps for both fences. Observable change: a
 POST in that window is accepted where it got 400 (a
 `### Changed` entry, V1-14). Named tests, each under the `// Covers` of its row:
 `TestUpgradeProbeWindow` (P4, package `engineio`, a raw polling client and a gorilla

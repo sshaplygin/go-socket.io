@@ -3631,7 +3631,11 @@ func (s *Session) SetHooks(h *Hooks) {}
 ```
 
 The server-level hooks: `Connection` fires in `engineio.Server.newSession` after
-`InitSession` and before the hand-off to `Accept`; `InitialHeaders` and `Headers` fire from the engine server and the session's
+`InitSession` and before the hand-off to `Accept`, on the session goroutine, so after
+`Options.ConnInitor`, which V1-2 runs on the request goroutine before the `go` statement
+that starts `InitSession`: the initor first, then `Connection`, and a hook that reads what
+the initor set with `SetContext` sees it (the `connection` subtest of
+`TestEngineServerEvents` asserts that order); `InitialHeaders` and `Headers` fire from the engine server and the session's
 `ServeHTTP` (`engineio/server.go:104-184`, `session.go:342-350`) on the headers of the
 `http.ResponseWriter` before the transport writes them, for the websocket upgrade before
 `Transport.Accept` (gorilla writes `w.Header()` into the upgrade response,

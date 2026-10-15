@@ -3295,8 +3295,11 @@ a client that does not call `NextReader` while the server has written a message.
 asserts `Transport()` `polling`, `Upgraded()` false, and a message each way over polling,
 the client's written at once after the record and the one the `unread` server wrote
 included; that outcome does not depend on goroutine timing, since the server never paused
-polling (P4)); these four pass under `go test -race -count=20 -run 'Upgrade' ./engineio
-./client` on the V1-10 head. The other named
+polling (P4)); the three upgrade tests `TestClientWebsocketUpgrade`,
+`TestClientUpgradeOrder` and `TestClientUpgradeProbeFails`, the four subtests of the last
+included, pass under `go test -race -count=20 -run 'Upgrade' ./engineio ./client` on the
+V1-10 head, a command that also runs V1-2's `TestUpgradeProbeWindow` and
+`TestUpgradeTimeout` in `./engineio`. The other named
 tests assert no transport, since every packet crosses either one:
 `TestClientOptions` (C6: the path, the query and a header seen by the server's
 `Handshake` and `Request`), `TestClientEmitBuffered` (C9: an `Emit` before `Connect`

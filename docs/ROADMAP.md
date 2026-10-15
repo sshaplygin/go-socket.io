@@ -162,7 +162,7 @@ workers submit changes to these files through that integrator.
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures; evidence: `make g2` (2.0 *G2 record*) |
 | R | 2.0 on `master`; the owner's order | one integrator: steps A to C of *Repository restructure*; the 2.1, 2.2 and test-stress work stopped by the freeze resumes after MV1 (its open PRs are replayed after C and wait) | step C commands pass on the merged `master` |
 | V1A | row R step C passed; V1-0 merged | V1-1 (`engineio/payload`, `engineio/transport/polling`, its own new `engineio/polling_*_test.go` files) and V1-2 (`engineio`, `engineio/session`, and the `SetReadLimit` methods of `engineio/transport/polling` and `engineio/transport/websocket`, written after V1-1 has merged) in separate worktrees | per-PR DoD (Stage V1) |
-| V1B | V1A | V1-3 to V1-7 in order: one integrator, the root files and `parser` are shared; beside them V1-16 (after V1-4 has merged: V1-4 is the single owner of the close-cause plumbing in `engineio/session`, K24, and of the writability report that V1-6's `Volatile` reads (`Writable` on `*session.Session`, the engine client of `engineio/client.go` and the connections of `engineio/transport/polling` and `engineio/transport/websocket`, K16), the one `engineio/` edit among V1-3 to V1-7; V1-16 and V1-17 rewrite the same file, so they rebase on it, and V1-17's `error` hook reports the cause V1-4 exposes), then V1-17, then V1-18 (`engineio/` and its transports, which V1-3, V1-5, V1-6 and V1-7 do not edit; their root edits, `Server.Engine` and the `CHANGELOG.md` entries, go through the integrator) | per-PR DoD |
+| V1B | V1A | V1-3 to V1-7 in order: one integrator, the root files and `parser` are shared; beside them V1-16 (after V1-4 has merged: V1-4 is the single owner of the close-cause plumbing in `engineio/session` and its aliases in a new file of `engineio`, K24, and of the writability report that V1-6's `Volatile` reads (`Writable` on `*session.Session`, the engine client of `engineio/client.go` and the connections of `engineio/transport/polling` and `engineio/transport/websocket`, K16), the one `engineio/` edit among V1-3 to V1-7; V1-16 and V1-17 rewrite the same file, so they rebase on it, and V1-17's `error` hook reports the cause V1-4 exposes), then V1-17, then V1-18 (`engineio/` and its transports, which V1-3, V1-5, V1-6 and V1-7 do not edit; their root edits, `Server.Engine` and the `CHANGELOG.md` entries, go through the integrator) | per-PR DoD |
 | V1C | V1B | V1-8, then V1-20 (`.github/`, the `Makefile`, `CLAUDE.md`, the conformance directory, `internal/parity`; the V1-8 author integrates) | the `conformance` job and the `parity-check` and `cover-check` step green on `master` |
 | V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`, and for V1-10 `engineio/client.go`, the engine client's close reasons, and `engineio/dialer.go`, `Dialer.Upgrade`, `### V1-10 contract`); beside them V1-19 (new files under `internal/conformance` and its `testdata/node`, no workflow edit) | Stage 7 DoD, then per-PR DoD; the V1-19 block |
 | V1E | V1D (V1-12 may start after V1-8) | V1-12 and V1-13, one directory per example; beside them V1-15 (needs V1-2, V1-6 and V1-11: `engineio` options and handshake, `engineio/transport/websocket`, `engineio/transport/polling`, the root emit and broadcast flags, `client/`, new files under `internal/conformance`). The V1-12 author integrates the wave's shared files (`Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md`): V1-13's `Makefile` edit merges after V1-12, and V1-15 edits none of them, since `make conformance` already runs every tagged test of `internal/conformance` | `make examples`, then `examples-node` once per gate client (the two lines of the per-PR checks of V1-12 and V1-13); the per-PR DoD and the V1-15 block (Stage V1) |
@@ -2256,10 +2256,32 @@ func (e *CloseError) Error() string { return "" }
 func (e *CloseError) Unwrap() error { return e.Err }
 ```
 
-The fence shows the shape; `Error` is implemented as its comment says. `engineio` adds
-`type CloseError = session.CloseError` and `type CloseReason = session.CloseReason` with
-the five constants (`engineio.ReasonTransportClose`, ...), the alias form `### V1-16
-contract` uses for `ReadyState` too. Semantics: the reason is the first cause observed,
+The fence shows the shape; `Error` is implemented as its comment says. `engineio`
+re-exports the type and the reasons by alias, the form `### V1-16 contract` uses for
+`ReadyState` too (a new file of package `engineio`, the one root `engineio/` edit of V1-4
+beside `engineio/client.go`):
+
+```go
+package engineio
+
+import "github.com/sshaplygin/go-socket.io/engineio/session"
+
+// CloseError, CloseReason and the five reasons are session's, re-exported.
+type (
+	CloseError  = session.CloseError
+	CloseReason = session.CloseReason
+)
+
+const (
+	ReasonTransportClose = session.ReasonTransportClose
+	ReasonPingTimeout    = session.ReasonPingTimeout
+	ReasonTransportError = session.ReasonTransportError
+	ReasonForcedClose    = session.ReasonForcedClose
+	ReasonServerShutdown = session.ReasonServerShutdown
+)
+```
+
+Semantics: the reason is the first cause observed,
 as today (`observe` keeps the first); `NextReader` returns `*CloseError` by `errors.As`
 whether the close came from the read loop (CLOSE packet, failed read, deadline), from
 `Close` or from `Server.Close`, and `NextWriter` does the same once closed; a reader or

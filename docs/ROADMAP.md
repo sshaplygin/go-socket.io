@@ -3721,8 +3721,14 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 )
 
-// Hooks are the engine events of engine.io 3.6.2 as observer callbacks, the shape of
-// v2/engineio/hooks.go without its contexts (D13, D16). A nil field is ignored; a set
+// Hooks are the engine events as observer callbacks, the shape of v2/engineio/hooks.go
+// without its contexts (D13, D16). Connection is engine.io 3.6.2's connection event and
+// Headers its transports' headers event; 3.6.2 has no InitialHeaders or ConnectionError:
+// they are the D16 choice from the owner's list, named after the later engine.io's
+// initial_headers and connection_error and defined over the 3.6.2 behaviour they observe
+// (ConnectionError carries 3.6.2's codes and messages). The socket-level fields are
+// 3.6.2's socket events, except Error, which reports the cause 3.6.2 passes as the
+// description of its close event. A nil field is ignored; a set
 // one is called synchronously on the goroutine of the event. Header values are
 // borrowed for the call: a hook that keeps them copies them. Options.Hooks holds one;
 // nil means no observer.

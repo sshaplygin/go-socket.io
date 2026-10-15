@@ -2182,9 +2182,14 @@ reference client keeps POSTing until it has read `3probe` (engine.io-client 3.5.
 `socket.js:314-322`), so a POST that crosses the Go server's `3probe` closes that client
 with a transport error. PARITY.md P4 records both answers, measured. V1-2 gives the Go
 server the reference rule: after `3probe` the polling connection keeps accepting POSTs and
-hands their packets to the session's reader, each once; a poll that is pending or arrives
-before `5` is answered without waiting for the ping interval, with the packets the session
-has written or with a NOOP, so the client can complete its pause; on `5` the polling
+hands their packets to the session's reader, each once; a poll is answered with the packets
+the session writes, as at any time, and otherwise, instead of waiting for a session writer
+or its write deadline (`FlushOut`, `payload.go:154-215`), with a NOOP at the next of the
+checks that `session.upgrading` runs every 100 ms from `3probe` until `5`, the failure or
+the timeout, as the 3.6.2 `check` does (`socket.js:202,224-229`: a NOOP only while a poll
+is pending), so the client can complete its pause. A check answers at most the one poll
+waiting then and does nothing when none waits, so a client that polls in a loop gets at
+most one NOOP per 100 ms, never a GET/NOOP spin, for any `UpgradeTimeout`; on `5` the polling
 connection is paused (`Pause` waits for a `FeedIn` in progress, `payload.go:260-265`) and
 the session switches as today; a probe that fails, or passes `UpgradeTimeout`, before `5`
 closes the probe connection and leaves polling as it was, never paused, so no POST can
@@ -2219,7 +2224,11 @@ POST in that window is accepted where it got 400 (a
 websocket probe against an `httptest` server: subtest `post`, after `2probe` and `3probe`
 and before `5`, a POST of one message is answered 200 `ok` and the session's reader
 receives it exactly once, a GET in the window is answered within 1 s, and after `5` a
-message from the server arrives on the websocket; subtests `failed`, the probe connection
+message from the server arrives on the websocket; subtest `cadence`, after `3probe`, no `5`
+and nothing written by the server, the raw client sends GETs in a loop for 1 s, each as
+soon as the previous one is answered: every answer is a NOOP and they number from 1 to 11,
+one per 100 ms check, so a red run shows either a pending poll left unanswered or a spin;
+subtests `failed`, the probe connection
 closed by the client after `3probe`, and `timeout`, `UpgradeTimeout` 100 ms and no `5`, the
 server closing the probe (the probe's read fails): a POST sent at once after the close is
 answered 200 `ok` and delivered once, and a GET returns a message the server wrote, so the

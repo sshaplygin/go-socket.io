@@ -3260,9 +3260,10 @@ type CompressWriter interface {
 ```go
 package socketio
 
-// Compress starts an emit to this socket whose packet carries the compress flag on;
-// every other emit carries true, the socket.io 2.5.0 default. false sends the packet
-// uncompressed on either transport.
+// Compress starts an Emitter that targets every socket of the namespace (S21), as To,
+// Except, Volatile and Local do, whose packet carries the compress flag on; every other
+// emit carries true, the socket.io 2.5.0 default. false sends the packet uncompressed on
+// either transport. The single-socket form is Namespace.Compress below.
 func (n *ServerNamespace) Compress(on bool) Emitter { return nil }
 
 // BroadcastOptions gains the flag, kept apart from the Except options: the Redis

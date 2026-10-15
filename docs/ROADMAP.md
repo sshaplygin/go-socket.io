@@ -2023,8 +2023,10 @@ check.
 row: one `### V1-<n> contract` per PR that adds exported API (the `ADD` PRs 2, 5, 6, 7, 10,
 11, 15, 16, 17 and 18) and `### V1-4 contract` for the close error type of
 `engineio/session` and the writability report that V1-6's `Volatile` reads. They were written against the code at `2667c25` (file and line
-references are to that tree) and the installed reference sources (engine.io 3.6.2,
-socket.io 2.5.0, socket.io-adapter 1.1.2, socket.io-client 2.5.0, engine.io-client 3.5.6).
+references are to that tree) and the reference sources at these versions: engine.io 3.6.2,
+socket.io 2.5.0, socket.io-adapter 1.1.2, socket.io-client 2.5.0 and engine.io-client 3.5.6
+(the npm packages of those versions; `npm install --no-save --prefix <dir> <name>@<version>`
+reproduces each tree a citation reads).
 Each contract lists every `ADD` row of its PR, the Go declarations (every ```` ```go ````
 fence is a complete file that `gofmt -e` accepts; the comments are the godoc the PR
 writes), the semantics, defaults, errors, the goroutine and ordering rules, and the named
@@ -3121,7 +3123,7 @@ leaves at its default. C5:
 (polling, then websocket), and a `Transports` of one entry dials it directly (websocket
 alone: a websocket-first connection, which V1-15's cookie rule distinguishes).
 
-*The reference mechanism*, read in engine.io-client 3.5.6 as installed for this contract:
+*The reference mechanism*, read in the engine.io-client 3.5.6 sources:
 `onOpen` emits `open`, flushes, and only then starts the probes (`lib/socket.js:411-426`),
 so the socket is in use on polling while they run; `probe` (`:295-403`) sends `2probe` on
 the new transport (`:311`), on `3probe` sets `upgrading` and pauses polling (`:314-322`),

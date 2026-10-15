@@ -2242,17 +2242,20 @@ POST in that window is accepted where it got 400 (a
 `### Changed` entry, V1-14). Named tests, each under the `// Covers` of its row:
 `TestUpgradeProbeWindow` (P4, package `engineio`, a raw polling client and a gorilla
 websocket probe against an `httptest` server: subtest `post`, after `2probe` and `3probe`
-and before `5`, a POST of one message is answered 200 `ok` and the session's reader
-receives it exactly once, a GET in the window is answered within 1 s, and after `5` a
-message from the server arrives on the websocket; subtest `cadence`, after `3probe`, no `5`
+and before `5`, a POST of one message `a` is answered 200 `ok`, a GET in the window is
+answered within 1 s, and after `5` a message from the server arrives on the websocket and
+the client sends a second message `b` over the websocket: the session's reader reads `a`
+and then, as its next read, `b` within 1 s, so `a` arrived exactly once without waiting
+for a copy not to come; subtest `cadence`, after `3probe`, no `5`
 and nothing written by the server, the raw client sends GETs in a loop for 1 s, each as
 soon as the previous one is answered: every answer is a NOOP and they number from 1 to 11,
 one per 100 ms check, so a red run shows either a pending poll left unanswered or a spin;
 subtests `failed`, the probe connection
 closed by the client after `3probe`, and `timeout`, `UpgradeTimeout` 100 ms and no `5`, the
-server closing the probe (the probe's read fails): a POST sent at once after the close is
-answered 200 `ok` and delivered once, and a GET returns a message the server wrote, so the
-order of the close and the POST does not matter; `post` is red on the base, where the POST is answered 400
+server closing the probe (the probe's read fails): a POST of `a` sent at once after the
+close is answered 200 `ok`, then a POST of a second message `b`, and the session's reader
+reads `a` and then, as its next read, `b` within 1 s, so `a` was delivered once; a GET
+returns a message the server wrote, so the order of the close and the POST does not matter; `post` is red on the base, where the POST is answered 400
 `payload: paused` and the reader receives nothing), `TestUpgradeTimeout` (E3: with `UpgradeTimeout` 100 ms, a websocket probe that sends
 `2probe`, reads `3probe` and never sends `5` is closed by the server within 1 s while the
 session still answers polls; `Options{}` gives 10 s), `TestMaxHTTPBufferSize` (E4,

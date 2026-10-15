@@ -1479,8 +1479,12 @@ the rule of D10: the `Except` options are methods added directly to the exported
 interface. That is the simplest mechanism consistent with D10: one interface for the server to
 call, the same rule as `Conn` and `Namespace`; `redis_broadcast.go` is in this module and
 changes in V1-6 anyway, and an external `Broadcast` cannot be injected before V1-7 (S5), so only
-mocks break, the breakage D10 accepts and V1-14 documents. The Redis `Broadcast` implements the new methods by
-returning an error wrapping `ErrExceptUnsupported` and sending nothing; D5's `Except` on
+mocks break, the breakage D10 accepts and V1-14 documents. The Redis `Broadcast` implements
+the two new methods of `### V1-6 contract` as follows: `SendTo` returns an error wrapping
+`ErrExceptUnsupported` and sends nothing only when `opts.Except` is not empty, before any
+Redis I/O, and otherwise delivers as the rest of this paragraph says (one message per room
+for a union, `Local` and `volatile` below); `IDs` lists this instance's sockets, no error.
+D5's `Except` on
 `Server`, which V1-6 offers as `Server.Of(nsp).Except(ids...)` (the `ServerNamespace` form,
 `### V1-6 contract`; no `Server` method takes a namespace string for it), and
 broadcast-except-sender return that error, never a delivery to every instance including the

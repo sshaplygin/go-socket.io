@@ -3354,11 +3354,23 @@ plus 1 s, not after an hour. Each then
 asserts `Transport()` `polling`, `Upgraded()` false, and a message each way over polling,
 the client's written at once after the record and the one the `unread` server wrote
 included; that outcome does not depend on goroutine timing, since the server never paused
-polling (P4)), `TestClientUpgradeDeadline` (the switch arms the deadlines: the server's
-`PingInterval` and `PingTimeout` 100 ms each, a websocket handler that upgrades with
-gorilla itself, answers `2probe` with `3probe`, reads `5` and then reads without ever
-answering a PING; the client's `NextReader` returns the `*session.CloseError` with reason
-`ping timeout` within the 200 ms sum plus 1 s after `Upgraded()` is true); the four upgrade
+polling (P4)), `TestClientUpgradeDeadline` (the switch arms the deadlines; the whole server side is
+one `httptest` handler of the test, no `engineio.Server`, so no V1-2 check and no server
+deadline takes part: it answers the polling handshake with an OPEN packet of
+`pingInterval` and `pingTimeout` 500 ms each, every POST with 200 `ok`, and every GET that
+arrives after its websocket part has written `3probe` with a NOOP at once, in the payload
+format the request asks for; a GET that arrives before waits until then (a channel the
+websocket part closes) or until its request ends. Its websocket part upgrades with gorilla,
+answers `2probe` with `3probe`, reads `5` and then reads without ever writing; the handler
+never writes a PONG over either transport. The client's reader runs on its own goroutine
+from `Dial`'s return. So the in-flight poll completes after `3probe`
+whatever the client does with its held writes, and the polling side cannot time out
+before `5` is read: `Dial` arms no deadline, and the first one, the write deadline after
+the PING written at 500 ms, falls at 1.5 s, after the probe's bound of 1 s (the smaller
+of the default `UpgradeTimeout`, 10 s, and the 1 s sum), which leaves a loopback websocket
+dial under `-race` ample time. The client's
+`NextReader` returns the `*session.CloseError` with reason `ping timeout` within the 1 s
+sum plus 1 s after `Upgraded()` is true, and the handler has read `5`); the four upgrade
 tests `TestClientWebsocketUpgrade`, `TestClientUpgradeOrder`, `TestClientUpgradeProbeFails`,
 the five subtests of the last included, and `TestClientUpgradeDeadline` pass under `go test -race -count=20 -run 'Upgrade' ./engineio ./client` on the
 V1-10 head, a command that also runs V1-2's `TestUpgradeProbeWindow` and

@@ -3081,7 +3081,22 @@ engine client (`engineio/client.go`) return it too: `transport close` for a CLOS
 `transport error` for any other failure, `forced close` after `Close`. C4: `Timeout` as
 commented; `Connect` returns the dial error (the reference's `connect_error`) or
 `ErrConnectTimeout` (its `connect_timeout`) and leaves the Client in the state before the
-call, so `Connect` can be called again; no event is needed for a synchronous call. C5:
+call, so `Connect` can be called again; no event is needed for a synchronous call. The
+bound: `engineio.Dialer.Dial` takes no context or deadline (`dialer.go:22`); its polling
+transport dials through `Transport.Client`, whose package default has `Timeout` one minute
+(`polling/transport.go:18-24`), a timeout that also bounds each long poll, and its
+websocket transport through gorilla's dialer with `HandshakeTimeout` 0, no bound, in
+`websocket.Default` (`websocket/transport.go:39,47-55`). So `Connect` runs `Dial` on a
+goroutine and waits at most `Timeout`; when the bound passes first it returns
+`ErrConnectTimeout` at once, and the goroutine, when `Dial` returns later, closes the
+connection it got, which the Client never wires to its handlers, so no `OnConnect`
+follows. That goroutine lives until the transports' own bounds: the default `Transports`
+of package `client` are `polling.Default` and the client's own
+`&websocket.Transport{HandshakeTimeout: Timeout}` (0 for a negative `Timeout`; the package
+`Default` values are not modified); the polling `http.Client` timeout is not lowered to
+`Timeout`, since a long poll waits up to the ping interval, 25 s by default. The upgrade
+probe of C5 runs after `Connect` and is bounded by `Dialer.UpgradeTimeout`, which `client`
+leaves at its default. C5:
 `engineio.Dialer` gains `Upgrade` and `UpgradeTimeout` as commented; with `Upgrade` false
 `Dial` keeps today's rule (`dialer.go:36-104`, the last transport first with fallback), so
 `Dialer` users are unchanged. `client` sets `Upgrade` and the default `Transports` of C4
@@ -3173,8 +3188,8 @@ of its row, all against an in-process Go server unless said otherwise:
 `TestClientNamespaces` (C2: two sockets, one connected before `Connect` and one after,
 each `OnConnect` once, an event per namespace, `Socket.Close` of one leaves the other),
 `TestClientConnectTimeout` (C4: a server that accepts TCP and never answers; `Connect`
-returns `ErrConnectTimeout` within `Timeout` + 1 s and a second `Connect` against a real
-server works), `TestClientWebsocketUpgrade` (C5: with the default `Transports` the test
+returns `ErrConnectTimeout` within `Timeout` + 1 s, no `OnConnect` fires afterwards, and a
+second `Connect` against a real server works), `TestClientWebsocketUpgrade` (C5: with the default `Transports` the test
 waits, with a 5 s deadline and no sleep, until the server session's `Transport()` is
 `websocket` and `Upgraded()` of the engine connection the Client holds is true, not at
 `Connect`'s return; with polling alone both stay `polling` and false after an event has

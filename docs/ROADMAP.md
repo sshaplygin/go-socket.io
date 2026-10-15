@@ -2211,11 +2211,15 @@ method, the only exported identifier P4 adds:
 ```go
 package payload
 
-// AnswerPoll answers the FlushOut waiting for data, if one is, with a NOOP packet and
-// returns true; FlushOut then returns nil. Otherwise (no FlushOut waiting, the payload
-// paused or closed) it writes nothing and returns false at once; it never blocks. The
-// check of session.upgrading calls it every 100 ms from 3probe until 5, the failure or
-// the timeout of the upgrade, as engine.io 3.6.2 socket.js:224-229 does.
+// AnswerPoll answers a FlushOut that is offering its writer to the session and that no
+// session writer has taken yet (the writerChan offer of FlushOut's first select) with a
+// NOOP packet and returns true; FlushOut then returns nil. It is one more case of that
+// select, so exactly one of AnswerPoll and NextWriter gets a given poll. Otherwise (no
+// FlushOut waiting, one whose writer NextWriter has taken, the payload paused or
+// closed) it writes nothing and returns false at once; it never blocks, and a response
+// a session writer holds carries only that writer's packets. The check of
+// session.upgrading calls it every 100 ms from 3probe until 5, the failure or the
+// timeout of the upgrade, as engine.io 3.6.2 socket.js:224-229 does.
 func (p *Payload) AnswerPoll() bool { return false }
 ```
 
@@ -2225,8 +2229,14 @@ session reads it through an unexported optional interface `interface{ AnswerPoll
 on its current connection, which a websocket connection and the session package's fakes do
 not implement (no check runs then). `TestPayloadAnswerPoll` (package `payload`, no row of
 its own, so no marker) executes it: false with no `FlushOut` waiting; true while one waits,
-which then writes exactly the encoder's NOOP and returns nil; false after `Pause` and after
-`Close`; `TestUpgradeProbeWindow` executes it through the session. The existing `TestSessionUpgradeFailures`
+which then writes exactly the encoder's NOOP and returns nil; false while a writer that
+`NextWriter` took from the waiting `FlushOut` (the offer at `payload.go:193`) is open,
+after which the response holds only that writer's packet; under `-race`, 100 rounds in
+which `AnswerPoll` and `NextWriter` race for one waiting `FlushOut`, each round answered
+by exactly one of them (`AnswerPoll` true and the response a NOOP, or `NextWriter`'s
+writer and the response its packet; each round uses a new `Payload` and closes it at its
+end, which releases a `NextWriter` that got nothing); false after `Pause`
+and after `Close`; `TestUpgradeProbeWindow` executes it through the session. The existing `TestSessionUpgradeFailures`
 (`engineio/session/session_lifecycle_test.go:253-293` at `2667c25`) expects one `Resume`
 in its cases `no upgrade packet` and `wrong packet after probe`; V1-2 rewrites both to
 expect no `Pause` and no `Resume`, and `TestSessionUpgrade` (`:235-251`) keeps its one

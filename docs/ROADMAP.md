@@ -3150,14 +3150,17 @@ starts all probes together (`:422-423`) and the first to succeed aborts the othe
 (`:379-384`); the Go client probes one at a time in order, the same order for v1's one
 upgrade, websocket. `Transport()` and V1-16's `Upgraded()` change only at the switch, after
 the client has written `5`: `polling` and false before it, the probe transport's name and
-true after it. A probe that fails (its dial or handshake fails, the answer to `2probe` is
-not `3probe`, a write on it fails) or passes `UpgradeTimeout` closes the probe connection,
+true after it. A probe that fails before `5` is written (its dial or handshake fails, the
+answer to `2probe` is not `3probe`, a write of `2probe` fails) or passes `UpgradeTimeout`
+closes the probe connection,
 leaves `Transport()` and `Upgraded()` unchanged and the connection working on polling, no
 packet lost or repeated, and logs at DEBUG `engineio: upgrade probe failed` through
 `logger.Log` with the attributes `transport` (the probe transport's name) and `err` and no
 `sid`; the server logs the same message through its `Options.Logger` with `sid`
 (`session.go:68,76`). Polling stays usable after every failure because the Go server keeps
-it working until `5` (P4, `### V1-2 contract`). The caller's reader must keep consuming: as
+it working until `5` (P4, `### V1-2 contract`). A failed write of `5` itself closes the
+connection with `transport error`, since the server may have read it and switched. The
+caller's reader must keep consuming: as
 the reference's polling `pause` waits for the in-flight poll's `pollComplete`, emitted after
 its packets were dispatched (`lib/transports/polling.js:73-107,152-154`), the switch waits
 until the caller's `NextReader` has consumed the in-flight poll, so a caller that stops
@@ -3180,7 +3183,7 @@ under `-race -count=20`; it follows the reference's `probe` (`lib/socket.js:295-
 at `:322-334`, the failure paths at `:337-376`) and polling's `pause`
 (`lib/transports/polling.js:73-107`). Files: `engineio/dialer.go`, `engineio/client.go`,
 `engineio/transport/polling/connect.go` and the new `engineio/client_upgrade_test.go`; none
-is a SYNC manifest file, and no exported identifier beyond the fences above is added. C6:`Path`, `Query`
+is a SYNC manifest file, and no exported identifier beyond the fences above is added. C6: `Path`, `Query`
 and `Header` as commented; `Header` reaches every request, the websocket upgrade included
 (the `requestHeader` of `Transport.Dial`). C9: an `Emit` on a socket that is not yet
 connected is queued and sent after the server's CONNECT reply (`socket.js:160-164`), at

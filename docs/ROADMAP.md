@@ -3640,8 +3640,19 @@ the initor set with `SetContext` sees it (the `connection` subtest of
 `http.ResponseWriter` before the transport writes them, for the websocket upgrade before
 `Transport.Accept` (gorilla writes `w.Header()` into the upgrade response,
 `websocket/transport.go:88`), and for every polling response through a header-observing
-`ResponseWriter` wrapper the session installs, so no transport file changes;
-`ConnectionError` fires beside the `reject` calls of `engineio/server.go:234-245`, with
+`ResponseWriter` wrapper the session installs, so no transport file changes. The wrapper
+fires the hook at the first `WriteHeader` or `Write` of the response, once the transport
+has set its own headers, so for a polling response the hook runs on the goroutine that
+writes the first byte, which is not the request goroutine for a GET: the headers go out
+with the first `Write` of the session writer that `FlushOut` hands the response to
+(`engineio/payload/payload.go:58-80`, `polling/server.go:107-112`), the session's
+`InitSession` goroutine for the handshake and the root's write goroutine (`serveWrite`)
+for every later poll; a POST answers on the request goroutine, and the websocket upgrade
+fires before `Transport.Accept` on the request goroutine. A `Headers` hook that blocks on
+a GET therefore stalls that connection's writer, the "delays that session only" rule of
+the paragraph above. The `headers` subtest of `TestEngineServerEvents` asserts that the
+hook has fired, with the transport's `Content-Type` in `h`, before the first byte of each
+polling response reaches the client; `ConnectionError` fires beside the `reject` calls of `engineio/server.go:234-245`, with
 the P11 codes V1-2 introduces. Named tests, each under the `// Covers` of its row:
 `TestEngineSocketEvents` (E19) and `TestEngineServerEvents` with its four subtests, as
 the paragraph above describes.

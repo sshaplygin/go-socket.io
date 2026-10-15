@@ -161,7 +161,7 @@ workers submit changes to these files through that integrator.
 | 1b | stage 1 and the 1.D link-form commit merged, `master` green (the cut commit `$CUT`, which 1b records); branch `v1.x` cut from it without a tag (1b step 0) | one refactor owner, who is also the integrator for the CI, Dependabot and `CHANGELOG.md` files of steps 0b to 0d; moves/merges applied sequentially | M1b: the Stage 1b DoD, `v1.x` gates and Acceptance blocks |
 | 2A | M1b | 2.0 owner removes the legacy root runtime, v1 broadcast and redigo atomically with the new API skeleton, builds compile fixtures and freezes shared interfaces | G2: fixtures compile, package graph acyclic, no unresolved API signatures; evidence: `make g2` (2.0 *G2 record*) |
 | R | 2.0 on `master`; the owner's order | one integrator: steps A to C of *Repository restructure*; the 2.1, 2.2 and test-stress work stopped by the freeze resumes after MV1 (its open PRs are replayed after C and wait) | step C commands pass on the merged `master` |
-| V1A | row R step C passed; V1-0 merged | V1-1 (`engineio/payload`, `engineio/transport/polling`, its own new `engineio/polling_*_test.go` files) and V1-2 (`engineio`, `engineio/session`, among them `session_id_generator.go` and its mirror `v2/engineio/session/id_generator.go` (E15, the one `v2/` file a V1A PR touches, by the rule of *Shared-file drift check*), and the `SetReadLimit` methods of `engineio/transport/polling` and `engineio/transport/websocket`, with P4's probe window in `engineio/payload/payload.go` and `engineio/transport/polling/server.go` where it needs them, not in the manifest file `payload/pauser.go`, written after V1-1 has merged) in separate worktrees | per-PR DoD (Stage V1) |
+| V1A | row R step C passed; V1-0 merged | V1-1 (`engineio/payload`, `engineio/transport/polling`, its own new `engineio/polling_*_test.go` files) and V1-2 (`engineio`, `engineio/session`, among them `session_id_generator.go` and its mirror `v2/engineio/session/id_generator.go` (E15, the one `v2/` file a V1A PR touches, by the rule of *Shared-file drift check*), and the `SetReadLimit` methods of `engineio/transport/polling` and `engineio/transport/websocket`, with P4's probe window in `engineio/payload/payload.go` and `engineio/transport/polling/server.go` where it needs them, not in the manifest file `payload/pauser.go`, and P4's v1 upgrade bullet in `docs/PROTOCOL.md`, written after V1-1 has merged) in separate worktrees | per-PR DoD (Stage V1) |
 | V1B | V1A | V1-3 to V1-7 in order: one integrator, the root files and `parser` are shared; beside them V1-16 (after V1-4 has merged: V1-4 is the single owner of the close-cause plumbing in `engineio/session` and its aliases in a new file of `engineio`, K24, and of the writability report that V1-6's `Volatile` reads (`Writable` on `*session.Session`, the engine client of `engineio/client.go` and the connections of `engineio/transport/polling` and `engineio/transport/websocket`, K16), the one `engineio/` edit among V1-3 to V1-7; V1-16 and V1-17 rewrite the same file, so they rebase on it, and V1-17's `error` hook reports the cause V1-4 exposes; V1-16 also edits `engineio/session/session_manager.go` and its mirror `v2/engineio/session/manager.go`, `Manager.All`, the one `v2/` file a V1B PR touches, by the rule of *Shared-file drift check*), then V1-17, then V1-18 (`engineio/` and its transports, which V1-3, V1-5, V1-6 and V1-7 do not edit; their root edits, `Server.Engine` and the `CHANGELOG.md` entries, go through the integrator) | per-PR DoD |
 | V1C | V1B | V1-8, then V1-20 (`.github/`, the `Makefile`, `CLAUDE.md`, the conformance directory, `internal/parity`; the V1-8 author integrates) | the `conformance` job and the `parity-check` and `cover-check` step green on `master` |
 | V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`, and for V1-10 `engineio/client.go`, the engine client's close reasons and the upgrade probe, `engineio/dialer.go`, `Dialer.Upgrade` and `UpgradeTimeout`, `engineio/transport/polling/connect.go`, the polling client's part of the probe (no exported identifier), and the new `engineio/client_upgrade_test.go`, none of them a SYNC manifest file, `### V1-10 contract`; for V1-11 the same two `engineio/` files again, `Dialer.OnPing` and `OnPong` and their calls in the engine client, `### V1-11 contract`); beside them V1-19 (new files under `internal/conformance` and its `testdata/node`, no workflow edit) | Stage 7 DoD, then per-PR DoD; the V1-19 block |
@@ -1900,10 +1900,13 @@ new fake whose `SetReadDeadline` arms a timer that fails the next `NextReader` o
 passes; either way the close comes from the deadline, not from the script running out.
 It is red on the base, where the pinging client is closed 50 ms after its first PING, and
 the V1-2 body proves it with the `BUG`-row rule (`fails without the fix:
-TestPingTimeoutIdleClient`, run on the base with only the PR's test files applied):
+TestPingTimeoutIdleClient`, run on the base with only the PR's test files applied), and
+checks the v1 upgrade bullet of `docs/PROTOCOL.md` that `### V1-2 contract` gives it (P4):
 
 ```sh
 test "$(go test -race -count=1 -json -run '^TestPingTimeoutIdleClient$' ./engineio/... | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test' | sort -u | wc -l)" -eq 1   # the reference close window: an idle client pinging at the interval stays, a silent one is closed
+grep -qF 'the polling connection is paused only on `5`, then the session switches to the' docs/PROTOCOL.md; grep -qF '  unpaused. Implemented in `session.Session.upgrading`.' docs/PROTOCOL.md   # V1-2's own v1 upgrade bullet (P4)
+test -z "$(grep -n 'the sequence of the previous section, implemented in the' docs/PROTOCOL.md)"; grep -q 'paused polling connection is resumed' docs/PROTOCOL.md   # the v1 bullet no longer inherits the v2 note, which stays for v2
 ```
 
 V1-8 and later run `gh pr checks <n>` with `conformance` green; V1-10, V1-11 and V1-15 run the Go client against the
@@ -2192,9 +2195,24 @@ its content. The existing `TestSessionUpgradeFailures`
 (`engineio/session/session_lifecycle_test.go:253-293` at `2667c25`) expects one `Resume`
 in its cases `no upgrade packet` and `wrong packet after probe`; V1-2 rewrites both to
 expect no `Pause` and no `Resume`, and `TestSessionUpgrade` (`:235-251`) keeps its one
-`Pause`, now made on `5`. The v1 section of `docs/PROTOCOL.md` refers to the sequence diagram of the v2 section,
-which already draws this order (the old connection paused after `UPGRADE`), so V1-2 makes
-the v1 server match it and P4 needs no PROTOCOL.md edit. Observable change: a
+`Pause`, now made on `5`. `docs/PROTOCOL.md` owns the upgrade sequence: its v1 bullet
+(*Implemented: Engine.IO protocol v3 in the v1 module*, "Upgrade polling → websocket")
+refers to the v2 section, whose note "If the client never sends `UPGRADE`, the paused
+polling connection is resumed" stops being true for v1 with P4, while it stays true for v2
+(`v2/engineio/session/session.go:538` still pauses at `3probe`). V1-2 replaces that v1
+bullet with its own, and leaves the v2 section as it is:
+
+```text
+- Upgrade polling → websocket: the client's `2probe` over the websocket is answered
+  `3probe`. Until the client's `UPGRADE` (`5`), POSTs are accepted and their packets
+  delivered, and a pending poll is answered with data or, at a 100 ms check, a NOOP;
+  the polling connection is paused only on `5`, then the session switches to the
+  websocket and closes the polling connection. A failed probe, or one without `5`
+  within `Options.UpgradeTimeout`, closes the probe connection and leaves polling
+  unpaused. Implemented in `session.Session.upgrading`.
+```
+
+The V1-2 per-PR check below greps for it. Observable change: a
 POST in that window is accepted where it got 400 (a
 `### Changed` entry, V1-14). Named tests, each under the `// Covers` of its row:
 `TestUpgradeProbeWindow` (P4, package `engineio`, a raw polling client and a gorilla

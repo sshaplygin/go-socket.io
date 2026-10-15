@@ -3151,7 +3151,9 @@ type Dialer struct {
 	// (a websocket transport's HandshakeTimeout; websocket.Default has none): the probe
 	// stops waiting for it, and a connection the dial returns later is closed. 0 or a
 	// negative value means 10 seconds, the upgradeTimeout of the engine.io 3.6.2 server
-	// (engine.io-client 3.5.6 has no client-side bound).
+	// (engine.io-client 3.5.6 has no client-side bound). A value above pingInterval +
+	// pingTimeout of the OPEN packet acts as that sum, so a probe never outlasts the
+	// read deadline that 3probe arms.
 	UpgradeTimeout time.Duration
 }
 ```
@@ -3170,7 +3172,8 @@ DISCONNECT packet from the server), and the engine reasons `transport close`, `p
 timeout` and `transport error` (`socket.js:208-213`, `manager.js:500-511`), the last
 three read from the `*session.CloseError` that V1-4 gives `NextReader`; V1-10 makes the
 engine client (`engineio/client.go`) return it too: `transport close` for a CLOSE packet,
-`ping timeout` when the read deadline armed by the last PONG passes (`client.go:70`),
+`ping timeout` when the read deadline armed by the last PONG passes (`client.go:70`; C5's
+probe also arms it at `3probe` and at the switch, *Observable rules of the probe*),
 `transport error` for any other failure, `forced close` after `Close`. C4: `Timeout` as
 commented; `Connect` returns the dial error (the reference's `connect_error`) or
 `ErrConnectTimeout` (its `connect_timeout`) and leaves the Client in the state before the
@@ -3222,9 +3225,19 @@ reading makes the probe fail at `UpgradeTimeout` and the connection stays on pol
 Writes made during the probe, the ping loop's PING included, are neither lost nor
 reordered; they may wait from `3probe` until the switch or the failure, as the reference
 keeps its `writeBuffer` while `upgrading` (`lib/socket.js:316,566-576`) and flushes it on
-the new transport after `5` (`:329-334`). That hold is bounded by the pausing, so by
-`UpgradeTimeout`, 10 s by default, and stays inside the read deadline the last PONG armed,
-`PingInterval` + `PingTimeout` (`client.go:70`), 45 s with the D15 defaults 25 s and 20 s.
+the new transport after `5` (`:329-334`). That hold is bounded by the probe's bound, the
+smaller of `UpgradeTimeout` and `PingInterval` + `PingTimeout` of the OPEN packet. Reading
+`3probe` proves the server alive as a PONG does, so it re-arms the read and the write
+deadline of the polling connection to `PingInterval` + `PingTimeout` from then (the
+values `client.go:70` arms after a PONG and `client.go:139` after a PING); the hold starts
+there and ends within the probe's bound, so before those deadlines, for any option
+values, and the polling payload never stores a timeout during a probe that then fails
+(`payload.go:296-320`). With the D15 defaults 25 s and 20 s the bound is the default
+`UpgradeTimeout`, 10 s, against 45 s. At the switch the client arms the same two
+deadlines, `PingInterval` + `PingTimeout`, on the new connection, as after a PONG and a
+PING: `Dial` arms none (`dialer.go:36-104`) and `client.go:70,139` arm them only on the
+connection that read the PONG or wrote the PING, so without it a server that dies between
+the switch and the next PONG would never end the connection with `ping timeout`.
 The bound of the dial: `transport.Transport.Dial` takes no context
 (`websocket/transport.go:47-55`), so the probe dial is bounded by the probe transport's own
 timeout, a websocket transport's `HandshakeTimeout` (package `client` sets it to `Timeout`,
@@ -3284,20 +3297,27 @@ on both sides, so writes made before, during and after the probe are all checked
 return in every subtest but `unread`, where it starts after the failure record; the test
 routes `logger.Log`, the client's logger, to one recorder with `slog.SetDefault` and gives
 the server its own `Options.Logger` with another, and each subtest waits, with a deadline
-of `UpgradeTimeout` plus 1 s, for the client's record: message `engineio: upgrade probe
+of the probe's bound plus 1 s, for the client's record: message `engineio: upgrade probe
 failed`, attribute `transport` `websocket`, no `sid` attribute. Subtests: `rejected`, the
 handler answers the websocket request 400; `wrong-answer`, the handler upgrades it with
 gorilla itself and answers `2probe` with `3wrong`; `stalled`, `UpgradeTimeout` 200 ms and a
 handler that hijacks the websocket request and never answers, the probe transport's
 `HandshakeTimeout` 0, so only the timer ends the wait, `Close` returns within 1 s after the
 assertions and cleanup releases the stalled request; `unread`, `UpgradeTimeout` 200 ms and
-a client that does not call `NextReader` while the server has written a message. Each then
+a client that does not call `NextReader` while the server has written a message;
+`clamped`, `UpgradeTimeout` one hour, the server's `PingInterval` and `PingTimeout` 100 ms
+each and the hijacking handler of `stalled`, so the record comes within the 200 ms sum
+plus 1 s, not after an hour. Each then
 asserts `Transport()` `polling`, `Upgraded()` false, and a message each way over polling,
 the client's written at once after the record and the one the `unread` server wrote
 included; that outcome does not depend on goroutine timing, since the server never paused
-polling (P4)); the three upgrade tests `TestClientWebsocketUpgrade`,
-`TestClientUpgradeOrder` and `TestClientUpgradeProbeFails`, the four subtests of the last
-included, pass under `go test -race -count=20 -run 'Upgrade' ./engineio ./client` on the
+polling (P4)), `TestClientUpgradeDeadline` (the switch arms the deadlines: the server's
+`PingInterval` and `PingTimeout` 100 ms each, a websocket handler that upgrades with
+gorilla itself, answers `2probe` with `3probe`, reads `5` and then reads without ever
+answering a PING; the client's `NextReader` returns the `*session.CloseError` with reason
+`ping timeout` within the 200 ms sum plus 1 s after `Upgraded()` is true); the four upgrade
+tests `TestClientWebsocketUpgrade`, `TestClientUpgradeOrder`, `TestClientUpgradeProbeFails`,
+the five subtests of the last included, and `TestClientUpgradeDeadline` pass under `go test -race -count=20 -run 'Upgrade' ./engineio ./client` on the
 V1-10 head, a command that also runs V1-2's `TestUpgradeProbeWindow` and
 `TestUpgradeTimeout` in `./engineio`. The other named
 tests assert no transport, since every packet crosses either one:

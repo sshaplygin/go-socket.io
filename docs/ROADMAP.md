@@ -3202,16 +3202,19 @@ returns `ErrConnectTimeout` within `Timeout` + 1 s, no `OnConnect` fires afterwa
 second `Connect` against a real server works), `TestClientWebsocketUpgrade` (C5: with the default `Transports` the test
 waits, with a 5 s deadline and no sleep, until the server session's `Transport()` is
 `websocket` and `Upgraded()` of the engine connection the Client holds is true, not at
-`Connect`'s return; with polling alone both stay `polling` and false after an event has
+`Connect`'s return, the Client's read loop running on its own goroutine from that return; with polling alone both stay `polling` and false after an event has
 crossed; with websocket alone the handshake is a websocket upgrade), and in
 `engineio/client_upgrade_test.go`, each also under `// Covers C5`: `TestClientUpgradeOrder`
 (an `engineio.Server` behind an `httptest` handler that holds the websocket request until
-the server has read the client's first 10 messages, so they cross polling; the client
-writes numbered messages from `Dial`'s return until its `Upgraded()` is true and then 10
-more, the server from `Accept` until its session's `Transport()` is `websocket` and then
-10 more, then each side writes an end marker; each side reads to the other's marker, and
-every number arrives exactly once and in order on both sides, so writes made before,
-during and after the probe are all checked),
+the server has read the client's first 10 messages, so they cross polling; on each side
+the reader runs on its own goroutine from `Dial`'s return, on the server from `Accept`'s,
+concurrently with that side's writer; the client writes numbered messages with no pause
+between them, so a POST is in flight when `3probe` arrives, from `Dial`'s return until its
+`Upgraded()` is true and then 10 more, the server from `Accept` until its session's
+`Transport()` is `websocket` and then 10 more, each of the two loops failing the test if
+its condition does not hold within 5 s; then each side writes an end marker, each reader
+reads to the other's marker within 5 s, and every number arrives exactly once and in order
+on both sides, so writes made before, during and after the probe are all checked),
 `TestClientUpgradeProbeFails` (subtests `rejected`, the handler answers the websocket
 request 400; `wrong-answer`, the handler upgrades it with gorilla itself and answers
 `2probe` with `3wrong`; `unread`, `UpgradeTimeout` 200 ms and a client that does not call

@@ -2534,7 +2534,8 @@ var ErrBroadcastAck = errors.New("socketio: callbacks are not supported when bro
 // client connection, whose namespace has no Broadcast to deliver through: the root
 // Client's connection (client.go:165 creates its handlers with a nil adapter), and from
 // V1-9 on the client package's, which declares the variable then (Stage 7, D10 methods and
-// the alias) while the root keeps the name as an alias. Nothing is sent.
+// the alias) while the root keeps the name as an alias. V1-6 declares it in the root's
+// errors.go, beside ErrWriteBufferFull. Nothing is sent.
 var ErrServerOnly = errors.New("socketio: server-only method on a client connection")
 
 // BroadcastOptions selects the targets and flags of one broadcast, the opts of
@@ -2578,9 +2579,10 @@ type Broadcast interface {
 // started, with the flags kept: c.Volatile().To(r) is c.To(r).Volatile() and
 // c.Volatile().Except(ids...) is c.Broadcast().Except(ids...), so the sender never
 // receives it (socket.io 2.5.0 socket.js:140-178: any room or the broadcast flag goes to
-// the adapter with except [this.id]). The interface is declared once, in package client
-// from V1-9 on and aliased in the root (Stage 7, D10 methods and the alias), so both sides
-// implement it.
+// the adapter with except [this.id]). V1-6 declares the interface in the root's
+// namespace_conn.go, the file of the *namespaceConn that implements it; from V1-9 on it
+// is declared in package client and that file holds the alias (Stage 7, D10 methods and
+// the alias), so both sides implement it.
 type Emitter interface {
 	// To adds rooms to the target: the sockets in any of them, once each. On a
 	// single-socket target it switches to a broadcast from the socket (see above).
@@ -2750,6 +2752,10 @@ func (n *ServerNamespace) Adapter() Broadcast { return nil }
 func (n *ServerNamespace) On(event string, f interface{}) (off func())   { return nil }
 func (n *ServerNamespace) Once(event string, f interface{}) (off func()) { return nil }
 func (n *ServerNamespace) Off(event string)                              {}
+
+// AckFunc and Handshake are declared in the root's connection.go, beside Conn, until
+// V1-9 moves them into package client and leaves the aliases there (Stage 7, D10
+// methods and the alias).
 
 // AckFunc is the acknowledgement callback of an event handler: a handler (OnEvent, On,
 // Once) whose last parameter has this type receives one and owns the ACK: the first
@@ -4957,10 +4963,12 @@ meaning on both sides (`connected` of C8, the flags of C11) is a D10 method both
 types in these signatures are moved by this stage from the root into `client` (or exist in
 `engineio`, `parser`) and aliased in the root like `Conn`; V1-0 adds their names to the `go
 doc -short ./client` line of the DoD below and to the freeze listing. At `$TIP` the root
-declares `AckFunc` (K26, V1-7), `Emitter` (K14, K16, V1-6; an interface, so the client's
-own implementation returns `ErrServerOnly` where the server's broadcasts), `Handshake`
-(K7, K10, V1-7) and the error `ErrServerOnly` (V1-6, root `errors.go`, the one declaration
-of it in the plan); this stage moves the four into `client` and the root keeps each name as
+declares `AckFunc` (K26, V1-7, in `connection.go`), `Emitter` (K14, K16, V1-6, in
+`namespace_conn.go`; an interface, so the client's own implementation returns
+`ErrServerOnly` where the server's broadcasts), `Handshake` (K7, K10, V1-7, in
+`connection.go`) and the error `ErrServerOnly` (V1-6, root `errors.go`, the one declaration
+of it in the plan), the files their contracts name, all four in the allow-list of the DoD
+below; this stage moves the four into `client` and the root keeps each name as
 an alias (`type AckFunc = client.AckFunc`, `type Emitter = client.Emitter`, `type Handshake
 = client.Handshake`, `var ErrServerOnly = client.ErrServerOnly`), so the root's exported
 var and type names at the stage head are those of `$TIP` and the `diff` line of the DoD

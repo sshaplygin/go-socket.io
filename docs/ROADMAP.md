@@ -1633,7 +1633,10 @@ manager's lifetime rule is unchanged: a session stays registered until `Remove` 
 socket.io server calls when a connection's read goroutine ends, `server.go:334`), the
 init failure or `Server.Close` drops it. `Count()` stays (E16) and keeps counting the
 registered sessions, so it can exceed `len(Clients())` by the sessions still opening or
-closed and not yet removed; `Remove(sid)` stays too. `engineio.Conn` gains `ReadyState()`,
+closed and not yet removed, where 3.6.2's `clientsCount` is always `len(clients)`
+(`server.js:334-341`): a D9 difference of an existing method, recorded in the evidence
+cell of row E16 of PARITY.md, whose status stays `PARITY` because `len(Clients())` gives
+the reference value from V1-16 on; `Remove(sid)` stays too. `engineio.Conn` gains `ReadyState()`,
 returning one of the four 3.6.2 states as an `engineio.ReadyState` (`opening`, `open`,
 `closing`, `closed`, the strings of `socket.js`), `Transport()`, the name of the current
 transport (`polling` or `websocket`, so after an upgrade the new one), and `Upgraded()`

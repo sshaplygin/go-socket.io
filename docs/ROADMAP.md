@@ -2185,7 +2185,7 @@ with a transport error. PARITY.md P4 records both answers, measured. V1-2 gives 
 server the reference rule: after `3probe` the polling connection keeps accepting POSTs and
 hands their packets to the session's reader, each once; a poll is answered with the packets
 the session writes, as at any time, and otherwise, instead of waiting for a session writer
-or its write deadline (`FlushOut`, `payload.go:154-215`), with a NOOP at the next of the
+or its write deadline (`FlushOut`, `payload.go:154-212`), with a NOOP at the next of the
 checks that `session.upgrading` runs every 100 ms from `3probe` until `5`, the failure or
 the timeout, as the 3.6.2 `check` does (`socket.js:202,224-229`: a NOOP only while a poll
 is pending), so the client can complete its pause. A check answers at most the one poll

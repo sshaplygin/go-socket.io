@@ -4215,7 +4215,10 @@ peer against the WebSocket transport when its dependencies are installed.
   `maxPayload` and noop on upgrade. Backlog, owned by the 2.1 owner: the session pauses
   polling at `3probe` (`v2/engineio/session/session.go:538`), the pause V1-2 moves to `5`
   for v1 (P4, `### V1-2 contract`); 2.1 moves it the same way, as the engine.io server
-  pauses only on `5`. `engineio/client` (`client.go`, `dialer.go` since
+  pauses only on `5`, and in the same change rewrites the v2 upgrade note of
+  `docs/PROTOCOL.md` (*Implemented: Engine.IO protocol v3*, "If the client never sends
+  `UPGRADE`, the paused polling connection is resumed", `:68-69` at `2667c25`), which
+  stops being true then. `engineio/client` (`client.go`, `dialer.go` since
   1b): the client uses `pingInterval+pingTimeout` to detect a missing server ping, and
   `dialer.go` sends `EIO=4` instead of the fixed `EIO=3`. `engineio/server.go`: `EIO` check, JSON errors.
   The polling GET 500 and invalid-method 400 answers, unlogged in v1, log

@@ -3244,8 +3244,9 @@ of package `client` are `polling.Default` and the client's own
 `&websocket.Transport{HandshakeTimeout: Timeout}` (0 for a negative `Timeout`; the package
 `Default` values are not modified); the polling `http.Client` timeout is not lowered to
 `Timeout`, since a long poll waits up to the ping interval, 25 s by default. The upgrade
-probe of C5 runs after `Connect` and is bounded by `Dialer.UpgradeTimeout`, which `client`
-leaves at its default. C5:
+probe of C5 runs after `Connect` and is bounded by the probe's bound (*Observable rules of
+the probe*: the smaller of `Dialer.UpgradeTimeout`, which `client` leaves at its default,
+and `PingInterval` + `PingTimeout`). C5:
 `engineio.Dialer` gains `Upgrade` and `UpgradeTimeout` as commented; with `Upgrade` false
 `Dial` keeps today's rule (`dialer.go:36-104`, the last transport first with fallback), so
 `Dialer` users are unchanged. `client` sets `Upgrade` and the default `Transports` of C4
@@ -3261,8 +3262,9 @@ starts all probes together (`:422-423`) and the first to succeed aborts the othe
 upgrade, websocket. `Transport()` and V1-16's `Upgraded()` change only at the switch, after
 the client has written `5`: `polling` and false before it, the probe transport's name and
 true after it. A probe that fails before `5` is written (its dial or handshake fails, the
-answer to `2probe` is not `3probe`, a write of `2probe` fails) or passes `UpgradeTimeout`
-closes the probe connection,
+answer to `2probe` is not `3probe`, a write of `2probe` fails) or passes the probe's bound
+(the smaller of `UpgradeTimeout` and `PingInterval` + `PingTimeout`, the clamp of the
+`UpgradeTimeout` godoc, counted from `Dial`'s return as below) closes the probe connection,
 leaves `Transport()` and `Upgraded()` unchanged and the connection working on polling, no
 packet lost or repeated, and logs at DEBUG `engineio: upgrade probe failed` through
 `logger.Log` with the attributes `transport` (the probe transport's name) and `err` and no
@@ -3274,7 +3276,7 @@ caller's reader must keep consuming: as
 the reference's polling `pause` waits for the in-flight poll's `pollComplete`, emitted after
 its packets were dispatched (`lib/transports/polling.js:73-107,152-154`), the switch waits
 until the caller's `NextReader` has consumed the in-flight poll, so a caller that stops
-reading makes the probe fail at `UpgradeTimeout` and the connection stays on polling.
+reading makes the probe fail at the probe's bound and the connection stays on polling.
 Writes made during the probe, the ping loop's PING included, are neither lost nor
 reordered; they may wait from `3probe` until the switch or the failure, as the reference
 keeps its `writeBuffer` while `upgrading` (`lib/socket.js:316,566-576`) and flushes it on
@@ -3298,7 +3300,7 @@ the switch and the next PONG would never end the connection with `ping timeout`.
 The bound of the dial: `transport.Transport.Dial` takes no context
 (`websocket/transport.go:47-55`), so the probe dial is bounded by the probe transport's own
 timeout, a websocket transport's `HandshakeTimeout` (package `client` sets it to `Timeout`,
-C4; `websocket.Default` has none); `UpgradeTimeout` and `Close` stop waiting for it at once,
+C4; `websocket.Default` has none); the probe's bound and `Close` stop waiting for it at once,
 the probe fails, and a connection the dial returns later is closed; no write waits on the
 dial. The mechanism (how writes are held, how the in-flight poll is awaited, the lock that
 guards the switch) is designed and proven in the V1-10 code PR, by the named tests below

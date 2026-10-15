@@ -3196,7 +3196,15 @@ the engine sid in the root namespace and `<nsp>#<sid>` elsewhere, the reference 
 `socket.id` (`manager.js:109-110`, `generateId`, called at `:96,378`). Named tests, each under the `// Covers`
 of its row, all against an in-process Go server unless said otherwise:
 `TestClientNamespaces` (C2: two sockets, one connected before `Connect` and one after,
-each `OnConnect` once, an event per namespace, `Socket.Close` of one leaves the other),
+each `OnConnect` once, `Socket("/chat").Namespace()` is `"/chat"`, an event per namespace
+with `Emit` to an `OnEvent` handler on each side, a `Send` on one that the server receives
+as `message`, `Socket.Close` of one calls its `OnDisconnect` with `io client disconnect`
+and leaves the other; so every method of the `Socket` fence, `Client.Socket` and `New` run
+in a test of V1-10, `Socket.OnError` through the Client's delegating `OnError` in the
+existing root test `TestClientDecodeErrorReachesOnError` (`lifecycle_errors_test.go:247-256`
+at `2667c25`, a file Stage 7 keeps in the root, running through the wrapper), which
+`make cover-check` counts with `-coverpkg=./...`; `ErrConnectTimeout` is
+`TestClientConnectTimeout`'s),
 `TestClientConnectTimeout` (C4: a server that accepts TCP and never answers; `Connect`
 returns `ErrConnectTimeout` within `Timeout` + 1 s, no `OnConnect` fires afterwards, and a
 second `Connect` against a real server works), `TestClientWebsocketUpgrade` (C5: with the default `Transports` the test

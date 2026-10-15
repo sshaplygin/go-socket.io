@@ -3354,7 +3354,10 @@ sockets' `OnConnect` once it is back, with small delays; with `ReconnectionAttem
 against a server that stays down, `OnReconnectFailed` after two attempts; with
 `DisableReconnection`, no attempt; after a server-side `Disconnect`, no attempt),
 `TestClientSocketState` (C8: `ID` in both forms, `Connected` before, during and after,
-`On`, `Once`, `off()` and `Off`, `OnPing` and `OnPong` with a small `PingInterval`) and
+`On`, `Once`, `off()` and `Off`, `OnPing` and `OnPong` with a small `PingInterval`; on the
+server side, `Connected()` of the server's `Conn` is true inside its `OnConnect` and false
+once its `OnDisconnect` has run after the client's `Socket.Close`, so the `*namespaceConn` method
+this PR adds is executed by a test of this PR and `make cover-check` holds on its head) and
 `TestClientVolatile` (C11, the D10 extension above over the client-side rule of the V1-4
 polling fence: over polling, a volatile emit made while a POST of the client is in
 flight, the in-process test server holding that POST's response until the emit has

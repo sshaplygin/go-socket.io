@@ -2394,12 +2394,17 @@ func (c *conn) Writable() bool { return false }
 ```
 
 The fences show the shape; each body is implemented as its comment says, under the lock
-that already guards the state it reads. Named test: `TestSessionWritable` (package
+that already guards the state it reads. Named tests: `TestSessionWritable` (package
 `session`, under `// Covers K16`, the row staying `ADD V1-6` until V1-6 closes it, and the
 per-PR DoD still requires V1-6's `TestVolatileEmit` under its own marker: a
 polling session is writable only while a poll waits, a websocket session not while a
 writer is open, no session after its close; a `scriptConn` without the method counts as
-writable).
+writable) and `TestEngineClientWritable` (package `engineio`, the same marker stacked, so
+the client-side methods are exercised by their own PR and not first by V1-11's
+`TestClientVolatile`: the engine client returned by `Dialer.Dial` over polling is not
+writable while a POST is in flight, the test server holding that POST's response, and is
+writable when idle; over websocket it is not writable only while a writer obtained from
+`NextWriter` is open; neither after `Close`).
 
 ### V1-5 contract
 

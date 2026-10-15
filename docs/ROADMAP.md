@@ -2221,10 +2221,11 @@ func (s *Session) SetLimits(maxMessageSize int64, upgradeTimeout time.Duration) 
 func (s *Session) SetRequest(r *http.Request) {}
 
 // Request returns the handshake request SetRequest kept, nil before it was called. Its
-// Body is consumed and its Context is done once the handshake response was written, so
-// it serves for the URL, headers, TLS state and remote address only. The socket.io
-// server reads it through the optional interface interface{ Request() *http.Request }
-// on engineio.Conn (K5, V1-7).
+// Body is consumed and its Context is done once ServeHTTP of the handshake request has
+// returned (net/http cancels it then, not when the response is written; the websocket
+// 101 is written by Transport.Accept before that), so it serves for the URL, headers,
+// TLS state and remote address only. The socket.io server reads it through the optional
+// interface interface{ Request() *http.Request } on engineio.Conn (K5, V1-7).
 func (s *Session) Request() *http.Request { return nil }
 ```
 
@@ -2867,8 +2868,9 @@ type Conn interface {
 	EngineConn() engineio.Conn
 	// Request returns the handshake request of the connection (the polling GET or the
 	// websocket upgrade), the one the engine session keeps (session.Session.Request):
-	// its Body is consumed and its Context is done once the handshake response was
-	// written, so it serves for the URL, headers, TLS state and remote address only.
+	// its Body is consumed and its Context is done once ServeHTTP of the handshake
+	// request has returned, so it serves for the URL, headers, TLS state and remote
+	// address only.
 	// Non-nil from the first call of any handler or middleware of the connection on and
 	// for the rest of the Conn's lifetime; nil on a client connection and on an engine
 	// connection without a Request method.

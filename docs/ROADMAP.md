@@ -3187,7 +3187,7 @@ type Dialer struct {
 	// false, the zero value, keeps today's rule: the last transport first, with
 	// fallback, and no probe.
 	Upgrade bool
-	// UpgradeTimeout bounds one probe, from the start of the probe transport's dial
+	// UpgradeTimeout bounds one probe, from Dial's return, when the probe starts,
 	// until the UPGRADE packet has been written; when it passes, or Close is called, the
 	// probe fails and the connection stays on Transports[0]. transport.Transport.Dial
 	// takes no context, so the dial itself runs until the probe transport's own timeout
@@ -3195,8 +3195,8 @@ type Dialer struct {
 	// stops waiting for it, and a connection the dial returns later is closed. 0 or a
 	// negative value means 10 seconds, the upgradeTimeout of the engine.io 3.6.2 server
 	// (engine.io-client 3.5.6 has no client-side bound). A value above pingInterval +
-	// pingTimeout of the OPEN packet acts as that sum, so a probe never outlasts the
-	// read deadline that 3probe arms.
+	// pingTimeout of the OPEN packet acts as that sum, so a probe ends before the first
+	// deadline the ping loop arms, that sum after its first PING.
 	UpgradeTimeout time.Duration
 }
 ```
@@ -3216,7 +3216,7 @@ timeout` and `transport error` (`socket.js:208-213`, `manager.js:500-511`), the 
 three read from the `*session.CloseError` that V1-4 gives `NextReader`; V1-10 makes the
 engine client (`engineio/client.go`) return it too: `transport close` for a CLOSE packet,
 `ping timeout` when the read deadline armed by the last PONG passes (`client.go:70`; C5's
-probe also arms it at `3probe` and at the switch, *Observable rules of the probe*),
+switch also arms it, *Observable rules of the probe*),
 `transport error` for any other failure, `forced close` after `Close`. C4: `Timeout` as
 commented; `Connect` returns the dial error (the reference's `connect_error`) or
 `ErrConnectTimeout` (its `connect_timeout`) and leaves the Client in the state before the
@@ -3269,15 +3269,19 @@ Writes made during the probe, the ping loop's PING included, are neither lost no
 reordered; they may wait from `3probe` until the switch or the failure, as the reference
 keeps its `writeBuffer` while `upgrading` (`lib/socket.js:316,566-576`) and flushes it on
 the new transport after `5` (`:329-334`). That hold is bounded by the probe's bound, the
-smaller of `UpgradeTimeout` and `PingInterval` + `PingTimeout` of the OPEN packet. Reading
-`3probe` proves the server alive as a PONG does, so it re-arms the read and the write
-deadline of the polling connection to `PingInterval` + `PingTimeout` from then (the
-values `client.go:70` arms after a PONG and `client.go:139` after a PING); the hold starts
-there and ends within the probe's bound, so before those deadlines, for any option
-values, and the polling payload never stores a timeout during a probe that then fails
-(`payload.go:296-320`). With the D15 defaults 25 s and 20 s the bound is the default
-`UpgradeTimeout`, 10 s, against 45 s. At the switch the client arms the same two
-deadlines, `PingInterval` + `PingTimeout`, on the new connection, as after a PONG and a
+smaller of `UpgradeTimeout` and `PingInterval` + `PingTimeout` of the OPEN packet, counted
+from `Dial`'s return, a clock `Dial` reads before it starts the ping loop
+(`dialer.go:101`). No deadline of the polling connection can pass inside that bound:
+`Dial` arms none (`dialer.go:36-104`), each one is armed `PingInterval` + `PingTimeout`
+after a PONG read or a PING written (`client.go:70,139`), and the first PING is written
+`PingInterval` after the ping loop starts, so the earliest deadline falls after the
+bound ends, for any option values, and the polling payload never stores a timeout during
+a probe that then fails (`payload.go:296-320`). This holds for v1's one upgrade,
+websocket, whose probe starts at `Dial`'s return, so the client need not arm a deadline at
+`3probe`, and the bound, which `clamped` below tests, is the whole rule. With the D15
+defaults 25 s and 20 s the bound is the default `UpgradeTimeout`, 10 s, against 45 s. At
+the switch the client arms the read and the write deadline, `PingInterval` +
+`PingTimeout`, on the new connection, as after a PONG and a
 PING: `Dial` arms none (`dialer.go:36-104`) and `client.go:70,139` arm them only on the
 connection that read the PONG or wrote the PING, so without it a server that dies between
 the switch and the next PONG would never end the connection with `ping timeout`.

@@ -2053,7 +2053,7 @@ method on it: V1-16 gives it real methods) and `faultConn` (`log_test.go`, embed
 `brokenConn`) implement `transport.Conn`, which no contract changes (it is a SYNC manifest
 file), so they are untouched. Two root test types stand in for `Conn` the way `*fakeConn`
 does for `engineio.Conn`: `redisTestConn` (`redis_broadcast_test.go:30`) and `emitConn`
-(`backpressure_test.go:775`) embed a nil `Conn`, define only `ID` and `Emit`, and are
+(`backpressure_test.go:774`) embed a nil `Conn`, define only `ID` and `Emit`, and are
 passed to `Broadcast.Join` and `Send`; they compile unchanged after every D10 addition and
 panic when the library calls any other method on them, so a PR whose broadcast code calls
 a new `Conn` method on its recipients (V1-6's `SendTo` of the memory and Redis types, if it
@@ -5074,9 +5074,10 @@ DoD has run.
 **`api` freeze (additive exported API of `client`).** Derived from `client.go`, `connection.go`,
 `namespace_conn.go` and `errors.go` at `$TIP`; deliberately not an `api` fence, which the
 Stage 1b allow-list reads. A difference from the root signature at `$TIP`, receiver and
-parameter names included (`go doc -short` compares them), blocks the stage. The two
-`var`s are separate statements, as at `$TIP`: `go doc -short` prints only the first of a
-grouped `var ( ... )` block, and the export check would lose the second.
+parameter names included (`go doc -short` compares them), blocks the stage. The three
+`var`s (`ErrEmptyAddr`, `ErrServerOnly`, `ErrWriteBufferFull`) are separate statements,
+as at `$TIP`: `go doc -short` prints only the first of a grouped `var ( ... )` block, and
+the export check would lose the others.
 
 ```text
 var ErrEmptyAddr, var ErrServerOnly, var ErrWriteBufferFull

@@ -2188,7 +2188,11 @@ closes the probe connection and leaves polling as it was, never paused, so no PO
 meet a paused server on that path. The change is in `session.upgrading` and, where the
 NOOP answer without a pause needs it, `engineio/payload/payload.go` and
 `engineio/transport/polling/server.go`; `payload/pauser.go`, a SYNC manifest file, keeps
-its content. The v1 section of `docs/PROTOCOL.md` refers to the sequence diagram of the v2 section,
+its content. The existing `TestSessionUpgradeFailures`
+(`engineio/session/session_lifecycle_test.go:253-293` at `2667c25`) expects one `Resume`
+in its cases `no upgrade packet` and `wrong packet after probe`; V1-2 rewrites both to
+expect no `Pause` and no `Resume`, and `TestSessionUpgrade` (`:235-251`) keeps its one
+`Pause`, now made on `5`. The v1 section of `docs/PROTOCOL.md` refers to the sequence diagram of the v2 section,
 which already draws this order (the old connection paused after `UPGRADE`), so V1-2 makes
 the v1 server match it and P4 needs no PROTOCOL.md edit. Observable change: a
 POST in that window is accepted where it got 400 (a

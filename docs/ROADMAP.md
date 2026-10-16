@@ -1754,7 +1754,8 @@ client receives and of every ack it gets back (JSON-decoded values, so number fo
 does not count), the order of events on one socket, the payload of an `error` event
 (`Invalid namespace`, a middleware reason), the reason of each `disconnect` event, the
 `connect` and `disconnect` sequence of each namespace socket, the HTTP status and JSON body
-of a rejected handshake (P11, P12), the CORS headers of a polling response (P8), the
+of a rejected handshake sent as a plain HTTP request (P11, P12; a rejected websocket upgrade
+is the D9 difference of `### V1-2 contract` and is not compared), the CORS headers of a polling response (P8), the
 `pingInterval` and `pingTimeout` of the OPEN packet (E1, E2) and binary payloads (compared as
 bytes). Normalised before the comparison: session ids and `socket.id` values (replaced by the
 index of the connection in the transcript; `/ns#id` keeps its prefix, K1), `handshake.time`
@@ -1771,7 +1772,8 @@ disconnect`, since the reference writes the DISCONNECT packet before the engine 
 the engine flushes it (`client.js:111-119`, engine `socket.js:462-470`); a connection the
 server drops without a packet, `Server.Remove(sid)`, seen as `transport close`; K20, K24),
 `handshake-data` (query and a header echoed back; K5, K7),
-`rejected-handshake` (bad method, unknown sid, unknown transport by raw HTTP; P11, P12, P13),
+`rejected-handshake` (bad method, unknown sid, unknown transport by raw HTTP requests
+without an `Upgrade` header, in both transport variants; P11, P12, P13),
 `cors` (a polling GET with and without `Origin`; P8), `open-packet` (E1, E2). Twelve scenarios
 over two transports: twenty-four subtests per matrix entry, named flat as
 `<scenario>-<transport>` (one `t.Run` level, `TestDifferential/connect-root-polling`, no
@@ -1925,7 +1927,7 @@ v1p() { sed -n '/^## Implemented: Engine.IO protocol v3 in the v1 module$/,/^## 
 test -z "$(v1p | grep -F -e '`pingInterval` (default 20 s)' -e '`pingTimeout` (default 60 s)')"; test -n "$(v1p | grep -F '  25 s) and `pingTimeout` (default 20 s). There is no `maxPayload`: protocol v3 has none.')"   # handshake (:81-82; E1, E2, E7, E15, P12)
 test -z "$(v1p | grep -F 'the read/write deadline by `pingTimeout`')"; test -n "$(v1p | grep -F '  without one, the session closes with reason `ping timeout`.')"   # heartbeat (:83-84; E1, P3)
 test -n "$(v1p | grep -F -e '- Message limit: `Options.MaxHTTPBufferSize`, default 1e6 bytes. A longer polling POST')"   # message limit (E4)
-test -z "$(v1p | grep -F 'plain text with HTTP 400')"; test -n "$(v1p | grep -F -e '- Requests the server rejects before a transport handles them are answered with JSON')"   # errors (:94-95; E5, E7, P11, P12)
+test -z "$(v1p | grep -F 'plain text with HTTP 400')"; test -n "$(v1p | grep -F -e '- Requests the server rejects before a transport handles them are answered with JSON')"; test -n "$(v1p | grep -F 'where engine.io 3.6.2 writes a plain-text HTTP 400 and closes the socket')"   # errors (:94-95; E5, E7, P11, P12; the upgrade difference, D9)
 test -z "$(grep -F -e 'no payload size limit' -e 'Engine.IO v3 runtime (v1, repository root' docs/PROTOCOL.md)"   # the v1 entry of Known deviations (:124-126) is gone
 ```
 
@@ -2291,7 +2293,10 @@ P12), the heartbeat bullet (`:83-84`, a PONG that extends the read/write deadlin
 P11, P12 and E7's code 3, for the requests `Server.ServeHTTP` rejects before a transport
 handles them, `engineio/server.go:110-159`; the polling transport's own plain-text
 answers, `polling/server.go:114,124,130,140` and E4's 413, stay, as the reference's JSON
-replies come from its `Server.verify` and `handleRequest` only, `server.js:243-268`) and
+replies come only from its `sendErrorMessage` (`server.js:243-268`), which `handleRequest`
+calls for a non-upgrade request that `Server.verify` rejects (`:214-233`) and `handshake`
+for a transport that cannot be created (`:311`); a websocket upgrade request that
+`Server.verify` rejects is not answered with JSON, the D9 difference after the fence) and
 the v1 entry of *Known deviations from the v3/v4 specs*
 (`:124-126`, the line "Engine.IO v3 runtime (v1, repository root `engineio`):" and its
 bullet "No `maxPayload` handshake field and no payload size limit"), which V1-2 deletes:
@@ -2313,15 +2318,27 @@ and stay too. V1-2's lines, each replacing the bullet named above:
   body is answered HTTP 413 (plain text) and closes the session; a longer websocket
   message closes the connection with close code 1009.
 - Requests the server rejects before a transport handles them are answered with JSON
-  `{"code":<n>,"message":"<text>"}`, as in engine.io 3.6.2: HTTP 400 with code 0
-  `Transport unknown`, 1 `Session ID unknown`, 2 `Bad handshake method` or 3 `Bad request`
-  (also a transport that cannot accept the request, except a websocket handshake that
-  gorilla/websocket answers itself, and a session that cannot be created), and HTTP 403
-  with code 4 `Forbidden` when `Options.RequestChecker` rejects the request. What the
-  polling transport rejects itself stays plain text: HTTP 400 for an unsupported
+  `{"code":<n>,"message":"<text>"}`, as engine.io 3.6.2 answers a request that is not a
+  websocket upgrade: HTTP 400 with code 0 `Transport unknown`, 1 `Session ID unknown`, 2
+  `Bad handshake method` or 3 `Bad request` (also a transport that cannot accept the
+  request, except a websocket handshake that gorilla/websocket answers itself, and a
+  session that cannot be created), and HTTP 403 with code 4 `Forbidden` when
+  `Options.RequestChecker` rejects the request. A websocket upgrade request gets the same
+  answers, where engine.io 3.6.2 writes a plain-text HTTP 400 and closes the socket. What
+  the polling transport rejects itself stays plain text: HTTP 400 for an unsupported
   `Content-Type`, a paused or overlapping payload or an invalid method, 413 for the
   message limit above, 500 for a poll whose response failed before it was started.
 ```
+
+The fence's "as engine.io 3.6.2 answers" covers the requests that are not a websocket
+upgrade. 3.6.2 hands an upgrade request to `handleUpgrade` (`server.js:351-358`), and when
+`Server.verify` rejects it, `abortConnection` (`:509-526`) writes `HTTP/1.1 400 Bad
+Request` with `Content-type: text/html` and the code's message as plain text, then destroys
+the socket; the same holds for an unknown transport, an unknown sid, a bad request and an
+`allowRequest` rejection. V1-2's `Server.ServeHTTP` takes an upgrade request on the same
+path as any other and answers it with the JSON and status of the fence (403 for a
+`RequestChecker` rejection). That is a D9 difference, recorded like E4's 413 above and in
+P11's evidence: a reference client's websocket fails to open either way.
 
 The V1-2 per-PR check below greps for both fences. Observable change: a
 POST in that window is accepted where it got 400 (a

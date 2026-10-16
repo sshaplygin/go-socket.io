@@ -57,8 +57,11 @@ per-PR DoD and the checks named for that PR, the section its scope row points to
   A PR still rejected after the third iteration stops and goes to the owner.
 - The executor and the reviewers use the default tier of agent the owner sets; the
   strongest tier only after three rejected iterations of one PR and the owner's go.
-- A PR merges only with the three approvals of its last iteration and every CI job green,
-  by the owner or under the owner's standing merge authorization.
+- A PR merges only with the three approvals of its last iteration, reached within three
+  iterations, and every CI job green. The owner merges it. A taker merges its own PR only
+  when the owner has given that taker merge authorization in writing, in an owner comment
+  on the taker's registry PR or on the PR itself, which the PR body cites, and only on
+  those terms; without such a comment the taker never merges.
 - No commit message, PR text, review comment or file names or credits an assistant, a
   model or its provider; no generated footer or trailer.
 - No tag and no version bump: tags and the release commit follow *Releases*, on the

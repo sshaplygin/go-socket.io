@@ -2322,8 +2322,9 @@ and stay too. V1-2's lines, each replacing the bullet named above:
   websocket upgrade: HTTP 400 with code 0 `Transport unknown`, 1 `Session ID unknown`, 2
   `Bad handshake method` or 3 `Bad request` (also a transport that cannot accept the
   request, except a websocket handshake that gorilla/websocket answers itself, and a
-  session that cannot be created), and HTTP 403 with code 4 `Forbidden` when
-  `Options.RequestChecker` rejects the request. A websocket upgrade request gets the same
+  session that cannot be created), and HTTP 403 with code 4 and the fixed message
+  `Forbidden` when `Options.RequestChecker` rejects the request (3.6.2 sends the error
+  of `allowRequest` as the message). A websocket upgrade request gets the same
   answers, where engine.io 3.6.2 writes a plain-text HTTP 400 and closes the socket. What
   the polling transport rejects itself stays plain text: HTTP 400 for an unsupported
   `Content-Type`, a paused or overlapping payload or an invalid method, 413 for the
@@ -2338,7 +2339,11 @@ the socket; the same holds for an unknown transport, an unknown sid, a bad reque
 `allowRequest` rejection. V1-2's `Server.ServeHTTP` takes an upgrade request on the same
 path as any other and answers it with the JSON and status of the fence (403 for a
 `RequestChecker` rejection). That is a D9 difference, recorded like E4's 413 above and in
-P11's evidence: a reference client's websocket fails to open either way.
+P11's evidence: a reference client's websocket fails to open either way. A second D9
+difference, recorded in P11 too: 3.6.2's 403 carries `message: code || 'Forbidden'`
+(`server.js:250-251`), the error `allowRequest` passes, while V1-2's message is always
+`Forbidden`; the `RequestChecker` error is not written to the client and reaches only the
+`ConnectionError` hook of `### V1-17 contract`.
 
 The V1-2 per-PR check below greps for both fences. Observable change: a
 POST in that window is accepted where it got 400 (a

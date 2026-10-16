@@ -2096,8 +2096,10 @@ for pr in 2 5 6 7 10 11 15 16 17 18; do for id in $(rows | awk -F' *[|] *' -v pr
 ### V1-2 contract
 
 Rows: E3 (`upgradeTimeout`), E4 (`maxHttpBufferSize`; its `BUG` entry is the missing cap,
-its `ADD` entry the field) and E7 (`allowUpgrades`), and with them P4 (`CHG`, the upgrade
-probe window), specified below because it changes the sequence E3 bounds. The other V1-2
+its `ADD` entry the field) and E7 (`allowUpgrades`), and with them P4 (its `CHG` entry the
+upgrade probe window, its `ADD` entry `Payload.AnswerPoll`, the one exported identifier
+the window needs, the form of E4), specified below because it changes the sequence E3
+bounds. The other V1-2
 rows (E1, E2, E5, E14, E15, E22, P3, P11, P12) change behaviour or defaults without new API
 and are specified in the V1-2 row of the PR table. Three fields on `engineio.Options`
 (`engineio/server_options.go:16-45`), read by `NewServer` through getters like the

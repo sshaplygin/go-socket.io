@@ -3311,7 +3311,19 @@ bound ends, for any option values, and the polling payload never stores a timeou
 a probe that then fails (`payload.go:296-320`). This holds for v1's one upgrade,
 websocket, whose probe starts at `Dial`'s return, so the client need not arm a deadline at
 `3probe`, and the bound, which `clamped` below tests, is the whole rule. With the D15
-defaults 25 s and 20 s the bound is the default `UpgradeTimeout`, 10 s, against 45 s. At
+defaults 25 s and 20 s the bound is the default `UpgradeTimeout`, 10 s, against 45 s.
+The bound protects the client's own deadlines only, not the server's window (V1-2:
+`PingInterval` + `PingTimeout` since the last packet the session read). When the
+server's values make the sum at most `UpgradeTimeout`, so that the bound is the sum,
+and the probe stalls after `3probe` (as in `unread`), the client holds its first PING
+until the bound ends, the sum after `Dial`'s return, while the server's window started
+at the handshake or at the last POST before `3probe`, one round trip earlier at least:
+the server may then close the session with `ping timeout` before the held PING reaches
+it, and the client reads that close on polling instead of going on. Accepted as is:
+engine.io-client 3.5.6 has the same exposure with no bound at all (its `writeBuffer` is
+held while `upgrading`, `:316,566-576`), the D15 defaults cannot produce it (45 s
+against 10 s), and no named test uses such values with a stalled probe (`clamped` never
+reads `3probe`, `unread` uses the default ping values). At
 the switch the client arms the read and the write deadline, `PingInterval` +
 `PingTimeout`, on the new connection, as after a PONG and a
 PING: `Dial` arms none (`dialer.go:36-104`) and `client.go:70,139` arm them only on the

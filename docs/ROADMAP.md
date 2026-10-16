@@ -283,7 +283,7 @@ Never edited by a package, besides the paths of the others: any `v2/` file but B
 mirrors; a tag or a version string; the `docs/PARITY.md` rows of another PR. In particular:
 SY not the manifest files or their copies (B's); B not a manifest file without its `v2/` copy
 (D14), nor the interface files `engineio/transport/*.go` (V1-18), nor `engineio/payload/pauser.go` (V1A); C no
-Go file outside `internal/`; D in `internal/conformance` only its two files (the Go-client step);
+Go file outside `internal/`; D in `internal/conformance` only the two files of the Go-client step (*Conformance contract*: V1-10 adds them, V1-11 its reconnect scenario);
 F neither `_examples/client/` (D) nor the `chat.go` of `redis-adapter` and
 `redis-adapter-unix-socket` (`CHAT_SKIP` until V1R); G not `parser/` (row V1E) and no
 manifest file; H no Go file. A path outside the set is a plan change (CONTRIBUTING.md).
@@ -1739,8 +1739,11 @@ namespace connect, an unknown namespace answered by ERROR with the root socket k
 in both directions; binary event and binary ack in both directions; non-ASCII text (P16);
 rooms and broadcast except the sender (K14); middleware rejection with its reason; a server-side
 disconnect seen as `io server disconnect` (K20); the upgrade; a reconnect. A second step runs the
-Go `client` against a Node `socket.io@2.5.0` server (from V1-10 on), a script in
-`testdata/node/server/` started by tagged tests of the same package; V1-8 installs
+Go `client` against a Node `socket.io@2.5.0` server (from V1-10 on), the script
+`testdata/node/server/goclient-server.js` started by the tagged tests of
+`internal/conformance/goclient_test.go`: V1-10 adds both (the scenarios its scope covers:
+both transports, the upgrade, namespaces), V1-11 adds the reconnect scenario to them, since
+V1-8 merges before the `client` package exists (V1-9); V1-8 installs
 `socket.io@2.5.0` under the server prefix from the start, so that step and V1-19 edit no
 workflow. Rows marked `TEST` in PARITY.md
 are closed by a named test: P9 (OPTIONS answer), P15 (websocket framing), P17 (graceful close)

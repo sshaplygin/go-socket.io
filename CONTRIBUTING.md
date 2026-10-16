@@ -69,7 +69,7 @@ per-PR DoD and the checks named for that PR, the section its scope row points to
   on the taker's registry PR or on the PR itself, which the PR body cites, and only on
   those terms; without such a comment the taker never merges.
 - No commit message, PR text, review comment or file names or credits an assistant, a
-  model or its provider; no generated footer or trailer.
+  model or its provider (footers and trailers: *Pull requests* item 4).
 - No tag and no version bump: tags and the release commit follow *Releases*, on the
   owner's order only.
 - `master`, `v1.x` and any branch another person pushed to are never rewritten or

@@ -75,7 +75,9 @@ per-PR DoD and the checks named for that PR, the section its scope row points to
 its own hunk, lists the files in a body line `integrator: <package> <path>...`, and merges
 after the integrator's taker has commented `integrated: <path>...` on it; when an open PR
 of the integrator edits the same file, the worker's PR merges after it, with `master`
-merged in and the DoD re-run. In `docs/PARITY.md`, `CHANGELOG.md` and the registry a PR
+merged in and the DoD re-run. When the integrating package has no taker, the roadmap's
+[fallback](docs/ROADMAP.md#stage-v1-work-packages) applies (the paragraph after the `O`-pair
+table). In `docs/PARITY.md`, `CHANGELOG.md` and the registry a PR
 edits only its own rows; a conflict there keeps both sides.
 
 **Reporting back,** to the owner, per PR: the PR number and head SHA; the result of every

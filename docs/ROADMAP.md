@@ -311,6 +311,11 @@ forbids it).
 | C, F | `Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md` | V1-12 starts after V1-8 and merges after V1-20 (V1C before V1E) |
 | D, F | `CLAUDE.md`; `_examples/` (D only `_examples/client/`) | V1-9 merges before V1-12 (V1D before V1E) |
 
+An integrator acts only while its package is `taken`. When the integrating package is `open`
+or `done` (A done before B's V1-16 to V1-18, or A without a taker), the worker's PR integrates
+its own hunks of those files: `master` merged in, its DoD re-run on the result, and the body
+line `integrator: none (<package> <status>)` in place of the integrator's comment.
+
 SY merges before V1-8 starts (once SY has left `open` with no merged PR, V1-8 waits for `.github/sync-manifest`), or, once C has started (a `conformance` job, C `taken` or `done`,
 or a last merged PR in C's row), only after C to G are `done` (row SY: never beside V1C or
 V1E; the matrix adds V1D). The MV1 line `API_UNCOVERED_MAX` 0 has no owning PR in the PR table:

@@ -285,7 +285,9 @@ H|docs/PROTOCOL.md
 Never edited by a package, in addition to every path outside its own set (a path in two
 sets, as in the `O` pairs below, may be edited by both): any `v2/` file but B's two
 mirrors; a tag or a version string; the `docs/PARITY.md` rows of another PR. In particular:
-SY not the manifest files or their copies (B's); B not a manifest file without its `v2/` copy
+SY not the manifest files or their copies (B's); A no manifest file (its set reaches
+`engineio/session/session_id_generator.go` and `session_manager.go`, but their `v2/` copies
+are B's); B not a manifest file without its `v2/` copy
 (D14), nor the interface files `engineio/transport/*.go` (V1-18), nor `engineio/payload/pauser.go` (V1A); C no
 Go file outside `internal/`; D in `internal/conformance` only the two files of the Go-client step (*Conformance contract*: V1-10 adds them, V1-11 its reconnect scenario);
 F neither `_examples/client/` (D) nor the `chat.go` of `redis-adapter` and

@@ -297,8 +297,8 @@ manifest file; H no Go file. A path outside the set is a plan change (CONTRIBUTI
 **Beside.** `P`: never a common path and never a common Go package (two `.go` files of one
 directory), so the two run at the same time and merge in either order (the DoD below checks
 both); `O`: they may run at the same time but share paths or a Go package, merged in the
-order of the next table; `S`: never at the same time (an entry needs the other's exit, or row SY
-forbids it).
+order of the next table; `S`: never at the same time (an entry needs the other's exit, or, for SY, the SYNC arm
+of *Entry*, as the paragraph after the next table derives it from row SY).
 
 | Beside | SY | A | B | C | D | E | F | G | H |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -325,11 +325,12 @@ its own hunks of those files: `master` merged in, its DoD re-run on the result, 
 line `integrator: none (<package> <status>)` in place of the integrator's comment.
 
 SY merges before V1-8 starts (once SY has left `open` with no merged PR, V1-8 waits for `.github/sync-manifest`), or, once C has started (a `conformance` job, C `taken` or `done`,
-or a last merged PR in C's row), only after C to G are `done`. A row turns `taken` only when
-the entry check of its next PR passes on `master`, re-run before its registry PR merges
+or a last merged PR in C's row), only after C to G are `done` (row SY: never beside V1C or V1E; the matrix adds V1D, because
+V1-12 of V1E may start inside V1D (row V1E) and the SYNC arm reads one fact for all of C to
+G: SY-E is `S` by that arm alone, SY-D by it and by `CLAUDE.md`, which both edit). A row turns `taken` only when the
+entry check of its next PR passes on `master`, re-run before its registry PR merges
 (CONTRIBUTING.md), so C `taken` means that `entry V1-8` passed and SY `taken` that `entry
-SYNC` did: whichever row is taken first keeps the other's entry failing (row SY: never beside V1C or
-V1E; the matrix adds V1D). The MV1 line `API_UNCOVERED_MAX` 0 has no owning PR in the PR table:
+SYNC` did: whichever row is taken first keeps the other's entry failing. The MV1 line `API_UNCOVERED_MAX` 0 has no owning PR in the PR table:
 V1-20 records the measured value and the ratchet only keeps later PRs from raising it, so
 which package lowers it to 0 is the owner's call before H can pass MV1.
 

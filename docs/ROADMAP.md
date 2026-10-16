@@ -334,22 +334,22 @@ st() { tbl '| Package | Status |' | awk -F' *[|] *' -v k="$1" '$2 == k {print $3
 lm() { tbl '| Package | Status |' | awk -F' *[|] *' -v k="$1" '$2 == k {print $6}'; }   # its last merged PR, `-` before the first
 sy() { test -f .github/sync-manifest -o "$(st SY)" = open -a "$(lm SY)" = -; }   # SYNC has merged, or SY has not started (a taker who stops closes its open PRs); every PR of C to G checks it (the `S` cells of row SY)
 entry() { case $1 in
-SYNC) test "$(go list -m)" = github.com/sshaplygin/go-socket.io; test -f v2/go.mod; if grep -q '^  conformance:' .github/workflows/ci.yaml || test "$(st C)" != open -o "$(lm C)" != -; then for k in C D E F G; do test "$(st $k)" = done || return 1; done; fi;;   # row R step C passed; never beside V1C to V1E: before V1-8 has started, or once C to G are done
+SYNC) test "$(go list -m)" = github.com/sshaplygin/go-socket.io || return 1; test -f v2/go.mod || return 1; if grep -q '^  conformance:' .github/workflows/ci.yaml || test "$(st C)" != open -o "$(lm C)" != -; then for k in C D E F G; do test "$(st $k)" = done || return 1; done; fi;;   # row R step C passed; never beside V1C to V1E: before V1-8 has started, or once C to G are done
 V1-2) for n in 2 4 5 6 7 10 11 15 16 17 18; do grep -q "^### V1-$n contract" docs/ROADMAP.md || return 1; done;;   # wave V1A; V1-1 has merged
 V1-3) wave 1 2;;
 V1-4|V1-5|V1-6|V1-7) wave 1 2 $((${1#V1-} - 1));;   # A in order
 V1-16) wave 1 2 4;;
 V1-17) wave 16;;
 V1-18) wave 17;;
-V1-8) wave 3 4 5 6 7 16 17 18; sy;;   # entry of V1C
-V1-20) wave 8; grep -q '^  conformance:' .github/workflows/ci.yaml; sy;;
-V1-9|V1-19) wave 8; grep -q '^  conformance:' .github/workflows/ci.yaml; grep -q '^parity-check:' Makefile; grep -q '^cover-check:' Makefile; sy;;   # entry of V1D
-V1-10) test -f client/client.go; sy;;   # V1-9 has no row: its package
-V1-11) wave 10; sy;;
-V1-12) wave 8; grep -q '^  conformance:' .github/workflows/ci.yaml; sy;;   # the V1E exception
-V1-13) wave 10 11; test -f client/client.go; test -f internal/conformance/differential_test.go; test -f _examples/ack/go.mod -a -f _examples/binary/go.mod; sy;;   # entry of V1E, after V1-12
-V1-15) wave 10 11; test -f client/client.go; test -f internal/conformance/differential_test.go; sy;;   # entry of V1E
-V1-14) wave 15; test -f _examples/ack/go.mod -a -f _examples/binary/go.mod -a -f _examples/namespaces/go.mod -a -f _examples/middleware/go.mod; for k in A B C D E F G; do test "$(st $k)" = done || return 1; done;;   # entry of V1F
+V1-8) wave 3 4 5 6 7 16 17 18 || return 1; sy;;   # entry of V1C
+V1-20) wave 8 || return 1; grep -q '^  conformance:' .github/workflows/ci.yaml || return 1; sy;;
+V1-9|V1-19) wave 8 || return 1; grep -q '^  conformance:' .github/workflows/ci.yaml || return 1; grep -q '^parity-check:' Makefile || return 1; grep -q '^cover-check:' Makefile || return 1; sy;;   # entry of V1D
+V1-10) test -f client/client.go || return 1; sy;;   # V1-9 has no row: its package
+V1-11) wave 10 || return 1; sy;;
+V1-12) wave 8 || return 1; grep -q '^  conformance:' .github/workflows/ci.yaml || return 1; sy;;   # the V1E exception
+V1-13) wave 10 11 || return 1; test -f client/client.go || return 1; test -f internal/conformance/differential_test.go || return 1; test -f _examples/ack/go.mod -a -f _examples/binary/go.mod || return 1; sy;;   # entry of V1E, after V1-12
+V1-15) wave 10 11 || return 1; test -f client/client.go || return 1; test -f internal/conformance/differential_test.go || return 1; sy;;   # entry of V1E
+V1-14) wave 15 || return 1; test -f _examples/ack/go.mod -a -f _examples/binary/go.mod -a -f _examples/namespaces/go.mod -a -f _examples/middleware/go.mod || return 1; for k in A B C D E F G; do test "$(st $k)" = done || return 1; done;;   # entry of V1F
 *) echo "no PR $1" >&2; return 1;;
 esac; }
 ```

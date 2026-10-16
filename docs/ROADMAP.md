@@ -1913,8 +1913,8 @@ TestPingTimeoutIdleClient/ping, TestPingTimeoutIdleClient/messages` (on the base
 the PR's test files applied; not a `fails without the fix:` line, which the DoD block
 counts against the `BUG` rows of the base, and E1 and P3 are `CHG` rows). V1-2 also
 checks the v1 lines of `docs/PROTOCOL.md` that `### V1-2 contract` gives it (the upgrade
-bullet of P4 and the four lines of its second `text` fence, each old text gone and each new
-one present; `v1p` prints the v1 Engine.IO section only, since the v2 section keeps its
+bullet of P4 and the four bullets of its second `text` fence, one line of each grepped,
+each old text gone and each new one present; `v1p` prints the v1 Engine.IO section only, since the v2 section keeps its
 copies of the old handshake, heartbeat and error text):
 
 ```sh

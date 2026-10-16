@@ -115,7 +115,7 @@ of <PKG> that the section allows <PR> (path block, narrowed by its paragraphs), 
 of another PR. Follow every rule of "Work packages" without exception. Title the commits
 and the PR as the Stage V1 PR sequence requires.
 
-Done when: the per-PR DoD with N=<PR> and the checks named for <PR> pass on the head,
+Done when: the Exit gate of <PKG> for <PR> (the packages table) passes on the head,
 the PR to master is open with a factual body (problem, change, what was verified with
 which command and its numbers, what was not run), the three reviewers approved within
 three iterations and CI is green. Report back as "Work packages" lists.

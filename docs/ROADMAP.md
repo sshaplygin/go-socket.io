@@ -3469,7 +3469,7 @@ included; that outcome does not depend on goroutine timing, since the server nev
 polling (P4)), `TestClientUpgradeDeadline` (the switch arms the deadlines; the whole server side is
 one `httptest` handler of the test, no `engineio.Server`, so no V1-2 check and no server
 deadline takes part; the client dials with `Upgrade` true and `Transports` polling, then
-websocket, the defaults of package `client`: it answers the polling handshake with an
+websocket, the defaults of package `client`; the handler answers the polling handshake with an
 OPEN packet carrying a `sid`, `upgrades` `["websocket"]` (without it no probe starts, the
 `Upgrade` godoc) and `pingInterval` and `pingTimeout` 500 ms each, every POST with 200
 `ok`, and every GET that

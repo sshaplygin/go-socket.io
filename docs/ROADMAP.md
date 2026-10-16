@@ -2291,8 +2291,12 @@ the handshake bullet (`:81-82`, `pingInterval` default 20 s and `pingTimeout` de
 P12), the heartbeat bullet (`:83-84`, a PONG that extends the read/write deadline by
 `pingTimeout`; E1, P3), the error bullet (`:94-95`, plain text with HTTP 400 or 502; E5,
 P11, P12 and E7's code 3, for the requests `Server.ServeHTTP` rejects before a transport
-handles them, `engineio/server.go:110-159`; the polling transport's own plain-text
-answers, `polling/server.go:114,124,130,140` and E4's 413, stay, as the reference's JSON
+handles them, `engineio/server.go:110,117,131,140,148,159,169`, :169 being the 502 when
+the upgrade's `Accept` fails, which the fence's "a transport that cannot accept the
+request" covers; the polling transport's own plain-text answers,
+`polling/server.go:114,124,130,140` and E4's 413, stay, the 400 at `:130` being every
+error of `Payload.FeedIn` (`payload.go:90-144`), which the fence's "a POST the payload
+cannot take" lists, as the reference's JSON
 replies come only from its `sendErrorMessage` (`server.js:243-268`), which `handleRequest`
 calls for a non-upgrade request that `Server.verify` rejects (`:214-233`) and `handshake`
 for a transport that cannot be created (`:311`); a websocket upgrade request that
@@ -2327,8 +2331,9 @@ and stay too. V1-2's lines, each replacing the bullet named above:
   of `allowRequest` as the message). A websocket upgrade request gets the same
   answers, where engine.io 3.6.2 writes a plain-text HTTP 400 and closes the socket. What
   the polling transport rejects itself stays plain text: HTTP 400 for an unsupported
-  `Content-Type`, a paused or overlapping payload or an invalid method, 413 for the
-  message limit above, 500 for a poll whose response failed before it was started.
+  `Content-Type`, a POST the payload cannot take (paused, overlapping, closed, timed out
+  or not decodable) or an invalid method, 413 for the message limit above, 500 for a poll
+  whose response failed before it was started.
 ```
 
 The fence's "as engine.io 3.6.2 answers" covers the requests that are not a websocket

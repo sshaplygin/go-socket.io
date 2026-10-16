@@ -289,9 +289,10 @@ F neither `_examples/client/` (D) nor the `chat.go` of `redis-adapter` and
 `redis-adapter-unix-socket` (`CHAT_SKIP` until V1R); G not `parser/` (row V1E) and no
 manifest file; H no Go file. A path outside the set is a plan change (CONTRIBUTING.md).
 
-**Beside.** `P`: never a common path, so the two run at the same time in any order (the DoD
-below checks it); `O`: they may run at the same time but share paths, merged in the order
-of the next table; `S`: never at the same time (an entry needs the other's exit, or row SY
+**Beside.** `P`: never a common path and never a common Go package (two `.go` files of one
+directory), so the two run at the same time and merge in either order (the DoD below checks
+both); `O`: they may run at the same time but share paths or a Go package, merged in the
+order of the next table; `S`: never at the same time (an entry needs the other's exit, or row SY
 forbids it).
 
 | Beside | SY | A | B | C | D | E | F | G | H |
@@ -300,8 +301,8 @@ forbids it).
 | A | P | - | O | S | S | S | S | S | S |
 | B | P | O | - | S | S | S | S | S | S |
 | C | S | S | S | - | S | S | O | S | S |
-| D | S | S | S | S | - | P | O | S | S |
-| E | S | S | S | S | P | - | P | S | S |
+| D | S | S | S | S | - | O | O | S | S |
+| E | S | S | S | S | O | - | P | S | S |
 | F | S | S | S | O | O | P | - | P | S |
 | G | S | S | S | S | S | S | P | - | S |
 | H | P | S | S | S | S | S | S | S | - |
@@ -310,6 +311,7 @@ forbids it).
 | --- | --- | --- |
 | A, B | V1-4's `engineio/` files; `server.go`, `backpressure_test.go`, `log_test.go`; `docs/PROTOCOL.md` (other lines) | V1-2 merges before V1-3 starts and V1-4 before V1-16 starts (wave V1B); B's root hunks and `CHANGELOG.md` entries in V1B go through A |
 | C, F | `Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md` | V1-12 starts after V1-8 and merges after V1-20 (V1C before V1E) |
+| D, E | the Go package `internal/conformance` under tag `conformance`: `goclient_test.go` (V1-10, V1-11) and `differential_test.go` (V1-19), both written against V1-8's helpers, so a top-level name can collide | whichever of V1-10, V1-11 and V1-19 merges after another of them merges with `master` merged in and `make conformance` green on that head (the `conformance` job) |
 | D, F | `CLAUDE.md`; `_examples/` (D only `_examples/client/`) | V1-9 merges before V1-12 (V1D before V1E) |
 
 An integrator acts only while its package is `taken`. When the integrating package is `open`
@@ -385,8 +387,9 @@ diff <({ printf 'V1-%s\n' $(seq 1 20); echo SYNC; } | sort) <(tbl '| Package | P
 K='SY A B C D E F G H'; test "$(tbl '| Package | PRs in order |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K "; test "$(tbl '| Package | Status |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K "; test "$(tbl '| Beside | SY |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K "; grep -qxF '| Beside | SY | A | B | C | D | E | F | G | H |' docs/ROADMAP.md   # the packages, the registry and the matrix rows and columns name the same packages in one order
 ps() { awk -F'|' -v k="$1" '/^(SY|[A-H])[|][^ |]+$/ && $1 == k {print $2}' docs/ROADMAP.md; }; for k in $K; do test -n "$(ps $k)" || echo "no paths: $k"; done   # the path set of a package
 c() { tbl '| Beside | SY |' | awk -F' *[|] *' -v r="$1" -v col="$2" -v k="$K" '{n=split(k, h, " "); for (i = 1; i <= n; i++) if (h[i] == col) j = i + 2} $2 == r {print $j}'; }; for x in $K; do for y in $K; do test "$(c $x $y)" = "$(c $y $x)" || echo "asymmetric: $x $y"; done; done   # the matrix cell of row $1, column $2; the matrix is symmetric
-ov() { case $1 in "$2"*) return 0;; esac; case $2 in "$1"*) return 0;; esac; for a in "$1" "$2"; do b=$2; test "$a" = "$1" || b=$1; case $a in *'*.go') d=${a%'*.go'}; case $b in "$d"*.go) case ${b#"$d"} in */*) ;; *) return 0;; esac;; esac;; esac; done; return 1; }   # true when two path entries can name one file
-for x in $K; do for y in $K; do test "$(c $x $y)" = P || continue; for p in $(ps $x); do for q in $(ps $y); do if ov "$p" "$q"; then echo "$x $y: $p $q"; fi; done; done; done; done   # no two parallel-safe packages share a path
+ov() { case $1 in "$2"*) return 0;; esac; case $2 in "$1"*) return 0;; esac; for a in "$1" "$2"; do b=$2; test "$a" = "$1" || b=$1; case $a in *'*.go') d=${a%'*.go'}; case $b in "$d"*.go) case ${b#"$d"} in */*) ;; *) return 0;; esac;; esac;; esac; done; case $1 in *.go) case $2 in *.go) test "$(dirname "$1")" != "$(dirname "$2")" || return 0;; esac;; esac; return 1; }   # true when two path entries can name one file, or two Go files of one package (one directory)
+for x in $K; do for y in $K; do test "$(c $x $y)" = P || continue; for p in $(ps $x); do for q in $(ps $y); do if ov "$p" "$q"; then echo "$x $y: $p $q"; fi; done; done; done; done   # no two parallel-safe packages share a path or a Go package
+for x in $K; do for y in $K; do test "$(c $x $y)" = O || continue; tbl '| `O` pair |' | awk -F' *[|] *' -v a="$x, $y" -v b="$y, $x" '$2 == a || $2 == b {f=1} END {exit !f}' || echo "no order: $x $y"; done; done; tbl '| `O` pair |' | awk -F' *[|] *' '{print $2}' | while IFS=', ' read -r x y; do test "$(c $x $y)" = O || echo "not O: $x $y"; done   # the O cells and the rows of the O-pair table name the same pairs
 ```
 
 ## Repository restructure

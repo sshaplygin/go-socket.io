@@ -40,8 +40,10 @@ taker continues from there. A
 registry PR edits `docs/ROADMAP.md`, so it is reviewed as any roadmap edit (CLAUDE.md,
 *Roadmap validation*).
 
-**Reading list.** [CLAUDE.md](CLAUDE.md); this file; the package's row in each table of the
-roadmap section above and its lines of the path block; for each PR of the package its row
+**Reading list.** [CLAUDE.md](CLAUDE.md); this file; the whole roadmap section above, its
+paragraphs included (the path block is the widest set: the *Paths* paragraph narrows it per
+PR and the paragraph after the block excludes paths; the paragraphs after the `O`-pair table
+set the integrator fallback and the order of SY); for each PR of the package its row
 of the Stage V1 PR table, its wave row, its `### V1-<n> contract` if it has one, the Stage V1
 per-PR DoD and the checks named for that PR, the section its scope row points to
 (*Conformance contract*, Stage 7, *Shared-file drift check*, ...), and the rows of
@@ -101,7 +103,7 @@ Before you edit: the registry row <PKG> says taken by <TAKER>, and the entry che
 If not, stop and report.
 
 Work in your own git worktree on branch <BRANCH> from origin/master. Edit only the paths
-of <PKG>, plus, by row, the PARITY.md rows of <PR>, its CHANGELOG.md entries and nothing
+of <PKG> that the section allows <PR> (path block, narrowed by its paragraphs), plus, by row, the PARITY.md rows of <PR>, its CHANGELOG.md entries and nothing
 of another PR. Follow every rule of "Work packages" without exception. Title the commits
 and the PR as the Stage V1 PR sequence requires.
 

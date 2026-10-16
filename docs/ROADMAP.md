@@ -215,7 +215,8 @@ contradiction is fixed there first. Taking, handing over and reviewing a package
 | G | V1-15 | V1E | none (row V1E: no `Makefile`, workflow or `CLAUDE.md` edit) | the DoD, the `V15` and `V15C` counts, `conformance` green; MV1: the `cookie` and `httpCompression` `### Changed` facts | D and E |
 | H | V1-14 | V1F | `CHANGELOG.md` `## Unreleased` and `README.md` | the MV1 DoD on its head and on the merged `master`; MV1 Acceptance by the owner; no tag | F and G |
 
-**Paths.** The exact set each package may edit, one `<package>|<path>` line each: a path
+**Paths.** The widest set each package may edit, one `<package>|<path>` line each, narrowed
+by the sentences of this paragraph and of the one after the block (both binding): a path
 ending in `/` is a directory and everything under it, `*.go` the Go files directly in that
 directory (`*.go` alone: the repository root's, test files included). Besides its set,
 every package edits, by row only: the `docs/PARITY.md` rows whose `Plan` names its PR, its

@@ -89,7 +89,9 @@ after the integrator's taker has commented `integrated: <path>...` on it; when a
 of the integrator edits the same file, the worker's PR merges after it, with `master`
 merged in and the DoD re-run. When the integrating package has no taker, the roadmap's
 [fallback](docs/ROADMAP.md#stage-v1-work-packages) applies (the paragraph after the `O`-pair
-table). In `docs/PARITY.md`, `CHANGELOG.md` and the registry a PR
+table). Entry checks gate starts, not merges: before merging a PR of a package in an `O`
+pair, the merger checks the Order column of the roadmap's `O`-pair table on the current
+`master`, and a PR whose order is not met yet waits. In `docs/PARITY.md`, `CHANGELOG.md` and the registry a PR
 edits only its own rows; a conflict there keeps both sides.
 
 **Reporting back,** to the owner, per PR: the PR number and head SHA; the result of every

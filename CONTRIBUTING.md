@@ -8,7 +8,8 @@ planned and in which order: [docs/ROADMAP.md](docs/ROADMAP.md).
 1. Open an issue first for anything larger than a bug fix, so the change can be
    matched against the roadmap.
 2. Branch from `master`, one topic per branch, named `<area>/<short-topic>`
-   (for example `engineio/payload-v4`, `redis/request-timeout`). Both lines target
+   (for example `engineio/payload-v4`, `redis/request-timeout`); a PR of a work package uses
+   its registry branch prefix in place of `<area>/` (for example `v1-a/namespace-api`). Both lines target
    `master`: a v1 change edits the files at the repository root, a v2 change edits `v2/`.
 3. Every PR: `make lint test` green locally in each module it touches (`make -C v2 lint test`
    for `v2/`), a test for each fix, a `CHANGELOG.md` entry under `Unreleased` in the changelog

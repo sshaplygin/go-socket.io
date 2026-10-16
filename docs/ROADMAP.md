@@ -259,6 +259,8 @@ D|engineio/client.go
 D|engineio/dialer.go
 D|engineio/client_upgrade_test.go
 D|engineio/transport/polling/connect.go
+D|internal/conformance/goclient_test.go
+D|internal/conformance/testdata/node/server/goclient-server.js
 D|CLAUDE.md
 E|internal/conformance/differential_test.go
 E|internal/conformance/testdata/node/differential-client.js
@@ -281,7 +283,7 @@ Never edited by a package, besides the paths of the others: any `v2/` file but B
 mirrors; a tag or a version string; the `docs/PARITY.md` rows of another PR. In particular:
 SY not the manifest files or their copies (B's); B not a manifest file without its `v2/` copy
 (D14), nor the interface files `engineio/transport/*.go` (V1-18), nor `engineio/payload/pauser.go` (V1A); C no
-Go file outside `internal/`; D no `internal/conformance` file (V1-8's step runs its client);
+Go file outside `internal/`; D in `internal/conformance` only its two files (the Go-client step);
 F neither `_examples/client/` (D) nor the `chat.go` of `redis-adapter` and
 `redis-adapter-unix-socket` (`CHAT_SKIP` until V1R); G not `parser/` (row V1E) and no
 manifest file; H no Go file. A path outside the set is a plan change (CONTRIBUTING.md).

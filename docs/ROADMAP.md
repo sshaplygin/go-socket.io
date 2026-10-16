@@ -1454,7 +1454,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | --- | --- |
 | V1-0 | Docs only: signatures and semantics of every `ADD` row as subsections of this stage (the methods added to `Conn`, `Namespace`, `Broadcast` and `engineio.Conn` by D10 and D16, `Options` fields and per-emit flags, those of V1-15, V1-16, V1-17 and V1-18 included, errors, and the close error type of `engineio/session` that V1-4 adds for K24 with the `Writable` methods V1-4 adds for V1-6's K16 as `### V1-4 contract`); three-agent validation (CLAUDE.md) |
 | V1-1 | `engineio/payload` and `engineio/transport/polling`: binary payload length in bytes, not UTF-16 units (P16), JSONP removed with its PROTOCOL.md deviation (P5, P6); the CORS default is V1-18's (S4, P8: D15), `OPTIONS` answers (P9) and overlapping polls (P18) are checked by V1-8 |
-| V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake must be GET with the reference answer (HTTP 400 `{"code":2,"message":"Bad handshake method"}`, P12), which also closes `OPTIONS` without `sid` (E14: today it creates a session in `Server.ServeHTTP`), liveness on any packet with the reference's close rule: the session closes with reason `ping timeout` after `PingInterval + PingTimeout` without any received packet, the window re-armed by every packet (engine.io 3.6.2 `socket.js:136-142`; today `session.go:78,223,397-409` arms a deadline of `PingTimeout` alone, re-armed by a PING only, which under the new defaults would close an idle client 20 s after each of its 25 s pings), and the reference defaults `PingInterval` 25 s and `PingTimeout` 20 s (E1, E2: D15; a `### Changed` entry names both values and the window; the test `TestPingTimeoutIdleClient` and its command are in the per-PR checks below), request checker, `Server.Close` closes sessions, the upgrade probe's polling pause moved from the server's `3probe` to the client's `5`, as engine.io 3.6.2 does, so a POST in that window is accepted where it gets 400 today (P4; a `### Changed` entry; `### V1-2 contract`); the engine half of V1-7's K5, so that it edits no `engineio/` file: the session keeps its handshake request (`Session.SetRequest` and `Request`, `### V1-2 contract`), and `Options.ConnInitor` runs on the handshake request's goroutine, with the request live, before the OPEN packet is written and so before `Accept` returns the session, for a websocket-first handshake as a polling one already does (the `SetContext` workaround of K5's evidence races with the root's copy of the context today; the change is in `### V1-2 contract`); the lines of the v1 Engine.IO section of `docs/PROTOCOL.md` that these changes make false (handshake defaults, heartbeat, error replies, payload limit, upgrade), rewritten as `### V1-2 contract` lists them and checked by the per-PR checks below |
+| V1-2 | `engineio` server and session: random session id, payload limit (1e6 bytes, `Options` field to raise it), upgrade timeout, `allowUpgrades`, JSON error replies, handshake must be GET with the reference answer (HTTP 400 `{"code":2,"message":"Bad handshake method"}`, P12), which also closes `OPTIONS` without `sid` (E14: today it creates a session in `Server.ServeHTTP`), liveness on any packet (P3) with the reference's close rule: the session closes with reason `ping timeout` after `PingInterval + PingTimeout` without any received packet, the window re-armed by every packet (engine.io 3.6.2 `socket.js:136-142`; today `session.go:78,223,397-409` arms a deadline of `PingTimeout` alone, re-armed by a PING only, which under the new defaults would close an idle client 20 s after each of its 25 s pings), and the reference defaults `PingInterval` 25 s and `PingTimeout` 20 s (E1, E2: D15; a `### Changed` entry names both values and the window; the test `TestPingTimeoutIdleClient`, its `messages` subtest for P3 and its command are in the per-PR checks below), request checker, `Server.Close` closes sessions, the upgrade probe's polling pause moved from the server's `3probe` to the client's `5`, as engine.io 3.6.2 does, so a POST in that window is accepted where it gets 400 today (P4; a `### Changed` entry; `### V1-2 contract`); the engine half of V1-7's K5, so that it edits no `engineio/` file: the session keeps its handshake request (`Session.SetRequest` and `Request`, `### V1-2 contract`), and `Options.ConnInitor` runs on the handshake request's goroutine, with the request live, before the OPEN packet is written and so before `Accept` returns the session, for a websocket-first handshake as a polling one already does (the `SetContext` workaround of K5's evidence races with the root's copy of the context today; the change is in `### V1-2 contract`); the lines of the v1 Engine.IO section of `docs/PROTOCOL.md` that these changes make false (handshake defaults, heartbeat, error replies, payload limit, upgrade), rewritten as `### V1-2 contract` lists them and checked by the per-PR checks below |
 | V1-3 | `parser` and root defects: attachment cap, payload validation, `Emit(ev, nil)`, wrong-type argument, per-room duplicates |
 | V1-4 | Packets: ERROR written and decoded, unknown namespace keeps the root socket, DISCONNECT written (R9), `0/nsp,` reply form, disconnect reasons (K24: the engine's close cause, recorded by `session.go:134` and only logged today, is exposed from `engineio/session` as an exported error type that `NextReader` returns wrapped after the close, and the root maps it to `transport close`, `ping timeout` and `transport error`; the type is V1-0's `### V1-4 contract`), the writability report `Writable` of the session, the engine client and the polling and websocket connections that V1-6's `Volatile` reads (K16, the same contract; the two are the one `engineio/` edit among V1-3 to V1-7, so V1-4 merges before V1-6 and V1-16, wave V1B), and `disconnecting` order, encode error |
 | V1-5 | Namespace API: `Of`, `Use` and event middleware, connect-rejection reason, per-namespace disconnect, `connected`/`sockets`, `send`, `Server.Close` waiting for sessions, `Conn.ID()` as `/ns#id` outside the root namespace (K1: D15; a `### Changed` entry names it) |
@@ -1888,27 +1888,37 @@ and any later one) puts one body line `fails without the fix: <TestName>` per `B
 test being the one under that row's `// Covers`, and has run it red on the base with only the
 PR's test files applied. The DoD block counts the lines against the `BUG` rows of the base. `Server.Close` has two layers and two tests: V1-2 (E22)
 owns the `engineio` one (open sessions are closed), V1-5 (S17) the root one (`Close` returns after
-the sessions are gone). V1-2, on its head, counts `TestPingTimeoutIdleClient` (E1, under
-`// Covers E1`; in package `session`, which reads the cause the session records): with
-`PingInterval` 100 ms and `PingTimeout` 50 ms (small values keep the test fast; the default
-values are asserted beside it), a client that sends only PING at the interval is still open
-after 500 ms, ten times `PingTimeout`, and a client that sends nothing is closed with reason
-`ping timeout` within 1 s. The session fakes of that package cannot carry it: `scriptConn`
-and its relatives answer `SetReadDeadline` with nil and never time out, so a session over
-them is closed by nothing. The test drives the session over a real connection (a
-`net.Pipe` or loopback websocket `transport.Conn`, whose read deadline fires) or over a
-new fake whose `SetReadDeadline` arms a timer that fails the next `NextReader` once it
-passes; either way the close comes from the deadline, not from the script running out.
-It is red on the base, where the pinging client is closed 50 ms after its first PING, and
-the V1-2 body proves it with the `BUG`-row rule (`fails without the fix:
-TestPingTimeoutIdleClient`, run on the base with only the PR's test files applied), and
+the sessions are gone). V1-2, on its head, counts the three subtests of
+`TestPingTimeoutIdleClient` (E1 and P3, under the stacked markers `// Covers E1` and
+`// Covers P3`; in package `session`, which reads the cause the session records), each
+with `PingInterval` 100 ms and `PingTimeout` 50 ms (small values keep the test fast; the
+default values are asserted beside them), so the window is 150 ms: `ping`, a client that
+sends only PING every 100 ms is still open after 500 ms, ten times `PingTimeout`;
+`messages`, a client that sends only MESSAGE packets every 100 ms and no PING is still open
+after 500 ms and, once it stops sending, is closed with reason `ping timeout` within 1 s
+(P3, engine.io 3.6.2 `socket.js:93-95`: any packet re-arms the window; an implementation
+that widens the window to `PingInterval + PingTimeout` but re-arms it on PING only closes
+this client 150 ms after the handshake and fails here); `silent`, a client that sends
+nothing is closed with reason `ping timeout` within 1 s. The session fakes of that package
+cannot carry them: `scriptConn` and its relatives answer `SetReadDeadline` with nil and
+never time out, so a session over them is closed by nothing. The test drives the session
+over a real connection (a `net.Pipe` or loopback websocket `transport.Conn`, whose read
+deadline fires) or over a new fake whose `SetReadDeadline` arms a timer that fails the
+next `NextReader` once it passes; either way the close comes from the deadline, not from
+the script running out. `ping` and `messages` are red on the base, where `session.New`
+arms a deadline of `PingTimeout` (`session.go:78`) that only a PING re-arms (`:223`), so
+each of the two clients is closed 50 ms after the handshake or after its last PING, before
+its next packet; the V1-2 body records that run in a body line `red on the base:
+TestPingTimeoutIdleClient/ping, TestPingTimeoutIdleClient/messages` (on the base with only
+the PR's test files applied; not a `fails without the fix:` line, which the DoD block
+counts against the `BUG` rows of the base, and E1 and P3 are `CHG` rows). V1-2 also
 checks the v1 lines of `docs/PROTOCOL.md` that `### V1-2 contract` gives it (the upgrade
 bullet of P4 and the four lines of its second `text` fence, each old text gone and each new
 one present; `v1p` prints the v1 Engine.IO section only, since the v2 section keeps its
 copies of the old handshake, heartbeat and error text):
 
 ```sh
-test "$(go test -race -count=1 -json -run '^TestPingTimeoutIdleClient$' ./engineio/... | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test' | sort -u | wc -l)" -eq 1   # the reference close window: an idle client pinging at the interval stays, a silent one is closed
+test "$(go test -race -count=1 -json -run '^TestPingTimeoutIdleClient$' ./engineio/session | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|test("^TestPingTimeoutIdleClient/(ping|messages|silent)$")))|.Test' | sort -u | wc -l)" -eq 3   # the reference close window (E1, P3): a client pinging at the interval stays, one sending only messages stays until it stops, a silent one is closed
 grep -qF 'the polling connection is paused only on `5`, then the session switches to the' docs/PROTOCOL.md; grep -qF '  unpaused. Implemented in `session.Session.upgrading`.' docs/PROTOCOL.md   # V1-2's own v1 upgrade bullet (P4)
 test -z "$(grep -n 'the sequence of the previous section, implemented in the' docs/PROTOCOL.md)"; grep -q 'paused polling connection is resumed' docs/PROTOCOL.md   # the v1 bullet no longer inherits the v2 note, which stays for v2
 v1p() { sed -n '/^## Implemented: Engine.IO protocol v3 in the v1 module$/,/^## Implemented: Socket.IO protocol v4$/p' docs/PROTOCOL.md; }

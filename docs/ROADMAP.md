@@ -3384,8 +3384,11 @@ the client's written at once after the record and the one the `unread` server wr
 included; that outcome does not depend on goroutine timing, since the server never paused
 polling (P4)), `TestClientUpgradeDeadline` (the switch arms the deadlines; the whole server side is
 one `httptest` handler of the test, no `engineio.Server`, so no V1-2 check and no server
-deadline takes part: it answers the polling handshake with an OPEN packet of
-`pingInterval` and `pingTimeout` 500 ms each, every POST with 200 `ok`, and every GET that
+deadline takes part; the client dials with `Upgrade` true and `Transports` polling, then
+websocket, the defaults of package `client`: it answers the polling handshake with an
+OPEN packet carrying a `sid`, `upgrades` `["websocket"]` (without it no probe starts, the
+`Upgrade` godoc) and `pingInterval` and `pingTimeout` 500 ms each, every POST with 200
+`ok`, and every GET that
 arrives after its websocket part has written `3probe` with a NOOP at once, in the payload
 format the request asks for; a GET that arrives before waits until then (a channel the
 websocket part closes) or until its request ends. Its websocket part upgrades with gorilla,

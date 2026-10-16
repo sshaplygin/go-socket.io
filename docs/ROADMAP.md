@@ -370,7 +370,9 @@ esac; )
 
 **Registry.** Status `open`, `taken` or `done`; the taker is the name the owner gives, never a
 model or provider; the branch prefix is the package's; the last merged PR is set by the
-taker's one-row PRs (CONTRIBUTING.md). All packages start `open`.
+taker's one-row PRs (CONTRIBUTING.md). All packages start `open`. A registry PR adds no
+`CHANGELOG.md` entry: the row is its record (the exemption CONTRIBUTING.md, *Pull requests*
+item 3, asks the roadmap to name).
 
 | Package | Status | Taker | Branch prefix | Last merged PR |
 | --- | --- | --- | --- | --- |

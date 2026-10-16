@@ -1907,7 +1907,13 @@ never time out, so a session over them is closed by nothing. The test drives the
 over a real connection (a `net.Pipe` or loopback websocket `transport.Conn`, whose read
 deadline fires) or over a new fake whose `SetReadDeadline` arms a timer that fails the
 next `NextReader` once it passes; either way the close comes from the deadline, not from
-the script running out. `ping` and `messages` are red on the base, where `session.New`
+the script running out. In every subtest the session's reader runs: a goroutine of the
+test calls `Session.NextReader` in a loop from `session.New` on, reading the MESSAGE
+packets of `messages` (the PINGs of `ping` the session answers inside that call), and the
+close is observed as that loop's error, with the cause `ping timeout` the session records.
+On the timer-fake path the fake's `NextReader` is called only by the session from inside
+`Session.NextReader`, so a packet is read, and the window re-armed through the fake's
+`SetReadDeadline`, only there. `ping` and `messages` are red on the base, where `session.New`
 arms a deadline of `PingTimeout` (`session.go:78`) that only a PING re-arms (`:223`), so
 each of the two clients is closed 50 ms after `session.New` or after its last PING, before
 its next packet; the V1-2 body records that run in a body line `red on the base:

@@ -31,11 +31,16 @@ the registry are in [docs/ROADMAP.md](docs/ROADMAP.md#stage-v1-work-packages).
 
 **Taking and handing back.** A package has one taker at a time. The taker opens a PR that
 changes only the package's registry row (`open` to `taken`, the taker's name, the last
-merged PR of the package) and starts the package's first PR only after it has merged; a
-row that is `taken` is not started by anyone else. When the package's last PR has merged,
-the taker sets the row to `done` the same way; a taker who stops, or the owner, first closes
-the package's unmerged PRs and then sets the row back to `open` with the last merged PR, so
-that `open` never stands beside a PR in flight (the entry fence reads it so), and the next
+merged PR of the package), and only once the entry check of the package's next unmerged PR
+passes on `master`; the PR body quotes that command and its exit status. The merger re-runs
+it on the registry PR's head, with `master` merged in, right before merging, and merges
+registry PRs one at a time. So `taken` means that the next PR was free to start when the
+row was set, which is how the entry fence reads the status (`sy` and the SYNC arm). The taker
+starts that PR only after the registry PR has merged; a row that is `taken` is not started
+by anyone else. When the package's last PR has merged, the taker sets the row to `done` the
+same way; a taker who stops, or whose entry check fails after the registry PR has merged,
+or the owner, first closes the package's unmerged PRs and then sets the row back to `open`
+with the last merged PR, so that `open` never stands beside a PR in flight, and the next
 taker continues from there. A
 registry PR edits `docs/ROADMAP.md`, so it is reviewed as any roadmap edit (CLAUDE.md,
 *Roadmap validation*).

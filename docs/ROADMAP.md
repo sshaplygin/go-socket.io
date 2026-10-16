@@ -2198,7 +2198,7 @@ test -f _examples/default-http/client.js; test -f _examples/asset/index-1.7.html
 grep -q CONFORMANCE_NODE_MODULES Makefile; grep -q examples-node .github/workflows/ci.yaml   # examples-node takes the job's client, so it ran under 1.7.4 and 2.5.0
 PARITY_STRICT=1 make parity-check; make cover-check; grep -qE '^API_UNCOVERED_MAX *[:?]?= *0$' Makefile   # D17 gates (V1-20): every row has a test, no exported function without one
 test "$(go test -tags conformance -list '^TestDifferential$' ./internal/conformance/... | grep -c '^TestDifferential$')" -eq 1   # the differential scenarios (V1-19) are in the job
-test -z "$(awk -F' *[|] *' 'index($0, "| Package | Status |") == 1 {p=1; next} !/^[|]/ {p=0} p && $2 ~ /^[A-G]$/ && $3 != "done" {print $2}' docs/ROADMAP.md)"   # packages A to G are done in the registry of *Stage V1 work packages* (H is this PR's; SY gates 2B, not MV1)
+test "$(awk -F' *[|] *' 'index($0, "| Package | Status |") == 1 {p=1; next} !/^[|]/ {p=0} p && $2 ~ /^[A-G]$/ {printf "%s:%s ", $2, $3}' docs/ROADMAP.md)" = "A:done B:done C:done D:done E:done F:done G:done "   # the seven packages A to G are found and done in the registry of *Stage V1 work packages* (H is this PR's; SY gates 2B, not MV1)
 test -z "$(git tag -l 'v1.5*')"   # release preparation creates no tag
 ```
 

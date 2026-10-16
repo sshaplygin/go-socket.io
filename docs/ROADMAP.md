@@ -201,19 +201,21 @@ without reading the whole roadmap; V1-0 (#70) and V1-1 (#69) have merged. Derive
 wave rows V1A to V1F and SY above, the PR table and the contracts of Stage V1 and its
 *Shared-file drift check*: those stay the owners of order, scope and file lists, and a
 contradiction is fixed there first. Taking, handing over and reviewing a package:
-[CONTRIBUTING.md](../CONTRIBUTING.md#work-packages).
+[CONTRIBUTING.md](../CONTRIBUTING.md#work-packages). When a PR may start is decided only by
+`entry <PR>` (*Entry* below), run on the current `master`; the table names no start
+condition, so none goes stale beside it, and the `S` cells of the matrix give the reasons.
 
-| Package | PRs in order | Waves | Integrates | Exit gate | Waits for (at `ead1e40`) |
-| --- | --- | --- | --- | --- | --- |
-| SY | SYNC | SY | its four files | the SYNC DoD; `sync-check` green on `master` (feeds the 2B entry, no MV1 line) | nothing: can start now |
-| A | V1-3, V1-4, V1-5, V1-6, V1-7 | V1B | root Go files and `parser`, and in V1B the root hunks and `CHANGELOG.md` entries of B (row V1B) | per PR the Stage V1 DoD with `N`; V1-4 and V1-7 their `s4p` arm, V1-6 the `V6` count; MV1: no open row, and the `### Changed` facts H writes for V1-4 (`OnDisconnect` reasons), V1-5 (`Conn.ID`, `OnConnect` ERROR, `Close` DISCONNECT) and V1-6 (`Join(rooms ...string)`) | V1-2 (B) |
-| B | V1-1 (merged, #69), V1-2, V1-16, V1-17, V1-18 | V1A, V1B | `engineio/` (V1-4's files while V1-4 is open are A's) and the `v2/` copies of the manifest files it changes | per PR the Stage V1 DoD; V1-2 the `TestPingTimeoutIdleClient` count and the `v1p` lines; V1-17 the `E17` count; MV1: no open row, and the `### Changed` facts of V1-2 (`PingInterval`, `PingTimeout`, the POST before UPGRADE) and V1-18 (CORS) | V1-2: nothing, can start now; V1-16: V1-4 (A) |
-| C | V1-8, V1-20 | V1C | `.github/`, `Makefile`, `CLAUDE.md` in V1C (row V1C) | V1-8: the DoD and `conformance` green; V1-20: its fence and the `parity-check cover-check` step green; MV1: the `socket.io-client@` greps, `PARITY_STRICT=1 make parity-check`, `make cover-check` | A and B; SY not `taken` |
-| D | V1-9, V1-10, V1-11 | V1D | root Go files and `client/` in V1D | V1-9: Stage 7 DoD and Acceptance; V1-10, V1-11: the DoD and the Go-client step of `conformance` green; MV1: `cl Added` with `go-socket.io/client`, no open row, the Go-client line of the Acceptance | C |
-| E | V1-19 | V1D | none | the V1-19 fence (twelve names, `-list`, 24 passes) and `conformance` green; MV1: the `TestDifferential` line | C |
-| F | V1-12, V1-13 | V1E; V1-12 from V1-8 on | `Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md` in V1E (the V1-12 author, row V1E) | per PR the DoD, `make examples` and the `examples-node` loop; MV1: those two lines, the four `go.mod`, `client.js` and `index-1.7.html` lines, the `CONFORMANCE_NODE_MODULES` and `examples-node` greps | V1-12: V1-8 (C); V1-13: D and E |
-| G | V1-15 | V1E | none (row V1E: no `Makefile`, workflow or `CLAUDE.md` edit) | the DoD, the `V15` and `V15C` counts, `conformance` green; MV1: the `cookie` and `httpCompression` `### Changed` facts | D and E |
-| H | V1-14 | V1F | `CHANGELOG.md` `## Unreleased` and `README.md` | the MV1 DoD on its head and on the merged `master`; MV1 Acceptance by the owner; no tag | F and G |
+| Package | PRs in order | Waves | Integrates | Exit gate |
+| --- | --- | --- | --- | --- |
+| SY | SYNC | SY | its four files | the SYNC DoD; `sync-check` green on `master` (feeds the 2B entry, no MV1 line) |
+| A | V1-3, V1-4, V1-5, V1-6, V1-7 | V1B | root Go files and `parser`, and in V1B the root hunks and `CHANGELOG.md` entries of B (row V1B) | per PR the Stage V1 DoD with `N`; V1-4 and V1-7 their `s4p` arm, V1-6 the `V6` count; MV1: no open row; the `### Changed` entries of its PRs are H's (V1-14 row) |
+| B | V1-1 (merged, #69), V1-2, V1-16, V1-17, V1-18 | V1A, V1B | `engineio/` (V1-4's files while V1-4 is open are A's) and the `v2/` copies of the manifest files it changes | per PR the Stage V1 DoD; V1-2 the `TestPingTimeoutIdleClient` count and the `v1p` lines; V1-17 the `E17` count; MV1: no open row; the `### Changed` entries of its PRs are H's (V1-14 row) |
+| C | V1-8, V1-20 | V1C | `.github/`, `Makefile`, `CLAUDE.md` in V1C (row V1C) | V1-8: the DoD and `conformance` green; V1-20: its fence and the `parity-check cover-check` step green; MV1: the `socket.io-client@` greps, `PARITY_STRICT=1 make parity-check`, `make cover-check` |
+| D | V1-9, V1-10, V1-11 | V1D | root Go files and `client/` in V1D | V1-9: Stage 7 DoD and Acceptance; V1-10, V1-11: the DoD and the Go-client step of `conformance` green; MV1: `cl Added` with `go-socket.io/client`, no open row, the Go-client line of the Acceptance |
+| E | V1-19 | V1D | none | the V1-19 fence (twelve names, `-list`, 24 passes) and `conformance` green; MV1: the `TestDifferential` line |
+| F | V1-12, V1-13 | V1E; V1-12 from V1-8 on | `Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md` in V1E (the V1-12 author, row V1E) | per PR the DoD, `make examples` and the `examples-node` loop; MV1: those two lines, the four `go.mod`, `client.js` and `index-1.7.html` lines, the `CONFORMANCE_NODE_MODULES` and `examples-node` greps |
+| G | V1-15 | V1E | none (row V1E: no `Makefile`, workflow or `CLAUDE.md` edit) | the DoD, the `V15` and `V15C` counts, `conformance` green; MV1: no open row; the `### Changed` entries of its PR are H's (V1-14 row) |
+| H | V1-14 | V1F | `CHANGELOG.md` `## Unreleased` and `README.md` | the MV1 DoD on its head and on the merged `master`; MV1 Acceptance by the owner; no tag |
 
 **Paths.** The widest set each package may edit, one `<package>|<path>` line each, narrowed
 by the sentences of this paragraph and of the one after the block (both binding): a path

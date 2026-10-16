@@ -2291,7 +2291,7 @@ the handshake bullet (`:81-82`, `pingInterval` default 20 s and `pingTimeout` de
 P12), the heartbeat bullet (`:83-84`, a PONG that extends the read/write deadline by
 `pingTimeout`; E1, P3), the error bullet (`:94-95`, plain text with HTTP 400 or 502; E5,
 P11, P12 and E7's code 3, for the requests `Server.ServeHTTP` rejects before a transport
-handles them, `engineio/server.go:110,117,131,140,148,159,169`, :169 being the 502 when
+handles them, `engineio/server.go:110,117,131,140,148,159,169`, `:169` being the 502 when
 the upgrade's `Accept` fails, which the fence's "a transport that cannot accept the
 request" covers; the polling transport's own plain-text answers,
 `polling/server.go:114,124,130,140` and E4's 413, stay, the 400 at `:130` being every

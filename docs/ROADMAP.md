@@ -309,8 +309,9 @@ forbids it).
 | C, F | `Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md` | V1-12 starts after V1-8 and merges after V1-20 (V1C before V1E) |
 | D, F | `CLAUDE.md`; `_examples/` (D only `_examples/client/`) | V1-9 merges before V1-12 (V1D before V1E) |
 
-SY merges before V1-8 starts, or, once C has started, only after F is `done` (row SY: never
-beside V1C or V1E). The MV1 line `API_UNCOVERED_MAX` 0 has no owning PR in the PR table:
+SY merges before V1-8 starts, or, once C has started (a `conformance` job, C `taken` or `done`,
+or a last merged PR in C's row), only after C to G are `done` (row SY: never beside V1C or
+V1E; the matrix adds V1D). The MV1 line `API_UNCOVERED_MAX` 0 has no owning PR in the PR table:
 V1-20 records the measured value and the ratchet only keeps later PRs from raising it, so
 which package lowers it to 0 is the owner's call before H can pass MV1.
 
@@ -322,8 +323,9 @@ from this file:
 H=$(awk '/^(covers|done_pr|wave)[(][)] [{]/ || /^rows[(][)] [{].* docs\/PARITY[.]md; [}]$/' docs/ROADMAP.md | sort -u); test "$(printf '%s\n' "$H" | wc -l)" -eq 4; eval "$H"   # the four Stage V1 helpers, one definition each (the Stage 1b `rows` reads CLAUDE.md and is left out)
 tbl() { awk -v h="$1" 'index($0, h) == 1 {p=1; next} !/^[|]/ {p=0} p && !/^[|] *---/' docs/ROADMAP.md; }   # the body rows of the table whose header starts with $1
 st() { tbl '| Package | Status |' | awk -F' *[|] *' -v k="$1" '$2 == k {print $3}'; }   # the registry status of a package
+lm() { tbl '| Package | Status |' | awk -F' *[|] *' -v k="$1" '$2 == k {print $6}'; }   # its last merged PR, `-` before the first
 entry() { case $1 in
-SYNC) test "$(go list -m)" = github.com/sshaplygin/go-socket.io; test -f v2/go.mod; test "$(st C)" = open -o "$(st F)" = done;;   # row R step C passed; never beside V1C or V1E
+SYNC) test "$(go list -m)" = github.com/sshaplygin/go-socket.io; test -f v2/go.mod; if grep -q '^  conformance:' .github/workflows/ci.yaml || test "$(st C)" != open -o "$(lm C)" != -; then for k in C D E F G; do test "$(st $k)" = done || return 1; done; fi;;   # row R step C passed; never beside V1C to V1E: before V1-8 has started, or once C to G are done
 V1-2) for n in 2 4 5 6 7 10 11 15 16 17 18; do grep -q "^### V1-$n contract" docs/ROADMAP.md || return 1; done;;   # wave V1A; V1-1 has merged
 V1-3) wave 1 2;;
 V1-4|V1-5|V1-6|V1-7) wave 1 2 $((${1#V1-} - 1));;   # A in order

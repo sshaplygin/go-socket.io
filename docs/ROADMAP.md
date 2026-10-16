@@ -296,7 +296,7 @@ manifest file; H no Go file. A path outside the set is a plan change (CONTRIBUTI
 
 **Beside.** `P`: never a common path and never a common Go package (two `.go` files of one
 directory), so the two run at the same time and merge in either order (the DoD below checks
-both); `O`: they may run at the same time but share paths or a Go package, merged in the
+both), though an entry may still wait for a PR of the other (V1-13 for V1-19 of E); `O`: they may run at the same time but share paths or a Go package, merged in the
 order of the next table; `S`: never at the same time (an entry needs the other's exit, or, for SY, the SYNC arm
 of *Entry*, as the paragraph after the next table derives it from row SY).
 

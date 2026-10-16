@@ -282,7 +282,8 @@ H|README.md
 H|docs/PROTOCOL.md
 ```
 
-Never edited by a package, besides the paths of the others: any `v2/` file but B's two
+Never edited by a package, in addition to every path outside its own set (a path in two
+sets, as in the `O` pairs below, may be edited by both): any `v2/` file but B's two
 mirrors; a tag or a version string; the `docs/PARITY.md` rows of another PR. In particular:
 SY not the manifest files or their copies (B's); B not a manifest file without its `v2/` copy
 (D14), nor the interface files `engineio/transport/*.go` (V1-18), nor `engineio/payload/pauser.go` (V1A); C no

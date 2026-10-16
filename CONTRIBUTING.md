@@ -74,7 +74,8 @@ per-PR DoD and the checks named for that PR, the section its scope row points to
   owner's order only.
 - `master`, `v1.x` and any branch another person pushed to are never rewritten or
   force-pushed; `master` reaches an open PR branch by a merge, not by a rebase of pushed
-  commits.
+  commits. Where a wave row says that a PR rebases on another (V1-16 and V1-17), it means
+  that the PR starts from, or merges in, a `master` that has the other.
 - Repository text is English.
 - A PR edits only its package's paths and, by row, the files the roadmap section names for
   every package. A change outside them, or of a contract, is a plan change: stop and ask

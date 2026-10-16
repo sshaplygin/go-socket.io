@@ -1898,7 +1898,7 @@ sends only PING every 100 ms is still open after 500 ms, ten times `PingTimeout`
 after 500 ms and, once it stops sending, is closed with reason `ping timeout` within 1 s
 (P3, engine.io 3.6.2 `socket.js:93-95`: any packet re-arms the window; an implementation
 that widens the window to `PingInterval + PingTimeout` but re-arms it on PING only closes
-this client 150 ms after the handshake and fails here); `silent`, a client that sends
+this client 150 ms after `session.New` and fails here); `silent`, a client that sends
 nothing is closed with reason `ping timeout` within 1 s. The session fakes of that package
 cannot carry them: `scriptConn` and its relatives answer `SetReadDeadline` with nil and
 never time out, so a session over them is closed by nothing. The test drives the session
@@ -1907,7 +1907,7 @@ deadline fires) or over a new fake whose `SetReadDeadline` arms a timer that fai
 next `NextReader` once it passes; either way the close comes from the deadline, not from
 the script running out. `ping` and `messages` are red on the base, where `session.New`
 arms a deadline of `PingTimeout` (`session.go:78`) that only a PING re-arms (`:223`), so
-each of the two clients is closed 50 ms after the handshake or after its last PING, before
+each of the two clients is closed 50 ms after `session.New` or after its last PING, before
 its next packet; the V1-2 body records that run in a body line `red on the base:
 TestPingTimeoutIdleClient/ping, TestPingTimeoutIdleClient/messages` (on the base with only
 the PR's test files applied; not a `fails without the fix:` line, which the DoD block
@@ -2289,7 +2289,7 @@ the handshake bullet (`:81-82`, `pingInterval` default 20 s and `pingTimeout` de
 P12), the heartbeat bullet (`:83-84`, a PONG that extends the read/write deadline by
 `pingTimeout`; E1, P3), the error bullet (`:94-95`, plain text with HTTP 400 or 502; E5,
 P11, P12 and E7's code 3, for the requests `Server.ServeHTTP` rejects before a transport
-handles them, `engineio/server.go:110-148`; the polling transport's own plain-text
+handles them, `engineio/server.go:110-159`; the polling transport's own plain-text
 answers, `polling/server.go:114,124,130,140` and E4's 413, stay, as the reference's JSON
 replies come from its `Server.verify` and `handleRequest` only, `server.js:243-268`) and
 the v1 entry of *Known deviations from the v3/v4 specs*

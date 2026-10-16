@@ -3366,17 +3366,27 @@ websocket, whose probe starts at `Dial`'s return, so the client need not arm a d
 `3probe`, and the bound, which `clamped` below tests, is the whole rule. With the D15
 defaults 25 s and 20 s the bound is the default `UpgradeTimeout`, 10 s, against 45 s.
 The bound protects the client's own deadlines only, not the server's window (V1-2:
-`PingInterval` + `PingTimeout` since the last packet the session read). When the
-server's values make the sum at most `UpgradeTimeout`, so that the bound is the sum,
-and the probe stalls after `3probe` (as in `unread`), the client holds its first PING
-until the bound ends, the sum after `Dial`'s return, while the server's window started
-at the handshake or at the last POST before `3probe`, one round trip earlier at least:
-the server may then close the session with `ping timeout` before the held PING reaches
-it, and the client reads that close on polling instead of going on. Accepted as is:
-engine.io-client 3.5.6 has the same exposure with no bound at all (its `writeBuffer` is
-held while `upgrading`, `:316,566-576`), the D15 defaults cannot produce it (45 s
-against 10 s), and no named test uses such values with a stalled probe (`clamped` never
-reads `3probe`, `unread` uses the default ping values). At
+`PingInterval` + `PingTimeout` since the last packet the session read). When the probe
+stalls after `3probe` (as in `unread`), the client holds its first PING until the bound
+ends, the bound after `Dial`'s return, and the PING then needs its transit to arrive. The
+server's window starts at its last read. When that read is the handshake, it came at
+least half a round trip before `Dial` returns, so the window passes before the held PING
+arrives whenever the bound ends less than about a round trip (that half round trip plus
+the PING's transit) before the window does: in particular when the server's values make
+the sum at most `UpgradeTimeout`, so that the bound is the sum, and also when
+`UpgradeTimeout` is the bound and just below the sum. The same holds for a POST the server
+read before `Dial` returned. A POST the client writes after `Dial`'s return and before
+`3probe` is read at least its transit after that return, so it moves the window's end
+past the bound plus the PING's transit (transits taken as equal), and the held PING
+arrives in time. In the cases where the window can
+pass first, the server closes the session with `ping timeout` before the held PING
+reaches it, and the client reads that close on polling instead of going on. Accepted as
+is, in all those cases: engine.io-client 3.5.6 has the same exposure with no bound at
+all (its `writeBuffer` is held while `upgrading`, `:316,566-576`), the D15 defaults cannot
+produce it (the bound is 10 s, a round trip is far below the 35 s gap to the 45 s window),
+and no named test uses such values with a stalled probe (`clamped` never reads `3probe`,
+and `unread` keeps the server's default `PingInterval` and `PingTimeout`, as its fixture
+below says). At
 the switch the client arms the read and the write deadline, `PingInterval` +
 `PingTimeout`, on the new connection, as after a PONG and a
 PING: `Dial` arms none (`dialer.go:36-104`) and `client.go:70,139` arm them only on the
@@ -3447,8 +3457,9 @@ handler answers the websocket request 400; `wrong-answer`, the handler upgrades 
 gorilla itself and answers `2probe` with `3wrong`; `stalled`, `UpgradeTimeout` 200 ms and a
 handler that hijacks the websocket request and never answers, the probe transport's
 `HandshakeTimeout` 0, so only the timer ends the wait, `Close` returns within 1 s after the
-assertions and cleanup releases the stalled request; `unread`, `UpgradeTimeout` 200 ms and
-a client that does not call `NextReader` while the server has written a message;
+assertions and cleanup releases the stalled request; `unread`, `UpgradeTimeout` 200 ms,
+the server's default `PingInterval` and `PingTimeout` (D15, 25 s and 20 s), and a client
+that does not call `NextReader` while the server has written a message;
 `clamped`, `UpgradeTimeout` one hour, the server's `PingInterval` and `PingTimeout` 100 ms
 each and the hijacking handler of `stalled`, so the record comes within the 200 ms sum
 plus 1 s, not after an hour. Each then

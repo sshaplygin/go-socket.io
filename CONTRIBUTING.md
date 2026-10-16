@@ -23,6 +23,90 @@ planned and in which order: [docs/ROADMAP.md](docs/ROADMAP.md).
    and adds no merge commit; the commit SHAs change, so the roadmap's gates read
    `master`, not the PR branch.
 
+## Work packages
+
+The remaining Stage V1 work is split into packages that the owner gives to separate
+takers, people or agents: their PRs, paths, entry and exit gates, the parallel matrix and
+the registry are in [docs/ROADMAP.md](docs/ROADMAP.md#stage-v1-work-packages).
+
+**Taking and handing back.** A package has one taker at a time. The taker opens a PR that
+changes only the package's registry row (`open` to `taken`, the taker's name, the last
+merged PR of the package) and starts the package's first PR only after it has merged; a
+row that is `taken` is not started by anyone else. When the package's last PR has merged,
+the taker sets the row to `done` the same way; a taker who stops, or the owner, sets it
+back to `open` with the last merged PR, and the next taker continues from there. A
+registry PR edits `docs/ROADMAP.md`, so it is reviewed as any roadmap edit (CLAUDE.md,
+*Roadmap validation*).
+
+**Reading list.** [CLAUDE.md](CLAUDE.md); this file; the package's row in each table of the
+roadmap section above and its lines of the path block; for each PR of the package its row
+of the Stage V1 PR table, its wave row, its `### V1-<n> contract` if it has one, the Stage V1
+per-PR DoD and the checks named for that PR, the section its scope row points to
+(*Conformance contract*, Stage 7, *Shared-file drift check*, ...), and the rows of
+[docs/PARITY.md](docs/PARITY.md) whose `Plan` names the PR. Nothing else is required.
+
+**Rules, without exception.**
+
+- Every PR is reviewed by three independent reviewers, QA, Critic and Reviewer (the roles
+  of CLAUDE.md *Roadmap validation*): read-only, none sees another's findings before
+  submitting its own, at most three iterations; each finding is fixed in its own commit.
+  A PR still rejected after the third iteration stops and goes to the owner.
+- The executor and the reviewers use the default tier of agent the owner sets; the
+  strongest tier only after three rejected iterations of one PR and the owner's go.
+- A PR merges only with the three approvals of its last iteration and every CI job green,
+  by the owner or under the owner's standing merge authorization.
+- No commit message, PR text, review comment or file names or credits an assistant, a
+  model or its provider; no generated footer or trailer.
+- No tag and no version bump: tags and the release commit follow *Releases*, on the
+  owner's order only.
+- `master`, `v1.x` and any branch another person pushed to are never rewritten or
+  force-pushed; `master` reaches an open PR branch by a merge, not by a rebase of pushed
+  commits.
+- Repository text is English.
+- A PR edits only its package's paths and, by row, the files the roadmap section names for
+  every package. A change outside them, or of a contract, is a plan change: stop and ask
+  the owner (CLAUDE.md: public API goes through the roadmap first).
+- The entry check of a PR passes on `master` before the PR starts, and its exit gate on
+  the head before review.
+
+**Shared files.** Where the roadmap names an integrator for a file, the worker's PR carries
+its own hunk, lists the files in a body line `integrator: <package> <path>...`, and merges
+after the integrator's taker has commented `integrated: <path>...` on it; when an open PR
+of the integrator edits the same file, the worker's PR merges after it, with `master`
+merged in and the DoD re-run. In `docs/PARITY.md`, `CHANGELOG.md` and the registry a PR
+edits only its own rows; a conflict there keeps both sides.
+
+**Reporting back,** to the owner, per PR: the PR number and head SHA; the result of every
+CI job; the entry and exit commands run, with their output or counts; the three verdicts
+of each review iteration and the commit of each fixed finding; what was not run and why;
+the registry row after the merge; any blocker, with the options and a recommendation.
+
+**Prompt for a taker.** Replace `<PKG>`, `<PR>`, `<TAKER>` and `<BRANCH>` (the registry's
+branch prefix and a short topic):
+
+```text
+Repository github.com/sshaplygin/go-socket.io, base branch master. You are <TAKER>, the
+taker of work package <PKG> (docs/ROADMAP.md, "Stage V1 work packages"), and you do PR
+<PR> of it, nothing else.
+
+Read first, and only: CLAUDE.md; CONTRIBUTING.md, "Pull requests" and "Work packages";
+the reading list of "Work packages" for <PKG> and <PR>.
+
+Before you edit: the registry row <PKG> says taken by <TAKER>, and the entry check of
+<PR> ("entry <PR>" in the Entry fence of the roadmap section) passes on origin/master.
+If not, stop and report.
+
+Work in your own git worktree on branch <BRANCH> from origin/master. Edit only the paths
+of <PKG>, plus, by row, the PARITY.md rows of <PR>, its CHANGELOG.md entries and nothing
+of another PR. Follow every rule of "Work packages" without exception. Title the commits
+and the PR as the Stage V1 PR sequence requires.
+
+Done when: the per-PR DoD with N=<PR> and the checks named for <PR> pass on the head,
+the PR to master is open with a factual body (problem, change, what was verified with
+which command and its numbers, what was not run), the three reviewers approved within
+three iterations and CI is green. Report back as "Work packages" lists.
+```
+
 ## Releases
 
 This section owns the release-commit procedure and the `CHANGELOG.md` handling of the two

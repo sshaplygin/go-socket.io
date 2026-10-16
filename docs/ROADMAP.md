@@ -280,7 +280,7 @@ H|docs/PROTOCOL.md
 Never edited by a package, besides the paths of the others: any `v2/` file but B's two
 mirrors; a tag or a version string; the `docs/PARITY.md` rows of another PR. In particular:
 SY not the manifest files or their copies (B's); B not a manifest file without its `v2/` copy
-(D14), nor `engineio/transport/*.go` (V1-18), nor `engineio/payload/pauser.go` (V1A); C no
+(D14), nor the interface files `engineio/transport/*.go` (V1-18), nor `engineio/payload/pauser.go` (V1A); C no
 Go file outside `internal/`; D no `internal/conformance` file (V1-8's step runs its client);
 F neither `_examples/client/` (D) nor the `chat.go` of `redis-adapter` and
 `redis-adapter-unix-socket` (`CHAT_SKIP` until V1R); G not `parser/` (row V1E) and no

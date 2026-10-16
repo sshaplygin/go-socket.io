@@ -1933,13 +1933,14 @@ test -z "$(grep -F -e 'no payload size limit' -e 'Engine.IO v3 runtime (v1, repo
 
 V1-4 and V1-7 each rewrite the lines of `docs/PROTOCOL.md` that their rows make false, as
 the V1-4 row of the PR table (S10) and `### V1-7 contract` (N8, K7, and the heading rule)
-state, and check them on their head; `s4p` prints the v1 Socket.IO v4 section and *Known deviations*, which no
-v2 section repeats:
+state, and check them on their head (V1-4's arm greps its bullet by `4/<nsp>,"Invalid`, a
+token without a space, which no line wrap of the bullet can split); `s4p` prints the v1
+Socket.IO v4 section and *Known deviations*, which no v2 section repeats:
 
 ```sh
 s4p() { sed -n '/^## Implemented: Socket.IO protocol v4$/,/^## Implemented in `v2\/`: Socket.IO protocol v5 wire codec$/p' docs/PROTOCOL.md; }
 case $N in
-V1-4) test -z "$(s4p | grep -F 'without a registered handler closes the connection')"; test -n "$(s4p | grep -F 'is answered with an ERROR packet')"; test -n "$(s4p | grep -Fx 'Socket.IO v4 runtime (v1, repository root):')";;   # S10 (:130-131); the heading (:128) stays for V1-7
+V1-4) test -z "$(s4p | grep -F 'without a registered handler closes the connection')"; test -n "$(s4p | grep -F '4/<nsp>,"Invalid')"; test -n "$(s4p | grep -Fx 'Socket.IO v4 runtime (v1, repository root):')";;   # S10 (:130-131); the heading (:128) stays for V1-7
 V1-7) test -z "$(s4p | grep -F -e 'parsed into `Header.Query` and ignored' -e '`Header.Query` is never exposed to handlers')"; test -n "$(s4p | grep -F '`Handshake().Query`')"; test -z "$(s4p | grep -F 'Socket.IO v4 runtime (v1, repository root):')";;   # N8, K7 (:114, :132); the heading (:128) is gone
 esac
 ```

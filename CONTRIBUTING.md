@@ -111,7 +111,8 @@ Read first, and only: CLAUDE.md; CONTRIBUTING.md, "Pull requests" and "Work pack
 the reading list of "Work packages" for <PKG> and <PR>.
 
 Before you edit: the registry row <PKG> says taken by <TAKER>, and the entry check of
-<PR> ("entry <PR>" in the Entry fence of the roadmap section) passes on origin/master.
+<PR> (the one command after the Entry fence of the roadmap section, with <PR>) prints
+"entry: 0" on origin/master.
 If not, stop and report.
 
 Work in your own git worktree on branch <BRANCH> from origin/master. Edit only the paths

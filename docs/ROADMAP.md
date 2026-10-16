@@ -369,6 +369,14 @@ V1-14) wave 15 || return 1; test -f _examples/ack/go.mod -a -f _examples/binary/
 esac; )
 ```
 
+One command, from the repository root, extracts the fence above and runs it for one PR
+(`entry: 0` when it may start; replace `V1-2`):
+
+```sh
+bash -c "$(awk '/^[*][*]Entry[.][*][*]/ {s=1} s && /^```sh$/ {p=1; next} p && /^```$/ {exit} p' docs/ROADMAP.md)"'
+entry "$0"' V1-2; echo "entry: $?"
+```
+
 **Registry.** Status `open`, `taken` or `done`; the taker is the name the owner gives, never a
 model or provider; the branch prefix is the package's; the last merged PR is set by the
 taker's one-row PRs (CONTRIBUTING.md). All packages start `open`. A registry PR adds no

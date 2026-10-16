@@ -33,8 +33,10 @@ the registry are in [docs/ROADMAP.md](docs/ROADMAP.md#stage-v1-work-packages).
 changes only the package's registry row (`open` to `taken`, the taker's name, the last
 merged PR of the package) and starts the package's first PR only after it has merged; a
 row that is `taken` is not started by anyone else. When the package's last PR has merged,
-the taker sets the row to `done` the same way; a taker who stops, or the owner, sets it
-back to `open` with the last merged PR, and the next taker continues from there. A
+the taker sets the row to `done` the same way; a taker who stops, or the owner, first closes
+the package's unmerged PRs and then sets the row back to `open` with the last merged PR, so
+that `open` never stands beside a PR in flight (the entry fence reads it so), and the next
+taker continues from there. A
 registry PR edits `docs/ROADMAP.md`, so it is reviewed as any roadmap edit (CLAUDE.md,
 *Roadmap validation*).
 

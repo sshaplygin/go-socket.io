@@ -114,6 +114,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Development: `make sync-check` and an unfiltered CI check guard shared v1/v2
+  foundation files against drift after rewriting the module import path.
+
 - engineio: `Options.UpgradeTimeout` (10 seconds), `MaxHTTPBufferSize` (1,000,000 bytes)
   and `DisableUpgrades`; nonpositive limits use the defaults. `Session.SetLimits`,
   `SetRequest` and `Request` retain handshake configuration and request metadata;

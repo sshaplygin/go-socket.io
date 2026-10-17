@@ -11,9 +11,18 @@ on:
     - cron: '0 8 * * 1' # Mondays 08:00 UTC
 
 # Two independent modules: v1 at the repository root (github.com/sshaplygin/go-socket.io)
-# and v2 in v2/ (github.com/sshaplygin/go-socket.io/v2). Every job below belongs to one of
-# them; the changes job is the path filter that decides which modules a pull request runs.
+# and v2 in v2/ (github.com/sshaplygin/go-socket.io/v2). Shared-file drift always runs;
+# the changes job filters the remaining jobs by the modules a pull request touches.
 jobs:
+  sync-check:
+    name: Check shared-file drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare shared sources across modules
+        run: make sync-check
+
   changes:
     name: Changed modules
     runs-on: ubuntu-latest

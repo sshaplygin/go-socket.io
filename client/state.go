@@ -120,10 +120,14 @@ func (m *clientState) open(c *Client, retry *reconnectRun, number int) (result e
 	}
 	current := newConn(engine, c.handlers, c.limits, c.log.With("sid", engine.ID()))
 	current.owner = m
-	if err := current.connectClient(); err != nil {
-		m.mu.Unlock()
-		current.connected(err)
-		return err
+	// An inactive root has unsubscribed from manager lifecycle notifications.
+	// Keep the cache for an active root or one whose Socket does not exist yet.
+	if root := m.sockets[rootNamespace]; root == nil || root.active {
+		if err := current.connectClient(); err != nil {
+			m.mu.Unlock()
+			current.connected(err)
+			return err
+		}
 	}
 	m.conn, c.conn, m.rootReady = current, current, false
 	for _, socket := range m.order {

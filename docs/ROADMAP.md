@@ -400,14 +400,14 @@ item 3, asks the roadmap to name).
 
 | Package | Status | Taker | Branch prefix | Last merged PR |
 | --- | --- | --- | --- | --- |
-| SY | open | - | `v1-sy/` | - |
-| A | open | - | `v1-a/` | - |
-| B | open | - | `v1-b/` | #69 (V1-1) |
-| C | open | - | `v1-c/` | - |
-| D | open | - | `v1-d/` | - |
-| E | open | - | `v1-e/` | - |
-| F | open | - | `v1-f/` | - |
-| G | open | - | `v1-g/` | - |
+| SY | done | - | `v1-sy/` | #77 (SYNC) |
+| A | done | - | `v1-a/` | #91 (V1-7) |
+| B | done | - | `v1-b/` | #89 (V1-18) |
+| C | done | - | `v1-c/` | #95 (V1-20) |
+| D | done | - | `v1-d/` | #105 (V1-11) |
+| E | done | - | `v1-e/` | #101 (V1-19) |
+| F | done | - | `v1-f/` | #107 (V1-13) |
+| G | done | - | `v1-g/` | #109 (V1-15) |
 | H | open | - | `v1-h/` | - |
 
 DoD of this section, after the helpers of the entry fence, `bash`, `set -e` and `set -f`

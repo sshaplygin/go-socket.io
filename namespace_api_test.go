@@ -5,6 +5,7 @@ import (
 	gorilla "github.com/gorilla/websocket"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -414,6 +415,43 @@ func TestNamespaceDisconnectPendingFullBudget(t *testing.T) {
 	require.Equal(t, "/", recv(t, p.discs, "namespace disconnect"))
 	require.False(t, isDone(p.fc.closed))
 	require.Empty(t, p.errs)
+}
+
+func TestCloseControlsIncludeClaimedNamespaces(t *testing.T) {
+	p := start(t, 'S', hooks{setup: func(s *Server) { s.limits.writeBufferSize = 1 }}, "/a", "/b")
+	a, b := p.join(t, "/a").(*namespaceConn), p.join(t, "/b").(*namespaceConn)
+	p.stall(t, p.nc, 0)
+	root := p.nc.(*namespaceConn)
+	root.outMu.Lock()
+	unlockRoot := sync.OnceFunc(root.outMu.Unlock)
+	defer unlockRoot()
+	var unlocks []func()
+	for _, nc := range []*namespaceConn{a, b} {
+		nc.outMu.Lock()
+		unlock := sync.OnceFunc(nc.outMu.Unlock)
+		unlocks = append(unlocks, unlock)
+		defer unlock()
+		go nc.Disconnect()
+	}
+	require.Eventually(t, func() bool {
+		_, a := p.conn().namespaces.Get("/a")
+		_, b := p.conn().namespaces.Get("/b")
+		return !a && !b
+	}, time.Second, time.Millisecond)
+	closed := make(chan error, 1)
+	go func() { closed <- p.nc.Close() }()
+	recv(t, p.conn().closing, "connection close started")
+	for _, unlock := range unlocks {
+		unlock()
+	}
+	recv(t, p.discs, "first claimed namespace disconnected")
+	recv(t, p.discs, "second claimed namespace disconnected")
+	unlockRoot()
+	require.NoError(t, recv(t, closed, "connection Close"))
+	close(p.fc.release)
+	require.Equal(t, ev("first"), recv(t, p.fc.out, "previous application packet"))
+	packets := []string{recv(t, p.fc.out, "DISCONNECT"), recv(t, p.fc.out, "DISCONNECT"), recv(t, p.fc.out, "DISCONNECT")}
+	require.ElementsMatch(t, []string{"1/a,", "1/b,", "1"}, packets)
 }
 
 func TestPendingConnectUsesSharedBudget(t *testing.T) {

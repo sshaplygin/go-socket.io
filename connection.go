@@ -104,6 +104,7 @@ type conn struct {
 	drainTimeout                 time.Duration  // tests shorten it
 	disconnectReason             string         // guarded by mu; forced close unless read observes an engine close
 	disconnects                  sync.WaitGroup // registered under mu before claiming a namespace
+	disconnecting                int            // callbacks claimed but not completed; guarded by mu
 }
 
 func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connLimits, log *slog.Logger) *conn {
@@ -154,9 +155,10 @@ func (c *conn) startClose() (ncs []*namespaceConn) {
 		c.namespaces.Delete(fmtNS(nc.namespace))
 	}
 	c.disconnects.Add(len(ncs))
+	c.disconnecting += len(ncs)
 	// A graceful close may owe CONNECT and DISCONNECT for each namespace
 	// it just claimed; no more namespaces can register once closing starts.
-	c.closeControls = 2 * len(ncs)
+	c.closeControls = 2 * c.disconnecting
 	return ncs
 }
 
@@ -205,7 +207,12 @@ func (c *conn) disconnect(ncs []*namespaceConn) {
 // disconnectNamespace exposes rooms to disconnecting, then removes them before
 // OnDisconnect, matching the reference's two lifecycle notifications.
 func (c *conn) disconnectNamespace(nc *namespaceConn, reason string) {
-	defer c.disconnects.Done()
+	defer func() {
+		c.mu.Lock()
+		c.disconnecting--
+		c.mu.Unlock()
+		c.disconnects.Done()
+	}()
 	nh := c.namespace(fmtNS(nc.namespace))
 	if nh != nil {
 		if _, err := nh.dispatchEvent(nc, "disconnecting", reflect.ValueOf(reason)); err != nil {
@@ -292,6 +299,7 @@ func (c *conn) claimNamespace(nsp string, disconnect bool, expected ...*namespac
 	c.namespaces.Delete(nsp)
 	if ok && disconnect {
 		c.disconnects.Add(1)
+		c.disconnecting++
 	}
 	return nc, ok
 }

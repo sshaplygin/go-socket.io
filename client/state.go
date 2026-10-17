@@ -18,19 +18,20 @@ type connectAttempt struct {
 func (a *connectAttempt) cancel() { a.once.Do(func() { close(a.stop) }) }
 
 type clientState struct {
-	observersMu sync.RWMutex
-	observers   clientObservers
-	mu          sync.Mutex
-	client      *Client
-	conn        *conn
-	sockets     map[string]*Socket
-	order       []*Socket
-	attempt     *connectAttempt
-	retry       *reconnectRun
-	stopped     bool
-	closingAll  bool
-	rootReady   bool
-	buffered    int
+	observersMu     sync.RWMutex
+	observers       clientObservers
+	mu              sync.Mutex
+	client          *Client
+	conn            *conn
+	sockets         map[string]*Socket
+	order           []*Socket
+	attempt         *connectAttempt
+	retry           *reconnectRun
+	reconnectWorker *reconnectRun
+	stopped         bool
+	closingAll      bool
+	rootReady       bool
+	buffered        int
 }
 
 func (m *clientState) connect(c *Client) (result error) {
@@ -56,6 +57,7 @@ func (m *clientState) open(c *Client, retry *reconnectRun, number int) (result e
 		m.cancelRetryLocked()
 	}
 	previous := m.conn
+	previousWorker := m.reconnectWorker
 	a := &connectAttempt{stop: make(chan struct{}), finished: make(chan struct{})}
 	m.attempt, m.stopped, m.closingAll = a, false, false
 	// An explicit Connect starts a new lifecycle. A Socket.Close after this
@@ -163,11 +165,16 @@ func (m *clientState) open(c *Client, retry *reconnectRun, number int) (result e
 		go current.serveRead(clientConnectPacketHandler, clientDisconnectPacketHandler)
 		go m.connectionEnded(current)
 	}
-	if previous != nil {
+	if previous != nil || previousWorker != nil {
 		go func() {
-			<-previous.readStopped
-			<-previous.writeStopped
-			<-previous.errorStopped
+			if previous != nil {
+				<-previous.readStopped
+				<-previous.writeStopped
+				<-previous.errorStopped
+			}
+			if previousWorker != nil {
+				<-previousWorker.done
+			}
 			start()
 		}()
 	} else {

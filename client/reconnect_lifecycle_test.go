@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -8,6 +9,72 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/stretchr/testify/require"
 )
+
+// Reentrant Connect returns after OPEN, but its read handlers must wait for the
+// reconnect callback that called it to return.
+// Covers C3
+func TestClientReconnectHandlerSerial(t *testing.T) {
+	for _, mode := range []string{"attempt", "error", "failed", "success"} {
+		t.Run(mode, func(t *testing.T) {
+			cl, err := New("http://unused/", &Options{ReconnectionAttempts: 1, ReconnectionDelay: time.Millisecond, RandomizationFactor: -1})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = cl.Close() })
+			first, second, third := newFakeConn(t), newFakeConn(t), newFakeConn(t)
+			second.reads = make(chan string, 1)
+			second.reads <- "0"
+			third.reads = make(chan string, 1)
+			third.reads <- "0"
+			dials := 0
+			cl.dial = func(string) (engineio.Conn, error) {
+				dials++
+				if dials == 1 {
+					return first, nil
+				}
+				if dials == 2 && (mode == "error" || mode == "failed") {
+					return nil, errors.New("down")
+				}
+				if dials == 2 {
+					return second, nil
+				}
+				return third, nil
+			}
+			ready := make(chan Conn, 4)
+			cl.OnConnect(func(c Conn) error { ready <- c; return nil })
+			callbackEntered, callbackRelease := make(chan error, 1), make(chan struct{})
+			var once sync.Once
+			defer once.Do(func() { close(callbackRelease) })
+			callback := func() {
+				if mode == "success" {
+					_ = cl.Close()
+				}
+				callbackEntered <- cl.Connect()
+				<-callbackRelease
+			}
+			switch mode {
+			case "attempt":
+				cl.OnReconnectAttempt(func(int) { callback() })
+			case "error":
+				cl.OnReconnectError(func(error) { callback() })
+			case "failed":
+				cl.OnReconnectFailed(callback)
+			case "success":
+				cl.OnReconnect(func(int) { callback() })
+			}
+			require.NoError(t, cl.Connect())
+			first.reads <- "0"
+			recv(t, ready, "initial CONNECT")
+			close(first.peerGone)
+			require.NoError(t, recv(t, callbackEntered, "reentrant Connect"))
+			select {
+			case <-ready:
+				t.Fatal("OnConnect overlapped a reconnect callback")
+			case <-time.After(30 * time.Millisecond):
+			}
+			once.Do(func() { close(callbackRelease) })
+			recv(t, ready, "CONNECT after reconnect callback returned")
+		})
+	}
+}
 
 // Covers C3
 func TestClientReconnectCancellation(t *testing.T) {

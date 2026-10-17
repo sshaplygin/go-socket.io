@@ -42,6 +42,7 @@ func (m *clientState) connectionEnded(previous *conn) {
 	}
 	run := &reconnectRun{stop: make(chan struct{}), done: make(chan struct{})}
 	m.retry = run
+	m.reconnectWorker = run
 	m.mu.Unlock()
 	m.reconnect(run)
 }
@@ -54,6 +55,9 @@ func (m *clientState) reconnect(run *reconnectRun) {
 		m.mu.Lock()
 		if m.retry == run {
 			m.cancelRetryLocked()
+		}
+		if m.reconnectWorker == run {
+			m.reconnectWorker = nil
 		}
 		m.mu.Unlock()
 		close(run.done)

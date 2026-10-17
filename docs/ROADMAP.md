@@ -230,7 +230,9 @@ V1-4 (the close error of `engineio/session`, its aliases in one new `engineio/*.
 (`Server.Engine`, the fakes of `backpressure_test.go` and `log_test.go`), its `v2/` files the
 two mirrors of *Shared-file drift check*, its `docs/PROTOCOL.md` lines V1-2's; A's are
 V1-4's and V1-7's, G's V1-15's, H's the two deviation headings; D's root files are those of
-row 7A and the root tests Stage 7 splits.
+row 7A and the root tests Stage 7 splits. V1-10 also updates the root
+`lifecycle_errors_test.go` client fixture to wait for the server's root CONNECT
+and its `TestClientEventAndDisconnect` to assert the contract's disconnect reason.
 
 ```text
 SY|Makefile

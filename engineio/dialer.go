@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
@@ -16,6 +17,13 @@ import (
 // Dialer is dialer configure.
 type Dialer struct {
 	Transports []transport.Transport
+	// Upgrade opens the first transport and probes advertised later transports
+	// asynchronously. False preserves last-first fallback without probing.
+	Upgrade bool
+	// UpgradeTimeout bounds a probe from Dial's return through writing UPGRADE.
+	// Nonpositive values mean ten seconds; the OPEN heartbeat window clamps it.
+	// A transport's Dial has its own timeout; a late connection is closed.
+	UpgradeTimeout time.Duration
 }
 
 // Dial returns a connection which dials to url with requestHeader.
@@ -32,17 +40,30 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 	u.RawQuery = query.Encode()
 
 	var conn transport.Conn
+	transports := append([]transport.Transport(nil), d.Transports...)
+	if len(transports) == 0 {
+		return nil, errors.New("engineio: no transports")
+	}
+	order := make([]int, 0, len(transports))
+	if d.Upgrade {
+		order = append(order, 0)
+	} else {
+		for i := len(transports) - 1; i >= 0; i-- {
+			order = append(order, i)
+		}
+	}
 
-	for i := len(d.Transports) - 1; i >= 0; i-- {
+	for _, i := range order {
 		if conn != nil {
 			if closeErr := conn.Close(); closeErr != nil {
 				logger.Log.Debug("engineio: close connection failed", "err", closeErr)
 			}
 		}
 
-		t := d.Transports[i]
+		t := transports[i]
+		attemptURL := *u
 
-		conn, err = t.Dial(u, requestHeader)
+		conn, err = t.Dial(&attemptURL, requestHeader)
 		if err != nil {
 			dialFailed(i, t.Name(), err)
 
@@ -97,12 +118,18 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 			transport: t.Name(),
 			close:     make(chan struct{}),
 		}
-
+		started := time.Now()
+		ret.initialize()
 		go ret.serve()
+		if d.Upgrade && len(transports) > 1 {
+			go ret.upgradeTransports(started, *u, requestHeader.Clone(), transports[1:], d.UpgradeTimeout)
+		}
 
 		return ret, nil
 	}
-
+	if conn != nil {
+		_ = conn.Close()
+	}
 	return nil, err
 }
 

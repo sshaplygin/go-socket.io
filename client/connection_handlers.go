@@ -162,12 +162,9 @@ func clientConnectPacketHandler(c *conn, header parser.Header) error {
 		if !c.register(header.Namespace, conn) {
 			return nil // a close started
 		}
-		conn.Join(c.Conn.ID())
+		conn.Join(conn.ID())
 	}
-
-	_, err := handler.dispatch(conn, header)
-	if err != nil {
-		c.log.Debug("socketio: connect handler failed", nspAttr(header.Namespace), "err", err)
+	if err := c.owner.namespaceConnected(c, header.Namespace, conn); err != nil {
 		c.onError(header.Namespace, err)
 		return errHandleDispatch
 	}
@@ -176,31 +173,9 @@ func clientConnectPacketHandler(c *conn, header parser.Header) error {
 }
 
 func clientDisconnectPacketHandler(c *conn, header parser.Header) error {
-	args, err := c.decoder.DecodeArgs(defaultHeaderType)
-	if err != nil {
+	if err := c.decoder.DiscardLast(); err != nil {
 		c.onError(header.Namespace, err)
 		return errDecodeArgs
 	}
-
-	conn, ok := c.claim(header.Namespace) // a close may have taken it
-	if !ok {
-		_ = c.decoder.DiscardLast()
-		return nil
-	}
-
-	conn.LeaveAll()
-
-	handler, ok := c.handlers.Get(header.Namespace)
-	if !ok {
-		return nil
-	}
-
-	_, err = handler.dispatch(conn, header, args...)
-	if err != nil {
-		c.log.Debug("socketio: disconnect handler failed", nspAttr(header.Namespace), "err", err)
-		c.onError(header.Namespace, err)
-		return errHandleDispatch
-	}
-
-	return nil
+	return c.owner.namespaceDisconnected(c, header.Namespace)
 }

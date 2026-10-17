@@ -139,6 +139,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- client: add `New` options and namespace sockets sharing one Engine.IO connection,
+  connect timeout and retries, pre-connect event buffering, and namespace DISCONNECT
+  on close. Engine path, query and headers apply to both transports and upgrade.
+
+- engineio: optional ordered transport upgrades keep polling usable until a
+  successful websocket probe, preserve packet order, and bound failed probes.
+  Engine clients expose their first close reason through `CloseError`.
+
 - Differential conformance scenarios compare Go and Node event, ACK, binary,
   namespace, handshake and disconnect transcripts under both supported clients.
 

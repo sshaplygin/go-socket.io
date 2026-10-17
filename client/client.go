@@ -4,172 +4,140 @@ import (
 	"errors"
 	"log/slog"
 	"net/url"
-	"path"
 	"strings"
+	"time"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 	"github.com/sshaplygin/go-socket.io/logger"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
-// ErrEmptyAddr is returned by NewClient when addr is empty.
+// ErrEmptyAddr is returned by NewClient and New when addr is empty.
 var ErrEmptyAddr = errors.New("empty addr")
 
-// Client is an experimental Socket.IO client.
+// ErrConnectTimeout means the engine connection did not open within Options.Timeout.
+var ErrConnectTimeout = errors.New("client: connect timeout")
+
+// Client multiplexes namespace sockets over one Engine.IO connection.
 type Client struct {
 	namespace string
 	url       string
-
-	conn     *conn
-	handlers *namespaceHandlers
-
-	opts   *engineio.Options
-	limits connLimits
-	log    *slog.Logger
-
-	dial func(url string) (engineio.Conn, error) // nil dials over polling; tests replace it
+	conn      *conn // the current connection; retained for internal queue tests
+	handlers  *namespaceHandlers
+	opts      *engineio.Options
+	limits    connLimits
+	log       *slog.Logger
+	options   Options
+	state     *clientState
+	dial      func(string) (engineio.Conn, error) // internal transport fixture
 }
 
-// NewClient returns a client configured for addr and opts.
+// NewClient retains the original constructor and its close drain deadline.
+// WriteBufferSize and Logger map to Options; PingTimeout bounds the close drain.
 func NewClient(addr string, opts *engineio.Options) (*Client, error) {
+	var options Options
+	if opts != nil {
+		options.WriteBufferSize, options.Logger = opts.WriteBufferSize, opts.Logger
+	}
+	c, err := New(addr, &options)
+	if err != nil {
+		return nil, err
+	}
+	c.opts, c.limits = opts, newConnLimits(opts)
+	return c, nil
+}
+
+// New configures addr (http://host:port[/namespace]) without opening a connection.
+// The address path selects the namespace of the Client's own event methods.
+func New(addr string, opts *Options) (*Client, error) {
 	if addr == "" {
 		return nil, ErrEmptyAddr
 	}
-
 	u, err := url.Parse(addr)
 	if err != nil {
 		return nil, err
 	}
-
-	namespace := fmtNS(u.Path)
-
-	// Not allowing other than default
-	u.Path = path.Join("/socket.io", namespace)
-	u.Path = u.EscapedPath()
-	if strings.HasSuffix(u.Path, "socket.io") {
-		u.Path += "/"
+	var options Options
+	if opts != nil {
+		options = *opts
 	}
-
-	return &Client{
-		namespace: namespace,
-		url:       u.String(),
-		handlers:  newNamespaceHandlers(),
-		opts:      opts,
-		limits:    newConnLimits(opts),
-		log:       loggerFrom(opts),
-	}, nil
+	if options.Timeout == 0 {
+		options.Timeout = 20 * time.Second
+	}
+	if options.Path == "" {
+		options.Path = "/socket.io"
+	}
+	if options.Transports == nil {
+		handshake := options.Timeout
+		if handshake < 0 {
+			handshake = 0
+		}
+		options.Transports = []transport.Transport{polling.Default, &websocket.Transport{HandshakeTimeout: handshake}}
+	} else {
+		options.Transports = append([]transport.Transport(nil), options.Transports...)
+	}
+	options.Header = options.Header.Clone()
+	query := u.Query()
+	for key, values := range options.Query {
+		query[key] = append([]string(nil), values...)
+	}
+	options.Query = query
+	namespace := fmtNS(u.Path)
+	u.Path, u.RawPath, u.RawQuery = strings.TrimRight(options.Path, "/")+"/", "", query.Encode()
+	engineOptions := &engineio.Options{WriteBufferSize: options.WriteBufferSize, Logger: options.Logger}
+	c := &Client{namespace: namespace, url: u.String(), handlers: newNamespaceHandlers(),
+		limits: newConnLimits(engineOptions), log: loggerFrom(engineOptions), options: options}
+	c.state = &clientState{client: c, sockets: make(map[string]*Socket)}
+	c.createNamespace(rootNamespace)
+	c.Socket(namespace)
+	return c, nil
 }
 
 func fmtNS(ns string) string {
 	if ns == aliasRootNamespace {
 		return rootNamespace
 	}
-
 	return ns
 }
 
-func (c *Client) Connect() error {
-	dialer := engineio.Dialer{
-		Transports: []transport.Transport{polling.Default},
-	}
+// Connect returns once Engine.IO is open and namespace CONNECT packets are queued.
+// A failed or timed-out attempt can be retried; late dial results are closed.
+func (c *Client) Connect() error { return c.state.connect(c) }
 
-	dial := c.dial
-	if dial == nil {
-		dial = func(url string) (engineio.Conn, error) { return dialer.Dial(url, nil) }
-	}
-	enginioCon, err := dial(c.url)
-	if err != nil {
-		return err
-	}
+// Close disconnects all namespace sockets and drains their queued packets before
+// closing Engine.IO. New uses a one-minute drain bound; NewClient keeps PingTimeout.
+func (c *Client) Close() error { return c.state.closeAll() }
 
-	c.conn = newConn(enginioCon, c.handlers, c.limits, c.log.With("sid", enginioCon.ID()))
+// Emit sends through the namespace selected by the address passed to New.
+func (c *Client) Emit(event string, args ...interface{}) { c.Socket(c.namespace).Emit(event, args...) }
 
-	if err := c.conn.connectClient(); !c.conn.connected(err) {
-		return err
-	}
+// OnConnect sets the default namespace's connection callback.
+func (c *Client) OnConnect(f func(Conn) error) { c.Socket(c.namespace).OnConnect(f) }
 
-	go c.conn.serveError()
-	go c.conn.serveWrite()
-	go c.conn.serveRead(clientConnectPacketHandler, clientDisconnectPacketHandler)
+// OnDisconnect sets the default namespace's disconnect callback.
+func (c *Client) OnDisconnect(f func(Conn, string)) { c.Socket(c.namespace).OnDisconnect(f) }
 
-	return nil
-}
+// OnError sets the default namespace's error callback.
+func (c *Client) OnError(f func(Conn, error)) { c.Socket(c.namespace).OnError(f) }
 
-// Close closes the connection as Conn.Close does. The drain deadline is the PingTimeout
-// of the Options passed to NewClient, not the server's value.
-func (c *Client) Close() error {
-	return c.conn.Close()
-}
-
-func (c *Client) Emit(event string, args ...interface{}) {
-	nsConn, ok := c.conn.namespaces.Get(c.namespace)
-	if !ok && isDone(c.conn.closing) { // a close took it; write queues or drops by the close rules
-		nsConn, ok = newNamespaceConn(c.conn, c.namespace, nil), true
-	}
-	if !ok {
-		c.log.Warn("socketio: emit before connect", nspAttr(c.namespace), "event", event)
-		return
-	}
-
-	nsConn.Emit(event, args...)
-}
-
-// OnConnect set a handler function f to handle open event for namespace.
-func (c *Client) OnConnect(f func(Conn) error) {
-	h := c.getNamespace(c.namespace)
-	if h == nil {
-		h = c.createNamespace(c.namespace)
-	}
-
-	h.OnConnect(f)
-}
-
-// OnDisconnect set a handler function f to handle disconnect event for namespace.
-func (c *Client) OnDisconnect(f func(Conn, string)) {
-	h := c.getNamespace(c.namespace)
-	if h == nil {
-		h = c.createNamespace(c.namespace)
-	}
-
-	h.OnDisconnect(f)
-}
-
-// OnError set a handler function f to handle error for namespace.
-func (c *Client) OnError(f func(Conn, error)) {
-	h := c.getNamespace(c.namespace)
-	if h == nil {
-		h = c.createNamespace(c.namespace)
-	}
-
-	h.OnError(f)
-}
-
-// OnEvent set a handler function f to handle event for namespace.
-func (c *Client) OnEvent(event string, f interface{}) {
-	h := c.getNamespace(c.namespace)
-	if h == nil {
-		h = c.createNamespace(c.namespace)
-	}
-
-	h.OnEvent(event, f)
-}
+// OnEvent replaces the default namespace's handler for event.
+func (c *Client) OnEvent(event string, f interface{}) { c.Socket(c.namespace).OnEvent(event, f) }
 
 func (c *Client) createNamespace(ns string) *namespaceHandler {
-	handler := newNamespaceHandler(ns)
-	c.handlers.Set(ns, handler)
-
-	return handler
+	if h := c.getNamespace(ns); h != nil {
+		return h
+	}
+	h := newNamespaceHandler(ns)
+	c.handlers.Set(ns, h)
+	return h
 }
 
 func (c *Client) getNamespace(ns string) *namespaceHandler {
-	ret, ok := c.handlers.Get(ns)
-	if !ok {
-		return nil
-	}
-
-	return ret
+	h, _ := c.handlers.Get(ns)
+	return h
 }
 
 func (c *conn) connectClient() error {
@@ -177,29 +145,33 @@ func (c *conn) connectClient() error {
 	if !ok {
 		return errUnavailableRootHandler
 	}
-
 	root := newNamespaceConn(c, aliasRootNamespace, rootHandler.broadcast)
 	c.namespaces.Set(rootNamespace, root)
-
-	root.Join(root.Conn.ID())
-
-	c.namespaces.Range(func(ns string, nc *namespaceConn) {
-		nc.SetContext(c.Conn.Context())
-	})
-
-	header := parser.Header{
-		Type: parser.Connect,
-	}
-
-	return c.encoder.Encode(header)
+	root.Join(c.Conn.ID())
+	root.SetContext(c.Conn.Context())
+	return nil
 }
 
-// loggerFrom returns opts.Logger passed through logger.Wrap, or logger.Log
-// when opts or the field is nil. It mirrors engineio.Options.getLogger for the
-// socket.io layer.
+func (c *Client) engineDial() (engineio.Conn, error) {
+	if c.dial != nil {
+		return c.dial(c.url)
+	}
+	d := engineio.Dialer{Transports: c.options.Transports, Upgrade: true}
+	return d.Dial(c.url, c.options.Header)
+}
+
+// loggerFrom mirrors engineio.Options' logger selection for the Socket.IO layer.
 func loggerFrom(opts *engineio.Options) *slog.Logger {
 	if opts != nil && opts.Logger != nil {
 		return logger.Wrap(opts.Logger)
 	}
 	return logger.Log
+}
+
+func socketConnectHeader(s *Socket) parser.Header {
+	nsp := s.namespace
+	if s.query != "" {
+		nsp += "?" + s.query
+	}
+	return parser.Header{Type: parser.Connect, Namespace: nsp}
 }

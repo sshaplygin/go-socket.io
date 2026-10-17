@@ -216,7 +216,6 @@ func connectRawClient(t *testing.T, setup func(*client.Client)) *rawClient {
 	t.Cleanup(func() { _ = cl.Close() })
 
 	srv := rs.accept()
-	require.Equal(t, "0", srv.read(), "the client sends CONNECT for the root namespace")
 	srv.send("0")
 	recv(t, connected, "client OnConnect")
 	return srv
@@ -235,10 +234,9 @@ func TestClientEventAndDisconnect(t *testing.T) {
 	srv.send(`2["num",5]`)
 	require.Equal(t, 5, recv(t, events, "client event"))
 
-	// Known defect, pinned until stage 2.3 defines disconnect reasons: a server
-	// DISCONNECT reaches the client's OnDisconnect with an empty reason.
+	// V1-10 exposes the reference client's server-initiated disconnect reason.
 	srv.send("1")
-	require.Equal(t, "", recv(t, reasons, "client OnDisconnect"))
+	require.Equal(t, "io server disconnect", recv(t, reasons, "client OnDisconnect"))
 }
 
 // TestClientDecodeErrorReachesOnError sends a malformed event to the Go

@@ -1,7 +1,10 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
 
 	socketio "github.com/sshaplygin/go-socket.io"
@@ -17,6 +20,8 @@ var allowOriginFunc = func(r *http.Request) bool {
 }
 
 func main() {
+	addr := flag.String("addr", ":8000", "HTTP listen address")
+	flag.Parse()
 	server := socketio.NewServer(&engineio.Options{
 		Transports: []transport.Transport{
 			&polling.Transport{
@@ -40,6 +45,10 @@ func main() {
 	http.Handle("/socket.io/", server)
 	http.Handle("/", http.FileServer(http.Dir("../asset")))
 
-	log.Println("Serving at localhost:8000...")
-	log.Fatal(http.ListenAndServe(":8000", nil))
+	listener, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("Listening on http://%s\n", listener.Addr())
+	log.Fatal(http.Serve(listener, nil))
 }

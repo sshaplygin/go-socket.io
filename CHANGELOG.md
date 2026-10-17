@@ -139,6 +139,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Executable ACK and binary examples, plus a Node chat-login check. `make examples`
+  vets standalone modules; `make examples-node` checks each client script under both
+  supported Node clients in CI.
+
 - ci: a tagged conformance suite runs Socket.IO clients 1.7.4 and 2.5.0 against
   the Go server over polling and websocket, including upgrade and reconnect.
   Raw HTTP and websocket tests check OPTIONS, framing, close and overlapping requests.

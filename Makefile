@@ -47,10 +47,14 @@ cover:
 
 .PHONY: examples
 examples:
-	@set -e; for d in $(EXAMPLES); do echo "==> $$d"; (cd $$d && go build -o /dev/null ./...); done
+	@set -e; for d in $(EXAMPLES); do echo "==> $$d"; (cd $$d && go build -o /dev/null ./... && go vet ./...); done
 	go build -o /dev/null ./_examples/client
-	@set -e; for d in $(EXAMPLES); do cmp $$d/chat.go _examples/default-http/chat.go; done
+	@set -e; for d in $(EXAMPLES); do if test -f $$d/chat.go; then cmp $$d/chat.go _examples/default-http/chat.go; fi; done
 	cd _examples/default-http && go test -race -count=1 ./...
+
+.PHONY: examples-node
+examples-node:
+	bash _examples/run-node.sh
 
 # Foundation files stay independent copies in both modules (ROADMAP D14).
 .PHONY: sync-check

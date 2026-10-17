@@ -66,7 +66,8 @@ make test-stress # race tests of root, parser, engineio/...: -count=5 -shuffle=o
 make bench       # benchmarks only, no tests
 make vuln        # govulncheck ./... in the root and in every _examples module
 make cover       # coverage profile + HTML report
-make examples    # build every _examples/*/ module and the Go client, check that every chat.go is identical, race-test default-http
+make examples    # build and vet every _examples/*/ module, build the Go client, compare chat.go copies, race-test default-http
+make examples-node # run each example client.js on a free port; requires CONFORMANCE_NODE_MODULES
 make all         # go install ./...
 ```
 

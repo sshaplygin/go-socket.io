@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- engineio: closing a polling payload after its reader was acquired releases
+  FeedIn instead of leaving the polling client goroutine waiting forever.
+
 - socketio: `Server.Close` waits for active session handlers to finish, with a
   10 second bound and a warning that reports the number still open.
 

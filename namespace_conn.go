@@ -143,7 +143,7 @@ func (nc *namespaceConn) Disconnect() {
 	if !nc.conn.boundary {
 		return
 	}
-	if claimed, ok := nc.conn.claim(fmtNS(nc.namespace), nc); ok && claimed == nc {
+	if claimed, ok := nc.conn.claimDisconnect(fmtNS(nc.namespace), nc); ok && claimed == nc {
 		nc.acceptPending()
 		nc.conn.write(parser.Header{Type: parser.Disconnect, Namespace: fmtNS(nc.namespace)})
 		nc.conn.disconnectNamespace(nc, "server namespace disconnect")

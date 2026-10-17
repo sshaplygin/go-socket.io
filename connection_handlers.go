@@ -174,7 +174,7 @@ func disconnectPacketHandler(c *conn, header parser.Header) error {
 		c.onError(header.Namespace, err)
 		return errDecodeArgs
 	}
-	nc, ok := c.claim(header.Namespace)
+	nc, ok := c.claimDisconnect(header.Namespace)
 	if !ok {
 		return nil
 	}

@@ -100,8 +100,9 @@ type conn struct {
 	overflow                     *namespaceConn   // the first close is its overflow, in this namespace
 	pending                      []*namespaceConn // OnDisconnect calls a library close owes
 	drainTimer                   *time.Timer
-	drainTimeout                 time.Duration // tests shorten it
-	disconnectReason             string        // guarded by mu; forced close unless read observes an engine close
+	drainTimeout                 time.Duration  // tests shorten it
+	disconnectReason             string         // guarded by mu; forced close unless read observes an engine close
+	disconnects                  sync.WaitGroup // registered under mu before claiming a namespace
 }
 
 func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connLimits, log *slog.Logger) *conn {
@@ -151,6 +152,7 @@ func (c *conn) startClose() (ncs []*namespaceConn) {
 	for _, nc := range ncs {
 		c.namespaces.Delete(fmtNS(nc.namespace))
 	}
+	c.disconnects.Add(len(ncs))
 	return ncs
 }
 
@@ -199,6 +201,7 @@ func (c *conn) disconnect(ncs []*namespaceConn) {
 // disconnectNamespace exposes rooms to disconnecting, then removes them before
 // OnDisconnect, matching the reference's two lifecycle notifications.
 func (c *conn) disconnectNamespace(nc *namespaceConn, reason string) {
+	defer c.disconnects.Done()
 	nh := c.namespace(fmtNS(nc.namespace))
 	if nh != nil {
 		if _, err := nh.dispatchEvent(nc, "disconnecting", reflect.ValueOf(reason)); err != nil {
@@ -268,6 +271,14 @@ func (c *conn) register(nsp string, nc *namespaceConn) bool {
 }
 
 func (c *conn) claim(nsp string, expected ...*namespaceConn) (*namespaceConn, bool) {
+	return c.claimNamespace(nsp, false, expected...)
+}
+
+func (c *conn) claimDisconnect(nsp string, expected ...*namespaceConn) (*namespaceConn, bool) {
+	return c.claimNamespace(nsp, true, expected...)
+}
+
+func (c *conn) claimNamespace(nsp string, disconnect bool, expected ...*namespaceConn) (*namespaceConn, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	nc, ok := c.namespaces.Get(nsp)
@@ -275,6 +286,9 @@ func (c *conn) claim(nsp string, expected ...*namespaceConn) (*namespaceConn, bo
 		return nil, false
 	}
 	c.namespaces.Delete(nsp)
+	if ok && disconnect {
+		c.disconnects.Add(1)
+	}
 	return nc, ok
 }
 

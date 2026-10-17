@@ -522,6 +522,9 @@ func (s *Server) getNamespace(nsp string) *namespaceHandler {
 }
 
 func (s *Server) releaseConnection(c *conn) {
+	// finish has closed registration before this wait, so every disconnect has
+	// already registered its callback, including calls from application goroutines.
+	c.disconnects.Wait()
 	s.activeMu.Lock()
 	delete(s.active, c)
 	close(s.activeChanged)

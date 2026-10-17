@@ -57,11 +57,9 @@ func (n *ServerNamespace) Use(f func(Conn) error) {
 	h.eventsLock.Unlock()
 }
 
-// Emit broadcasts the event once per connected socket.
+// Emit broadcasts through the configured adapter once per connected socket.
 func (n *ServerNamespace) Emit(event string, args ...interface{}) error {
-	for _, c := range n.Sockets() {
-		c.Emit(event, args...)
-	}
+	n.server.BroadcastToNamespace(n.name, event, args...)
 	return nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/parser"
 	"github.com/stretchr/testify/require"
@@ -135,6 +136,30 @@ func TestNamespaceSend(t *testing.T) {
 	require.Equal(t, "0", c.read())
 	require.NoError(t, s.Of("/").Send("hello"))
 	require.Equal(t, "2[\"message\",\"hello\"]\n", c.read())
+}
+
+func TestNamespaceBroadcastAcrossInstances(t *testing.T) {
+	r := miniredis.RunT(t)
+	a, b := NewServer(nil), NewServer(nil)
+	useRedis(t, a, r.Addr())
+	useRedis(t, b, r.Addr())
+	first, second := a.Of("/chat"), b.Of("/chat")
+	waitRedisSubscribers(t, r, "socket.io-request#/chat", 2)
+	remote := newRedisTestConn("remote")
+	b.getNamespace("/chat").broadcast.Join(remote.ID(), remote)
+	// The publishing server has no local socket in this namespace.
+	require.Empty(t, first.Sockets())
+	require.NoError(t, first.Emit("remote-event", 42))
+	expectEvent(t, remote, "remote-event [42]")
+	require.NoError(t, first.Send("hello"))
+	expectEvent(t, remote, "message [hello]")
+	// Once both instances have sockets, the adapter reaches both of them.
+	local := newRedisTestConn("local")
+	a.getNamespace("/chat").broadcast.Join("one", local)
+	require.NoError(t, second.Emit("both"))
+	expectEvent(t, local, "both []")
+	expectEvent(t, remote, "both []")
+	require.Empty(t, local.events)
 }
 
 // Covers S16

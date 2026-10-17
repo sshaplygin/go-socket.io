@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -238,7 +237,13 @@ func TestEngineSocketEvents(t *testing.T) {
 	require.Less(t, index("heartbeat"), index("create:3:0"))
 	require.Less(t, index("read:4:0"), index("error:closing"))
 	for _, unique := range []string{"initial-header:polling", "headers:websocket", "heartbeat", "upgrading:websocket:polling:false", "upgrade:websocket:websocket:true", "error:closing"} {
-		require.Equal(t, 1, strings.Count("\n"+strings.Join(got, "\n")+"\n", "\n"+unique+"\n"), unique)
+		count := 0
+		for _, event := range got {
+			if event == unique {
+				count++
+			}
+		}
+		require.Equal(t, 1, count, unique)
 	}
 	require.Equal(t, StateClosed, f.conn.ReadyState())
 }

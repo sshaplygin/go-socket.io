@@ -135,6 +135,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- socketio: immutable Emitter builders select room unions and socket exclusions,
+  with volatile and local flags. Namespace sockets can join several rooms and
+  broadcast except their sender; adapters and namespaces expose socket ID snapshots.
+  New broadcast entry points reject acknowledgement callbacks with ErrBroadcastAck;
+  legacy broadcasts retain one callback per socket. Redis exclusions return
+  ErrExceptUnsupported without delivery, and unknown message extensions are dropped.
+
 - socketio: `Server.Of` returns a stable `ServerNamespace` with handler registration,
   namespace middleware, `Emit`, `Send`, and connected-socket snapshots. `Server.Use`
   registers middleware through the same namespace. `Namespace` gains `Send`,

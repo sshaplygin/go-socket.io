@@ -29,7 +29,14 @@ type Namespace interface {
 	// the OnDisconnect calls it runs have returned (see Conn.Close).
 	Emit(eventName string, v ...interface{})
 
-	Join(room string)
+	// Join joins each room in order, ignoring rooms already joined.
+	Join(rooms ...string)
+	// To broadcasts to a union of rooms except this socket. Client emits return ErrServerOnly.
+	To(rooms ...string) Emitter
+	// Broadcast targets the namespace except this socket. Client emits return ErrServerOnly.
+	Broadcast() Emitter
+	// Volatile starts a single-socket emit that drops when its connection is not writable.
+	Volatile() Emitter
 	Leave(room string)
 	LeaveAll()
 	Rooms() []string
@@ -112,8 +119,10 @@ func (nc *namespaceConn) Emit(eventName string, v ...interface{}) {
 	nc.send(header, args...)
 }
 
-func (nc *namespaceConn) Join(room string) {
-	nc.broadcast.Join(room, nc)
+func (nc *namespaceConn) Join(rooms ...string) {
+	for _, room := range rooms {
+		nc.broadcast.Join(room, nc)
+	}
 }
 
 func (nc *namespaceConn) Leave(room string) {
@@ -241,4 +250,96 @@ func (nc *namespaceConn) reject() {
 	nc.pending = nil
 	nc.outMu.Unlock()
 	nc.LeaveAll()
+}
+
+// Emitter is an immutable pending target and its flags. Each builder returns a new
+// value, so an Emitter can be reused. To or Except converts a single-socket target
+// to a broadcast excluding its sender; Volatile and Local preserve its target.
+type Emitter interface {
+	To(rooms ...string) Emitter
+	Except(ids ...string) Emitter
+	Volatile() Emitter
+	Local() Emitter
+	// Emit returns ErrBroadcastAck for a broadcast with a trailing func, or an
+	// adapter error. A single-socket emit never fails. A client broadcast returns
+	// ErrServerOnly. Errors send nothing.
+	Emit(event string, args ...interface{}) error
+	// Send is Emit("message", args...).
+	Send(args ...interface{}) error
+}
+
+type emitter struct {
+	socket    *namespaceConn
+	adapter   Broadcast
+	broadcast bool
+	opts      BroadcastOptions
+}
+
+func (e emitter) asBroadcast() emitter {
+	if !e.broadcast {
+		e.broadcast = true
+		e.adapter = e.socket.broadcast
+		if !e.socket.conn.boundary {
+			e.adapter = nil
+		}
+		e.opts.Except = append(append([]string(nil), e.opts.Except...), e.socket.ID())
+	}
+	return e
+}
+
+func (e emitter) To(rooms ...string) Emitter {
+	e = e.asBroadcast()
+	e.opts.Rooms = append(append([]string(nil), e.opts.Rooms...), rooms...)
+	return e
+}
+
+func (e emitter) Except(ids ...string) Emitter {
+	e = e.asBroadcast()
+	e.opts.Except = append(append([]string(nil), e.opts.Except...), ids...)
+	return e
+}
+
+func (e emitter) Volatile() Emitter              { e.opts.Volatile = true; return e }
+func (e emitter) Local() Emitter                 { e.opts.Local = true; return e }
+func (e emitter) Send(args ...interface{}) error { return e.Emit("message", args...) }
+
+func (e emitter) Emit(event string, args ...interface{}) error {
+	if e.broadcast {
+		if e.adapter == nil {
+			return ErrServerOnly
+		}
+		if hasBroadcastAck(args) {
+			return ErrBroadcastAck
+		}
+		return e.adapter.SendTo(e.opts, event, args...)
+	}
+	if !e.opts.Volatile || e.socket.writable() {
+		e.socket.Emit(event, args...)
+	}
+	return nil
+}
+
+func hasBroadcastAck(args []interface{}) bool {
+	if len(args) == 0 {
+		return false
+	}
+	t := reflect.TypeOf(args[len(args)-1])
+	return t != nil && t.Kind() == reflect.Func
+}
+
+func (nc *namespaceConn) To(rooms ...string) Emitter { return (emitter{socket: nc}).To(rooms...) }
+func (nc *namespaceConn) Broadcast() Emitter         { return (emitter{socket: nc}).asBroadcast() }
+func (nc *namespaceConn) Volatile() Emitter          { return (emitter{socket: nc}).Volatile() }
+
+func (nc *namespaceConn) writable() bool {
+	nc.conn.mu.Lock()
+	queued := nc.conn.pendingWrites + len(nc.conn.writeChan) + len(nc.conn.drainQueue)
+	nc.conn.mu.Unlock()
+	if queued != 0 {
+		return false
+	}
+	if c, ok := nc.Conn.(interface{ Writable() bool }); ok {
+		return c.Writable()
+	}
+	return true
 }

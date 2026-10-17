@@ -12,6 +12,8 @@ function finish(error) {
   for (const socket of sockets) socket.close();
   // A stalled polling POST can prevent close from draining; errors must end this runner.
   if (error) { console.error(error); process.exit(1); }
+  // Assertions have finished; flush their result before ending a pending close drain.
+  process.stdout.write('', () => process.exit(0));
 }
 function event(socket, name) {
   return new Promise(resolve => socket.once(name, (...args) => resolve(args)));

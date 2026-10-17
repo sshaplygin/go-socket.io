@@ -181,3 +181,46 @@ func TestOrderlyCloseStopsUpgradeProbe(t *testing.T) {
 	require.NoError(t, engineclose.Abort(s))
 	waitClose(t, s.closeDone)
 }
+
+func TestAbortKeepsErrorBeforeTransportClose(t *testing.T) {
+	for _, abort := range []struct {
+		name  string
+		close func(io.Closer) error
+	}{{"root abort", engineclose.Abort}, {"shutdown", internal.Shutdown}} {
+		t.Run(abort.name, func(t *testing.T) {
+			c := &scriptConn{}
+			s := newTestSession(t, c, "polling")
+			require.NoError(t, s.InitSession())
+			entered, release := make(chan struct{}), make(chan struct{})
+			unblock := sync.OnceFunc(func() { close(release) })
+			defer unblock()
+			var calls atomic.Int32
+			s.SetHooks(&Hooks{Error: func(*Session, error) { calls.Add(1); close(entered); <-release }})
+			s.observe(reasonTransportError, io.ErrUnexpectedEOF)
+			done := make(chan error, 2)
+			go func() { done <- s.Close() }()
+			waitClose(t, entered)
+			attempted := make(chan struct{})
+			go func() { close(attempted); done <- abort.close(s) }()
+			waitClose(t, attempted)
+			select {
+			case err := <-done:
+				t.Fatalf("close passed the blocked Error hook: %v", err)
+			case <-time.After(20 * time.Millisecond):
+			}
+			require.False(t, c.isClosed())
+			unblock()
+			for i := 0; i < 2; i++ {
+				select {
+				case err := <-done:
+					require.NoError(t, err)
+				case <-time.After(time.Second):
+					t.Fatal("close did not return after Error")
+				}
+			}
+			require.True(t, c.isClosed())
+			require.Equal(t, int32(1), calls.Load())
+			require.Equal(t, ReasonTransportError, s.closeError().Reason)
+		})
+	}
+}

@@ -30,6 +30,7 @@ type Session struct {
 	hooks         *Hooks
 	headers       func(*http.Request, http.Header)
 	closeDone     chan struct{}
+	notified      chan struct{} // the first closer has finished its synchronous Error hook
 	closeErr      error
 	transportOnce sync.Once
 	transportDone chan struct{}
@@ -93,6 +94,7 @@ func New(conn transport.Conn, sid, transport string, params transport.ConnParame
 
 	ses := &Session{
 		closeDone:      make(chan struct{}),
+		notified:       make(chan struct{}),
 		transportDone:  make(chan struct{}),
 		writeGate:      make(chan struct{}, 1),
 		stopWrites:     make(chan struct{}),
@@ -187,6 +189,9 @@ func (s *Session) closeMode(reason string, abort bool) error {
 	orderly := canDrain && !opened.IsZero() && c.reason == reasonForcedClose && !abort
 	if !first {
 		if abort {
+			// Abort interrupts an established orderly wait, but cannot pass
+			// the first closer's synchronous error notification.
+			<-s.notified
 			s.closeTransport(conn)
 		} else if orderly {
 			return nil
@@ -197,6 +202,7 @@ func (s *Session) closeMode(reason string, abort bool) error {
 	if c.reason == reasonTransportError && s.hooks != nil && s.hooks.Error != nil {
 		s.hooks.Error(s, c.err)
 	}
+	close(s.notified)
 	if !opened.IsZero() {
 		args := []any{"reason", c.reason, slog.Duration("duration", time.Since(opened))}
 		if c.err != nil {

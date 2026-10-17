@@ -351,13 +351,17 @@ func (c *conn) nextID() uint64 {
 }
 
 func (c *conn) write(header parser.Header, args ...reflect.Value) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.queueLocked(header, args...)
+	c.writeFlags(header, false, args...)
 }
 
-// queueLocked admits a packet with the queue budget and close state locked.
-func (c *conn) queueLocked(header parser.Header, args ...reflect.Value) {
+func (c *conn) writeFlags(header parser.Header, noCompress bool, args ...reflect.Value) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.queueFlagsLocked(header, noCompress, args...)
+}
+
+// queueFlagsLocked admits a packet with the queue budget and close state locked.
+func (c *conn) queueFlagsLocked(header parser.Header, noCompress bool, args ...reflect.Value) {
 	data := make([]interface{}, len(args))
 	for i := range data {
 		if args[i].IsValid() {
@@ -369,7 +373,7 @@ func (c *conn) queueLocked(header parser.Header, args ...reflect.Value) {
 	}
 	if len(c.writeChan) < cap(c.writeChan) {
 		c.enqueued++
-		c.writeChan <- queuedPayload{payload: parser.Payload{Header: header, Data: data}, sequence: c.enqueued}
+		c.writeChan <- queuedPayload{payload: outboundPayload{Payload: parser.Payload{Header: header, Data: data}, noCompress: noCompress}, sequence: c.enqueued}
 		c.notifyWrite()
 	} else if !isDone(c.closing) {
 		c.overflowWrite(header)
@@ -427,8 +431,9 @@ func (c *conn) errConn(nsp string) (nc *namespaceConn) {
 // queueWriter starts no packet (its TEXT frame) once the queue is discarded. failed is the
 // first failure of NextWriter or of the frame writer it returned since the last NextWriter.
 type queueWriter struct {
-	c      *conn
-	failed error
+	c          *conn
+	failed     error
+	noCompress bool
 }
 
 func (w *queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
@@ -436,7 +441,13 @@ func (w *queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
 		w.failed = io.EOF
 		return nil, io.EOF
 	}
-	fw, err := w.c.Conn.NextWriter(ft)
+	var fw io.WriteCloser
+	var err error
+	if compressed, ok := w.c.Conn.(engineio.CompressWriter); ok {
+		fw, err = compressed.NextWriterCompress(ft, !w.noCompress)
+	} else {
+		fw, err = w.c.Conn.NextWriter(ft)
+	}
 	if w.failed = err; err != nil {
 		return nil, err
 	}
@@ -538,24 +549,24 @@ func (c *conn) notifyWrite() {
 	}
 }
 
-func (c *conn) nextQueued() (parser.Payload, bool) {
+func (c *conn) nextQueued() (outboundPayload, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.controls) > 0 && c.controls[0].after <= c.started {
 		control := c.controls[0]
 		c.controls = c.controls[1:]
-		return control.payload, true
+		return outboundPayload{Payload: control.payload}, true
 	}
 	if len(c.writeChan) > 0 {
 		queued := <-c.writeChan
 		c.started = queued.sequence
 		return queued.payload, true
 	}
-	return parser.Payload{}, false
+	return outboundPayload{}, false
 }
 
 type queuedPayload struct {
-	payload  parser.Payload
+	payload  outboundPayload
 	sequence uint64
 }
 
@@ -604,3 +615,9 @@ func (c *conn) EngineConn() engineio.Conn { return nil }
 
 // Request returns nil on a client connection.
 func (c *conn) Request() *http.Request { return nil }
+
+// outboundPayload keeps transport flags out of the shared parser codec.
+type outboundPayload struct {
+	parser.Payload
+	noCompress bool
+}

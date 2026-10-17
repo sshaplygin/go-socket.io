@@ -39,6 +39,8 @@ type Namespace interface {
 	Broadcast() Emitter
 	// Volatile starts a single-socket emit that drops when its connection is not writable.
 	Volatile() Emitter
+	// Compress chooses per-packet compression; the default is true.
+	Compress(on bool) Emitter
 	Leave(room string)
 	LeaveAll()
 	Rooms() []string
@@ -120,13 +122,17 @@ func (nc *namespaceConn) writable() bool {
 }
 
 func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{}) {
+	nc.emitFlags(volatile, false, eventName, v...)
+}
+
+func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, v ...interface{}) {
 	if volatile && !nc.writable() {
 		return
 	}
-	nc.queueEvent(volatile, eventName, v...)
+	nc.queueEventFlags(volatile, noCompress, eventName, v...)
 }
 
-func (nc *namespaceConn) queueEvent(volatile bool, eventName string, v ...interface{}) {
+func (nc *namespaceConn) queueEventFlags(volatile, noCompress bool, eventName string, v ...interface{}) {
 	header := parser.Header{
 		Type: parser.Event,
 	}
@@ -155,7 +161,7 @@ func (nc *namespaceConn) queueEvent(volatile bool, eventName string, v ...interf
 
 	if !volatile {
 		nc.registerAck(&header, ack)
-		nc.send(header, args...)
+		nc.conn.writeFlags(header, noCompress, args...)
 		return
 	}
 	// The transport callback runs outside queue locks; admission rechecks the
@@ -171,7 +177,7 @@ func (nc *namespaceConn) queueEvent(volatile bool, eventName string, v ...interf
 		return
 	}
 	nc.registerAck(&header, ack)
-	c.queueLocked(header, args...)
+	c.queueFlagsLocked(header, noCompress, args...)
 }
 
 func (nc *namespaceConn) registerAck(header *parser.Header, ack *funcHandler) {
@@ -219,11 +225,13 @@ func (nc *namespaceConn) Send(args ...interface{}) { nc.Emit("message", args...)
 
 // Emitter is an immutable pending target and its flags. Each builder returns a new
 // value, so an Emitter can be reused. To or Except converts a single-socket target
-// to a broadcast excluding its sender; Volatile and Local preserve its target.
+// to a broadcast excluding its sender; Volatile, Local and Compress preserve its target.
 type Emitter interface {
 	To(rooms ...string) Emitter
 	Except(ids ...string) Emitter
 	Volatile() Emitter
+	// Compress chooses per-packet compression; the default is true.
+	Compress(on bool) Emitter
 	Local() Emitter
 	// Emit returns ErrBroadcastAck without sending for a broadcast with a trailing
 	// func, or an adapter error. A dynamic parent may have delivered to earlier
@@ -245,13 +253,11 @@ func (nc *namespaceConn) Disconnect() {
 func (nc *namespaceConn) Use(func(string, []interface{}) error) {
 	return //nolint:staticcheck // S1023: an explicit statement lets coverage verify this no-op API.
 }
-func (nc *namespaceConn) send(header parser.Header, args ...reflect.Value) {
-	nc.conn.write(header, args...)
-}
 
 type emitter struct {
 	socket              *namespaceConn
 	broadcast, volatile bool
+	noCompress          bool
 }
 
 func (e emitter) To(rooms ...string) Emitter     { e.broadcast = true; return e }
@@ -264,12 +270,16 @@ func (e emitter) Emit(event string, args ...interface{}) error {
 		return ErrServerOnly
 	}
 	if socket := e.socket.socket(); socket != nil {
-		socket.emit(e.volatile, event, args...)
+		socket.emitFlags(e.volatile, e.noCompress, event, args...)
 	} else {
-		e.socket.emit(e.volatile, event, args...)
+		e.socket.emitFlags(e.volatile, e.noCompress, event, args...)
 	}
 	return nil
 }
 func (nc *namespaceConn) To(rooms ...string) Emitter { return (emitter{socket: nc}).To(rooms...) }
 func (nc *namespaceConn) Broadcast() Emitter         { return (emitter{socket: nc, broadcast: true}) }
 func (nc *namespaceConn) Volatile() Emitter          { return (emitter{socket: nc}).Volatile() }
+
+func (e emitter) Compress(on bool) Emitter { e.noCompress = !on; return e }
+
+func (nc *namespaceConn) Compress(on bool) Emitter { return (emitter{socket: nc}).Compress(on) }

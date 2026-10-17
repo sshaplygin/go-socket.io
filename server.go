@@ -438,6 +438,7 @@ func (c *conn) serveWrite() {
 			continue
 		}
 		c.writer.failed = nil
+		c.writer.noCompress = pkg.noCompress
 		var err error
 		switch pkg.Header.Type {
 		case parser.Connect, parser.Disconnect:
@@ -455,8 +456,11 @@ func (c *conn) serveWrite() {
 			c.report(pkg.Header.Namespace, err, c.writer.failed)
 			if c.writer.failed != nil {
 				c.stop()
-			} else if err := c.encoder.Encode(parser.Header{Type: parser.Error}, "encode error"); err != nil || c.writer.failed != nil {
-				c.stop()
+			} else {
+				c.writer.noCompress = false
+				if err := c.encoder.Encode(parser.Header{Type: parser.Error}, "encode error"); err != nil || c.writer.failed != nil {
+					c.stop()
+				}
 			}
 		}
 	}

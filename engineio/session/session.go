@@ -109,6 +109,9 @@ func New(conn transport.Conn, sid, transport string, params transport.ConnParame
 	ses.writeGate <- struct{}{}
 	ses.log.Store(baseLog.With("transport", transport))
 	ses.SetLimits(ses.maxMessageSize, ses.upgradeTimeout)
+	if target, ok := conn.(interface{ SetSessionID(string) }); ok {
+		target.SetSessionID(sid)
+	}
 
 	if err := ses.setDeadline(); err != nil {
 		if closeErr := ses.Close(); closeErr != nil {
@@ -425,7 +428,12 @@ func (s *Session) RemoteHeader() http.Header {
 // When finished writing, the caller MUST Close the WriteCloser to unlock the
 // connection's FrameWriter.
 func (s *Session) NextWriter(typ FrameType) (io.WriteCloser, error) {
-	w, err := s.nextWriter(frame.Type(typ), packet.MESSAGE)
+	return s.NextWriterCompress(typ, true)
+}
+
+// NextWriterCompress writes a MESSAGE with its per-packet compression preference.
+func (s *Session) NextWriterCompress(typ FrameType, compress bool) (io.WriteCloser, error) {
+	w, err := s.nextWriterCompress(frame.Type(typ), packet.MESSAGE, compress)
 	if s.fail(err) != nil {
 		_ = s.Close()
 		return nil, fmt.Errorf("next writer: %w", s.closeError())
@@ -535,6 +543,10 @@ func (s *Session) nextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
 }
 
 func (s *Session) nextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, error) {
+	return s.nextWriterCompress(ft, pt, true)
+}
+
+func (s *Session) nextWriterCompress(ft frame.Type, pt packet.Type, compress bool) (io.WriteCloser, error) {
 	select {
 	case <-s.stopWrites:
 		return nil, s.closeError()
@@ -559,7 +571,13 @@ func (s *Session) nextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, err
 			s.hooks.PacketCreate(s, pt, ft)
 		}
 		notified = true
-		w, err := conn.NextWriter(ft, pt)
+		var w io.WriteCloser
+		var err error
+		if target, ok := conn.(transport.CompressWriter); ok {
+			w, err = target.NextWriterCompress(ft, pt, compress)
+		} else {
+			w, err = conn.NextWriter(ft, pt)
+		}
 		if err != nil {
 			if op, ok := err.(payload.Error); ok && op.Temporary() {
 				continue

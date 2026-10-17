@@ -91,10 +91,23 @@ Package `engineio` of the v1 module at the repository root.
   length as one byte per decimal digit, `0xff`, then the packet, the length counting
   bytes (UTF-8 for a string packet), as engine.io-parser 2.x. Sessions are looked up
   by `sid`; an unknown `sid` is HTTP 400.
-- WebSocket: one packet per frame; a binary frame starts with the packet type byte.
+- WebSocket: one packet per message; a binary message starts with the packet type byte.
+  The optional permessage-deflate extension is off by default, with a 1024-byte
+  encoded-packet threshold when enabled. The Go client offers it when configured,
+  with the same threshold. Per-packet compression defaults to true; false suppresses
+  it for the packet and all its binary attachments on either transport.
+- Polling HTTP compression is enabled by default: gzip or zlib deflate according
+  to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
+  threshold and only for a packet whose compression flag is true. The threshold is
+  configurable; responses below it remain uncompressed.
+- The polling transport that opens a session sets its session cookie on every
+  response (default io, Path=/, HttpOnly, SameSite=Strict). The cookie's attributes
+  and name are configurable, and it can be disabled. A websocket-first handshake
+  sets no cookie, matching engine.io 3.6.2.
 - Message limit: `Options.MaxHTTPBufferSize`, default 1e6 bytes. A longer polling POST
   body is answered HTTP 413 (plain text) and closes the session; a longer websocket
-  message closes the connection with close code 1009.
+  message closes the connection with close code 1009. With permessage-deflate, the
+  same limit applies to inflated bytes; rejection does not buffer the full message.
 - Upgrade polling → websocket: the client's `2probe` over the websocket is answered
   `3probe`. Until the client's `UPGRADE` (`5`), POSTs are accepted and their packets
   delivered, and a pending poll is answered with data or, at a 100 ms check, a NOOP;

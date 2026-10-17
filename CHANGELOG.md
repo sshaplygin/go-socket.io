@@ -139,6 +139,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- engineio: optional websocket permessage-deflate, default polling gzip/deflate
+  compression and configurable session cookies. Compression thresholds include the
+  encoded packet; websocket read limits also cap inflated messages with code 1009.
+- socketio/client: immutable `Compress(bool)` emitters carry the per-packet flag
+  through queued events and binary attachments. Broadcasts honour it locally;
+  the legacy Redis wire format does not carry it to other instances.
+
 - examples: add namespaces/rooms/auth and middleware modules with executable
   Node checks for both supported clients. Chat examples use broadcasts excluding
   the sender; Redis examples retain their local helper. Serve a pinned 1.7.4

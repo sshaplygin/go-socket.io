@@ -208,6 +208,8 @@ func TestCORSTransportCopies(t *testing.T) {
 	defer func() { _ = disabled.Close() }()
 	dp, _ := disabled.transports.Get("polling")
 	dw, _ := disabled.transports.Get("websocket")
-	require.Same(t, p, dp)
-	require.Same(t, w, dw)
+	require.NotSame(t, p, dp)
+	require.Nil(t, dp.(*polling.Transport).CheckOrigin)
+	require.NotSame(t, w, dw)
+	require.Nil(t, dw.(*websocket.Transport).CheckOrigin)
 }

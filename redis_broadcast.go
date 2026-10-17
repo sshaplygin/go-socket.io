@@ -599,7 +599,8 @@ func (bc *redisBroadcast) members(room string, all bool) []Conn {
 // SendTo excludes nothing on this adapter: Except returns ErrExceptUnsupported
 // before local delivery or Redis I/O. Room unions dedupe locally and publish one
 // message per room; remote sockets may receive once per room. Local suppresses
-// publishing; Volatile is honoured locally and is not carried to other instances.
+// publishing; Volatile and NoCompress are honoured locally and are not carried
+// to other instances.
 func (bc *redisBroadcast) SendTo(opts BroadcastOptions, event string, args ...interface{}) error {
 	if len(opts.Except) != 0 {
 		return fmt.Errorf("redis broadcast: %w", ErrExceptUnsupported)

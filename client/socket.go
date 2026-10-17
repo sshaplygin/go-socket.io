@@ -7,8 +7,9 @@ import (
 )
 
 type bufferedEvent struct {
-	event string
-	args  []interface{}
+	event      string
+	args       []interface{}
+	noCompress bool
 }
 
 // Socket is one namespace on a Client. Its callbacks receive that namespace's Conn.
@@ -99,28 +100,32 @@ func (s *Socket) Off(event string) { s.handler.Off(event) }
 func (s *Socket) Emit(event string, args ...interface{}) { s.emit(false, event, args...) }
 
 func (s *Socket) emit(volatile bool, event string, args ...interface{}) {
+	s.emitFlags(volatile, false, event, args...)
+}
+
+func (s *Socket) emitFlags(volatile, noCompress bool, event string, args ...interface{}) {
 	if volatile {
-		s.emitVolatile(event, args...)
+		s.emitVolatileFlags(noCompress, event, args...)
 		return
 	}
 	m := s.state
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s.connected && s.nc != nil {
-		s.nc.emit(volatile, event, args...)
+		s.nc.emitFlags(volatile, noCompress, event, args...)
 		return
 	}
 	if m.buffered >= m.client.limits.writeBufferSize {
 		m.client.log.Warn("socketio: emit buffer full", nspAttr(s.namespace), "event", event)
 		return
 	}
-	s.buffer = append(s.buffer, bufferedEvent{event, append([]interface{}(nil), args...)})
+	s.buffer = append(s.buffer, bufferedEvent{event: event, args: append([]interface{}(nil), args...), noCompress: noCompress})
 	m.buffered++
 }
 
 // A custom transport's Writable method may reenter this Socket. Snapshot it
 // without holding state.mu, then recheck the namespace generation before admission.
-func (s *Socket) emitVolatile(event string, args ...interface{}) {
+func (s *Socket) emitVolatileFlags(noCompress bool, event string, args ...interface{}) {
 	m := s.state
 	m.mu.Lock()
 	nc, connected := s.nc, s.connected
@@ -131,7 +136,7 @@ func (s *Socket) emitVolatile(event string, args ...interface{}) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s.connected && s.nc == nc {
-		nc.queueEvent(true, event, args...)
+		nc.queueEventFlags(true, noCompress, event, args...)
 	}
 }
 
@@ -198,7 +203,7 @@ func (m *clientState) namespaceConnected(current *conn, namespace string, nc *na
 	s.buffer = nil
 	m.buffered -= len(buffer)
 	for _, event := range buffer {
-		nc.emit(false, event.event, event.args...)
+		nc.emitFlags(false, event.noCompress, event.event, event.args...)
 	}
 	m.mu.Unlock()
 	return m.deliverConnect(current, s)

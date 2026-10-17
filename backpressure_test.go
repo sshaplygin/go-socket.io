@@ -91,6 +91,49 @@ func (f *fakeConn) Transport() string               { return "fake" }
 func (f *fakeConn) Upgraded() bool                  { return false }
 func (f *fakeConn) Context() interface{}            { return nil }
 
+// gatedFinishConn lets the writer fail while finishRead is still obtaining
+// the final engine close cause, before Close returns to the reader.
+type gatedFinishConn struct {
+	*fakeConn
+	entered, release, writeFailed chan struct{}
+	closeEntered, writerFailed    sync.Once
+}
+
+func (f *gatedFinishConn) Close() error {
+	_ = f.fakeConn.Close()
+	f.closeEntered.Do(func() { close(f.entered) })
+	<-f.release
+	return nil
+}
+
+func (f *gatedFinishConn) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
+	w, err := f.fakeConn.NextWriter(ft)
+	if err != nil {
+		f.writerFailed.Do(func() { close(f.writeFailed) })
+	}
+	return w, err
+}
+
+func TestBackpressurePeerCloseReportsOnce(t *testing.T) {
+	p := newPeer(t, 'S', hooks{})
+	f := &gatedFinishConn{fakeConn: p.fc, entered: make(chan struct{}), release: make(chan struct{}), writeFailed: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(f.release) })
+	defer release()
+	p.srv.serveConn(f)
+	p.nc = recv(t, p.conns, "root OnConnect")
+	require.Equal(t, "0", recv(t, p.fc.out, "root CONNECT"))
+	closeAtEnd(t, p.fc, p.conn())
+	p.stall(t, p.nc, 0)
+	close(p.fc.peerGone)
+	require.ErrorIs(t, recv(t, p.errs, "read error report").err, io.EOF)
+	recv(t, f.entered, "engine Close entered")
+	recv(t, f.writeFailed, "writer observed engine close")
+	recv(t, p.conn().discard, "library close discards queue")
+	require.Empty(t, p.errs, "writer failure during read finalization must not report again")
+	release()
+	p.disconnected(t, "/")
+}
+
 // Covers S18
 func TestServerEngine(t *testing.T) {
 	s := NewServer(nil)

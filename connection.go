@@ -258,6 +258,10 @@ func (c *conn) finishRead() {
 	var closed *engineio.CloseError
 	failed := c.reader.failed
 	if failed != nil && !errors.As(failed, &closed) {
+		// Dispatch has ended and its error was already reported. Start the
+		// close before the engine shuts down, so the writer cannot report that
+		// shutdown as a second failure while the reader obtains its cause.
+		c.stop()
 		// An acquired frame reader keeps its own transport error. Closing the
 		// engine preserves the cause that reader recorded; the next reader then
 		// exposes it through CloseError without changing the frame's error.

@@ -51,6 +51,11 @@ func emptyCalls(profile io.Reader, root, module string) (map[string]bool, error)
 		if n, err := fmt.Sscanf(location, "%d.%d,%d.%d", &b.startLine, &b.startCol, &b.endLine, &b.endCol); err != nil || n != 4 {
 			return nil, fmt.Errorf("invalid block extent: %q", location)
 		}
+		// Line directives can create reversed logical ranges. They cannot
+		// identify execution of an empty physical source body.
+		if b.startLine > b.endLine || b.startLine == b.endLine && b.startCol > b.endCol {
+			continue
+		}
 		files[file] = append(files[file], b)
 	}
 	if err := scanner.Err(); err != nil {
@@ -67,9 +72,14 @@ func emptyCalls(profile io.Reader, root, module string) (map[string]bool, error)
 			return nil, fmt.Errorf("invalid source path: %q", rel)
 		}
 		fset := token.NewFileSet()
-		source, err := parser.ParseFile(fset, filepath.Join(root, clean), nil, 0)
+		source, err := parser.ParseFile(fset, filepath.Join(root, clean), nil, parser.ParseComments)
 		if err != nil {
 			return nil, err
+		}
+		if hasLineDirectives(source) {
+			// Different declarations can alias the same logical coordinates.
+			// Keep their original summary until attribution is unambiguous.
+			continue
 		}
 		occurrences := make(map[string]int)
 		for _, decl := range source.Decls {
@@ -99,6 +109,17 @@ func emptyCalls(profile io.Reader, root, module string) (map[string]bool, error)
 		}
 	}
 	return called, nil
+}
+
+func hasLineDirectives(source *ast.File) bool {
+	for _, group := range source.Comments {
+		for _, comment := range group.List {
+			if strings.HasPrefix(comment.Text, "//line ") || strings.HasPrefix(comment.Text, "/*line ") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func annotate(profile, summary io.Reader, output io.Writer, root, module string) error {

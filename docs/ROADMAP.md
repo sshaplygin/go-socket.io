@@ -2071,8 +2071,10 @@ printing those functions; both are variables of the `Makefile`. For functions wh
 AST body contains no statements, `cover -func` reports 0.0% even after execution.
 The checker uses a positive raw-profile counter inside that exact empty body as
 API-call evidence; an unexecuted empty function remains uncovered. Nonempty
-functions and the total statement percentage retain the original rules. The
-checker tests run as part of `make cover-check`. Baseline, measured at
+functions and the total statement percentage retain the original rules. Files
+with line directives keep their original summary because logical coordinates can
+alias different source bodies; reversed logical block ranges supply no call evidence.
+The checker tests run as part of `make cover-check`. Baseline, measured at
 `0d9e594` (the base of this plan) by `go test -count=1 -coverpkg=./... -coverprofile=c.out
 ./... && go tool cover -func=c.out`, its `total:` line and `go tool cover -func=c.out | awk
 '$3=="0.0%" && $2 ~ /^[A-Z]/'` (the rule V1-20 implements; `cover -func` lists no test

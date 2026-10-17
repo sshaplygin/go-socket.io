@@ -177,7 +177,7 @@ func TestRequestRejectedRecords(t *testing.T) {
 		status        int
 	}{
 		{"bad transport", "WARN", func() int { return get("transport=foo", "") }, http.StatusBadRequest},
-		{"checker", "WARN", func() int { return get("transport=polling", "", "X-Reject", "1") }, http.StatusBadGateway},
+		{"checker", "WARN", func() int { return get("transport=polling", "", "X-Reject", "1") }, http.StatusForbidden},
 		{"unknown sid", "DEBUG", func() int { return get("transport=polling&sid=nope", "") }, http.StatusBadRequest},
 		{"accept", "WARN", func() int { return get("transport=websocket", "") }, http.StatusBadRequest},
 		{"init", "WARN", func() int { return get("transport=faulty", "") }, http.StatusOK},

@@ -194,6 +194,223 @@ modules; re-run affected gates after merges. Each work unit supplies its gate ev
 Apply the three-agent validation workflow in CLAUDE.md after plan edits; do not
 replace unresolved findings with optimistic estimates.
 
+### Stage V1 work packages
+
+The PRs of Stage V1 grouped so that one taker, a person or an agent, can hold a package
+without reading the whole roadmap; V1-0 (#70) and V1-1 (#69) have merged. Derived from the
+wave rows V1A to V1F and SY above, the PR table and the contracts of Stage V1 and its
+*Shared-file drift check*: those stay the owners of order, scope and file lists, and a
+contradiction is fixed there first. Taking, handing over and reviewing a package:
+[CONTRIBUTING.md](../CONTRIBUTING.md#work-packages). When a PR may start is decided only by
+`entry <PR>` (*Entry* below), run on the current `master`; the table names no start
+condition, so none goes stale beside it (the V1-12 exception lives in row V1E and the V1-12
+arm), and the definition of `S` under *Beside* says why two packages never run together.
+
+| Package | PRs in order | Waves | Integrates | Exit gate |
+| --- | --- | --- | --- | --- |
+| SY | SYNC | SY | its four files | the SYNC DoD; `sync-check` green on `master` (feeds the 2B entry, no MV1 line) |
+| A | V1-3, V1-4, V1-5, V1-6, V1-7 | V1B | root Go files and `parser`, and in V1B the root hunks and `CHANGELOG.md` entries of B (row V1B) | per PR the Stage V1 DoD with `N`; V1-4 and V1-7 their `s4p` arm, V1-6 the `V6` count; MV1: no open row; the `### Changed` entries of its PRs are H's (V1-14 row) |
+| B | V1-1 (merged, #69), V1-2, V1-16, V1-17, V1-18 | V1A, V1B | `engineio/` (V1-4's files while V1-4 is open are A's) and the `v2/` copies of the manifest files it changes | per PR the Stage V1 DoD; V1-2 the `TestPingTimeoutIdleClient` count and the `v1p` lines; V1-17 the `E17` count; MV1: no open row; the `### Changed` entries of its PRs are H's (V1-14 row) |
+| C | V1-8, V1-20 | V1C | `.github/`, `Makefile`, `CLAUDE.md` in V1C (row V1C) | V1-8: the DoD and `conformance` green; V1-20: its fence and the `parity-check cover-check` step green; MV1: the `socket.io-client@` greps, `PARITY_STRICT=1 make parity-check`, `make cover-check` |
+| D | V1-9, V1-10, V1-11 | V1D | root Go files and `client/` in V1D | V1-9: Stage 7 DoD and Acceptance; V1-10, V1-11: the DoD and the Go-client step of `conformance` green; MV1: `cl Added` with `go-socket.io/client`, no open row, the Go-client line of the Acceptance |
+| E | V1-19 | V1D | none | the V1-19 fence (twelve names, `-list`, 24 passes) and `conformance` green; MV1: the `TestDifferential` line |
+| F | V1-12, V1-13 | V1E | `Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md` in V1E (the V1-12 author, row V1E) | per PR the DoD, `make examples` and the `examples-node` loop; MV1: those two lines, the four `go.mod`, `client.js` and `index-1.7.html` lines, the `CONFORMANCE_NODE_MODULES` and `examples-node` greps |
+| G | V1-15 | V1E | none (row V1E: no `Makefile`, workflow or `CLAUDE.md` edit) | the DoD, the `V15` and `V15C` counts, `conformance` green; MV1: no open row; the `### Changed` entries of its PR are H's (V1-14 row) |
+| H | V1-14 | V1F | `CHANGELOG.md` `## Unreleased` and `README.md` | the MV1 DoD on its head and on the merged `master`; MV1 Acceptance by the owner; no tag |
+
+**Paths.** The widest set each package may edit, one `<package>|<path>` line each, narrowed
+by the sentences of this paragraph and of the one after the block (both binding): a path
+ending in `/` is a directory and everything under it, `*.go` the Go files directly in that
+directory (`*.go` alone: the repository root's, test files included). Besides its set,
+every package edits, by row only: the `docs/PARITY.md` rows whose `Plan` names its PR, its
+own entries under `## Unreleased` of `CHANGELOG.md` (through A in V1B, through H once H is
+`taken`); the registry below is the coordinator's, never a package's. Narrower than the set: A edits `engineio/` only in
+V1-4 (the close error of `engineio/session`, its aliases in one new `engineio/*.go` file,
+`Writable` in `engineio/client.go` and the two transports); B's root files are V1-16's
+(`Server.Engine`, the fakes of `backpressure_test.go` and `log_test.go`), its `v2/` files the
+two mirrors of *Shared-file drift check*, its `docs/PROTOCOL.md` lines V1-2's; A's are
+V1-4's and V1-7's, G's V1-15's, H's the two deviation headings; D's root files are those of
+row 7A and the root tests Stage 7 splits.
+
+```text
+SY|Makefile
+SY|.github/workflows/ci.yaml
+SY|.github/sync-manifest
+SY|CLAUDE.md
+A|*.go
+A|parser/
+A|engineio/*.go
+A|engineio/session/
+A|engineio/transport/polling/
+A|engineio/transport/websocket/
+A|docs/PROTOCOL.md
+B|engineio/
+B|v2/engineio/session/id_generator.go
+B|v2/engineio/session/manager.go
+B|server.go
+B|backpressure_test.go
+B|log_test.go
+B|docs/PROTOCOL.md
+C|.github/
+C|Makefile
+C|CLAUDE.md
+C|internal/conformance/
+C|internal/parity/
+D|client/
+D|_examples/client/
+D|*.go
+D|engineio/client.go
+D|engineio/dialer.go
+D|engineio/client_upgrade_test.go
+D|engineio/transport/polling/connect.go
+D|internal/conformance/goclient_test.go
+D|internal/conformance/testdata/node/server/goclient-server.js
+D|CLAUDE.md
+E|internal/conformance/differential_test.go
+E|internal/conformance/testdata/node/differential-client.js
+E|internal/conformance/testdata/node/server/reference-server.js
+F|_examples/
+F|Makefile
+F|.github/workflows/ci.yaml
+F|CLAUDE.md
+G|*.go
+G|client/
+G|engineio/
+G|internal/conformance/
+G|docs/PROTOCOL.md
+H|CHANGELOG.md
+H|README.md
+H|docs/PROTOCOL.md
+```
+
+Never edited by a package, in addition to every path outside its own set (a path in two
+sets, as in the `O` pairs below, may be edited by both): any `v2/` file but B's two
+mirrors; a tag or a version string; the `docs/PARITY.md` rows of another PR. In particular:
+SY not the manifest files or their copies (B's); A no manifest file (its set reaches
+`engineio/session/session_id_generator.go` and `session_manager.go`, but their `v2/` copies
+are B's); B not a manifest file without its `v2/` copy
+(D14), nor the interface files `engineio/transport/*.go` (V1-18), nor `engineio/payload/pauser.go` (V1A); C no
+Go file outside `internal/`; D in `internal/conformance` only the two files of the Go-client step (*Conformance contract*: V1-10 adds them, V1-11 its reconnect scenario);
+F neither `_examples/client/` (D) nor the `chat.go` of `redis-adapter` and
+`redis-adapter-unix-socket` (`CHAT_SKIP` until V1R); G not `parser/` (row V1E) and no
+manifest file; H no Go file. A path outside the set is a plan change (CONTRIBUTING.md).
+
+**Beside.** `P`: never a common path and never a common Go package (two `.go` files of one
+directory), so the two run at the same time and merge in either order (the DoD below checks
+both), though an entry may still wait for a PR of the other (V1-13 for V1-19 of E); `O`: they may run at the same time but share paths or a Go package, merged in the
+order of the next table; `S`: never at the same time (an entry needs the other's exit, or, for SY, the SYNC arm
+of *Entry*, as the paragraph after the next table derives it from row SY).
+
+| Beside | SY | A | B | C | D | E | F | G | H |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| SY | - | P | P | S | S | S | S | S | P |
+| A | P | - | O | S | S | S | S | S | S |
+| B | P | O | - | S | S | S | S | S | S |
+| C | S | S | S | - | S | S | O | S | S |
+| D | S | S | S | S | - | O | O | S | S |
+| E | S | S | S | S | O | - | P | S | S |
+| F | S | S | S | O | O | P | - | P | S |
+| G | S | S | S | S | S | S | P | - | S |
+| H | P | S | S | S | S | S | S | S | - |
+
+| `O` pair | Shared paths | Order |
+| --- | --- | --- |
+| A, B | V1-4's `engineio/` files; `server.go`, `backpressure_test.go`, `log_test.go`; `docs/PROTOCOL.md` (other lines) | V1-2 merges before V1-3 starts and V1-4 before V1-16 starts (wave V1B); B's root hunks and `CHANGELOG.md` entries in V1B go through A |
+| C, F | `Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md` | V1-12 starts after V1-8 and merges after V1-20 (V1C before V1E) |
+| D, E | the Go package `internal/conformance` under tag `conformance`: `goclient_test.go` (V1-10, V1-11) and `differential_test.go` (V1-19), both written against V1-8's helpers, so a top-level name can collide | whichever of V1-10, V1-11 and V1-19 merges after another of them merges with `master` merged in and `make conformance` green on that head (the `conformance` job) |
+| D, F | `CLAUDE.md`; `_examples/` (D only `_examples/client/`) | V1-9 merges before V1-12 (V1D before V1E), and V1-12 merges with that `master` merged in and `make examples` (the `examples-v1` job) green on that head |
+
+An integrator acts only while its package is `taken`. When the integrating package is `open`
+or `done` (A done before B's V1-16 to V1-18, or A without a taker), the worker's PR integrates
+its own hunks of those files: `master` merged in, its DoD re-run on the result, and the body
+line `integrator: none (<package> <status>)` in place of the integrator's comment.
+
+SY merges before V1-8 starts (once SY has left `open` with no merged PR, V1-8 waits for `.github/sync-manifest`), or, once C has started (a `conformance` job, C `taken` or `done`,
+or a last merged PR in C's row), only after C to G are `done` (row SY: never beside V1C or V1E; the matrix adds V1D, because
+V1-12 of V1E may start inside V1D (row V1E) and the SYNC arm reads one fact for all of C to
+G: SY-E is `S` by that arm alone, SY-D by it and by `CLAUDE.md`, which both edit). C `taken` means that `entry V1-8` passed and
+SY `taken` that `entry SYNC` did, and SY `open` with no merged PR that no SYNC PR is in flight
+(CONTRIBUTING.md, *Taking and handing back*): whichever row is taken first keeps the other's
+entry failing. The MV1 line `API_UNCOVERED_MAX` 0 has no owning PR in the PR table:
+V1-20 records the measured value and the ratchet only keeps later PRs from raising it, so
+which package lowers it to 0 is the owner's call before H can pass MV1.
+
+**Entry.** `bash`, from the repository root; `entry <PR>` exits 0 when that PR may start.
+Every check of an arm but its last ends in `|| return 1`, and `entry` runs in a subshell, so
+its result does not rest on `set -e` (which bash ignores inside `if`, `&&` and `||`) and the
+`exit` of `wave` ends only the subshell: it may be called plainly, in `if`, `&&` or `||`,
+with or without `set -e`, in a script or in a shell the fence was pasted into. It loads the
+helpers `rows` and `covers` of the Stage V1 DoD and `done_pr` and `wave` of its entry fence
+from this file:
+
+```sh
+H=$(awk '/^(covers|done_pr|wave)[(][)] [{]/ || /^rows[(][)] [{].* docs\/PARITY[.]md; [}]$/' docs/ROADMAP.md | sort -u); test "$(printf '%s\n' "$H" | wc -l)" -eq 4 && eval "$H"   # the four Stage V1 helpers, one definition each, or none (then every arm that needs one fails) (the Stage 1b `rows` reads CLAUDE.md and is left out)
+tbl() { awk -v h="$1" 'index($0, h) == 1 {p=1; next} !/^[|]/ {p=0} p && !/^[|] *---/' docs/ROADMAP.md; }   # the body rows of the table whose header starts with $1
+st() { tbl '| Package | Status |' | awk -F' *[|] *' -v k="$1" '$2 == k {print $3}'; }   # the registry status of a package
+lm() { tbl '| Package | Status |' | awk -F' *[|] *' -v k="$1" '$2 == k {print $6}'; }   # its last merged PR, `-` before the first
+sy() { test -f .github/sync-manifest -o "$(st SY)" = open -a "$(lm SY)" = -; }   # SYNC has merged, or SY has not started (what `taken` and `open` mean: CONTRIBUTING.md, Taking and handing back); every PR of C to G checks it (the `S` cells of row SY)
+entry() ( case $1 in   # a subshell: the `exit` of `wave` ends it, not the caller's shell
+SYNC) test "$(go list -m)" = github.com/sshaplygin/go-socket.io || return 1; test -f v2/go.mod || return 1; if grep -q '^  conformance:' .github/workflows/ci.yaml || test "$(st C)" != open -o "$(lm C)" != -; then for k in C D E F G; do test "$(st $k)" = done || return 1; done; fi;;   # row R step C passed; never beside V1C to V1E: before V1-8 has started, or once C to G are done
+V1-2) for n in 2 4 5 6 7 10 11 15 16 17 18; do grep -q "^### V1-$n contract" docs/ROADMAP.md || return 1; done;;   # wave V1A; V1-1 has merged
+V1-3) wave 1 2;;
+V1-4|V1-5|V1-6|V1-7) wave 1 2 $((${1#V1-} - 1));;   # A in order
+V1-16) wave 1 2 4;;
+V1-17) wave 16;;
+V1-18) wave 17;;
+V1-8) wave 3 4 5 6 7 16 17 18 || return 1; sy;;   # entry of V1C
+V1-20) wave 8 || return 1; grep -q '^  conformance:' .github/workflows/ci.yaml || return 1; sy;;
+V1-9|V1-19) wave 8 || return 1; grep -q '^  conformance:' .github/workflows/ci.yaml || return 1; grep -q '^parity-check:' Makefile || return 1; grep -q '^cover-check:' Makefile || return 1; sy;;   # entry of V1D
+V1-10) test -f client/client.go || return 1; sy;;   # V1-9 has no row: its package
+V1-11) wave 10 || return 1; sy;;
+V1-12) wave 8 || return 1; grep -q '^  conformance:' .github/workflows/ci.yaml || return 1; sy;;   # the V1E exception
+V1-13) wave 10 11 || return 1; test -f client/client.go || return 1; test -f internal/conformance/differential_test.go || return 1; test -f _examples/ack/go.mod -a -f _examples/binary/go.mod || return 1; sy;;   # entry of V1E, after V1-12
+V1-15) wave 10 11 || return 1; test -f client/client.go || return 1; test -f internal/conformance/differential_test.go || return 1; sy;;   # entry of V1E
+V1-14) wave 15 || return 1; test -f _examples/ack/go.mod -a -f _examples/binary/go.mod -a -f _examples/namespaces/go.mod -a -f _examples/middleware/go.mod || return 1; for k in A B C D E F G; do test "$(st $k)" = done || return 1; done;;   # entry of V1F
+*) echo "no PR $1" >&2; return 1;;
+esac; )
+```
+
+One command, from the repository root, extracts the fence above and runs it for one PR
+(`entry: 0` when it may start; replace `V1-2`):
+
+```sh
+bash -c "$(awk '/^[*][*]Entry[.][*][*]/ {s=1} s && /^```sh$/ {p=1; next} p && /^```$/ {exit} p' docs/ROADMAP.md)"'
+entry "$0"' V1-2; echo "entry: $?"
+```
+
+**Registry.** Status `open`, `taken` or `done`; the taker is the name the owner gives, never a
+model or provider; the branch prefix is the package's. Only the coordinator edits the rows,
+and sets the last merged PR after each merged PR of a package (CONTRIBUTING.md, *Taking and
+handing back*). All packages start `open`. A registry PR adds no
+`CHANGELOG.md` entry: the row is its record (the exemption CONTRIBUTING.md, *Pull requests*
+item 3, asks the roadmap to name).
+
+| Package | Status | Taker | Branch prefix | Last merged PR |
+| --- | --- | --- | --- | --- |
+| SY | open | - | `v1-sy/` | - |
+| A | open | - | `v1-a/` | - |
+| B | open | - | `v1-b/` | #69 (V1-1) |
+| C | open | - | `v1-c/` | - |
+| D | open | - | `v1-d/` | - |
+| E | open | - | `v1-e/` | - |
+| F | open | - | `v1-f/` | - |
+| G | open | - | `v1-g/` | - |
+| H | open | - | `v1-h/` | - |
+
+DoD of this section, after the helpers of the entry fence, `bash`, `set -e` and `set -f`
+(the paths hold `*`); on a pass it prints nothing and exits 0, and every check that fails
+prints a line naming the defect (no check ends the script silently):
+
+```sh
+diff <({ printf 'V1-%s\n' $(seq 1 20); echo SYNC; } | sort) <(tbl '| Package | PRs in order |' | awk -F' *[|] *' '{print $3}' | grep -oE 'V1-[0-9]+|SYNC' | sort)   # every PR of V1-1 to V1-20 and SYNC in exactly one package row
+K='SY A B C D E F G H'; test "$(tbl '| Package | PRs in order |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K " || echo "package order: packages table"; test "$(tbl '| Package | Status |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K " || echo "package order: registry"; test "$(tbl '| Beside | SY |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K " || echo "package order: matrix rows"; grep -qxF '| Beside | SY | A | B | C | D | E | F | G | H |' docs/ROADMAP.md || echo "package order: matrix columns"   # the packages, the registry and the matrix rows and columns name the same packages in one order
+ps() { awk -F'|' -v k="$1" '/^(SY|[A-H])[|][^ |]+$/ && $1 == k {print $2}' docs/ROADMAP.md; }; for k in $K; do test -n "$(ps $k)" || echo "no paths: $k"; done   # the path set of a package
+c() { tbl '| Beside | SY |' | awk -F' *[|] *' -v r="$1" -v col="$2" -v k="$K" '{n=split(k, h, " "); for (i = 1; i <= n; i++) if (h[i] == col) j = i + 2} $2 == r {print $j}'; }; for x in $K; do for y in $K; do test "$(c $x $y)" = "$(c $y $x)" || echo "asymmetric: $x $y"; done; done   # the matrix cell of row $1, column $2; the matrix is symmetric
+ov() { case $1 in "$2"*) return 0;; esac; case $2 in "$1"*) return 0;; esac; for a in "$1" "$2"; do b=$2; test "$a" = "$1" || b=$1; case $a in *'*.go') d=${a%'*.go'}; case $b in "$d"*.go) case ${b#"$d"} in */*) ;; *) return 0;; esac;; esac;; esac; done; case $1 in *.go) case $2 in *.go) test "$(dirname "$1")" != "$(dirname "$2")" || return 0;; esac;; esac; return 1; }   # true when two path entries can name one file, or two Go files of one package (one directory)
+for x in $K; do for y in $K; do test "$(c $x $y)" = P || continue; for p in $(ps $x); do for q in $(ps $y); do if ov "$p" "$q"; then echo "$x $y: $p $q"; fi; done; done; done; done   # no two parallel-safe packages share a path or a Go package
+for x in $K; do for y in $K; do test "$(c $x $y)" = O || continue; tbl '| `O` pair |' | awk -F' *[|] *' -v a="$x, $y" -v b="$y, $x" '$2 == a || $2 == b {f=1} END {exit !f}' || echo "no order: $x $y"; done; done; tbl '| `O` pair |' | awk -F' *[|] *' '{print $2}' | while IFS=', ' read -r x y; do test "$(c $x $y)" = O || echo "not O: $x $y"; done   # the O cells and the rows of the O-pair table name the same pairs
+```
+
 ## Repository restructure
 
 Moves `master` from "root = v2 skeleton, v1 on `v1.x`" to *Repository layout*, in the steps
@@ -1557,8 +1774,11 @@ namespace connect, an unknown namespace answered by ERROR with the root socket k
 in both directions; binary event and binary ack in both directions; non-ASCII text (P16);
 rooms and broadcast except the sender (K14); middleware rejection with its reason; a server-side
 disconnect seen as `io server disconnect` (K20); the upgrade; a reconnect. A second step runs the
-Go `client` against a Node `socket.io@2.5.0` server (from V1-10 on), a script in
-`testdata/node/server/` started by tagged tests of the same package; V1-8 installs
+Go `client` against a Node `socket.io@2.5.0` server (from V1-10 on), the script
+`testdata/node/server/goclient-server.js` started by the tagged tests of
+`internal/conformance/goclient_test.go`: V1-10 adds both (the scenarios its scope covers:
+both transports, the upgrade, namespaces), V1-11 adds the reconnect scenario to them, since
+V1-8 merges before the `client` package exists (V1-9); V1-8 installs
 `socket.io@2.5.0` under the server prefix from the start, so that step and V1-19 edit no
 workflow. Rows marked `TEST` in PARITY.md
 are closed by a named test: P9 (OPTIONS answer), P15 (websocket framing), P17 (graceful close)
@@ -1845,7 +2065,9 @@ quotes the measured values instead, as above:
 v() { git show "$2:Makefile" | awk -F'[:?]?= *' -v k="$1" '$1 ~ "^" k " *$" {print $2}'; }; test "$(echo "$(v COVER_FLOOR HEAD) >= $(v COVER_FLOOR origin/master)" | bc)" -eq 1; test "$(v API_UNCOVERED_MAX HEAD)" -le "$(v API_UNCOVERED_MAX origin/master)"   # a PR never lowers the floor or raises the ceiling
 ```
 
-Waves V1A to V1F are in *Execution and parallel work*.
+Waves V1A to V1F are in *Execution and parallel work*; the packages that group these PRs for
+separate takers, their paths, entry checks and registry are its subsection *Stage V1 work
+packages*.
 
 Entry of a wave, `bash` and `set -e`, after the DoD helpers `rows` and `covers` below are defined
 (wave V1A needs one `### V1-<n> contract` heading per PR that adds exported API, the `ADD`
@@ -1992,6 +2214,7 @@ test -f _examples/default-http/client.js; test -f _examples/asset/index-1.7.html
 grep -q CONFORMANCE_NODE_MODULES Makefile; grep -q examples-node .github/workflows/ci.yaml   # examples-node takes the job's client, so it ran under 1.7.4 and 2.5.0
 PARITY_STRICT=1 make parity-check; make cover-check; grep -qE '^API_UNCOVERED_MAX *[:?]?= *0$' Makefile   # D17 gates (V1-20): every row has a test, no exported function without one
 test "$(go test -tags conformance -list '^TestDifferential$' ./internal/conformance/... | grep -c '^TestDifferential$')" -eq 1   # the differential scenarios (V1-19) are in the job
+test "$(awk -F' *[|] *' 'index($0, "| Package | Status |") == 1 {p=1; next} !/^[|]/ {p=0} p && $2 ~ /^[A-G]$/ {printf "%s:%s ", $2, $3}' docs/ROADMAP.md)" = "A:done B:done C:done D:done E:done F:done G:done "   # the seven packages A to G are found and done in the registry of *Stage V1 work packages* (H is this PR's; SY gates 2B, not MV1)
 test -z "$(git tag -l 'v1.5*')"   # release preparation creates no tag
 ```
 

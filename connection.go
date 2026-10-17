@@ -81,14 +81,15 @@ type conn struct {
 	reader  *frameReader // tells the decoder's transport failures apart
 	writer  *queueWriter // tells the encoder's transport failures apart
 
-	writeReady    chan struct{}
-	drainQueue    []drainPacket
-	pendingWrites int
-	drainQueued   int
-	controlQueued int
-	closeControls int
-	writeChan     chan parser.Payload
-	errorChan     chan error
+	writeReady     chan struct{}
+	drainQueue     []drainPacket
+	pendingWrites  int
+	drainQueued    int
+	controlQueued  int
+	closeControls  int
+	controlPending int // claimed namespace disconnects not yet enqueued; guarded by mu
+	writeChan      chan parser.Payload
+	errorChan      chan error
 
 	log          *slog.Logger
 	rootRejected error
@@ -98,6 +99,7 @@ type conn struct {
 	mu                           sync.Mutex
 	closing, seal, discard, done chan struct{}
 	draining, connecting         bool             // the first close is Close; until connected
+	appSealed                    bool             // Close returned from its own callbacks
 	overflow                     *namespaceConn   // the first close is its overflow, in this namespace
 	pending                      []*namespaceConn // OnDisconnect calls a library close owes
 	drainTimer                   *time.Timer
@@ -142,9 +144,26 @@ func (c *conn) Close() error {
 	c.mu.Unlock()
 	c.disconnect(ncs)
 	c.mu.Lock()
-	close(c.seal)
+	c.appSealed = true
+	c.sealIfReady()
 	c.mu.Unlock()
 	return nil
+}
+
+// sealIfReady lets the writer finish once application writes are sealed and
+// every disconnect claimed before Close has queued its control packets.
+// The caller holds mu; no namespace can be claimed after startClose.
+func (c *conn) sealIfReady() {
+	if c.appSealed && c.controlPending == 0 && !isDone(c.seal) {
+		close(c.seal)
+	}
+}
+
+func (c *conn) controlEnqueued() {
+	c.mu.Lock()
+	c.controlPending--
+	c.sealIfReady()
+	c.mu.Unlock()
 }
 
 // startClose takes the connected namespaces; c.mu is held.
@@ -282,14 +301,18 @@ func (c *conn) register(nsp string, nc *namespaceConn) bool {
 }
 
 func (c *conn) claim(nsp string, expected ...*namespaceConn) (*namespaceConn, bool) {
-	return c.claimNamespace(nsp, false, expected...)
+	return c.claimNamespace(nsp, false, false, expected...)
 }
 
 func (c *conn) claimDisconnect(nsp string, expected ...*namespaceConn) (*namespaceConn, bool) {
-	return c.claimNamespace(nsp, true, expected...)
+	return c.claimNamespace(nsp, true, false, expected...)
 }
 
-func (c *conn) claimNamespace(nsp string, disconnect bool, expected ...*namespaceConn) (*namespaceConn, bool) {
+func (c *conn) claimControlDisconnect(nsp string, expected *namespaceConn) (*namespaceConn, bool) {
+	return c.claimNamespace(nsp, true, true, expected)
+}
+
+func (c *conn) claimNamespace(nsp string, disconnect, control bool, expected ...*namespaceConn) (*namespaceConn, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	nc, ok := c.namespaces.Get(nsp)
@@ -300,6 +323,9 @@ func (c *conn) claimNamespace(nsp string, disconnect bool, expected ...*namespac
 	if ok && disconnect {
 		c.disconnects.Add(1)
 		c.disconnecting++
+	}
+	if ok && control {
+		c.controlPending++
 	}
 	return nc, ok
 }
@@ -396,12 +422,12 @@ func (c *conn) queue(header parser.Header, reserved bool, args ...reflect.Value)
 	if reserved {
 		c.pendingWrites--
 	}
+	control := header.Type == parser.Connect || header.Type == parser.Disconnect
 	switch {
-	case isDone(c.closing) && (!c.draining || isDone(c.seal) || isDone(c.discard)):
+	case isDone(c.closing) && (!c.draining || isDone(c.seal) || isDone(c.discard) || c.appSealed && !control && !reserved):
 	case c.boundary || c.draining:
 		// Server lifecycle packets share ordering with application packets but
 		// do not consume the application budget reserved by pending Emits.
-		control := header.Type == parser.Connect || header.Type == parser.Disconnect
 		// Reserve a finite pair of lifecycle slots per application slot. This
 		// admits CONNECT followed by DISCONNECT even with a one-slot budget.
 		controlSpace := control && c.controlQueued < 2*cap(c.writeChan) && (header.Type == parser.Disconnect || len(c.writeChan)+c.drainQueued < cap(c.writeChan))

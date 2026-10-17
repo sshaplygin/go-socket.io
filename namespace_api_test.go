@@ -454,6 +454,84 @@ func TestCloseControlsIncludeClaimedNamespaces(t *testing.T) {
 	require.ElementsMatch(t, []string{"1/a,", "1/b,", "1"}, packets)
 }
 
+func TestCloseWaitsForClaimedDisconnectPackets(t *testing.T) {
+	p := start(t, 'S', hooks{
+		setup: func(s *Server) { s.limits.writeBufferSize = 1 },
+		disconnect: func(c Conn) {
+			if c.Namespace() != "/" {
+				c.Emit("late from claimed namespace")
+			}
+		},
+	}, "/a", "/b")
+	a, b := p.join(t, "/a").(*namespaceConn), p.join(t, "/b").(*namespaceConn)
+	p.stall(t, p.nc, 0)
+	var unlocks []func()
+	for _, nc := range []*namespaceConn{a, b} {
+		nc.outMu.Lock()
+		unlock := sync.OnceFunc(nc.outMu.Unlock)
+		unlocks = append(unlocks, unlock)
+		defer unlock()
+		go nc.Disconnect()
+	}
+	require.Eventually(t, func() bool {
+		_, a := p.conn().namespaces.Get("/a")
+		_, b := p.conn().namespaces.Get("/b")
+		return !a && !b
+	}, time.Second, time.Millisecond)
+	// Close returns before either already-claimed Disconnect can enqueue.
+	require.NoError(t, p.nc.Close())
+	p.nc.Emit("late")
+	for _, unlock := range unlocks {
+		unlock()
+	}
+	for i := 0; i < 3; i++ {
+		recv(t, p.discs, "namespace disconnect")
+	}
+	close(p.fc.release)
+	require.Equal(t, ev("first"), recv(t, p.fc.out, "previous application packet"))
+	packets := []string{recv(t, p.fc.out, "DISCONNECT"), recv(t, p.fc.out, "DISCONNECT"), recv(t, p.fc.out, "DISCONNECT")}
+	require.ElementsMatch(t, []string{"1/a,", "1/b,", "1"}, packets)
+	recv(t, p.fc.closed, "engine closed after controls drain")
+	require.Empty(t, p.fc.out, "Emit after Close must be dropped")
+}
+
+func TestCloseDeadlineWithClaimedDisconnect(t *testing.T) {
+	p := start(t, 'S', hooks{}, "/a")
+	a := p.join(t, "/a").(*namespaceConn)
+	p.conn().drainTimeout = 50 * time.Millisecond
+	p.stall(t, p.nc, 0)
+	a.outMu.Lock()
+	unlock := sync.OnceFunc(a.outMu.Unlock)
+	defer unlock()
+	go a.Disconnect()
+	require.Eventually(t, func() bool {
+		_, exists := p.conn().namespaces.Get("/a")
+		return !exists
+	}, time.Second, time.Millisecond)
+	require.NoError(t, p.nc.Close())
+	recv(t, p.fc.closed, "drain deadline while a control is still pending")
+	unlock()
+	for i := 0; i < 2; i++ {
+		recv(t, p.discs, "namespace disconnect")
+	}
+	require.Empty(t, p.errs)
+}
+
+func TestCloseFromClaimedDisconnectCallback(t *testing.T) {
+	p := start(t, 'S', hooks{disconnect: func(c Conn) {
+		if c.Namespace() == "/a" {
+			_ = c.Close()
+		}
+	}}, "/a")
+	a := p.join(t, "/a")
+	done := inBackground(a.Disconnect)
+	recv(t, done, "Disconnect callback calling Close")
+	require.Equal(t, "1/a,", recv(t, p.fc.out, "namespace DISCONNECT"))
+	require.Equal(t, "1", recv(t, p.fc.out, "root DISCONNECT"))
+	recv(t, p.fc.closed, "engine closed")
+	p.disconnected(t, "/", "/a")
+}
+
 func TestPendingConnectUsesSharedBudget(t *testing.T) {
 	observed := make(chan bool, 1)
 	p := start(t, 'S', hooks{connect: func(c Conn) error {

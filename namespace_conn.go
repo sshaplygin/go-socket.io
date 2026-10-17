@@ -143,9 +143,10 @@ func (nc *namespaceConn) Disconnect() {
 	if !nc.conn.boundary {
 		return
 	}
-	if claimed, ok := nc.conn.claimDisconnect(fmtNS(nc.namespace), nc); ok && claimed == nc {
+	if claimed, ok := nc.conn.claimControlDisconnect(fmtNS(nc.namespace), nc); ok && claimed == nc {
 		nc.acceptPending()
 		nc.conn.write(parser.Header{Type: parser.Disconnect, Namespace: fmtNS(nc.namespace)})
+		nc.conn.controlEnqueued()
 		nc.conn.disconnectNamespace(nc, "server namespace disconnect")
 	}
 }
@@ -197,7 +198,7 @@ func (nc *namespaceConn) send(header parser.Header, args ...reflect.Value) {
 	}
 	if nc.connecting {
 		nc.conn.mu.Lock()
-		if (!isDone(nc.conn.closing) || nc.conn.draining && !isDone(nc.conn.seal) && !isDone(nc.conn.discard)) && nc.conn.pendingWrites+len(nc.conn.writeChan)+nc.conn.drainQueued < cap(nc.conn.writeChan) {
+		if (!isDone(nc.conn.closing) || nc.conn.draining && !nc.conn.appSealed && !isDone(nc.conn.discard)) && nc.conn.pendingWrites+len(nc.conn.writeChan)+nc.conn.drainQueued < cap(nc.conn.writeChan) {
 			nc.conn.pendingWrites++
 			nc.pending = append(nc.pending, pendingPacket{header, args})
 		} else {

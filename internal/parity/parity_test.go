@@ -49,8 +49,10 @@ func TestParityCovers(t *testing.T) {
 func listedTests(root string) (testInventory, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "test", "-tags", "conformance", "-list", ".", "-json", "./...")
+	// Keep nested compilation from competing with the outer suite's timed tests.
+	cmd := exec.CommandContext(ctx, "go", "test", "-p=1", "-tags", "conformance", "-list", ".", "-json", "./...")
 	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GOMAXPROCS=1")
 	output, err := cmd.Output()
 	if err != nil {
 		if failure, ok := err.(*exec.ExitError); ok {
@@ -83,8 +85,9 @@ func listedTests(root string) (testInventory, error) {
 		}
 		listed.tests[testRef{filepath.FromSlash(dir), name}] = true
 	}
-	cmd = exec.CommandContext(ctx, "go", "list", "-tags", "conformance", "-json", "./...")
+	cmd = exec.CommandContext(ctx, "go", "list", "-p=1", "-tags", "conformance", "-json", "./...")
 	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GOMAXPROCS=1")
 	output, err = cmd.Output()
 	if err != nil {
 		if failure, ok := err.(*exec.ExitError); ok {

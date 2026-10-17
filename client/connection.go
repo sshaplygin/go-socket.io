@@ -3,9 +3,6 @@ package client
 import (
 	"cmp"
 	"errors"
-	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
-	"github.com/sshaplygin/go-socket.io/parser"
 	"io"
 	"log/slog"
 	"net"
@@ -15,6 +12,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 // The outbound queue size (see ErrWriteBufferFull) and drain deadline (see Conn.Close).
@@ -116,7 +117,7 @@ type conn struct {
 
 	writeReady chan struct{}
 	writeChan  chan parser.Payload
-	errorChan  chan error
+	errorChan  chan *errorMessage
 
 	log *slog.Logger
 
@@ -139,7 +140,7 @@ func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connL
 		log:              log,
 		disconnectReason: "forced close",
 		Conn:             engineConn,
-		errorChan:        make(chan error),
+		errorChan:        make(chan *errorMessage),
 		writeChan:        make(chan parser.Payload, limits.writeBufferSize),
 		writeReady:       make(chan struct{}, 1),
 		handlers:         handlers,

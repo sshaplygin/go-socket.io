@@ -2,7 +2,6 @@ package client
 
 import (
 	"errors"
-	"fmt"
 )
 
 var errUnavailableRootHandler = errors.New("root ('/') doesn't have a namespace handler")
@@ -29,10 +28,6 @@ type errorMessage struct {
 	done      chan struct{}  // closed once OnError returned
 
 	err error
-}
-
-func (e errorMessage) Error() string {
-	return fmt.Sprintf("error in namespace: (%s) with error: (%s)", e.namespace, e.err.Error())
 }
 
 func newErrorMessage(namespace string, err error) *errorMessage {

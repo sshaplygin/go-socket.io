@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -13,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/internal/engineclose"
@@ -41,68 +41,14 @@ func newConnLimits(opts *engineio.Options) connLimits {
 	return l
 }
 
-// AckFunc acknowledges an incoming event once, possibly from another goroutine
-// after the handler returns. It does nothing unless the peer requested an ACK.
-// A handler with this final parameter owns the ACK; return values are ignored.
-type AckFunc func(args ...interface{})
+// AckFunc acknowledges an incoming event once, including after its handler returns.
+type AckFunc = client.AckFunc
 
-// Handshake describes the original engine handshake and this namespace's query.
-type Handshake struct {
-	// Headers are copied from the original handshake request.
-	Headers http.Header
-	// Time is this namespace socket's creation time (reference time and issued).
-	Time time.Time
-	// Address is the original request's remote address, including its port.
-	Address string
-	// XDomain reports a nonempty Origin header on the original request.
-	XDomain bool
-	// Secure reports TLS on the original request.
-	Secure bool
-	// URL is the original handshake URL, even after a transport upgrade.
-	URL url.URL
-	// Query merges the request query and namespace CONNECT query; the latter wins.
-	Query url.Values
-}
+// Handshake describes the original engine handshake and namespace query.
+type Handshake = client.Handshake
 
-// Conn is a connection in go-socket.io
-type Conn interface {
-	// Close closes the connection and returns nil; only the first close, by Close or by the library,
-	// has an effect. For every connected namespace it emits disconnecting while rooms are joined,
-	// writes a DISCONNECT packet, leaves its rooms, and calls OnDisconnect with
-	// "server namespace disconnect". It returns without waiting. A client-side
-	// connection keeps the engine close behavior and "forced close" reason.
-	// The packets queued until then, Emits from OnDisconnect included, are written in the background;
-	// an Emit that finds the queue full, or comes later, is dropped without a report. Then, or
-	// engineio.Options.PingTimeout (one minute if not positive) after Close started, the rest is
-	// discarded and the engine.io connection is closed; Server.Count counts the session until then.
-	// Incoming packets are no longer dispatched, and a read or write failure ends the drain at once.
-	// The library closes a connection on a read, decode or dispatch error, a peer close, a ping
-	// timeout or an overflow (see ErrWriteBufferFull), discarding the queue at once.
-	// Other than an overflow, the error is reported to OnError before the close's effects run,
-	// so Emits from OnError still queue. A middleware or OnConnect rejection sends ERROR and keeps
-	// the engine connection open; it reports to that namespace's OnError, with a nil Conn for root.
-	// Failures during a close are not reported. An encode failure reports OnError, sends an ERROR
-	// packet with "encode error", and keeps the connection open.
-	Close() error
-	Namespace
-	// EngineConn returns the underlying engine connection, nil on a client socket.
-	EngineConn() engineio.Conn
-	// Request returns the original handshake request. Its Body is consumed and its
-	// Context ends when that HTTP request returns; retain it for metadata only.
-	// It is available before middleware/handlers and after close, nil on clients
-	// and on engines without a Request method.
-	Request() *http.Request
-	// Handshake returns metadata built before this socket's middleware and handlers.
-	// It uses the original request even after an upgrade; zero on client sockets.
-	Handshake() Handshake
-
-	// ID returns session id
-	ID() string
-	URL() url.URL
-	LocalAddr() net.Addr
-	RemoteAddr() net.Addr
-	RemoteHeader() http.Header
-}
+// Conn is the shared server and client connection type.
+type Conn = client.Conn
 
 type conn struct {
 	engineio.Conn

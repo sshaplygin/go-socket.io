@@ -2,7 +2,6 @@ package client
 
 import (
 	"errors"
-	"github.com/sshaplygin/go-socket.io/logger"
 	"log/slog"
 	"net/url"
 	"path"
@@ -11,6 +10,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
+	"github.com/sshaplygin/go-socket.io/logger"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 

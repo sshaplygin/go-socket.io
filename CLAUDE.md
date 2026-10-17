@@ -70,7 +70,8 @@ make vuln        # govulncheck ./... in the root and in every _examples module
 make cover       # coverage profile + HTML report
 make parity-check # validate DONE rows and Covers markers; PARITY_STRICT=1 also checks open planned rows
 make cover-check # cross-package statement floor and exported API zero-coverage ceiling
-make examples    # build every _examples/*/ module and the Go client, check that every chat.go is identical, race-test default-http
+make examples    # build and vet every _examples/*/ module, build the Go client, compare chat.go copies, race-test default-http
+make examples-node # run each example client.js on a free port; requires CONFORMANCE_NODE_MODULES
 make all         # go install ./...
 ```
 

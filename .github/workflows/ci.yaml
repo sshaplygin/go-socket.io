@@ -42,6 +42,8 @@ jobs:
           echo "CONFORMANCE_CLIENT_VERSION=${CLIENT#*@}" >> "$GITHUB_ENV"
       - name: Run tagged interoperability and raw transport tests
         run: make conformance
+      - name: Run executable examples with the pinned client
+        run: make examples-node
 
   sync-check:
     name: Check shared-file drift

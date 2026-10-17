@@ -3,6 +3,7 @@ package socketio
 import (
 	"errors"
 	"fmt"
+	"github.com/sshaplygin/go-socket.io/client"
 )
 
 // connect errors.
@@ -30,7 +31,7 @@ var (
 // reported with a nil Conn. Packets queued faster than they are written can close a healthy client:
 // polling writes one engine.io frame per round trip, and a packet with k binary attachments takes k+1
 // frames.
-var ErrWriteBufferFull = errors.New("write buffer full")
+var ErrWriteBufferFull = client.ErrWriteBufferFull
 
 // ErrExceptUnsupported means the adapter cannot exclude sockets. Nothing is sent.
 var ErrExceptUnsupported = errors.New("socketio: broadcast except is not supported by this adapter")
@@ -40,7 +41,7 @@ var ErrExceptUnsupported = errors.New("socketio: broadcast except is not support
 var ErrBroadcastAck = errors.New("socketio: callbacks are not supported when broadcasting")
 
 // ErrServerOnly means a client connection cannot perform a server broadcast.
-var ErrServerOnly = errors.New("socketio: server-only method on a client connection")
+var ErrServerOnly = client.ErrServerOnly
 
 type errorMessage struct {
 	namespace string

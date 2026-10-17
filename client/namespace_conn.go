@@ -1,9 +1,10 @@
 package client
 
 import (
-	"github.com/sshaplygin/go-socket.io/parser"
 	"reflect"
 	"sync"
+
+	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 // Namespace describes a communication channel that allows you to split the logic of your application
@@ -178,10 +179,10 @@ type Emitter interface {
 }
 
 // Disconnect does nothing on a client connection.
-func (nc *namespaceConn) Disconnect() {}
+func (nc *namespaceConn) Disconnect() { return }
 
 // Use does not register middleware on a client connection.
-func (nc *namespaceConn) Use(func(string, []interface{}) error) {}
+func (nc *namespaceConn) Use(func(string, []interface{}) error) { return }
 func (nc *namespaceConn) send(header parser.Header, args ...reflect.Value) {
 	nc.conn.write(header, args...)
 }

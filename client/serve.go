@@ -1,7 +1,6 @@
 package client
 
 import (
-	"errors"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -11,11 +10,7 @@ func (c *conn) serveError() {
 		case <-c.closing:
 			c.reportOverflow(c.overflow)
 			return
-		case err := <-c.errorChan:
-			var errMsg *errorMessage
-			if !errors.As(err, &errMsg) {
-				continue
-			}
+		case errMsg := <-c.errorChan:
 
 			if handler := c.namespace(errMsg.namespace); handler != nil {
 				if handler.onError != nil && errMsg.conn != nil {

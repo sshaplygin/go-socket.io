@@ -3,9 +3,10 @@ package client
 import (
 	"encoding/json"
 	"errors"
-	"github.com/sshaplygin/go-socket.io/parser"
 	"reflect"
 	"sync"
+
+	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 var emtpyFH = newAckFunc(func() {})

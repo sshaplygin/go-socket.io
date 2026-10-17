@@ -32,8 +32,6 @@ func TestConnEngineConn(t *testing.T) {
 	require.Equal(t, engineio.StateOpen, p.nc.EngineConn().ReadyState())
 	require.Equal(t, "fake", p.nc.EngineConn().Transport())
 	require.False(t, p.nc.EngineConn().Upgraded())
-	client := start(t, 'C', hooks{})
-	require.Nil(t, client.nc.EngineConn())
 }
 
 // Covers K5
@@ -75,9 +73,6 @@ func TestConnRequest(t *testing.T) {
 	fake := start(t, 'S', hooks{})
 	require.Nil(t, fake.nc.Request())
 	require.Equal(t, Handshake{}, fake.nc.Handshake())
-	client := start(t, 'C', hooks{})
-	require.Nil(t, client.nc.Request())
-	require.Equal(t, Handshake{}, client.nc.Handshake())
 }
 
 // Covers N8

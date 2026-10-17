@@ -139,6 +139,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Go client is available as `github.com/sshaplygin/go-socket.io/client`,
+  with connection interfaces shared through root aliases.
+
 - ci: `parity-check` verifies PARITY markers against executable tests, including
   tagged scenarios. `cover-check` enforces measured statement and API coverage ratchets.
 
@@ -367,6 +370,8 @@ All notable changes to this project are documented here. The format follows
   Socket.IO chat example (`socket.io-client` 2.5.0 page in `_examples/asset/`, server logic in `chat.go`).
 
 ### Deprecated
+
+- Root `Client` and `NewClient`; use `client.Client` and `client.NewClient`.
 
 - `logger.Error` and `logger.Info`: the library no longer calls them. Use `slog`'s
   methods on `logger.Log` or on the logger passed as `engineio.Options.Logger`. See

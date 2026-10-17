@@ -1,6 +1,7 @@
 package engineio
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -76,4 +77,70 @@ func TestEngineClientCompressedCloseLimit(t *testing.T) {
 	require.ErrorAs(t, err, &closed)
 	require.Equal(t, ReasonTransportError, closed.Reason)
 	require.ErrorIs(t, closed.Err, gorilla.ErrReadLimit)
+}
+
+// Covers E8
+// Covers C11
+func TestEngineClientCompressedOpenLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		pt      packet.Type
+		invalid bool
+	}{{"oversized OPEN", packet.OPEN, false}, {"preserve JSON error", packet.OPEN, true}, {"preserve packet error", packet.MESSAGE, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := &websocket.Transport{EnableCompression: true, CompressionThreshold: 1}
+			type serverResult struct {
+				conn transport.Conn
+				err  error
+			}
+			accepted := make(chan serverResult, 1)
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				c, err := ws.Accept(w, r)
+				if err == nil {
+					var writer io.WriteCloser
+					writer, err = c.NextWriter(frame.String, tc.pt)
+					if err == nil {
+						if tc.invalid {
+							_, err = io.WriteString(writer, "!")
+						} else {
+							params := transport.ConnParameters{SID: "oversized-open", PingInterval: time.Hour, PingTimeout: time.Second}
+							_, err = params.WriteTo(writer)
+						}
+						if err == nil {
+							_, err = io.WriteString(writer, strings.Repeat(" ", 100_000))
+						}
+						if closeErr := writer.Close(); err == nil {
+							err = closeErr
+						}
+					}
+				}
+				accepted <- serverResult{c, err}
+			}))
+			defer ts.Close()
+			dialer := Dialer{Transports: []transport.Transport{limitedCompressionTransport{ws}}}
+			c, err := dialer.Dial(ts.URL, nil)
+			if c != nil {
+				defer func() { _ = c.Close() }()
+			}
+			select {
+			case result := <-accepted:
+				require.NoError(t, result.err)
+				defer func() { _ = result.conn.Close() }()
+			case <-time.After(time.Second):
+				t.Fatal("no OPEN peer")
+			}
+			require.Error(t, err)
+			require.Nil(t, c, "Dial must reject an invalid OPEN instead of returning a failed connection")
+			switch {
+			case tc.invalid:
+				var syntax *json.SyntaxError
+				require.ErrorAs(t, err, &syntax)
+				require.NotErrorIs(t, err, gorilla.ErrReadLimit)
+			case tc.pt != packet.OPEN:
+				require.EqualError(t, err, "invalid open")
+			default:
+				require.ErrorIs(t, err, gorilla.ErrReadLimit)
+			}
+		})
+	}
 }

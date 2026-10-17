@@ -95,6 +95,9 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 				defer func() {
 					if closeErr := r.Close(); closeErr != nil {
 						logger.Log.Warn("engineio: close reader failed", "err", closeErr)
+						if err == nil {
+							err = closeErr
+						}
 					}
 				}()
 

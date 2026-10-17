@@ -173,25 +173,22 @@ func (nh *namespaceHandler) dispatchEvent(conn Conn, event string, args ...refle
 }
 
 func (nh *namespaceHandler) dispatchListeners(conn Conn, event string, snapshot []*eventListener, ack AckFunc, args ...reflect.Value) ([]reflect.Value, bool, error) {
-	// Claim Once listeners only after decoding and middleware succeeded. Concurrent
-	// clients may have taken the same snapshot, but only one invokes each Once.
-	nh.eventsLock.Lock()
-	active := make([]*eventListener, 0, len(snapshot))
+	var result []reflect.Value
 	ownsAck := false
 	for _, listener := range snapshot {
 		if listener.once {
+			// Claim immediately before this callback. Earlier listeners may fail, in
+			// which case later Once listeners remain available for the next event.
+			nh.eventsLock.Lock()
 			if listener.fired {
+				nh.eventsLock.Unlock()
 				continue
 			}
 			listener.fired = true
 			nh.removeListener(event, listener)
+			nh.eventsLock.Unlock()
 		}
-		active = append(active, listener)
 		ownsAck = ownsAck || listener.handler.ack
-	}
-	nh.eventsLock.Unlock()
-	var result []reflect.Value
-	for _, listener := range active {
 		values := make([]reflect.Value, 1, len(args)+2)
 		values[0] = reflect.ValueOf(conn)
 		values = append(values, args...)

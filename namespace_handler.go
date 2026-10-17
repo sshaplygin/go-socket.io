@@ -11,8 +11,12 @@ import (
 )
 
 type namespaceHandler struct {
-	broadcast Broadcast
-	err       error // why broadcast is a nopBroadcast: the Redis broadcast could not be created
+	connectedMu sync.RWMutex
+	connected   map[string]Conn
+	view        *ServerNamespace
+	middleware  []func(Conn) error
+	broadcast   Broadcast
+	err         error // why broadcast is a nopBroadcast: the Redis broadcast could not be created
 
 	events     map[string]*funcHandler
 	eventsLock sync.RWMutex
@@ -25,6 +29,7 @@ type namespaceHandler struct {
 func newNamespaceHandler(nsp string, adapterOpts *RedisAdapterOptions) *namespaceHandler {
 	nh := &namespaceHandler{
 		broadcast: nopBroadcast{},
+		connected: make(map[string]Conn),
 		events:    make(map[string]*funcHandler),
 	}
 	if adapterOpts == nil {
@@ -129,4 +134,33 @@ func getDispatchMessage(args ...reflect.Value) string {
 	}
 
 	return msg
+}
+
+func (nh *namespaceHandler) connect(c Conn) error {
+	nh.eventsLock.RLock()
+	middleware := append([]func(Conn) error(nil), nh.middleware...)
+	nh.eventsLock.RUnlock()
+	for _, f := range middleware {
+		if err := f(c); err != nil {
+			return err
+		}
+	}
+	if nh.onConnect != nil {
+		return nh.onConnect(c)
+	}
+	return nil
+}
+
+func (nh *namespaceHandler) addSocket(c Conn) {
+	nh.connectedMu.Lock()
+	nh.connected[c.ID()] = c
+	nh.connectedMu.Unlock()
+}
+
+func (nh *namespaceHandler) removeSocket(c Conn) {
+	nh.connectedMu.Lock()
+	if nh.connected[c.ID()] == c {
+		delete(nh.connected, c.ID())
+	}
+	nh.connectedMu.Unlock()
 }

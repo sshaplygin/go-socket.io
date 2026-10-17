@@ -2,11 +2,13 @@ package socketio
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gomodule/redigo/redis"
 
@@ -27,6 +29,13 @@ type Server struct {
 	adapterErr   atomic.Pointer[error] // the first Redis construction error, read by Serve
 	served       chan struct{}         // tests set it; Serve closes it after its entry check
 
+	closeOnce     sync.Once
+	closeDone     chan struct{}
+	closeErr      error
+	activeMu      sync.Mutex
+	active        map[*conn]struct{}
+	activeChanged chan struct{}
+
 	limits connLimits
 	log    *slog.Logger
 }
@@ -34,10 +43,13 @@ type Server struct {
 // NewServer returns a server.
 func NewServer(opts *engineio.Options) *Server {
 	return &Server{
-		handlers: newNamespaceHandlers(),
-		engine:   engineio.NewServer(opts),
-		limits:   newConnLimits(opts),
-		log:      loggerFrom(opts),
+		handlers:      newNamespaceHandlers(),
+		active:        make(map[*conn]struct{}),
+		activeChanged: make(chan struct{}),
+		closeDone:     make(chan struct{}),
+		engine:        engineio.NewServer(opts),
+		limits:        newConnLimits(opts),
+		log:           loggerFrom(opts),
 	}
 }
 
@@ -92,25 +104,39 @@ func (s *Server) Adapter(opts *RedisAdapterOptions) (bool, error) {
 	return true, conn.Close()
 }
 
-// Close closes the engine.io server, so Serve returns nil, and stops the Redis
-// connections of every namespace. It does not close the sessions already open, but their
-// broadcasts no longer reach other instances. Close waits for a handler registration
+// Close closes every engine session and waits for its OnDisconnect handlers, with
+// a 10 second bound after which it logs the number still open and returns. Serve
+// returns nil. It also stops every namespace's Redis connections and waits for a handler registration
 // that is dialling Redis, up to the 10 seconds that dial may take. With Adapter set, a
 // namespace registered after Close has no broadcast, as if its construction failed, but
 // Serve does not return that error.
-func (s *Server) Close() error {
+func (s *Server) Close() error { return s.closeWithTimeout(10 * time.Second) }
+
+func (s *Server) closeWithTimeout(timeout time.Duration) error {
 	s.closed.Store(true)
-	err := s.engine.Close()
-
-	s.createMu.Lock() // waits for a registration that is building a broadcast
-	defer s.createMu.Unlock()
-	s.handlers.Range(func(h *namespaceHandler) {
-		if bc, ok := h.broadcast.(*redisBroadcast); ok {
-			bc.close()
-		}
+	s.closeOnce.Do(func() {
+		go func() {
+			s.closeErr = s.engine.Close()
+			s.activeMu.Lock()
+			active := make([]*conn, 0, len(s.active))
+			for c := range s.active {
+				active = append(active, c)
+			}
+			s.activeMu.Unlock()
+			for _, c := range active {
+				_ = c.Conn.Close()
+			}
+			s.createMu.Lock()
+			s.handlers.Range(func(h *namespaceHandler) {
+				if bc, ok := h.broadcast.(*redisBroadcast); ok {
+					bc.close()
+				}
+			})
+			s.createMu.Unlock()
+			close(s.closeDone)
+		}()
 	})
-
-	return err
+	return s.waitForConnections(timeout)
 }
 
 // ServeHTTP dispatches the request to the handler whose pattern most closely matches the request URL.
@@ -328,14 +354,27 @@ func (s *Server) ForEach(namespace string, room string, f EachFunc) bool {
 
 func (s *Server) serveConn(conn engineio.Conn) {
 	c := newConn(conn, s.handlers, s.limits, s.log.With("sid", conn.ID()))
+	s.activeMu.Lock()
+	if s.closed.Load() {
+		s.activeMu.Unlock()
+		_ = conn.Close()
+		return
+	}
+	s.active[c] = struct{}{}
+	s.activeMu.Unlock()
 	c.boundary = true
 	if !c.connected(c.connect()) {
+		s.releaseConnection(c)
 		return
 	}
 
 	go c.serveError()
 	go c.serveWrite()
-	go func() { c.serveRead(connectPacketHandler, disconnectPacketHandler); s.engine.Remove(c.Conn.ID()) }()
+	go func() {
+		defer s.releaseConnection(c)
+		c.serveRead(connectPacketHandler, disconnectPacketHandler)
+		s.engine.Remove(c.Conn.ID())
+	}()
 }
 
 func (c *conn) serveError() {
@@ -362,39 +401,45 @@ func (c *conn) serveError() {
 
 // serveWrite writes until the queue is discarded, or empty after the seal.
 func (c *conn) serveWrite() {
-	seal := c.seal
 	for {
-		select {
-		case <-c.discard:
+		if isDone(c.discard) {
 			return
-		case <-seal:
-			seal = nil
-		case pkg := <-c.writeChan:
-			c.writer.failed = nil
-			var err error
-			switch pkg.Header.Type {
-			case parser.Connect, parser.Disconnect:
-				err = c.encoder.Encode(pkg.Header)
-			case parser.Error:
-				if len(pkg.Data) > 0 {
-					err = c.encoder.Encode(pkg.Header, pkg.Data[0])
-				} else {
-					err = c.encoder.Encode(pkg.Header)
-				}
-			default:
-				err = c.encoder.Encode(pkg.Header, pkg.Data)
-			}
-			if err != nil {
-				c.report(pkg.Header.Namespace, err, c.writer.failed)
-				if c.writer.failed != nil {
-					c.stop()
-				} else if err := c.encoder.Encode(parser.Header{Type: parser.Error}, "encode error"); err != nil || c.writer.failed != nil {
-					c.stop()
-				}
-			}
 		}
-		if seal == nil && len(c.writeChan) == 0 {
-			c.stop()
+		pkg, ok := c.nextQueued()
+		if !ok {
+			if isDone(c.seal) {
+				c.stop()
+				return
+			}
+			select {
+			case <-c.discard:
+				return
+			case <-c.writeReady:
+			case <-c.seal:
+			}
+			continue
+		}
+		c.writer.failed = nil
+		var err error
+		switch pkg.Header.Type {
+		case parser.Connect, parser.Disconnect:
+			err = c.encoder.Encode(pkg.Header)
+		case parser.Error:
+			if len(pkg.Data) > 0 {
+				err = c.encoder.Encode(pkg.Header, pkg.Data[0])
+			} else {
+				err = c.encoder.Encode(pkg.Header)
+			}
+		default:
+			err = c.encoder.Encode(pkg.Header, pkg.Data)
+		}
+		if err != nil {
+			c.report(pkg.Header.Namespace, err, c.writer.failed)
+			if c.writer.failed != nil {
+				c.stop()
+			} else if err := c.encoder.Encode(parser.Header{Type: parser.Error}, "encode error"); err != nil || c.writer.failed != nil {
+				c.stop()
+			}
 		}
 	}
 }
@@ -446,7 +491,7 @@ func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
 // handler, so one namespace never builds two broadcasts and dispatch, which reads
 // s.handlers, never waits for a Redis dial.
 func (s *Server) createNamespace(nsp string) *namespaceHandler {
-	nsp = fmtNS(nsp)
+	nsp = serverNamespaceName(nsp)
 	s.createMu.Lock()
 	defer s.createMu.Unlock()
 	if handler, ok := s.handlers.Get(nsp); ok {
@@ -460,20 +505,50 @@ func (s *Server) createNamespace(nsp string) *namespaceHandler {
 	} else if handler = newNamespaceHandler(nsp, s.redisAdapter); handler.err != nil && s.adapterErr.Load() == nil {
 		s.adapterErr.Store(&handler.err)
 	}
+	handler.view = &ServerNamespace{server: s, name: nsp}
 	s.handlers.Set(nsp, handler)
 
 	return handler
 }
 
 func (s *Server) getNamespace(nsp string) *namespaceHandler {
-	if nsp == aliasRootNamespace {
-		nsp = rootNamespace
-	}
-
+	nsp = serverNamespaceName(nsp)
 	ret, ok := s.handlers.Get(nsp)
 	if !ok {
 		return nil
 	}
 
 	return ret
+}
+
+func (s *Server) releaseConnection(c *conn) {
+	s.activeMu.Lock()
+	delete(s.active, c)
+	close(s.activeChanged)
+	s.activeChanged = make(chan struct{})
+	s.activeMu.Unlock()
+}
+
+func (s *Server) waitForConnections(timeout time.Duration) error {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	engineDone := s.closeDone
+	closed := false
+	for {
+		s.activeMu.Lock()
+		remaining, changed := len(s.active), s.activeChanged
+		s.activeMu.Unlock()
+		if closed && remaining == 0 {
+			return s.closeErr
+		}
+		select {
+		case <-engineDone:
+			closed = true
+			engineDone = nil
+		case <-changed:
+		case <-timer.C:
+			s.log.Warn("socketio: close timed out", "err", fmt.Errorf("%d connections still open", remaining))
+			return nil
+		}
+	}
 }

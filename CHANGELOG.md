@@ -142,6 +142,10 @@ All notable changes to this project are documented here. The format follows
   metadata, including namespace query overrides, across transport upgrades and close.
   A final `AckFunc` handler parameter supports one asynchronous acknowledgement.
 
+- engineio: `Options.DisableCORS` restores polling without CORS headers and
+  websocket same-origin checks. Explicit transport `CheckOrigin` callbacks override
+  both settings; resolving the server default copies built-in transports.
+
 - socketio: immutable Emitter builders select room unions and socket exclusions,
   with volatile and local flags. Namespace sockets can join several rooms and
   broadcast except their sender; adapters and namespaces expose socket ID snapshots.

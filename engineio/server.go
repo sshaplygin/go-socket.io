@@ -20,6 +20,7 @@ import (
 
 // Server is instance of server
 type Server struct {
+	originCheck       func(*http.Request) bool
 	pingInterval      time.Duration
 	pingTimeout       time.Duration
 	upgradeTimeout    time.Duration
@@ -55,6 +56,7 @@ func NewServer(opts *Options) *Server {
 		disableUpgrades:   opts != nil && opts.DisableUpgrades,
 		live:              make(map[string]*session.Session),
 		requestChecker:    opts.getRequestChecker(),
+		originCheck:       opts.getOriginCheck(),
 		connInitor:        opts.getConnInitor(),
 		hooks:             opts.getHooks(),
 		sessions:          session.NewManager(opts.getSessionIDGenerator()),

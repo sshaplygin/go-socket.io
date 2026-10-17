@@ -163,7 +163,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if reqTransport == "websocket" {
-			s.websocketHeaders(w, r, sid == "")
+			w = s.websocketHeaders(w, r, sid == "")
 		}
 		transportConn, err := srvTransport.Accept(w, r)
 		if err != nil {
@@ -198,7 +198,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if reqTransport == "websocket" {
-			s.websocketHeaders(w, r, sid == "")
+			w = s.websocketHeaders(w, r, sid == "")
 		}
 		transportConn, err := srvTransport.Accept(w, r)
 		if err != nil {

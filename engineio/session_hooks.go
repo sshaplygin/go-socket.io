@@ -1,6 +1,8 @@
 package engineio
 
 import (
+	"bufio"
+	"net"
 	"net/http"
 	"sync"
 
@@ -56,15 +58,37 @@ func (s *Server) installHooks(c *session.Session, request *http.Request, initial
 	})
 }
 
-func (s *Server) websocketHeaders(w http.ResponseWriter, r *http.Request, initial bool) {
-	if h := s.hooks; h != nil {
+func (s *Server) websocketHeaders(w http.ResponseWriter, r *http.Request, initial bool) http.ResponseWriter {
+	h := s.hooks
+	hijacker, ok := w.(http.Hijacker)
+	if h == nil || h.InitialHeaders == nil && h.Headers == nil || !ok {
+		return w
+	}
+	return &websocketHeaderObserver{ResponseWriter: w, hijacker: hijacker, notify: func() {
 		if initial && h.InitialHeaders != nil {
 			h.InitialHeaders(r, w.Header())
 		}
 		if h.Headers != nil {
 			h.Headers(r, w.Header())
 		}
+	}}
+}
+
+// Gorilla hijacks only after validating the upgrade and origin, and formats
+// responseHeader afterwards. The map passed to Accept remains the same map,
+// so hooks can edit the successful 101 without observing rejected requests.
+type websocketHeaderObserver struct {
+	http.ResponseWriter
+	hijacker http.Hijacker
+	notify   func()
+}
+
+func (w *websocketHeaderObserver) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, buffers, err := w.hijacker.Hijack()
+	if err == nil && buffers.Reader.Buffered() == 0 {
+		w.notify()
 	}
+	return conn, buffers, err
 }
 
 func (s *Server) connectionError(r *http.Request, code int, err error) {

@@ -257,3 +257,51 @@ func TestEngineClosePacketDoesNotEmitError(t *testing.T) {
 	require.Empty(t, errors)
 	require.Equal(t, StateClosed, f.conn.ReadyState())
 }
+
+func TestRejectedWebsocketHasNoSessionHeaders(t *testing.T) {
+	for _, kind := range []string{"malformed", "origin", "upgrade origin"} {
+		t.Run(kind, func(t *testing.T) {
+			records := &hookRecords{}
+			h := &Hooks{
+				InitialHeaders:  func(_ *http.Request, _ http.Header) { records.add("initial") },
+				Headers:         func(r *http.Request, _ http.Header) { records.add("headers:" + r.URL.Query().Get("transport")) },
+				ConnectionError: func(_ *http.Request, _ int, _ string, _ error) { records.add("error") },
+			}
+			opts := &Options{Hooks: h, Transports: []transport.Transport{polling.Default, &websocket.Transport{CheckOrigin: func(*http.Request) bool { return false }}}}
+			if kind == "malformed" {
+				s := NewServer(opts)
+				t.Cleanup(func() { _ = s.Close() })
+				w := httptest.NewRecorder()
+				s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/?EIO=3&transport=websocket", nil))
+				require.Equal(t, http.StatusBadRequest, w.Code)
+				require.Equal(t, []string{"error"}, records.all())
+				require.Zero(t, s.Count())
+				return
+			}
+			var target string
+			var server *Server
+			if kind == "upgrade origin" {
+				f := newParityWire(t, opts)
+				server = f.srv
+				target = "ws" + f.http.URL[4:] + "/?EIO=3&transport=websocket&sid=" + f.params.SID
+			} else {
+				server = NewServer(opts)
+				ts := httptest.NewServer(server)
+				t.Cleanup(func() { _ = server.Close(); ts.Close() })
+				target = "ws" + ts.URL[4:] + "/?EIO=3&transport=websocket"
+			}
+			_, response, err := gorilla.DefaultDialer.Dial(target, http.Header{"Origin": []string{"https://elsewhere.test"}})
+			require.Error(t, err)
+			require.Equal(t, http.StatusForbidden, response.StatusCode)
+			require.NoError(t, response.Body.Close())
+			require.Eventually(t, func() bool { values := records.all(); return len(values) > 0 && values[len(values)-1] == "error" }, time.Second, time.Millisecond)
+			if kind == "upgrade origin" {
+				require.Equal(t, []string{"initial", "headers:polling", "error"}, records.all())
+				require.Equal(t, 1, server.Count())
+			} else {
+				require.Equal(t, []string{"error"}, records.all())
+				require.Zero(t, server.Count())
+			}
+		})
+	}
+}

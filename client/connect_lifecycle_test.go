@@ -30,6 +30,37 @@ func TestClientCloseCancelsPendingConnect(t *testing.T) {
 	recv(t, late.closed, "late connection closed")
 }
 
+// Socket.destroy closes the manager while opening when its last socket leaves.
+// Covers C4
+// Covers C10
+func TestClientLastSocketCloseCancelsDial(t *testing.T) {
+	for _, timeout := range []time.Duration{-1, time.Hour} {
+		t.Run(timeout.String(), func(t *testing.T) {
+			cl, err := New("http://unused/", &Options{Timeout: timeout})
+			require.NoError(t, err)
+			fc := newFakeConn(t)
+			t.Cleanup(func() { _ = cl.Close() })
+			entered, release := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			defer once.Do(func() { close(release) })
+			cl.dial = func(string) (engineio.Conn, error) { close(entered); <-release; return fc, nil }
+			result := make(chan error, 1)
+			go func() { result <- cl.Connect() }()
+			recv(t, entered, "pending dial")
+			require.NoError(t, cl.Socket("/").Close())
+			select {
+			case err := <-result:
+				require.ErrorIs(t, err, io.ErrClosedPipe)
+			case <-time.After(time.Second):
+				t.Fatal("last Socket.Close did not cancel Connect")
+			}
+			once.Do(func() { close(release) })
+			recv(t, fc.closed, "late dial result discarded")
+			require.Nil(t, cl.conn)
+		})
+	}
+}
+
 // Covers C4
 func TestClientConcurrentConnectAndRetry(t *testing.T) {
 	cl, err := New("http://unused/", nil)

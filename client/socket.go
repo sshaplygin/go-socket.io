@@ -192,6 +192,9 @@ func (m *clientState) closeSocket(s *Socket, reason string, closeLast bool) erro
 	}
 	if last && closeLast {
 		m.stopped = true
+		if m.attempt != nil {
+			m.attempt.cancel()
+		}
 	}
 	m.mu.Unlock()
 	if nc != nil {

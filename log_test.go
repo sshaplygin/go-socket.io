@@ -441,7 +441,7 @@ func TestNamespaceRecords(t *testing.T) {
 func TestPingTimeoutRecords(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
-			opts := &engineio.Options{PingTimeout: 100 * time.Millisecond}
+			opts := &engineio.Options{PingInterval: time.Millisecond, PingTimeout: 100 * time.Millisecond}
 			rec := captureLogs(t, opts)
 			srv := NewServer(opts)
 			connected := make(chan Conn, 1)

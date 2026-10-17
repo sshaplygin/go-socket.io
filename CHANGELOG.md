@@ -135,6 +135,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- socketio: `SetAdapter` injects namespace adapters, and `OfFunc` creates dynamic
+  namespaces with inherited registrations and parent broadcasts. Namespaces expose
+  their adapter and support ordered `On`, `Once`, and `Off` listeners.
+  Parent broadcasts stop on the first child adapter error; earlier deliveries remain.
+- socketio: `Conn.EngineConn`, `Request`, and `Handshake` expose original handshake
+  metadata, including namespace query overrides, across transport upgrades and close.
+  A final `AckFunc` handler parameter supports one asynchronous acknowledgement.
+
 - engineio: `Options.DisableCORS` restores polling without CORS headers and
   websocket same-origin checks. Explicit transport `CheckOrigin` callbacks override
   both settings; resolving the server default copies built-in transports.

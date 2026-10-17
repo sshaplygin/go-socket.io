@@ -1,8 +1,10 @@
 package socketio
 
 import (
+	"net/url"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/sshaplygin/go-socket.io/parser"
 )
@@ -55,6 +57,7 @@ type namespaceConn struct {
 	broadcast Broadcast
 
 	namespace string
+	handshake Handshake
 	context   interface{}
 
 	ack        sync.Map
@@ -65,12 +68,40 @@ type namespaceConn struct {
 	middleware []func(string, []interface{}) error
 }
 
-func newNamespaceConn(conn *conn, namespace string, broadcast Broadcast) *namespaceConn {
-	return &namespaceConn{
-		conn:      conn,
-		namespace: namespace,
-		broadcast: broadcast,
+func newNamespaceConn(conn *conn, namespace string, broadcast Broadcast, query ...string) *namespaceConn {
+	nc := &namespaceConn{conn: conn, namespace: namespace, broadcast: broadcast}
+	if r := conn.Request(); r != nil {
+		h := Handshake{Headers: r.Header.Clone(), Time: time.Now(), Address: r.RemoteAddr, XDomain: r.Header.Get("Origin") != "", Secure: r.TLS != nil, Query: make(url.Values)}
+		if r.URL != nil {
+			h.URL = *r.URL
+			h.Query = r.URL.Query()
+		}
+		if len(query) != 0 {
+			extra, _ := url.ParseQuery(query[0])
+			for key, values := range extra {
+				h.Query[key] = append([]string(nil), values...)
+			}
+		}
+		nc.handshake = h
 	}
+	return nc
+}
+
+func (nc *namespaceConn) Handshake() Handshake {
+	h := nc.handshake
+	h.Headers = h.Headers.Clone()
+	if h.Query != nil {
+		h.Query = cloneQuery(h.Query)
+	}
+	return h
+}
+
+func cloneQuery(query url.Values) url.Values {
+	result := make(url.Values, len(query))
+	for key, values := range query {
+		result[key] = append([]string(nil), values...)
+	}
+	return result
 }
 
 func (nc *namespaceConn) SetContext(ctx interface{}) {
@@ -292,9 +323,10 @@ type Emitter interface {
 	Except(ids ...string) Emitter
 	Volatile() Emitter
 	Local() Emitter
-	// Emit returns ErrBroadcastAck for a broadcast with a trailing func, or an
-	// adapter error. A single-socket emit never fails. A client broadcast returns
-	// ErrServerOnly. Errors send nothing.
+	// Emit returns ErrBroadcastAck without sending for a broadcast with a trailing
+	// func, or an adapter error. A dynamic parent may have delivered to earlier
+	// children before a child returns an error. A single-socket emit never fails;
+	// a client broadcast returns ErrServerOnly without sending.
 	Emit(event string, args ...interface{}) error
 	// Send is Emit("message", args...).
 	Send(args ...interface{}) error

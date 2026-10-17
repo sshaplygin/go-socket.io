@@ -3104,8 +3104,10 @@ type Emitter interface {
 	// Local restricts the broadcast to this instance; a cluster adapter publishes nothing.
 	Local() Emitter
 	// Emit sends event with args to the target. It returns ErrBroadcastAck when the last
-	// argument is a func and the target is a broadcast, and the adapter's error, both
-	// without sending; a single-socket target never fails.
+	// argument is a func and the target is a broadcast, without sending. It returns
+	// an adapter error too: one namespace sends nothing on error, but a dynamic-parent
+	// broadcast may have delivered to earlier children before another child fails.
+	// A single-socket target never fails.
 	Emit(event string, args ...interface{}) error
 	// Send is Emit("message", args...).
 	Send(args ...interface{}) error
@@ -3331,7 +3333,11 @@ holds registrations and copies them into each child on creation (`parent-namespa
 reference; the parent's `Emit`, `Send` and builder (`To`, `Except`, `Volatile`, `Local`)
 broadcast to every child (`parent-namespace.js:16-26`), its `Sockets` and `SocketIDs`
 return the union of its children's, its `Adapter` is nil; a child gets its own
-`Broadcast` from the adapter in force. N5: `Adapter` is the handle; `Server.Rooms`,
+`Broadcast` from the adapter in force. Parent broadcasts visit a snapshot of children
+in no particular order and stop at the first adapter error, returning it. Deliveries
+to earlier children remain; the no-delivery guarantee on an adapter error applies
+to one namespace, not a composite parent broadcast. `ErrBroadcastAck` is checked
+before visiting any child and always sends nothing. N5: `Adapter` is the handle; `Server.Rooms`,
 `RoomLen` and `ForEach` keep working. N8 and K7: the decoder already parses the namespace
 query into `parser.Header.Query` (`decoder.go:268-273`); V1-7 stores it on the namespace
 connection, and `Handshake().Query` merges it over `Request().URL.Query()`

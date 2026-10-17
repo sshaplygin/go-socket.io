@@ -3,7 +3,9 @@ package socketio
 import (
 	"encoding/json"
 	"errors"
+	"net/url"
 	"reflect"
+	"sync"
 
 	"github.com/sshaplygin/go-socket.io/parser"
 )
@@ -73,12 +75,11 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 		return nil
 	}
 
-	types := handler.getEventTypes(event)
-	if types == nil {
-		handler.eventsLock.RLock()
-		_, exists := handler.events[event]
-		handler.eventsLock.RUnlock()
-		if exists {
+	snapshot := handler.listeners(event)
+	var types []reflect.Type
+	if len(snapshot) != 0 {
+		types = snapshot[0].handler.argTypes
+		if types == nil {
 			types = []reflect.Type{}
 		}
 	}
@@ -97,14 +98,29 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 		c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf(err.Error()))
 		return nil
 	}
-	ret, err := handler.dispatchEvent(conn, event, args...)
+	var once sync.Once
+	ack := AckFunc(func(values ...interface{}) {
+		if !header.NeedAck {
+			return
+		}
+		once.Do(func() {
+			reply := header
+			reply.Type = parser.Ack
+			args := make([]reflect.Value, len(values))
+			for i, value := range values {
+				args[i] = reflect.ValueOf(value)
+			}
+			c.write(reply, args...)
+		})
+	})
+	ret, ownsAck, err := handler.dispatchListeners(conn, event, snapshot, ack, args...)
 	if err != nil {
 		c.onError(header.Namespace, err)
 		c.log.Debug("socketio: event handler failed", nspAttr(header.Namespace), "event", event, "err", err)
 		return errHandleDispatch
 	}
 
-	if len(ret) > 0 || header.NeedAck {
+	if !ownsAck && (len(ret) > 0 || header.NeedAck) {
 		header.Type = parser.Ack
 		c.write(header, ret...)
 	}
@@ -124,6 +140,11 @@ func connectPacketHandler(c *conn, header parser.Header) error {
 	}
 
 	handler, ok := c.handlers.Get(header.Namespace)
+	if !ok && c.resolveNamespace != nil {
+		query, _ := url.ParseQuery(header.Query)
+		handler = c.resolveNamespace(header.Namespace, query)
+		ok = handler != nil
+	}
 	if !ok {
 		c.onError(header.Namespace, errFailedConnectNamespace)
 		c.log.Debug("socketio: connect without handler", nspAttr(header.Namespace))
@@ -144,7 +165,7 @@ func connectPacketHandler(c *conn, header parser.Header) error {
 	if _, exists := c.namespaces.Get(header.Namespace); exists {
 		return nil
 	}
-	nc := newNamespaceConn(c, header.Namespace, handler.broadcast)
+	nc := newNamespaceConn(c, header.Namespace, handler.broadcast, header.Query)
 	nc.beginConnect()
 	nc.SetContext(c.Conn.Context())
 	if !c.register(header.Namespace, nc) {

@@ -135,7 +135,8 @@ Socket.IO v4 code: its `v2/parser` holds the v5 codec of the next section.
 - Event handlers return values become the ACK payload; an ACK packet is sent when the
   handler returns values or the client requested an ack. Emitting with a trailing
   function argument registers an ack callback.
-- Namespace query strings (`0/nsp?x=1`) are parsed into `Header.Query` and ignored.
+- Namespace query strings (`0/nsp?x=1`) are parsed into `Header.Query` and merged into
+  `Handshake().Query` of that socket.
 
 ## Known deviations from the v3/v4 specs
 
@@ -144,10 +145,6 @@ Engine.IO, `v2/engineio`:
 - No `maxPayload` handshake field is sent yet (the client reads it when present), and
   the websocket message limit is the transport's default 1 MiB, not the advertised value. The
   polling POST limit and the websocket limit are above.
-
-Socket.IO v4 runtime (v1, repository root):
-
-- `Header.Query` is never exposed to handlers.
 
 ## Implemented in `v2/`: Socket.IO protocol v5 wire codec
 

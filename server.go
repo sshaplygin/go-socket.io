@@ -1,11 +1,13 @@
 package socketio
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +19,10 @@ import (
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
+// AdapterFunc constructs a namespace's Broadcast once under the creation lock.
+// Errors leave a no-op adapter and are reported by Serve as Redis errors are.
+type AdapterFunc func(namespace string) (Broadcast, error)
+
 // Server is a go-socket.io server.
 type Server struct {
 	engine *engineio.Server
@@ -24,6 +30,9 @@ type Server struct {
 	handlers *namespaceHandlers
 
 	redisAdapter *RedisAdapterOptions
+	adapter      AdapterFunc
+	parentsMu    sync.RWMutex
+	parents      []*dynamicNamespace
 	createMu     sync.Mutex            // serialises handler creation, not dispatch; see createNamespace
 	closed       atomic.Bool           // set by Close; read under createMu by createNamespace
 	adapterErr   atomic.Pointer[error] // the first Redis construction error, read by Serve
@@ -99,8 +108,7 @@ func (s *Server) Adapter(opts *RedisAdapterOptions) (bool, error) {
 		return false, err
 	}
 
-	s.redisAdapter = opts
-
+	s.SetAdapter(func(namespace string) (Broadcast, error) { return newRedisBroadcast(namespace, opts) })
 	return true, conn.Close()
 }
 
@@ -182,7 +190,10 @@ func (s *Server) OnError(namespace string, f func(Conn, error)) {
 //
 // f must be a func whose first parameter is Conn; the remaining parameters are
 // decoded from the event arguments. If f returns values, or the client asked for an
-// acknowledgement, the return values are sent back to the client as the ACK payload.
+// acknowledgement, the return values are sent back as the ACK payload. A final
+// AckFunc parameter takes ownership of the ACK and suppresses automatic returns;
+// it may be called later, once, from another goroutine. OnEvent replaces every
+// listener of this event (see ServerNamespace.On and Once).
 // f is called on the read goroutine of the connection, so a blocking f delays only
 // that client. OnEvent panics if f is not a func or its first parameter is not Conn.
 func (s *Server) OnEvent(namespace, event string, f interface{}) {
@@ -366,6 +377,7 @@ func (s *Server) serveConn(conn engineio.Conn) {
 	s.active[c] = struct{}{}
 	s.activeMu.Unlock()
 	c.boundary = true
+	c.resolveNamespace = s.resolveNamespace
 	if !c.connected(c.connect()) {
 		s.releaseConnection(c)
 		return
@@ -494,24 +506,73 @@ func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
 // handler, so one namespace never builds two broadcasts and dispatch, which reads
 // s.handlers, never waits for a Redis dial.
 func (s *Server) createNamespace(nsp string) *namespaceHandler {
-	nsp = serverNamespaceName(nsp)
 	s.createMu.Lock()
 	defer s.createMu.Unlock()
+	return s.createNamespaceLocked(serverNamespaceName(nsp), nil)
+}
+
+func (s *Server) createNamespaceLocked(nsp string, parent *namespaceHandler) *namespaceHandler {
 	if handler, ok := s.handlers.Get(nsp); ok {
 		return handler
 	}
-
 	var handler *namespaceHandler
-	if s.redisAdapter != nil && s.closed.Load() { // no Redis broadcast, and not recorded for Serve
+	if s.closed.Load() && (s.adapter != nil || s.redisAdapter != nil) {
 		handler = newNamespaceHandler(nsp, nil)
 		handler.broadcast, handler.err = nopBroadcast{}, errServerClosed
-	} else if handler = newNamespaceHandler(nsp, s.redisAdapter); handler.err != nil && s.adapterErr.Load() == nil {
+	} else if s.adapter != nil {
+		handler = newNamespaceHandler(nsp, nil)
+		bc, err := s.adapter(nsp)
+		if err == nil && bc == nil {
+			err = errors.New("adapter returned nil")
+		}
+		if err != nil {
+			handler.broadcast, handler.err = nopBroadcast{}, fmt.Errorf("socketio: broadcast of namespace %q: %w", cmp.Or(nsp, aliasRootNamespace), err)
+		} else {
+			handler.broadcast = bc
+		}
+	} else {
+		handler = newNamespaceHandler(nsp, s.redisAdapter)
+	}
+	if handler.err != nil && !s.closed.Load() && s.adapterErr.Load() == nil {
 		s.adapterErr.Store(&handler.err)
+	}
+	if parent != nil {
+		parent.copyRegistrations(handler)
 	}
 	handler.view = &ServerNamespace{server: s, name: nsp}
 	s.handlers.Set(nsp, handler)
-
 	return handler
+}
+
+// SetAdapter installs the factory for namespaces created after this call. Nil
+// restores the memory adapter. The last SetAdapter or Adapter call wins.
+func (s *Server) SetAdapter(f AdapterFunc) {
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+	s.adapter, s.redisAdapter = f, nil
+}
+
+func (s *Server) resolveNamespace(name string, query url.Values) *namespaceHandler {
+	s.parentsMu.RLock()
+	parents := append([]*dynamicNamespace(nil), s.parents...)
+	s.parentsMu.RUnlock()
+	for _, parent := range parents {
+		if parent.match == nil || !parent.match(name, cloneQuery(query)) {
+			continue
+		}
+		s.createMu.Lock()
+		if h, ok := s.handlers.Get(name); ok {
+			s.createMu.Unlock()
+			return h
+		}
+		h := s.createNamespaceLocked(name, parent.registration)
+		parent.mu.Lock()
+		parent.children[name] = h.view
+		parent.mu.Unlock()
+		s.createMu.Unlock()
+		return h
+	}
+	return nil
 }
 
 func (s *Server) getNamespace(nsp string) *namespaceHandler {

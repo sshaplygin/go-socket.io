@@ -9,6 +9,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/engineio/packet"
+
 	"github.com/sshaplygin/go-socket.io/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/logger"
 )
@@ -47,6 +50,16 @@ func newServerConn(t *Transport, r *http.Request) *serverConn {
 // SetReadLimit caps a POST body. An excess is answered with HTTP 413 and fails
 // the session's reader with a transport error.
 func (c *serverConn) SetReadLimit(n int64) { c.readLimit = n }
+
+// CloseGracefully writes CLOSE through the next available poll. The session
+// serializes it after admitted frames and bounds the wait; Close interrupts it.
+func (c *serverConn) CloseGracefully() error {
+	w, err := c.Payload.NextWriter(frame.String, packet.CLOSE)
+	if err != nil {
+		return err
+	}
+	return w.Close()
+}
 
 func (c *serverConn) URL() url.URL {
 	return c.url

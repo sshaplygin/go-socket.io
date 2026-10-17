@@ -256,6 +256,14 @@ C|Makefile
 C|CLAUDE.md
 C|internal/conformance/
 C|internal/parity/
+C|internal/engineclose/
+C|connection.go
+C|server.go
+C|orderly_close_test.go
+C|engineio/session_log_test.go
+C|engineio/session/
+C|engineio/transport/polling/
+C|engineio/payload/
 D|client/
 D|_examples/client/
 D|*.go
@@ -290,7 +298,10 @@ SY not the manifest files or their copies (B's); A no manifest file (its set rea
 `engineio/session/session_id_generator.go` and `session_manager.go`, but their `v2/` copies
 are B's); B not a manifest file without its `v2/` copy
 (D14), nor the interface files `engineio/transport/*.go` (V1-18), nor `engineio/payload/pauser.go` (V1A); C no
-Go file outside `internal/`; D in `internal/conformance` only the two files of the Go-client step (*Conformance contract*: V1-10 adds them, V1-11 its reconnect scenario);
+Go file outside `internal/` except the P17 correction in V1-8: `connection.go`,
+`server.go`, `orderly_close_test.go`, `engineio/session_log_test.go`, `engineio/session/`, `engineio/transport/polling/`
+and, if needed, `engineio/payload/`; the private bridge is `internal/engineclose/`.
+Those paths are for P17 only, not V1-20; D in `internal/conformance` only the two files of the Go-client step (*Conformance contract*: V1-10 adds them, V1-11 its reconnect scenario);
 F neither `_examples/client/` (D) nor the `chat.go` of `redis-adapter` and
 `redis-adapter-unix-socket` (`CHAT_SKIP` until V1R); G not `parser/` (row V1E) and no
 manifest file; H no Go file. A path outside the set is a plan change (CONTRIBUTING.md).
@@ -1677,7 +1688,7 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-5 | Namespace API: `Of`, `Use` and event middleware, connect-rejection reason, per-namespace disconnect, `connected`/`sockets`, `send`, `Server.Close` waiting for sessions, `Conn.ID()` as `/ns#id` outside the root namespace (K1: D15; a `### Changed` entry names it) |
 | V1-6 | Memory broadcast: `Except` and broadcast except the sender (new `Broadcast` methods; the Redis type returns `ErrExceptUnsupported` and drops a message with unknown `opts` entries or keys), room union with dedupe, id lists, `Join` of several rooms, `volatile` and `local` flags, callback-on-broadcast rule |
 | V1-7 | Dynamic namespaces, handshake data (query, headers, request, time), late ack and several listeners per event, adapter injection |
-| V1-8 | The `conformance` CI job (D7): Node `socket.io-client` 1.7.4 and 2.5.0 against the Go server, plus the Go client against a Node `socket.io` 2.5.0 server; required check; also the `conformance` Makefile target and the CLAUDE.md lines (Commands, "tests need no external service") for the tag |
+| V1-8 | The `conformance` CI job (D7): Node `socket.io-client` 1.7.4 and 2.5.0 against the Go server, plus the Go client against a Node `socket.io` 2.5.0 server; required check; also the `conformance` Makefile target and the CLAUDE.md lines (Commands, "tests need no external service") for the tag. P17 includes the orderly polling close fix and private abort bridge specified below |
 | V1-9 | Stage 7 as written below: the `client` package, behaviour-preserving, its own DoD; its commits are titled `<type>(7.<n>)` as Stage 7 requires |
 | V1-10 | `client` I: websocket and upgrade, several namespaces per `Client`, DISCONNECT on close, connect timeout and `connect_error`, `path`/`query`/headers, emit buffering |
 | V1-11 | `client` II: reconnection with options and `reconnect*` events (D12), `once`/`off`/`id`/`connected`, flags (`compress` is V1-15's) |
@@ -1781,9 +1792,25 @@ both transports, the upgrade, namespaces), V1-11 adds the reconnect scenario to 
 V1-8 merges before the `client` package exists (V1-9); V1-8 installs
 `socket.io@2.5.0` under the server prefix from the start, so that step and V1-19 edit no
 workflow. Rows marked `TEST` in PARITY.md
-are closed by a named test: P9 (OPTIONS answer), P15 (websocket framing), P17 (graceful close)
-and P18 (two overlapping polls, which a stock client never sends) by Go tests in the same
+are closed by a named test: P9 (OPTIONS answer), P15 (websocket framing) and P18
+(two overlapping polls, which a stock client never sends) by Go tests in the same
 package that start the server and use raw HTTP and websocket clients, N7 by a Go test in V1-6.
+P17 proved to be a bug: closing a session with a pending poll returned HTTP 500 EOF,
+where engine.io 3.6.2 returns HTTP 200 with CLOSE (`1:1` in a text payload). The owner
+approved the V1-8 scope extension in *Paths* on 2026-10-17. `TestPollingGracefulClose`
+executes its wire regression in this package. Orderly `Session.Close` starts closing,
+returns while polling drains, and emits CLOSE after admitted frames through the pending
+or next poll; the SID remains routable and state stays closing until transport completion.
+The wait is bounded by the reference polling close timeout of 30 seconds. New writes are
+rejected. Root application close drains its queue before starting that engine close and
+retains its existing drain deadline. Root overflow, deadline, read/write failure and
+engine shutdown abort immediately, including an orderly close already in progress,
+through a private `internal/engineclose` bridge; no public interface or v2 change.
+`engineio/internal.Shutdown` and ordinary `Payload.Close` keep their abort behavior.
+Close preserves the first cause, once-only hooks and the original errors of issued
+readers/writers. Tests cover both polling framings, a pending and a later poll, buffered
+data before CLOSE, no poll, an unclosed writer, concurrent abort/shutdown and upgrade
+cleanup. Waiting holds no session or queue lock and never rewrites a started response.
 
 **Compression and cookies (V1-15; rows E8, E9, E10, K17, S21, C11; D11).** V1-0 writes
 `### V1-15 contract` with the `engineio.Options` fields and the flag methods. Defaults are

@@ -16,6 +16,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/internal/engineclose"
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
@@ -26,15 +27,21 @@ type Pauser interface {
 }
 
 type Session struct {
-	hooks     *Hooks
-	headers   func(*http.Request, http.Header)
-	closeDone chan struct{}
-	closeErr  error
-	conn      transport.Conn
-	params    transport.ConnParameters
-	transport string
-	baseLog   *slog.Logger                // logger with the sid attribute
-	log       atomic.Pointer[slog.Logger] // baseLog plus the current transport
+	hooks         *Hooks
+	headers       func(*http.Request, http.Header)
+	closeDone     chan struct{}
+	notified      chan struct{} // the first closer has finished its synchronous Error hook
+	closeErr      error
+	transportOnce sync.Once
+	transportDone chan struct{}
+	writeGate     chan struct{}
+	stopWrites    chan struct{}
+	closeTimeout  time.Duration
+	conn          transport.Conn
+	params        transport.ConnParameters
+	transport     string
+	baseLog       *slog.Logger                // logger with the sid attribute
+	log           atomic.Pointer[slog.Logger] // baseLog plus the current transport
 
 	context        interface{}
 	request        *http.Request
@@ -68,7 +75,14 @@ type closeCause struct {
 }
 
 func init() {
-	internal.Shutdown = func(s io.Closer) error { return s.(*Session).close(reasonShutdown) }
+	internal.Shutdown = func(s io.Closer) error { return s.(*Session).closeMode(reasonShutdown, true) }
+	engineclose.AbortSession = func(c io.Closer) (bool, error) {
+		s, ok := c.(*Session)
+		if !ok {
+			return false, nil
+		}
+		return true, s.closeMode(reasonForcedClose, true)
+	}
 }
 
 // New creates a session over conn. log receives errors the session cannot
@@ -80,6 +94,11 @@ func New(conn transport.Conn, sid, transport string, params transport.ConnParame
 
 	ses := &Session{
 		closeDone:      make(chan struct{}),
+		notified:       make(chan struct{}),
+		transportDone:  make(chan struct{}),
+		writeGate:      make(chan struct{}, 1),
+		stopWrites:     make(chan struct{}),
+		closeTimeout:   30 * time.Second,
 		transport:      transport,
 		conn:           conn,
 		params:         params,
@@ -87,6 +106,7 @@ func New(conn transport.Conn, sid, transport string, params transport.ConnParame
 		maxMessageSize: 1_000_000,
 		upgradeTimeout: 10 * time.Second,
 	}
+	ses.writeGate <- struct{}{}
 	ses.log.Store(baseLog.With("transport", transport))
 	ses.SetLimits(ses.maxMessageSize, ses.upgradeTimeout)
 
@@ -143,28 +163,46 @@ func (s *Session) Transport() string {
 	return s.transport
 }
 
-// Close closes the session. Its close record names the first cause observed, or
-// "forced close".
+// Close starts an orderly polling close after accepted writes. It returns while
+// waiting for a poll; the transport remains closing for at most 30 seconds.
+// Other transports and failed sessions close immediately. The first cause wins.
 func (s *Session) Close() error {
 	return s.close(reasonForcedClose)
 }
 
 func (s *Session) close(reason string) error {
+	return s.closeMode(reason, false)
+}
+
+func (s *Session) closeMode(reason string, abort bool) error {
 	s.observe(reason, nil)
 	s.upgradeLocker.Lock()
 	first, opened := !s.closed, s.opened
 	s.closed = true
 	conn, probe := s.conn, s.probe
+	if first {
+		close(s.stopWrites)
+	}
 	s.upgradeLocker.Unlock()
+	c := s.cause.Load()
+	graceful, canDrain := conn.(interface{ CloseGracefully() error })
+	orderly := canDrain && !opened.IsZero() && c.reason == reasonForcedClose && !abort
 	if !first {
+		if abort {
+			// Abort interrupts an established orderly wait, but cannot pass
+			// the first closer's synchronous error notification.
+			<-s.notified
+			s.closeTransport(conn)
+		} else if orderly {
+			return nil
+		}
 		<-s.closeDone
 		return s.closeErr
 	}
-	defer close(s.closeDone)
-	c := s.cause.Load()
 	if c.reason == reasonTransportError && s.hooks != nil && s.hooks.Error != nil {
 		s.hooks.Error(s, c.err)
 	}
+	close(s.notified)
 	if !opened.IsZero() {
 		args := []any{"reason", c.reason, slog.Duration("duration", time.Since(opened))}
 		if c.err != nil {
@@ -175,11 +213,38 @@ func (s *Session) close(reason string) error {
 	if probe != nil {
 		_ = probe.Close()
 	}
-	s.closeErr = conn.Close()
-	s.upgradeLocker.Lock()
-	s.transportClosed = true
-	s.upgradeLocker.Unlock()
+	if orderly {
+		go func() {
+			defer close(s.closeDone)
+			timer := time.AfterFunc(s.closeTimeout, func() { s.closeTransport(conn) })
+			defer timer.Stop()
+			select {
+			case <-s.transportDone:
+			case <-s.writeGate:
+				// The token orders CLOSE after an already admitted frame. An
+				// abort or the timer also releases a blocked transport writer.
+				if err := graceful.CloseGracefully(); err != nil {
+					s.logger().Debug("engineio: orderly close ended", "err", err)
+				}
+				s.writeGate <- struct{}{}
+			}
+			s.closeTransport(conn)
+		}()
+		return nil
+	}
+	s.closeTransport(conn)
+	close(s.closeDone)
 	return s.closeErr
+}
+
+func (s *Session) closeTransport(conn transport.Conn) {
+	s.transportOnce.Do(func() {
+		s.closeErr = conn.Close()
+		s.upgradeLocker.Lock()
+		s.transportClosed = true
+		s.upgradeLocker.Unlock()
+		close(s.transportDone)
+	})
 }
 
 // observe records reason as the close cause unless one was observed before.
@@ -194,6 +259,16 @@ func (s *Session) fail(err error) error {
 		s.observe(reasonPingTimeout, nil)
 	} else if err != nil {
 		s.observe(reasonTransportError, err)
+	}
+	if err != nil {
+		if _, synthetic := err.(*CloseError); !synthetic {
+			s.upgradeLocker.RLock()
+			conn, closed := s.conn, s.closed
+			s.upgradeLocker.RUnlock()
+			if closed && s.cause.Load().reason == reasonForcedClose {
+				s.closeTransport(conn)
+			}
+		}
 	}
 	return err
 }
@@ -246,7 +321,7 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 				s.logger().Debug("engineio: session close failed", "err", closeErr)
 			}
 
-			return 0, nil, fmt.Errorf("next reader: %w", s.closeError())
+			return 0, nil, s.readerCloseError()
 		}
 		// Every received packet, including MESSAGE, renews the liveness window.
 		if s.hooks != nil && s.hooks.Packet != nil {
@@ -255,7 +330,7 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 		if err := s.fail(s.setDeadline()); err != nil {
 			_ = r.Close()
 			_ = s.Close()
-			return 0, nil, fmt.Errorf("next reader: %w", s.closeError())
+			return 0, nil, s.readerCloseError()
 		}
 
 		switch pt {
@@ -289,7 +364,7 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 					s.logger().Debug("engineio: session close failed", "err", closeErr)
 				}
 
-				return 0, nil, fmt.Errorf("next reader: %w", s.closeError())
+				return 0, nil, s.readerCloseError()
 			}
 		case packet.CLOSE:
 			s.observe(reasonTransportClose, nil)
@@ -298,11 +373,11 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 				s.logger().Debug("engineio: close reader failed", "err", err)
 			}
 
-			if err = s.Close(); err != nil {
+			if err = s.closeMode(reasonTransportClose, true); err != nil {
 				s.logger().Debug("engineio: session close failed", "err", err)
 			}
 
-			return 0, nil, fmt.Errorf("next reader: %w", s.closeError())
+			return 0, nil, s.readerCloseError()
 
 		case packet.MESSAGE:
 			// Caller must Close the ReadCloser to unlock the connection's
@@ -427,6 +502,13 @@ func (s *Session) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// A root reader ending also starts forced cleanup. Keep it alive while an orderly
+// transport close is still draining, so that cleanup cannot abort accepted writes.
+func (s *Session) readerCloseError() error {
+	<-s.closeDone
+	return fmt.Errorf("next reader: %w", s.closeError())
+}
+
 func (s *Session) nextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
 	for {
 		s.upgradeLocker.RLock()
@@ -453,6 +535,17 @@ func (s *Session) nextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
 }
 
 func (s *Session) nextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, error) {
+	select {
+	case <-s.stopWrites:
+		return nil, s.closeError()
+	case <-s.writeGate:
+	}
+	owned := true
+	defer func() {
+		if owned {
+			s.writeGate <- struct{}{}
+		}
+	}()
 	notified := false
 	for {
 		s.upgradeLocker.RLock()
@@ -479,8 +572,24 @@ func (s *Session) nextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, err
 		}
 		// Caller must Close the WriteCloser to unlock the connection's
 		// FrameWriter when finished writing.
-		return w, nil
+		owned = false
+		return &orderedWriter{WriteCloser: w, release: s.writeGate}, nil
 	}
+}
+
+type orderedWriter struct {
+	io.WriteCloser
+	release chan struct{}
+	once    sync.Once
+	err     error
+}
+
+func (w *orderedWriter) Close() error {
+	w.once.Do(func() {
+		w.err = w.WriteCloser.Close()
+		w.release <- struct{}{}
+	})
+	return w.err
 }
 
 func (s *Session) setDeadline() error {

@@ -25,6 +25,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
+	"github.com/sshaplygin/go-socket.io/internal/engineclose"
 )
 
 // recorder keeps each record as its message, level and attributes, including
@@ -295,7 +296,7 @@ func TestRecorderDropsBridgedLines(t *testing.T) {
 	require.Len(t, rec.find("engineio: request rejected"), 1)
 }
 
-// TestClientPeerCloseRecords closes the accepted session of an engineio.Dialer client
+// TestClientPeerCloseRecords aborts the accepted session of an engineio.Dialer client
 // that does not close itself, or has a websocket peer send a close frame after OPEN,
 // reads the client until NextReader fails and waits for its ping to fail, with
 // slog.Default recording: the 1.L Levels rule makes a ping failure after a peer close
@@ -317,7 +318,7 @@ func TestClientPeerCloseRecords(t *testing.T) {
 			defer func() { _ = cl.Close() }()
 			conn, err := srv.Accept()
 			require.NoError(t, err)
-			require.NoError(t, conn.Close())
+			require.NoError(t, engineclose.Abort(conn))
 			require.Error(t, readAll(cl))
 			require.Eventually(t, func() bool { return len(rec.find("engineio: ping failed")) > 0 },
 				5*time.Second, time.Millisecond)

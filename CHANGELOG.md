@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- engineio: orderly polling close drains admitted frames before sending CLOSE
+  through the pending or next poll, with a 30 second bound. Forced root stops and
+  server shutdown interrupt the wait immediately; upgrade cleanup stays immediate.
+
 - engineio: closing a polling payload after its reader was acquired releases
   FeedIn instead of leaving the polling client goroutine waiting forever.
 
@@ -134,6 +138,10 @@ All notable changes to this project are documented here. The format follows
   path already did (`engineio/server.go:134` at `1151bad`, roadmap task 1.L).
 
 ### Added
+
+- ci: a tagged conformance suite runs Socket.IO clients 1.7.4 and 2.5.0 against
+  the Go server over polling and websocket, including upgrade and reconnect.
+  Raw HTTP and websocket tests check OPTIONS, framing, close and overlapping requests.
 
 - socketio: `SetAdapter` injects namespace adapters, and `OfFunc` creates dynamic
   namespaces with inherited registrations and parent broadcasts. Namespaces expose

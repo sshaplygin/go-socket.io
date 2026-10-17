@@ -20,6 +20,8 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `parser/` | v1 Socket.IO v4 packet encoder/decoder, binary attachments |
 | `engineio/` | v1 Engine.IO v3 server and client: sessions, polling and websocket transports, payload codec |
 | `logger/` | v1 package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: parser, transports, `engineio/packet`, client dialer |
+| `internal/engineclose/` | private abort bridge between the root queue lifecycle and Engine.IO sessions |
+| `internal/conformance/` | interoperability and raw protocol tests behind the `conformance` build tag; Node fixtures under `testdata/node/` |
 | `_examples/` | v1 runnable examples, each with its own `go.mod` except the Go client in `_examples/client`, which belongs to the root module; excluded from `./...` of the root build by the `_` prefix |
 | `v2/*.go` (package `socketio`) | v2 API skeleton: typed events, `Server`/`Namespace`/`Socket`, `Adapter`, hooks, options; declarations only, signatures in [docs/API.md](docs/API.md) |
 | `v2/parser/` | Socket.IO v5 wire codec (bounded `Encode`/`Decode`, `Assembler`, binary attachments, `JSON[T]` argument codec), the `Packet`/`Arguments` value types of the v2 API; `testdata/oracle` is the Node check (`README.md` there) |
@@ -59,6 +61,7 @@ make lint        # gofmt -s check, go vet, golangci-lint (v2 config)
 make sync-check  # compare shared v1/v2 files after the module import-path rewrite
 make test        # go test -count=1 ./...
 make test-race   # the same with -race; what CI runs
+make conformance # tagged JS interoperability and raw transport tests; requires Node and the installs below
 make test-stress # race tests of root, parser, engineio/...: -count=5 -shuffle=on -cpu=1,4
 make bench       # benchmarks only, no tests
 make vuln        # govulncheck ./... in the root and in every _examples module
@@ -86,11 +89,26 @@ make all        # go install ./...
 
 Requires Go 1.22+, golangci-lint v2 and govulncheck (`go install
 golang.org/x/vuln/cmd/govulncheck@latest`), built with the newest stable Go: a
-standard-library finding is cleared by upgrading the toolchain, not by code. Tests need
-no external services.
+standard-library finding is cleared by upgrading the toolchain, not by code. Default tests
+need no external services. The optional `conformance` tag needs Node, npm and the reference
+packages, installed separately so the reference server's client cannot shadow the selected
+test client:
+
+```sh
+npm install --no-save --prefix internal/conformance/testdata/node socket.io-client@1.7.4
+npm install --no-save --prefix internal/conformance/testdata/node/server socket.io@2.5.0
+export CONFORMANCE_NODE_MODULES="$PWD/internal/conformance/testdata/node/node_modules"
+make conformance
+```
+
+Repeat with `socket.io-client@2.5.0` for the other required client. The module directory
+must be absolute; tagged tests pass it unchanged as `NODE_PATH`. Missing Node or an absent
+or relative `CONFORMANCE_NODE_MODULES` fails the scenarios. Listing tests with `-list`
+does not require either.
 
 CI (`.github/workflows/ci.yaml`) runs `sync-check` on every event without a module path
-filter, comparing the pairs in `.github/sync-manifest`. The other jobs run per module. A `changes` job is the path
+filter, comparing the pairs in `.github/sync-manifest`, and the required `conformance`
+matrix with Node LTS and exact clients 1.7.4 and 2.5.0. The other jobs run per module. A `changes` job is the path
 filter: on a pull request the v1 jobs run when a file outside `v2/` changed, the v2 jobs
 when a file in `v2/`, `.github/` or `docs/API.md` (read by the v2 tests) changed; push and
 schedule run both. v1 jobs, in the root: `lint-v1` (tidy diff, mod verify, gofmt, vet,

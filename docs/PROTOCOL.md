@@ -78,10 +78,13 @@ Package `engineio` of the v1 module at the repository root.
 - Transports: `polling` (XHR only; JSONP is removed and the `j` query parameter is
   ignored) and `websocket` (`gorilla/websocket`). Order and upgrade path come from `engineio.Options.Transports`,
   default `[polling, websocket]`.
-- Handshake (`OPEN` packet) carries `sid`, `upgrades`, `pingInterval` (default 20 s),
-  `pingTimeout` (default 60 s). There is no `maxPayload`.
-- Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`) and extends
-  the read/write deadline by `pingTimeout`.
+- Handshake: a GET without `sid` opens a session (any other method is answered HTTP 400
+  with code 2, below). The `OPEN` packet carries `sid` (random, as engine.io's
+  `base64id`), `upgrades` (`[]` with `Options.DisableUpgrades`), `pingInterval` (default
+  25 s) and `pingTimeout` (default 20 s). There is no `maxPayload`: protocol v3 has none.
+- Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`). Every packet
+  the session reads re-arms a window of `pingInterval + pingTimeout`; when it passes
+  without one, the session closes with reason `ping timeout`.
 - Polling payload: with `b64=1` packets are length-prefixed (`<length>:<packet>`),
   lengths count UTF-16 code units, and binary packets are base64 with a `b` prefix.
   Otherwise the payload is binary: per packet a `0` (string) or `1` (binary) byte, the
@@ -89,10 +92,29 @@ Package `engineio` of the v1 module at the repository root.
   bytes (UTF-8 for a string packet), as engine.io-parser 2.x. Sessions are looked up
   by `sid`; an unknown `sid` is HTTP 400.
 - WebSocket: one packet per frame; a binary frame starts with the packet type byte.
-- Upgrade polling → websocket: the sequence of the previous section, implemented in the
-  same `session.Session.upgrading`.
-- Error responses are plain text with HTTP 400 (bad transport, bad sid) or 502
-  (request checker or transport accept failure).
+- Message limit: `Options.MaxHTTPBufferSize`, default 1e6 bytes. A longer polling POST
+  body is answered HTTP 413 (plain text) and closes the session; a longer websocket
+  message closes the connection with close code 1009.
+- Upgrade polling → websocket: the client's `2probe` over the websocket is answered
+  `3probe`. Until the client's `UPGRADE` (`5`), POSTs are accepted and their packets
+  delivered, and a pending poll is answered with data or, at a 100 ms check, a NOOP;
+  the polling connection is paused only on `5`, then the session switches to the
+  websocket and closes the polling connection. A failed probe, or one without `5`
+  within `Options.UpgradeTimeout`, closes the probe connection and leaves polling
+  unpaused. Implemented in `session.Session.upgrading`.
+- Requests the server rejects before a transport handles them are answered with JSON
+  `{"code":<n>,"message":"<text>"}`, as engine.io 3.6.2 answers a request that is not a
+  websocket upgrade: HTTP 400 with code 0 `Transport unknown`, 1 `Session ID unknown`, 2
+  `Bad handshake method` or 3 `Bad request` (also a transport that cannot accept the
+  request, except a websocket handshake that gorilla/websocket answers itself, and a
+  session that cannot be created), and HTTP 403 with code 4 and the fixed message
+  `Forbidden` when `Options.RequestChecker` rejects the request (3.6.2 sends the error
+  of `allowRequest` as the message). A websocket upgrade request gets the same
+  answers, where engine.io 3.6.2 writes a plain-text HTTP 400 and closes the socket. What
+  the polling transport rejects itself stays plain text: HTTP 400 for an unsupported
+  `Content-Type`, a POST the payload cannot take (paused, overlapping, closed, timed out
+  or not decodable) or an invalid method, 413 for the message limit above, 500 for a poll
+  whose response failed before it was started.
 
 ## Implemented: Socket.IO protocol v4
 
@@ -120,10 +142,6 @@ Engine.IO, `v2/engineio`:
 - No `maxPayload` handshake field is sent yet (the client reads it when present), and
   the websocket message limit is the transport's default 1 MiB, not the advertised value. The
   polling POST limit and the websocket limit are above.
-
-Engine.IO v3 runtime (v1, repository root `engineio`):
-
-- No `maxPayload` handshake field and no payload size limit.
 
 Socket.IO v4 runtime (v1, repository root):
 

@@ -262,7 +262,7 @@ func TestSessionUpgradeFailures(t *testing.T) {
 		"no upgrade packet": {
 			reads:      []scriptedPacket{{ft: frame.String, pt: packet.PING, data: "probe"}},
 			oldPauser:  true,
-			wantResume: 1,
+			wantResume: 0,
 		},
 		"wrong packet after probe": {
 			reads: []scriptedPacket{
@@ -270,7 +270,7 @@ func TestSessionUpgradeFailures(t *testing.T) {
 				{ft: frame.String, pt: packet.MESSAGE},
 			},
 			oldPauser:  true,
-			wantResume: 1,
+			wantResume: 0,
 		},
 	}
 	for name, tc := range cases {
@@ -287,6 +287,7 @@ func TestSessionUpgradeFailures(t *testing.T) {
 
 			require.Equal(t, "polling", s.Transport(), "a failed upgrade keeps the old transport")
 			require.True(t, next.isClosed(), "the candidate connection is closed")
+			require.Zero(t, p.paused)
 			require.Equal(t, tc.wantResume, p.resumed)
 		})
 	}

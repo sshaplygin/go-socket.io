@@ -17,6 +17,14 @@ type Options struct {
 	PingTimeout  time.Duration
 	PingInterval time.Duration
 
+	// UpgradeTimeout bounds the whole upgrade probe. Nonpositive values mean 10 seconds.
+	UpgradeTimeout time.Duration
+	// MaxHTTPBufferSize caps a polling POST body or websocket message in bytes.
+	// Nonpositive values mean 1,000,000; there is no unlimited setting.
+	MaxHTTPBufferSize int64
+	// DisableUpgrades keeps sessions on their handshake transport.
+	DisableUpgrades bool
+
 	Transports         []transport.Transport
 	SessionIDGenerator session.IDGenerator
 
@@ -69,14 +77,28 @@ func (c *Options) getPingTimeout() time.Duration {
 	if c != nil && c.PingTimeout != 0 {
 		return c.PingTimeout
 	}
-	return time.Minute
+	return 20 * time.Second
 }
 
 func (c *Options) getPingInterval() time.Duration {
 	if c != nil && c.PingInterval != 0 {
 		return c.PingInterval
 	}
-	return time.Second * 20
+	return 25 * time.Second
+}
+
+func (c *Options) getUpgradeTimeout() time.Duration {
+	if c != nil && c.UpgradeTimeout > 0 {
+		return c.UpgradeTimeout
+	}
+	return 10 * time.Second
+}
+
+func (c *Options) getMaxHTTPBufferSize() int64 {
+	if c != nil && c.MaxHTTPBufferSize > 0 {
+		return c.MaxHTTPBufferSize
+	}
+	return 1_000_000
 }
 
 func (c *Options) getTransport() []transport.Transport {

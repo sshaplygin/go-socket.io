@@ -32,6 +32,7 @@ type Payload struct {
 	decoder      decoder
 
 	writerChan    chan io.Writer
+	answerPoll    chan struct{}
 	flushing      int32
 	writeError    chan error
 	writeDeadline atomic.Value
@@ -46,6 +47,7 @@ func New(supportBinary bool) *Payload {
 		readerChan: make(chan readArg),
 		readError:  make(chan error),
 		writerChan: make(chan io.Writer),
+		answerPoll: make(chan struct{}),
 		writeError: make(chan error),
 	}
 	ret.readDeadline.Store(time.Time{})
@@ -189,6 +191,9 @@ func (p *Payload) FlushOut(w io.Writer) error {
 		case <-p.pauser.PausingTrigger():
 			_, err := w.Write(p.encoder.NOOP())
 			return err
+		case <-p.answerPoll:
+			_, err := w.Write(p.encoder.NOOP())
+			return err
 
 		case p.writerChan <- fw:
 		}
@@ -208,6 +213,26 @@ func (p *Payload) FlushOut(w io.Writer) error {
 		case err := <-p.writeError:
 			return p.Store("write", err)
 		}
+	}
+}
+
+// AnswerPoll answers a pending FlushOut with NOOP if no session writer has taken
+// it. It returns false immediately when no such poll waits, or while paused or closed.
+func (p *Payload) AnswerPoll() bool {
+	select {
+	case <-p.close:
+		return false
+	default:
+	}
+	if !p.pauser.Working() {
+		return false
+	}
+	defer p.pauser.Done()
+	select {
+	case p.answerPoll <- struct{}{}:
+		return true
+	default:
+		return false
 	}
 }
 

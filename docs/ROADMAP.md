@@ -349,13 +349,14 @@ entry failing. The owner assigns the final `API_UNCOVERED_MAX` 0 gate to the ded
 is outside the work-package PR sequence and edits only new test files at the root,
 `engineio/`, `engineio/packet/`, `engineio/transport/polling/` and `logger/`, plus
 non-manifest `engineio/packet/fake*.go` corrections when a regression test exposes
-a helper defect, the `API_UNCOVERED_MAX` value of the root `Makefile`, and this assignment and its entry
-check below. It checks the remaining API behavior (context, transport metadata,
+a helper defect, the root `Makefile` API ceiling and empty-function call accounting,
+`.github/coverage/` (the checker and its tests), this assignment, its entry check
+below and the empty-function rule of the API coverage gate. It checks the remaining API behavior (context, transport metadata,
 packet test helpers, fallback adapter methods, error text and logger delegation)
 without application runtime changes, then sets the ceiling to 0; it never lowers `COVER_FLOOR`.
 Entry is V1-15 merged; exit is `make lint test test-race sync-check parity-check
 cover-check` green, three independent approvals and every executed CI job successful.
-This section records that test-only PR, so it adds no changelog entry.
+This section records that coverage-gate PR, so it adds no changelog entry.
 
 **Entry.** `bash`, from the repository root; `entry <PR>` exits 0 when that PR may start.
 Every check of an arm but its last ends in `|| return 1`, and `entry` runs in a subshell, so
@@ -2066,7 +2067,12 @@ ignored. `make cover-check` runs `go test -count=1 -coverpkg=./... -coverprofile
 `go tool cover -func=<tmp>`: the `total:` percentage must be at least `COVER_FLOOR`, and
 the number of exported functions and methods (name starting with an upper-case letter, in
 a non-test file of the module) reported at `0.0%` must be at most `API_UNCOVERED_MAX`,
-printing those functions; both are variables of the `Makefile`. Baseline, measured at
+printing those functions; both are variables of the `Makefile`. For functions whose
+AST body contains no statements, `cover -func` reports 0.0% even after execution.
+The checker uses a positive raw-profile counter inside that exact empty body as
+API-call evidence; an unexecuted empty function remains uncovered. Nonempty
+functions and the total statement percentage retain the original rules. The
+checker tests run as part of `make cover-check`. Baseline, measured at
 `0d9e594` (the base of this plan) by `go test -count=1 -coverpkg=./... -coverprofile=c.out
 ./... && go tool cover -func=c.out`, its `total:` line and `go tool cover -func=c.out | awk
 '$3=="0.0%" && $2 ~ /^[A-Z]/'` (the rule V1-20 implements; `cover -func` lists no test

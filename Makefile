@@ -51,7 +51,7 @@ examples:
 sync-check:
 	@set -eu; \
 	tmp=$$(mktemp); trap 'rm -f "$$tmp"' 0; \
-	while read -r root_file mirror_file extra; do \
+	while read -r root_file mirror_file extra || test -n "$$root_file"; do \
 		case "$$root_file" in ''|\#*) continue ;; esac; \
 		if test -z "$$mirror_file" || test -n "$$extra"; then \
 			echo "sync-check: expected two paths: $$root_file $$mirror_file $$extra" >&2; exit 1; \

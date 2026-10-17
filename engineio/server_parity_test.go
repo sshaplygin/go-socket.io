@@ -183,7 +183,9 @@ func TestUpgradeProbeWindow(t *testing.T) {
 			require.Equal(t, 200, code, b)
 			require.Equal(t, "ok", b)
 			if name == "post" {
+				started := time.Now()
 				code, b = f.request(t, http.MethodGet, f.poll, "")
+				require.Less(t, time.Since(started), time.Second, "probe-window GET must finish within one second")
 				require.Equal(t, 200, code)
 				require.Equal(t, "1:6", b)
 				require.NoError(t, c.WriteMessage(gorilla.TextMessage, []byte("5")))

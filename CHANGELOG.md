@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- engineio: orderly polling close drains admitted frames before sending CLOSE
+  through the pending or next poll, with a 30 second bound. Forced root stops and
+  server shutdown interrupt the wait immediately; upgrade cleanup stays immediate.
+
 - engineio: closing a polling payload after its reader was acquired releases
   FeedIn instead of leaving the polling client goroutine waiting forever.
 

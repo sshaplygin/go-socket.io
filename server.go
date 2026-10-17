@@ -423,7 +423,10 @@ func (c *conn) serveWrite() {
 		pkg, ok := c.nextQueued()
 		if !ok {
 			if isDone(c.seal) {
-				c.stop()
+				// A drained application close lets polling send Engine.IO CLOSE.
+				// Keep the drain timer active until the reader ends: its abort
+				// must still interrupt an engine waiting for the next poll.
+				go func() { _ = c.Conn.Close() }()
 				return
 			}
 			select {

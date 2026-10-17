@@ -20,6 +20,8 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `parser/` | v1 Socket.IO v4 packet encoder/decoder, binary attachments |
 | `engineio/` | v1 Engine.IO v3 server and client: sessions, polling and websocket transports, payload codec |
 | `logger/` | v1 package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: parser, transports, `engineio/packet`, client dialer |
+| `internal/engineclose/` | private abort bridge between the root queue lifecycle and Engine.IO sessions |
+| `internal/conformance/` | interoperability and raw protocol tests behind the `conformance` build tag; Node fixtures under `testdata/node/` |
 | `_examples/` | v1 runnable examples, each with its own `go.mod` except the Go client in `_examples/client`, which belongs to the root module; excluded from `./...` of the root build by the `_` prefix |
 | `v2/*.go` (package `socketio`) | v2 API skeleton: typed events, `Server`/`Namespace`/`Socket`, `Adapter`, hooks, options; declarations only, signatures in [docs/API.md](docs/API.md) |
 | `v2/parser/` | Socket.IO v5 wire codec (bounded `Encode`/`Decode`, `Assembler`, binary attachments, `JSON[T]` argument codec), the `Packet`/`Arguments` value types of the v2 API; `testdata/oracle` is the Node check (`README.md` there) |

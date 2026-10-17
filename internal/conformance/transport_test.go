@@ -83,11 +83,43 @@ func textPackets(t *testing.T, body []byte) []string {
 }
 
 func openPolling(t *testing.T, base string) string {
+	return openPollingMode(t, base, false)
+}
+
+func pollPackets(t *testing.T, body []byte, binary bool) []string {
 	t.Helper()
-	r := request(http.MethodGet, base+"/?EIO=3&transport=polling&b64=1", nil)
+	if !binary {
+		return textPackets(t, body)
+	}
+	var packets []string
+	for len(body) > 0 {
+		require.Equal(t, byte(0), body[0], "text packet in a binary payload")
+		end := bytes.IndexByte(body, 255)
+		require.Greater(t, end, 1)
+		size := 0
+		for _, digit := range body[1:end] {
+			require.LessOrEqual(t, digit, byte(9))
+			size = size*10 + int(digit)
+		}
+		require.Positive(t, size)
+		body = body[end+1:]
+		require.LessOrEqual(t, size, len(body))
+		packets = append(packets, string(body[:size]))
+		body = body[size:]
+	}
+	return packets
+}
+
+func openPollingMode(t *testing.T, base string, binary bool) string {
+	t.Helper()
+	url := base + "/?EIO=3&transport=polling"
+	if !binary {
+		url += "&b64=1"
+	}
+	r := request(http.MethodGet, url, nil)
 	require.NoError(t, r.err)
 	require.Equal(t, http.StatusOK, r.status, "%s", r.body)
-	packets := textPackets(t, r.body)
+	packets := pollPackets(t, r.body, binary)
 	require.NotEmpty(t, packets)
 	require.True(t, strings.HasPrefix(packets[0], "0"))
 	var open struct {
@@ -95,7 +127,7 @@ func openPolling(t *testing.T, base string) string {
 	}
 	require.NoError(t, json.Unmarshal([]byte(packets[0][1:]), &open))
 	require.NotEmpty(t, open.SID)
-	return base + "/?EIO=3&transport=polling&b64=1&sid=" + open.SID
+	return url + "&sid=" + open.SID
 }
 
 // Covers P9
@@ -166,31 +198,47 @@ func TestWebsocketFraming(t *testing.T) {
 
 // Covers P17
 func TestPollingGracefulClose(t *testing.T) {
-	s, ts := engineServer(t)
-	poll := openPolling(t, ts.URL)
-	c, err := s.Accept()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = c.Close() })
-	polled := make(chan response, 1)
-	go func() { polled <- request(http.MethodGet, poll, nil) }()
-	w, err := c.NextWriter(session.TEXT)
-	require.NoError(t, err)
-	_, err = w.Write([]byte("buffered"))
-	require.NoError(t, err)
-	require.NoError(t, w.Close())
-	r := receive(t, polled)
-	require.NoError(t, r.err)
-	require.Equal(t, http.StatusOK, r.status)
-	require.Equal(t, []string{"4buffered"}, textPackets(t, r.body))
-
-	// A pending poll receives an Engine.IO CLOSE rather than an HTTP failure.
-	go func() { polled <- request(http.MethodGet, poll, nil) }()
-	require.Eventually(t, func() bool { return c.(*session.Session).Writable() }, time.Second, time.Millisecond)
-	require.NoError(t, c.Close())
-	r = receive(t, polled)
-	require.NoError(t, r.err)
-	require.Equal(t, http.StatusOK, r.status, "%s", r.body)
-	require.Equal(t, []string{"1"}, textPackets(t, r.body))
+	for _, binary := range []bool{false, true} {
+		for _, mode := range []string{"pending poll", "next poll", "buffered writer"} {
+			t.Run(fmt.Sprintf("binary=%v/%s", binary, mode), func(t *testing.T) {
+				s, ts := engineServer(t)
+				poll := openPollingMode(t, ts.URL, binary)
+				c, err := s.Accept()
+				require.NoError(t, err)
+				polled := make(chan response, 1)
+				if mode == "buffered writer" {
+					go func() { polled <- request(http.MethodGet, poll, nil) }()
+					w, err := c.NextWriter(session.TEXT)
+					require.NoError(t, err)
+					_, err = w.Write([]byte("buffered"))
+					require.NoError(t, err)
+					require.NoError(t, c.Close(), "close starts while the application writer is still open")
+					require.Equal(t, engineio.StateClosing, c.ReadyState())
+					require.NoError(t, w.Close())
+					r := receive(t, polled)
+					require.NoError(t, r.err)
+					require.Equal(t, http.StatusOK, r.status)
+					require.Equal(t, []string{"4buffered"}, pollPackets(t, r.body, binary))
+				} else if mode == "pending poll" {
+					go func() { polled <- request(http.MethodGet, poll, nil) }()
+					require.Eventually(t, func() bool { return c.(*session.Session).Writable() }, time.Second, time.Millisecond)
+				}
+				require.NoError(t, c.Close())
+				_, err = c.NextWriter(session.TEXT)
+				require.Error(t, err)
+				if mode != "pending poll" {
+					require.Equal(t, engineio.StateClosing, c.ReadyState())
+					require.Contains(t, s.Clients(), c.ID(), "closing SID remains routable")
+					go func() { polled <- request(http.MethodGet, poll, nil) }()
+				}
+				r := receive(t, polled)
+				require.NoError(t, r.err)
+				require.Equal(t, http.StatusOK, r.status, "%s", r.body)
+				require.Equal(t, []string{"1"}, pollPackets(t, r.body, binary))
+				require.Eventually(t, func() bool { return c.ReadyState() == engineio.StateClosed }, time.Second, time.Millisecond)
+			})
+		}
+	}
 }
 
 // Covers P18

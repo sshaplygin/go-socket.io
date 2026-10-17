@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -238,11 +239,11 @@ func (d *Decoder) validatePayload(typ Type, raw []byte, event *string) error {
 				return errInvalidPayload
 			}
 		} else {
-			var number float64
 			if name[0] != '-' && (name[0] < '0' || name[0] > '9') {
 				return errInvalidPayload
 			}
-			if err := json.Unmarshal(name, &number); err != nil {
+			number, err := strconv.ParseFloat(string(name), 64)
+			if err != nil && !errors.Is(err, strconv.ErrRange) {
 				return errInvalidPayload
 			}
 			*event = eventNumber(number)
@@ -274,6 +275,12 @@ func (d *Decoder) validatePayload(typ Type, raw []byte, event *string) error {
 
 // eventNumber uses JavaScript's decimal/exponent thresholds for numeric names.
 func eventNumber(n float64) string {
+	if math.IsInf(n, 1) {
+		return "Infinity"
+	}
+	if math.IsInf(n, -1) {
+		return "-Infinity"
+	}
 	if n == 0 {
 		return "0"
 	}

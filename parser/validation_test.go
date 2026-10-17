@@ -79,7 +79,7 @@ func TestPayloadValidation(t *testing.T) {
 	}{
 		{`0`, "", true}, {`0{}`, "", true}, {`0[]`, "", true}, {`0null`, "", true}, {`0true`, "", false},
 		{`1`, "", true}, {`1{}`, "", false}, {`1null`, "", false},
-		{`2`, "", true}, {`2["e"]`, "e", true}, {`2["a,b",1]`, "a,b", true}, {`2[4,1]`, "4", true}, {`2[-0]`, "0", true}, {`2[1e-7]`, "1e-7", true}, {`2[1e21]`, "1e+21", true}, {`2[1e-6]`, "0.000001", true},
+		{`2`, "", true}, {`2["e"]`, "e", true}, {`2["a,b",1]`, "a,b", true}, {`2[4,1]`, "4", true}, {`2[-0]`, "0", true}, {`2[1e400]`, "Infinity", true}, {`2[-1e400]`, "-Infinity", true}, {`2[1e-7]`, "1e-7", true}, {`2[1e21]`, "1e+21", true}, {`2[1e-6]`, "0.000001", true},
 		{`2[]`, "", false}, {`2{}`, "", false}, {`2[true]`, "", false}, {`2[null]`, "", false}, {`2["e",]`, "", false}, {`2["e"]x`, "", false},
 		{`3[]`, "", true}, {`3{}`, "", false}, {`3null`, "", false},
 		{`4"error"`, "", true}, {`4{}`, "", true}, {`4[]`, "", true}, {`4null`, "", true}, {`4true`, "", false},

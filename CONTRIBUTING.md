@@ -50,7 +50,10 @@ it goes through the usual review with the three reviewers like any roadmap edit 
 - After each merged PR of the package, the taker reports it (*Reporting back*) and the
   coordinator sets the last merged PR in the row. When that PR was the package's last, the
   same registry PR sets the row to `done`; `done` needs no entry check, since no PR of the
-  package is left.
+  package is left. While a later PR of the package waits for a merge in another package
+  (B's V1-16 for A's V1-4, F's V1-13 for V1-10, V1-11 and V1-19), the row stays `taken`
+  with its last merged PR: no gate reads the `taken` status of B, D, E, F or G as started
+  (the entry fence reads `taken` only of SY and C, and of the others only `done`).
 - When the taker stops, or the owner stops it, the taker's unmerged PRs of the package are
   closed first (by the taker, or else by the coordinator), and then the coordinator sets the
   row back to `open` with the last merged PR, so that `open` never stands beside a PR in

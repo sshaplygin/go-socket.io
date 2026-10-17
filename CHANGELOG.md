@@ -139,6 +139,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- client: recover engine connections automatically with configurable retry limits,
+  backo2 delays and reconnect callbacks. Closed namespaces stay closed on recovery;
+  ordinary emits buffer while reconnecting and volatile emits drop before CONNECT.
+- client: expose namespace ID/Connected, On/Once/Off listeners and ping/pong observers.
+  Namespace.Connected is available on server connections too; engineio.Dialer gains
+  optional heartbeat observers.
+
+
 - client: add `New` options and namespace sockets sharing one Engine.IO connection,
   connect timeout and retries, pre-connect event buffering, and namespace DISCONNECT
   on close. Engine path, query and headers apply to both transports and upgrade.

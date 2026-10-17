@@ -67,6 +67,15 @@ func New(addr string, opts *Options) (*Client, error) {
 	if options.Timeout == 0 {
 		options.Timeout = 20 * time.Second
 	}
+	if options.ReconnectionDelay <= 0 {
+		options.ReconnectionDelay = time.Second
+	}
+	if options.ReconnectionDelayMax <= 0 {
+		options.ReconnectionDelayMax = 5 * time.Second
+	}
+	if options.RandomizationFactor == 0 {
+		options.RandomizationFactor = 0.5
+	}
 	if options.Path == "" {
 		options.Path = "/socket.io"
 	}
@@ -156,7 +165,7 @@ func (c *Client) engineDial() (engineio.Conn, error) {
 	if c.dial != nil {
 		return c.dial(c.url)
 	}
-	d := engineio.Dialer{Transports: c.options.Transports, Upgrade: true}
+	d := engineio.Dialer{Transports: c.options.Transports, Upgrade: true, OnPing: c.ping, OnPong: c.pong}
 	return d.Dial(c.url, c.options.Header)
 }
 

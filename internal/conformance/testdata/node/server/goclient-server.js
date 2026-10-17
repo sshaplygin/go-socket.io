@@ -20,6 +20,7 @@ for (const name of ['/', '/chat', '/late']) {
     socket.on('echo', (value, ack) => { socket.emit('reply', value); ack(value); });
     socket.on('binary', (value, ack) => ack(value));
     socket.on('ask', () => socket.emit('question', 'server', value => socket.emit('answer', value)));
+    socket.on('drop-transport', () => socket.conn.close());
     socket.on('inspect', ack => ack({
       sid, id: socket.id, namespace: socket.nsp.name,
       transport: socket.conn.transport.name,

@@ -18,6 +18,8 @@ type Namespace interface {
 	SetContext(ctx interface{})
 
 	Namespace() string
+	// Connected is true from namespace CONNECT until its socket or connection closes.
+	Connected() bool
 	// Emit sends eventName with arguments v to the client. If the last element of v
 	// is a func, it is not sent but registered as the acknowledgement callback: the
 	// client's ACK arguments are decoded into its parameters and it is called on the
@@ -81,6 +83,18 @@ func (nc *namespaceConn) Namespace() string {
 	return nc.namespace
 }
 
+// Connected reports the state of this connection generation's namespace.
+func (nc *namespaceConn) Connected() bool {
+	if m := nc.conn.owner; m != nil {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		s := m.sockets[fmtNS(nc.namespace)]
+		return s != nil && s.nc == nc && s.connected
+	}
+	current, ok := nc.conn.namespaces.Get(fmtNS(nc.namespace))
+	return ok && current == nc && !isDone(nc.conn.closing)
+}
+
 func (nc *namespaceConn) Emit(eventName string, v ...interface{}) {
 	if socket := nc.socket(); socket != nil {
 		socket.emit(false, eventName, v...)
@@ -98,7 +112,21 @@ func (nc *namespaceConn) socket() *Socket {
 	return nil
 }
 
+func (nc *namespaceConn) writable() bool {
+	if c, ok := nc.Conn.(interface{ Writable() bool }); ok {
+		return c.Writable()
+	}
+	return true
+}
+
 func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{}) {
+	if volatile && !nc.writable() {
+		return
+	}
+	nc.queueEvent(volatile, eventName, v...)
+}
+
+func (nc *namespaceConn) queueEvent(volatile bool, eventName string, v ...interface{}) {
 	header := parser.Header{
 		Type: parser.Event,
 	}
@@ -133,9 +161,6 @@ func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{})
 	// The transport callback runs outside queue locks; admission rechecks the
 	// queue atomically afterwards so a concurrent normal/volatile emit cannot
 	// turn this best-effort packet into an overflow or retain a dropped ACK.
-	if c, ok := nc.Conn.(interface{ Writable() bool }); ok && !c.Writable() {
-		return
-	}
 	nc.outMu.Lock()
 	defer nc.outMu.Unlock()
 	nc.conn.mu.Lock()

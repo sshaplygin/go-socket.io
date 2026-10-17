@@ -143,3 +143,57 @@ func TestGoClientConformance(t *testing.T) {
 		})
 	}
 }
+
+// Covers C3
+func TestGoClientReconnect(t *testing.T) {
+	for _, name := range []string{"polling", "websocket", "upgrade"} {
+		t.Run(name, func(t *testing.T) {
+			opts := &client.Options{Path: "/client-engine", ReconnectionDelay: 10 * time.Millisecond, ReconnectionDelayMax: 20 * time.Millisecond, RandomizationFactor: -1, ReconnectionAttempts: 3}
+			if name == "polling" {
+				opts.Transports = []transport.Transport{polling.Default}
+			}
+			if name == "websocket" {
+				opts.Transports = []transport.Transport{websocket.Default}
+			}
+			cl, err := client.New(goClientReference(t), opts)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = cl.Close() })
+			connected := make(chan client.Conn, 6)
+			disconnected := make(chan string, 4)
+			reconnected := make(chan int, 1)
+			reentrant := make(chan error, 1)
+			for _, s := range []*client.Socket{cl.Socket("/"), cl.Socket("/chat")} {
+				s.OnConnect(func(c client.Conn) error { connected <- c; return nil })
+				s.OnDisconnect(func(c client.Conn, reason string) { disconnected <- c.Namespace() + ":" + reason })
+			}
+			cl.OnReconnect(func(n int) { reentrant <- cl.Connect(); reconnected <- n })
+			require.NoError(t, cl.Connect())
+			old := map[string]string{}
+			for i := 0; i < 2; i++ {
+				c := goClientReceive(t, connected, "initial Node namespace")
+				old[c.Namespace()] = c.ID()
+			}
+			if name == "upgrade" {
+				upgraded := make(chan string, 1)
+				cl.Emit("await-upgrade", func(v string) { upgraded <- v })
+				require.Equal(t, "websocket", goClientReceive(t, upgraded, "upgrade before failure"))
+			}
+			cl.Emit("drop-transport")
+			for i := 0; i < 2; i++ {
+				reason := goClientReceive(t, disconnected, "Node transport disconnect")
+				require.Contains(t, []string{"transport close", "transport error"}, strings.SplitN(reason, ":", 2)[1])
+			}
+			require.Equal(t, 1, goClientReceive(t, reconnected, "Node reconnect"))
+			require.NoError(t, goClientReceive(t, reentrant, "Connect inside OnReconnect"))
+			for i := 0; i < 2; i++ {
+				c := goClientReceive(t, connected, "restored Node namespace")
+				require.True(t, c.Connected())
+				require.NotEqual(t, old[c.Namespace()], c.ID())
+				ack := make(chan string, 1)
+				c.Emit("echo", "after reconnect", func(v string) { ack <- v })
+				require.Equal(t, "after reconnect", goClientReceive(t, ack, "restored ACK"))
+			}
+			require.Empty(t, connected)
+		})
+	}
+}

@@ -24,4 +24,13 @@ type Options struct {
 	// WriteBufferSize bounds queued writes and pre-connect events; nonpositive means 64.
 	WriteBufferSize int
 	Logger          *slog.Logger
+	// DisableReconnection disables automatic recovery after an engine failure.
+	DisableReconnection bool
+	// ReconnectionAttempts limits failed retries; zero means unlimited.
+	ReconnectionAttempts int
+	// ReconnectionDelay defaults to one second; ReconnectionDelayMax to five seconds.
+	ReconnectionDelay    time.Duration
+	ReconnectionDelayMax time.Duration
+	// RandomizationFactor defaults to 0.5; a negative value disables jitter.
+	RandomizationFactor float64
 }

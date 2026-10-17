@@ -44,6 +44,9 @@ type client struct {
 	cause         *session.CloseError
 	readDeadline  time.Time
 	writeDeadline time.Time
+	lastPing      time.Time
+	onPing        func()
+	onPong        func(time.Duration)
 }
 
 func (c *client) initialize() {
@@ -180,7 +183,11 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 			}
 			c.mu.Lock()
 			c.readDeadline = deadline
+			ping := c.lastPing
 			c.mu.Unlock()
+			if c.onPong != nil && !ping.IsZero() {
+				c.onPong(time.Since(ping))
+			}
 
 		case packet.CLOSE:
 			_ = r.Close()
@@ -263,6 +270,9 @@ func (c *client) serve() {
 			return
 		}
 
+		c.mu.Lock()
+		c.lastPing = time.Now()
+		c.mu.Unlock()
 		if err = w.Close(); err != nil {
 			c.releaseWrite()
 			c.pingFailed(err)
@@ -276,6 +286,9 @@ func (c *client) serve() {
 		c.writeDeadline = deadline
 		c.mu.Unlock()
 		c.releaseWrite()
+		if c.onPing != nil {
+			c.onPing()
+		}
 		if err != nil {
 			c.pingFailed(err)
 			_ = c.failure(err)

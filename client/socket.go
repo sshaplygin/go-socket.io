@@ -64,19 +64,50 @@ func (s *Socket) Namespace() string {
 	return s.namespace
 }
 
+// ID is the server-assigned namespace ID, or empty while disconnected.
+func (s *Socket) ID() string {
+	s.state.mu.Lock()
+	defer s.state.mu.Unlock()
+	if s.connected && s.nc != nil {
+		return s.nc.ID()
+	}
+	return ""
+}
+
+// Connected reports whether the server has acknowledged this namespace.
+func (s *Socket) Connected() bool {
+	s.state.mu.Lock()
+	defer s.state.mu.Unlock()
+	return s.connected
+}
+
+// On appends a listener and returns a function removing just that registration.
+func (s *Socket) On(event string, f interface{}) (off func()) {
+	return s.handler.addListener(event, f, false)
+}
+
+// Once appends a listener removed before its first call.
+func (s *Socket) Once(event string, f interface{}) (off func()) {
+	return s.handler.addListener(event, f, true)
+}
+
+// Off removes every listener of event, including the OnEvent registration.
+func (s *Socket) Off(event string) { s.handler.Off(event) }
+
 // Emit queues an event until the namespace CONNECT reply. A full pre-connect
 // buffer drops the event and logs a warning; connected writes use the normal queue.
 func (s *Socket) Emit(event string, args ...interface{}) { s.emit(false, event, args...) }
 
 func (s *Socket) emit(volatile bool, event string, args ...interface{}) {
+	if volatile {
+		s.emitVolatile(event, args...)
+		return
+	}
 	m := s.state
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s.connected && s.nc != nil {
 		s.nc.emit(volatile, event, args...)
-		return
-	}
-	if volatile {
 		return
 	}
 	if m.buffered >= m.client.limits.writeBufferSize {
@@ -85,6 +116,23 @@ func (s *Socket) emit(volatile bool, event string, args ...interface{}) {
 	}
 	s.buffer = append(s.buffer, bufferedEvent{event, append([]interface{}(nil), args...)})
 	m.buffered++
+}
+
+// A custom transport's Writable method may reenter this Socket. Snapshot it
+// without holding state.mu, then recheck the namespace generation before admission.
+func (s *Socket) emitVolatile(event string, args ...interface{}) {
+	m := s.state
+	m.mu.Lock()
+	nc, connected := s.nc, s.connected
+	m.mu.Unlock()
+	if !connected || nc == nil || !nc.writable() {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s.connected && s.nc == nc {
+		nc.queueEvent(true, event, args...)
+	}
 }
 
 // Send is Emit("message", args...).
@@ -209,7 +257,11 @@ func (m *clientState) closeSocket(s *Socket, reason string, closeLast bool, expe
 	s.nc = nil
 	claimed := false
 	if current != nil && !isDone(current.closing) {
-		_, claimed = current.claim(s.namespace)
+		var pending *namespaceConn
+		pending, claimed = current.claim(s.namespace)
+		if nc == nil {
+			nc = pending
+		}
 		if s.requested && reason == "io client disconnect" {
 			current.writeControl(parser.Header{Type: parser.Disconnect, Namespace: s.namespace})
 		}
@@ -220,6 +272,7 @@ func (m *clientState) closeSocket(s *Socket, reason string, closeLast bool, expe
 	}
 	if last && closeLast {
 		m.stopped = true
+		m.cancelRetryLocked()
 		if m.attempt != nil {
 			m.attempt.cancel()
 		}
@@ -246,6 +299,7 @@ func (m *clientState) closeAll() error {
 		return nil
 	}
 	m.stopped, m.closingAll = true, true
+	m.cancelRetryLocked()
 	if m.attempt != nil {
 		m.attempt.cancel()
 	}

@@ -208,16 +208,7 @@ func TestBroadcastExceptSender(t *testing.T) {
 			}
 		})
 	}
-	t.Run("client", func(t *testing.T) {
-		p := start(t, 'C', hooks{})
-		for _, e := range []Emitter{p.nc.To("room"), p.nc.Broadcast(), p.nc.Volatile().To("room")} {
-			require.ErrorIs(t, e.Emit("news"), ErrServerOnly)
-			require.ErrorIs(t, e.Send("news"), ErrServerOnly)
-		}
-		expectBeforeBarrier(t, p)
-		require.NoError(t, p.nc.Volatile().Local().Emit("single"))
-		require.Equal(t, "2[\"single\"]\n", recv(t, p.fc.out, "single client packet"))
-	})
+
 }
 
 // Covers S15

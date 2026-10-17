@@ -5718,14 +5718,18 @@ handlers, `errors.Is` and the `ft.In(0).Name() == "Conn"` check in `handler.go` 
 before. apidiff and `gorelease` report the alias move as incompatible although consumers
 compile unchanged, so the DoD proves compatibility with a consumer program instead.
 `client` may import any `engineio/...` package (`engineio/session` included), `parser` and
-`logger`, and never the root package, adapters or Redis (a DoD line checks the closure);
+`logger`, and never the root package, adapters or Redis (a DoD line checks the closure).
+The closure includes the private `internal/engineclose` bridge through `engineio/session`
+(the approved P17 correction in V1-8); `client` does not import that bridge directly;
 only the root and the examples import `client`. It carries its own copy, taken from `$TIP`, of the
 closure the old `Client` reaches (write queue, packet handlers, namespace connection,
 handler dispatch, an unexported in-memory broadcast behind `Namespace.Join`, `Leave`,
 `LeaveAll` and `Rooms`), without Redis and server-only code. The only server-path
 logic edit deletes `clientConnectPacketHandler` and `clientDisconnectPacketHandler` (`make
-lint` rejects unused code); the other root edits are the aliases, and `fmtNS`, used by the
-server, stays in the root `client.go`. Cost: a root fix to a shared file names in its PR whether
+lint` rejects unused code); the other root edits are the aliases and the removal of the
+obsolete client-only `defaultHeaderType` declaration and its `reflect` import from root
+`types.go`; `fmtNS`, used by the server, stays in the root `client.go`. Cost: a root fix
+to a shared file names in its PR whether
 `client/` needs the same change and makes it there.
 
 **D10 methods and the alias.** Through the alias, every method D10 adds to `Conn` or `Namespace`
@@ -5802,14 +5806,15 @@ stage commits are titled `<type>(7.<n>): ...`, so later commits are not judged:
 ```sh
 TIP=${TIP:?the master commit recorded in the Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base; R=$PWD; git worktree add -q --detach $BASE $TIP; trap 'git worktree remove --force $BASE; rm -rf $T' EXIT
 make lint test-race
-D=$(go list -deps ./client); test -z "$(echo "$D" | grep -E "redigo|^$MOD(/|$)" | grep -vE "^$MOD/(client|engineio|parser|logger)(/|$)")"   # D is not piped inside test -z: a failing go list (import cycle) must stop the script
+D=$(go list -deps ./client); test -z "$(echo "$D" | grep -E "redigo|^$MOD(/|$)" | grep -vE "^$MOD/(client|engineio|parser|logger)(/|$)|^$MOD/internal/engineclose$")"   # D is not piped inside test -z: a failing go list (import cycle) must stop the script
+I=$(go list -f '{{join .Imports "\n"}}' ./client); test -z "$(printf '%s\n' "$I" | grep -Fx "$MOD/internal/engineclose")"   # only the engine package reaches its private bridge
 test -n "$(go list -deps . | grep -x "$MOD/client")"; for X in Client NewClient; do test -n "$(go doc . $X | grep -E "^ *Deprecated: use client\.$X\.")"; done   # fails before the stage: no notices
 cl() { awk '/^## Unreleased/{u=1;next} /^## /{u=0} u && /^### /{s=$2} u && s=="'$1'"' CHANGELOG.md; }; test -n "$(cl Added | grep 'go-socket.io/client')"; test -n "$(cl Deprecated | grep NewClient)"
 test "$(go doc -short ./client | sed -E 's/^ +//; s/^(func [A-Za-z]+)\(.*/\1/; s/^((var|type) [A-Za-z]+).*/\1/' | paste -sd, -)" = "var ErrEmptyAddr,var ErrServerOnly,var ErrWriteBufferFull,type AckFunc,type Client,func NewClient,type Conn,type Emitter,type Handshake,type Namespace"
 test "$(go doc -short ./client Client | grep '^func')" = "$(cd $BASE && go doc -short . Client | grep '^func')"; for X in Conn Namespace; do test "$(go doc ./client $X | grep -vE '^(package|    )|^\s*(//|$)')" = "$(cd $BASE && go doc . $X | grep -vE '^(package|    )|^\s*(//|$)')"; done
 test -z "$(diff <(cd $BASE && go doc -short . | grep -oE '^(var|type) [A-Za-z]+' | sort) <(go doc -short . | grep -oE '^(var|type) [A-Za-z]+' | sort))"
 S7=$(git log -E --no-merges --grep='^[a-z]+\(7\.' --format=%H $TIP..HEAD); test -n "$S7"
-test -z "$(git show --format= --name-only $S7 | sort -u | grep -vE '^(client/|_examples/client/|(client|connection|connection_handlers|namespace_conn|errors)\.go$|CHANGELOG\.md$|CLAUDE\.md$)|_test\.go$')"
+test -z "$(git show --format= --name-only $S7 | sort -u | grep -vE '^(client/|_examples/client/|(client|connection|connection_handlers|namespace_conn|errors|types)\.go$|CHANGELOG\.md$|CLAUDE\.md$)|_test\.go$')"
 names() { grep -rhoE '^func (Test|Benchmark)[A-Za-z0-9_]+' --include='*_test.go' --exclude-dir=_examples $1 | sort -u; }; test -z "$(comm -23 <(names $BASE) <(names .))"
 res() { (cd $1 && go test -count=1 -v ./... | awk '$1=="---" && $2=="PASS:"{gsub(/0x[0-9a-f]+/,"0x"); print $3}') | sort -u; }; test -z "$(comm -23 <(res $BASE) <(res .))"   # every passing test and subtest, TestX/C included, still passes (322 at 39f06fc)
 test "$(go test -race -count=1 -v ./client | grep -c -- '--- PASS: .*/C ')" -ge "$(res $BASE | grep -c '^Test.*/C$')"   # the C halves run in client/ (15 at 39f06fc)

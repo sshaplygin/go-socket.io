@@ -17,6 +17,7 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | Path | Purpose |
 | --- | --- |
 | `*.go` (root, package `socketio`) | v1 Socket.IO server, client, namespaces, rooms, in-memory and Redis broadcast |
+| `client/` | v1 experimental Go client and the shared Conn/Namespace interfaces; the root keeps a deprecated wrapper and aliases |
 | `parser/` | v1 Socket.IO v4 packet encoder/decoder, binary attachments |
 | `engineio/` | v1 Engine.IO v3 server and client: sessions, polling and websocket transports, payload codec |
 | `logger/` | v1 package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: parser, transports, `engineio/packet`, client dialer |

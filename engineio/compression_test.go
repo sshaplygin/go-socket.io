@@ -438,3 +438,66 @@ func TestPerMessageDeflateLimitKeepsErrorBeforeTransportClose(t *testing.T) {
 		})
 	}
 }
+
+// Covers E8
+// Covers E4
+// Covers E19
+func TestPerMessageDeflateControlPacketLimit(t *testing.T) {
+	for _, kind := range []byte{'0', '1', '2', '3', '5', '6', '9'} {
+		t.Run(string(kind), func(t *testing.T) {
+			var compressed bytes.Buffer
+			deflater, err := flate.NewWriter(&compressed, flate.BestCompression)
+			require.NoError(t, err)
+			_, err = deflater.Write(append([]byte{kind}, bytes.Repeat([]byte("a"), 100_000)...))
+			require.NoError(t, err)
+			require.NoError(t, deflater.Flush())
+			wire := bytes.Clone(compressed.Bytes()[:compressed.Len()-4])
+			require.NoError(t, deflater.Close())
+			causes := make(chan error, 2)
+			s, ts := compressionServer(t, &Options{PerMessageDeflate: true, MaxHTTPBufferSize: 1024, Hooks: &Hooks{Error: func(_ Conn, err error) { causes <- err }}})
+			peer := compressionDial(t, ts.URL)
+			_, _ = peer.frame(t)
+			c := compressionAccept(t, s)
+			done := make(chan parityRead, 1)
+			go func() {
+				_, r, readErr := c.NextReader()
+				var data []byte
+				if readErr == nil {
+					data, readErr = io.ReadAll(r)
+					_ = r.Close()
+				}
+				done <- parityRead{message: string(data), err: readErr}
+			}()
+			peer.send(t, 0xc1, wire)
+			// A correct close may reject this write. It must never deliver this packet.
+			after := []byte(`42["after-limit"]`)
+			for i := range after {
+				after[i] ^= byte(i%4 + 1)
+			}
+			_, _ = peer.Write(append([]byte{0x81, 128 | byte(len(after)), 1, 2, 3, 4}, after...))
+			flags, body := peer.frame(t)
+			require.Equal(t, byte(8), flags&15)
+			require.GreaterOrEqual(t, len(body), 2)
+			require.Equal(t, uint16(1009), binary.BigEndian.Uint16(body))
+			select {
+			case got := <-done:
+				require.Error(t, got.err, "application packet delivered after a rejected control packet: %q", got.message)
+				require.Empty(t, got.message)
+				var closed *CloseError
+				require.ErrorAs(t, got.err, &closed)
+				require.Equal(t, ReasonTransportError, closed.Reason)
+				require.ErrorIs(t, closed.Err, gorilla.ErrReadLimit)
+			case <-time.After(time.Second):
+				t.Fatal("session kept reading after inflated limit")
+			}
+			select {
+			case cause := <-causes:
+				require.ErrorIs(t, cause, gorilla.ErrReadLimit)
+			default:
+				t.Fatal("limit did not notify Error hook")
+			}
+			require.Empty(t, causes, "Error hook must fire once")
+			require.Equal(t, StateClosed, c.ReadyState())
+		})
+	}
+}

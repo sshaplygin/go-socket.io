@@ -349,6 +349,7 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 				}
 				// echo
 				_, err = io.Copy(w, r)
+				_ = s.fail(err) // preserve the read cause before closing the pong writer
 				// unlocks the wrapped connection's FrameWriter
 				if closeErr := s.fail(w.Close()); closeErr != nil {
 					s.logger().Debug("engineio: close writer failed", "err", closeErr)
@@ -370,11 +371,11 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 				return 0, nil, s.readerCloseError()
 			}
 		case packet.CLOSE:
-			s.observe(reasonTransportClose, nil)
 			// unlocks the wrapped connection's FrameReader
-			if err = r.Close(); err != nil {
+			if err = s.fail(r.Close()); err != nil {
 				s.logger().Debug("engineio: close reader failed", "err", err)
 			}
+			s.observe(reasonTransportClose, nil) // a failed drain remains a transport error
 
 			if err = s.closeMode(reasonTransportClose, true); err != nil {
 				s.logger().Debug("engineio: session close failed", "err", err)
@@ -391,6 +392,8 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 			// Unknown packet type. Close reader and try again.
 			if err = s.fail(r.Close()); err != nil {
 				s.logger().Debug("engineio: close reader failed", "err", err)
+				_ = s.Close()
+				return 0, nil, s.readerCloseError()
 			}
 		}
 	}

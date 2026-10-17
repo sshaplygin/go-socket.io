@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"io"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -80,11 +81,11 @@ type inflatedReader struct {
 	io.Reader
 	conn      *websocket.Conn
 	remaining int64
-	failed    bool
+	failed    *atomic.Bool
 }
 
 func (r *inflatedReader) Read(p []byte) (int, error) {
-	if r.failed {
+	if r.failed.Load() {
 		return 0, websocket.ErrReadLimit
 	}
 	if int64(len(p)) > r.remaining {
@@ -93,11 +94,11 @@ func (r *inflatedReader) Read(p []byte) (int, error) {
 	n, err := r.Reader.Read(p)
 	r.remaining -= int64(n)
 	if r.remaining < 0 {
-		r.failed = true
+		r.failed.Store(true)
 		_ = r.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseMessageTooBig, ""), time.Now().Add(time.Second))
 		// The session owns the physical close after its synchronous Error hook.
-		// failed prevents any later read or drain from resuming this inflater.
-		return n, websocket.ErrReadLimit
+		// failed also prevents NextReader from advancing to another message.
+		return 0, websocket.ErrReadLimit
 	}
 	return n, err
 }

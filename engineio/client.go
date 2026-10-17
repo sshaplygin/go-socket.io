@@ -190,7 +190,9 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 			}
 
 		case packet.CLOSE:
-			_ = r.Close()
+			if err = r.Close(); err != nil {
+				return 0, nil, c.failure(err)
+			}
 			if err = c.terminate(session.ReasonTransportClose, io.EOF); err != nil {
 				logger.Log.Debug("engineio: close connection failed", "err", err)
 			}

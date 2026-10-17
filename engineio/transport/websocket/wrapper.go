@@ -20,6 +20,7 @@ type wrapper struct {
 	readLocker  *sync.Mutex
 	writing     *atomic.Bool
 	readLimit   *atomic.Int64
+	readFailed  *atomic.Bool
 	compression bool
 	threshold   int
 }
@@ -31,6 +32,7 @@ func newWrapper(conn *websocket.Conn) wrapper {
 		readLocker:  new(sync.Mutex),
 		writing:     new(atomic.Bool),
 		readLimit:   new(atomic.Int64),
+		readFailed:  new(atomic.Bool),
 	}
 }
 
@@ -39,13 +41,16 @@ func (w wrapper) NextReader() (frame.Type, io.ReadCloser, error) {
 	defer w.readLocker.Unlock()
 
 	// Only one goroutine advances the websocket message reader.
+	if w.readFailed.Load() {
+		return 0, nil, websocket.ErrReadLimit
+	}
 	typ, r, err := w.Conn.NextReader()
 	if err != nil {
 		return 0, nil, err
 	}
 
 	if limit := w.readLimit.Load(); limit > 0 {
-		r = &inflatedReader{Reader: r, conn: w.Conn, remaining: limit}
+		r = &inflatedReader{Reader: r, conn: w.Conn, remaining: limit, failed: w.readFailed}
 	}
 	// Gorilla returns its inflater to a pool at EOF. A later drain must not
 	// read that released inflater again (which would return ErrClosedPipe).

@@ -135,6 +135,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- engineio: `Options.DisableCORS` restores polling without CORS headers and
+  websocket same-origin checks. Explicit transport `CheckOrigin` callbacks override
+  both settings; resolving the server default copies built-in transports.
+
 - engineio: optional Hooks observe connection, initial and per-response headers,
   connection errors, packets, heartbeat, upgrades, polling flush/drain and transport
   errors. Callbacks run synchronously; header hooks may edit response headers.

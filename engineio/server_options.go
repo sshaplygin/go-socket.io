@@ -25,6 +25,13 @@ type Options struct {
 	// DisableUpgrades keeps sessions on their handshake transport.
 	DisableUpgrades bool
 
+	// DisableCORS restores the legacy CORS behavior. By default every origin is
+	// accepted: polling reflects Origin with credentials, or allows * when absent,
+	// and websocket upgrades accept cross-origin requests. When disabled, polling
+	// sends no CORS headers and websocket uses Gorilla's same-origin check.
+	// An explicit transport CheckOrigin overrides either default.
+	DisableCORS bool
+
 	Transports         []transport.Transport
 	SessionIDGenerator session.IDGenerator
 
@@ -113,14 +120,35 @@ func (c *Options) getMaxHTTPBufferSize() int64 {
 }
 
 func (c *Options) getTransport() []transport.Transport {
+	configured := []transport.Transport{polling.Default, websocket.Default}
 	if c != nil && len(c.Transports) != 0 {
-		return c.Transports
+		configured = c.Transports
 	}
-	return []transport.Transport{
-		polling.Default,
-		websocket.Default,
+	if c != nil && c.DisableCORS {
+		return configured
 	}
+	resolved := make([]transport.Transport, len(configured))
+	for i, t := range configured {
+		resolved[i] = t
+		switch t := t.(type) {
+		case *polling.Transport:
+			if t.CheckOrigin == nil {
+				copied := *t
+				copied.CheckOrigin = allowEveryOrigin
+				resolved[i] = &copied
+			}
+		case *websocket.Transport:
+			if t.CheckOrigin == nil {
+				copied := *t
+				copied.CheckOrigin = allowEveryOrigin
+				resolved[i] = &copied
+			}
+		}
+	}
+	return resolved
 }
+
+func allowEveryOrigin(*http.Request) bool { return true }
 
 func (c *Options) getSessionIDGenerator() session.IDGenerator {
 	if c != nil && c.SessionIDGenerator != nil {

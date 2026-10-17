@@ -5718,7 +5718,9 @@ handlers, `errors.Is` and the `ft.In(0).Name() == "Conn"` check in `handler.go` 
 before. apidiff and `gorelease` report the alias move as incompatible although consumers
 compile unchanged, so the DoD proves compatibility with a consumer program instead.
 `client` may import any `engineio/...` package (`engineio/session` included), `parser` and
-`logger`, and never the root package, adapters or Redis (a DoD line checks the closure);
+`logger`, and never the root package, adapters or Redis (a DoD line checks the closure).
+The closure includes the private `internal/engineclose` bridge through `engineio/session`
+(the approved P17 correction in V1-8); `client` does not import that bridge directly;
 only the root and the examples import `client`. It carries its own copy, taken from `$TIP`, of the
 closure the old `Client` reaches (write queue, packet handlers, namespace connection,
 handler dispatch, an unexported in-memory broadcast behind `Namespace.Join`, `Leave`,
@@ -5804,7 +5806,8 @@ stage commits are titled `<type>(7.<n>): ...`, so later commits are not judged:
 ```sh
 TIP=${TIP:?the master commit recorded in the Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base; R=$PWD; git worktree add -q --detach $BASE $TIP; trap 'git worktree remove --force $BASE; rm -rf $T' EXIT
 make lint test-race
-D=$(go list -deps ./client); test -z "$(echo "$D" | grep -E "redigo|^$MOD(/|$)" | grep -vE "^$MOD/(client|engineio|parser|logger)(/|$)")"   # D is not piped inside test -z: a failing go list (import cycle) must stop the script
+D=$(go list -deps ./client); test -z "$(echo "$D" | grep -E "redigo|^$MOD(/|$)" | grep -vE "^$MOD/(client|engineio|parser|logger)(/|$)|^$MOD/internal/engineclose$")"   # D is not piped inside test -z: a failing go list (import cycle) must stop the script
+I=$(go list -f '{{join .Imports "\n"}}' ./client); test -z "$(printf '%s\n' "$I" | grep -Fx "$MOD/internal/engineclose")"   # only the engine package reaches its private bridge
 test -n "$(go list -deps . | grep -x "$MOD/client")"; for X in Client NewClient; do test -n "$(go doc . $X | grep -E "^ *Deprecated: use client\.$X\.")"; done   # fails before the stage: no notices
 cl() { awk '/^## Unreleased/{u=1;next} /^## /{u=0} u && /^### /{s=$2} u && s=="'$1'"' CHANGELOG.md; }; test -n "$(cl Added | grep 'go-socket.io/client')"; test -n "$(cl Deprecated | grep NewClient)"
 test "$(go doc -short ./client | sed -E 's/^ +//; s/^(func [A-Za-z]+)\(.*/\1/; s/^((var|type) [A-Za-z]+).*/\1/' | paste -sd, -)" = "var ErrEmptyAddr,var ErrServerOnly,var ErrWriteBufferFull,type AckFunc,type Client,func NewClient,type Conn,type Emitter,type Handshake,type Namespace"

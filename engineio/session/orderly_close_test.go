@@ -2,6 +2,7 @@ package session
 
 import (
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -223,4 +224,38 @@ func TestAbortKeepsErrorBeforeTransportClose(t *testing.T) {
 			require.Equal(t, ReasonTransportError, s.closeError().Reason)
 		})
 	}
+}
+
+type peerClosingConn struct {
+	*orderlyConn
+	reading, sendClose chan struct{}
+}
+
+func (c *peerClosingConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+	close(c.reading)
+	<-c.sendClose
+	return frame.String, packet.CLOSE, io.NopCloser(strings.NewReader("")), nil
+}
+
+func TestPeerCloseInterruptsOrderlyClose(t *testing.T) {
+	c := &peerClosingConn{orderlyConn: newOrderlyConn(), reading: make(chan struct{}), sendClose: make(chan struct{})}
+	s := newTestSession(t, c, "polling")
+	t.Cleanup(func() { _ = engineclose.Abort(s) })
+	require.NoError(t, s.InitSession())
+	read := make(chan error, 1)
+	go func() { _, _, err := s.NextReader(); read <- err }()
+	waitClose(t, c.reading)
+	require.NoError(t, s.Close())
+	waitClose(t, c.entered)
+	close(c.sendClose)
+	waitClose(t, c.done)
+	waitClose(t, s.closeDone)
+	select {
+	case err := <-read:
+		require.Error(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("peer close did not release the reader")
+	}
+	require.Equal(t, StateClosed, s.ReadyState())
+	require.Equal(t, ReasonForcedClose, s.closeError().Reason, "first cause is preserved")
 }

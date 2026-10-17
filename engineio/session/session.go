@@ -373,7 +373,7 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 				s.logger().Debug("engineio: close reader failed", "err", err)
 			}
 
-			if err = s.Close(); err != nil {
+			if err = s.closeMode(reasonTransportClose, true); err != nil {
 				s.logger().Debug("engineio: session close failed", "err", err)
 			}
 

@@ -44,7 +44,7 @@ type Namespace interface {
 	Send(args ...interface{})
 	// Disconnect writes DISCONNECT for this namespace, leaves its rooms and calls
 	// OnDisconnect with the server namespace reason. Other namespaces stay open.
-	// On an experimental client connection, Disconnect is a no-op.
+	// On a client it closes this namespace with reason "io client disconnect".
 	Disconnect()
 	// Use appends event middleware on a server socket; on a client it is a no-op.
 	Use(func(event string, args []interface{}) error)
@@ -78,7 +78,22 @@ func (nc *namespaceConn) Namespace() string {
 	return nc.namespace
 }
 
-func (nc *namespaceConn) Emit(eventName string, v ...interface{}) { nc.emit(false, eventName, v...) }
+func (nc *namespaceConn) Emit(eventName string, v ...interface{}) {
+	if socket := nc.socket(); socket != nil {
+		socket.emit(false, eventName, v...)
+		return
+	}
+	nc.emit(false, eventName, v...)
+}
+
+func (nc *namespaceConn) socket() *Socket {
+	if m := nc.conn.owner; m != nil {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return m.sockets[fmtNS(nc.namespace)]
+	}
+	return nil
+}
 
 func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{}) {
 	header := parser.Header{
@@ -123,7 +138,7 @@ func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{})
 	nc.conn.mu.Lock()
 	defer nc.conn.mu.Unlock()
 	c := nc.conn
-	if len(c.writeChan) != 0 ||
+	if len(c.writeChan) != 0 || len(c.controls) != 0 ||
 		isDone(c.closing) && (!c.draining || c.appSealed || isDone(c.discard)) {
 		return
 	}
@@ -157,7 +172,20 @@ func (nc *namespaceConn) Rooms() []string {
 	return nc.broadcast.socketRooms(nc)
 }
 
-func (nc *namespaceConn) ID() string { return nc.Conn.ID() }
+func (nc *namespaceConn) ID() string {
+	if namespace := fmtNS(nc.namespace); namespace != rootNamespace {
+		return namespace + "#" + nc.Conn.ID()
+	}
+	return nc.Conn.ID()
+}
+
+// Close disconnects every namespace and closes the engine connection.
+func (nc *namespaceConn) Close() error {
+	if nc.conn.owner != nil {
+		return nc.conn.owner.closeAll()
+	}
+	return nc.conn.Close()
+}
 
 func (nc *namespaceConn) Send(args ...interface{}) { nc.Emit("message", args...) }
 
@@ -178,9 +206,11 @@ type Emitter interface {
 	Send(args ...interface{}) error
 }
 
-// Disconnect does nothing on a client connection.
+// Disconnect sends DISCONNECT for this namespace, leaving the other sockets open.
 func (nc *namespaceConn) Disconnect() {
-	return //nolint:staticcheck // S1023: an explicit statement lets coverage verify this no-op API.
+	if socket := nc.socket(); socket != nil {
+		_ = socket.Close()
+	}
 }
 
 // Use does not register middleware on a client connection.
@@ -205,7 +235,11 @@ func (e emitter) Emit(event string, args ...interface{}) error {
 	if e.broadcast {
 		return ErrServerOnly
 	}
-	e.socket.emit(e.volatile, event, args...)
+	if socket := e.socket.socket(); socket != nil {
+		socket.emit(e.volatile, event, args...)
+	} else {
+		e.socket.emit(e.volatile, event, args...)
+	}
 	return nil
 }
 func (nc *namespaceConn) To(rooms ...string) Emitter { return (emitter{socket: nc}).To(rooms...) }

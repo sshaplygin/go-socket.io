@@ -5,6 +5,7 @@ import (
 )
 
 func (c *conn) serveError() {
+	defer close(c.errorStopped)
 	for {
 		select {
 		case <-c.closing:
@@ -13,8 +14,8 @@ func (c *conn) serveError() {
 		case errMsg := <-c.errorChan:
 
 			if handler := c.namespace(errMsg.namespace); handler != nil {
-				if handler.onError != nil && errMsg.conn != nil {
-					handler.onError(errMsg.conn, errMsg.err)
+				if f := handler.errorHandler(); f != nil && errMsg.conn != nil {
+					f(errMsg.conn, errMsg.err)
 				}
 			}
 			close(errMsg.done)
@@ -24,6 +25,7 @@ func (c *conn) serveError() {
 
 // serveWrite writes until the queue is discarded, or empty after the seal.
 func (c *conn) serveWrite() {
+	defer close(c.writeStopped)
 	for {
 		if isDone(c.discard) {
 			return
@@ -71,19 +73,55 @@ func (c *conn) serveWrite() {
 
 // serveRead dispatches packets until a close takes the namespaces.
 func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
-	defer c.finishRead()
-
-	var event string
-
+	type packetHeader struct {
+		header parser.Header
+		event  string
+		err    error
+	}
+	headers := make(chan packetHeader)
+	consumed, stop, workerDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	// Header I/O may block on the transport. Its worker waits for dispatch to
+	// finish before touching the decoder again, keeping argument decoding serial.
+	go func() {
+		defer close(workerDone)
+		for {
+			var next packetHeader
+			next.err = c.decoder.DecodeHeader(&next.header, &next.event)
+			select {
+			case headers <- next:
+			case <-stop:
+				return
+			}
+			if next.err != nil {
+				return
+			}
+			select {
+			case <-consumed:
+			case <-stop:
+				return
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		c.finishRead()
+		<-workerDone
+		close(c.readStopped)
+	}()
 	for {
-		var header parser.Header
-
-		if err := c.decoder.DecodeHeader(&header, &event); err != nil {
-			c.log.Debug("socketio: header decode failed", "err", err)
-			c.onError(rootNamespace, err)
+		var next packetHeader
+		select {
+		case <-c.readReady:
+			c.runReadTasks()
+			continue
+		case next = <-headers:
+		}
+		if next.err != nil {
+			c.log.Debug("socketio: header decode failed", "err", next.err)
+			c.onError(rootNamespace, next.err)
 			return
 		}
-
+		header, event := next.header, next.event
 		if header.Namespace == aliasRootNamespace {
 			header.Namespace = rootNamespace
 		}
@@ -108,5 +146,6 @@ func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
 
 			return
 		}
+		consumed <- struct{}{}
 	}
 }

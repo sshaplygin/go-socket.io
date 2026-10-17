@@ -347,6 +347,7 @@ func (c *clientConn) poll(req *http.Request) bool {
 	}
 
 	c.remoteHeader.Store(resp.Header)
+	discardBody(resp.Body)
 	return true
 }
 

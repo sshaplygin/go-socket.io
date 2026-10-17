@@ -200,40 +200,45 @@ type peer struct {
 	errs    chan nsErr
 	nilErrs chan error
 	discs   chan string
+	extra   map[string]Conn
+	nsps    []string
 }
 
 func newPeer(t *testing.T, side byte, h hooks, nsps ...string) *peer {
-	p := &peer{fc: newFakeConn(t), conns: make(chan Conn, 8), errs: make(chan nsErr, 128), nilErrs: make(chan error, 8), discs: make(chan string, 8)}
+	p := &peer{fc: newFakeConn(t), conns: make(chan Conn, 8), errs: make(chan nsErr, 128), nilErrs: make(chan error, 8), discs: make(chan string, 8), extra: make(map[string]Conn), nsps: nsps}
 	cl, err := NewClient("http://127.0.0.1/", nil)
 	require.NoError(t, err)
 	cl.dial = func(string) (engineio.Conn, error) { return p.fc, nil }
 	p.cl = cl
-	nh := cl.createNamespace(cl.namespace)
-	nh.OnConnect(func(c Conn) error {
-		p.conns <- c
-		if h.connect != nil {
-			return h.connect(c)
+	for _, namespace := range append([]string{cl.namespace}, nsps...) {
+		cl.Socket(namespace)
+		nh := cl.createNamespace(fmtNS(namespace))
+		nh.OnConnect(func(c Conn) error {
+			p.conns <- c
+			if h.connect != nil {
+				return h.connect(c)
+			}
+			return nil
+		})
+		nh.OnDisconnect(func(c Conn, _ string) {
+			p.discs <- c.Namespace()
+			if h.disconnect != nil {
+				h.disconnect(c)
+			}
+		})
+		nh.OnError(func(c Conn, err error) {
+			if c == nil {
+				p.nilErrs <- err
+			} else {
+				p.errs <- nsErr{c.Namespace(), err}
+			}
+			if h.onError != nil {
+				h.onError(c, err)
+			}
+		})
+		for name, f := range h.events {
+			nh.OnEvent(name, f)
 		}
-		return nil
-	})
-	nh.OnDisconnect(func(c Conn, _ string) {
-		p.discs <- c.Namespace()
-		if h.disconnect != nil {
-			h.disconnect(c)
-		}
-	})
-	nh.OnError(func(c Conn, err error) {
-		if c == nil {
-			p.nilErrs <- err
-		} else {
-			p.errs <- nsErr{c.Namespace(), err}
-		}
-		if h.onError != nil {
-			h.onError(c, err)
-		}
-	})
-	for name, f := range h.events {
-		nh.OnEvent(name, f)
 	}
 	return p
 }
@@ -243,16 +248,31 @@ func start(t *testing.T, side byte, h hooks, nsps ...string) *peer {
 func (p *peer) connect(t *testing.T) *peer {
 	t.Helper()
 	require.NoError(t, p.cl.Connect())
-	require.Equal(t, "0", recv(t, p.fc.out, "client CONNECT"))
+	for _, namespace := range p.nsps {
+		require.Equal(t, "0"+namespace+",", recv(t, p.fc.out, "namespace CONNECT"))
+	}
 	p.send(t, "0")
 	p.nc = recv(t, p.conns, "root OnConnect")
+	for _, namespace := range p.nsps {
+		p.send(t, "0"+namespace+",")
+		p.extra[namespace] = recv(t, p.conns, "namespace OnConnect")
+	}
 	closeAtEnd(t, p.fc, p.conn())
 	p.emit = p.cl.Emit
 	return p
 }
-func (p *peer) Close() error                              { return p.cl.Close() }
-func (p *peer) conn() *conn                               { return p.cl.conn }
-func (p *peer) sub(t *testing.T) (Conn, string, []string) { return p.nc, "1", nil }
+
+// These tests exercise the connection queue's close/drain barrier directly.
+// Public Client.Close also sends namespace DISCONNECT, covered by the C10 suite.
+func (p *peer) Close() error { return p.conn().Close() }
+func (p *peer) conn() *conn  { return p.cl.conn }
+func (p *peer) sub(t *testing.T) (Conn, string, []string) {
+	if len(p.nsps) != 0 {
+		namespace := p.nsps[len(p.nsps)-1]
+		return p.extra[namespace], "1" + namespace + ",", []string{"/"}
+	}
+	return p.nc, "1", nil
+}
 
 // Covers 1B-T2 (C).
 func TestBackpressureCloseDeliversQueue(t *testing.T) {
@@ -330,7 +350,7 @@ func TestBackpressureCloseStopsDispatch(t *testing.T) {
 		}
 		close(p.fc.release)
 		recv(t, p.fc.closed, "engine.io close after the drain")
-		p.disconnected(t, "/")
+		p.disconnected(t, "/", "/a")
 		require.Zero(t, ran.Load(), "an event handler ran")
 		require.Empty(t, drain(p.conns), "OnConnect ran")
 	})
@@ -423,17 +443,19 @@ func TestBackpressureConnectFailureDiscards(t *testing.T) {
 		var p *peer
 		reportsAtDisconnect := make(chan int, 1)
 		p = newPeer(t, side, hooks{
-			connect:    func(c Conn) error { c.Emit("q"); return errors.New("refused") },
-			disconnect: func(Conn) { reportsAtDisconnect <- len(p.nilErrs) },
+			connect:    func(c Conn) error { c.Emit("q"); return nil },
+			disconnect: func(Conn) { reportsAtDisconnect <- len(p.errs) },
 		})
 
-		p.fc.failWrite.Store(true) // the CONNECT packet fails to encode
-		require.Error(t, p.cl.Connect())
+		p.fc.failWrite.Store(true) // the first event from OnConnect fails to encode
+		// V1-10 returns after OPEN, before the server's root CONNECT.
+		require.NoError(t, p.cl.Connect())
+		p.send(t, "0")
 
 		recv(t, p.fc.closed, "engine.io close of the failed connection")
 		p.disconnected(t, "/")
 		require.Equal(t, 1, recv(t, reportsAtDisconnect, "OnDisconnect"), "reports before OnDisconnect")
-		require.Len(t, drain(p.nilErrs), 1, "connect error reports")
+		require.Len(t, drain(p.errs), 1, "connect error reports")
 		require.Empty(t, drain(p.fc.out), "a packet was written")
 	})
 }
@@ -477,29 +499,24 @@ func TestBackpressureOverflow(t *testing.T) {
 	})
 }
 
-// An overflow, or an encode error, of a packet whose namespace the peer
-// disconnected is reported once, to that namespace's OnError.
+// An encode error in an already admitted packet is still reported to its
+// namespace when the peer disconnects that namespace before the write starts.
 func TestBackpressureReportForDisconnectedNamespace(t *testing.T) {
 	sides(t, "C", func(t *testing.T, side byte) {
-		for _, n := range []int{defaultWriteBufferSize + 1, 0} {
-			p := start(t, side, hooks{}, "/a")
-			nc, frame, others := p.sub(t)
-			p.send(t, frame)
-			require.Equal(t, nc.Namespace(), recv(t, p.discs, "OnDisconnect on the DISCONNECT"))
-			if p.stall(t, nc, n); n == 0 {
-				nc.Emit("bad", make(chan int)) // json cannot encode a channel
-				close(p.fc.release)
-			}
-			got := recv(t, p.errs, "the report")
-			require.Equal(t, nc.Namespace(), got.nsp)
-			require.Equal(t, n > 0, errors.Is(got.err, ErrWriteBufferFull), "an overflow report")
-			if n == 0 {
-				require.False(t, isDone(p.fc.closed))
-				require.NoError(t, p.Close())
-			}
-			p.disconnected(t, others...)
-			require.Empty(t, drain(p.errs), "a second report")
-		}
+		p := start(t, side, hooks{}, "/a")
+		nc, frame, others := p.sub(t)
+		p.stall(t, nc, 0)
+		nc.Emit("bad", make(chan int)) // admitted before the namespace disconnects
+		p.send(t, frame)
+		require.Equal(t, nc.Namespace(), recv(t, p.discs, "OnDisconnect on the DISCONNECT"))
+		close(p.fc.release)
+		got := recv(t, p.errs, "the report")
+		require.Equal(t, nc.Namespace(), got.nsp)
+		require.NotErrorIs(t, got.err, ErrWriteBufferFull)
+		require.False(t, isDone(p.fc.closed))
+		require.NoError(t, p.Close())
+		p.disconnected(t, others...)
+		require.Empty(t, drain(p.errs), "a second report")
 	})
 }
 
@@ -578,12 +595,12 @@ func TestBackpressureLibraryPacketOverflow(t *testing.T) {
 		side  byte
 		frame string
 		nsps  []string // the last one overflows
-	}{{'C', `21["echo"]`, []string{"/"}}} {
+	}{{'C', `21["echo"]`, []string{"/", "/a"}}} {
 		p := start(t, tc.side, hooks{events: map[string]interface{}{"echo": func(Conn) string { return "ok" }}}, "/a")
 		p.stall(t, p.nc, defaultWriteBufferSize)
 		p.send(t, tc.frame) // the ACK or CONNECT reply finds the queue full
 		recv(t, p.fc.closed, "engine.io close on overflow")
-		p.overflowReported(t, tc.nsps[len(tc.nsps)-1])
+		p.overflowReported(t, "/")
 		p.disconnected(t, tc.nsps...) // the read goroutine ran them, so it did not block
 	}
 }

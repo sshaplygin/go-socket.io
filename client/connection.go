@@ -69,7 +69,7 @@ type Conn interface {
 	// has an effect. For every connected namespace it emits disconnecting while rooms are joined,
 	// writes a DISCONNECT packet, leaves its rooms, and calls OnDisconnect with
 	// "server namespace disconnect". It returns without waiting. A client-side
-	// connection keeps the engine close behavior and "forced close" reason.
+	// connection sends DISCONNECT for every socket with reason "io client disconnect".
 	// The packets queued until then, Emits from OnDisconnect included, are written in the background;
 	// an Emit that finds the queue full, or comes later, is dropped without a report. Then, or
 	// engineio.Options.PingTimeout (one minute if not positive) after Close started, the rest is
@@ -115,9 +115,15 @@ type conn struct {
 	reader  *frameReader // tells the decoder's transport failures apart
 	writer  *queueWriter // tells the encoder's transport failures apart
 
-	writeReady chan struct{}
-	writeChan  chan parser.Payload
-	errorChan  chan *errorMessage
+	writeReady                              chan struct{}
+	writeChan                               chan queuedPayload
+	controls                                []controlPayload
+	enqueued, started                       uint64
+	owner                                   *clientState
+	readTasks                               []func()
+	readReady                               chan struct{}
+	readStopped, writeStopped, errorStopped chan struct{}
+	errorChan                               chan *errorMessage
 
 	log *slog.Logger
 
@@ -141,7 +147,7 @@ func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connL
 		disconnectReason: "forced close",
 		Conn:             engineConn,
 		errorChan:        make(chan *errorMessage),
-		writeChan:        make(chan parser.Payload, limits.writeBufferSize),
+		writeChan:        make(chan queuedPayload, limits.writeBufferSize),
 		writeReady:       make(chan struct{}, 1),
 		handlers:         handlers,
 		namespaces:       newNamespaces(),
@@ -149,6 +155,10 @@ func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connL
 		seal:             make(chan struct{}),
 		discard:          make(chan struct{}),
 		done:             make(chan struct{}),
+		readReady:        make(chan struct{}, 1),
+		readStopped:      make(chan struct{}),
+		writeStopped:     make(chan struct{}),
+		errorStopped:     make(chan struct{}),
 	}
 	c.reader, c.writer = &frameReader{FrameReader: engineConn}, &queueWriter{c: c}
 	c.decoder, c.encoder = parser.NewDecoder(c.reader), parser.NewEncoder(c.writer)
@@ -224,6 +234,9 @@ func (c *conn) disconnect(ncs []*namespaceConn) {
 // disconnectNamespace exposes rooms to disconnecting, then removes them before
 // OnDisconnect, matching the reference's two lifecycle notifications.
 func (c *conn) disconnectNamespace(nc *namespaceConn, reason string) {
+	c.mu.Lock()
+	draining := c.draining
+	c.mu.Unlock()
 	defer func() {
 		c.mu.Lock()
 		c.disconnecting--
@@ -231,18 +244,26 @@ func (c *conn) disconnectNamespace(nc *namespaceConn, reason string) {
 		c.disconnects.Done()
 	}()
 	nh := c.namespace(fmtNS(nc.namespace))
+	if c.owner != nil && !draining {
+		c.owner.detach(nc)
+	}
 	if nh != nil {
 		if _, err := nh.dispatchEvent(nc, "disconnecting", reflect.ValueOf(reason)); err != nil {
-			if nh.onError != nil {
-				nh.onError(nc, err)
+			if f := nh.errorHandler(); f != nil {
+				f(nc, err)
 			} else {
 				c.unhandled(nc.namespace, err)
 			}
 		}
 	}
 	nc.LeaveAll()
-	if nh != nil && nh.onDisconnect != nil {
-		nh.onDisconnect(nc, reason)
+	if nh != nil {
+		if f := nh.disconnectHandler(); f != nil {
+			f(nc, reason)
+		}
+	}
+	if c.owner != nil && draining {
+		c.owner.detach(nc)
 	}
 }
 
@@ -303,8 +324,12 @@ func (c *conn) claim(nsp string, expected ...*namespaceConn) (*namespaceConn, bo
 
 // connected ends the connect; a failure reports err first, so Emits from OnError queue, then closes.
 func (c *conn) connected(err error) bool {
-	if root := c.namespace(rootNamespace); err != nil && root != nil && root.onError != nil {
-		root.onError(nil, err)
+	var onError func(Conn, error)
+	if root := c.namespace(rootNamespace); root != nil {
+		onError = root.errorHandler()
+	}
+	if err != nil && onError != nil {
+		onError(nil, err)
 	} else if err != nil && !expected(err, c.writer.failed) {
 		c.unhandled(rootNamespace, err)
 	}
@@ -343,7 +368,8 @@ func (c *conn) queueLocked(header parser.Header, args ...reflect.Value) {
 		return
 	}
 	if len(c.writeChan) < cap(c.writeChan) {
-		c.writeChan <- parser.Payload{Header: header, Data: data}
+		c.enqueued++
+		c.writeChan <- queuedPayload{payload: parser.Payload{Header: header, Data: data}, sequence: c.enqueued}
 		c.notifyWrite()
 	} else if !isDone(c.closing) {
 		c.overflowWrite(header)
@@ -369,11 +395,13 @@ func (c *conn) reportOverflow(conn Conn) {
 	if c.overflow == nil {
 		return
 	}
-	if nh := c.namespace(fmtNS(c.overflow.namespace)); nh != nil && nh.onError != nil {
-		nh.onError(conn, ErrWriteBufferFull)
-	} else {
-		c.unhandled(c.overflow.namespace, ErrWriteBufferFull)
+	if nh := c.namespace(fmtNS(c.overflow.namespace)); nh != nil {
+		if f := nh.errorHandler(); f != nil {
+			f(conn, ErrWriteBufferFull)
+			return
+		}
 	}
+	c.unhandled(c.overflow.namespace, ErrWriteBufferFull)
 }
 
 // unhandled logs err, which no OnError receives and which is not expected closure.
@@ -388,7 +416,7 @@ func nspAttr(nsp string) slog.Attr {
 
 // errConn returns the Conn to report an error of nsp with (new if nsp was disconnected), or nil.
 func (c *conn) errConn(nsp string) (nc *namespaceConn) {
-	if nh := c.namespace(nsp); nh != nil && nh.onError != nil {
+	if nh := c.namespace(nsp); nh != nil && nh.errorHandler() != nil {
 		if nc, _ = c.namespaces.Get(nsp); nc == nil {
 			nc = newNamespaceConn(c, cmp.Or(nsp, aliasRootNamespace), nh.broadcast)
 		}
@@ -513,10 +541,62 @@ func (c *conn) notifyWrite() {
 func (c *conn) nextQueued() (parser.Payload, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if len(c.controls) > 0 && c.controls[0].after <= c.started {
+		control := c.controls[0]
+		c.controls = c.controls[1:]
+		return control.payload, true
+	}
 	if len(c.writeChan) > 0 {
-		return <-c.writeChan, true
+		queued := <-c.writeChan
+		c.started = queued.sequence
+		return queued.payload, true
 	}
 	return parser.Payload{}, false
+}
+
+type queuedPayload struct {
+	payload  parser.Payload
+	sequence uint64
+}
+
+type controlPayload struct {
+	payload parser.Payload
+	after   uint64
+}
+
+// Lifecycle packets retain their position among application writes without
+// consuming an application slot. At most one CONNECT/DISCONNECT is owed per socket.
+func (c *conn) writeControl(header parser.Header) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if isDone(c.discard) || c.appSealed {
+		return
+	}
+	c.controls = append(c.controls, controlPayload{payload: parser.Payload{Header: header}, after: c.enqueued})
+	c.notifyWrite()
+}
+
+func (c *conn) queueReadTask(task func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if isDone(c.closing) {
+		return
+	}
+	c.readTasks = append(c.readTasks, task)
+	select {
+	case c.readReady <- struct{}{}:
+	default:
+	}
+}
+
+func (c *conn) runReadTasks() {
+	c.mu.Lock()
+	tasks := c.readTasks
+	c.readTasks = nil
+	c.mu.Unlock()
+	for _, task := range tasks {
+		task()
+	}
 }
 
 // EngineConn returns nil on a client connection.

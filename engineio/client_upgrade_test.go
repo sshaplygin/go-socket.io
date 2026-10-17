@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,11 +17,177 @@ import (
 	gorilla "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
+
+type upgradeFaultTransport struct {
+	transport.Transport
+	phase string
+	err   error
+}
+
+func (t upgradeFaultTransport) Dial(u *url.URL, h http.Header) (transport.Conn, error) {
+	c, err := t.Transport.Dial(u, h)
+	if err != nil {
+		return nil, err
+	}
+	return &upgradeFaultConn{Conn: c, phase: t.phase, err: t.err}, nil
+}
+
+type upgradeFaultConn struct {
+	transport.Conn
+	phase                         string
+	err                           error
+	readDeadlines, writeDeadlines int
+}
+
+func (c *upgradeFaultConn) SetReadDeadline(deadline time.Time) error {
+	c.readDeadlines++
+	if c.phase == "read-deadline" && c.readDeadlines == 1 || c.phase == "upgrade-read-deadline" && c.readDeadlines == 2 {
+		return c.err
+	}
+	return c.Conn.SetReadDeadline(deadline)
+}
+
+func (c *upgradeFaultConn) SetWriteDeadline(deadline time.Time) error {
+	c.writeDeadlines++
+	if c.phase == "write-deadline" && c.writeDeadlines == 1 || c.phase == "upgrade-write-deadline" && c.writeDeadlines == 2 {
+		return c.err
+	}
+	return c.Conn.SetWriteDeadline(deadline)
+}
+
+func (c *upgradeFaultConn) NextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, error) {
+	if c.phase == "ping-next" && pt == packet.PING || c.phase == "upgrade-next" && pt == packet.UPGRADE {
+		return nil, c.err
+	}
+	w, err := c.Conn.NextWriter(ft, pt)
+	if err != nil {
+		return nil, err
+	}
+	return &upgradeFaultWriter{WriteCloser: w, c: c, packet: pt}, nil
+}
+
+type upgradeFaultWriter struct {
+	io.WriteCloser
+	c      *upgradeFaultConn
+	packet packet.Type
+}
+
+func (w *upgradeFaultWriter) Write(p []byte) (int, error) {
+	if w.c.phase == "ping-write" {
+		return 0, w.c.err
+	}
+	return w.WriteCloser.Write(p)
+}
+
+func (w *upgradeFaultWriter) Close() error {
+	err := w.WriteCloser.Close()
+	if w.c.phase == "ping-close" && w.packet == packet.PING || w.c.phase == "upgrade-close" && w.packet == packet.UPGRADE {
+		return w.c.err
+	}
+	return err
+}
+
+func (c *upgradeFaultConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+	if c.phase == "read-next" {
+		return 0, 0, nil, c.err
+	}
+	ft, pt, r, err := c.Conn.NextReader()
+	if err != nil {
+		return ft, pt, r, err
+	}
+	return ft, pt, &upgradeFaultReader{ReadCloser: r, c: c}, nil
+}
+
+type upgradeFaultReader struct {
+	io.ReadCloser
+	c *upgradeFaultConn
+}
+
+func (r *upgradeFaultReader) Read(p []byte) (int, error) {
+	if r.c.phase == "read-body" {
+		return 0, r.c.err
+	}
+	return r.ReadCloser.Read(p)
+}
+
+func (r *upgradeFaultReader) Close() error {
+	err := r.ReadCloser.Close()
+	if r.c.phase == "read-close" {
+		return r.c.err
+	}
+	return err
+}
+
+// Probe failures before UPGRADE preserve polling. A failure while committing it
+// closes the connection because either endpoint may already have switched.
+// Covers C5.
+func TestClientUpgradeTransportErrors(t *testing.T) {
+	for _, phase := range []string{"read-deadline", "write-deadline", "ping-next", "ping-write", "ping-close", "read-next", "read-body", "read-close", "upgrade-next", "upgrade-close", "upgrade-read-deadline", "upgrade-write-deadline"} {
+		t.Run(phase, func(t *testing.T) {
+			records := newRecorder()
+			setDefault(t, records)
+			srv := NewServer(&Options{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+			ts := httptest.NewServer(srv)
+			var c Conn
+			t.Cleanup(func() {
+				if c != nil {
+					_ = c.Close()
+				}
+				_ = srv.Close()
+				ts.Close()
+			})
+			injected := errors.New("injected probe " + phase)
+			candidate := upgradeFaultTransport{Transport: websocket.Default, phase: phase, err: injected}
+			var err error
+			c, err = (&Dialer{Upgrade: true, UpgradeTimeout: time.Second, Transports: []transport.Transport{polling.Default, candidate}}).Dial(ts.URL, nil)
+			require.NoError(t, err)
+			server, err := srv.Accept()
+			require.NoError(t, err)
+			clientRead, serverRead := clientUpgradeRead(c, nil), clientUpgradeRead(server, nil)
+			require.Eventually(t, func() bool { return len(records.find("engineio: upgrade probe failed")) > 0 }, 2*time.Second, time.Millisecond)
+			require.Contains(t, records.find("engineio: upgrade probe failed")[0]["err"], injected.Error())
+			require.False(t, c.Upgraded())
+			if strings.HasPrefix(phase, "upgrade-") {
+				select {
+				case result := <-clientRead:
+					var closed *session.CloseError
+					require.ErrorAs(t, result.err, &closed)
+					require.Equal(t, session.ReasonTransportError, closed.Reason)
+					require.ErrorIs(t, closed, injected)
+				case <-time.After(time.Second):
+					t.Fatal("failed UPGRADE did not close the client")
+				}
+				require.Equal(t, StateClosed, c.ReadyState())
+			} else {
+				require.Equal(t, "polling", c.Transport())
+				require.NoError(t, clientUpgradeMessage(c, "client"))
+				require.NoError(t, clientUpgradeMessage(c, "end"))
+				require.NoError(t, clientUpgradeMessage(server, "server"))
+				require.NoError(t, clientUpgradeMessage(server, "end"))
+				for side, read := range []<-chan clientUpgradeFrames{clientRead, serverRead} {
+					select {
+					case result := <-read:
+						require.NoError(t, result.err)
+						want := "server"
+						if side == 1 {
+							want = "client"
+						}
+						require.Equal(t, []string{want}, result.values)
+					case <-time.After(time.Second):
+						t.Fatal("polling did not survive a probe failure")
+					}
+				}
+			}
+		})
+	}
+}
 
 type clientUpgradeFrames struct {
 	values []string
@@ -197,7 +365,7 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 					if err != nil {
 						return
 					}
-					defer ws.Close()
+					defer func() { _ = ws.Close() }()
 					if _, _, err := ws.ReadMessage(); err == nil {
 						_ = ws.WriteMessage(gorilla.TextMessage, []byte("3wrong"))
 					}
@@ -206,7 +374,7 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 					if err != nil {
 						return
 					}
-					defer conn.Close()
+					defer func() { _ = conn.Close() }()
 					<-stop
 				default:
 					s.ServeHTTP(w, r)
@@ -223,9 +391,10 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 				ts.Close()
 			})
 			var bound time.Duration
-			if name == "stalled" || name == "unread" {
+			switch name {
+			case "stalled", "unread":
 				bound = 200 * time.Millisecond
-			} else if name == "clamped" {
+			case "clamped":
 				bound = time.Hour
 			}
 			var err error
@@ -250,11 +419,12 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 			require.Equal(t, "DEBUG", records[0]["level"])
 			require.Equal(t, "websocket", records[0]["transport"])
 			require.NotEmpty(t, records[0]["err"])
-			if name == "wrong-answer" {
+			switch name {
+			case "wrong-answer":
 				require.Contains(t, records[0]["err"], "invalid upgrade probe answer")
-			} else if name == "rejected" {
+			case "rejected":
 				require.Contains(t, records[0]["err"], "bad handshake")
-			} else {
+			default:
 				require.Contains(t, records[0]["err"], "deadline exceeded")
 			}
 			require.NotContains(t, records[0], "sid")
@@ -305,7 +475,7 @@ func TestClientUpgradeDeadline(t *testing.T) {
 				upgrade <- err
 				return
 			}
-			defer ws.Close()
+			defer func() { _ = ws.Close() }()
 			_, packet, err := ws.ReadMessage()
 			if err != nil || string(packet) != "2probe" {
 				upgrade <- fmt.Errorf("expected probe, got %q: %v", packet, err)

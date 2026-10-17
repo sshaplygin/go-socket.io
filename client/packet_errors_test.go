@@ -103,16 +103,22 @@ func TestClientRegistrationAndDialFailures(t *testing.T) {
 			require.ErrorIs(t, c.Connect(), failure)
 		})
 	}
-	t.Run("missing root handler uses the configured logger", func(t *testing.T) {
+	t.Run("default root handler uses the configured logger", func(t *testing.T) {
 		var records bytes.Buffer
 		log := slog.New(slog.NewTextHandler(&records, nil))
 		c, err := NewClient("http://127.0.0.1/", &engineio.Options{Logger: log})
 		require.NoError(t, err)
 		fc := newFakeConn(t)
 		c.dial = func(string) (engineio.Conn, error) { return fc, nil }
-		require.ErrorIs(t, c.Connect(), errUnavailableRootHandler)
-		recv(t, fc.closed, "engine close after connect rejection")
+		require.NoError(t, c.Connect())
+		closeAtEnd(t, fc, c.conn)
+		fc.reads <- `4"refused"`
+		// A following handled event is the wire barrier for the ERROR dispatch.
+		c.OnEvent("barrier", func(Conn) string { return "ok" })
+		fc.reads <- "0"
+		fc.reads <- `27["barrier"]`
+		require.Equal(t, "37[\"ok\"]\n", recv(t, fc.out, "ERROR dispatch barrier"))
 		require.Contains(t, records.String(), "socketio: unhandled error")
-		require.Contains(t, records.String(), errUnavailableRootHandler.Error())
+		require.Contains(t, records.String(), "refused")
 	})
 }

@@ -39,6 +39,24 @@ func (nh *namespaceHandler) OnError(f func(Conn, error)) {
 	nh.onError = f
 }
 
+func (nh *namespaceHandler) connectHandler() func(Conn) error {
+	nh.eventsLock.RLock()
+	defer nh.eventsLock.RUnlock()
+	return nh.onConnect
+}
+
+func (nh *namespaceHandler) disconnectHandler() func(Conn, string) {
+	nh.eventsLock.RLock()
+	defer nh.eventsLock.RUnlock()
+	return nh.onDisconnect
+}
+
+func (nh *namespaceHandler) errorHandler() func(Conn, error) {
+	nh.eventsLock.RLock()
+	defer nh.eventsLock.RUnlock()
+	return nh.onError
+}
+
 type eventListener struct {
 	handler *funcHandler
 }
@@ -59,24 +77,24 @@ func (nh *namespaceHandler) listeners(event string) []*eventListener {
 func (nh *namespaceHandler) dispatch(conn Conn, header parser.Header, args ...reflect.Value) ([]reflect.Value, error) {
 	switch header.Type {
 	case parser.Connect:
-		if nh.onConnect != nil {
-			return nil, nh.onConnect(conn)
+		if f := nh.connectHandler(); f != nil {
+			return nil, f(conn)
 		}
 		return nil, nil
 
 	case parser.Disconnect:
-		if nh.onDisconnect != nil {
-			nh.onDisconnect(conn, getDispatchMessage(args...))
+		if f := nh.disconnectHandler(); f != nil {
+			f(conn, getDispatchMessage(args...))
 		}
 		return nil, nil
 
 	case parser.Error:
-		if nh.onError != nil {
+		if f := nh.errorHandler(); f != nil {
 			msg := getDispatchMessage(args...)
 			if msg == "" {
 				msg = "parser error dispatch"
 			}
-			nh.onError(conn, errors.New(msg))
+			f(conn, errors.New(msg))
 		}
 	}
 

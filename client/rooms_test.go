@@ -17,9 +17,12 @@ func TestClientRoomsAndContext(t *testing.T) {
 	require.ElementsMatch(t, []string{p.nc.ID(), "two"}, p.nc.Rooms())
 	p.nc.SetContext("local")
 	require.Equal(t, "local", p.nc.Context())
-	p.nc.Disconnect() // the client-side stub keeps its connection and rooms
-	expectBeforeBarrier(t, p)
-	require.ElementsMatch(t, []string{p.nc.ID(), "two"}, p.nc.Rooms())
 	p.nc.LeaveAll()
+	require.Empty(t, p.nc.Rooms())
+	p.nc.Join("after leave-all")
+	p.nc.Disconnect()
+	require.Equal(t, "1", recv(t, p.fc.out, "namespace DISCONNECT"))
+	recv(t, p.fc.closed, "last socket closes the engine")
+	p.disconnected(t, "/")
 	require.Empty(t, p.nc.Rooms())
 }

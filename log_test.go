@@ -394,13 +394,17 @@ func TestNamespaceRecords(t *testing.T) {
 		}, map[string]error{"/": nil, "/chat": nil, "/b": nil},
 			map[string]any{"/": "connection close", "/chat": "namespace disconnect", "/b": "connection close"}},
 		{"root OnConnect fails", fail("/", 0, refused), func(t *testing.T, p *peer) {
-			p.connect(t).disconnected(t, "/")
-		}, map[string]error{"/": refused}, map[string]any{"/": "connection close"}},
+			p.connect(t)
+			close(p.fc.peerGone)
+			p.disconnected(t)
+		}, map[string]error{"/": refused}, map[string]any{}},
 		{"OnConnect of /chat fails", fail("/chat", 0, refused), func(t *testing.T, p *peer) {
 			p.connect(t).send(t, "0/chat")
-			p.disconnected(t, "/", "/chat")
-		}, map[string]error{"/": nil, "/chat": refused},
-			map[string]any{"/": "connection close", "/chat": "connection close"}},
+			for recv(t, p.fc.out, "namespace ERROR") != "4/chat,\"refused\"\n" {
+			}
+			close(p.fc.peerGone)
+			p.disconnected(t, "/")
+		}, map[string]error{"/": nil, "/chat": refused}, map[string]any{"/": "connection close"}},
 		{"overflow in root OnConnect", fail("/", defaultWriteBufferSize+1, nil), func(t *testing.T, p *peer) {
 			p.connect(t).disconnected(t, "/")
 		}, map[string]error{"/": ErrWriteBufferFull}, map[string]any{"/": "connection close"}},
@@ -486,8 +490,8 @@ func TestPingTimeoutRecords(t *testing.T) {
 			require.Equal(t, "ping timeout", only(recs, "engineio: session close")[0]["reason"])
 			require.Equal(t, "connection close", only(recs, "socketio: disconnect")[0]["reason"])
 			_, hasErr := only(recs, "socketio: namespace connect")[0]["err"]
-			require.Equal(t, tr == polling.Default, hasErr, "a namespace connect err")
-			require.Equal(t, tr == polling.Default, len(connected) == 0, "root OnConnect calls")
+			require.False(t, hasErr, "accepted namespace is recorded before its queued CONNECT is written")
+			require.Equal(t, 1, len(connected), "OnConnect runs before CONNECT encoding")
 		})
 	}
 }

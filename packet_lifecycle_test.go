@@ -100,7 +100,7 @@ func TestDisconnectingRooms(t *testing.T) {
 			require.Empty(t, last.rooms)
 			reason := clientDisconnectMsg
 			if applicationClose {
-				reason = "forced close"
+				reason = "server namespace disconnect"
 			}
 			require.Equal(t, reason, first.reason)
 			require.Equal(t, reason, last.reason)
@@ -143,6 +143,7 @@ func TestOnDisconnectReason(t *testing.T) {
 				require.NoError(t, c.UnderlyingConn().Close())
 				want = "transport error"
 			case "Conn.Close":
+				want = "server namespace disconnect"
 				require.NoError(t, c.WriteMessage(gorilla.TextMessage, []byte(`42["close"]`)))
 			case "Server.Close":
 				require.NoError(t, s.Close())

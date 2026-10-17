@@ -60,8 +60,8 @@ func TestLifecycleRootConnectError(t *testing.T) {
 
 	c := dialRaw(t, ts.URL)
 	require.EqualError(t, recv(t, rootErrs, "root OnError"), "rejected")
-	require.Equal(t, "0", c.read(), "CONNECT is written before OnConnect runs")
-	require.True(t, c.readClosed(), "the server closes a connection whose root OnConnect fails")
+	require.Equal(t, "4\"rejected\"\n", c.read(), "root rejection answers ERROR")
+	c.send("0/chat,")
 }
 
 func TestLifecycleNoRootHandler(t *testing.T) {

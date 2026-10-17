@@ -9,14 +9,15 @@ cd _examples/<name>
 go run .
 ```
 
-Every example serves the same chat, a port of the
+The mounting examples serve the same chat, a port of the
 [Socket.IO chat example](https://github.com/socketio/socket.io/tree/main/examples/chat)
 (MIT license, pinned commit in the file headers), so an example differs from the others
 only in what it demonstrates: mounting, CORS, pprof, shutdown, Redis or Docker.
+The `ack` and `binary` directories demonstrate individual protocol features.
 
 - **Server.** `chat.go` registers the chat on namespace `/` through `registerChat(server)`
   with the events and payloads of upstream `index.js`. The modules are separate, so the
-  file is copied into each; `make examples` fails when a copy differs from
+  file is copied into each chat example; `make examples` fails when a copy differs from
   `default-http/chat.go`. Change all copies together.
 - **Page.** `asset/` holds the upstream `index.html`, `main.js` and `style.css`
   (license: `asset/LICENSE-socket.io-chat`), which the browser examples mount as
@@ -28,6 +29,8 @@ only in what it demonstrates: mounting, CORS, pprof, shutdown, Redis or Docker.
 
 | Directory | Shows |
 | --- | --- |
+| `ack` | acknowledgements through return values and `AckFunc` |
+| `binary` | binary events and ACKs in both directions |
 | `default-http` | `net/http` server and CORS-permissive transports |
 | `dockerize-default-http` | the same server in a Docker image (`make -i`) |
 | `gin-gonic`, `gin-cors` | mounting on gin, with and without CORS middleware; page at `/public/` |
@@ -54,3 +57,20 @@ go run ./_examples/client -addr http://127.0.0.1:8000 -name gopher   # from the 
 
 The Go client sends no close packet, so the server drops its session, and announces
 `user left`, only after the ping timeout.
+
+`make examples` builds and vets every standalone module and checks the shared
+chat files. The executable Node clients check ACKs, binary buffers, and the chat
+login event. Install either supported client into a temporary prefix and run
+from the repository root:
+
+```sh
+d=$(mktemp -d)
+npm install --no-save --prefix "$d" socket.io-client@2.5.0
+CONFORMANCE_NODE_MODULES="$d/node_modules" make examples-node
+```
+
+Use `socket.io-client@1.7.4` in the same command for the other supported client.
+The target requires `CONFORMANCE_NODE_MODULES`, starts each example with a
+random local port, and fails on a missing dependency or any client failure.
+Both pinned clients run in CI. `default-http` also accepts `-addr` (default
+`:8000`) when run manually.

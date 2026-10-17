@@ -139,6 +139,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Executable ACK and binary examples, plus a Node chat-login check. `make examples`
+  vets standalone modules; `make examples-node` checks each client script under both
+  supported Node clients in CI.
+
 - The Go client is available as `github.com/sshaplygin/go-socket.io/client`,
   with connection interfaces shared through root aliases.
 

@@ -259,3 +259,27 @@ func TestPeerCloseInterruptsOrderlyClose(t *testing.T) {
 	require.Equal(t, StateClosed, s.ReadyState())
 	require.Equal(t, ReasonForcedClose, s.closeError().Reason, "first cause is preserved")
 }
+
+func TestReaderWaitsForOrderlyTransportClose(t *testing.T) {
+	c := newOrderlyConn()
+	s := newTestSession(t, c, "polling")
+	t.Cleanup(func() { _ = engineclose.Abort(s) })
+	require.NoError(t, s.InitSession())
+	require.NoError(t, s.Close())
+	waitClose(t, c.entered)
+	read := make(chan error, 1)
+	go func() { _, _, err := s.NextReader(); read <- err }()
+	select {
+	case err := <-read:
+		t.Fatalf("reader ended before orderly transport close: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(c.allow)
+	select {
+	case err := <-read:
+		require.Error(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("reader did not end after transport close")
+	}
+	require.Equal(t, StateClosed, s.ReadyState())
+}

@@ -321,7 +321,7 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 				s.logger().Debug("engineio: session close failed", "err", closeErr)
 			}
 
-			return 0, nil, fmt.Errorf("next reader: %w", s.closeError())
+			return 0, nil, s.readerCloseError()
 		}
 		// Every received packet, including MESSAGE, renews the liveness window.
 		if s.hooks != nil && s.hooks.Packet != nil {
@@ -330,7 +330,7 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 		if err := s.fail(s.setDeadline()); err != nil {
 			_ = r.Close()
 			_ = s.Close()
-			return 0, nil, fmt.Errorf("next reader: %w", s.closeError())
+			return 0, nil, s.readerCloseError()
 		}
 
 		switch pt {
@@ -364,7 +364,7 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 					s.logger().Debug("engineio: session close failed", "err", closeErr)
 				}
 
-				return 0, nil, fmt.Errorf("next reader: %w", s.closeError())
+				return 0, nil, s.readerCloseError()
 			}
 		case packet.CLOSE:
 			s.observe(reasonTransportClose, nil)
@@ -377,7 +377,7 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 				s.logger().Debug("engineio: session close failed", "err", err)
 			}
 
-			return 0, nil, fmt.Errorf("next reader: %w", s.closeError())
+			return 0, nil, s.readerCloseError()
 
 		case packet.MESSAGE:
 			// Caller must Close the ReadCloser to unlock the connection's
@@ -500,6 +500,13 @@ func (s *Session) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer observed.drain()
 		h.ServeHTTP(observed, r)
 	}
+}
+
+// A root reader ending also starts forced cleanup. Keep it alive while an orderly
+// transport close is still draining, so that cleanup cannot abort accepted writes.
+func (s *Session) readerCloseError() error {
+	<-s.closeDone
+	return fmt.Errorf("next reader: %w", s.closeError())
 }
 
 func (s *Session) nextReader() (frame.Type, packet.Type, io.ReadCloser, error) {

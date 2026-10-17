@@ -32,6 +32,16 @@ var (
 // frames.
 var ErrWriteBufferFull = errors.New("write buffer full")
 
+// ErrExceptUnsupported means the adapter cannot exclude sockets. Nothing is sent.
+var ErrExceptUnsupported = errors.New("socketio: broadcast except is not supported by this adapter")
+
+// ErrBroadcastAck means a broadcast has a trailing acknowledgement callback.
+// Only single-socket emits and the legacy broadcast methods support callbacks.
+var ErrBroadcastAck = errors.New("socketio: callbacks are not supported when broadcasting")
+
+// ErrServerOnly means a client connection cannot perform a server broadcast.
+var ErrServerOnly = errors.New("socketio: server-only method on a client connection")
+
 type errorMessage struct {
 	namespace string
 	conn      *namespaceConn // nil if namespace has no OnError; see conn.errConn

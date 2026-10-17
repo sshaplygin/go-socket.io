@@ -268,7 +268,7 @@ func (s *Server) ClearRoom(namespace string, room string) bool {
 	return bc != nil
 }
 
-// BroadcastToRoom broadcasts given event & args to all the connections in the room.
+// BroadcastToRoom broadcasts to the room. A trailing callback is registered per socket.
 func (s *Server) BroadcastToRoom(namespace string, room, event string, args ...interface{}) bool {
 	bc := s.broadcastOf(namespace)
 	if bc != nil {
@@ -277,7 +277,7 @@ func (s *Server) BroadcastToRoom(namespace string, room, event string, args ...i
 	return bc != nil
 }
 
-// BroadcastToNamespace broadcasts given event & args to all the connections in the same namespace.
+// BroadcastToNamespace broadcasts to the namespace. A trailing callback is registered per socket.
 func (s *Server) BroadcastToNamespace(namespace string, event string, args ...interface{}) bool {
 	bc := s.broadcastOf(namespace)
 	if bc != nil {

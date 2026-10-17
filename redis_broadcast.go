@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gomodule/redigo/redis"
+	"github.com/sshaplygin/go-socket.io/logger"
 )
 
 // redisBroadcast gives Join, Leave & BroadcastTO server API support to socket.io along with room management
@@ -289,16 +290,14 @@ func (bc *redisBroadcast) Clear(room string) {
 	go bc.publishClear(room)
 }
 
-// Send sends given event & args to all the connections in the specified room.
+// Send emits to a room, registering a trailing callback on each local socket.
 func (bc *redisBroadcast) Send(room, event string, args ...interface{}) {
-	bc.send(room, event, args...)
-	bc.publishMessage(room, event, args...)
+	_ = bc.SendTo(BroadcastOptions{Rooms: []string{room}}, event, args...)
 }
 
-// SendAll sends given event & args to all the connections to all the rooms.
+// SendAll emits once per socket, registering a trailing callback on each local socket.
 func (bc *redisBroadcast) SendAll(event string, args ...interface{}) {
-	bc.sendAll(event, args...)
-	bc.publishMessage("", event, args...)
+	_ = bc.SendTo(BroadcastOptions{}, event, args...)
 }
 
 // ForEach sends data returned by DataFunc, if room does not exits sends nothing.
@@ -361,6 +360,9 @@ func (bc *redisBroadcast) Rooms(connection Conn) []string {
 
 func (bc *redisBroadcast) onMessage(channel string, msg []byte) error {
 	channelParts := strings.Split(channel, "#")
+	if len(channelParts) < 3 {
+		return errors.New("invalid broadcast channel")
+	}
 	nsp := channelParts[len(channelParts)-2]
 	if bc.nsp != nsp {
 		return nil
@@ -371,16 +373,23 @@ func (bc *redisBroadcast) onMessage(channel string, msg []byte) error {
 		return nil
 	}
 
-	var bcMessage map[string][]interface{}
-	err := json.Unmarshal(msg, &bcMessage)
-	if err != nil {
+	var bcMessage map[string]json.RawMessage
+	if err := json.Unmarshal(msg, &bcMessage); err != nil {
 		return errors.New("invalid broadcast message")
 	}
-
-	args := bcMessage["args"]
-	opts := bcMessage["opts"]
-	if len(opts) < 2 {
+	rawArgs, hasArgs := bcMessage["args"]
+	rawOpts, hasOpts := bcMessage["opts"]
+	if len(bcMessage) != 2 || !hasArgs || !hasOpts {
+		logger.Log.Warn("socketio: unsupported redis broadcast message")
+		return errors.New("unsupported broadcast message")
+	}
+	var opts, args []interface{}
+	if json.Unmarshal(rawOpts, &opts) != nil || json.Unmarshal(rawArgs, &args) != nil {
 		return errors.New("invalid broadcast message")
+	}
+	if len(opts) != 2 {
+		logger.Log.Warn("socketio: unsupported redis broadcast message")
+		return errors.New("unsupported broadcast message")
 	}
 
 	room, ok := opts[0].(string)
@@ -576,25 +585,51 @@ func (bc *redisBroadcast) send(room string, event string, args ...interface{}) {
 	}
 }
 
-// members returns the connections in room, or with all set the connections
-// of every room, once per room. Callers emit to them after bc.lock is
-// released, so a connection can leave its rooms while it is emitted to.
+// members snapshots local targets without holding the lock during delivery.
 func (bc *redisBroadcast) members(room string, all bool) []Conn {
+	opts := BroadcastOptions{}
+	if !all {
+		opts.Rooms = []string{room}
+	}
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
+	return broadcastMembers(bc.rooms, opts)
+}
 
-	rooms := bc.rooms
-	if !all {
-		rooms = map[string]map[string]Conn{room: bc.rooms[room]}
+// SendTo excludes nothing on this adapter: Except returns ErrExceptUnsupported
+// before local delivery or Redis I/O. Room unions dedupe locally and publish one
+// message per room; remote sockets may receive once per room. Local suppresses
+// publishing; Volatile is honoured locally and is not carried to other instances.
+func (bc *redisBroadcast) SendTo(opts BroadcastOptions, event string, args ...interface{}) error {
+	if len(opts.Except) != 0 {
+		return fmt.Errorf("redis broadcast: %w", ErrExceptUnsupported)
 	}
-
-	var conns []Conn
-	for _, connections := range rooms {
-		for _, connection := range connections {
-			conns = append(conns, connection)
+	bc.lock.RLock()
+	targets := broadcastMembers(bc.rooms, opts)
+	bc.lock.RUnlock()
+	deliverBroadcast(targets, opts, event, args...)
+	if opts.Local {
+		return nil
+	}
+	if len(opts.Rooms) == 0 {
+		bc.publishMessage("", event, args...)
+		return nil
+	}
+	seen := make(map[string]bool)
+	for _, room := range opts.Rooms {
+		if !seen[room] {
+			seen[room] = true
+			bc.publishMessage(room, event, args...)
 		}
 	}
-	return conns
+	return nil
+}
+
+// IDs lists this instance's sockets only, in any of rooms, once per socket.
+func (bc *redisBroadcast) IDs(rooms ...string) []string {
+	bc.lock.RLock()
+	defer bc.lock.RUnlock()
+	return broadcastIDs(broadcastMembers(bc.rooms, BroadcastOptions{Rooms: rooms}))
 }
 
 func (bc *redisBroadcast) publishMessage(room string, event string, args ...interface{}) {

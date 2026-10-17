@@ -164,3 +164,6 @@ func (nh *namespaceHandler) removeSocket(c Conn) {
 	}
 	nh.connectedMu.Unlock()
 }
+
+func (nopBroadcast) SendTo(BroadcastOptions, string, ...interface{}) error { return nil }
+func (nopBroadcast) IDs(...string) []string                                { return nil }

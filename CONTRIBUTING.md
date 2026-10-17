@@ -30,21 +30,31 @@ The remaining Stage V1 work is split into packages that the owner gives to separ
 takers, people or agents: their PRs, paths, entry and exit gates, the parallel matrix and
 the registry are in [docs/ROADMAP.md](docs/ROADMAP.md#stage-v1-work-packages).
 
-**Taking and handing back.** A package has one taker at a time. The taker opens a PR that
-changes only the package's registry row (`open` to `taken`, the taker's name, the last
-merged PR of the package), and only once the entry check of the package's next unmerged PR
-passes on `master`; the PR body quotes that command and its exit status. The merger re-runs
-it on the registry PR's head, with `master` merged in, right before merging, and merges
-registry PRs one at a time. So `taken` means that the next PR was free to start when the
-row was set, which is how the entry fence reads the status (`sy` and the SYNC arm). The taker
-starts that PR only after the registry PR has merged; a row that is `taken` is not started
-by anyone else. When the package's last PR has merged, the taker sets the row to `done` the
-same way; a taker who stops, or whose entry check fails after the registry PR has merged,
-or the owner, first closes the package's unmerged PRs and then sets the row back to `open`
-with the last merged PR, so that `open` never stands beside a PR in flight, and the next
-taker continues from there. A
-registry PR edits `docs/ROADMAP.md`, so it is reviewed as any roadmap edit (CLAUDE.md,
-*Roadmap validation*).
+**Taking and handing back.** A package has one taker at a time. The registry is edited only
+by the coordinator: the owner, or the one person or agent the owner names in writing to
+coordinate the packages. A taker never edits it and never opens a registry PR. Every
+registry change is a PR of the coordinator that changes only registry rows; the coordinator
+merges registry PRs one at a time, and merges one itself only as the owner or with the
+owner's merge authorization in writing (*Rules*). A registry PR edits `docs/ROADMAP.md`, so
+it goes through the usual review with the three reviewers like any roadmap edit (CLAUDE.md,
+*Roadmap validation*); a pure status edit is not exempt.
+
+- `open` to `taken`: the coordinator sets the status and the taker's name only once the
+  entry check of the package's next unmerged PR passes on `master`; the registry PR body
+  quotes that command and its exit status, and the coordinator re-runs it on the registry
+  PR's head, with `master` merged in, right before merging. So `taken` means that the next
+  PR was free to start when the row was set, which is how the entry fence reads the status
+  (`sy` and the SYNC arm), and C and SY are never `taken` together. Only after that registry
+  PR has merged does the owner start the taker, with the prompt below; a row that is
+  `taken` is not started by anyone else.
+- After each merged PR of the package, the taker reports it (*Reporting back*) and the
+  coordinator sets the last merged PR in the row. When that PR was the package's last, the
+  same registry PR sets the row to `done`; `done` needs no entry check, since no PR of the
+  package is left.
+- When the taker stops, or the owner stops it, the taker's unmerged PRs of the package are
+  closed first (by the taker, or else by the coordinator), and then the coordinator sets the
+  row back to `open` with the last merged PR, so that `open` never stands beside a PR in
+  flight; the next taker continues from there. `open` needs no entry check either.
 
 **Reading list.** [CLAUDE.md](CLAUDE.md); this file; the whole roadmap section above, its
 paragraphs included (the path block is the widest set: the *Paths* paragraph narrows it per
@@ -66,8 +76,7 @@ per-PR DoD and the checks named for that PR, the section its scope row points to
 - A PR merges only with the three approvals of its last iteration, reached within three
   iterations, and every CI job green. The owner merges it. A taker merges its own PR only
   when the owner has given that taker merge authorization in writing, in an owner comment
-  on the taker's registry PR or on the PR itself, which the PR body cites, and only on
-  those terms; without such a comment the taker never merges.
+  on the PR itself, and only on those terms; without such a comment the taker never merges.
 - No commit message, PR text, review comment or file names or credits an assistant, a
   model or its provider (footers and trailers: *Pull requests* item 4).
 - No tag and no version bump: tags and the release commit follow *Releases*, on the
@@ -91,13 +100,16 @@ merged in and the DoD re-run. When the integrating package has no taker, the roa
 [fallback](docs/ROADMAP.md#stage-v1-work-packages) applies (the paragraph after the `O`-pair
 table). Entry checks gate starts, not merges: before merging a PR of a package in an `O`
 pair, the merger checks the Order column of the roadmap's `O`-pair table on the current
-`master`, and a PR whose order is not met yet waits. In `docs/PARITY.md`, `CHANGELOG.md` and the registry a PR
-edits only its own rows; a conflict there keeps both sides.
+`master`, and a PR whose order is not met yet waits. In `docs/PARITY.md` and `CHANGELOG.md` a
+PR edits only its own rows; a conflict there keeps both sides. The registry is the
+coordinator's alone (*Taking and handing back*).
 
 **Reporting back,** to the owner, per PR: the PR number and head SHA; the result of every
 CI job; the entry and exit commands run, with their output or counts; the three verdicts
 of each review iteration and the commit of each fixed finding; what was not run and why;
-the registry row after the merge; any blocker, with the options and a recommendation.
+whether the PR has merged; the command and output of the entry check of the package's next
+PR on `master` after the merge, or that the PR was the package's last; any blocker, with the
+options and a recommendation. From this report the coordinator updates the registry row.
 
 **Prompt for a taker.** Replace `<PKG>`, `<PR>`, `<TAKER>` and `<BRANCH>` (the registry's
 branch prefix and a short topic):
@@ -110,10 +122,14 @@ taker of work package <PKG> (docs/ROADMAP.md, "Stage V1 work packages"), and you
 Read first, and only: CLAUDE.md; CONTRIBUTING.md, "Pull requests" and "Work packages";
 the reading list of "Work packages" for <PKG> and <PR>.
 
-Before you edit: the registry row <PKG> says taken by <TAKER>, and the entry check of
-<PR> (the one command after the Entry fence of the roadmap section, with <PR>) prints
-"entry: 0" on origin/master.
-If not, stop and report.
+You never edit the registry and never open a registry PR: the coordinator does
+("Taking and handing back").
+
+Before you edit: the registry row <PKG> on origin/master says taken by <TAKER>, and the
+entry check of <PR> (the one command after the Entry fence of the roadmap section, with
+<PR>) prints "entry: 0" on origin/master. If the row is not taken by <TAKER>, stop and
+report. If the entry check fails, start nothing, report its output and stop; the row stays
+taken while <PR> waits.
 
 Work in your own git worktree on branch <BRANCH> from origin/master. Edit only the paths
 of <PKG> that the section allows <PR> (path block, narrowed by its paragraphs), plus, by row, the PARITY.md rows of <PR>, its CHANGELOG.md entries and nothing
@@ -123,7 +139,10 @@ and the PR as the Stage V1 PR sequence requires.
 Done when: the Exit gate of <PKG> for <PR> (the packages table) passes on the head,
 the PR to master is open with a factual body (problem, change, what was verified with
 which command and its numbers, what was not run), the three reviewers approved within
-three iterations and CI is green. Report back as "Work packages" lists.
+three iterations, CI is green, and the PR has merged or waits for the owner's merge. Then
+report back as "Work packages" lists, with the PR number, whether it has merged, and the
+entry check of the package's next PR on origin/master (or that <PR> was its last). If you
+stop before that, close your unmerged PRs and report that you stopped.
 ```
 
 ## Releases

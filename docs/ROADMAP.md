@@ -223,7 +223,7 @@ ending in `/` is a directory and everything under it, `*.go` the Go files direct
 directory (`*.go` alone: the repository root's, test files included). Besides its set,
 every package edits, by row only: the `docs/PARITY.md` rows whose `Plan` names its PR, its
 own entries under `## Unreleased` of `CHANGELOG.md` (through A in V1B, through H once H is
-`taken`), and its registry row below. Narrower than the set: A edits `engineio/` only in
+`taken`); the registry below is the coordinator's, never a package's. Narrower than the set: A edits `engineio/` only in
 V1-4 (the close error of `engineio/session`, its aliases in one new `engineio/*.go` file,
 `Writable` in `engineio/client.go` and the two transports); B's root files are V1-16's
 (`Server.Engine`, the fakes of `backpressure_test.go` and `log_test.go`), its `v2/` files the
@@ -378,8 +378,9 @@ entry "$0"' V1-2; echo "entry: $?"
 ```
 
 **Registry.** Status `open`, `taken` or `done`; the taker is the name the owner gives, never a
-model or provider; the branch prefix is the package's; the last merged PR is set by the
-taker's one-row PRs (CONTRIBUTING.md). All packages start `open`. A registry PR adds no
+model or provider; the branch prefix is the package's. Only the coordinator edits the rows,
+and sets the last merged PR after each merged PR of a package (CONTRIBUTING.md, *Taking and
+handing back*). All packages start `open`. A registry PR adds no
 `CHANGELOG.md` entry: the row is its record (the exemption CONTRIBUTING.md, *Pull requests*
 item 3, asks the roadmap to name).
 

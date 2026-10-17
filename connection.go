@@ -85,6 +85,8 @@ type conn struct {
 	drainQueue    []drainPacket
 	pendingWrites int
 	drainQueued   int
+	controlQueued int
+	closeControls int
 	writeChan     chan parser.Payload
 	errorChan     chan error
 
@@ -152,6 +154,9 @@ func (c *conn) startClose() (ncs []*namespaceConn) {
 		c.namespaces.Delete(fmtNS(nc.namespace))
 	}
 	c.disconnects.Add(len(ncs))
+	// A graceful close may owe CONNECT and DISCONNECT for each namespace
+	// it just claimed; no more namespaces can register once closing starts.
+	c.closeControls = 2 * len(ncs)
 	return ncs
 }
 
@@ -389,10 +394,20 @@ func (c *conn) queue(header parser.Header, reserved bool, args ...reflect.Value)
 		// Server lifecycle packets share ordering with application packets but
 		// do not consume the application budget reserved by pending Emits.
 		control := header.Type == parser.Connect || header.Type == parser.Disconnect
-		controlSpace := control && (c.draining || len(c.writeChan)+c.drainQueued < cap(c.writeChan))
+		// Reserve a finite pair of lifecycle slots per application slot. This
+		// admits CONNECT followed by DISCONNECT even with a one-slot budget.
+		controlSpace := control && c.controlQueued < 2*cap(c.writeChan) && (header.Type == parser.Disconnect || len(c.writeChan)+c.drainQueued < cap(c.writeChan))
+		if control && c.draining {
+			controlSpace = c.closeControls > 0
+		}
 		if controlSpace || reserved || !control && len(c.writeChan)+c.drainQueued+c.pendingWrites < cap(c.writeChan) {
 			c.drainQueue = append(c.drainQueue, drainPacket{pkg, control})
-			if !control {
+			if control {
+				c.controlQueued++
+				if c.draining {
+					c.closeControls--
+				}
+			} else {
 				c.drainQueued++
 			}
 			c.notifyWrite()
@@ -583,7 +598,9 @@ func (c *conn) nextQueued() (parser.Payload, bool) {
 		packet := c.drainQueue[0]
 		c.drainQueue[0] = drainPacket{}
 		c.drainQueue = c.drainQueue[1:]
-		if !packet.control {
+		if packet.control {
+			c.controlQueued--
+		} else {
 			c.drainQueued--
 		}
 		return packet.payload, true

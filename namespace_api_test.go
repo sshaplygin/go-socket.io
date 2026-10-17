@@ -387,6 +387,35 @@ func TestNamespaceConnectQueueCapacity(t *testing.T) {
 	require.Empty(t, p.errs)
 }
 
+func TestNamespaceReconnectQueueBound(t *testing.T) {
+	p := start(t, 'S', hooks{setup: func(s *Server) { s.limits.writeBufferSize = 1 }}, "/chat")
+	// Keep the writer in the first application packet without queueing any
+	// more application packets. Only CONNECT replies fill the queue below.
+	p.stall(t, p.nc, 0)
+	p.send(t, "0/chat,")
+	p.send(t, "1/chat,")
+	require.Equal(t, "/chat", recv(t, p.discs, "namespace disconnect"))
+	p.send(t, "0/chat,")
+	p.send(t, "1/chat,")
+	require.Equal(t, "/chat", recv(t, p.discs, "namespace disconnect"))
+	p.send(t, "0/chat,")
+	recv(t, p.fc.closed, "bounded lifecycle queue overflow")
+	p.overflowReported(t, "/chat")
+	p.disconnected(t, "/", "/chat")
+}
+
+func TestNamespaceDisconnectPendingFullBudget(t *testing.T) {
+	p := start(t, 'S', hooks{
+		setup:   func(s *Server) { s.limits.writeBufferSize = 1 },
+		connect: func(c Conn) error { c.Emit("welcome"); c.Disconnect(); return nil },
+	})
+	require.Equal(t, "2[\"welcome\"]\n", recv(t, p.fc.out, "pending event"))
+	require.Equal(t, "1", recv(t, p.fc.out, "namespace DISCONNECT"))
+	require.Equal(t, "/", recv(t, p.discs, "namespace disconnect"))
+	require.False(t, isDone(p.fc.closed))
+	require.Empty(t, p.errs)
+}
+
 func TestPendingConnectUsesSharedBudget(t *testing.T) {
 	observed := make(chan bool, 1)
 	p := start(t, 'S', hooks{connect: func(c Conn) error {

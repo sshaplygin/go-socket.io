@@ -3,6 +3,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -10,6 +12,7 @@ import (
 	"go/token"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -62,6 +65,17 @@ func emptyCalls(profile io.Reader, root, module string) (map[string]bool, error)
 		return nil, err
 	}
 	called := make(map[string]bool)
+	if len(files) > 0 {
+		ambiguous, err := moduleHasLineDirectives(root)
+		if err != nil {
+			return nil, err
+		}
+		if ambiguous {
+			// A directive in any physical file can impersonate a different
+			// file's coordinates, even when that target has no directives.
+			return called, nil
+		}
+	}
 	for file, blocks := range files {
 		rel, ok := strings.CutPrefix(file, module+"/")
 		if !ok {
@@ -120,6 +134,41 @@ func hasLineDirectives(source *ast.File) bool {
 		}
 	}
 	return false
+}
+
+func moduleHasLineDirectives(root string) (bool, error) {
+	cmd := exec.Command("go", "list", "-mod=readonly", "-json", "./...")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	var diagnostics bytes.Buffer
+	cmd.Stderr = &diagnostics
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("list physical coverage sources: %w: %s", err, diagnostics.String())
+	}
+	decoder := json.NewDecoder(bytes.NewReader(output))
+	for {
+		var pkg struct {
+			Dir      string
+			GoFiles  []string
+			CgoFiles []string
+		}
+		if err := decoder.Decode(&pkg); err != nil {
+			if err == io.EOF {
+				return false, nil
+			}
+			return false, err
+		}
+		for _, name := range append(pkg.GoFiles, pkg.CgoFiles...) {
+			file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(pkg.Dir, name), nil, parser.ParseComments)
+			if err != nil {
+				return false, err
+			}
+			if hasLineDirectives(file) {
+				return true, nil
+			}
+		}
+	}
 }
 
 func annotate(profile, summary io.Reader, output io.Writer, root, module string) error {

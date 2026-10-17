@@ -11,6 +11,9 @@ import (
 
 func TestEmptyFunctionsRequireExecutionEvidence(t *testing.T) {
 	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example\n\ngo 1.22\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	source := `package fixture
 func Called() {}
 func Uncalled() {}

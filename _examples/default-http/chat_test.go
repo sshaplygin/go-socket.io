@@ -23,8 +23,7 @@ type chatClient struct {
 // newChatServer serves the chat the way main does, without the page.
 func newChatServer(t *testing.T) (*socketio.Server, *httptest.Server) {
 	t.Helper()
-	// The Go client sends no close packet, so the server detects a closed client only when its
-	// pings stop; keep the timeouts short.
+	// Keep heartbeat tests and transport teardown bounded.
 	server := socketio.NewServer(&engineio.Options{PingInterval: 200 * time.Millisecond, PingTimeout: 2 * time.Second})
 	registerChat(server)
 	done := make(chan struct{})

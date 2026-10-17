@@ -345,6 +345,7 @@ func TestEngineRequestValidation(t *testing.T) {
 			}
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 			require.Equal(t, tc.code, got.Code)
+			require.Equal(t, [...]string{"Transport unknown", "Session ID unknown", "Bad handshake method", "Bad request", "Forbidden"}[tc.code], got.Message)
 			require.NotContains(t, got.Message, "private reason")
 			require.Zero(t, s.Count())
 		})

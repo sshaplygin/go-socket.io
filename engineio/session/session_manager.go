@@ -52,3 +52,14 @@ func (m *Manager) Count() int {
 
 	return len(m.sessions)
 }
+
+// All returns a snapshot of the registered sessions keyed by session ID.
+func (m *Manager) All() map[string]*Session {
+	m.locker.RLock()
+	defer m.locker.RUnlock()
+	sessions := make(map[string]*Session, len(m.sessions))
+	for id, s := range m.sessions {
+		sessions[id] = s
+	}
+	return sessions
+}

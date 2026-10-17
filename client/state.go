@@ -163,6 +163,9 @@ func (m *clientState) open(c *Client, retry *reconnectRun, number int) (result e
 		m.retry = nil
 	}
 	m.mu.Unlock()
+	// Publish completion after CONNECT controls are queued but before a worker
+	// can observe EOF and decide whether this connection needs recovery.
+	finishAttempt()
 	start := func() {
 		go current.serveError()
 		go current.serveWrite()

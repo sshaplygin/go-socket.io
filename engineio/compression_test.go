@@ -15,6 +15,9 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+
+	gorilla "github.com/gorilla/websocket"
 	"testing"
 	"time"
 
@@ -370,4 +373,68 @@ func compressionPollingWire(t *testing.T, binaryMode bool) *parityWire {
 	var params transport.ConnParameters
 	require.NoError(t, json.Unmarshal(data[separator+2:], &params))
 	return &parityWire{srv: s, http: ts, client: cl, poll: ts.URL + "/?EIO=3&transport=polling&sid=" + params.SID, conn: compressionAccept(t, s), params: params}
+}
+
+// Covers E8
+// Covers E19
+func TestPerMessageDeflateLimitKeepsErrorBeforeTransportClose(t *testing.T) {
+	for _, mode := range []string{"read", "discard"} {
+		t.Run(mode, func(t *testing.T) {
+			var compressed bytes.Buffer
+			deflater, err := flate.NewWriter(&compressed, flate.BestCompression)
+			require.NoError(t, err)
+			_, err = io.WriteString(deflater, "4"+strings.Repeat("a", 100_000))
+			require.NoError(t, err)
+			require.NoError(t, deflater.Flush())
+			wire := bytes.Clone(compressed.Bytes()[:compressed.Len()-4])
+			require.NoError(t, deflater.Close())
+			entered, release := make(chan error, 1), make(chan struct{})
+			unblock := sync.OnceFunc(func() { close(release) })
+			defer unblock()
+			s, ts := compressionServer(t, &Options{PerMessageDeflate: true, MaxHTTPBufferSize: 1024, Hooks: &Hooks{Error: func(_ Conn, err error) { entered <- err; <-release }}})
+			peer := compressionDial(t, ts.URL)
+			_, _ = peer.frame(t)
+			c := compressionAccept(t, s)
+			readDone := make(chan error, 1)
+			go func() {
+				_, r, readErr := c.NextReader()
+				if readErr == nil {
+					if mode == "read" {
+						_, readErr = io.Copy(io.Discard, r)
+					}
+					if closeErr := r.Close(); readErr == nil {
+						readErr = closeErr
+					}
+				}
+				_ = c.Close()
+				readDone <- readErr
+			}()
+			peer.send(t, 0xc1, wire)
+			flags, body := peer.frame(t)
+			require.Equal(t, byte(8), flags&15)
+			require.GreaterOrEqual(t, len(body), 2)
+			require.Equal(t, uint16(1009), binary.BigEndian.Uint16(body))
+			select {
+			case cause := <-entered:
+				require.ErrorIs(t, cause, gorilla.ErrReadLimit)
+			case <-time.After(time.Second):
+				t.Fatal("inflated limit did not reach Error hook")
+			}
+			require.NoError(t, peer.SetReadDeadline(time.Now().Add(30*time.Millisecond)))
+			_, err = peer.reader.ReadByte()
+			var timeout net.Error
+			require.ErrorAs(t, err, &timeout, "physical transport must remain open until Error returns")
+			require.True(t, timeout.Timeout())
+			unblock()
+			select {
+			case readErr := <-readDone:
+				require.ErrorIs(t, readErr, gorilla.ErrReadLimit)
+			case <-time.After(time.Second):
+				t.Fatal("session did not close after Error returned")
+			}
+			require.NoError(t, peer.SetReadDeadline(time.Now().Add(time.Second)))
+			_, err = peer.reader.ReadByte()
+			require.ErrorIs(t, err, io.EOF, "session owns the physical close after Error returns")
+		})
+	}
 }

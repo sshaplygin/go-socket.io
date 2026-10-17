@@ -95,7 +95,8 @@ func (r *inflatedReader) Read(p []byte) (int, error) {
 	if r.remaining < 0 {
 		r.failed = true
 		_ = r.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseMessageTooBig, ""), time.Now().Add(time.Second))
-		_ = r.conn.Close()
+		// The session owns the physical close after its synchronous Error hook.
+		// failed prevents any later read or drain from resuming this inflater.
 		return n, websocket.ErrReadLimit
 	}
 	return n, err

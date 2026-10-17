@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
@@ -72,7 +73,7 @@ type Conn interface {
 type conn struct {
 	engineio.Conn
 
-	id         uint64
+	id         atomic.Uint64
 	handlers   *namespaceHandlers
 	namespaces *namespaces
 
@@ -396,9 +397,7 @@ func (c *conn) connected(err error) bool {
 }
 
 func (c *conn) nextID() uint64 {
-	c.id++
-
-	return c.id
+	return c.id.Add(1)
 }
 
 func (c *conn) write(header parser.Header, args ...reflect.Value) { c.queue(header, false, args...) }
@@ -408,6 +407,13 @@ func (c *conn) writeReserved(header parser.Header, args ...reflect.Value) {
 }
 
 func (c *conn) queue(header parser.Header, reserved bool, args ...reflect.Value) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.queueLocked(header, reserved, args...)
+}
+
+// queueLocked admits a packet with the queue budget and close state locked.
+func (c *conn) queueLocked(header parser.Header, reserved bool, args ...reflect.Value) {
 	data := make([]interface{}, len(args))
 
 	for i := range data {
@@ -421,8 +427,6 @@ func (c *conn) queue(header parser.Header, reserved bool, args ...reflect.Value)
 		Data:   data,
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if reserved {
 		c.pendingWrites--
 	}

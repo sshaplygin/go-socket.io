@@ -371,7 +371,7 @@ func TestVolatileEmit(t *testing.T) {
 	poll := recv(t, connected, "polling socket")
 	target := ts.URL + "/?EIO=3&transport=polling&b64=1&sid=" + params.SID
 	require.Equal(t, "2:40", get(target))
-	require.Eventually(t, func() bool { return !poll.(*namespaceConn).writable() }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return !poll.(*namespaceConn).Conn.(interface{ Writable() bool }).Writable() }, time.Second, time.Millisecond)
 	require.NoError(t, poll.Volatile().Emit("dropped"))
 	poll.Emit("kept")
 	require.Equal(t, "11:42[\"kept\"]\n", get(target))
@@ -384,7 +384,7 @@ func TestVolatileEmit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "40", string(packet))
 	ws := recv(t, connected, "websocket socket")
-	require.Eventually(t, func() bool { return ws.(*namespaceConn).writable() }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return ws.(*namespaceConn).Conn.(interface{ Writable() bool }).Writable() }, time.Second, time.Millisecond)
 	require.NoError(t, ws.Volatile().Emit("delivered"))
 	require.NoError(t, w.SetReadDeadline(time.Now().Add(waitFor)))
 	_, packet, err = w.ReadMessage()
@@ -465,9 +465,72 @@ func TestVolatileDropsQueuedPacket(t *testing.T) {
 	recv(t, p.fc.held, "held writer")
 	p.nc.Emit("queued")
 	require.NoError(t, p.nc.Volatile().Emit("dropped", func() {}))
-	require.Zero(t, p.conn().id, "dropped volatile emit registers no ACK")
+	require.Zero(t, ackEntries(p.nc), "dropped volatile emit registers no ACK")
 	p.fc.hold.Store(false)
 	p.fc.release <- struct{}{}
 	expectBeforeBarrier(t, p, "2[\"blocked\"]\n", "2[\"queued\"]\n")
 	require.False(t, isDone(p.conn().closing))
+}
+
+func ackEntries(c Conn) int {
+	count := 0
+	c.(*namespaceConn).ack.Range(func(_, _ interface{}) bool { count++; return true })
+	return count
+}
+
+type volatileBarrierConn struct {
+	*fakeConn
+	entered chan struct{}
+	resume  chan struct{}
+}
+
+func (c *volatileBarrierConn) Writable() bool {
+	c.entered <- struct{}{}
+	<-c.resume
+	return true
+}
+
+func TestVolatileConcurrentAdmission(t *testing.T) {
+	for _, mode := range []string{"normal competitor", "volatile competitor"} {
+		t.Run(mode, func(t *testing.T) {
+			p := newPeer(t, 'S', hooks{setup: func(s *Server) { s.limits.writeBufferSize = 1 }})
+			gate := &volatileBarrierConn{fakeConn: p.fc, entered: make(chan struct{}, 2), resume: make(chan struct{})}
+			p.srv.serveConn(gate)
+			p.nc = recv(t, p.conns, "root connect")
+			require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
+			closeAtEnd(t, p.fc, p.conn())
+			p.fc.hold.Store(true)
+			p.nc.Emit("inflight")
+			recv(t, p.fc.held, "held writer")
+			done := make(chan error, 2)
+			emit := func() { done <- p.nc.Volatile().Emit("volatile", func() {}) }
+			go emit()
+			recv(t, gate.entered, "first volatile readiness check")
+			if mode == "normal competitor" {
+				p.nc.Emit("normal")
+			} else {
+				go emit()
+				recv(t, gate.entered, "second volatile readiness check")
+			}
+			close(gate.resume)
+			require.NoError(t, recv(t, done, "volatile emit"))
+			wantACKs := 0
+			if mode == "volatile competitor" {
+				require.NoError(t, recv(t, done, "second volatile emit"))
+				wantACKs = 1
+			}
+			require.False(t, isDone(p.conn().closing), "a losing volatile packet must drop without overflow")
+			require.Equal(t, wantACKs, ackEntries(p.nc), "only an admitted packet registers an ACK")
+			p.fc.hold.Store(false)
+			p.fc.release <- struct{}{}
+			require.Equal(t, "2[\"inflight\"]\n", recv(t, p.fc.out, "inflight packet"))
+			want := "2[\"normal\"]\n"
+			if mode == "volatile competitor" {
+				want = "21[\"volatile\"]\n"
+			}
+			require.Equal(t, want, recv(t, p.fc.out, "admitted packet"))
+			expectBeforeBarrier(t, p)
+			require.Empty(t, p.errs)
+		})
+	}
 }

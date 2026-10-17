@@ -85,7 +85,9 @@ func (nc *namespaceConn) Namespace() string {
 	return nc.namespace
 }
 
-func (nc *namespaceConn) Emit(eventName string, v ...interface{}) {
+func (nc *namespaceConn) Emit(eventName string, v ...interface{}) { nc.emit(false, eventName, v...) }
+
+func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{}) {
 	header := parser.Header{
 		Type: parser.Event,
 	}
@@ -94,17 +96,13 @@ func (nc *namespaceConn) Emit(eventName string, v ...interface{}) {
 		header.Namespace = nc.namespace
 	}
 
+	var ack *funcHandler
 	if l := len(v); l > 0 {
 		last := v[l-1]
 		lastV := reflect.TypeOf(last)
 
 		if lastV != nil && lastV.Kind() == reflect.Func {
-			f := newAckFunc(last)
-
-			header.ID = nc.conn.nextID()
-			header.NeedAck = true
-
-			nc.ack.Store(header.ID, f)
+			ack = newAckFunc(last)
 			v = v[:l-1]
 		}
 	}
@@ -116,7 +114,41 @@ func (nc *namespaceConn) Emit(eventName string, v ...interface{}) {
 		args[i] = reflect.ValueOf(v[i-1])
 	}
 
-	nc.send(header, args...)
+	if !volatile {
+		nc.registerAck(&header, ack)
+		nc.send(header, args...)
+		return
+	}
+	// The transport callback runs outside queue locks; admission rechecks the
+	// queue atomically afterwards so a concurrent normal/volatile emit cannot
+	// turn this best-effort packet into an overflow or retain a dropped ACK.
+	if c, ok := nc.Conn.(interface{ Writable() bool }); ok && !c.Writable() {
+		return
+	}
+	nc.outMu.Lock()
+	defer nc.outMu.Unlock()
+	nc.conn.mu.Lock()
+	defer nc.conn.mu.Unlock()
+	c := nc.conn
+	if nc.rejected || c.pendingWrites+len(c.writeChan)+len(c.drainQueue) != 0 ||
+		isDone(c.closing) && (!c.draining || c.appSealed || isDone(c.discard)) {
+		return
+	}
+	nc.registerAck(&header, ack)
+	if nc.connecting {
+		c.pendingWrites++
+		nc.pending = append(nc.pending, pendingPacket{header, args})
+	} else {
+		c.queueLocked(header, false, args...)
+	}
+}
+
+func (nc *namespaceConn) registerAck(header *parser.Header, ack *funcHandler) {
+	if ack != nil {
+		header.ID = nc.conn.nextID()
+		header.NeedAck = true
+		nc.ack.Store(header.ID, ack)
+	}
 }
 
 func (nc *namespaceConn) Join(rooms ...string) {
@@ -313,9 +345,7 @@ func (e emitter) Emit(event string, args ...interface{}) error {
 		}
 		return e.adapter.SendTo(e.opts, event, args...)
 	}
-	if !e.opts.Volatile || e.socket.writable() {
-		e.socket.Emit(event, args...)
-	}
+	e.socket.emit(e.opts.Volatile, event, args...)
 	return nil
 }
 
@@ -330,16 +360,3 @@ func hasBroadcastAck(args []interface{}) bool {
 func (nc *namespaceConn) To(rooms ...string) Emitter { return (emitter{socket: nc}).To(rooms...) }
 func (nc *namespaceConn) Broadcast() Emitter         { return (emitter{socket: nc}).asBroadcast() }
 func (nc *namespaceConn) Volatile() Emitter          { return (emitter{socket: nc}).Volatile() }
-
-func (nc *namespaceConn) writable() bool {
-	nc.conn.mu.Lock()
-	queued := nc.conn.pendingWrites + len(nc.conn.writeChan) + len(nc.conn.drainQueue)
-	nc.conn.mu.Unlock()
-	if queued != 0 {
-		return false
-	}
-	if c, ok := nc.Conn.(interface{ Writable() bool }); ok {
-		return c.Writable()
-	}
-	return true
-}

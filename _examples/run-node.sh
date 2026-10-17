@@ -4,6 +4,10 @@ if [[ -z ${CONFORMANCE_NODE_MODULES:-} ]]; then
   echo 'examples-node: set CONFORMANCE_NODE_MODULES to the pinned socket.io-client node_modules directory' >&2
   exit 1
 fi
+case "$CONFORMANCE_NODE_MODULES" in
+  /*) ;;
+  *) echo 'examples-node: CONFORMANCE_NODE_MODULES must be absolute' >&2; exit 1 ;;
+esac
 export NODE_PATH
 NODE_PATH=$(cd "$CONFORMANCE_NODE_MODULES" && pwd)
 node -e 'require("socket.io-client")'

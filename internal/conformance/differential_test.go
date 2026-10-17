@@ -19,7 +19,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
-func differentialGoServer(t *testing.T) *httptest.Server {
+func differentialGoServer(t *testing.T, configure ...func(*socketio.Server)) *httptest.Server {
 	t.Helper()
 	s := socketio.NewServer(nil)
 	for _, name := range []string{"/", "/chat"} {
@@ -27,11 +27,7 @@ func differentialGoServer(t *testing.T) *httptest.Server {
 		n.OnConnect(func(socketio.Conn) error { return nil })
 		n.OnEvent("echo", func(_ socketio.Conn, value string) string { return value })
 		n.OnEvent("identity", func(c socketio.Conn) string { return c.ID() })
-		n.OnEvent("metadata", func(c socketio.Conn) map[string]interface{} {
-			h := c.Handshake()
-			return map[string]interface{}{"query": h.Query.Get("custom"), "header": h.Headers.Get("X-Differential"),
-				"time": h.Time.Format(time.RFC3339Nano), "issued": h.Time.UnixMilli()}
-		})
+		n.OnEvent("metadata", differentialMetadata)
 		n.OnEvent("ask", func(c socketio.Conn) {
 			c.Emit("question", "server", func(value string) { c.Emit("ack-result", value) })
 		})
@@ -60,11 +56,20 @@ func differentialGoServer(t *testing.T) *httptest.Server {
 		n.OnEvent("drop-transport", func(c socketio.Conn) { _ = c.EngineConn().Close() })
 	}
 	s.Of("/denied").Use(func(socketio.Conn) error { return errors.New("access denied") })
+	for _, apply := range configure {
+		apply(s)
+	}
 	served := make(chan struct{})
 	go func() { _ = s.Serve(); close(served) }()
 	ts := httptest.NewServer(s)
 	t.Cleanup(func() { _ = s.Close(); ts.Close(); <-served })
 	return ts
+}
+
+func differentialMetadata(c socketio.Conn) map[string]interface{} {
+	h := c.Handshake()
+	return map[string]interface{}{"query": h.Query.Get("custom"), "header": h.Headers.Get("X-Differential"),
+		"time": h.Time.Format(time.RFC3339Nano), "issued": h.Time.UnixMilli()}
 }
 
 func differentialReference(t *testing.T) string {
@@ -200,6 +205,32 @@ func TestDifferential(t *testing.T) {
 					if i >= len(got) || i >= len(want) || !reflect.DeepEqual(got[i], want[i]) {
 						t.Fatalf("first transcript difference at record %d\nGo: %s\nNode: %s", i, differentialJSON(got), differentialJSON(want))
 					}
+				}
+			})
+		}
+	}
+}
+
+// These adversarial handlers differ only by an extra ACK argument. The same
+// executable fixture used by TestDifferential must retain that difference.
+func TestDifferentialExtraACKArguments(t *testing.T) {
+	for _, scenario := range []string{"binary", "handshake-data"} {
+		for _, transport := range []string{"polling", "websocket"} {
+			t.Run(scenario+"-"+transport, func(t *testing.T) {
+				bad := differentialGoServer(t, func(s *socketio.Server) {
+					s.OnEvent("/", "binary", func(c socketio.Conn, value *parser.Buffer) (*parser.Buffer, string) {
+						c.Emit("binary-event", value)
+						return value, "unexpected extra ACK argument"
+					})
+					s.OnEvent("/", "metadata", func(c socketio.Conn) (map[string]interface{}, string) {
+						return differentialMetadata(c), "unexpected extra ACK argument"
+					})
+				})
+				reference := differentialReference(t)
+				want := differentialTranscript(t, reference, scenario, transport)
+				got := differentialTranscript(t, bad.URL, scenario, transport)
+				if reflect.DeepEqual(got, want) {
+					t.Fatal("differential fixture discarded an extra ACK argument")
 				}
 			})
 		}

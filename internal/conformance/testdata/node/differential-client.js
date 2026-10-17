@@ -140,9 +140,8 @@ async function run() {
     const echoed = event(root, 'binary-event');
     // Binary ACKs need conversion before recording; unlike JSON byte arrays they remain Buffers.
     const value = Buffer.from([0, 1, 127, 128, 255]);
-    await new Promise(resolve => root.emit('binary', value, reply => {
-      record(root, 'ack:binary', [binary(reply)]); resolve();
-    }));
+    const replies = await ack(root, 'binary', value);
+    binary(replies[0]);
     await echoed;
     root.once('binary-question', (question, reply) => {
       binary(question); reply(Buffer.from([255, 0, 3]));
@@ -176,10 +175,11 @@ async function run() {
     }
   } else if (scenario === 'handshake-data') {
     // Preserve raw timestamps for the Go comparison's validation/normalization.
-    await new Promise(resolve => root.emit('metadata', value => {
+    await new Promise(resolve => root.emit('metadata', (...values) => {
+      const value = values[0];
       assert(Number.isFinite(Date.parse(value.time)), 'invalid handshake time');
       value.time = new Date(value.time).toISOString();
-      record(root, 'ack:metadata', [value]); resolve();
+      record(root, 'ack:metadata', values.map(observable)); resolve();
     }));
   } else {
     throw new Error('unknown scenario: ' + scenario);

@@ -191,7 +191,7 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 			return 0, nil, c.closeError()
 
 		case packet.MESSAGE:
-			return session.FrameType(ft), r, nil
+			return session.FrameType(ft), &clientReader{ReadCloser: r, c: c}, nil
 		}
 
 		// Transports keep a read failure, so the next NextReader returns it: DEBUG.
@@ -338,6 +338,38 @@ type clientWriter struct {
 	c    *client
 	once sync.Once
 	err  error
+}
+
+// Frame-body failures arrive after NextReader/NextWriter succeeded. Record the
+// first cause before cleanup can close the engine, without replacing the error
+// returned by the acquired reader or writer. EOF only ends a normal read frame.
+type clientReader struct {
+	io.ReadCloser
+	c *client
+}
+
+func (r *clientReader) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
+	if err != nil && err != io.EOF {
+		_ = r.c.failure(err)
+	}
+	return n, err
+}
+
+func (r *clientReader) Close() error {
+	err := r.ReadCloser.Close()
+	if err != nil {
+		_ = r.c.failure(err)
+	}
+	return err
+}
+
+func (w *clientWriter) Write(p []byte) (int, error) {
+	n, err := w.WriteCloser.Write(p)
+	if err != nil {
+		_ = w.c.failure(err)
+	}
+	return n, err
 }
 
 func (w *clientWriter) Close() error {

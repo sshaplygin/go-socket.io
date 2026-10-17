@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,104 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
+
+type clientFrameFailureConn struct {
+	transport.Conn
+	reader io.ReadCloser
+	writer io.WriteCloser
+}
+
+func (c clientFrameFailureConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+	return frame.String, packet.MESSAGE, c.reader, nil
+}
+func (c clientFrameFailureConn) NextWriter(frame.Type, packet.Type) (io.WriteCloser, error) {
+	return c.writer, nil
+}
+func (c clientFrameFailureConn) Close() error { return nil }
+
+type clientFrameFailureIO struct{ read, write, close error }
+
+func (f clientFrameFailureIO) Read([]byte) (int, error) {
+	if f.read != nil {
+		return 0, f.read
+	}
+	return 0, io.EOF
+}
+func (f clientFrameFailureIO) Write(p []byte) (int, error) {
+	if f.write != nil {
+		return len(p) / 2, f.write
+	}
+	return len(p), nil
+}
+func (f clientFrameFailureIO) Close() error { return f.close }
+
+// An acquired frame keeps its original errors, while NextReader exposes the first
+// cause even after cleanup explicitly closes the engine. Normal frame EOF is benign.
+// Covers C5
+func TestClientAcquiredFrameFailure(t *testing.T) {
+	for _, operation := range []string{"read", "reader-close", "write", "writer-close", "timeout", "frame-eof"} {
+		t.Run(operation, func(t *testing.T) {
+			injected := errors.New("frame " + operation)
+			body := clientFrameFailureIO{}
+			switch operation {
+			case "read":
+				body.read = injected
+			case "reader-close", "writer-close":
+				body.close = injected
+			case "write":
+				body.write = injected
+			case "timeout":
+				injected = os.ErrDeadlineExceeded
+				body.read = injected
+			}
+			c := &client{conn: clientFrameFailureConn{reader: body, writer: body}, params: transport.ConnParameters{PingInterval: time.Second, PingTimeout: time.Second}}
+			if operation == "timeout" {
+				c.readDeadline = time.Now().Add(-time.Millisecond)
+			}
+			var err error
+			if strings.HasPrefix(operation, "write") {
+				writer, openErr := c.NextWriter(session.TEXT)
+				require.NoError(t, openErr)
+				if operation == "write" {
+					n, writeErr := writer.Write([]byte("partial frame"))
+					require.Equal(t, len("partial frame")/2, n)
+					err = writeErr
+					require.NoError(t, writer.Close())
+				} else {
+					err = writer.Close()
+				}
+			} else {
+				_, reader, openErr := c.NextReader()
+				require.NoError(t, openErr)
+				if operation == "reader-close" {
+					err = reader.Close()
+				} else {
+					_, err = reader.Read(make([]byte, 1))
+					require.NoError(t, reader.Close())
+				}
+			}
+			if operation == "frame-eof" {
+				require.ErrorIs(t, err, io.EOF)
+			} else {
+				require.ErrorIs(t, err, injected)
+			}
+			require.NoError(t, c.Close())
+			_, _, err = c.NextReader()
+			var closed *session.CloseError
+			require.ErrorAs(t, err, &closed)
+			switch operation {
+			case "frame-eof":
+				require.Equal(t, session.ReasonForcedClose, closed.Reason)
+			case "timeout":
+				require.Equal(t, session.ReasonPingTimeout, closed.Reason)
+				require.Nil(t, closed.Err)
+			default:
+				require.Equal(t, session.ReasonTransportError, closed.Reason)
+				require.ErrorIs(t, closed, injected)
+			}
+		})
+	}
+}
 
 type upgradeFaultTransport struct {
 	transport.Transport

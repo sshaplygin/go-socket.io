@@ -345,6 +345,23 @@ func TestConnectQueueCapacity(t *testing.T) {
 	require.Empty(t, p.errs)
 }
 
+func TestNamespaceConnectQueueCapacity(t *testing.T) {
+	p := start(t, 'S', hooks{
+		setup: func(s *Server) { s.limits.writeBufferSize = 1 },
+		connect: func(c Conn) error {
+			if c.Namespace() == "/chat" {
+				c.Emit("welcome")
+			}
+			return nil
+		},
+	}, "/chat")
+	p.send(t, "0/chat,")
+	require.Equal(t, "0/chat,", recv(t, p.fc.out, "namespace CONNECT"))
+	require.Equal(t, "2/chat,[\"welcome\"]\n", recv(t, p.fc.out, "pending event"))
+	require.False(t, isDone(p.fc.closed))
+	require.Empty(t, p.errs)
+}
+
 func TestPendingConnectUsesSharedBudget(t *testing.T) {
 	observed := make(chan bool, 1)
 	p := start(t, 'S', hooks{connect: func(c Conn) error {

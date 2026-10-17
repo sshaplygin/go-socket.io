@@ -81,13 +81,12 @@ type conn struct {
 	reader  *frameReader // tells the decoder's transport failures apart
 	writer  *queueWriter // tells the encoder's transport failures apart
 
-	initialConnect *parser.Payload
-	writeReady     chan struct{}
-	drainQueue     []drainPacket
-	pendingWrites  int
-	drainQueued    int
-	writeChan      chan parser.Payload
-	errorChan      chan error
+	writeReady    chan struct{}
+	drainQueue    []drainPacket
+	pendingWrites int
+	drainQueued   int
+	writeChan     chan parser.Payload
+	errorChan     chan error
 
 	log          *slog.Logger
 	rootRejected error
@@ -386,17 +385,19 @@ func (c *conn) queue(header parser.Header, reserved bool, args ...reflect.Value)
 	}
 	switch {
 	case isDone(c.closing) && (!c.draining || isDone(c.seal) || isDone(c.discard)):
-	case !c.draining && c.boundary && c.connecting && header.Type == parser.Connect && header.Namespace == rootNamespace:
-		c.initialConnect = &pkg
-		c.notifyWrite()
-	case c.draining:
+	case c.boundary || c.draining:
+		// Server lifecycle packets share ordering with application packets but
+		// do not consume the application budget reserved by pending Emits.
 		control := header.Type == parser.Connect || header.Type == parser.Disconnect
-		if control || reserved || len(c.writeChan)+c.drainQueued+c.pendingWrites < cap(c.writeChan) {
+		controlSpace := control && (c.draining || len(c.writeChan)+c.drainQueued < cap(c.writeChan))
+		if controlSpace || reserved || !control && len(c.writeChan)+c.drainQueued+c.pendingWrites < cap(c.writeChan) {
 			c.drainQueue = append(c.drainQueue, drainPacket{pkg, control})
 			if !control {
 				c.drainQueued++
 			}
 			c.notifyWrite()
+		} else if !c.draining {
+			c.overflowWrite(header)
 		}
 	case len(c.writeChan) < cap(c.writeChan) && (reserved || len(c.writeChan)+c.pendingWrites < cap(c.writeChan)):
 		c.writeChan <- pkg
@@ -575,11 +576,6 @@ func (c *conn) notifyWrite() {
 func (c *conn) nextQueued() (parser.Payload, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.initialConnect != nil {
-		packet := *c.initialConnect
-		c.initialConnect = nil
-		return packet, true
-	}
 	if len(c.writeChan) > 0 {
 		return <-c.writeChan, true
 	}

@@ -26,15 +26,29 @@ type clientConn struct {
 	remoteHeader atomic.Value
 	writableMu   sync.Mutex
 	posting      bool
+	polling      bool
+	started      bool
+	stopped      bool
+	pausing      bool
+	pauseEpoch   uint64
+	changed      chan struct{}
 }
 
 func (c *clientConn) Open() (transport.ConnParameters, error) {
+	c.writableMu.Lock()
+	if c.stopped {
+		c.writableMu.Unlock()
+		return transport.ConnParameters{}, io.ErrClosedPipe
+	}
+	c.started, c.polling = true, true
+	c.writableMu.Unlock()
 	// Payload.FeedIn calls must not overlap. getOpen's FeedIn returns only
 	// after the whole open response has been read, which can be after Open
 	// returns, so serveGet waits for it before its first poll.
 	opened := make(chan struct{})
 	go func() {
 		defer close(opened)
+		defer c.setPolling(false)
 		c.getOpen()
 	}()
 
@@ -94,11 +108,51 @@ func (c *clientConn) RemoteHeader() http.Header {
 	return ret.(http.Header)
 }
 
-func (c *clientConn) Resume() {
-	c.Payload.Resume()
+// Pause gates new GETs and waits for the current response to be consumed and the
+// current POST to complete. Engine.IO holds its writers while calling it. Unlike
+// Payload.Pause, this wait can be cancelled by Resume without poisoning a payload
+// that must remain usable after a failed upgrade.
+func (c *clientConn) Pause() {
+	c.writableMu.Lock()
+	defer c.writableMu.Unlock()
+	if c.stopped {
+		return
+	}
+	c.pausing = true
+	c.pauseEpoch++
+	epoch := c.pauseEpoch
+	c.notifyChanged()
+	for c.pausing && c.pauseEpoch == epoch && (c.polling || c.posting) {
+		changed := c.changed
+		c.writableMu.Unlock()
+		<-changed
+		c.writableMu.Lock()
+	}
+}
 
-	go c.serveGet(nil)
-	go c.servePost()
+func (c *clientConn) Resume() {
+	c.writableMu.Lock()
+	c.pausing = false
+	c.pauseEpoch++
+	c.notifyChanged()
+	start := !c.started && !c.stopped
+	c.started = true
+	c.writableMu.Unlock()
+	if start {
+		// Raw transport users can start polling without decoding OPEN.
+		c.Payload.Resume()
+		go c.serveGet(nil)
+		go c.servePost()
+	}
+}
+
+func (c *clientConn) Close() error {
+	c.writableMu.Lock()
+	c.stopped, c.pausing = true, false
+	c.pauseEpoch++
+	c.notifyChanged()
+	c.writableMu.Unlock()
+	return c.Payload.Close()
 }
 
 func (c *clientConn) servePost() {
@@ -232,57 +286,68 @@ func (c *clientConn) serveGet(after <-chan struct{}) {
 
 	query := req.URL.Query()
 	for {
+		if !c.beginPoll() {
+			return
+		}
 		query.Set("t", utils.Timestamp())
 		req.URL.RawQuery = query.Encode()
-
-		resp, err := c.httpClient.Do(&req)
-		if err != nil {
-			if err = c.Payload.Store("get", err); err != nil {
-				logger.Log.Debug("engineio: get request failed", "err", err)
-			}
-
-			if err = c.Close(); err != nil {
-				logger.Log.Debug("engineio: close connection failed", "err", err)
-			}
-
+		keep := c.poll(&req)
+		c.setPolling(false)
+		if !keep {
 			return
 		}
-
-		if resp.StatusCode != http.StatusOK {
-			err = fmt.Errorf("invalid request: %s(%d)", resp.Status, resp.StatusCode)
-		}
-
-		var isSupportBinary bool
-		if err == nil {
-			mime := resp.Header.Get("Content-Type")
-			isSupportBinary, err = mimeIsSupportBinary(mime)
-			if err != nil {
-				logger.Log.Debug("engineio: unsupported content type", "err", err)
-			}
-		}
-
-		if err != nil {
-			discardBody(resp.Body)
-
-			if err = c.Payload.Store("get", err); err != nil {
-				logger.Log.Debug("engineio: get request failed", "err", err)
-			}
-
-			if err = c.Close(); err != nil {
-				logger.Log.Debug("engineio: close connection failed", "err", err)
-			}
-
-			return
-		}
-
-		if err = c.Payload.FeedIn(resp.Body, isSupportBinary); err != nil {
-			discardBody(resp.Body)
-
-			return
-		}
-
-		c.remoteHeader.Store(resp.Header)
 	}
+}
+
+func (c *clientConn) poll(req *http.Request) bool {
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		if err = c.Payload.Store("get", err); err != nil {
+			logger.Log.Debug("engineio: get request failed", "err", err)
+		}
+
+		if err = c.Close(); err != nil {
+			logger.Log.Debug("engineio: close connection failed", "err", err)
+		}
+
+		return false
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		err = fmt.Errorf("invalid request: %s(%d)", resp.Status, resp.StatusCode)
+	}
+
+	var isSupportBinary bool
+	if err == nil {
+		mime := resp.Header.Get("Content-Type")
+		isSupportBinary, err = mimeIsSupportBinary(mime)
+		if err != nil {
+			logger.Log.Debug("engineio: unsupported content type", "err", err)
+		}
+	}
+
+	if err != nil {
+		discardBody(resp.Body)
+
+		if err = c.Payload.Store("get", err); err != nil {
+			logger.Log.Debug("engineio: get request failed", "err", err)
+		}
+
+		if err = c.Close(); err != nil {
+			logger.Log.Debug("engineio: close connection failed", "err", err)
+		}
+
+		return false
+	}
+
+	if err = c.Payload.FeedIn(resp.Body, isSupportBinary); err != nil {
+		discardBody(resp.Body)
+
+		return false
+	}
+
+	c.remoteHeader.Store(resp.Header)
+	return true
 }
 
 func discardBody(body io.ReadCloser) {
@@ -306,7 +371,39 @@ func (c *clientConn) Writable() bool {
 func (c *clientConn) setPosting(posting bool) {
 	c.writableMu.Lock()
 	c.posting = posting
+	c.notifyChanged()
 	c.writableMu.Unlock()
+}
+
+func (c *clientConn) setPolling(polling bool) {
+	c.writableMu.Lock()
+	c.polling = polling
+	c.notifyChanged()
+	c.writableMu.Unlock()
+}
+
+func (c *clientConn) beginPoll() bool {
+	c.writableMu.Lock()
+	defer c.writableMu.Unlock()
+	for c.pausing && !c.stopped {
+		changed := c.changed
+		c.writableMu.Unlock()
+		<-changed
+		c.writableMu.Lock()
+	}
+	if c.stopped {
+		return false
+	}
+	c.polling = true
+	return true
+}
+
+// notifyChanged is called with writableMu held; waiting callers recheck state.
+func (c *clientConn) notifyChanged() {
+	if c.changed != nil {
+		close(c.changed)
+	}
+	c.changed = make(chan struct{})
 }
 
 type postBodyWriter struct {

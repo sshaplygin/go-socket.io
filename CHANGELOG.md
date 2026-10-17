@@ -139,6 +139,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- examples: add namespaces/rooms/auth and middleware modules with executable
+  Node checks for both supported clients. Chat examples use broadcasts excluding
+  the sender; Redis examples retain their local helper. Serve a pinned 1.7.4
+  browser page beside the 2.5.0 page.
+
+
 - client: recover engine connections automatically with configurable retry limits,
   backo2 delays and reconnect callbacks. Closed namespaces stay closed on recovery;
   ordinary emits buffer while reconnecting and volatile emits drop before CONNECT.

@@ -1,4 +1,6 @@
 EXAMPLES := $(patsubst %/go.mod,%,$(wildcard _examples/*/go.mod))
+CHAT_SKIP := _examples/redis-adapter _examples/redis-adapter-unix-socket
+CHAT_COPIES := $(filter-out $(CHAT_SKIP),$(patsubst %/chat.go,%,$(wildcard _examples/*/chat.go)))
 
 # Measured on V1-20; later PRs may raise the floor or lower the ceiling only.
 COVER_FLOOR := 91.7
@@ -78,10 +80,11 @@ cover-check:
 examples:
 	@set -e; for d in $(EXAMPLES); do echo "==> $$d"; (cd $$d && go build -o /dev/null ./... && go vet ./...); done
 	go build -o /dev/null ./_examples/client
-	@set -e; for d in $(EXAMPLES); do if test -f $$d/chat.go; then cmp $$d/chat.go _examples/default-http/chat.go; fi; done
+	@set -e; for d in $(CHAT_COPIES); do cmp $$d/chat.go _examples/default-http/chat.go; done
 	cd _examples/default-http && go test -race -count=1 ./...
 
 .PHONY: examples-node
+# CONFORMANCE_NODE_MODULES selects the pinned socket.io-client used by the runner.
 examples-node:
 	bash _examples/run-node.sh
 

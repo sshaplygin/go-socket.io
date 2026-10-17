@@ -13,17 +13,22 @@ The mounting examples serve the same chat, a port of the
 [Socket.IO chat example](https://github.com/socketio/socket.io/tree/main/examples/chat)
 (MIT license, pinned commit in the file headers), so an example differs from the others
 only in what it demonstrates: mounting, CORS, pprof, shutdown, Redis or Docker.
-The `ack` and `binary` directories demonstrate individual protocol features.
+The `ack`, `binary`, `namespaces` and `middleware` directories demonstrate
+individual protocol features.
 
 - **Server.** `chat.go` registers the chat on namespace `/` through `registerChat(server)`
   with the events and payloads of upstream `index.js`. The modules are separate, so the
-  file is copied into each chat example; `make examples` fails when a copy differs from
-  `default-http/chat.go`. Change all copies together.
+  file is copied into each chat example; `make examples` compares the non-Redis copies
+  with `default-http/chat.go`. The Redis examples keep their local `ForEach` helper
+  until their adapter supports excluding the sender.
 - **Page.** `asset/` holds the upstream `index.html`, `main.js` and `style.css`
   (license: `asset/LICENSE-socket.io-chat`), which the browser examples mount as
   `../asset`; the Docker images copy it from the repository root. The page loads
   `socket.io-client` 2.5.0 from jsDelivr with an integrity hash (this server speaks
   Engine.IO v3; cdn.socket.io has no 2.5.0 file), so it needs network access. Open <http://localhost:8000> in two tabs after starting a server.
+  For client 1.7.4 open <http://localhost:8000/index-1.7.html>; the 2.5.0 page is
+  `index.html`. Under a mount prefix such as `/public/`, use
+  `/public/index-1.7.html` and `/public/index.html`.
 - **Test.** `default-http/chat_test.go` checks the chat logic with the Go client;
   `make examples` runs it with `-race`.
 
@@ -31,6 +36,8 @@ The `ack` and `binary` directories demonstrate individual protocol features.
 | --- | --- |
 | `ack` | acknowledgements through return values and `AckFunc` |
 | `binary` | binary events and ACKs in both directions |
+| `namespaces` | namespace authentication, room isolation and broadcasts excluding the sender |
+| `middleware` | connection and event rejection while other sockets remain usable |
 | `default-http` | `net/http` server and CORS-permissive transports |
 | `dockerize-default-http` | the same server in a Docker image (`make -i`) |
 | `gin-gonic`, `gin-cors` | mounting on gin, with and without CORS middleware; page at `/public/` |
@@ -41,10 +48,10 @@ The `ack` and `binary` directories demonstrate individual protocol features.
 | `pprof` | exposing `net/http/pprof` next to the socket server |
 | `redis-adapter` | the Redis adapter over TCP; page at `/public/` |
 | `redis-adapter-unix-socket` | the same through a Unix socket, in Docker; port 8080, page at `/public/` |
-| `client` | the experimental Go client joining the chat of another example |
+| `client` | the Go client joining the chat of another example |
 
 The Redis examples expect a Redis server on `127.0.0.1:6379` or the Unix socket path set
-in `main.go`. `Server.ForEach`, which the chat uses to reach the other users, visits only
+in `main.go`. `Server.ForEach`, which their chat uses to reach the other users, visits only
 the connections of its own instance, so with two instances behind Redis, users on
 different instances do not see each other's events and each instance counts only its own
 users. The chat works inside one instance.
@@ -55,12 +62,13 @@ users. The chat works inside one instance.
 go run ./_examples/client -addr http://127.0.0.1:8000 -name gopher   # from the repository root
 ```
 
-The Go client sends no close packet, so the server drops its session, and announces
-`user left`, only after the ping timeout.
+Closing the Go client sends namespace DISCONNECT, so other chat users receive
+`user left` when it leaves.
 
 `make examples` builds and vets every standalone module and checks the shared
-chat files. The executable Node clients check ACKs, binary buffers, and the chat
-login event. Install either supported client into a temporary prefix and run
+chat files. The executable Node clients check ACKs, binary buffers, namespace
+authentication, room isolation, event middleware, and chat broadcasts excluding
+the sender. Install either supported client into a temporary prefix and run
 from the repository root:
 
 ```sh

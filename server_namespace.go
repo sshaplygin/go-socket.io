@@ -57,10 +57,9 @@ func (n *ServerNamespace) Use(f func(Conn) error) {
 	h.eventsLock.Unlock()
 }
 
-// Emit broadcasts through the configured adapter once per connected socket.
+// Emit broadcasts through the adapter once per socket; a trailing func returns ErrBroadcastAck.
 func (n *ServerNamespace) Emit(event string, args ...interface{}) error {
-	n.server.BroadcastToNamespace(n.name, event, args...)
-	return nil
+	return n.emitter().Emit(event, args...)
 }
 
 // Send broadcasts the message event.
@@ -86,4 +85,26 @@ func (n *ServerNamespace) Socket(id string) (Conn, bool) {
 		}
 	}
 	return nil, false
+}
+
+func (n *ServerNamespace) emitter() emitter {
+	return emitter{adapter: n.server.getNamespace(n.name).broadcast, broadcast: true}
+}
+
+// To starts a broadcast to a union of rooms, once per socket.
+func (n *ServerNamespace) To(rooms ...string) Emitter { return n.emitter().To(rooms...) }
+
+// Except starts a namespace broadcast excluding the given socket IDs.
+func (n *ServerNamespace) Except(ids ...string) Emitter { return n.emitter().Except(ids...) }
+
+// Volatile starts a broadcast that skips connections that cannot take a packet now.
+func (n *ServerNamespace) Volatile() Emitter { return n.emitter().Volatile() }
+
+// Local starts a broadcast restricted to this instance.
+func (n *ServerNamespace) Local() Emitter { return n.emitter().Local() }
+
+// SocketIDs lists socket IDs in any of rooms, or the whole namespace. With the
+// Redis adapter it lists this instance only. The returned slice is a copy.
+func (n *ServerNamespace) SocketIDs(rooms ...string) []string {
+	return n.emitter().adapter.IDs(rooms...)
 }

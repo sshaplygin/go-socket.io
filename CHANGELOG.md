@@ -135,6 +135,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- socketio: immutable Emitter builders select room unions and socket exclusions,
+  with volatile and local flags. Namespace sockets can join several rooms and
+  broadcast except their sender; adapters and namespaces expose socket ID snapshots.
+  New broadcast entry points reject acknowledgement callbacks with ErrBroadcastAck;
+  legacy broadcasts retain one callback per socket. Redis exclusions return
+  ErrExceptUnsupported without delivery, and unknown message extensions are dropped.
+
 - engineio: optional Hooks observe connection, initial and per-response headers,
   connection errors, packets, heartbeat, upgrades, polling flush/drain and transport
   errors. Callbacks run synchronously; header hooks may edit response headers.

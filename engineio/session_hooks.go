@@ -10,6 +10,8 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/internal"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
 func (s *Server) installHooks(c *session.Session, request *http.Request, initial bool) {
@@ -98,6 +100,34 @@ func (s *Server) connectionError(r *http.Request, code int, err error) {
 }
 
 func (s *Server) writeServerError(w http.ResponseWriter, r *http.Request, code int, err error) {
+	s.errorCORSHeaders(w, r)
 	s.connectionError(r, code, err)
 	writeServerError(w, code)
+}
+
+// Server validation failures precede transport dispatch. Use the same resolved
+// origin callback as that transport; unknown transports use the server default.
+func (s *Server) errorCORSHeaders(w http.ResponseWriter, r *http.Request) {
+	check := s.originCheck
+	if tr, ok := s.transports.Get(r.URL.Query().Get("transport")); ok {
+		switch tr := tr.(type) {
+		case *polling.Transport:
+			check = tr.CheckOrigin
+			if check == nil {
+				check = polling.Default.CheckOrigin
+			}
+		case *websocket.Transport:
+			check = tr.CheckOrigin
+		}
+	}
+	if check == nil || !check(r) {
+		return
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+	} else {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+	}
 }

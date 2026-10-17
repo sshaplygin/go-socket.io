@@ -24,12 +24,19 @@ function event(socket, name) {
 }
 function ack(socket, name, ...args) {
   return new Promise(resolve => socket.emit(name, ...args, (...values) => {
-    record(socket, 'ack:' + name, values);
+    record(socket, 'ack:' + name, values.map(observable));
     resolve(values);
   }));
 }
 function track(socket) {
   sockets.push(socket);
+  // Capture every incoming application event, including unexpected ones. Hook the
+  // decoded packet before Socket adds its local ACK callback to the arguments.
+  const onEvent = socket.onevent;
+  socket.onevent = function(packet) {
+    record(socket, packet.data[0], packet.data.slice(1).map(observable));
+    return onEvent.call(this, packet);
+  };
   socket.on('connect', () => record(socket, 'connect', [{id: socket.id, sid: socket.io.engine.id, namespace: socket.nsp}]));
   socket.on('disconnect', reason => record(socket, 'disconnect', [reason]));
   socket.on('error', error => record(socket, 'error', [error]));
@@ -55,8 +62,15 @@ function binary(value) {
   assert(Buffer.isBuffer(value), 'expected binary Buffer');
   return {$binary: Array.from(value)};
 }
-function listen(socket, name, convert = value => value) {
-  socket.on(name, (...args) => record(socket, name, args.map(convert)));
+function observable(value) {
+  if (Buffer.isBuffer(value)) return binary(value);
+  if (Array.isArray(value)) return value.map(observable);
+  if (value && typeof value === 'object') {
+    const result = {};
+    for (const key of Object.keys(value)) result[key] = observable(value[key]);
+    return result;
+  }
+  return value;
 }
 function request(method, path, headers = {}) {
   return new Promise((resolve, reject) => {
@@ -117,14 +131,12 @@ async function run() {
     await ack(root, 'echo', 'after rejection');
     denied.disconnect();
   } else if (scenario === 'ack-both-ways') {
-    root.once('question', (value, reply) => { record(root, 'question', [value]); reply('client ACK'); });
-    listen(root, 'ack-result');
+    root.once('question', (value, reply) => reply('client ACK'));
     const received = event(root, 'ack-result');
     await ack(root, 'echo', 'client');
     await ack(root, 'ask');
     await received;
   } else if (scenario === 'binary') {
-    listen(root, 'binary-event', binary);
     const echoed = event(root, 'binary-event');
     // Binary ACKs need conversion before recording; unlike JSON byte arrays they remain Buffers.
     const value = Buffer.from([0, 1, 127, 128, 255]);
@@ -133,9 +145,8 @@ async function run() {
     }));
     await echoed;
     root.once('binary-question', (question, reply) => {
-      record(root, 'binary-question', [binary(question)]); reply(Buffer.from([255, 0, 3]));
+      binary(question); reply(Buffer.from([255, 0, 3]));
     });
-    listen(root, 'binary-result', binary);
     const result = event(root, 'binary-result');
     await ack(root, 'ask-binary');
     await result;
@@ -144,7 +155,6 @@ async function run() {
   } else if (scenario === 'rooms') {
     const peer = await connect();
     const outsider = await connect();
-    for (const socket of [root, peer, outsider]) { listen(socket, 'news'); listen(socket, 'barrier'); }
     await ack(root, 'join', 'room');
     await ack(peer, 'join', 'room');
     for (const except of [false, true]) {

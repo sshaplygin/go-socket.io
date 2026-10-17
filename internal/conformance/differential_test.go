@@ -57,7 +57,7 @@ func differentialGoServer(t *testing.T) *httptest.Server {
 		})
 		n.OnEvent("disconnect-one", func(c socketio.Conn) { c.Disconnect() })
 		n.OnEvent("disconnect-all", func(c socketio.Conn) { _ = c.Close() })
-		n.OnEvent("remove", func(c socketio.Conn) { s.Engine().Remove(c.EngineConn().ID()) })
+		n.OnEvent("drop-transport", func(c socketio.Conn) { _ = c.EngineConn().Close() })
 	}
 	s.Of("/denied").Use(func(socketio.Conn) error { return errors.New("access denied") })
 	served := make(chan struct{})

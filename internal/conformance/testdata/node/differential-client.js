@@ -168,7 +168,7 @@ async function run() {
     await Promise.all(barriers);
     peer.disconnect(); outsider.disconnect();
   } else if (scenario === 'server-disconnect') {
-    for (const name of ['disconnect-one', 'disconnect-all', 'remove']) {
+    for (const name of ['disconnect-one', 'disconnect-all', 'drop-transport']) {
       const socket = name === 'disconnect-one' ? root : await connect();
       const disconnected = event(socket, 'disconnect');
       socket.emit(name);

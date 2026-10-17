@@ -2017,7 +2017,8 @@ S11), `ack-both-ways` (K26, K27), `binary` (binary event and ack both ways, R4),
 S13), `server-disconnect` (`disconnect()` and `disconnect(true)` both seen as `io server
 disconnect`, since the reference writes the DISCONNECT packet before the engine close and
 the engine flushes it (`client.js:111-119`, engine `socket.js:462-470`); a connection the
-server drops without a packet, `Server.Remove(sid)`, seen as `transport close`; K20, K24),
+server closes without a Socket.IO DISCONNECT packet, `Conn.EngineConn().Close()`,
+seen as `transport close` (the reference uses its Engine.IO socket close); K20, K24),
 `handshake-data` (query and a header echoed back; K5, K7),
 `rejected-handshake` (bad method, unknown sid, unknown transport by raw HTTP requests
 without an `Upgrade` header, in both transport variants; P11, P12, P13),

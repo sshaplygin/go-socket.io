@@ -31,7 +31,7 @@ for (const name of ['/', '/chat']) {
     });
     socket.on('disconnect-one', () => socket.disconnect(false));
     socket.on('disconnect-all', () => socket.disconnect(true));
-    socket.on('remove', () => socket.conn.transport.close());
+    socket.on('drop-transport', () => socket.conn.close());
   });
 }
 io.of('/denied').use((socket, next) => next(new Error('access denied')));

@@ -289,7 +289,12 @@ func TestUnhandledErrorRecords(t *testing.T) {
 		{name: "handler panic", h: hooks{events: boom}, nsps: []string{"/"},
 			run: func(t *testing.T, p *peer) { p.send(t, ev("boom")) }},
 		{name: "connect without handlers", nsps: []string{"/nope"},
-			run: func(t *testing.T, p *peer) { p.send(t, "0/nope") }},
+			run: func(t *testing.T, p *peer) {
+				p.send(t, "0/nope")
+				require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
+				require.Equal(t, "4/nope,\"Invalid namespace\"\n", recv(t, p.fc.out, "ERROR"))
+				close(p.fc.peerGone)
+			}},
 		{name: "overflow", nsps: []string{"/a"}, run: func(t *testing.T, p *peer) {
 			p.stall(t, p.join(t, "/a"), defaultWriteBufferSize+1)
 		}},
@@ -306,7 +311,12 @@ func TestUnhandledErrorRecords(t *testing.T) {
 				close(p.fc.peerGone)
 			}},
 		{name: "unmarshalable argument", nsps: []string{"/a"},
-			run: func(t *testing.T, p *peer) { p.join(t, "/a").Emit("bad", make(chan int)) }},
+			run: func(t *testing.T, p *peer) {
+				p.join(t, "/a").Emit("bad", make(chan int))
+				for recv(t, p.fc.out, "encode ERROR") != "4\"encode error\"\n" {
+				}
+				close(p.fc.peerGone)
+			}},
 		{name: "NextWriter fails after connect", run: func(t *testing.T, p *peer) {
 			p.fc.failWrite.Store(true)
 			p.nc.Emit("x")

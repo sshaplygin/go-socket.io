@@ -479,27 +479,19 @@ func TestBackpressureLibraryCloseDiscards(t *testing.T) {
 }
 
 // Covers 1B-T10 (S, C).
-func TestBackpressureEncodeErrorClosesAfterReport(t *testing.T) {
+func TestBackpressureEncodeErrorRecoversAfterReport(t *testing.T) {
 	sides(t, "SC", func(t *testing.T, side byte) {
-		var p *peer
-		closedAtReport := make(chan bool, 4)
-		p = start(t, side, hooks{onError: func(Conn, error) { closedAtReport <- isDone(p.conn().discard) }}, "/a")
-		nc, _, others := p.sub(t)
-		p.fc.hold.Store(true)
-		nc.Emit("bad", make(chan int)) // json cannot encode a channel
-		recv(t, p.fc.held, "the writer to block on the bad packet")
-		flood(nc, 3)
-		close(p.fc.release)
-
-		got := recv(t, p.errs, "the encode error report")
+		p := start(t, side, hooks{}, "/a")
+		nc, _, _ := p.sub(t)
+		drain(p.fc.out)
+		nc.Emit("bad", make(chan int))
+		got := recv(t, p.errs, "encode error report")
 		require.Equal(t, nc.Namespace(), got.nsp)
-		require.False(t, recv(t, closedAtReport, "OnError"), "discarded before the report")
-		recv(t, p.fc.closed, "engine.io close after the report")
-		p.disconnected(t, append(others, nc.Namespace())...)
-		require.Empty(t, drain(p.errs), "a second report")
-		for _, frame := range drain(p.fc.out) {
-			require.NotContains(t, frame, `"x"`, "a packet queued after the bad one was written")
-		}
+		require.Equal(t, "4\"encode error\"\n", recv(t, p.fc.out, "ERROR packet"))
+		nc.Emit("next", 42)
+		require.Contains(t, recv(t, p.fc.out, "following event"), `"next",42`)
+		require.False(t, isDone(p.fc.closed))
+		require.Empty(t, drain(p.errs))
 	})
 }
 
@@ -581,6 +573,10 @@ func TestBackpressureReportForDisconnectedNamespace(t *testing.T) {
 			got := recv(t, p.errs, "the report")
 			require.Equal(t, nc.Namespace(), got.nsp)
 			require.Equal(t, n > 0, errors.Is(got.err, ErrWriteBufferFull), "an overflow report")
+			if n == 0 {
+				require.False(t, isDone(p.fc.closed))
+				require.NoError(t, p.Close())
+			}
 			p.disconnected(t, others...)
 			require.Empty(t, drain(p.errs), "a second report")
 		}

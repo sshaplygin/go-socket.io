@@ -265,7 +265,7 @@ func (d *Decoder) validatePayload(typ Type, raw []byte, event *string) error {
 			return err
 		}
 	}
-	if raw[0] == '[' {
+	if raw[0] == '[' && (typ == Event || typ == binaryEvent || typ == Ack || typ == binaryAck) {
 		d.args = array
 	} else {
 		d.args = []json.RawMessage{raw}

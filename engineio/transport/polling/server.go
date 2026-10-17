@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/sshaplygin/go-socket.io/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/logger"
@@ -22,6 +23,8 @@ type serverConn struct {
 	remoteAddr   Addr
 	url          url.URL
 	readLimit    int64
+	writableMu   sync.Mutex
+	pollWaiting  bool
 }
 
 // newServerConn creates the polling connection of a request. JSONP is not supported
@@ -85,11 +88,15 @@ func (c *serverConn) SetHeaders(w http.ResponseWriter, r *http.Request) {
 
 // progressWriter records whether a write to w was attempted.
 type progressWriter struct {
-	w     io.Writer
-	wrote bool
+	w       io.Writer
+	wrote   bool
+	started func()
 }
 
 func (p *progressWriter) Write(b []byte) (int, error) {
+	if !p.wrote && p.started != nil {
+		p.started()
+	}
 	p.wrote = true
 	return p.w.Write(b)
 }
@@ -112,7 +119,9 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// FlushOut has returned, so the session writer no longer uses w. If it had
 		// already started the response, a second one would corrupt it.
-		pw := &progressWriter{w: w}
+		c.setPollWaiting(true)
+		defer c.setPollWaiting(false)
+		pw := &progressWriter{w: w, started: func() { c.setPollWaiting(false) }}
 		if err := c.Payload.FlushOut(pw); err != nil {
 			if pw.wrote {
 				logger.Log.Debug("engineio: poll response failed after it was started", "err", err)
@@ -167,4 +176,17 @@ func (c *serverConn) rejectLargeBody(w http.ResponseWriter, err *http.MaxBytesEr
 	_ = c.Payload.Store("read", err)
 	_ = c.Close()
 	http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+}
+
+// Writable reports whether a poll is waiting and its response has not started.
+func (c *serverConn) Writable() bool {
+	c.writableMu.Lock()
+	defer c.writableMu.Unlock()
+	return c.pollWaiting
+}
+
+func (c *serverConn) setPollWaiting(waiting bool) {
+	c.writableMu.Lock()
+	c.pollWaiting = waiting
+	c.writableMu.Unlock()
 }

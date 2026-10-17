@@ -128,7 +128,11 @@ func (s *Server) OnConnect(namespace string, f func(Conn) error) {
 	h.OnConnect(f)
 }
 
-// OnDisconnect set a handler function f to handle disconnect event for namespace.
+// OnDisconnect sets the namespace's disconnect handler. Its reason is the peer's
+// namespace disconnect, the engine's transport close/error or ping timeout, or
+// forced close for an application close, shutdown or parser failure. Rooms have
+// been left before it runs; OnEvent(namespace, "disconnecting", func(Conn, string))
+// observes the same reason while the rooms are still joined.
 func (s *Server) OnDisconnect(namespace string, f func(Conn, string)) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -366,9 +370,27 @@ func (c *conn) serveWrite() {
 		case <-seal:
 			seal = nil
 		case pkg := <-c.writeChan:
-			if err := c.encoder.Encode(pkg.Header, pkg.Data); err != nil {
-				c.report(pkg.Header.Namespace, err, c.writer.failed) // not once a close started
-				c.stop()                                             // also ends a drain
+			c.writer.failed = nil
+			var err error
+			switch pkg.Header.Type {
+			case parser.Connect, parser.Disconnect:
+				err = c.encoder.Encode(pkg.Header)
+			case parser.Error:
+				if len(pkg.Data) > 0 {
+					err = c.encoder.Encode(pkg.Header, pkg.Data[0])
+				} else {
+					err = c.encoder.Encode(pkg.Header)
+				}
+			default:
+				err = c.encoder.Encode(pkg.Header, pkg.Data)
+			}
+			if err != nil {
+				c.report(pkg.Header.Namespace, err, c.writer.failed)
+				if c.writer.failed != nil {
+					c.stop()
+				} else if err := c.encoder.Encode(parser.Header{Type: parser.Error}, "encode error"); err != nil || c.writer.failed != nil {
+					c.stop()
+				}
 			}
 		}
 		if seal == nil && len(c.writeChan) == 0 {
@@ -379,7 +401,7 @@ func (c *conn) serveWrite() {
 
 // serveRead dispatches packets until a close takes the namespaces.
 func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
-	defer c.finish()
+	defer c.finishRead()
 
 	var event string
 
@@ -407,6 +429,8 @@ func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
 			err = disconnect(c, header)
 		case parser.Event:
 			err = eventPacketHandler(c, event, header)
+		case parser.Error:
+			err = errorPacketHandler(c, header)
 		}
 
 		if err != nil && !closed {

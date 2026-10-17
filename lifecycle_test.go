@@ -111,11 +111,9 @@ func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
 	require.Equal(t, -1, srv.RoomLen("/missing", "r"))
 	require.Nil(t, srv.Rooms("/missing"))
 
-	// Server-side close runs OnDisconnect. Known defect, pinned until stage 2.3
-	// defines disconnect reasons: the reason reported is clientDisconnectMsg
-	// ("client namespace disconnect") although the server closed the connection.
+	// Application Close reports forced close.
 	cl.Emit("bye")
-	require.Equal(t, clientDisconnectMsg, recv(t, disconnected, "OnDisconnect"))
+	require.Equal(t, "forced close", recv(t, disconnected, "OnDisconnect"))
 	return sc.ID()
 }
 
@@ -186,10 +184,7 @@ func TestLifecycleNamespace(t *testing.T) {
 
 	c.send("0/chat")
 	require.Equal(t, "/chat", recv(t, nspConnected, "OnConnect(/chat)"))
-	// Known deviation, pinned until the v2 rewrite (stage 2.3): the server's
-	// namespace CONNECT reply carries an empty JSON array and a trailing
-	// newline ("0/chat,[]\n") instead of the bare "0/chat" of protocol v4.
-	require.Equal(t, "0/chat,[]\n", c.read(), "namespace CONNECT acknowledged")
+	require.Equal(t, "0/chat,", c.read(), "namespace CONNECT acknowledged")
 
 	c.send(`2/chat,7["ping",41]`)
 	require.Equal(t, "3/chat,7[42]\n", c.read(), "event acknowledged with the handler's return value")

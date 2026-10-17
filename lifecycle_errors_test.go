@@ -154,18 +154,15 @@ func TestLifecycleDisconnectHandlers(t *testing.T) {
 	c := dialRaw(t, ts.URL)
 	require.Equal(t, "0", c.read())
 	c.send("0/chat")
-	require.Equal(t, "0/chat,[]\n", c.read())
+	require.Equal(t, "0/chat,", c.read())
 
 	// DISCONNECT for a namespace that was never connected is ignored.
 	c.send("1/other")
-	// A namespace DISCONNECT (protocol v4: no payload) runs OnDisconnect and
-	// keeps the connection open. Known defect, pinned until stage 2.3 defines
-	// disconnect reasons: the reason is "" (a server-side Close reports
-	// "client namespace disconnect" instead; see TestLifecycleRootNamespace).
+	// A namespace DISCONNECT reports the client reason and keeps the session.
 	c.send("1/chat")
-	require.Equal(t, "", recv(t, reasons, "OnDisconnect(/chat)"))
+	require.Equal(t, clientDisconnectMsg, recv(t, reasons, "OnDisconnect(/chat)"))
 	c.send("0/chat")
-	require.Equal(t, "0/chat,[]\n", c.read(), "the connection is still usable")
+	require.Equal(t, "0/chat,", c.read(), "the connection is still usable")
 }
 
 // rawServer is an engine.io server whose single session the test drives

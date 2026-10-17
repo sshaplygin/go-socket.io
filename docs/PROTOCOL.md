@@ -128,6 +128,8 @@ Socket.IO v4 code: its `v2/parser` holds the v5 codec of the next section.
 - On a new session the server connects the client to the root namespace `/`
   automatically and sends `0` before any client packet. Other namespaces are joined
   when the client sends `0/<nsp>`.
+- A CONNECT to a namespace without a registered handler is answered with an ERROR packet
+  (`4/<nsp>,"Invalid namespace"`) and the connection stays open.
 - Binary attachments are replaced by `{"_placeholder":true,"num":N}` and sent as
   following binary frames; on the Go side they map to `parser.Buffer`.
 - Event handlers return values become the ACK payload; an ACK packet is sent when the
@@ -145,8 +147,6 @@ Engine.IO, `v2/engineio`:
 
 Socket.IO v4 runtime (v1, repository root):
 
-- CONNECT to a namespace without a registered handler closes the connection instead
-  of answering with an ERROR packet.
 - `Header.Query` is never exposed to handlers.
 
 ## Implemented in `v2/`: Socket.IO protocol v5 wire codec

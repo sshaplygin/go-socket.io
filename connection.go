@@ -42,18 +42,19 @@ func newConnLimits(opts *engineio.Options) connLimits {
 // Conn is a connection in go-socket.io
 type Conn interface {
 	// Close closes the connection and returns nil; only the first close, by Close or by the library,
-	// has an effect. Close runs OnDisconnect for every connected namespace, leaves its rooms and
-	// returns without waiting. The packets queued until then, Emits from OnDisconnect included, are
-	// written in the background; an Emit that finds the queue full, or comes later, is dropped without
-	// a report. Then, or engineio.Options.PingTimeout (one minute if not positive) after Close
-	// started, the rest is discarded and the engine.io connection is closed; Server.Count counts the
-	// session until then. Incoming packets are no longer dispatched, and a read or write failure ends
-	// the drain at once. The library closes a connection on a read, decode, dispatch or encode error
-	// (an encode error used to leave it open), a peer close, a ping timeout, an overflow (see
-	// ErrWriteBufferFull) or a failed connect, discarding the queue at once. Other than an overflow,
-	// the error is reported to OnError before the close's effects run, so Emits from OnError still
-	// queue; a failed connect is reported to root OnError with a nil Conn. Failures during a close are
-	// not reported.
+	// has an effect. For every connected namespace it emits disconnecting while rooms are joined,
+	// leaves the rooms, and calls OnDisconnect with "forced close". It returns without waiting.
+	// The packets queued until then, Emits from OnDisconnect included, are written in the background;
+	// an Emit that finds the queue full, or comes later, is dropped without a report. Then, or
+	// engineio.Options.PingTimeout (one minute if not positive) after Close started, the rest is
+	// discarded and the engine.io connection is closed; Server.Count counts the session until then.
+	// Incoming packets are no longer dispatched, and a read or write failure ends the drain at once.
+	// The library closes a connection on a read, decode or dispatch error, a peer close, a ping
+	// timeout, an overflow (see ErrWriteBufferFull) or a failed connect, discarding the queue at once.
+	// Other than an overflow, the error is reported to OnError before the close's effects run,
+	// so Emits from OnError still queue; a failed connect is reported to root OnError with a nil Conn.
+	// Failures during a close are not reported. An encode failure reports OnError, sends an ERROR
+	// packet with "encode error", and keeps the connection open.
 	Close() error
 	Namespace
 
@@ -91,20 +92,22 @@ type conn struct {
 	pending                      []*namespaceConn // OnDisconnect calls a library close owes
 	drainTimer                   *time.Timer
 	drainTimeout                 time.Duration // tests shorten it
+	disconnectReason             string        // guarded by mu; forced close unless read observes an engine close
 }
 
 func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connLimits, log *slog.Logger) *conn {
 	c := &conn{
-		log:        log,
-		Conn:       engineConn,
-		errorChan:  make(chan error),
-		writeChan:  make(chan parser.Payload, limits.writeBufferSize),
-		handlers:   handlers,
-		namespaces: newNamespaces(),
-		closing:    make(chan struct{}),
-		seal:       make(chan struct{}),
-		discard:    make(chan struct{}),
-		done:       make(chan struct{}),
+		log:              log,
+		disconnectReason: "forced close",
+		Conn:             engineConn,
+		errorChan:        make(chan error),
+		writeChan:        make(chan parser.Payload, limits.writeBufferSize),
+		handlers:         handlers,
+		namespaces:       newNamespaces(),
+		closing:          make(chan struct{}),
+		seal:             make(chan struct{}),
+		discard:          make(chan struct{}),
+		done:             make(chan struct{}),
 	}
 	c.reader, c.writer = &frameReader{FrameReader: engineConn}, &queueWriter{c: c}
 	c.decoder, c.encoder = parser.NewDecoder(c.reader), parser.NewEncoder(c.writer)
@@ -165,15 +168,65 @@ func (c *conn) finish() {
 }
 
 func (c *conn) disconnect(ncs []*namespaceConn) {
+	c.mu.Lock()
+	reason := c.disconnectReason
+	c.mu.Unlock()
 	for _, nc := range ncs {
-		if nh := c.namespace(fmtNS(nc.namespace)); nh != nil && nh.onDisconnect != nil {
-			nh.onDisconnect(nc, clientDisconnectMsg)
-		}
-		nc.LeaveAll()
+		c.disconnectNamespace(nc, reason)
 		if c.boundary {
 			c.log.Debug("socketio: disconnect", nspAttr(nc.namespace), "reason", "connection close")
 		}
 	}
+}
+
+// disconnectNamespace exposes rooms to disconnecting, then removes them before
+// OnDisconnect, matching the reference's two lifecycle notifications.
+func (c *conn) disconnectNamespace(nc *namespaceConn, reason string) {
+	nh := c.namespace(fmtNS(nc.namespace))
+	if nh != nil {
+		if _, err := nh.dispatchEvent(nc, "disconnecting", reflect.ValueOf(reason)); err != nil {
+			if nh.onError != nil {
+				nh.onError(nc, err)
+			} else {
+				c.unhandled(nc.namespace, err)
+			}
+		}
+	}
+	nc.LeaveAll()
+	if nh != nil && nh.onDisconnect != nil {
+		nh.onDisconnect(nc, reason)
+	}
+}
+
+// finishRead obtains the final engine cause on the read goroutine, after Decode
+// returned and before finish invokes any OnDisconnect handlers.
+func (c *conn) finishRead() {
+	reason := "forced close"
+	var closed *engineio.CloseError
+	failed := c.reader.failed
+	if failed != nil && !errors.As(failed, &closed) {
+		// An acquired frame reader keeps its own transport error. Closing the
+		// engine preserves the cause that reader recorded; the next reader then
+		// exposes it through CloseError without changing the frame's error.
+		_ = c.Conn.Close()
+		_, reader, err := c.Conn.NextReader()
+		if reader != nil {
+			_ = reader.Close()
+		}
+		failed = err
+	}
+	if errors.As(failed, &closed) {
+		switch closed.Reason {
+		case engineio.ReasonTransportClose, engineio.ReasonPingTimeout, engineio.ReasonTransportError:
+			reason = string(closed.Reason)
+		}
+	}
+	c.mu.Lock()
+	if !c.draining {
+		c.disconnectReason = reason
+	}
+	c.mu.Unlock()
+	c.finish()
 }
 
 // connectRecord logs the namespace connect record of nsp, with err unless it is nil.

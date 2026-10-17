@@ -154,12 +154,12 @@ func TestSessionCloseRecord(t *testing.T) {
 		{"close packet", "PW", "transport close", "", func(t *testing.T, f *logFixture) {
 			conn := f.accept(t)
 			f.send(t, packet.CLOSE, "")
-			require.Equal(t, io.EOF, readAll(conn))
+			require.ErrorIs(t, readAll(conn), io.EOF)
 		}},
 		{"close packet then Close", "PW", "transport close", "", func(t *testing.T, f *logFixture) {
 			conn := f.accept(t)
 			f.send(t, packet.CLOSE, "")
-			require.Equal(t, io.EOF, readAll(conn))
+			require.ErrorIs(t, readAll(conn), io.EOF)
 			require.NoError(t, conn.Close())
 		}},
 		{"peer close", "W", "transport error", "", func(t *testing.T, f *logFixture) {

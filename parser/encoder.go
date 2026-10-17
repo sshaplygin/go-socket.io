@@ -2,6 +2,7 @@ package parser
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
 	"reflect"
@@ -25,20 +26,21 @@ func NewEncoder(w FrameWriter) *Encoder {
 }
 
 func (e *Encoder) Encode(h Header, args ...interface{}) (err error) {
-	var w io.WriteCloser
-	w, err = e.w.NextWriter(session.TEXT)
-	if err != nil {
-		logger.Log.Debug("socketio: next writer failed", "err", err)
-
-		return
-	}
-
-	var buffers [][]byte
-	buffers, err = e.writePacket(w, h, args)
+	// Finish reflection and JSON encoding before acquiring a transport writer.
+	// A failed encode must not put a partial packet on the wire.
+	var data bytes.Buffer
+	buffers, err := e.writePacket(bufferCloser{&data}, h, args)
 	if err != nil {
 		logger.Log.Debug("socketio: write packet failed", "err", err)
-
-		return
+		return err
+	}
+	w, err := e.w.NextWriter(session.TEXT)
+	if err != nil {
+		logger.Log.Debug("socketio: next writer failed", "err", err)
+		return err
+	}
+	if err = e.writeBuffer(w, data.Bytes()); err != nil {
+		return err
 	}
 
 	for _, b := range buffers {
@@ -59,6 +61,10 @@ func (e *Encoder) Encode(h Header, args ...interface{}) (err error) {
 
 	return
 }
+
+type bufferCloser struct{ *bytes.Buffer }
+
+func (bufferCloser) Close() error { return nil }
 
 type byteWriter interface {
 	io.Writer
@@ -111,10 +117,8 @@ func (e *Encoder) writePacket(w io.WriteCloser, h Header, args []interface{}) ([
 		if _, err := bw.Write([]byte(h.Namespace)); err != nil {
 			return nil, err
 		}
-		if h.ID != 0 || args != nil {
-			if err := bw.WriteByte(','); err != nil {
-				return nil, err
-			}
+		if err := bw.WriteByte(','); err != nil {
+			return nil, err
 		}
 	}
 

@@ -6,51 +6,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
-// Namespace describes a communication channel that allows you to split the logic of your application
-// over a single shared connection.
-type Namespace interface {
-	// Context of this connection. You can save one context for one
-	// connection, and share it between all handlers. The handlers
-	// are called in one goroutine, so no need to lock context if it
-	// only accessed in one connection.
-	Context() interface{}
-	SetContext(ctx interface{})
-
-	Namespace() string
-	// Emit sends eventName with arguments v to the client. If the last element of v
-	// is a func, it is not sent but registered as the acknowledgement callback: the
-	// client's ACK arguments are decoded into its parameters and it is called on the
-	// read goroutine of the connection. Emit never blocks: it queues the packet, and Emits
-	// from OnConnect are written once the writer starts. A queue already holding
-	// engineio.Options.WriteBufferSize packets not yet started drops the packet and every
-	// later one and closes the connection (see ErrWriteBufferFull). Once a close started,
-	// Emit drops the packet without a report, except that Close still queues packets until
-	// the OnDisconnect calls it runs have returned (see Conn.Close).
-	Emit(eventName string, v ...interface{})
-
-	// Join joins each room in order, ignoring rooms already joined.
-	Join(rooms ...string)
-	// To broadcasts to a union of rooms except this socket. Client emits return ErrServerOnly.
-	To(rooms ...string) Emitter
-	// Broadcast targets the namespace except this socket. Client emits return ErrServerOnly.
-	Broadcast() Emitter
-	// Volatile starts a single-socket emit that drops when its connection is not writable.
-	Volatile() Emitter
-	Leave(room string)
-	LeaveAll()
-	Rooms() []string
-	// Send is Emit("message", args...), including a trailing acknowledgement callback.
-	Send(args ...interface{})
-	// Disconnect writes DISCONNECT for this namespace, leaves its rooms and calls
-	// OnDisconnect with the server namespace reason. Other namespaces stay open.
-	// On an experimental client connection, Disconnect is a no-op.
-	Disconnect()
-	// Use appends event middleware on a server socket; on a client it is a no-op.
-	Use(func(event string, args []interface{}) error)
-}
+// Namespace is the shared server and client interface.
+type Namespace = client.Namespace
 
 type namespaceConn struct {
 	*conn
@@ -315,22 +276,8 @@ func (nc *namespaceConn) reject() {
 	nc.LeaveAll()
 }
 
-// Emitter is an immutable pending target and its flags. Each builder returns a new
-// value, so an Emitter can be reused. To or Except converts a single-socket target
-// to a broadcast excluding its sender; Volatile and Local preserve its target.
-type Emitter interface {
-	To(rooms ...string) Emitter
-	Except(ids ...string) Emitter
-	Volatile() Emitter
-	Local() Emitter
-	// Emit returns ErrBroadcastAck without sending for a broadcast with a trailing
-	// func, or an adapter error. A dynamic parent may have delivered to earlier
-	// children before a child returns an error. A single-socket emit never fails;
-	// a client broadcast returns ErrServerOnly without sending.
-	Emit(event string, args ...interface{}) error
-	// Send is Emit("message", args...).
-	Send(args ...interface{}) error
-}
+// Emitter is the shared server and client interface.
+type Emitter = client.Emitter
 
 type emitter struct {
 	socket    *namespaceConn

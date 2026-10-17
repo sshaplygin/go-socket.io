@@ -73,7 +73,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | S9 | ADD V1-7 | D5 | `of(regex)` / `of(fn)` dynamic namespaces, `ParentNamespace`, `checkNamespace` | index.js:454-464,174-200; parent-namespace.js | ABSENT | none; a CONNECT to an unregistered namespace ends the connection (connection_handlers.go:93-98) | - | Y | 2-3 | R |
 | S10 | BUG V1-4 | D8 | CONNECT to unknown namespace answers `ERROR "Invalid namespace"`, connection stays open | client.js:69-76 | ABSENT | server never writes an ERROR packet (only Connect/Event/Ack are written: connection.go:224, namespace_conn.go:70, connection_handlers.go:79); `errFailedConnectNamespace` returns from `serveRead` and closes everything. Recorded as known deviation: docs/PROTOCOL.md | - | N | 1 | R |
 | S11 | ADD V1-5 | D5 | `use(fn)` namespace middleware `fn(socket, next)`, error becomes `ERROR` packet | index.js:509; namespace.js:102,119,172-176 | ABSENT | nearest: `OnConnect` returning an error (namespace_handler.go:89-91); that closes the whole connection and sends no ERROR packet (connection_handlers.go:116-121) | `OnConnect` error | Y | 2 | R |
-| S12 | BUG V1-3 | D8 | `emit(ev, ...)` to all sockets of `/` (once per socket) | namespace.js:217; adapter 122-163 | PARTIAL | `BroadcastToNamespace` server.go:251 delivers one copy **per room** the conn is in, i.e. two for any conn (own-sid room + other) (broadcast.go:93-97); pinned as known defect lifecycle_test.go:82-92 (existing test, not re-run by me) | `Server.BroadcastToNamespace` | N | 1 | R |
+| S12 | DONE V1-3 | D8 | `emit(ev, ...)` to all sockets of `/` (once per socket) | namespace.js:217; adapter 122-163 | PARITY | `TestNamespaceBroadcastOnce`: two sockets in several rooms receive a single namespace broadcast followed by a distinct marker; `TestLifecycleRootNamespace` also asserts no duplicate | `Server.BroadcastToNamespace` | N | 1 | T |
 | S13 | CHG V1-6; REDIS | D1, D2 | `to(room)/in(room).emit` (one room, or union of several rooms with dedupe) | namespace.js:147; adapter 122 | PARTIAL | `BroadcastToRoom` server.go:242: single room only, no union, no dedupe | `Server.BroadcastToRoom` | N | 1 | R |
 | S14 | ADD V1-5 | D5 | `send` / `write` (emits `message`) | namespace.js:255 | ABSENT | sugar only; equivalent `BroadcastToNamespace(ns, "message", ...)` | - | Y (sugar) | 0-1 | R |
 | S15 | ADD V1-6; REDIS | D5, D2 | `clients(cb)` list of socket ids (all, or `in(room)`) | namespace.js:270; adapter 173 | PARTIAL | no id list; `ForEach(ns, room, f)` server.go:317 needs a room, `RoomLen`/`Rooms` count only | `Server.ForEach`, `RoomLen` | Y | 1 | R |
@@ -208,8 +208,8 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | R3 | - | - | ack ids | parser | PARITY | `Header.ID/NeedAck` | - | - | 0 | R |
 | R4 | - | - | binary placeholders `{_placeholder,num}` + following binary frames, `BINARY_EVENT/ACK` | binary.js | PARITY | parser/buffer.go:18-62; decoder.go:139-157; type fold decoder.go:89-91 | `parser.Buffer` | - | 0 | R |
 | R5 | - | - | `hasBin` auto-detection | has-binary2 | PARITY | `Buffer` values detected by the encoder | - | - | 0 | R |
-| R6 | BUG V1-3 | D8 | `maxAttachments` (10) -> "too many attachments" | index.js Decoder | ABSENT | `buffers := make([]Buffer, d.bufferCount)` with the client-supplied count, no cap (decoder.go:139). Probe: header `5999999999999-[...]` took **19.5 s** in one `DecodeArgs` call (T, on the archive copy) | - | N | 1 | T |
-| R7 | CHG V1-3 | D1 | payload validation per type (`invalid payload`, `Illegal attachments`) | isPayloadValid | PARTIAL | event name read by `readEvent` (decoder.go:297); other type checks not performed (not run) | - | N | 1 | U |
+| R6 | DONE V1-3 | D8 | `maxAttachments` (10) -> "too many attachments" | index.js Decoder | PARITY | `TestMaxAttachments`: headers above 10 (including huge/overflowing counts) fail before allocation or attachment reads; exactly 10 succeeds | - | N | 1 | T |
+| R7 | DONE V1-3 | D1 | payload validation per type (`invalid payload`, `Illegal attachments`) | isPayloadValid | PARITY | `TestPayloadValidation`: packet-type JSON shapes match socket.io-parser 3.4.5; malformed payloads and out-of-range binary placeholder indices are rejected before dispatch | - | N | 1 | T |
 | R8 | BUG V1-4 | D8 | ERROR packet encode/decode | parser | ABSENT | see S10, K22 | - | N | see S10 | R |
 | R9 | CHG V1-4 | D5 | DISCONNECT packet write by server | socket.js:483 | ABSENT | see K20 | - | N | see K20 | R |
 | R10 | CHG V1-4 | D1 | encode failure -> `4"encode error"` | index.js:55 | PARTIAL (differs) | encode error reports to `OnError` and closes the connection (server.go:369-372) | - | N | 0 | R |
@@ -257,7 +257,7 @@ fails without it). They have no `Status`; the closing PR gives each the evidence
 
 | ID | Plan | Decision | Defect | Closing PR note | Ver |
 | --- | --- | --- | --- | --- | --- |
-| B1 | BUG V1-3 | D8 | `Emit(ev, nil)` panics | no panic in library code (CLAUDE.md conventions) | U |
-| B2 | BUG V1-3 | D8 | an event argument of the wrong type closes the connection | the connection stays open and the error is reported; the route is fixed by the PR | U |
+| B1 | DONE V1-3 | D8 | `Emit(ev, nil)` panics | `TestEmitNil`: nil alone and before another argument is encoded as JSON null and delivered | T |
+| B2 | DONE V1-3 | D8 | an event argument of the wrong type closes the connection | `TestWrongTypeArgumentKeepsConnection`: event, binary event and ACK Go type mismatches reach OnError; the next valid event receives its ACK on the same connection. `TestWrongTypeConsumesBinaryAttachments` verifies frame alignment | T |
 | B3 | REDIS | D2 | binary arguments across Redis instances (listed by the owner as Redis work; the defect is not characterised yet) | Stage V1R | U |
 | B4 | REDIS | D2 | `RoomLen` and `Rooms` wait the full 5 s when a peer has not registered or does not answer (1.R known limitation, ROADMAP 1.K) | Stage V1R | R |

@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- parser: reject more than 10 binary attachments before allocation or reads, validate
+  JSON payloads by packet type, and reject invalid binary placeholder indices.
+  Decode complete event names, including commas, without splitting JSON text.
+- socketio: `Emit(event, nil)` sends a JSON null instead of panicking. Event and ACK
+  argument type mismatches are reported to `OnError` and leave the session open;
+  binary attachments are consumed before conversion so the next packet stays aligned.
+- memory broadcast: `BroadcastToNamespace` sends one copy per socket regardless of
+  how many rooms it joined, using a recipient snapshot outside the room lock.
+
 - engineio: default session IDs use cryptographic randomness instead of a sequential
   counter. `Server.Close` closes and removes accepted sessions as well as pending ones.
 - engineio: polling POST bodies and websocket messages have a configurable byte limit;

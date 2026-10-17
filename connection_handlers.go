@@ -1,6 +1,9 @@
 package socketio
 
 import (
+	"encoding/json"
+	"errors"
+
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -33,6 +36,10 @@ func ackPacketHandler(c *conn, header parser.Header) error {
 	if err != nil {
 		c.log.Debug("socketio: ack decode failed", nspAttr(header.Namespace), "err", err)
 		c.onError(header.Namespace, err)
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) {
+			return nil
+		}
 		return errDecodeArgs
 	}
 
@@ -65,6 +72,10 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 	if err != nil {
 		c.onError(header.Namespace, err)
 		c.log.Debug("socketio: event decode failed", nspAttr(header.Namespace), "event", event, "err", err)
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) {
+			return nil
+		}
 		return errDecodeArgs
 	}
 

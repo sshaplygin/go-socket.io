@@ -91,8 +91,16 @@ func (bc *broadcast) Send(room, event string, args ...interface{}) {
 
 // SendAll sends given event & args to all the connections to all the rooms
 func (bc *broadcast) SendAll(event string, args ...interface{}) {
-	for _, room := range bc.AllRooms() {
-		bc.Send(room, event, args...)
+	bc.lock.RLock()
+	unique := make(map[string]Conn)
+	for _, room := range bc.rooms {
+		for id, connection := range room {
+			unique[id] = connection
+		}
+	}
+	bc.lock.RUnlock()
+	for _, connection := range unique {
+		connection.Emit(event, args...)
 	}
 }
 

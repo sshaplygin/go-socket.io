@@ -52,7 +52,7 @@ func TestAck(t *testing.T) {
 	c := &conn{
 		handlers:   newNamespaceHandlers(),
 		namespaces: newNamespaces(),
-		decoder:    parser.NewDecoder(&fakeReader{data: [][]byte{[]byte("3-/test,12[{\"result\":\"pass\"}]")}}),
+		decoder:    parser.NewDecoder(&fakeReader{data: [][]byte{[]byte("3/test,12[{\"result\":\"pass\"}]")}}),
 	}
 
 	conn := newNamespaceConn(c, namespace, nil)

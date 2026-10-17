@@ -268,7 +268,9 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 	data := make([]interface{}, len(args))
 
 	for i := range data {
-		data[i] = args[i].Interface()
+		if args[i].IsValid() {
+			data[i] = args[i].Interface()
+		}
 	}
 
 	pkg := parser.Payload{

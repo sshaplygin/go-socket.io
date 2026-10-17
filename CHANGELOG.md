@@ -139,6 +139,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Differential conformance scenarios compare Go and Node event, ACK, binary,
+  namespace, handshake and disconnect transcripts under both supported clients.
+
 - ci: `parity-check` verifies PARITY markers against executable tests, including
   tagged scenarios. `cover-check` enforces measured statement and API coverage ratchets.
 

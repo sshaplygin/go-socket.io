@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -33,6 +34,7 @@ type client struct {
 	context   interface{}
 	close     chan struct{}
 	closeOnce sync.Once
+	writers   atomic.Int64
 }
 
 func (c *client) SetContext(v interface{}) {
@@ -90,7 +92,17 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 }
 
 func (c *client) NextWriter(typ session.FrameType) (io.WriteCloser, error) {
-	return c.conn.NextWriter(frame.Type(typ), packet.MESSAGE)
+	select {
+	case <-c.close:
+		return nil, io.ErrClosedPipe
+	default:
+	}
+	w, err := c.conn.NextWriter(frame.Type(typ), packet.MESSAGE)
+	if err != nil {
+		return nil, err
+	}
+	c.writers.Add(1)
+	return &clientWriter{WriteCloser: w, c: c}, nil
 }
 
 func (c *client) URL() url.URL {
@@ -165,4 +177,35 @@ func (c *client) pingFailed(err error) {
 		}
 	}
 	logger.Log.Log(context.Background(), level, "engineio: ping failed", "err", err)
+}
+
+// Writable reports, for an engine client, the same state as Session.Writable.
+func (c *client) Writable() bool {
+	select {
+	case <-c.close:
+		return false
+	default:
+	}
+	if c.writers.Load() != 0 {
+		return false
+	}
+	if conn, ok := c.conn.(interface{ Writable() bool }); ok {
+		return conn.Writable()
+	}
+	return true
+}
+
+type clientWriter struct {
+	io.WriteCloser
+	c    *client
+	once sync.Once
+	err  error
+}
+
+func (w *clientWriter) Close() error {
+	w.once.Do(func() {
+		defer w.c.writers.Add(-1)
+		w.err = w.WriteCloser.Close()
+	})
+	return w.err
 }

@@ -50,7 +50,9 @@ func TestEncoder(t *testing.T) {
 			}
 
 			var err error
-			if v != nil {
+			if test.Header.Type == Error && len(v) > 0 {
+				err = encoder.Encode(test.Header, v[0])
+			} else if v != nil {
 				err = encoder.Encode(test.Header, v)
 			} else {
 				err = encoder.Encode(test.Header)

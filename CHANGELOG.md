@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- socketio: unknown namespaces receive ERROR "Invalid namespace" without losing the
+  session. ERROR packets reach OnError, namespace CONNECT replies use `0/nsp,`, and
+  the parser writes namespace DISCONNECT packets with their trailing comma.
+- socketio: JSON encoding finishes before any frame is written. An encode failure
+  reports OnError and sends ERROR "encode error" while keeping the connection usable.
+
 - parser: reject more than 10 binary attachments before allocation or reads, validate
   JSON payloads by packet type, and reject invalid binary placeholder indices.
   Decode complete event names, including commas, without splitting JSON text.
@@ -123,6 +129,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- engineio: CloseError exposes the first session close cause through NextReader and
+  NextWriter; its underlying error remains available through errors.Is/As. Sessions,
+  engine clients and their transports report optional Writable state for volatile sends.
+
 - Development: `make sync-check` and an unfiltered CI check guard shared v1/v2
   foundation files against drift after rewriting the module import path.
 
@@ -175,6 +185,11 @@ All notable changes to this project are documented here. The format follows
   (roadmap tasks 1.B and 1I).
 
 ### Changed
+
+- socketio: OnDisconnect now reports `transport close`, `ping timeout`,
+  `transport error` or `forced close` for connection closure instead of always
+  `client namespace disconnect`. The `disconnecting` event runs while rooms are
+  joined; OnDisconnect runs after they have been left on every disconnect path.
 
 - engineio: `PingInterval` defaults to 25 seconds and `PingTimeout` to 20 seconds,
   as in engine.io 3.6.2. Every received packet renews a window of their sum, so an

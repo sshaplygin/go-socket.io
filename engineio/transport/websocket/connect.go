@@ -88,3 +88,13 @@ func (c *conn) Close() error {
 	})
 	return err
 }
+
+// Writable reports that no message writer is open on this connection.
+func (c *conn) Writable() bool {
+	select {
+	case <-c.closed:
+		return false
+	default:
+	}
+	return !c.ws.writing.Load()
+}

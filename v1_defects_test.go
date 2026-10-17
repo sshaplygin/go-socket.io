@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/stretchr/testify/require"
 )
@@ -63,7 +64,8 @@ func TestWrongTypeArgumentKeepsConnection(t *testing.T) {
 				s.OnEvent("/", "typed", func(_ Conn, n int) int { return n + 1 })
 				s.OnEvent("/", "request-ack", func(c Conn) { c.Emit("ask", func(int) { t.Error("invalid ack reached callback") }) })
 				s.OnError("/", func(c Conn, err error) {
-					if errors.Is(err, io.EOF) {
+					var closed *engineio.CloseError
+					if errors.Is(err, io.EOF) || errors.As(err, &closed) {
 						return
 					}
 					var typed *json.UnmarshalTypeError

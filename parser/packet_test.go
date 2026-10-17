@@ -20,7 +20,7 @@ var tests = []struct {
 		"",
 		[]interface{}{"error"},
 		[][]byte{
-			[]byte("4[\"error\"]\n"),
+			[]byte("4\"error\"\n"),
 		},
 	},
 	{"BData",
@@ -68,7 +68,7 @@ var tests = []struct {
 		"",
 		nil,
 		[][]byte{
-			[]byte("1/woot"),
+			[]byte("1/woot,"),
 		},
 	},
 	{"NamespaceData",

@@ -3,6 +3,7 @@ package socketio
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 
 	"github.com/sshaplygin/go-socket.io/parser"
 )
@@ -105,7 +106,8 @@ func connectPacketHandler(c *conn, header parser.Header) error {
 	if !ok {
 		c.onError(header.Namespace, errFailedConnectNamespace)
 		c.log.Debug("socketio: connect without handler", nspAttr(header.Namespace))
-		return errFailedConnectNamespace
+		c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf("Invalid namespace"))
+		return nil
 	}
 
 	if handler.err != nil && !isDone(c.closing) { // its Redis broadcast could not be created
@@ -137,33 +139,35 @@ func connectPacketHandler(c *conn, header parser.Header) error {
 }
 
 func disconnectPacketHandler(c *conn, header parser.Header) error {
-	args, err := c.decoder.DecodeArgs(defaultHeaderType)
+	if err := c.decoder.DiscardLast(); err != nil {
+		c.onError(header.Namespace, err)
+		return errDecodeArgs
+	}
+	nc, ok := c.claim(header.Namespace)
+	if !ok {
+		return nil
+	}
+	c.disconnectNamespace(nc, clientDisconnectMsg)
+	c.log.Debug("socketio: disconnect", nspAttr(header.Namespace), "reason", "namespace disconnect")
+	return nil
+}
+
+func errorPacketHandler(c *conn, header parser.Header) error {
+	args, err := c.decoder.DecodeArgs([]reflect.Type{reflect.TypeOf((*interface{})(nil)).Elem()})
 	if err != nil {
 		c.onError(header.Namespace, err)
 		return errDecodeArgs
 	}
-
-	conn, ok := c.claim(header.Namespace) // a close may have taken it
+	value := args[0].Interface()
+	message, ok := value.(string)
 	if !ok {
-		_ = c.decoder.DiscardLast()
-		return nil
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		message = string(encoded)
 	}
-
-	conn.LeaveAll()
-	c.log.Debug("socketio: disconnect", nspAttr(header.Namespace), "reason", "namespace disconnect")
-
-	handler, ok := c.handlers.Get(header.Namespace)
-	if !ok {
-		return nil
-	}
-
-	_, err = handler.dispatch(conn, header, args...)
-	if err != nil {
-		c.log.Debug("socketio: disconnect handler failed", nspAttr(header.Namespace), "err", err)
-		c.onError(header.Namespace, err)
-		return errHandleDispatch
-	}
-
+	c.onError(header.Namespace, errors.New(message))
 	return nil
 }
 

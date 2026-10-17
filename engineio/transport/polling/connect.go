@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"sync/atomic"
 
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
@@ -23,6 +24,8 @@ type clientConn struct {
 	httpClient   *http.Client
 	request      http.Request
 	remoteHeader atomic.Value
+	writableMu   sync.Mutex
+	posting      bool
 }
 
 func (c *clientConn) Open() (transport.ConnParameters, error) {
@@ -99,6 +102,7 @@ func (c *clientConn) Resume() {
 }
 
 func (c *clientConn) servePost() {
+	defer c.setPosting(false)
 	req := c.request
 	reqUrl := *req.URL
 
@@ -112,7 +116,7 @@ func (c *clientConn) servePost() {
 	for {
 		buf.Reset()
 
-		if err := c.Payload.FlushOut(&buf); err != nil {
+		if err := c.Payload.FlushOut(postBodyWriter{Writer: &buf, c: c}); err != nil {
 			return
 		}
 		query.Set("t", utils.Timestamp())
@@ -132,6 +136,7 @@ func (c *clientConn) servePost() {
 		}
 
 		discardBody(resp.Body)
+		c.setPosting(false)
 
 		if resp.StatusCode != http.StatusOK {
 			err = c.Payload.Store("post", fmt.Errorf("invalid response: %s(%d)", resp.Status, resp.StatusCode))
@@ -289,4 +294,27 @@ func discardBody(body io.ReadCloser) {
 	if err = body.Close(); err != nil {
 		logger.Log.Debug("engineio: close body failed", "err", err)
 	}
+}
+
+// Writable reports whether no POST body is being sent or response being read.
+func (c *clientConn) Writable() bool {
+	c.writableMu.Lock()
+	defer c.writableMu.Unlock()
+	return !c.posting
+}
+
+func (c *clientConn) setPosting(posting bool) {
+	c.writableMu.Lock()
+	c.posting = posting
+	c.writableMu.Unlock()
+}
+
+type postBodyWriter struct {
+	io.Writer
+	c *clientConn
+}
+
+func (w postBodyWriter) Write(p []byte) (int, error) {
+	w.c.setPosting(true)
+	return w.Writer.Write(p)
 }

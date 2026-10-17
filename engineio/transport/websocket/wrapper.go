@@ -3,6 +3,7 @@ package websocket
 import (
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -17,6 +18,7 @@ type wrapper struct {
 
 	writeLocker *sync.Mutex
 	readLocker  *sync.Mutex
+	writing     *atomic.Bool
 }
 
 func newWrapper(conn *websocket.Conn) wrapper {
@@ -24,6 +26,7 @@ func newWrapper(conn *websocket.Conn) wrapper {
 		Conn:        conn,
 		writeLocker: new(sync.Mutex),
 		readLocker:  new(sync.Mutex),
+		writing:     new(atomic.Bool),
 	}
 }
 
@@ -108,11 +111,15 @@ func (w wrapper) NextWriter(FType frame.Type) (io.WriteCloser, error) {
 		return nil, err
 	}
 
-	return newWcWrapper(w.writeLocker, writer), nil
+	w.writing.Store(true)
+	result := newWcWrapper(w.writeLocker, writer)
+	result.writing = w.writing
+	return result, nil
 }
 
 type wcWrapper struct {
 	io.WriteCloser
+	writing  *atomic.Bool
 	nagTimer *time.Timer
 
 	l       *sync.Mutex
@@ -145,5 +152,10 @@ func (w wcWrapper) Close() error {
 	close(w.quitNag)
 	// Unlock the wrapper's write lock for future calls to NextWriter.
 	defer w.l.Unlock()
+	defer func() {
+		if w.writing != nil {
+			w.writing.Store(false)
+		}
+	}()
 	return w.WriteCloser.Close()
 }

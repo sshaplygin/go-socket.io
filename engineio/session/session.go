@@ -43,16 +43,17 @@ type Session struct {
 	opened        time.Time    // set by InitSession; a session never opened logs no close
 
 	cause    atomic.Pointer[closeCause] // the first close cause observed
+	writers  atomic.Int64               // open frame writers returned to callers
 	deadline atomic.Int64               // UnixNano of the liveness deadline of conn
 }
 
 // The reasons of the "engineio: session close" record.
 const (
-	reasonTransportClose = "transport close"
-	reasonPingTimeout    = "ping timeout"
-	reasonTransportError = "transport error"
-	reasonForcedClose    = "forced close"
-	reasonShutdown       = "server shutting down"
+	reasonTransportClose = string(ReasonTransportClose)
+	reasonPingTimeout    = string(ReasonPingTimeout)
+	reasonTransportError = string(ReasonTransportError)
+	reasonForcedClose    = string(ReasonForcedClose)
+	reasonShutdown       = string(ReasonServerShutdown)
 )
 
 type closeCause struct {
@@ -198,15 +199,23 @@ func (r frameReader) Close() error { return r.s.fail(r.ReadCloser.Close()) }
 
 type frameWriter struct {
 	io.WriteCloser
-	s *Session
+	s    *Session
+	once sync.Once
+	err  error
 }
 
-func (w frameWriter) Write(p []byte) (int, error) {
+func (w *frameWriter) Write(p []byte) (int, error) {
 	n, err := w.WriteCloser.Write(p)
 	return n, w.s.fail(err)
 }
 
-func (w frameWriter) Close() error { return w.s.fail(w.WriteCloser.Close()) }
+func (w *frameWriter) Close() error {
+	w.once.Do(func() {
+		defer w.s.writers.Add(-1)
+		w.err = w.s.fail(w.WriteCloser.Close())
+	})
+	return w.err
+}
 
 // NextReader attempts to obtain a ReadCloser from the session's connection.
 // When finished writing, the caller MUST Close the ReadCloser to unlock the
@@ -220,13 +229,13 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 				s.logger().Debug("engineio: session close failed", "err", closeErr)
 			}
 
-			return 0, nil, err
+			return 0, nil, fmt.Errorf("next reader: %w", s.closeError())
 		}
 		// Every received packet, including MESSAGE, renews the liveness window.
 		if err := s.fail(s.setDeadline()); err != nil {
 			_ = r.Close()
 			_ = s.Close()
-			return 0, nil, err
+			return 0, nil, fmt.Errorf("next reader: %w", s.closeError())
 		}
 
 		switch pt {
@@ -257,7 +266,7 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 					s.logger().Debug("engineio: session close failed", "err", closeErr)
 				}
 
-				return 0, nil, err
+				return 0, nil, fmt.Errorf("next reader: %w", s.closeError())
 			}
 		case packet.CLOSE:
 			s.observe(reasonTransportClose, nil)
@@ -270,7 +279,7 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 				s.logger().Debug("engineio: session close failed", "err", err)
 			}
 
-			return 0, nil, io.EOF
+			return 0, nil, fmt.Errorf("next reader: %w", s.closeError())
 
 		case packet.MESSAGE:
 			// Caller must Close the ReadCloser to unlock the connection's
@@ -320,9 +329,11 @@ func (s *Session) RemoteHeader() http.Header {
 func (s *Session) NextWriter(typ FrameType) (io.WriteCloser, error) {
 	w, err := s.nextWriter(frame.Type(typ), packet.MESSAGE)
 	if s.fail(err) != nil {
-		return nil, err
+		_ = s.Close()
+		return nil, fmt.Errorf("next writer: %w", s.closeError())
 	}
-	return frameWriter{w, s}, nil
+	s.writers.Add(1)
+	return &frameWriter{WriteCloser: w, s: s}, nil
 }
 
 func (s *Session) Upgrade(transport string, conn transport.Conn) {
@@ -387,8 +398,11 @@ func (s *Session) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Session) nextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
 	for {
 		s.upgradeLocker.RLock()
-		conn := s.conn
+		conn, closed := s.conn, s.closed
 		s.upgradeLocker.RUnlock()
+		if closed {
+			return 0, 0, nil, s.closeError()
+		}
 
 		ft, pt, r, err := conn.NextReader()
 		if err != nil {
@@ -409,8 +423,11 @@ func (s *Session) nextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
 func (s *Session) nextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, error) {
 	for {
 		s.upgradeLocker.RLock()
-		conn := s.conn
+		conn, closed := s.conn, s.closed
 		s.upgradeLocker.RUnlock()
+		if closed {
+			return nil, s.closeError()
+		}
 
 		w, err := conn.NextWriter(ft, pt)
 		if err != nil {
@@ -603,4 +620,32 @@ func (s *Session) replaced(conn transport.Conn) bool {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
 	return !s.closed && s.conn != conn
+}
+
+// closeError returns the immutable first cause; close records it before publishing closed.
+func (s *Session) closeError() *CloseError {
+	c := s.cause.Load()
+	if c == nil {
+		return &CloseError{Reason: ReasonForcedClose}
+	}
+	err := c.err
+	if c.reason == reasonTransportClose {
+		err = io.EOF
+	}
+	return &CloseError{Reason: CloseReason(c.reason), Err: err}
+}
+
+// Writable reports whether an open session can take a frame now. It is false
+// while a returned writer is open or the transport reports itself not writable.
+// A transport without a Writable method counts as writable.
+func (s *Session) Writable() bool {
+	s.upgradeLocker.RLock()
+	defer s.upgradeLocker.RUnlock()
+	if s.closed || s.writers.Load() != 0 {
+		return false
+	}
+	if c, ok := s.conn.(interface{ Writable() bool }); ok {
+		return c.Writable()
+	}
+	return true
 }

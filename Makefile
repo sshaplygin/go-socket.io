@@ -4,7 +4,7 @@ CHAT_COPIES := $(filter-out $(CHAT_SKIP),$(patsubst %/chat.go,%,$(wildcard _exam
 
 # Measured on V1-20; later PRs may raise the floor or lower the ceiling only.
 COVER_FLOOR := 91.7
-API_UNCOVERED_MAX := 24
+API_UNCOVERED_MAX := 0
 
 .PHONY: all
 all:
@@ -58,10 +58,12 @@ parity-check:
 .PHONY: cover-check
 cover-check:
 	@set -eu; \
-	profile=$$(mktemp); summary=$$(mktemp); \
-	trap 'rm -f "$$profile" "$$summary"' 0; \
+	profile=$$(mktemp); summary=$$(mktemp); annotated=$$(mktemp); \
+	trap 'rm -f "$$profile" "$$summary" "$$annotated"' 0; \
 	go test -count=1 -coverpkg=./... -coverprofile="$$profile" ./...; \
 	go tool cover -func="$$profile" >"$$summary"; \
+	go test -count=1 ./.github/coverage; \
+	go run ./.github/coverage -profile "$$profile" -summary "$$summary" -root . -module "$$(go list -m)" >"$$annotated"; \
 	awk -v floor="$(COVER_FLOOR)" -v max="$(API_UNCOVERED_MAX)" '\
 		BEGIN { \
 			if (floor !~ /^[0-9]+([.][0-9]+)?$$/ || floor+0 > 100 || max !~ /^[0-9]+$$/) { \
@@ -74,7 +76,7 @@ cover-check:
 			if (totals != 1 || value !~ /^[0-9]+([.][0-9]+)?$$/) { print "cover-check: missing coverage total"; exit 1 } \
 			printf "coverage: %.1f%% (floor %s%%); uncovered API: %d (maximum %s)\n", total, floor, uncovered, max; \
 			if (total < floor+0 || uncovered > max+0) exit 1; \
-		}' "$$summary"
+		}' "$$annotated"
 
 .PHONY: examples
 examples:

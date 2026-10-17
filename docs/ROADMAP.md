@@ -344,9 +344,19 @@ V1-12 of V1E may start inside V1D (row V1E) and the SYNC arm reads one fact for 
 G: SY-E is `S` by that arm alone, SY-D by it and by `CLAUDE.md`, which both edit). C `taken` means that `entry V1-8` passed and
 SY `taken` that `entry SYNC` did, and SY `open` with no merged PR that no SYNC PR is in flight
 (CONTRIBUTING.md, *Taking and handing back*): whichever row is taken first keeps the other's
-entry failing. The MV1 line `API_UNCOVERED_MAX` 0 has no owning PR in the PR table:
-V1-20 records the measured value and the ratchet only keeps later PRs from raising it, so
-which package lowers it to 0 is the owner's call before H can pass MV1.
+entry failing. The owner assigns the final `API_UNCOVERED_MAX` 0 gate to the dedicated PR
+`test(v1): complete API coverage gates`, after V1-15 and before V1-14. This follow-up
+is outside the work-package PR sequence and edits only new test files at the root,
+`engineio/`, `engineio/packet/`, `engineio/transport/polling/` and `logger/`, plus
+non-manifest `engineio/packet/fake*.go` corrections when a regression test exposes
+a helper defect, the root `Makefile` API ceiling and empty-function call accounting,
+`.github/coverage/` (the checker and its tests), this assignment, its entry check
+below and the empty-function rule of the API coverage gate. It checks the remaining API behavior (context, transport metadata,
+packet test helpers, fallback adapter methods, error text and logger delegation)
+without application runtime changes, then sets the ceiling to 0; it never lowers `COVER_FLOOR`.
+Entry is V1-15 merged; exit is `make lint test test-race sync-check parity-check
+cover-check` green, three independent approvals and every executed CI job successful.
+This section records that coverage-gate PR, so it adds no changelog entry.
 
 **Entry.** `bash`, from the repository root; `entry <PR>` exits 0 when that PR may start.
 Every check of an arm but its last ends in `|| return 1`, and `entry` runs in a subshell, so
@@ -378,7 +388,7 @@ V1-11) wave 10 || return 1; sy;;
 V1-12) wave 8 || return 1; grep -q '^  conformance:' .github/workflows/ci.yaml || return 1; sy;;   # the V1E exception
 V1-13) wave 10 11 || return 1; test -f client/client.go || return 1; test -f internal/conformance/differential_test.go || return 1; test -f _examples/ack/go.mod -a -f _examples/binary/go.mod || return 1; sy;;   # entry of V1E, after V1-12
 V1-15) wave 10 11 || return 1; test -f client/client.go || return 1; test -f internal/conformance/differential_test.go || return 1; sy;;   # entry of V1E
-V1-14) wave 15 || return 1; test -f _examples/ack/go.mod -a -f _examples/binary/go.mod -a -f _examples/namespaces/go.mod -a -f _examples/middleware/go.mod || return 1; for k in A B C D E F G; do test "$(st $k)" = done || return 1; done;;   # entry of V1F
+V1-14) wave 15 || return 1; grep -qE '^API_UNCOVERED_MAX *[:?]?= *0$' Makefile || return 1; test -f _examples/ack/go.mod -a -f _examples/binary/go.mod -a -f _examples/namespaces/go.mod -a -f _examples/middleware/go.mod || return 1; for k in A B C D E F G; do test "$(st $k)" = done || return 1; done;;   # entry of V1F
 *) echo "no PR $1" >&2; return 1;;
 esac; )
 ```
@@ -2057,7 +2067,16 @@ ignored. `make cover-check` runs `go test -count=1 -coverpkg=./... -coverprofile
 `go tool cover -func=<tmp>`: the `total:` percentage must be at least `COVER_FLOOR`, and
 the number of exported functions and methods (name starting with an upper-case letter, in
 a non-test file of the module) reported at `0.0%` must be at most `API_UNCOVERED_MAX`,
-printing those functions; both are variables of the `Makefile`. Baseline, measured at
+printing those functions; both are variables of the `Makefile`. For functions whose
+AST body contains no statements, `cover -func` reports 0.0% even after execution.
+The checker uses a positive raw-profile counter inside that exact empty body as
+API-call evidence; an unexecuted empty function remains uncovered. Nonempty
+functions and the total statement percentage retain the original rules. The checker
+lists the module's physical build sources with `go list`, including cgo files.
+If any source contains line directives, empty-function summaries stay unchanged
+throughout the module because directives can alias another file's coordinates;
+reversed logical block ranges supply no call evidence.
+The checker tests run as part of `make cover-check`. Baseline, measured at
 `0d9e594` (the base of this plan) by `go test -count=1 -coverpkg=./... -coverprofile=c.out
 ./... && go tool cover -func=c.out`, its `total:` line and `go tool cover -func=c.out | awk
 '$3=="0.0%" && $2 ~ /^[A-Z]/'` (the rule V1-20 implements; `cover -func` lists no test

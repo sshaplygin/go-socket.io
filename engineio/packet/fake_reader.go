@@ -31,6 +31,9 @@ type fakeOneFrameConst struct {
 }
 
 func (c *fakeOneFrameConst) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
 	p[0] = c.b
 	return 1, nil
 }
@@ -54,10 +57,10 @@ func (r *fakeConstReader) NextReader() (frame.Type, io.ReadCloser, error) {
 	switch ft {
 	case frame.Binary:
 		r.ft = frame.String
-		r.r.b = MESSAGE.StringByte()
+		r.r.b = MESSAGE.BinaryByte()
 	case frame.String:
 		r.ft = frame.Binary
-		r.r.b = MESSAGE.BinaryByte()
+		r.r.b = MESSAGE.StringByte()
 	}
 	return ft, io.NopCloser(r.r), nil
 }

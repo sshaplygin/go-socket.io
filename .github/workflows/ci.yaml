@@ -109,6 +109,8 @@ jobs:
         run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
       - name: Vet
         run: go vet ./...
+      - name: Parity markers and API coverage ratchets
+        run: make parity-check cover-check
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:

@@ -22,6 +22,7 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `logger/` | v1 package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: parser, transports, `engineio/packet`, client dialer |
 | `internal/engineclose/` | private abort bridge between the root queue lifecycle and Engine.IO sessions |
 | `internal/conformance/` | interoperability and raw protocol tests behind the `conformance` build tag; Node fixtures under `testdata/node/` |
+| `internal/parity/` | portable PARITY marker and executable-test checks, including tagged tests without running Node |
 | `_examples/` | v1 runnable examples, each with its own `go.mod` except the Go client in `_examples/client`, which belongs to the root module; excluded from `./...` of the root build by the `_` prefix |
 | `v2/*.go` (package `socketio`) | v2 API skeleton: typed events, `Server`/`Namespace`/`Socket`, `Adapter`, hooks, options; declarations only, signatures in [docs/API.md](docs/API.md) |
 | `v2/parser/` | Socket.IO v5 wire codec (bounded `Encode`/`Decode`, `Assembler`, binary attachments, `JSON[T]` argument codec), the `Packet`/`Arguments` value types of the v2 API; `testdata/oracle` is the Node check (`README.md` there) |
@@ -66,6 +67,8 @@ make test-stress # race tests of root, parser, engineio/...: -count=5 -shuffle=o
 make bench       # benchmarks only, no tests
 make vuln        # govulncheck ./... in the root and in every _examples module
 make cover       # coverage profile + HTML report
+make parity-check # validate DONE rows and Covers markers; PARITY_STRICT=1 also checks open planned rows
+make cover-check # cross-package statement floor and exported API zero-coverage ceiling
 make examples    # build and vet every _examples/*/ module, build the Go client, compare chat.go copies, race-test default-http
 make examples-node # run each example client.js on a free port; requires CONFORMANCE_NODE_MODULES
 make all         # go install ./...
@@ -113,6 +116,7 @@ matrix with Node LTS and exact clients 1.7.4 and 2.5.0. The other jobs run per m
 filter: on a pull request the v1 jobs run when a file outside `v2/` changed, the v2 jobs
 when a file in `v2/`, `.github/` or `docs/API.md` (read by the v2 tests) changed; push and
 schedule run both. v1 jobs, in the root: `lint-v1` (tidy diff, mod verify, gofmt, vet,
+`make parity-check cover-check`,
 golangci-lint, `make vuln` on ubuntu with the newest Go release from go.dev, because
 `setup-go` lags behind it), `test-v1` (race tests on ubuntu, macos and windows with
 `stable` and `oldstable` Go), `stress-v1` (`make test-stress`, pull requests only),

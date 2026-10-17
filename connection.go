@@ -203,7 +203,19 @@ func (c *conn) disconnectNamespace(nc *namespaceConn, reason string) {
 func (c *conn) finishRead() {
 	reason := "forced close"
 	var closed *engineio.CloseError
-	if errors.As(c.reader.failed, &closed) {
+	failed := c.reader.failed
+	if failed != nil && !errors.As(failed, &closed) {
+		// An acquired frame reader keeps its own transport error. Closing the
+		// engine preserves the cause that reader recorded; the next reader then
+		// exposes it through CloseError without changing the frame's error.
+		_ = c.Conn.Close()
+		_, reader, err := c.Conn.NextReader()
+		if reader != nil {
+			_ = reader.Close()
+		}
+		failed = err
+	}
+	if errors.As(failed, &closed) {
 		switch closed.Reason {
 		case engineio.ReasonTransportClose, engineio.ReasonPingTimeout, engineio.ReasonTransportError:
 			reason = string(closed.Reason)

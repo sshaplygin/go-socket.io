@@ -110,7 +110,7 @@ func TestDisconnectingRooms(t *testing.T) {
 
 // Covers K24
 func TestOnDisconnectReason(t *testing.T) {
-	for _, scenario := range []string{"CLOSE", "timeout", "reset", "Conn.Close", "Server.Close", "parse error"} {
+	for _, scenario := range []string{"CLOSE", "timeout", "reset", "Conn.Close", "Server.Close", "parse error", "mid-frame reset", "mid-frame timeout"} {
 		t.Run(scenario, func(t *testing.T) {
 			disconnected := make(chan string, 1)
 			opts := &engineio.Options{PingInterval: 100 * time.Millisecond, PingTimeout: 50 * time.Millisecond}
@@ -148,6 +148,19 @@ func TestOnDisconnectReason(t *testing.T) {
 				require.NoError(t, s.Close())
 			case "parse error":
 				require.NoError(t, c.WriteMessage(gorilla.TextMessage, []byte("49")))
+			case "mid-frame reset", "mid-frame timeout":
+				writer, err := c.NextWriter(gorilla.TextMessage)
+				require.NoError(t, err)
+				// Flush several nonfinal websocket fragments, then fail while the parser
+				// is reading the body of the already obtained Engine.IO MESSAGE reader.
+				_, err = writer.Write([]byte(`42["event","partial` + strings.Repeat("x", 20000)))
+				require.NoError(t, err)
+				want = "ping timeout"
+				if scenario == "mid-frame reset" {
+					require.NoError(t, c.UnderlyingConn().Close())
+					want = "transport error"
+				}
+
 			}
 			require.Equal(t, want, recv(t, disconnected, "OnDisconnect reason"))
 		})

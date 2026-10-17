@@ -535,7 +535,8 @@ func (s *Session) upgradingAt(t string, conn transport.Conn, started time.Time) 
 	} else {
 		close(checksDone)
 	}
-	defer func() { close(stopChecks); <-checksDone }()
+	stopPollChecks := sync.OnceFunc(func() { close(stopChecks); <-checksDone })
+	defer stopPollChecks()
 
 	_, pt, r, err = conn.NextReader()
 	if err != nil {
@@ -546,21 +547,22 @@ func (s *Session) upgradingAt(t string, conn transport.Conn, started time.Time) 
 		return
 	}
 
-	// Pause only after UPGRADE, waiting for any in-flight POST to finish.
-	p.Pause()
+	// The timeout ends when UPGRADE is read. Waiting for an in-flight POST
+	// afterwards must not let its timer close the newly selected websocket.
 	state.Lock()
 	if expired || !timer.Stop() {
 		state.Unlock()
-		p.Resume()
 		return
 	}
+	state.Unlock()
+	stopPollChecks()
+	// Pause only after UPGRADE, waiting for any in-flight POST to finish.
+	p.Pause()
 	if !s.switchTransport(t, conn) {
-		state.Unlock()
 		p.Resume()
 		return
 	}
 	switched = true
-	state.Unlock()
 	if err := s.setDeadline(); err != nil {
 		s.observe(reasonTransportError, err)
 		_ = s.Close()

@@ -18,6 +18,7 @@ func TestClientRoomsAndContext(t *testing.T) {
 	p.nc.SetContext("local")
 	require.Equal(t, "local", p.nc.Context())
 	p.nc.Disconnect() // the client-side stub keeps its connection and rooms
+	expectBeforeBarrier(t, p)
 	require.ElementsMatch(t, []string{p.nc.ID(), "two"}, p.nc.Rooms())
 	p.nc.LeaveAll()
 	require.Empty(t, p.nc.Rooms())

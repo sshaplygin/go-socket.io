@@ -179,10 +179,14 @@ type Emitter interface {
 }
 
 // Disconnect does nothing on a client connection.
-func (nc *namespaceConn) Disconnect() { return }
+func (nc *namespaceConn) Disconnect() {
+	return //nolint:staticcheck // S1023: an explicit statement lets coverage verify this no-op API.
+}
 
 // Use does not register middleware on a client connection.
-func (nc *namespaceConn) Use(func(string, []interface{}) error) { return }
+func (nc *namespaceConn) Use(func(string, []interface{}) error) {
+	return //nolint:staticcheck // S1023: an explicit statement lets coverage verify this no-op API.
+}
 func (nc *namespaceConn) send(header parser.Header, args ...reflect.Value) {
 	nc.conn.write(header, args...)
 }

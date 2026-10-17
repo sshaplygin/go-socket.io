@@ -135,6 +135,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- engineio: optional Hooks observe connection, initial and per-response headers,
+  connection errors, packets, heartbeat, upgrades, polling flush/drain and transport
+  errors. Callbacks run synchronously; header hooks may edit response headers.
+
 - socketio: `Server.Of` returns a stable `ServerNamespace` with handler registration,
   namespace middleware, `Emit`, `Send`, and connected-socket snapshots. `Server.Use`
   registers middleware through the same namespace. `Namespace` gains `Send`,

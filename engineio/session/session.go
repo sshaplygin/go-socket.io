@@ -26,6 +26,10 @@ type Pauser interface {
 }
 
 type Session struct {
+	hooks     *Hooks
+	headers   func(*http.Request, http.Header)
+	closeDone chan struct{}
+	closeErr  error
 	conn      transport.Conn
 	params    transport.ConnParameters
 	transport string
@@ -75,6 +79,7 @@ func New(conn transport.Conn, sid, transport string, params transport.ConnParame
 	baseLog := logger.Wrap(log).With("sid", sid)
 
 	ses := &Session{
+		closeDone:      make(chan struct{}),
 		transport:      transport,
 		conn:           conn,
 		params:         params,
@@ -149,26 +154,32 @@ func (s *Session) close(reason string) error {
 	s.upgradeLocker.Lock()
 	first, opened := !s.closed, s.opened
 	s.closed = true
-	conn := s.conn
-	probe := s.probe
+	conn, probe := s.conn, s.probe
 	s.upgradeLocker.Unlock()
-	if probe != nil {
-		_ = probe.Close()
+	if !first {
+		<-s.closeDone
+		return s.closeErr
 	}
-
-	if first && !opened.IsZero() {
-		c := s.cause.Load()
+	defer close(s.closeDone)
+	c := s.cause.Load()
+	if c.reason == reasonTransportError && s.hooks != nil && s.hooks.Error != nil {
+		s.hooks.Error(s, c.err)
+	}
+	if !opened.IsZero() {
 		args := []any{"reason", c.reason, slog.Duration("duration", time.Since(opened))}
 		if c.err != nil {
 			args = append(args, "err", c.err)
 		}
 		s.logger().Debug("engineio: session close", args...)
 	}
-	err := conn.Close()
+	if probe != nil {
+		_ = probe.Close()
+	}
+	s.closeErr = conn.Close()
 	s.upgradeLocker.Lock()
 	s.transportClosed = true
 	s.upgradeLocker.Unlock()
-	return err
+	return s.closeErr
 }
 
 // observe records reason as the close cause unless one was observed before.
@@ -238,6 +249,9 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 			return 0, nil, fmt.Errorf("next reader: %w", s.closeError())
 		}
 		// Every received packet, including MESSAGE, renews the liveness window.
+		if s.hooks != nil && s.hooks.Packet != nil {
+			s.hooks.Packet(s, pt, ft)
+		}
 		if err := s.fail(s.setDeadline()); err != nil {
 			_ = r.Close()
 			_ = s.Close()
@@ -246,6 +260,9 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 
 		switch pt {
 		case packet.PING:
+			if s.hooks != nil && s.hooks.Heartbeat != nil {
+				s.hooks.Heartbeat(s)
+			}
 			// Respond to a ping with a pong.
 			err := func() error {
 				w, err := s.nextWriter(ft, packet.PONG)
@@ -350,6 +367,7 @@ func (s *Session) Upgrade(transport string, conn transport.Conn) {
 func (s *Session) InitSession() error {
 	w, err := s.nextWriter(frame.String, packet.OPEN)
 	if err != nil {
+		_ = s.fail(err)
 		if closeErr := s.Close(); closeErr != nil {
 			s.logger().Debug("engineio: session close failed", "err", closeErr)
 		}
@@ -358,6 +376,7 @@ func (s *Session) InitSession() error {
 	}
 
 	if _, err := s.params.WriteTo(w); err != nil {
+		_ = s.fail(err)
 		if closeErr := w.Close(); closeErr != nil {
 			s.logger().Debug("engineio: close writer failed", "err", closeErr)
 		}
@@ -370,6 +389,7 @@ func (s *Session) InitSession() error {
 	}
 
 	if err := w.Close(); err != nil {
+		_ = s.fail(err)
 		if closeErr := s.Close(); closeErr != nil {
 			s.logger().Debug("engineio: session close failed", "err", closeErr)
 		}
@@ -397,7 +417,13 @@ func (s *Session) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.upgradeLocker.RUnlock()
 
 	if h, ok := conn.(http.Handler); ok {
-		h.ServeHTTP(w, r)
+		if s.hooks == nil && s.headers == nil {
+			h.ServeHTTP(w, r)
+			return
+		}
+		observed := &responseObserver{ResponseWriter: w, session: s, request: r}
+		defer observed.drain()
+		h.ServeHTTP(observed, r)
 	}
 }
 
@@ -427,6 +453,7 @@ func (s *Session) nextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
 }
 
 func (s *Session) nextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, error) {
+	notified := false
 	for {
 		s.upgradeLocker.RLock()
 		conn, closed := s.conn, s.closed
@@ -435,6 +462,10 @@ func (s *Session) nextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, err
 			return nil, s.closeError()
 		}
 
+		if !notified && s.hooks != nil && s.hooks.PacketCreate != nil {
+			s.hooks.PacketCreate(s, pt, ft)
+		}
+		notified = true
 		w, err := conn.NextWriter(ft, pt)
 		if err != nil {
 			if op, ok := err.(payload.Error); ok && op.Temporary() {
@@ -532,6 +563,9 @@ func (s *Session) upgradingAt(t string, conn transport.Conn, started time.Time) 
 	if copyErr != nil || readErr != nil || writeErr != nil {
 		return
 	}
+	if s.hooks != nil && s.hooks.Upgrading != nil {
+		s.hooks.Upgrading(s, t)
+	}
 	p, ok := old.(Pauser)
 	if !ok {
 		return
@@ -586,6 +620,9 @@ func (s *Session) upgradingAt(t string, conn transport.Conn, started time.Time) 
 		return
 	}
 	switched = true
+	if s.hooks != nil && s.hooks.Upgrade != nil {
+		s.hooks.Upgrade(s, t)
+	}
 	if err := s.setDeadline(); err != nil {
 		s.observe(reasonTransportError, err)
 		_ = s.Close()

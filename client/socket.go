@@ -239,7 +239,11 @@ func (m *clientState) closeSocket(s *Socket, reason string, closeLast bool, expe
 	s.nc = nil
 	claimed := false
 	if current != nil && !isDone(current.closing) {
-		_, claimed = current.claim(s.namespace)
+		var pending *namespaceConn
+		pending, claimed = current.claim(s.namespace)
+		if nc == nil {
+			nc = pending
+		}
 		if s.requested && reason == "io client disconnect" {
 			current.writeControl(parser.Header{Type: parser.Disconnect, Namespace: s.namespace})
 		}

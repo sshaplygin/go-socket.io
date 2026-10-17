@@ -170,6 +170,21 @@ func TestClientVolatileBeforeConnect(t *testing.T) {
 	require.Empty(t, fc.out)
 }
 
+// Covers C10
+func TestClientCloseBeforeNamespaceReplyReleasesRooms(t *testing.T) {
+	cl, err := New("http://unused/", nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cl.Close() })
+	fc := newFakeConn(t)
+	cl.dial = func(string) (engineio.Conn, error) { return fc, nil }
+	require.NoError(t, cl.Connect())
+	nc, ok := cl.conn.namespaces.Get(rootNamespace)
+	require.True(t, ok)
+	require.NotEmpty(t, nc.Rooms())
+	require.NoError(t, cl.Close())
+	require.Empty(t, nc.Rooms(), "the pending root Conn is no longer in the registry for finish to release")
+}
+
 func TestClientBackoff(t *testing.T) {
 	cl, err := New("http://unused", nil)
 	require.NoError(t, err)

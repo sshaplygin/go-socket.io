@@ -327,10 +327,10 @@ line `integrator: none (<package> <status>)` in place of the integrator's commen
 SY merges before V1-8 starts (once SY has left `open` with no merged PR, V1-8 waits for `.github/sync-manifest`), or, once C has started (a `conformance` job, C `taken` or `done`,
 or a last merged PR in C's row), only after C to G are `done` (row SY: never beside V1C or V1E; the matrix adds V1D, because
 V1-12 of V1E may start inside V1D (row V1E) and the SYNC arm reads one fact for all of C to
-G: SY-E is `S` by that arm alone, SY-D by it and by `CLAUDE.md`, which both edit). A row turns `taken` only when the
-entry check of its next PR passes on `master`, re-run before its registry PR merges
-(CONTRIBUTING.md), so C `taken` means that `entry V1-8` passed and SY `taken` that `entry
-SYNC` did: whichever row is taken first keeps the other's entry failing. The MV1 line `API_UNCOVERED_MAX` 0 has no owning PR in the PR table:
+G: SY-E is `S` by that arm alone, SY-D by it and by `CLAUDE.md`, which both edit). C `taken` means that `entry V1-8` passed and
+SY `taken` that `entry SYNC` did, and SY `open` with no merged PR that no SYNC PR is in flight
+(CONTRIBUTING.md, *Taking and handing back*): whichever row is taken first keeps the other's
+entry failing. The MV1 line `API_UNCOVERED_MAX` 0 has no owning PR in the PR table:
 V1-20 records the measured value and the ratchet only keeps later PRs from raising it, so
 which package lowers it to 0 is the owner's call before H can pass MV1.
 
@@ -347,7 +347,7 @@ H=$(awk '/^(covers|done_pr|wave)[(][)] [{]/ || /^rows[(][)] [{].* docs\/PARITY[.
 tbl() { awk -v h="$1" 'index($0, h) == 1 {p=1; next} !/^[|]/ {p=0} p && !/^[|] *---/' docs/ROADMAP.md; }   # the body rows of the table whose header starts with $1
 st() { tbl '| Package | Status |' | awk -F' *[|] *' -v k="$1" '$2 == k {print $3}'; }   # the registry status of a package
 lm() { tbl '| Package | Status |' | awk -F' *[|] *' -v k="$1" '$2 == k {print $6}'; }   # its last merged PR, `-` before the first
-sy() { test -f .github/sync-manifest -o "$(st SY)" = open -a "$(lm SY)" = -; }   # SYNC has merged, or SY has not started (SY turns `taken` only once `entry SYNC` passes, and a taker who stops closes its open PRs); every PR of C to G checks it (the `S` cells of row SY)
+sy() { test -f .github/sync-manifest -o "$(st SY)" = open -a "$(lm SY)" = -; }   # SYNC has merged, or SY has not started (what `taken` and `open` mean: CONTRIBUTING.md, Taking and handing back); every PR of C to G checks it (the `S` cells of row SY)
 entry() ( case $1 in   # a subshell: the `exit` of `wave` ends it, not the caller's shell
 SYNC) test "$(go list -m)" = github.com/sshaplygin/go-socket.io || return 1; test -f v2/go.mod || return 1; if grep -q '^  conformance:' .github/workflows/ci.yaml || test "$(st C)" != open -o "$(lm C)" != -; then for k in C D E F G; do test "$(st $k)" = done || return 1; done; fi;;   # row R step C passed; never beside V1C to V1E: before V1-8 has started, or once C to G are done
 V1-2) for n in 2 4 5 6 7 10 11 15 16 17 18; do grep -q "^### V1-$n contract" docs/ROADMAP.md || return 1; done;;   # wave V1A; V1-1 has merged

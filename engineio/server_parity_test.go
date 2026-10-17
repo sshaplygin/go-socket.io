@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -348,6 +349,29 @@ func TestEngineRequestValidation(t *testing.T) {
 			require.Zero(t, s.Count())
 		})
 	}
+}
+
+func TestRequestCheckerOnlyChecksHandshake(t *testing.T) {
+	var calls atomic.Int32
+	opts := &Options{RequestChecker: func(*http.Request) (http.Header, error) {
+		calls.Add(1)
+		return http.Header{"X-Checked": []string{"yes"}}, nil
+	}}
+	f := newParityWire(t, opts)
+	reads := parityReader(f.conn)
+	code, b := f.request(t, http.MethodPost, f.poll, "2:4a")
+	require.Equal(t, 200, code, b)
+	parityMessage(t, reads, "a")
+	write := parityWrite(f.conn, "reply")
+	code, b = f.request(t, http.MethodGet, f.poll, "")
+	require.Equal(t, 200, code)
+	require.Equal(t, "6:4reply", b)
+	require.NoError(t, <-write)
+	c := f.probe(t)
+	require.NoError(t, c.WriteMessage(gorilla.TextMessage, []byte("5")))
+	require.NoError(t, c.WriteMessage(gorilla.TextMessage, []byte("4b")))
+	parityMessage(t, reads, "b")
+	require.Equal(t, int32(1), calls.Load(), "polls, POSTs and upgrade must not rerun the handshake checker")
 }
 
 func TestPollingChunkedMessageLimit(t *testing.T) {

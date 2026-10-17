@@ -18,6 +18,7 @@ func TestParityGateRejectsInvalidEvidence(t *testing.T) {
 		{name: "nonexistent test", plan: "DONE V1-1", source: "package sample\n// Covers B1\nfunc TestMissing(){}", want: "no listed test"},
 		{name: "wrong package", plan: "DONE V1-1", source: "package sample\n// Covers B1\nfunc TestKnown(){}", listed: map[testRef]bool{{"other", "TestKnown"}: true}, want: "no listed test"},
 		{name: "marker too far", plan: "DONE V1-1", source: "package sample\n// Covers B1\n\n\n\n\nfunc TestKnown(){}", listed: map[testRef]bool{{".", "TestKnown"}: true}, want: "four lines"},
+		{name: "line directive cannot move marker", plan: "DONE V1-1", source: "package sample\n// Covers B1\n\n\n\n//line sample_test.go:4\nfunc TestKnown(){}", listed: map[testRef]bool{{".", "TestKnown"}: true}, want: "four lines"},
 		{name: "strict open row", plan: "ADD V1-10; REDIS", source: "package sample", strict: true, want: "B1 has no Covers"},
 		{name: "open row", plan: "ADD V1-10; REDIS", source: "package sample"},
 		{name: "valid tagged marker", plan: "DONE V1-1; REDIS", source: "//go:build conformance\n\npackage sample\n// Covers B1\nfunc TestKnown(){}", listed: map[testRef]bool{{".", "TestKnown"}: true}},

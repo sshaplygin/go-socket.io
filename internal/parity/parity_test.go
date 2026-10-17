@@ -150,7 +150,7 @@ func checkParity(root string, strict bool, listed map[testRef]bool) error {
 		}
 		for _, group := range file.Comments {
 			for _, comment := range group.List {
-				position := fset.Position(comment.Pos())
+				position := fset.PositionFor(comment.Pos(), false)
 				if position.Column != 1 {
 					continue
 				}
@@ -169,7 +169,7 @@ func checkParity(root string, strict bool, listed map[testRef]bool) error {
 					if !ok || fn.Recv != nil || !strings.HasPrefix(fn.Name.Name, "Test") {
 						continue
 					}
-					distance := fset.Position(fn.Pos()).Line - position.Line
+					distance := fset.PositionFor(fn.Pos(), false).Line - position.Line
 					if distance > 0 && distance <= 4 && listed[testRef{dir, fn.Name.Name}] {
 						valid = true
 						break

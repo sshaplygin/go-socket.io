@@ -1,6 +1,6 @@
 # Ack example
 
-Acknowledgements from a return value and a saved `socketio.AckFunc` called after the handler returns.
+Acknowledgements from a return value and a `socketio.AckFunc` called from another goroutine.
 
 `sum` takes two integers and acknowledges their sum. `deferred` takes a string
 and acknowledges `received: <value>` from another goroutine.
@@ -21,6 +21,10 @@ NODE_PATH=/path/to/node_modules node client.js http://127.0.0.1:8000
 ```
 
 A successful run exits zero; a failed assertion, connection error or timeout
-exits nonzero. From the repository root, `CONFORMANCE_NODE_MODULES=/path/to/node_modules
-make examples-node` builds and checks every executable example on a free local
-port. See [the examples index](../README.md) for the other examples.
+exits nonzero. From the repository root, run this to build and check every
+executable example on a free local port:
+
+```sh
+CONFORMANCE_NODE_MODULES=/path/to/node_modules make examples-node
+```
+ See [the examples index](../README.md) for the other examples.

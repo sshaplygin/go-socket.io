@@ -5724,8 +5724,10 @@ closure the old `Client` reaches (write queue, packet handlers, namespace connec
 handler dispatch, an unexported in-memory broadcast behind `Namespace.Join`, `Leave`,
 `LeaveAll` and `Rooms`), without Redis and server-only code. The only server-path
 logic edit deletes `clientConnectPacketHandler` and `clientDisconnectPacketHandler` (`make
-lint` rejects unused code); the other root edits are the aliases, and `fmtNS`, used by the
-server, stays in the root `client.go`. Cost: a root fix to a shared file names in its PR whether
+lint` rejects unused code); the other root edits are the aliases and the removal of the
+obsolete client-only `defaultHeaderType` declaration and its `reflect` import from root
+`types.go`; `fmtNS`, used by the server, stays in the root `client.go`. Cost: a root fix
+to a shared file names in its PR whether
 `client/` needs the same change and makes it there.
 
 **D10 methods and the alias.** Through the alias, every method D10 adds to `Conn` or `Namespace`
@@ -5809,7 +5811,7 @@ test "$(go doc -short ./client | sed -E 's/^ +//; s/^(func [A-Za-z]+)\(.*/\1/; s
 test "$(go doc -short ./client Client | grep '^func')" = "$(cd $BASE && go doc -short . Client | grep '^func')"; for X in Conn Namespace; do test "$(go doc ./client $X | grep -vE '^(package|    )|^\s*(//|$)')" = "$(cd $BASE && go doc . $X | grep -vE '^(package|    )|^\s*(//|$)')"; done
 test -z "$(diff <(cd $BASE && go doc -short . | grep -oE '^(var|type) [A-Za-z]+' | sort) <(go doc -short . | grep -oE '^(var|type) [A-Za-z]+' | sort))"
 S7=$(git log -E --no-merges --grep='^[a-z]+\(7\.' --format=%H $TIP..HEAD); test -n "$S7"
-test -z "$(git show --format= --name-only $S7 | sort -u | grep -vE '^(client/|_examples/client/|(client|connection|connection_handlers|namespace_conn|errors)\.go$|CHANGELOG\.md$|CLAUDE\.md$)|_test\.go$')"
+test -z "$(git show --format= --name-only $S7 | sort -u | grep -vE '^(client/|_examples/client/|(client|connection|connection_handlers|namespace_conn|errors|types)\.go$|CHANGELOG\.md$|CLAUDE\.md$)|_test\.go$')"
 names() { grep -rhoE '^func (Test|Benchmark)[A-Za-z0-9_]+' --include='*_test.go' --exclude-dir=_examples $1 | sort -u; }; test -z "$(comm -23 <(names $BASE) <(names .))"
 res() { (cd $1 && go test -count=1 -v ./... | awk '$1=="---" && $2=="PASS:"{gsub(/0x[0-9a-f]+/,"0x"); print $3}') | sort -u; }; test -z "$(comm -23 <(res $BASE) <(res .))"   # every passing test and subtest, TestX/C included, still passes (322 at 39f06fc)
 test "$(go test -race -count=1 -v ./client | grep -c -- '--- PASS: .*/C ')" -ge "$(res $BASE | grep -c '^Test.*/C$')"   # the C halves run in client/ (15 at 39f06fc)

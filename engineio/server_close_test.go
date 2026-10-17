@@ -14,7 +14,7 @@ import (
 
 // TestServerCloseClosesUnacceptedSessions checks that Close closes and
 // removes the sessions nobody accepted: one in the hand-off buffer, one whose
-// sender waits, and one whose handshake completes after Close. It checks them
+// sender waits, and refuses a handshake after Close. It checks them
 // before calling Accept, which would also drop a session it receives after
 // Close.
 //
@@ -35,7 +35,9 @@ func TestServerCloseClosesUnacceptedSessions(t *testing.T) {
 	require.Eventually(t, func() bool { return len(svr.connChan) == 1 }, time.Second, time.Millisecond,
 		"a session in the hand-off buffer")
 	require.NoError(t, svr.Close())
-	clients = append(clients, dial())
+	d := Dialer{Transports: []transport.Transport{websocket.Default}}
+	_, err := d.Dial(httpSvr.URL, nil)
+	require.Error(t, err, "handshakes after Close must fail")
 
 	deadline := time.After(time.Second)
 	errs := make(chan error, len(clients))
@@ -58,6 +60,6 @@ func TestServerCloseClosesUnacceptedSessions(t *testing.T) {
 		}
 	}
 
-	_, err := svr.Accept()
+	_, err = svr.Accept()
 	require.ErrorIs(t, err, io.EOF)
 }

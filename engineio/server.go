@@ -2,6 +2,7 @@ package engineio
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -19,8 +20,11 @@ import (
 
 // Server is instance of server
 type Server struct {
-	pingInterval time.Duration
-	pingTimeout  time.Duration
+	pingInterval      time.Duration
+	pingTimeout       time.Duration
+	upgradeTimeout    time.Duration
+	maxHTTPBufferSize int64
+	disableUpgrades   bool
 
 	transports *transport.Manager
 	sessions   *session.Manager
@@ -31,6 +35,10 @@ type Server struct {
 	connChan  chan *session.Session // hands sessions to Accept; never closed
 	closed    chan struct{}         // closed by Close
 	closeOnce sync.Once
+	// lifecycle orders registration against shutdown; live supplies the shutdown
+	// snapshot until session.Manager gains its public snapshot API.
+	lifecycle sync.Mutex
+	live      map[string]*session.Session
 
 	log *slog.Logger
 }
@@ -38,24 +46,37 @@ type Server struct {
 // NewServer returns a server.
 func NewServer(opts *Options) *Server {
 	return &Server{
-		transports:     transport.NewManager(opts.getTransport()),
-		pingInterval:   opts.getPingInterval(),
-		pingTimeout:    opts.getPingTimeout(),
-		requestChecker: opts.getRequestChecker(),
-		connInitor:     opts.getConnInitor(),
-		sessions:       session.NewManager(opts.getSessionIDGenerator()),
-		connChan:       make(chan *session.Session, 1),
-		closed:         make(chan struct{}),
-		log:            opts.getLogger(),
+		transports:        transport.NewManager(opts.getTransport()),
+		pingInterval:      opts.getPingInterval(),
+		pingTimeout:       opts.getPingTimeout(),
+		upgradeTimeout:    opts.getUpgradeTimeout(),
+		maxHTTPBufferSize: opts.getMaxHTTPBufferSize(),
+		disableUpgrades:   opts != nil && opts.DisableUpgrades,
+		live:              make(map[string]*session.Session),
+		requestChecker:    opts.getRequestChecker(),
+		connInitor:        opts.getConnInitor(),
+		sessions:          session.NewManager(opts.getSessionIDGenerator()),
+		connChan:          make(chan *session.Session, 1),
+		closed:            make(chan struct{}),
+		log:               opts.getLogger(),
 	}
 }
 
 // Close closes server. Accept returns io.EOF from then on. Every session not yet
-// returned by Accept, and every session whose handshake completes later, is closed
-// and removed; sessions already accepted stay open.
+// returned by Accept, and every accepted session, is closed and removed.
 func (s *Server) Close() error {
 	s.closeOnce.Do(func() {
+		s.lifecycle.Lock()
 		close(s.closed)
+		live := s.live
+		s.live = make(map[string]*session.Session)
+		for id := range live {
+			s.sessions.Remove(id)
+		}
+		s.lifecycle.Unlock()
+		for _, c := range live {
+			_ = internal.Shutdown(c)
+		}
 		s.dropUnaccepted()
 	})
 	return nil
@@ -85,7 +106,7 @@ func (s *Server) dropUnaccepted() {
 
 func (s *Server) drop(c *session.Session) {
 	_ = internal.Shutdown(c)
-	s.sessions.Remove(c.ID())
+	s.Remove(c.ID())
 }
 
 func isClosed(ch <-chan struct{}) bool {
@@ -102,34 +123,40 @@ func (s *Server) Addr() net.Addr {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if isClosed(s.closed) {
+		writeServerError(w, 3)
+		return
+	}
 	query := r.URL.Query()
 
 	reqTransport := query.Get("transport")
 	srvTransport, ok := s.transports.Get(reqTransport)
 	if !ok {
-		http.Error(w, fmt.Sprintf("invalid transport: %s", reqTransport), http.StatusBadRequest)
+		writeServerError(w, 0)
 		s.reject(reqTransport, r.RemoteAddr, "bad transport", nil)
 		return
 	}
 
-	header, err := s.requestChecker(r)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("request checker err: %s", err.Error()), http.StatusBadGateway)
-		s.reject(reqTransport, r.RemoteAddr, "checker", err)
+	sid := query.Get("sid")
+	if sid == "" && r.Method != http.MethodGet {
+		writeServerError(w, 2)
 		return
 	}
-
-	for k, v := range header {
-		w.Header()[k] = v
-	}
-
-	sid := query.Get("sid")
 	reqSession, ok := s.sessions.Get(sid)
 	// if we can't find session in current session pool, let's create this. behaviour for new connections
 	if !ok {
 		if sid != "" {
-			http.Error(w, fmt.Sprintf("invalid sid value: %s", sid), http.StatusBadRequest)
+			writeServerError(w, 1)
 			s.reject(reqTransport, r.RemoteAddr, "unknown sid", nil)
+			return
+		}
+		header, err := s.requestChecker(r)
+		for k, v := range header {
+			w.Header()[k] = v
+		}
+		if err != nil {
+			writeServerError(w, 4)
+			s.reject(reqTransport, r.RemoteAddr, "checker", err)
 			return
 		}
 
@@ -137,26 +164,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			// as on upgrade: the websocket library answered a HandshakeError itself
 			if _, ok := err.(websocket.HandshakeError); !ok {
-				http.Error(w, fmt.Sprintf("transport accept err: %s", err.Error()), http.StatusBadGateway)
+				writeServerError(w, 3)
 			}
 			s.reject(reqTransport, r.RemoteAddr, "accept", err)
 			return
 		}
 
-		reqSession, err = s.newSession(r.Context(), transportConn, reqTransport)
+		reqSession, err = s.newSession(r, transportConn, reqTransport)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("create new session err: %s", err.Error()), http.StatusBadRequest)
+			if reqTransport != "websocket" {
+				writeServerError(w, 3)
+			}
 			s.reject(reqTransport, r.RemoteAddr, "init", err)
 			return
 		}
-
-		s.connInitor(r, reqSession)
 	}
 
 	// try upgrade current connection
 	if current := reqSession.Transport(); current != reqTransport {
-		if !s.canUpgrade(current, reqTransport) {
-			http.Error(w, fmt.Sprintf("invalid transport upgrade: %s to %s", current, reqTransport), http.StatusBadRequest)
+		if s.disableUpgrades || !s.canUpgrade(current, reqTransport) {
+			writeServerError(w, 3)
 			s.reject(reqTransport, r.RemoteAddr, "bad upgrade", nil)
 			return
 		}
@@ -166,7 +193,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// don't call http.Error() for HandshakeErrors because
 			// they get handled by the websocket library internally.
 			if _, ok := err.(websocket.HandshakeError); !ok {
-				http.Error(w, err.Error(), http.StatusBadGateway)
+				writeServerError(w, 3)
 			}
 			s.reject(reqTransport, r.RemoteAddr, "accept", err)
 			return
@@ -190,29 +217,51 @@ func (s *Server) Count() int {
 
 // Remove session from sessions pool. Experimental API.
 func (s *Server) Remove(sid string) {
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	delete(s.live, sid)
 	s.sessions.Remove(sid)
 }
 
-func (s *Server) newSession(_ context.Context, conn transport.Conn, reqTransport string) (*session.Session, error) {
+func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport string) (*session.Session, error) {
 	params := transport.ConnParameters{
 		PingInterval: s.pingInterval,
 		PingTimeout:  s.pingTimeout,
 		Upgrades:     s.transports.UpgradeFrom(reqTransport),
 	}
+	if s.disableUpgrades {
+		params.Upgrades = []string{}
+	}
 
 	sid := s.sessions.NewID()
+	if sid == "" {
+		_ = conn.Close()
+		return nil, fmt.Errorf("generate session id: empty identifier")
+	}
 	newSession, err := session.New(conn, sid, reqTransport, params, s.log)
 	if err != nil {
+		_ = conn.Close()
 		return nil, err
 	}
+	newSession.SetLimits(s.maxHTTPBufferSize, s.upgradeTimeout)
+	newSession.SetRequest(r)
 
 	// Register before the handshake: the client may send its next request
 	// with this sid as soon as it reads the OPEN packet.
+	s.lifecycle.Lock()
+	if isClosed(s.closed) {
+		s.lifecycle.Unlock()
+		_ = internal.Shutdown(newSession)
+		return nil, io.EOF
+	}
 	s.sessions.Add(newSession)
+	s.live[sid] = newSession
+	s.lifecycle.Unlock()
+	s.connInitor(r, newSession)
 
 	go func(newSession *session.Session) {
 		if err := newSession.InitSession(); err != nil {
-			s.sessions.Remove(newSession.ID())
+			s.Remove(newSession.ID())
 			s.reject(reqTransport, fmt.Sprint(conn.RemoteAddr()), "init", err)
 
 			return
@@ -229,6 +278,20 @@ func (s *Server) newSession(_ context.Context, conn transport.Conn, reqTransport
 	}(newSession)
 
 	return newSession, nil
+}
+
+func writeServerError(w http.ResponseWriter, code int) {
+	messages := [...]string{"Transport unknown", "Session ID unknown", "Bad handshake method", "Bad request", "Forbidden"}
+	status := http.StatusBadRequest
+	if code == 4 {
+		status = http.StatusForbidden
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}{code, messages[code]})
 }
 
 // reject logs a request ServeHTTP rejects or a failed session initialisation: at DEBUG

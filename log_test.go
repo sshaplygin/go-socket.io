@@ -177,7 +177,7 @@ func TestRequestRejectedRecords(t *testing.T) {
 		status        int
 	}{
 		{"bad transport", "WARN", func() int { return get("transport=foo", "") }, http.StatusBadRequest},
-		{"checker", "WARN", func() int { return get("transport=polling", "", "X-Reject", "1") }, http.StatusBadGateway},
+		{"checker", "WARN", func() int { return get("transport=polling", "", "X-Reject", "1") }, http.StatusForbidden},
 		{"unknown sid", "DEBUG", func() int { return get("transport=polling&sid=nope", "") }, http.StatusBadRequest},
 		{"accept", "WARN", func() int { return get("transport=websocket", "") }, http.StatusBadRequest},
 		{"init", "WARN", func() int { return get("transport=faulty", "") }, http.StatusOK},
@@ -441,7 +441,7 @@ func TestNamespaceRecords(t *testing.T) {
 func TestPingTimeoutRecords(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
-			opts := &engineio.Options{PingTimeout: 100 * time.Millisecond}
+			opts := &engineio.Options{PingInterval: time.Millisecond, PingTimeout: 100 * time.Millisecond}
 			rec := captureLogs(t, opts)
 			srv := NewServer(opts)
 			connected := make(chan Conn, 1)

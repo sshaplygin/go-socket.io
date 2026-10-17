@@ -1,11 +1,11 @@
 package engineio
 
 import (
-	"context"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"sync"
 	"testing"
@@ -59,7 +59,7 @@ func TestNewSessionRegistersBeforeHandshake(t *testing.T) {
 	s := NewServer(&Options{Logger: slog.New(rec)})
 	conn := newBlockingConn()
 
-	ses, err := s.newSession(context.Background(), conn, "polling")
+	ses, err := s.newSession(httptest.NewRequest(http.MethodGet, "/", nil), conn, "polling")
 	require.NoError(t, err)
 
 	_, ok := s.sessions.Get(ses.ID())

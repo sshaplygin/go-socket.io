@@ -1,6 +1,7 @@
 package polling
 
 import (
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -20,6 +21,7 @@ type serverConn struct {
 	localAddr    Addr
 	remoteAddr   Addr
 	url          url.URL
+	readLimit    int64
 }
 
 // newServerConn creates the polling connection of a request. JSONP is not supported
@@ -35,8 +37,13 @@ func newServerConn(t *Transport, r *http.Request) *serverConn {
 		localAddr:     Addr{r.Host},
 		remoteAddr:    Addr{r.RemoteAddr},
 		url:           *r.URL,
+		readLimit:     1_000_000,
 	}
 }
+
+// SetReadLimit caps a POST body. An excess is answered with HTTP 413 and fails
+// the session's reader with a transport error.
+func (c *serverConn) SetReadLimit(n int64) { c.readLimit = n }
 
 func (c *serverConn) URL() url.URL {
 	return c.url
@@ -125,8 +132,23 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := c.Payload.FeedIn(r.Body, isSupportBinary); err != nil {
+		body := http.MaxBytesReader(w, r.Body, c.readLimit)
+		defer func() { _ = body.Close() }()
+		if r.ContentLength > c.readLimit {
+			c.rejectLargeBody(w, &http.MaxBytesError{Limit: c.readLimit})
+			return
+		}
+		if err := c.Payload.FeedIn(body, isSupportBinary); err != nil {
 			logger.Log.Debug("engineio: post payload failed", "err", err)
+			cause := err
+			if op, ok := cause.(*payload.OpError); ok {
+				cause = op.Err
+			}
+			var limitErr *http.MaxBytesError
+			if errors.As(cause, &limitErr) {
+				c.rejectLargeBody(w, limitErr)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -139,4 +161,10 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "invalid method", http.StatusBadRequest)
 	}
+}
+
+func (c *serverConn) rejectLargeBody(w http.ResponseWriter, err *http.MaxBytesError) {
+	_ = c.Payload.Store("read", err)
+	_ = c.Close()
+	http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
 }

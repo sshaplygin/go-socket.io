@@ -61,6 +61,9 @@ func (c *conn) SetReadDeadline(t time.Time) error {
 	return c.ws.SetReadDeadline(t)
 }
 
+// SetReadLimit caps one websocket message; gorilla answers an excess with code 1009.
+func (c *conn) SetReadLimit(n int64) { c.ws.SetReadLimit(n) }
+
 func (c *conn) SetWriteDeadline(t time.Time) error {
 	// TODO: is locking really needed for SetWriteDeadline? If so, what about
 	// the read deadline?

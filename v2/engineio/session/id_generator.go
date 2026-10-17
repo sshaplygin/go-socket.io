@@ -1,12 +1,11 @@
 package session
 
 import (
-	"strconv"
-	"sync/atomic"
+	"crypto/rand"
+	"encoding/base64"
 )
 
-// IDGenerator generates new session id. Default behavior is simple
-// increasing number.
+// IDGenerator generates a new session id. The default uses cryptographic randomness.
 // If you need custom session id, for example using local ip as prefix, you can
 // implement SessionIDGenerator and save in Configure. Engine.io will use custom
 // one to generate new session id.
@@ -14,11 +13,17 @@ type IDGenerator interface {
 	NewID() string
 }
 
+// DefaultIDGenerator generates URL-safe random identifiers. NewID returns an empty
+// string if the random source fails.
 type DefaultIDGenerator struct {
+	// ID is retained for source compatibility; random identifiers do not use it.
 	ID uint64
 }
 
 func (g *DefaultIDGenerator) NewID() string {
-	id := atomic.AddUint64(&g.ID, 1)
-	return strconv.FormatUint(id, 36)
+	var b [18]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:])
 }

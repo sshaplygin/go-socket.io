@@ -204,7 +204,7 @@ func TestSessionCloseRecord(t *testing.T) {
 			tr := map[rune]string{'P': "polling", 'W': "websocket"}[side]
 			t.Run(tc.name+"/"+tr, func(t *testing.T) {
 				rec := newRecorder()
-				opts := &Options{Logger: slog.New(rec)}
+				opts := &Options{Logger: slog.New(rec), PingInterval: time.Millisecond}
 				opts.PingTimeout = map[string]time.Duration{"ping timeout": 100 * time.Millisecond, "transport error": 400 * time.Millisecond}[tc.reason]
 				f := &logFixture{srv: NewServer(opts)}
 				ts := httptest.NewServer(f.srv)

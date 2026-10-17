@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- engineio: default session IDs use cryptographic randomness instead of a sequential
+  counter. `Server.Close` closes and removes accepted sessions as well as pending ones.
+- engineio: polling POST bodies and websocket messages have a configurable byte limit;
+  excessive POSTs return HTTP 413 and close the transport, excessive websocket messages
+  close with code 1009. Upgrade probes have a separate timeout and leave polling usable
+  when they fail. `ConnInitor` runs before OPEN and Accept on both transports.
+
 - engineio: a binary polling payload (the default when the client does not send `b64=1`)
   gave each packet the UTF-16 code-unit length of the text payload instead of its length in
   bytes. A client that polls without `b64=1` (the browser build of `socket.io-client` 2.x
@@ -107,6 +114,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- engineio: `Options.UpgradeTimeout` (10 seconds), `MaxHTTPBufferSize` (1,000,000 bytes)
+  and `DisableUpgrades`; nonpositive limits use the defaults. `Session.SetLimits`,
+  `SetRequest` and `Request` retain handshake configuration and request metadata;
+  transports expose `SetReadLimit`, and `Payload.AnswerPoll` can answer an idle poll.
+
 - `engineio.Options.Logger` (`*slog.Logger`): the Engine.IO server, its sessions, the
   socket.io `Server`, `Client` and every connection log through it; nil means
   `logger.Log`. The parser, the transports, `engineio/packet` and the client dialer still
@@ -151,6 +163,16 @@ All notable changes to this project are documented here. The format follows
   (roadmap tasks 1.B and 1I).
 
 ### Changed
+
+- engineio: `PingInterval` defaults to 25 seconds and `PingTimeout` to 20 seconds,
+  as in engine.io 3.6.2. Every received packet renews a window of their sum, so an
+  active client stays connected and a silent client times out after that window.
+- engineio: a polling POST after `3probe` and before the client's UPGRADE packet is
+  accepted and delivered, where it previously returned HTTP 400. Polling is paused
+  only after UPGRADE; pending idle polls get a NOOP at 100 ms checks during the probe.
+- engineio: invalid handshakes return JSON error codes 0–4 with HTTP 400 or 403;
+  `RequestChecker` runs on handshakes and returns a fixed `Forbidden` message on
+  rejection. A new session requires GET, so OPTIONS without a sid creates none.
 
 - CI: run `govulncheck` in the lint job with the newest Go release published by go.dev,
   because the `setup-go` manifest can lag and report fixed standard-library vulnerabilities.

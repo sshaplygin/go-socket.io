@@ -262,7 +262,7 @@ func TestSessionUpgradeFailures(t *testing.T) {
 		"no upgrade packet": {
 			reads:      []scriptedPacket{{ft: frame.String, pt: packet.PING, data: "probe"}},
 			oldPauser:  true,
-			wantResume: 1,
+			wantResume: 0,
 		},
 		"wrong packet after probe": {
 			reads: []scriptedPacket{
@@ -270,7 +270,7 @@ func TestSessionUpgradeFailures(t *testing.T) {
 				{ft: frame.String, pt: packet.MESSAGE},
 			},
 			oldPauser:  true,
-			wantResume: 1,
+			wantResume: 0,
 		},
 	}
 	for name, tc := range cases {
@@ -287,6 +287,7 @@ func TestSessionUpgradeFailures(t *testing.T) {
 
 			require.Equal(t, "polling", s.Transport(), "a failed upgrade keeps the old transport")
 			require.True(t, next.isClosed(), "the candidate connection is closed")
+			require.Zero(t, p.paused)
 			require.Equal(t, tc.wantResume, p.resumed)
 		})
 	}
@@ -502,4 +503,45 @@ func TestSessionClosedBeforeUpgradeCompletes(t *testing.T) {
 			require.Equal(t, "polling", s.Transport(), "a closed session is not upgraded")
 		})
 	}
+}
+
+// delayedPauseConn models polling with a POST still being read when UPGRADE
+// arrives. Pause waits for that POST, independently of the websocket deadline.
+type delayedPauseConn struct {
+	pausableConn
+	pausing chan struct{}
+	release chan struct{}
+}
+
+func (c *delayedPauseConn) Pause() { close(c.pausing); <-c.release; c.pausableConn.Pause() }
+
+func TestUpgradeTimeoutEndsAtUpgradePacket(t *testing.T) {
+	old := &delayedPauseConn{pausing: make(chan struct{}), release: make(chan struct{})}
+	s := newTestSession(t, old, "polling")
+	defer func() { _ = s.Close() }()
+	s.SetLimits(1_000_000, 100*time.Millisecond)
+	next := &scriptConn{reads: []scriptedPacket{
+		{ft: frame.String, pt: packet.PING, data: "probe"},
+		{ft: frame.String, pt: packet.UPGRADE},
+	}}
+	done := make(chan struct{})
+	go func() { defer close(done); s.upgrading("websocket", next) }()
+	select {
+	case <-old.pausing:
+	case <-time.After(time.Second):
+		t.Fatal("UPGRADE was not read")
+	}
+	// The POST ends after the original probe deadline, while 5 arrived before it.
+	time.Sleep(150 * time.Millisecond)
+	wasClosed := next.isClosed()
+	close(old.release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("upgrade did not finish after POST")
+	}
+	require.False(t, wasClosed, "an on-time UPGRADE must cancel the probe timer before waiting for a POST")
+	require.Equal(t, "websocket", s.Transport())
+	require.False(t, next.isClosed())
+	require.True(t, old.isClosed())
 }

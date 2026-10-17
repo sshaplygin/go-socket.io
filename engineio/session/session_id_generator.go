@@ -14,7 +14,7 @@ type IDGenerator interface {
 }
 
 // DefaultIDGenerator generates URL-safe random identifiers. NewID returns an empty
-// string if the random source fails; the server rejects that handshake.
+// string if the random source fails.
 type DefaultIDGenerator struct {
 	// ID is retained for source compatibility; random identifiers do not use it.
 	ID uint64

@@ -59,10 +59,10 @@ type goClientMetadata struct {
 	Disconnected                                                      [][]string
 }
 
-// Covers C2.
-// Covers C5.
-// Covers C6.
-// Covers C10.
+// Covers C2
+// Covers C5
+// Covers C6
+// Covers C10
 func TestGoClientConformance(t *testing.T) {
 	for _, name := range []string{"polling", "websocket", "upgrade"} {
 		t.Run(name, func(t *testing.T) {

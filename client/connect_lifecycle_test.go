@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Covers C4.
+// Covers C4
 func TestClientCloseCancelsPendingConnect(t *testing.T) {
 	cl, err := New("http://unused/", &Options{Timeout: -1})
 	require.NoError(t, err)
@@ -30,7 +30,7 @@ func TestClientCloseCancelsPendingConnect(t *testing.T) {
 	recv(t, late.closed, "late connection closed")
 }
 
-// Covers C4.
+// Covers C4
 func TestClientConcurrentConnectAndRetry(t *testing.T) {
 	cl, err := New("http://unused/", nil)
 	require.NoError(t, err)
@@ -64,7 +64,7 @@ func TestClientConcurrentConnectAndRetry(t *testing.T) {
 
 // Registering after CONNECT still invokes the callback on the read goroutine,
 // and a callback failure has the same reporting and shutdown as an immediate one.
-// Covers C2.
+// Covers C2
 func TestClientLateConnectHandler(t *testing.T) {
 	for _, fail := range []bool{false, true} {
 		name := "success"
@@ -109,8 +109,8 @@ func TestClientLateConnectHandler(t *testing.T) {
 }
 
 // A namespace closed while its CONNECT is in flight cannot be revived by the reply.
-// Covers C2.
-// Covers C10.
+// Covers C2
+// Covers C10
 func TestClientLateConnectReplyAfterClose(t *testing.T) {
 	p := newPeer(t, 'C', hooks{events: map[string]interface{}{"barrier": func(Conn) string { return "ready" }}}, "/chat")
 	require.NoError(t, p.cl.Connect())
@@ -130,7 +130,7 @@ func TestClientLateConnectReplyAfterClose(t *testing.T) {
 }
 
 // A default named socket may connect before the application asks for the root socket.
-// Covers C2.
+// Covers C2
 func TestClientRootSocketAddedAfterConnect(t *testing.T) {
 	cl, err := New("http://unused/chat", nil)
 	require.NoError(t, err)
@@ -153,7 +153,7 @@ func TestClientRootSocketAddedAfterConnect(t *testing.T) {
 }
 
 // A closed connection can be replaced explicitly after all old workers have exited.
-// Covers C4.
+// Covers C4
 func TestClientConnectAfterTransportFailure(t *testing.T) {
 	p := start(t, 'C', hooks{})
 	old := p.conn()

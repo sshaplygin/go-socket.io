@@ -127,7 +127,7 @@ func (r *upgradeFaultReader) Close() error {
 
 // Probe failures before UPGRADE preserve polling. A failure while committing it
 // closes the connection because either endpoint may already have switched.
-// Covers C5.
+// Covers C5
 func TestClientUpgradeTransportErrors(t *testing.T) {
 	for _, phase := range []string{"read-deadline", "write-deadline", "ping-next", "ping-write", "ping-close", "read-next", "read-body", "read-close", "upgrade-next", "upgrade-close", "upgrade-read-deadline", "upgrade-write-deadline"} {
 		t.Run(phase, func(t *testing.T) {

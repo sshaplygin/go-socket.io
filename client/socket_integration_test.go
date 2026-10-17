@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Covers C2.
+// Covers C2
 func TestClientNamespaces(t *testing.T) {
 	serverConnections := make(chan client.Conn, 8)
 	messages := make(chan string, 8)
@@ -88,7 +88,7 @@ func TestClientNamespaces(t *testing.T) {
 		[]string{recv(t, disconnected, "root close"), recv(t, disconnected, "late close")})
 }
 
-// Covers C4.
+// Covers C4
 func TestClientConnectTimeout(t *testing.T) {
 	connected := make(chan struct{}, 2)
 	real := newTestServer(t, func(srv *socketio.Server) {
@@ -147,7 +147,7 @@ func TestClientConnectTimeout(t *testing.T) {
 	require.Empty(t, connected, "the late OPEN must not attach another connection")
 }
 
-// Covers C6.
+// Covers C6
 func TestClientOptions(t *testing.T) {
 	metadata := make(chan client.Conn, 2)
 	srv := socketio.NewServer(shortPingOptions())
@@ -203,7 +203,7 @@ func TestClientOptions(t *testing.T) {
 	}
 }
 
-// Covers C9.
+// Covers C9
 func TestClientEmitBuffered(t *testing.T) {
 	for _, size := range []int{64, 2} {
 		t.Run(strconv.Itoa(size), func(t *testing.T) {
@@ -252,7 +252,7 @@ func TestClientEmitBuffered(t *testing.T) {
 	}
 }
 
-// Covers C10.
+// Covers C10
 func TestClientCloseSendsDisconnect(t *testing.T) {
 	for _, all := range []bool{false, true} {
 		name := "socket"

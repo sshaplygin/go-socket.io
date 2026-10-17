@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Covers C5.
+// Covers C5
 func TestClientWebsocketUpgrade(t *testing.T) {
 	for _, name := range []string{"default", "polling", "websocket"} {
 		t.Run(name, func(t *testing.T) {
@@ -109,7 +109,7 @@ func TestClientWebsocketUpgrade(t *testing.T) {
 }
 
 // A timed-out Dial can still return: its connection must be closed rather than attached.
-// Covers C4.
+// Covers C4
 func TestClientTimeoutClosesLateConnection(t *testing.T) {
 	cl, err := New("http://unused/", &Options{Timeout: 20 * time.Millisecond})
 	require.NoError(t, err)
@@ -125,7 +125,7 @@ func TestClientTimeoutClosesLateConnection(t *testing.T) {
 }
 
 // A full application queue cannot consume the slot needed for a namespace DISCONNECT.
-// Covers C10.
+// Covers C10
 func TestClientDisconnectWithFullQueue(t *testing.T) {
 	p := start(t, 'C', hooks{}, "/chat")
 	p.stall(t, p.nc, defaultWriteBufferSize)

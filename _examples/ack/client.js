@@ -10,7 +10,8 @@ const deadline = setTimeout(() => finish(new Error('example timed out')), 10000)
 function finish(error) {
   clearTimeout(deadline);
   for (const socket of sockets) socket.close();
-  if (error) { console.error(error); process.exitCode = 1; }
+  // A stalled polling POST can prevent close from draining; errors must end this runner.
+  if (error) { console.error(error); process.exit(1); }
 }
 function event(socket, name) {
   return new Promise(resolve => socket.once(name, (...args) => resolve(args)));
@@ -22,7 +23,7 @@ async function scenario(transport) {
   const socket = io(base, {autoConnect: false, forceNew: true, forceNode: true,
     transports: [transport], reconnection: false, timeout: 5000});
   sockets.push(socket);
-  socket.on('connect_error', error => { finish(error); process.exit(1); });
+  socket.on('connect_error', finish);
   const connected = event(socket, 'connect');
   socket.connect();
   await connected;

@@ -153,7 +153,7 @@ All notable changes to this project are documented here. The format follows
 
 
 - client: recover engine connections automatically with configurable retry limits,
-  backo2 delays and reconnect callbacks. Closed namespaces stay closed on recovery;
+  backoff delays and reconnect callbacks. Closed namespaces stay closed on recovery;
   ordinary emits buffer while reconnecting and volatile emits drop before CONNECT.
 - client: expose namespace ID/Connected, On/Once/Off listeners and ping/pong observers.
   Namespace.Connected is available on server connections too; engineio.Dialer gains
@@ -273,6 +273,37 @@ All notable changes to this project are documented here. The format follows
   (roadmap tasks 1.B and 1I).
 
 ### Changed
+
+- v1 migration: this minor release expands `Conn`, `Namespace`, `Broadcast` and
+  `engineio.Conn`, breaking custom implementations and mocks. `Conn` gains
+  `EngineConn`, `Request` and `Handshake`; its embedded `Namespace` gains
+  `Send`, `Disconnect`, `Use`, `To`, `Broadcast`, `Volatile`, `Connected` and
+  `Compress`. `Namespace.Join(room string)` changes to `Join(rooms ...string)`:
+  existing single-room calls compile unchanged, but implementations must adopt
+  the variadic signature. `Broadcast` gains `SendTo` and `IDs`;
+  `engineio.Conn` gains `ReadyState`, `Transport` and `Upgraded`. Add these
+  methods to implementations, or embed the corresponding interface in a mock
+  and implement each method the test calls. On a client connection, `EngineConn`
+  and `Request` return nil, `Handshake` returns its zero value, `Use` registers
+  nothing, and the emitters from `To` or `Broadcast` return `ErrServerOnly` from
+  `Emit` and `Send`. Client room methods maintain a local index; they do not join
+  server rooms. `Send`, `Disconnect`, `Connected`, `Volatile` and `Compress`
+  have client behavior. Root connection types remain aliases of the client
+  package's shared interfaces.
+- engineio: the reference `cookie` default now sets an `io` session cookie on
+  every response from the polling transport that opened the session, where no
+  cookie was set before. Defaults are Path=/, HttpOnly and SameSite=Strict;
+  websocket-first connections set none. Configure `Options.Cookie` to change
+  attributes or `DisableCookie` to opt out.
+- engineio: the reference `httpCompression` default now compresses polling
+  responses of at least 1024 encoded bytes with gzip or deflate when accepted
+  by the client. Earlier responses were uncompressed. Set
+  `DisableHTTPCompression` to opt out or `CompressionThreshold` to change the
+  boundary. Websocket permessage-deflate remains opt-in.
+- engineio: CORS defaults now send polling access-control headers and accept
+  cross-origin websocket upgrades. Set `Options.DisableCORS` for the former
+  polling behavior and websocket same-origin checks; explicit transport
+  `CheckOrigin` callbacks still take precedence.
 
 - socketio: middleware and `OnConnect` rejection send an ERROR packet and keep the
   engine connection open. The rejected namespace joins no ID room and receives no
@@ -424,6 +455,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Known limitations
 
+- Redis broadcast: `Emit` and `Send` from socket-excluding builders, including
+  `Conn.To` and `Conn.Broadcast`, return `ErrExceptUnsupported` before delivery.
+  Socket ID snapshots describe this instance only. `Volatile` and `Compress(false)` are honored locally;
+  the legacy Redis wire format omits these flags, so remote instances use
+  ordinary delivery and default compression. A room union publishes per room
+  and can deliver duplicates across instances. Mixed Go/Node Redis clusters
+  are unsupported; see [protocol deviation D3](docs/PROTOCOL.md#deviation-d3-mixed-gonode-redis-cluster).
+- Redis broadcast: `Server.Adapter` does not honor `RedisAdapterOptions.DB` and
+  uses DB 0. Binary arguments across instances have not been validated.
 - Redis broadcast: handler registration does not wait until Redis has registered the
   namespace's subscription, and a lost subscription is reopened later, so until Redis
   has registered it the namespace on that instance misses other instances' broadcasts

@@ -18,7 +18,7 @@ var EmptyAddrErr = ErrEmptyAddr
 // Deprecated: use client.Client.
 type Client struct{ inner client.Client }
 
-// NewClient returns a client for addr, such as http://localhost:8000/namespace.
+// NewClient returns a client configured for addr and opts.
 //
 // Deprecated: use client.NewClient.
 func NewClient(addr string, opts *engineio.Options) (*Client, error) {

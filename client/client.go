@@ -17,7 +17,7 @@ import (
 // ErrEmptyAddr is returned by NewClient when addr is empty.
 var ErrEmptyAddr = errors.New("empty addr")
 
-// Client is client for socket.io server
+// Client is an experimental Socket.IO client.
 type Client struct {
 	namespace string
 	url       string
@@ -32,8 +32,7 @@ type Client struct {
 	dial func(url string) (engineio.Conn, error) // nil dials over polling; tests replace it
 }
 
-// NewClient returns a server
-// addr like http://asd.com:8080/{$namespace}
+// NewClient returns a client configured for addr and opts.
 func NewClient(addr string, opts *engineio.Options) (*Client, error) {
 	if addr == "" {
 		return nil, ErrEmptyAddr

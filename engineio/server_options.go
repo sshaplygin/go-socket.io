@@ -31,6 +31,10 @@ type Options struct {
 	RequestChecker CheckerFunc
 	ConnInitor     ConnInitorFunc
 
+	// Hooks observes engine events; nil means no observer. Set fields run
+	// synchronously and must not call back except to read connection state.
+	Hooks *Hooks
+
 	// Logger receives errors and diagnostics from the server and the sessions
 	// it creates. nil means logger.Log. It chooses the sink only: logger.Level
 	// decides what is enabled while it is not logger.LevelUnset (set from
@@ -50,6 +54,13 @@ type Options struct {
 	// binary attachments takes k+1 frames, so polling clients overflow at much lower
 	// emit rates than websocket clients. Temporary v1 placement.
 	WriteBufferSize int
+}
+
+func (c *Options) getHooks() *Hooks {
+	if c != nil {
+		return c.Hooks
+	}
+	return nil
 }
 
 func (c *Options) getLogger() *slog.Logger {

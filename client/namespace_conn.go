@@ -60,6 +60,9 @@ type namespaceConn struct {
 }
 
 func newNamespaceConn(conn *conn, namespace string, broadcast *roomIndex) *namespaceConn {
+	if namespace == rootNamespace {
+		namespace = aliasRootNamespace
+	}
 	return &namespaceConn{conn: conn, namespace: namespace, broadcast: broadcast}
 }
 

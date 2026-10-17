@@ -170,8 +170,36 @@ func (m *clientState) deliverConnect(current *conn, s *Socket) error {
 	return f(nc)
 }
 
-func (m *clientState) closeSocket(s *Socket, reason string, closeLast bool) error {
+func (m *clientState) namespaceDisconnected(current *conn, namespace string) error {
 	m.mu.Lock()
+	if m.conn != current {
+		m.mu.Unlock()
+		return nil
+	}
+	if namespace == rootNamespace {
+		m.rootReady = false
+	}
+	socket := m.sockets[namespace]
+	if socket == nil {
+		// Root is established by the server before its Socket may exist.
+		// Release its cached Conn as soon as that namespace is disconnected.
+		nc, claimed := current.claim(namespace)
+		m.mu.Unlock()
+		if claimed {
+			nc.LeaveAll()
+		}
+		return nil
+	}
+	m.mu.Unlock()
+	return m.closeSocket(socket, "io server disconnect", true, current)
+}
+
+func (m *clientState) closeSocket(s *Socket, reason string, closeLast bool, expected ...*conn) error {
+	m.mu.Lock()
+	if len(expected) > 0 && m.conn != expected[0] {
+		m.mu.Unlock()
+		return nil
+	}
 	if !s.active {
 		m.mu.Unlock()
 		return nil

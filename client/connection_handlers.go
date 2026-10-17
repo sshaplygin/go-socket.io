@@ -177,11 +177,5 @@ func clientDisconnectPacketHandler(c *conn, header parser.Header) error {
 		c.onError(header.Namespace, err)
 		return errDecodeArgs
 	}
-	c.owner.mu.Lock()
-	socket := c.owner.sockets[header.Namespace]
-	c.owner.mu.Unlock()
-	if socket != nil {
-		return c.owner.closeSocket(socket, "io server disconnect", true)
-	}
-	return nil
+	return c.owner.namespaceDisconnected(c, header.Namespace)
 }

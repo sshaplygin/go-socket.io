@@ -155,7 +155,8 @@ type dynamicNamespace struct {
 // match functions in order, on the client's read goroutine. The first match
 // creates a child with the parent's current registrations and its own adapter.
 // Parent broadcasts and snapshots span its children; later registrations affect
-// children created afterwards only.
+// children created afterwards only. A parent broadcast stops at the first child
+// adapter error; earlier child deliveries remain. Callback rejection sends nothing.
 func (s *Server) OfFunc(match func(string, url.Values) bool) *ServerNamespace {
 	s.parentsMu.Lock()
 	defer s.parentsMu.Unlock()

@@ -184,3 +184,70 @@ func TestDynamicNamespaces(t *testing.T) {
 	a.send(`21["unhandled"]`)
 	require.Equal(t, "31[]\n", a.read(), "root remains usable")
 }
+
+type parentErrorAdapter struct {
+	*broadcast
+	send func(BroadcastOptions, string, ...interface{}) error
+}
+
+func (b *parentErrorAdapter) SendTo(opts BroadcastOptions, event string, args ...interface{}) error {
+	return b.send(opts, event, args...)
+}
+
+func TestParentBroadcastError(t *testing.T) {
+	s := NewServer(nil)
+	defer func() { _ = s.Close() }()
+	failure := errors.New("child refused")
+	var visited []string
+	failAt := 2
+	recipients := make(map[string]*redisTestConn)
+	s.SetAdapter(func(name string) (Broadcast, error) {
+		memory := newBroadcast()
+		target := newRedisTestConn(name)
+		memory.Join("room", target)
+		recipients[name] = target
+		return &parentErrorAdapter{broadcast: memory, send: func(opts BroadcastOptions, event string, args ...interface{}) error {
+			visited = append(visited, name)
+			if len(visited) == failAt {
+				return failure
+			}
+			return memory.SendTo(opts, event, args...)
+		}}, nil
+	})
+	parent := s.OfFunc(func(string, url.Values) bool { return true })
+	for _, name := range []string{"/one", "/two", "/three"} {
+		require.NotNil(t, s.resolveNamespace(name, nil))
+	}
+
+	// Reject callbacks before calling any child adapter, regardless of its errors.
+	require.ErrorIs(t, parent.To("room").Emit("callback", func() {}), ErrBroadcastAck)
+	require.Empty(t, visited)
+	for _, target := range recipients {
+		require.Empty(t, target.events)
+	}
+
+	// Whichever child is visited first delivers; the next fails and stops fan-out.
+	// The test deliberately makes no promise about the order of child snapshots.
+	require.ErrorIs(t, parent.To("room").Send("value"), failure)
+	require.Len(t, visited, 2)
+	expectEvent(t, recipients[visited[0]], "message [value]")
+	for _, target := range recipients {
+		require.Empty(t, target.events, "the failing and unvisited children deliver nothing")
+	}
+
+	visited = nil
+	failAt = 1
+	require.ErrorIs(t, parent.Emit("first child fails"), failure)
+	require.Len(t, visited, 1)
+	for _, target := range recipients {
+		require.Empty(t, target.events)
+	}
+
+	// An ordinary namespace still preserves the no-delivery-on-error guarantee.
+	visited = nil
+	require.ErrorIs(t, s.Of("/one").Emit("single child fails"), failure)
+	require.Equal(t, []string{"/one"}, visited)
+	for _, target := range recipients {
+		require.Empty(t, target.events)
+	}
+}

@@ -323,9 +323,10 @@ type Emitter interface {
 	Except(ids ...string) Emitter
 	Volatile() Emitter
 	Local() Emitter
-	// Emit returns ErrBroadcastAck for a broadcast with a trailing func, or an
-	// adapter error. A single-socket emit never fails. A client broadcast returns
-	// ErrServerOnly. Errors send nothing.
+	// Emit returns ErrBroadcastAck without sending for a broadcast with a trailing
+	// func, or an adapter error. A dynamic parent may have delivered to earlier
+	// children before a child returns an error. A single-socket emit never fails;
+	// a client broadcast returns ErrServerOnly without sending.
 	Emit(event string, args ...interface{}) error
 	// Send is Emit("message", args...).
 	Send(args ...interface{}) error

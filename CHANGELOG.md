@@ -138,6 +138,7 @@ All notable changes to this project are documented here. The format follows
 - socketio: `SetAdapter` injects namespace adapters, and `OfFunc` creates dynamic
   namespaces with inherited registrations and parent broadcasts. Namespaces expose
   their adapter and support ordered `On`, `Once`, and `Off` listeners.
+  Parent broadcasts stop on the first child adapter error; earlier deliveries remain.
 - socketio: `Conn.EngineConn`, `Request`, and `Handshake` expose original handshake
   metadata, including namespace query overrides, across transport upgrades and close.
   A final `AckFunc` handler parameter supports one asynchronous acknowledgement.

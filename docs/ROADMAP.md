@@ -398,11 +398,12 @@ item 3, asks the roadmap to name).
 | H | open | - | `v1-h/` | - |
 
 DoD of this section, after the helpers of the entry fence, `bash`, `set -e` and `set -f`
-(the paths hold `*`); every command prints nothing:
+(the paths hold `*`); on a pass it prints nothing and exits 0, and every check that fails
+prints a line naming the defect (no check ends the script silently):
 
 ```sh
 diff <({ printf 'V1-%s\n' $(seq 1 20); echo SYNC; } | sort) <(tbl '| Package | PRs in order |' | awk -F' *[|] *' '{print $3}' | grep -oE 'V1-[0-9]+|SYNC' | sort)   # every PR of V1-1 to V1-20 and SYNC in exactly one package row
-K='SY A B C D E F G H'; test "$(tbl '| Package | PRs in order |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K "; test "$(tbl '| Package | Status |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K "; test "$(tbl '| Beside | SY |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K "; grep -qxF '| Beside | SY | A | B | C | D | E | F | G | H |' docs/ROADMAP.md   # the packages, the registry and the matrix rows and columns name the same packages in one order
+K='SY A B C D E F G H'; test "$(tbl '| Package | PRs in order |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K " || echo "package order: packages table"; test "$(tbl '| Package | Status |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K " || echo "package order: registry"; test "$(tbl '| Beside | SY |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K " || echo "package order: matrix rows"; grep -qxF '| Beside | SY | A | B | C | D | E | F | G | H |' docs/ROADMAP.md || echo "package order: matrix columns"   # the packages, the registry and the matrix rows and columns name the same packages in one order
 ps() { awk -F'|' -v k="$1" '/^(SY|[A-H])[|][^ |]+$/ && $1 == k {print $2}' docs/ROADMAP.md; }; for k in $K; do test -n "$(ps $k)" || echo "no paths: $k"; done   # the path set of a package
 c() { tbl '| Beside | SY |' | awk -F' *[|] *' -v r="$1" -v col="$2" -v k="$K" '{n=split(k, h, " "); for (i = 1; i <= n; i++) if (h[i] == col) j = i + 2} $2 == r {print $j}'; }; for x in $K; do for y in $K; do test "$(c $x $y)" = "$(c $y $x)" || echo "asymmetric: $x $y"; done; done   # the matrix cell of row $1, column $2; the matrix is symmetric
 ov() { case $1 in "$2"*) return 0;; esac; case $2 in "$1"*) return 0;; esac; for a in "$1" "$2"; do b=$2; test "$a" = "$1" || b=$1; case $a in *'*.go') d=${a%'*.go'}; case $b in "$d"*.go) case ${b#"$d"} in */*) ;; *) return 0;; esac;; esac;; esac; done; case $1 in *.go) case $2 in *.go) test "$(dirname "$1")" != "$(dirname "$2")" || return 0;; esac;; esac; return 1; }   # true when two path entries can name one file, or two Go files of one package (one directory)

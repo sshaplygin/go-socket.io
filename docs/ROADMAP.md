@@ -318,7 +318,7 @@ of *Entry*, as the paragraph after the next table derives it from row SY).
 | A, B | V1-4's `engineio/` files; `server.go`, `backpressure_test.go`, `log_test.go`; `docs/PROTOCOL.md` (other lines) | V1-2 merges before V1-3 starts and V1-4 before V1-16 starts (wave V1B); B's root hunks and `CHANGELOG.md` entries in V1B go through A |
 | C, F | `Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md` | V1-12 starts after V1-8 and merges after V1-20 (V1C before V1E) |
 | D, E | the Go package `internal/conformance` under tag `conformance`: `goclient_test.go` (V1-10, V1-11) and `differential_test.go` (V1-19), both written against V1-8's helpers, so a top-level name can collide | whichever of V1-10, V1-11 and V1-19 merges after another of them merges with `master` merged in and `make conformance` green on that head (the `conformance` job) |
-| D, F | `CLAUDE.md`; `_examples/` (D only `_examples/client/`) | V1-9 merges before V1-12 (V1D before V1E) |
+| D, F | `CLAUDE.md`; `_examples/` (D only `_examples/client/`) | V1-9 merges before V1-12 (V1D before V1E), and V1-12 merges with that `master` merged in and `make examples` (the `examples-v1` job) green on that head |
 
 An integrator acts only while its package is `taken`. When the integrating package is `open`
 or `done` (A done before B's V1-16 to V1-18, or A without a taker), the worker's PR integrates

@@ -135,6 +135,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- socketio: `SetAdapter` injects namespace adapters, and `OfFunc` creates dynamic
+  namespaces with inherited registrations and parent broadcasts. Namespaces expose
+  their adapter and support ordered `On`, `Once`, and `Off` listeners.
+- socketio: `Conn.EngineConn`, `Request`, and `Handshake` expose original handshake
+  metadata, including namespace query overrides, across transport upgrades and close.
+  A final `AckFunc` handler parameter supports one asynchronous acknowledgement.
+
 - socketio: immutable Emitter builders select room unions and socket exclusions,
   with volatile and local flags. Namespace sockets can join several rooms and
   broadcast except their sender; adapters and namespaces expose socket ID snapshots.

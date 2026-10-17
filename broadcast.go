@@ -18,7 +18,9 @@ type BroadcastOptions struct {
 	Local bool
 }
 
-// Broadcast is the adaptor to handle broadcasts & rooms for socket.io server API
+// Broadcast manages namespace rooms and delivery. Its methods must support
+// concurrent calls from handlers and Server methods. Delivery invokes each target
+// only after releasing the adapter's lock.
 type Broadcast interface {
 	// SendTo snapshots matching sockets and emits on the caller's goroutine after
 	// releasing the adapter lock. Delivery uses target.Emit, or target.Volatile().Emit

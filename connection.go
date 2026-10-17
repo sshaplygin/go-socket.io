@@ -40,6 +40,29 @@ func newConnLimits(opts *engineio.Options) connLimits {
 	return l
 }
 
+// AckFunc acknowledges an incoming event once, possibly from another goroutine
+// after the handler returns. It does nothing unless the peer requested an ACK.
+// A handler with this final parameter owns the ACK; return values are ignored.
+type AckFunc func(args ...interface{})
+
+// Handshake describes the original engine handshake and this namespace's query.
+type Handshake struct {
+	// Headers are copied from the original handshake request.
+	Headers http.Header
+	// Time is this namespace socket's creation time (reference time and issued).
+	Time time.Time
+	// Address is the original request's remote address, including its port.
+	Address string
+	// XDomain reports a nonempty Origin header on the original request.
+	XDomain bool
+	// Secure reports TLS on the original request.
+	Secure bool
+	// URL is the original handshake URL, even after a transport upgrade.
+	URL url.URL
+	// Query merges the request query and namespace CONNECT query; the latter wins.
+	Query url.Values
+}
+
 // Conn is a connection in go-socket.io
 type Conn interface {
 	// Close closes the connection and returns nil; only the first close, by Close or by the library,
@@ -61,6 +84,16 @@ type Conn interface {
 	// packet with "encode error", and keeps the connection open.
 	Close() error
 	Namespace
+	// EngineConn returns the underlying engine connection, nil on a client socket.
+	EngineConn() engineio.Conn
+	// Request returns the original handshake request. Its Body is consumed and its
+	// Context ends when that HTTP request returns; retain it for metadata only.
+	// It is available before middleware/handlers and after close, nil on clients
+	// and on engines without a Request method.
+	Request() *http.Request
+	// Handshake returns metadata built before this socket's middleware and handlers.
+	// It uses the original request even after an upgrade; zero on client sockets.
+	Handshake() Handshake
 
 	// ID returns session id
 	ID() string
@@ -73,9 +106,11 @@ type Conn interface {
 type conn struct {
 	engineio.Conn
 
-	id         atomic.Uint64
-	handlers   *namespaceHandlers
-	namespaces *namespaces
+	id               atomic.Uint64
+	request          *http.Request
+	resolveNamespace func(string, url.Values) *namespaceHandler
+	handlers         *namespaceHandlers
+	namespaces       *namespaces
 
 	encoder *parser.Encoder
 	decoder *parser.Decoder
@@ -124,6 +159,9 @@ func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connL
 		seal:             make(chan struct{}),
 		discard:          make(chan struct{}),
 		done:             make(chan struct{}),
+	}
+	if source, ok := engineConn.(interface{ Request() *http.Request }); ok {
+		c.request = source.Request()
 	}
 	c.reader, c.writer = &frameReader{FrameReader: engineConn}, &queueWriter{c: c}
 	c.decoder, c.encoder = parser.NewDecoder(c.reader), parser.NewEncoder(c.writer)
@@ -648,4 +686,17 @@ func (c *conn) nextQueued() (parser.Payload, bool) {
 		return packet.payload, true
 	}
 	return parser.Payload{}, false
+}
+
+func (c *conn) EngineConn() engineio.Conn {
+	if c.boundary {
+		return c.Conn
+	}
+	return nil
+}
+func (c *conn) Request() *http.Request {
+	if c.boundary {
+		return c.request
+	}
+	return nil
 }

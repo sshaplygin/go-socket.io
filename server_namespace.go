@@ -1,11 +1,17 @@
 package socketio
 
-import "strings"
+import (
+	"net/url"
+	"strconv"
+	"strings"
+	"sync"
+)
 
 // ServerNamespace is a server namespace's registration and broadcast object.
 type ServerNamespace struct {
 	server *Server
 	name   string
+	parent *dynamicNamespace
 }
 
 func serverNamespaceName(name string) string {
@@ -36,22 +42,22 @@ func (n *ServerNamespace) Name() string {
 }
 
 // OnConnect sets the namespace's connect handler.
-func (n *ServerNamespace) OnConnect(f func(Conn) error) { n.server.OnConnect(n.name, f) }
+func (n *ServerNamespace) OnConnect(f func(Conn) error) { n.registration().OnConnect(f) }
 
 // OnDisconnect sets the namespace's disconnect handler.
-func (n *ServerNamespace) OnDisconnect(f func(Conn, string)) { n.server.OnDisconnect(n.name, f) }
+func (n *ServerNamespace) OnDisconnect(f func(Conn, string)) { n.registration().OnDisconnect(f) }
 
 // OnError sets the namespace's error handler.
-func (n *ServerNamespace) OnError(f func(Conn, error)) { n.server.OnError(n.name, f) }
+func (n *ServerNamespace) OnError(f func(Conn, error)) { n.registration().OnError(f) }
 
-// OnEvent sets the namespace's event handler.
-func (n *ServerNamespace) OnEvent(event string, f interface{}) { n.server.OnEvent(n.name, event, f) }
+// OnEvent replaces every listener of the event; handler semantics are those of Server.OnEvent.
+func (n *ServerNamespace) OnEvent(event string, f interface{}) { n.registration().OnEvent(event, f) }
 
 // Use appends namespace middleware, called in registration order before OnConnect
 // and before the socket joins its ID room. A rejection sends ERROR and keeps the
 // engine connection and its other namespaces open.
 func (n *ServerNamespace) Use(f func(Conn) error) {
-	h := n.server.createNamespace(n.name)
+	h := n.registration()
 	h.eventsLock.Lock()
 	h.middleware = append(h.middleware, f)
 	h.eventsLock.Unlock()
@@ -67,6 +73,13 @@ func (n *ServerNamespace) Send(args ...interface{}) error { return n.Emit("messa
 
 // Sockets returns a snapshot of this instance's connected sockets.
 func (n *ServerNamespace) Sockets() []Conn {
+	if n.parent != nil {
+		var result []Conn
+		for _, child := range n.children() {
+			result = append(result, child.Sockets()...)
+		}
+		return result
+	}
 	h := n.server.getNamespace(n.name)
 	h.connectedMu.RLock()
 	defer h.connectedMu.RUnlock()
@@ -88,6 +101,9 @@ func (n *ServerNamespace) Socket(id string) (Conn, bool) {
 }
 
 func (n *ServerNamespace) emitter() emitter {
+	if n.parent != nil {
+		return emitter{adapter: parentBroadcast{namespace: n}, broadcast: true}
+	}
 	return emitter{adapter: n.server.getNamespace(n.name).broadcast, broadcast: true}
 }
 
@@ -108,3 +124,96 @@ func (n *ServerNamespace) Local() Emitter { return n.emitter().Local() }
 func (n *ServerNamespace) SocketIDs(rooms ...string) []string {
 	return n.emitter().adapter.IDs(rooms...)
 }
+
+func (n *ServerNamespace) registration() *namespaceHandler {
+	if n.parent != nil {
+		return n.parent.registration
+	}
+	return n.server.getNamespace(n.name)
+}
+
+// Adapter returns the namespace adapter, nil for a dynamic parent or failed construction.
+func (n *ServerNamespace) Adapter() Broadcast {
+	if n.parent != nil {
+		return nil
+	}
+	h := n.registration()
+	if h.err != nil {
+		return nil
+	}
+	return h.broadcast
+}
+
+type dynamicNamespace struct {
+	match        func(string, url.Values) bool
+	registration *namespaceHandler
+	mu           sync.RWMutex
+	children     map[string]*ServerNamespace
+}
+
+// OfFunc registers a dynamic parent. Unknown namespace CONNECTs are offered to
+// match functions in order, on the client's read goroutine. The first match
+// creates a child with the parent's current registrations and its own adapter.
+// Parent broadcasts and snapshots span its children; later registrations affect
+// children created afterwards only.
+func (s *Server) OfFunc(match func(string, url.Values) bool) *ServerNamespace {
+	s.parentsMu.Lock()
+	defer s.parentsMu.Unlock()
+	parent := &dynamicNamespace{match: match, registration: newNamespaceHandler("", nil), children: make(map[string]*ServerNamespace)}
+	n := &ServerNamespace{server: s, name: "/_" + strconv.Itoa(len(s.parents)), parent: parent}
+	s.parents = append(s.parents, parent)
+	return n
+}
+
+func (n *ServerNamespace) children() []*ServerNamespace {
+	n.parent.mu.RLock()
+	defer n.parent.mu.RUnlock()
+	result := make([]*ServerNamespace, 0, len(n.parent.children))
+	for _, child := range n.parent.children {
+		result = append(result, child)
+	}
+	return result
+}
+
+type parentBroadcast struct {
+	nopBroadcast
+	namespace *ServerNamespace
+}
+
+func (b parentBroadcast) SendTo(opts BroadcastOptions, event string, args ...interface{}) error {
+	for _, child := range b.namespace.children() {
+		if err := child.registration().broadcast.SendTo(opts, event, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b parentBroadcast) IDs(rooms ...string) []string {
+	var result []string
+	seen := make(map[string]bool)
+	for _, child := range b.namespace.children() {
+		for _, id := range child.registration().broadcast.IDs(rooms...) {
+			if !seen[id] {
+				seen[id] = true
+				result = append(result, id)
+			}
+		}
+	}
+	return result
+}
+
+// On adds a listener after existing listeners; off removes just this listener.
+// Listener payload parameter types must match; a mismatch or non-function panics.
+func (n *ServerNamespace) On(event string, f interface{}) (off func()) {
+	return n.registration().addListener(event, f, false)
+}
+
+// Once is On for the first successfully dispatched event only.
+func (n *ServerNamespace) Once(event string, f interface{}) (off func()) {
+	return n.registration().addListener(event, f, true)
+}
+
+// Off removes every listener for event, including the OnEvent handler. Changes
+// during a dispatch take effect on the next event. OnEvent replaces all listeners.
+func (n *ServerNamespace) Off(event string) { n.registration().Off(event) }

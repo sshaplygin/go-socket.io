@@ -12,6 +12,7 @@ const (
 type funcHandler struct {
 	argTypes []reflect.Type
 	f        reflect.Value
+	ack      bool
 }
 
 func (h *funcHandler) Call(args []reflect.Value) (ret []reflect.Value, err error) {
@@ -42,7 +43,12 @@ func newEventFunc(f interface{}) *funcHandler {
 		panic("handler function should be like func(socketio.Conn, ...)")
 	}
 
-	argTypes := make([]reflect.Type, ft.NumIn()-1)
+	hasAck := ft.NumIn() > 1 && ft.In(ft.NumIn()-1) == reflect.TypeOf(AckFunc(nil))
+	count := ft.NumIn() - 1
+	if hasAck {
+		count--
+	}
+	argTypes := make([]reflect.Type, count)
 	for i := range argTypes {
 		argTypes[i] = ft.In(i + 1)
 	}
@@ -54,6 +60,7 @@ func newEventFunc(f interface{}) *funcHandler {
 	return &funcHandler{
 		argTypes: argTypes,
 		f:        fv,
+		ack:      hasAck,
 	}
 }
 

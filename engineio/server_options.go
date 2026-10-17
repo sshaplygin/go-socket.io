@@ -124,7 +124,8 @@ func (c *Options) getTransport() []transport.Transport {
 	if c != nil && len(c.Transports) != 0 {
 		configured = c.Transports
 	}
-	if c != nil && c.DisableCORS {
+	defaultOriginCheck := c.getOriginCheck()
+	if defaultOriginCheck == nil {
 		return configured
 	}
 	resolved := make([]transport.Transport, len(configured))
@@ -134,18 +135,25 @@ func (c *Options) getTransport() []transport.Transport {
 		case *polling.Transport:
 			if t.CheckOrigin == nil {
 				copied := *t
-				copied.CheckOrigin = allowEveryOrigin
+				copied.CheckOrigin = defaultOriginCheck
 				resolved[i] = &copied
 			}
 		case *websocket.Transport:
 			if t.CheckOrigin == nil {
 				copied := *t
-				copied.CheckOrigin = allowEveryOrigin
+				copied.CheckOrigin = defaultOriginCheck
 				resolved[i] = &copied
 			}
 		}
 	}
 	return resolved
+}
+
+func (c *Options) getOriginCheck() func(*http.Request) bool {
+	if c != nil && c.DisableCORS {
+		return nil
+	}
+	return allowEveryOrigin
 }
 
 func allowEveryOrigin(*http.Request) bool { return true }

@@ -143,6 +143,9 @@ All notable changes to this project are documented here. The format follows
   successful websocket probe, preserve packet order, and bound failed probes.
   Engine clients expose their first close reason through `CloseError`.
 
+- Differential conformance scenarios compare Go and Node event, ACK, binary,
+  namespace, handshake and disconnect transcripts under both supported clients.
+
 - Executable ACK and binary examples, plus a Node chat-login check. `make examples`
   vets standalone modules; `make examples-node` checks each client script under both
   supported Node clients in CI.

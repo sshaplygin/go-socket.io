@@ -45,3 +45,19 @@ examples:
 	go build -o /dev/null ./_examples/client
 	@set -e; for d in $(EXAMPLES); do cmp $$d/chat.go _examples/default-http/chat.go; done
 	cd _examples/default-http && go test -race -count=1 ./...
+
+# Foundation files stay independent copies in both modules (ROADMAP D14).
+.PHONY: sync-check
+sync-check:
+	@set -eu; \
+	tmp=$$(mktemp); trap 'rm -f "$$tmp"' 0; \
+	while read -r root_file mirror_file extra || test -n "$$root_file"; do \
+		case "$$root_file" in ''|\#*) continue ;; esac; \
+		if test -z "$$mirror_file" || test -n "$$extra"; then \
+			echo "sync-check: expected two paths: $$root_file $$mirror_file $$extra" >&2; exit 1; \
+		fi; \
+		sed 's#github[.]com/sshaplygin/go-socket[.]io/v2#github.com/sshaplygin/go-socket.io#g' "$$mirror_file" > "$$tmp"; \
+		cmp "$$root_file" "$$tmp" || { \
+			echo "sync-check: shared files differ: $$root_file $$mirror_file" >&2; exit 1; \
+		}; \
+	done < .github/sync-manifest

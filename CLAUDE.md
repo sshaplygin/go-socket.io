@@ -56,6 +56,7 @@ Each module has its own `Makefile` and `.golangci.yml`. In the repository root (
 
 ```sh
 make lint        # gofmt -s check, go vet, golangci-lint (v2 config)
+make sync-check  # compare shared v1/v2 files after the module import-path rewrite
 make test        # go test -count=1 ./...
 make test-race   # the same with -race; what CI runs
 make test-stress # race tests of root, parser, engineio/...: -count=5 -shuffle=on -cpu=1,4
@@ -88,7 +89,8 @@ golang.org/x/vuln/cmd/govulncheck@latest`), built with the newest stable Go: a
 standard-library finding is cleared by upgrading the toolchain, not by code. Tests need
 no external services.
 
-CI (`.github/workflows/ci.yaml`) runs every job per module. A `changes` job is the path
+CI (`.github/workflows/ci.yaml`) runs `sync-check` on every event without a module path
+filter, comparing the pairs in `.github/sync-manifest`. The other jobs run per module. A `changes` job is the path
 filter: on a pull request the v1 jobs run when a file outside `v2/` changed, the v2 jobs
 when a file in `v2/`, `.github/` or `docs/API.md` (read by the v2 tests) changed; push and
 schedule run both. v1 jobs, in the root: `lint-v1` (tidy diff, mod verify, gofmt, vet,

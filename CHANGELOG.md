@@ -139,6 +139,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- ci: `parity-check` verifies PARITY markers against executable tests, including
+  tagged scenarios. `cover-check` enforces measured statement and API coverage ratchets.
+
 - ci: a tagged conformance suite runs Socket.IO clients 1.7.4 and 2.5.0 against
   the Go server over polling and websocket, including upgrade and reconnect.
   Raw HTTP and websocket tests check OPTIONS, framing, close and overlapping requests.

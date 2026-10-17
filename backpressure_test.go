@@ -84,8 +84,22 @@ func closeAtEnd(t *testing.T, f *fakeConn, c *conn) {
 	})
 }
 
-func (f *fakeConn) ID() string           { return fmt.Sprintf("%p", f) }
-func (f *fakeConn) Context() interface{} { return nil }
+func (f *fakeConn) ID() string { return fmt.Sprintf("%p", f) }
+
+func (f *fakeConn) ReadyState() engineio.ReadyState { return engineio.StateOpen }
+func (f *fakeConn) Transport() string               { return "fake" }
+func (f *fakeConn) Upgraded() bool                  { return false }
+func (f *fakeConn) Context() interface{}            { return nil }
+
+// Covers S18
+func TestServerEngine(t *testing.T) {
+	s := NewServer(nil)
+	t.Cleanup(func() { _ = s.Close() })
+	require.NotNil(t, s.Engine())
+	require.Same(t, s.engine, s.Engine())
+	require.Same(t, s.Engine(), s.Engine())
+	require.Equal(t, s.Count(), s.Engine().Count())
+}
 
 type frameWriter struct {
 	bytes.Buffer

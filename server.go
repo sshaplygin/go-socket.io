@@ -338,6 +338,9 @@ func (s *Server) Count() int {
 	return s.engine.Count()
 }
 
+// Engine returns the engine.io server created by NewServer; never nil.
+func (s *Server) Engine() *engineio.Server { return s.engine }
+
 // Remove session from sessions pool. Fixed the sessions map leak(connections, mem).
 func (s *Server) Remove(sid string) {
 	s.engine.Remove(sid)

@@ -52,7 +52,7 @@ func TestClientMidFrameFailure(t *testing.T) {
 				}
 				// Closing TCP without completing the websocket message reproduces a
 				// body Read failure after Engine.IO's NextReader already succeeded.
-				_ = peer.UnderlyingConn().Close()
+				_ = peer.NetConn().Close()
 			}))
 			t.Cleanup(ts.Close)
 			cl, err := client.New(ts.URL, &client.Options{Transports: []transport.Transport{websocket.Default}})

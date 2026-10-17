@@ -38,9 +38,11 @@ type Session struct {
 	upgradeTimeout time.Duration
 	probe          transport.Conn // guarded by upgradeLocker; closed with the session
 
-	upgradeLocker sync.RWMutex // guards conn, transport, closed and opened
-	closed        bool         // set by Close; a closed session is never upgraded
-	opened        time.Time    // set by InitSession; a session never opened logs no close
+	upgradeLocker   sync.RWMutex // guards conn, transport, closed and opened
+	closed          bool         // set by Close; a closed session is never upgraded
+	opened          time.Time    // set by InitSession; a session never opened logs no close
+	transportClosed bool         // set after the transport's Close returns
+	upgraded        bool         // set when switchTransport commits an upgrade
 
 	cause    atomic.Pointer[closeCause] // the first close cause observed
 	writers  atomic.Int64               // open frame writers returned to callers
@@ -162,7 +164,11 @@ func (s *Session) close(reason string) error {
 		}
 		s.logger().Debug("engineio: session close", args...)
 	}
-	return conn.Close()
+	err := conn.Close()
+	s.upgradeLocker.Lock()
+	s.transportClosed = true
+	s.upgradeLocker.Unlock()
+	return err
 }
 
 // observe records reason as the close cause unless one was observed before.
@@ -608,6 +614,7 @@ func (s *Session) switchTransport(t string, conn transport.Conn) bool {
 	}
 	s.conn = conn
 	s.transport = t
+	s.upgraded = true
 	s.log.Store(s.baseLog.With("transport", t))
 	s.upgradeLocker.Unlock()
 	return true

@@ -215,6 +215,20 @@ func (s *Server) Count() int {
 	return s.sessions.Count()
 }
 
+// Clients returns a snapshot of open or closing sessions keyed by session ID.
+// Count includes every registered session until Remove, regardless of state.
+func (s *Server) Clients() map[string]Conn {
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	clients := make(map[string]Conn)
+	for id, c := range s.sessions.All() {
+		if state := c.ReadyState(); state == StateOpen || state == StateClosing {
+			clients[id] = c
+		}
+	}
+	return clients
+}
+
 // Remove session from sessions pool. Experimental API.
 func (s *Server) Remove(sid string) {
 	s.lifecycle.Lock()

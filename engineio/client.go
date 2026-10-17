@@ -53,6 +53,19 @@ func (c *client) Transport() string {
 	return c.transport
 }
 
+// ReadyState is open after Dial and closed after Close or the ping loop exits.
+func (c *client) ReadyState() ReadyState {
+	select {
+	case <-c.close:
+		return StateClosed
+	default:
+		return StateOpen
+	}
+}
+
+// Upgraded reports whether the client has completed a transport upgrade.
+func (c *client) Upgraded() bool { return false }
+
 func (c *client) Close() error {
 	c.closeOnce.Do(func() {
 		close(c.close)
@@ -123,7 +136,7 @@ func (c *client) RemoteHeader() http.Header {
 
 func (c *client) serve() {
 	defer func() {
-		if closeErr := c.conn.Close(); closeErr != nil {
+		if closeErr := c.Close(); closeErr != nil {
 			logger.Log.Debug("engineio: close connection failed", "err", closeErr)
 		}
 	}()

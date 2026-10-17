@@ -219,6 +219,7 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 	defer httpSvr.Close()
 
 	var wg sync.WaitGroup
+	accepted := make(chan Conn, 1)
 
 	wg.Add(1)
 
@@ -227,6 +228,7 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 
 		conn, err := svr.Accept()
 		must.NoError(err)
+		accepted <- conn
 		defer func() {
 			must.NoError(conn.Close())
 		}()
@@ -238,6 +240,9 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 		b, err := io.ReadAll(r)
 		must.NoError(err)
 		should.Equal("hello你好", string(b))
+		should.Equal(StateOpen, conn.ReadyState())
+		should.Equal("websocket", conn.Transport())
+		should.True(conn.Upgraded())
 
 		must.NoError(r.Close())
 
@@ -284,6 +289,10 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 
 	params, err := p.(Opener).Open()
 	must.NoError(err)
+	conn := <-accepted
+	must.Equal(StateOpen, conn.ReadyState())
+	must.Equal("polling", conn.Transport())
+	must.False(conn.Upgraded())
 
 	upU := *u
 	upU.Scheme = "ws"
@@ -313,6 +322,8 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 	must.NoError(err)
 
 	should.Equal("probe", string(b))
+	must.Equal("polling", conn.Transport())
+	must.False(conn.Upgraded(), "the PONG probe has not committed an upgrade")
 
 	must.NoError(r.Close())
 

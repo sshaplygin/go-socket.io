@@ -129,6 +129,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- engineio: expose connection ReadyState, Transport and Upgraded, server Clients
+  snapshots and socketio Server.Engine. Clients includes open and closing sessions;
+  Count retains the registered-session lifetime until Remove.
+
 - engineio: CloseError exposes the first session close cause through NextReader and
   NextWriter; its underlying error remains available through errors.Is/As. Sessions,
   engine clients and their transports report optional Writable state for volatile sends.

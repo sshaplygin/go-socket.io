@@ -129,6 +129,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- engineio: optional Hooks observe connection, initial and per-response headers,
+  connection errors, packets, heartbeat, upgrades, polling flush/drain and transport
+  errors. Callbacks run synchronously; header hooks may edit response headers.
+
 - engineio: expose connection ReadyState, Transport and Upgraded, server Clients
   snapshots and socketio Server.Engine. Clients includes open and closing sessions;
   Count retains the registered-session lifetime until Remove.

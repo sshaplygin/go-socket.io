@@ -4,373 +4,371 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
+	"math"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/sshaplygin/go-socket.io/engineio/session"
-	"github.com/sshaplygin/go-socket.io/logger"
 )
 
 const (
 	bufferTypeName = "Buffer"
+	maxAttachments = 10
 )
 
 type FrameReader interface {
 	NextReader() (session.FrameType, io.ReadCloser, error)
 }
-
 type byteReader interface {
 	io.Reader
-
 	ReadByte() (byte, error)
 	UnreadByte() error
 }
 
 type Decoder struct {
-	r FrameReader
-
-	lastFrame    io.ReadCloser
-	packetReader byteReader
-
+	r           FrameReader
+	lastFrame   io.ReadCloser
 	bufferCount uint64
-	isEvent     bool
+	args        []json.RawMessage
 }
 
-func NewDecoder(r FrameReader) *Decoder {
-	return &Decoder{
-		r: r,
+func NewDecoder(r FrameReader) *Decoder { return &Decoder{r: r} }
+func (d *Decoder) Close() error         { return d.DiscardLast() }
+func (d *Decoder) DiscardLast() error {
+	if d.lastFrame == nil {
+		return nil
 	}
-}
-
-func (d *Decoder) Close() error {
-	var err error
-
-	if d.lastFrame != nil {
-		err = d.lastFrame.Close()
-		d.lastFrame = nil
-	}
-
-	return err
-}
-
-func (d *Decoder) DiscardLast() (err error) {
-	if d.lastFrame != nil {
-		err = d.lastFrame.Close()
-		d.lastFrame = nil
-	}
-
-	return err
+	r := d.lastFrame
+	d.lastFrame = nil
+	return r.Close()
 }
 
 func (d *Decoder) DecodeHeader(header *Header, event *string) error {
+	if err := d.DiscardLast(); err != nil {
+		return err
+	}
+	*header = Header{}
+	*event = ""
+	d.bufferCount = 0
+	d.args = nil
 	ft, r, err := d.r.NextReader()
 	if err != nil {
 		return err
 	}
-
+	d.lastFrame = r
 	if ft != session.TEXT {
 		return errInvalidFirstPacketType
 	}
-
-	d.lastFrame = r
-	br, ok := r.(byteReader)
-	if !ok {
-		br = bufio.NewReader(r)
+	br := bufio.NewReader(r)
+	if err := d.readHeader(br, header); err != nil {
+		return err
 	}
-	d.packetReader = br
-
-	bufferCount, err := d.readHeader(header)
+	raw, err := io.ReadAll(br)
 	if err != nil {
 		return err
 	}
-
-	d.bufferCount = bufferCount
+	if err := d.validatePayload(header.Type, bytes.TrimSpace(raw), event); err != nil {
+		return err
+	}
 	if header.Type == binaryEvent || header.Type == binaryAck {
 		header.Type -= 3
 	}
-
-	d.isEvent = header.Type == Event
-	if d.isEvent {
-		if err := d.readEvent(event); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
+// DecodeArgs consumes all attachments before Go type conversion. A type mismatch
+// can then be reported without leaving binary frames in front of the next packet.
 func (d *Decoder) DecodeArgs(types []reflect.Type) ([]reflect.Value, error) {
-	r := d.packetReader.(io.Reader)
-	if d.isEvent {
-		r = io.MultiReader(strings.NewReader("["), r)
-	}
-
-	ret := make([]reflect.Value, len(types))
-	values := make([]interface{}, len(types))
-
-	for i, typ := range types {
-		if typ.Kind() == reflect.Pointer {
-			typ = typ.Elem()
-		}
-		ret[i] = reflect.New(typ)
-		values[i] = ret[i].Interface()
-	}
-
-	if err := json.NewDecoder(r).Decode(&values); err != nil {
-		if err == io.EOF {
-			err = nil
-		}
-		_ = d.DiscardLast()
-
-		return nil, err
-	}
-
-	//we can't use defer or call DiscardLast before decoding, because
-	//there are buffered readers involved and if we invoke .Close() json will encounter unexpected EOF.
 	_ = d.DiscardLast()
-
-	for i, typ := range types {
-		if typ.Kind() != reflect.Pointer {
-			ret[i] = ret[i].Elem()
-		}
-	}
-
-	buffers := make([]Buffer, d.bufferCount)
+	count := d.bufferCount
+	d.bufferCount = 0
+	buffers := make([]Buffer, count)
 	for i := range buffers {
 		ft, r, err := d.r.NextReader()
 		if err != nil {
 			return nil, err
 		}
-
-		buffers[i].Data, err = d.readBuffer(ft, r)
+		data, err := d.readBuffer(ft, r)
 		if err != nil {
 			return nil, err
 		}
+		buffers[i].Data = data
 	}
-
-	for i := range ret {
+	ret := make([]reflect.Value, len(types))
+	for i, typ := range types {
+		if typ == nil {
+			return nil, fmt.Errorf("decode argument %d: nil type", i)
+		}
+		v := reflect.New(typ)
+		if i < len(d.args) {
+			if err := json.Unmarshal(d.args[i], v.Interface()); err != nil {
+				return nil, fmt.Errorf("decode argument %d: %w", i, err)
+			}
+		}
+		ret[i] = v.Elem()
 		if err := d.detachBuffer(ret[i], buffers); err != nil {
 			return nil, err
 		}
 	}
-
 	return ret, nil
 }
 
-func (d *Decoder) readUint64FromText(r byteReader) (uint64, bool, error) {
-	var ret uint64
-	var hasRead bool
-
-	for {
-		b, err := r.ReadByte()
-		if err != nil {
-			if hasRead {
-				return ret, true, nil
-			}
-
-			return 0, false, err
-		}
-
-		if b < '0' || b > '9' {
-			_ = r.UnreadByte()
-			return ret, hasRead, nil
-		}
-		hasRead = true
-		ret = ret*10 + uint64(b-'0')
-	}
-}
-
-func (d *Decoder) readString(r byteReader, until byte) (string, error) {
-	var ret bytes.Buffer
-	var hasRead bool
-
-	for {
-		b, err := r.ReadByte()
-		if err != nil {
-			if hasRead {
-				return ret.String(), nil
-			}
-			return "", err
-		}
-
-		if b == until {
-			return ret.String(), nil
-		}
-
-		if err := ret.WriteByte(b); err != nil {
-			return "", err
-		}
-		hasRead = true
-	}
-}
-
-func (d *Decoder) readHeader(header *Header) (uint64, error) {
-	typ, err := d.packetReader.ReadByte()
-	if err != nil {
-		return 0, err
-	}
-
-	header.Type = Type(typ - '0')
-	if header.Type > binaryAck {
-		return 0, ErrInvalidPacketType
-	}
-
-	num, hasNum, err := d.readUint64FromText(d.packetReader)
-	if err != nil {
-		if err == io.EOF {
-			err = nil
-		}
-
-		return 0, err
-	}
-
-	nextByte, err := d.packetReader.ReadByte()
-	if err != nil {
-		header.ID = num
-		header.NeedAck = hasNum
-
-		if err == io.EOF {
-			err = nil
-		}
-
-		return 0, err
-	}
-
-	// check if buffer count
-	var bufferCount uint64
-	if nextByte == '-' {
-		bufferCount = num
-		hasNum = false
-		num = 0
-	} else {
-		_ = d.packetReader.UnreadByte()
-	}
-
-	// check namespace
-	nextByte, err = d.packetReader.ReadByte()
-	if err != nil {
-		if err == io.EOF {
-			err = nil
-		}
-		return bufferCount, err
-	}
-
-	if nextByte == '/' {
-		_ = d.packetReader.UnreadByte()
-		header.Namespace, err = d.readString(d.packetReader, ',')
-		if err != nil {
-			if err == io.EOF {
-				err = nil
-			}
-			return bufferCount, err
-		}
-
-		queryPos := strings.IndexByte(header.Namespace, '?')
-		if queryPos > -1 {
-			header.Query = header.Namespace[queryPos+1:]
-			header.Namespace = header.Namespace[:queryPos]
-		}
-	} else {
-		_ = d.packetReader.UnreadByte()
-	}
-
-	// read id
-	header.ID, header.NeedAck, err = d.readUint64FromText(d.packetReader)
-	if err != nil {
-		if err == io.EOF {
-			err = nil
-		}
-
-		return bufferCount, err
-	}
-
-	if !header.NeedAck {
-		// 313["data"], id has been read at beginning, need add back.
-		header.ID = num
-		header.NeedAck = hasNum
-	}
-
-	return bufferCount, err
-}
-
-func (d *Decoder) readEvent(event *string) error {
-	b, err := d.packetReader.ReadByte()
+func (d *Decoder) readHeader(r byteReader, h *Header) error {
+	typ, err := r.ReadByte()
 	if err != nil {
 		return err
 	}
-
-	if b != '[' {
-		_ = d.packetReader.UnreadByte()
-
+	if typ < '0' || typ > '6' {
+		return ErrInvalidPacketType
+	}
+	h.Type = Type(typ - '0')
+	if h.Type == binaryEvent || h.Type == binaryAck {
+		digits := false
+		for {
+			b, err := r.ReadByte()
+			if err != nil {
+				return errIllegalAttachments
+			}
+			if b == '-' {
+				if !digits || d.bufferCount == 0 {
+					return errIllegalAttachments
+				}
+				break
+			}
+			if b < '0' || b > '9' {
+				return errIllegalAttachments
+			}
+			digits = true
+			d.bufferCount = d.bufferCount*10 + uint64(b-'0')
+			if d.bufferCount > maxAttachments {
+				return errTooManyAttachments
+			}
+		}
+	}
+	b, err := r.ReadByte()
+	if err == io.EOF {
 		return nil
 	}
+	if err != nil {
+		return err
+	}
+	if b == '/' {
+		var namespace strings.Builder
+		namespace.WriteByte(b)
+		for {
+			b, err = r.ReadByte()
+			if err != nil && err != io.EOF {
+				return err
+			}
+			if err == io.EOF || b == ',' {
+				break
+			}
+			namespace.WriteByte(b)
+		}
+		h.Namespace, h.Query, _ = strings.Cut(namespace.String(), "?")
+		if err == io.EOF {
+			return nil
+		}
+	} else if err := r.UnreadByte(); err != nil {
+		return err
+	}
+	h.ID, h.NeedAck, err = d.readUint64FromText(r)
+	return err
+}
 
-	var buf bytes.Buffer
+func (d *Decoder) readUint64FromText(r byteReader) (uint64, bool, error) {
+	var n uint64
+	var read bool
 	for {
-		b, err := d.packetReader.ReadByte()
+		b, err := r.ReadByte()
+		if err == io.EOF {
+			return n, read, nil
+		}
 		if err != nil {
+			return 0, false, err
+		}
+		if b < '0' || b > '9' {
+			return n, read, r.UnreadByte()
+		}
+		digit := uint64(b - '0')
+		if n > (math.MaxUint64-digit)/10 {
+			return 0, false, fmt.Errorf("packet id: %w", strconv.ErrRange)
+		}
+		n = n*10 + digit
+		read = true
+	}
+}
+
+func (d *Decoder) validatePayload(typ Type, raw []byte, event *string) error {
+	// The reference decoder validates a payload only when one is present.
+	if len(raw) == 0 {
+		return nil
+	}
+	if !json.Valid(raw) {
+		return errInvalidPayload
+	}
+	object := raw[0] == '{' || raw[0] == '[' || bytes.Equal(raw, []byte("null"))
+	var array []json.RawMessage
+	if raw[0] == '[' {
+		if err := json.Unmarshal(raw, &array); err != nil {
+			return errInvalidPayload
+		}
+	}
+	switch typ {
+	case Connect:
+		if !object {
+			return errInvalidPayload
+		}
+	case Disconnect:
+		return errInvalidPayload
+	case Error:
+		if raw[0] != '"' && !object {
+			return errInvalidPayload
+		}
+	case Event, binaryEvent:
+		if len(array) == 0 {
+			return errInvalidPayload
+		}
+		name := array[0]
+		if name[0] == '"' {
+			if err := json.Unmarshal(name, event); err != nil {
+				return errInvalidPayload
+			}
+		} else {
+			var number float64
+			if name[0] != '-' && (name[0] < '0' || name[0] > '9') {
+				return errInvalidPayload
+			}
+			if err := json.Unmarshal(name, &number); err != nil {
+				return errInvalidPayload
+			}
+			*event = eventNumber(number)
+		}
+		array = array[1:]
+	case Ack, binaryAck:
+		if raw[0] != '[' {
+			return errInvalidPayload
+		}
+	}
+	if typ == binaryEvent || typ == binaryAck {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		var value interface{}
+		if err := decoder.Decode(&value); err != nil {
+			return errInvalidPayload
+		}
+		if err := d.validatePlaceholders(value); err != nil {
 			return err
 		}
-
-		if b == ',' {
-			break
-		}
-		if b == ']' {
-			_ = d.packetReader.UnreadByte()
-			break
-		}
-
-		buf.WriteByte(b)
 	}
+	if raw[0] == '[' {
+		d.args = array
+	} else {
+		d.args = []json.RawMessage{raw}
+	}
+	return nil
+}
 
-	return json.Unmarshal(buf.Bytes(), event)
+// eventNumber uses JavaScript's decimal/exponent thresholds for numeric names.
+func eventNumber(n float64) string {
+	if n == 0 {
+		return "0"
+	}
+	format := byte('f')
+	if math.Abs(n) >= 1e21 || math.Abs(n) < 1e-6 {
+		format = 'e'
+	}
+	name := strconv.FormatFloat(n, format, -1, 64)
+	name = strings.ReplaceAll(name, "e+0", "e+")
+	return strings.ReplaceAll(name, "e-0", "e-")
+}
+
+func (d *Decoder) validatePlaceholders(value interface{}) error {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		if placeholder, ok := v["_placeholder"].(bool); ok && placeholder {
+			number, ok := v["num"].(json.Number)
+			if !ok {
+				return errIllegalAttachments
+			}
+			n, err := number.Float64()
+			if err != nil || n < 0 || n != math.Trunc(n) || n >= float64(d.bufferCount) {
+				return errIllegalAttachments
+			}
+			return nil
+		}
+		for _, child := range v {
+			if err := d.validatePlaceholders(child); err != nil {
+				return err
+			}
+		}
+	case []interface{}:
+		for _, child := range v {
+			if err := d.validatePlaceholders(child); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (d *Decoder) readBuffer(ft session.FrameType, r io.ReadCloser) ([]byte, error) {
-	defer func() {
-		if err := r.Close(); err != nil {
-			logger.Log.Debug("socketio: close reader failed", "err", err)
-		}
-	}()
-
 	if ft != session.BINARY {
+		_ = r.Close()
 		return nil, errInvalidBinaryBufferType
 	}
-
-	return io.ReadAll(r)
+	data, err := io.ReadAll(r)
+	closeErr := r.Close()
+	if err == nil {
+		err = closeErr
+	}
+	return data, err
 }
 
 func (d *Decoder) detachBuffer(v reflect.Value, buffers []Buffer) error {
 	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return nil
+		}
 		v = v.Elem()
 	}
-
 	switch v.Kind() {
 	case reflect.Struct:
-		if v.Type().Name() == bufferTypeName {
-			if !v.CanAddr() {
+		if v.Type() == reflect.TypeOf(Buffer{}) {
+			if !v.CanAddr() || !v.Addr().CanInterface() {
 				return errFailedBufferAddress
 			}
 			buffer := v.Addr().Interface().(*Buffer)
 			if buffer.isBinary {
+				if buffer.num >= uint64(len(buffers)) {
+					return errIllegalAttachments
+				}
 				*buffer = buffers[buffer.num]
 			}
 			return nil
 		}
 		for i := 0; i < v.NumField(); i++ {
+			field := v.Type().Field(i)
+			if !field.IsExported() && !field.Anonymous {
+				continue
+			}
 			if err := d.detachBuffer(v.Field(i), buffers); err != nil {
 				return err
 			}
 		}
-
 	case reflect.Map:
 		for _, key := range v.MapKeys() {
-			if err := d.detachBuffer(v.MapIndex(key), buffers); err != nil {
+			// Map values are not addressable, including a Buffer held by value.
+			child := reflect.New(v.Type().Elem()).Elem()
+			child.Set(v.MapIndex(key))
+			if err := d.detachBuffer(child, buffers); err != nil {
 				return err
 			}
+			v.SetMapIndex(key, child)
 		}
-
 	case reflect.Array, reflect.Slice:
 		for i := 0; i < v.Len(); i++ {
 			if err := d.detachBuffer(v.Index(i), buffers); err != nil {
@@ -378,6 +376,5 @@ func (d *Decoder) detachBuffer(v reflect.Value, buffers []Buffer) error {
 			}
 		}
 	}
-
 	return nil
 }

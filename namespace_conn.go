@@ -78,7 +78,7 @@ func (nc *namespaceConn) Emit(eventName string, v ...interface{}) {
 		last := v[l-1]
 		lastV := reflect.TypeOf(last)
 
-		if lastV.Kind() == reflect.Func {
+		if lastV != nil && lastV.Kind() == reflect.Func {
 			f := newAckFunc(last)
 
 			header.ID = nc.conn.nextID()

@@ -298,7 +298,13 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			return refused
 		}}},
 		{name: "argument decode error", h: hooks{events: boom}, nsps: []string{"/"},
-			run: func(t *testing.T, p *peer) { p.send(t, `2["num","x"]`) }},
+			run: func(t *testing.T, p *peer) {
+				require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
+				p.send(t, `2["num","x"]`)
+				p.send(t, `27["num",42]`)
+				require.Equal(t, "37[]\n", recv(t, p.fc.out, "valid event after a type error"))
+				close(p.fc.peerGone)
+			}},
 		{name: "unmarshalable argument", nsps: []string{"/a"},
 			run: func(t *testing.T, p *peer) { p.join(t, "/a").Emit("bad", make(chan int)) }},
 		{name: "NextWriter fails after connect", run: func(t *testing.T, p *peer) {
@@ -315,7 +321,7 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			h: hooks{connect: func(Conn) error { return refused }}},
 		{name: "invalid packet type", nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "9") }},
 		{name: "empty frame", nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "") }},
-		{name: "EVENT without data", nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "2") }},
+		{name: "EVENT with empty data", nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "2[]") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := newAttrRecorder()
@@ -371,7 +377,7 @@ func TestNamespaceRecords(t *testing.T) {
 		{"connect and disconnect", hooks{}, func(t *testing.T, p *peer) {
 			p.connect(t).join(t, "/chat")
 			p.join(t, "/b")
-			p.send(t, `1/chat,["bye"]`)
+			p.send(t, "1/chat")
 			recv(t, p.discs, "OnDisconnect of /chat")
 			close(p.fc.peerGone)
 			p.disconnected(t, "/") // /b has no OnDisconnect

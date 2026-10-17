@@ -92,7 +92,7 @@ func TestLifecycleEventDecodeError(t *testing.T) {
 	errs := make(chan error, 1)
 	ts := newTestServer(t, func(srv *Server) {
 		srv.OnConnect("/", func(Conn) error { return nil })
-		srv.OnEvent("/", "num", func(Conn, int) {})
+		srv.OnEvent("/", "num", func(_ Conn, n int) int { return n })
 		srv.OnError("/", func(_ Conn, err error) { errs <- err })
 	})
 
@@ -100,7 +100,8 @@ func TestLifecycleEventDecodeError(t *testing.T) {
 	require.Equal(t, "0", c.read())
 	c.send(`2["num","not a number"]`)
 	require.Error(t, recv(t, errs, "OnError for a decode error"))
-	require.True(t, c.readClosed())
+	c.send(`27["num",42]`)
+	require.Equal(t, "37[42]\n", c.read(), "a decode error must not close the connection")
 }
 
 // TestLifecycleAcks covers both ack directions over a raw connection: a

@@ -79,15 +79,12 @@ func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
 	require.True(t, srv.BroadcastToRoom("/", "lobby", "news", "room"))
 	require.Equal(t, "room", recv(t, news, "room broadcast"))
 
-	// Known defect, pinned until roadmap 2.2 fixes it: BroadcastToNamespace
-	// sends one copy per room the connection is in (here "lobby" and its sid
-	// room), where Socket.IO delivers one copy per socket.
+	// Namespace broadcasts deliver one copy, independent of room membership.
 	require.True(t, srv.BroadcastToNamespace("/", "news", "nsp"))
-	require.Equal(t, "nsp", recv(t, news, "first namespace broadcast copy"))
-	require.Equal(t, "nsp", recv(t, news, "second namespace broadcast copy"))
+	require.Equal(t, "nsp", recv(t, news, "namespace broadcast"))
 	select {
 	case extra := <-news:
-		t.Fatalf("unexpected third copy %q", extra)
+		t.Fatalf("unexpected duplicate %q", extra)
 	case <-time.After(200 * time.Millisecond):
 	}
 

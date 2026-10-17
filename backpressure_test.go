@@ -762,10 +762,13 @@ func TestBackpressureLibraryPacketOverflow(t *testing.T) {
 
 // Covers 1B-T9 (S).
 func TestBackpressureArgDecodeErrorReport(t *testing.T) {
-	p := start(t, 'S', hooks{events: map[string]interface{}{"num": func(Conn, int) {}}}, "/a")
+	p := start(t, 'S', hooks{events: map[string]interface{}{"num": func(_ Conn, n int) int { return n }}}, "/a")
 	p.join(t, "/a")
 	p.send(t, `2/a,["num","x"]`)
 	require.Equal(t, "/a", recv(t, p.errs, "the report").nsp)
+	p.send(t, `2/a,7["num",42]`)
+	require.Equal(t, "3/a,7[42]\n", recv(t, p.fc.out, "a valid event after the decode error"))
+	require.NoError(t, p.Close())
 	p.disconnected(t, "/", "/a")
 	require.Empty(t, drain(p.errs), "a second report")
 }

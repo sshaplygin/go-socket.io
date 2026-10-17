@@ -24,6 +24,11 @@ var markerID = regexp.MustCompile(`^// Covers ([A-Z][0-9]+)( |$)`)
 
 type testRef struct{ dir, name string }
 
+type testInventory struct {
+	tests map[testRef]bool
+	files map[testRef]bool
+}
+
 func TestParityCovers(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
@@ -39,8 +44,9 @@ func TestParityCovers(t *testing.T) {
 }
 
 // The conformance tag discovers its tests without running Node. Package identity
-// matters: a same-named test in another package cannot validate a stale marker.
-func listedTests(root string) (map[testRef]bool, error) {
+// and source selection matter: a same-named active test cannot validate a marker
+// in another package or an excluded file.
+func listedTests(root string) (testInventory, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "test", "-tags", "conformance", "-list", ".", "-json", "./...")
@@ -50,10 +56,10 @@ func listedTests(root string) (map[testRef]bool, error) {
 		if failure, ok := err.(*exec.ExitError); ok {
 			output = append(output, failure.Stderr...)
 		}
-		return nil, fmt.Errorf("list tagged tests: %w\n%s", err, output)
+		return testInventory{}, fmt.Errorf("list tagged tests: %w\n%s", err, output)
 	}
 	const module = "github.com/sshaplygin/go-socket.io"
-	listed := make(map[testRef]bool)
+	listed := testInventory{tests: make(map[testRef]bool), files: make(map[testRef]bool)}
 	decoder := json.NewDecoder(strings.NewReader(string(output)))
 	for {
 		var event struct{ Action, Package, Output string }
@@ -61,7 +67,7 @@ func listedTests(root string) (map[testRef]bool, error) {
 			if err == io.EOF {
 				break
 			}
-			return nil, fmt.Errorf("decode test list: %w", err)
+			return testInventory{}, fmt.Errorf("decode test list: %w", err)
 		}
 		name := strings.TrimSpace(event.Output)
 		if event.Action != "output" || !strings.HasPrefix(name, "Test") || strings.ContainsAny(name, " \t\r\n") {
@@ -75,12 +81,45 @@ func listedTests(root string) (map[testRef]bool, error) {
 				continue
 			}
 		}
-		listed[testRef{filepath.FromSlash(dir), name}] = true
+		listed.tests[testRef{filepath.FromSlash(dir), name}] = true
+	}
+	cmd = exec.CommandContext(ctx, "go", "list", "-tags", "conformance", "-json", "./...")
+	cmd.Dir = root
+	output, err = cmd.Output()
+	if err != nil {
+		if failure, ok := err.(*exec.ExitError); ok {
+			output = append(output, failure.Stderr...)
+		}
+		return testInventory{}, fmt.Errorf("list active test files: %w\n%s", err, output)
+	}
+	decoder = json.NewDecoder(strings.NewReader(string(output)))
+	for {
+		var pkg struct {
+			ImportPath                string
+			TestGoFiles, XTestGoFiles []string
+		}
+		if err := decoder.Decode(&pkg); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return testInventory{}, fmt.Errorf("decode active test files: %w", err)
+		}
+		dir := "."
+		if pkg.ImportPath != module {
+			var ok bool
+			dir, ok = strings.CutPrefix(pkg.ImportPath, module+"/")
+			if !ok {
+				continue
+			}
+		}
+		for _, name := range append(pkg.TestGoFiles, pkg.XTestGoFiles...) {
+			listed.files[testRef{filepath.FromSlash(dir), name}] = true
+		}
 	}
 	return listed, nil
 }
 
-func checkParity(root string, strict bool, listed map[testRef]bool) error {
+func checkParity(root string, strict bool, listed testInventory) error {
 	data, err := os.ReadFile(filepath.Join(root, "docs", "PARITY.md"))
 	if err != nil {
 		return err
@@ -170,7 +209,7 @@ func checkParity(root string, strict bool, listed map[testRef]bool) error {
 						continue
 					}
 					distance := fset.PositionFor(fn.Pos(), false).Line - position.Line
-					if distance > 0 && distance <= 4 && listed[testRef{dir, fn.Name.Name}] {
+					if distance > 0 && distance <= 4 && listed.tests[testRef{dir, fn.Name.Name}] && listed.files[testRef{dir, d.Name()}] {
 						valid = true
 						break
 					}

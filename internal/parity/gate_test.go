@@ -34,7 +34,7 @@ func TestParityGateRejectsInvalidEvidence(t *testing.T) {
 				}
 				put(t, root, dir+"/ignored_test.go", "this must not be parsed")
 			}
-			err := checkParity(root, tc.strict, tc.listed)
+			err := checkParity(root, tc.strict, testInventory{tests: tc.listed, files: map[testRef]bool{{".", "sample_test.go"}: true}})
 			if tc.want == "" {
 				if err != nil {
 					t.Fatal(err)
@@ -54,5 +54,20 @@ func put(t *testing.T, root, path, contents string) {
 	}
 	if err := os.WriteFile(path, []byte(contents), 0644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestInactiveMarkerCannotBorrowActiveTest(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "go.mod", "module github.com/sshaplygin/go-socket.io\n\ngo 1.22\n")
+	put(t, root, "docs/PARITY.md", "| B1 | DONE V1-1 | D1 | fixture |\n")
+	put(t, root, "active_test.go", "package sample\nimport \"testing\"\nfunc TestKnown(t *testing.T){}\n")
+	put(t, root, "inactive_test.go", "//go:build excluded_fixture\n\npackage sample\nimport \"testing\"\n// Covers B1\nfunc TestKnown(t *testing.T){}\n")
+	listed, err := listedTests(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkParity(root, false, listed); err == nil {
+		t.Fatal("inactive marked declaration borrowed an active test's name")
 	}
 }

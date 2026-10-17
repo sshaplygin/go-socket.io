@@ -99,14 +99,15 @@ func (s *Socket) Off(event string) { s.handler.Off(event) }
 func (s *Socket) Emit(event string, args ...interface{}) { s.emit(false, event, args...) }
 
 func (s *Socket) emit(volatile bool, event string, args ...interface{}) {
+	if volatile {
+		s.emitVolatile(event, args...)
+		return
+	}
 	m := s.state
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s.connected && s.nc != nil {
 		s.nc.emit(volatile, event, args...)
-		return
-	}
-	if volatile {
 		return
 	}
 	if m.buffered >= m.client.limits.writeBufferSize {
@@ -115,6 +116,23 @@ func (s *Socket) emit(volatile bool, event string, args ...interface{}) {
 	}
 	s.buffer = append(s.buffer, bufferedEvent{event, append([]interface{}(nil), args...)})
 	m.buffered++
+}
+
+// A custom transport's Writable method may reenter this Socket. Snapshot it
+// without holding state.mu, then recheck the namespace generation before admission.
+func (s *Socket) emitVolatile(event string, args ...interface{}) {
+	m := s.state
+	m.mu.Lock()
+	nc, connected := s.nc, s.connected
+	m.mu.Unlock()
+	if !connected || nc == nil || !nc.writable() {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s.connected && s.nc == nc {
+		nc.queueEvent(true, event, args...)
+	}
 }
 
 // Send is Emit("message", args...).

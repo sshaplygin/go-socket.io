@@ -112,7 +112,21 @@ func (nc *namespaceConn) socket() *Socket {
 	return nil
 }
 
+func (nc *namespaceConn) writable() bool {
+	if c, ok := nc.Conn.(interface{ Writable() bool }); ok {
+		return c.Writable()
+	}
+	return true
+}
+
 func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{}) {
+	if volatile && !nc.writable() {
+		return
+	}
+	nc.queueEvent(volatile, eventName, v...)
+}
+
+func (nc *namespaceConn) queueEvent(volatile bool, eventName string, v ...interface{}) {
 	header := parser.Header{
 		Type: parser.Event,
 	}
@@ -147,9 +161,6 @@ func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{})
 	// The transport callback runs outside queue locks; admission rechecks the
 	// queue atomically afterwards so a concurrent normal/volatile emit cannot
 	// turn this best-effort packet into an overflow or retain a dropped ACK.
-	if c, ok := nc.Conn.(interface{ Writable() bool }); ok && !c.Writable() {
-		return
-	}
 	nc.outMu.Lock()
 	defer nc.outMu.Unlock()
 	nc.conn.mu.Lock()

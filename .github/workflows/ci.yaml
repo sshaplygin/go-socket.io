@@ -14,6 +14,35 @@ on:
 # and v2 in v2/ (github.com/sshaplygin/go-socket.io/v2). Shared-file drift always runs;
 # the changes job filters the remaining jobs by the modules a pull request touches.
 jobs:
+  conformance:
+    name: Conformance ${{ matrix.client }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        client: ['socket.io-client@1.7.4', 'socket.io-client@2.5.0']
+    env:
+      CONFORMANCE_NODE_MODULES: ${{ github.workspace }}/internal/conformance/testdata/node/node_modules
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+      - name: Install the pinned reference client and server in separate prefixes
+        env:
+          CLIENT: ${{ matrix.client }}
+        run: |
+          npm install --no-save --prefix internal/conformance/testdata/node "$CLIENT"
+          npm install --no-save --prefix internal/conformance/testdata/node/server socket.io@2.5.0
+          echo "CONFORMANCE_CLIENT_VERSION=${CLIENT#*@}" >> "$GITHUB_ENV"
+      - name: Run tagged interoperability and raw transport tests
+        run: make conformance
+
   sync-check:
     name: Check shared-file drift
     runs-on: ubuntu-latest

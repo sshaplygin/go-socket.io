@@ -135,6 +135,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- ci: a tagged conformance suite runs Socket.IO clients 1.7.4 and 2.5.0 against
+  the Go server over polling and websocket, including upgrade and reconnect.
+  Raw HTTP and websocket tests check OPTIONS, framing, close and overlapping requests.
+
 - socketio: `SetAdapter` injects namespace adapters, and `OfFunc` creates dynamic
   namespaces with inherited registrations and parent broadcasts. Namespaces expose
   their adapter and support ordered `On`, `Once`, and `Off` listeners.

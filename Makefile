@@ -12,6 +12,12 @@ test:
 test-race:
 	go test -race -count=1 ./...
 
+# Optional interoperability gate; default Go tests do not require Node.
+.PHONY: conformance
+conformance:
+	go vet -tags conformance ./internal/conformance/...
+	go test -race -count=1 -tags conformance ./internal/conformance/...
+
 # Race tests of the packages that run goroutines per connection, repeated and shuffled.
 .PHONY: test-stress
 test-stress:

@@ -33,7 +33,11 @@ func ackPacketHandler(c *conn, header parser.Header) error {
 	}
 
 	// Read the body because Ack can have body as well
-	args, err := c.decoder.DecodeArgs(handler.argTypes)
+	types := handler.argTypes
+	if types == nil {
+		types = []reflect.Type{}
+	}
+	args, err := c.decoder.DecodeArgs(types)
 	if err != nil {
 		c.log.Debug("socketio: ack decode failed", nspAttr(header.Namespace), "err", err)
 		c.onError(header.Namespace, err)
@@ -69,7 +73,16 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 		return nil
 	}
 
-	args, err := c.decoder.DecodeArgs(handler.getEventTypes(event))
+	types := handler.getEventTypes(event)
+	if types == nil {
+		handler.eventsLock.RLock()
+		_, exists := handler.events[event]
+		handler.eventsLock.RUnlock()
+		if exists {
+			types = []reflect.Type{}
+		}
+	}
+	args, err := c.decoder.DecodeArgs(types)
 	if err != nil {
 		c.onError(header.Namespace, err)
 		c.log.Debug("socketio: event decode failed", nspAttr(header.Namespace), "event", event, "err", err)
@@ -80,6 +93,10 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 		return errDecodeArgs
 	}
 
+	if err := conn.runMiddleware(event, args); err != nil {
+		c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf(err.Error()))
+		return nil
+	}
 	ret, err := handler.dispatchEvent(conn, event, args...)
 	if err != nil {
 		c.onError(header.Namespace, err)
@@ -102,6 +119,10 @@ func connectPacketHandler(c *conn, header parser.Header) error {
 		return nil
 	}
 
+	if c.rootRejected != nil || isDone(c.closing) {
+		return nil
+	}
+
 	handler, ok := c.handlers.Get(header.Namespace)
 	if !ok {
 		c.onError(header.Namespace, errFailedConnectNamespace)
@@ -117,24 +138,34 @@ func connectPacketHandler(c *conn, header parser.Header) error {
 		return errHandleDispatch
 	}
 
-	conn, ok := c.namespaces.Get(header.Namespace)
-	if !ok {
-		conn = newNamespaceConn(c, header.Namespace, handler.broadcast)
-		if !c.register(header.Namespace, conn) {
-			return nil // a close started
+	if c.rootRejected != nil || isDone(c.closing) {
+		return nil
+	}
+	if _, exists := c.namespaces.Get(header.Namespace); exists {
+		return nil
+	}
+	nc := newNamespaceConn(c, header.Namespace, handler.broadcast)
+	nc.beginConnect()
+	nc.SetContext(c.Conn.Context())
+	if !c.register(header.Namespace, nc) {
+		return nil
+	}
+	err := handler.connect(nc)
+	c.connectRecord(header.Namespace, err)
+	if err != nil {
+		if isDone(c.closing) {
+			return nil
 		}
-		conn.Join(c.Conn.ID())
-	}
-
-	_, err := handler.dispatch(conn, header)
-	if c.connectRecord(header.Namespace, err); err != nil {
-		c.log.Debug("socketio: connect handler failed", nspAttr(header.Namespace), "err", err)
+		c.claim(header.Namespace)
+		nc.reject()
 		c.onError(header.Namespace, err)
-		return errHandleDispatch
+		c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf(err.Error()))
+		return nil
 	}
-
-	c.write(header)
-
+	if isDone(c.closing) {
+		return nil
+	}
+	nc.acceptPending()
 	return nil
 }
 
@@ -143,7 +174,7 @@ func disconnectPacketHandler(c *conn, header parser.Header) error {
 		c.onError(header.Namespace, err)
 		return errDecodeArgs
 	}
-	nc, ok := c.claim(header.Namespace)
+	nc, ok := c.claimDisconnect(header.Namespace)
 	if !ok {
 		return nil
 	}

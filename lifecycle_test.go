@@ -113,7 +113,7 @@ func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
 
 	// Application Close reports forced close.
 	cl.Emit("bye")
-	require.Equal(t, "forced close", recv(t, disconnected, "OnDisconnect"))
+	require.Equal(t, "server namespace disconnect", recv(t, disconnected, "OnDisconnect"))
 	return sc.ID()
 }
 

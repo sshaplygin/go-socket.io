@@ -91,6 +91,49 @@ func (f *fakeConn) Transport() string               { return "fake" }
 func (f *fakeConn) Upgraded() bool                  { return false }
 func (f *fakeConn) Context() interface{}            { return nil }
 
+// gatedFinishConn lets the writer fail while finishRead is still obtaining
+// the final engine close cause, before Close returns to the reader.
+type gatedFinishConn struct {
+	*fakeConn
+	entered, release, writeFailed chan struct{}
+	closeEntered, writerFailed    sync.Once
+}
+
+func (f *gatedFinishConn) Close() error {
+	_ = f.fakeConn.Close()
+	f.closeEntered.Do(func() { close(f.entered) })
+	<-f.release
+	return nil
+}
+
+func (f *gatedFinishConn) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
+	w, err := f.fakeConn.NextWriter(ft)
+	if err != nil {
+		f.writerFailed.Do(func() { close(f.writeFailed) })
+	}
+	return w, err
+}
+
+func TestBackpressurePeerCloseReportsOnce(t *testing.T) {
+	p := newPeer(t, 'S', hooks{})
+	f := &gatedFinishConn{fakeConn: p.fc, entered: make(chan struct{}), release: make(chan struct{}), writeFailed: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(f.release) })
+	defer release()
+	p.srv.serveConn(f)
+	p.nc = recv(t, p.conns, "root OnConnect")
+	require.Equal(t, "0", recv(t, p.fc.out, "root CONNECT"))
+	closeAtEnd(t, p.fc, p.conn())
+	p.stall(t, p.nc, 0)
+	close(p.fc.peerGone)
+	require.ErrorIs(t, recv(t, p.errs, "read error report").err, io.EOF)
+	recv(t, f.entered, "engine Close entered")
+	recv(t, f.writeFailed, "writer observed engine close")
+	recv(t, p.conn().discard, "library close discards queue")
+	require.Empty(t, p.errs, "writer failure during read finalization must not report again")
+	release()
+	p.disconnected(t, "/")
+}
+
 // Covers S18
 func TestServerEngine(t *testing.T) {
 	s := NewServer(nil)
@@ -216,11 +259,17 @@ func (p *peer) connect(t *testing.T) *peer {
 	} else {
 		require.NoError(t, p.cl.Connect())
 	}
-	require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
 	if p.cl != nil {
+		require.Equal(t, "0", recv(t, p.fc.out, "client CONNECT"))
 		p.send(t, "0")
 	}
 	p.nc = recv(t, p.conns, "root OnConnect")
+	if p.srv != nil && p.conn().rootRejected != nil {
+		data, _ := json.Marshal(p.conn().rootRejected.Error())
+		require.Equal(t, "4"+string(data)+"\n", recv(t, p.fc.out, "root rejection ERROR"))
+	} else if p.srv != nil && (!isDone(p.conn().done) || p.conn().draining) {
+		require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
+	}
 	closeAtEnd(t, p.fc, p.conn())
 	if p.emit = p.nc.Emit; p.cl != nil {
 		p.emit = p.cl.Emit
@@ -365,6 +414,9 @@ func TestBackpressureCloseDeliversQueue(t *testing.T) {
 			}
 			recv(t, p.fc.closed, "engine.io close after the drain")
 			p.disconnected(t, "/")
+			if side == 'S' {
+				require.Equal(t, "1", recv(t, p.fc.out, "DISCONNECT"))
+			}
 			require.Empty(t, drain(p.fc.out))
 		}
 	})
@@ -376,6 +428,9 @@ func TestBackpressureCloseWritesOnDisconnectEmits(t *testing.T) {
 		var p *peer
 		p = start(t, side, hooks{disconnect: func(Conn) {
 			p.emit("a")
+			if side == 'S' {
+				require.Equal(t, "1", recv(t, p.fc.out, "DISCONNECT before OnDisconnect emits"))
+			}
 			require.Equal(t, ev("a"), recv(t, p.fc.out, "the first OnDisconnect Emit"))
 			p.emit("b") // the writer has emptied the queue
 		}})
@@ -398,6 +453,9 @@ func TestBackpressureCloseDropsLateAndOverflowingEmits(t *testing.T) {
 		recv(t, p.fc.held, "the writer to block on the second packet")
 		p.emit("after the seal") // the queue has room
 		close(p.fc.release)
+		if side == 'S' {
+			require.Equal(t, "1", recv(t, p.fc.out, "DISCONNECT"))
+		}
 		for i := 0; i < defaultWriteBufferSize; i++ {
 			require.Equal(t, ev("x", i), recv(t, p.fc.out, "an OnDisconnect Emit"))
 		}
@@ -520,6 +578,13 @@ func TestBackpressureConnectFailureDiscards(t *testing.T) {
 		})
 		if side == 'S' {
 			p.connect(t)
+			require.False(t, isDone(p.fc.closed))
+			require.Len(t, drain(p.nilErrs), 1)
+			require.Empty(t, drain(p.fc.out), "rejected OnConnect emission leaked")
+			close(p.fc.peerGone)
+			p.disconnected(t)
+			require.Empty(t, reportsAtDisconnect)
+			return
 		} else {
 			p.fc.failWrite.Store(true) // the CONNECT packet fails to encode
 			require.Error(t, p.cl.Connect())
@@ -638,9 +703,12 @@ func TestBackpressureConnectFailureReportsOverflowFromOnError(t *testing.T) {
 			connect: func(c Conn) error { kept = c; c.Join("r"); flood(c, defaultWriteBufferSize); return refused },
 			onError: func(Conn, error) { discarded = append(discarded, isDone(kept.(*namespaceConn).discard)); late(p, kept) },
 		})
-		p.connect(t).disconnected(t, "/")
-		require.Equal(t, []error{refused, ErrWriteBufferFull}, drain(p.nilErrs), "connect-failure reports")
-		require.Equal(t, []bool{false, false}, discarded, "a report came after the discard")
+		p.connect(t)
+		require.False(t, isDone(p.fc.closed))
+		require.Equal(t, []error{refused}, drain(p.nilErrs), "one rejection report")
+		require.Equal(t, []bool{false}, discarded, "reported before close")
+		p.conn().stop()
+		p.disconnected(t)
 		require.Empty(t, drain(p.errs))
 		require.Empty(t, drain(p.fc.out), "a packet was written")
 	}
@@ -747,6 +815,7 @@ func TestBackpressureCloseFromOnConnect(t *testing.T) {
 		disconnect: func(c Conn) { c.Emit("b") },
 	})
 	require.Equal(t, ev("a"), recv(t, p.fc.out, "the OnConnect Emit"))
+	require.Equal(t, "1", recv(t, p.fc.out, "DISCONNECT"))
 	require.Equal(t, ev("b"), recv(t, p.fc.out, "the OnDisconnect Emit"))
 	recv(t, p.fc.closed, "engine.io close after the drain")
 	p.disconnected(t, "/")

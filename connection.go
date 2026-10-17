@@ -43,16 +43,19 @@ func newConnLimits(opts *engineio.Options) connLimits {
 type Conn interface {
 	// Close closes the connection and returns nil; only the first close, by Close or by the library,
 	// has an effect. For every connected namespace it emits disconnecting while rooms are joined,
-	// leaves the rooms, and calls OnDisconnect with "forced close". It returns without waiting.
+	// writes a DISCONNECT packet, leaves its rooms, and calls OnDisconnect with
+	// "server namespace disconnect". It returns without waiting. A client-side
+	// connection keeps the engine close behavior and "forced close" reason.
 	// The packets queued until then, Emits from OnDisconnect included, are written in the background;
 	// an Emit that finds the queue full, or comes later, is dropped without a report. Then, or
 	// engineio.Options.PingTimeout (one minute if not positive) after Close started, the rest is
 	// discarded and the engine.io connection is closed; Server.Count counts the session until then.
 	// Incoming packets are no longer dispatched, and a read or write failure ends the drain at once.
 	// The library closes a connection on a read, decode or dispatch error, a peer close, a ping
-	// timeout, an overflow (see ErrWriteBufferFull) or a failed connect, discarding the queue at once.
+	// timeout or an overflow (see ErrWriteBufferFull), discarding the queue at once.
 	// Other than an overflow, the error is reported to OnError before the close's effects run,
-	// so Emits from OnError still queue; a failed connect is reported to root OnError with a nil Conn.
+	// so Emits from OnError still queue. A middleware or OnConnect rejection sends ERROR and keeps
+	// the engine connection open; it reports to that namespace's OnError, with a nil Conn for root.
 	// Failures during a close are not reported. An encode failure reports OnError, sends an ERROR
 	// packet with "encode error", and keeps the connection open.
 	Close() error
@@ -78,21 +81,32 @@ type conn struct {
 	reader  *frameReader // tells the decoder's transport failures apart
 	writer  *queueWriter // tells the encoder's transport failures apart
 
-	writeChan chan parser.Payload
-	errorChan chan error
+	writeReady     chan struct{}
+	drainQueue     []drainPacket
+	pendingWrites  int
+	drainQueued    int
+	controlQueued  int
+	closeControls  int
+	controlPending int // claimed namespace disconnects not yet enqueued; guarded by mu
+	writeChan      chan parser.Payload
+	errorChan      chan error
 
-	log      *slog.Logger
-	boundary bool // log the namespace connect and disconnect records (Server only)
+	log          *slog.Logger
+	rootRejected error
+	boundary     bool // log the namespace connect and disconnect records (Server only)
 
 	// mu orders the close state, whose steps close the channels, against queueing and registering.
 	mu                           sync.Mutex
 	closing, seal, discard, done chan struct{}
 	draining, connecting         bool             // the first close is Close; until connected
+	appSealed                    bool             // Close returned from its own callbacks
 	overflow                     *namespaceConn   // the first close is its overflow, in this namespace
 	pending                      []*namespaceConn // OnDisconnect calls a library close owes
 	drainTimer                   *time.Timer
-	drainTimeout                 time.Duration // tests shorten it
-	disconnectReason             string        // guarded by mu; forced close unless read observes an engine close
+	drainTimeout                 time.Duration  // tests shorten it
+	disconnectReason             string         // guarded by mu; forced close unless read observes an engine close
+	disconnects                  sync.WaitGroup // registered under mu before claiming a namespace
+	disconnecting                int            // callbacks claimed but not completed; guarded by mu
 }
 
 func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connLimits, log *slog.Logger) *conn {
@@ -102,6 +116,7 @@ func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connL
 		Conn:             engineConn,
 		errorChan:        make(chan error),
 		writeChan:        make(chan parser.Payload, limits.writeBufferSize),
+		writeReady:       make(chan struct{}, 1),
 		handlers:         handlers,
 		namespaces:       newNamespaces(),
 		closing:          make(chan struct{}),
@@ -122,13 +137,33 @@ func (c *conn) Close() error {
 		return nil
 	}
 	ncs := c.startClose()
+	if c.boundary {
+		c.disconnectReason = "server namespace disconnect"
+	}
 	c.draining, c.drainTimer = true, time.AfterFunc(c.drainTimeout, c.stop)
 	c.mu.Unlock()
 	c.disconnect(ncs)
 	c.mu.Lock()
-	close(c.seal)
+	c.appSealed = true
+	c.sealIfReady()
 	c.mu.Unlock()
 	return nil
+}
+
+// sealIfReady lets the writer finish once application writes are sealed and
+// every disconnect claimed before Close has queued its control packets.
+// The caller holds mu; no namespace can be claimed after startClose.
+func (c *conn) sealIfReady() {
+	if c.appSealed && c.controlPending == 0 && !isDone(c.seal) {
+		close(c.seal)
+	}
+}
+
+func (c *conn) controlEnqueued() {
+	c.mu.Lock()
+	c.controlPending--
+	c.sealIfReady()
+	c.mu.Unlock()
 }
 
 // startClose takes the connected namespaces; c.mu is held.
@@ -138,6 +173,11 @@ func (c *conn) startClose() (ncs []*namespaceConn) {
 	for _, nc := range ncs {
 		c.namespaces.Delete(fmtNS(nc.namespace))
 	}
+	c.disconnects.Add(len(ncs))
+	c.disconnecting += len(ncs)
+	// A graceful close may owe CONNECT and DISCONNECT for each namespace
+	// it just claimed; no more namespaces can register once closing starts.
+	c.closeControls = 2 * c.disconnecting
 	return ncs
 }
 
@@ -172,6 +212,10 @@ func (c *conn) disconnect(ncs []*namespaceConn) {
 	reason := c.disconnectReason
 	c.mu.Unlock()
 	for _, nc := range ncs {
+		if c.boundary && c.draining {
+			nc.acceptPending()
+			c.write(parser.Header{Type: parser.Disconnect, Namespace: fmtNS(nc.namespace)})
+		}
 		c.disconnectNamespace(nc, reason)
 		if c.boundary {
 			c.log.Debug("socketio: disconnect", nspAttr(nc.namespace), "reason", "connection close")
@@ -182,6 +226,12 @@ func (c *conn) disconnect(ncs []*namespaceConn) {
 // disconnectNamespace exposes rooms to disconnecting, then removes them before
 // OnDisconnect, matching the reference's two lifecycle notifications.
 func (c *conn) disconnectNamespace(nc *namespaceConn, reason string) {
+	defer func() {
+		c.mu.Lock()
+		c.disconnecting--
+		c.mu.Unlock()
+		c.disconnects.Done()
+	}()
 	nh := c.namespace(fmtNS(nc.namespace))
 	if nh != nil {
 		if _, err := nh.dispatchEvent(nc, "disconnecting", reflect.ValueOf(reason)); err != nil {
@@ -191,6 +241,9 @@ func (c *conn) disconnectNamespace(nc *namespaceConn, reason string) {
 				c.unhandled(nc.namespace, err)
 			}
 		}
+	}
+	if nh != nil {
+		nh.removeSocket(nc)
 	}
 	nc.LeaveAll()
 	if nh != nil && nh.onDisconnect != nil {
@@ -205,6 +258,10 @@ func (c *conn) finishRead() {
 	var closed *engineio.CloseError
 	failed := c.reader.failed
 	if failed != nil && !errors.As(failed, &closed) {
+		// Dispatch has ended and its error was already reported. Start the
+		// close before the engine shuts down, so the writer cannot report that
+		// shutdown as a second failure while the reader obtains its cause.
+		c.stop()
 		// An acquired frame reader keeps its own transport error. Closing the
 		// engine preserves the cause that reader recorded; the next reader then
 		// exposes it through CloseError without changing the frame's error.
@@ -247,11 +304,33 @@ func (c *conn) register(nsp string, nc *namespaceConn) bool {
 	return !isDone(c.closing)
 }
 
-func (c *conn) claim(nsp string) (*namespaceConn, bool) {
+func (c *conn) claim(nsp string, expected ...*namespaceConn) (*namespaceConn, bool) {
+	return c.claimNamespace(nsp, false, false, expected...)
+}
+
+func (c *conn) claimDisconnect(nsp string, expected ...*namespaceConn) (*namespaceConn, bool) {
+	return c.claimNamespace(nsp, true, false, expected...)
+}
+
+func (c *conn) claimControlDisconnect(nsp string, expected *namespaceConn) (*namespaceConn, bool) {
+	return c.claimNamespace(nsp, true, true, expected)
+}
+
+func (c *conn) claimNamespace(nsp string, disconnect, control bool, expected ...*namespaceConn) (*namespaceConn, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	nc, ok := c.namespaces.Get(nsp)
+	if len(expected) > 0 && nc != expected[0] {
+		return nil, false
+	}
 	c.namespaces.Delete(nsp)
+	if ok && disconnect {
+		c.disconnects.Add(1)
+		c.disconnecting++
+	}
+	if ok && control {
+		c.controlPending++
+	}
 	return nc, ok
 }
 
@@ -265,24 +344,29 @@ func (c *conn) connect() error {
 	}
 
 	root := newNamespaceConn(c, aliasRootNamespace, rootHandler.broadcast)
+	root.beginConnect()
+	root.SetContext(c.Conn.Context())
 	c.namespaces.Set(rootNamespace, root)
-
-	root.Join(root.Conn.ID())
-
-	c.namespaces.Range(func(ns string, nc *namespaceConn) {
-		nc.SetContext(c.Conn.Context())
-	})
-
-	header := parser.Header{
-		Type: parser.Connect,
+	if err := rootHandler.connect(root); err != nil {
+		if isDone(c.closing) {
+			return err
+		}
+		c.claim(rootNamespace)
+		root.reject()
+		c.rootRejected = err
+		if rootHandler.onError != nil {
+			rootHandler.onError(nil, err)
+		} else {
+			c.unhandled(rootNamespace, err)
+		}
+		c.write(parser.Header{Type: parser.Error}, reflect.ValueOf(err.Error()))
+		return nil
 	}
-
-	if err := c.encoder.Encode(header); err != nil {
-		return err
+	if isDone(c.closing) {
+		return nil
 	}
-
-	_, err := rootHandler.dispatch(root, header)
-	return err
+	root.acceptPending()
+	return nil
 }
 
 // connected ends the connect; a failure reports err first, so Emits from OnError queue, then closes.
@@ -302,7 +386,7 @@ func (c *conn) connected(err error) bool {
 		err = errors.Join(ErrWriteBufferFull, err)
 	}
 	if c.boundary {
-		c.connectRecord(rootNamespace, err)
+		c.connectRecord(rootNamespace, cmp.Or(err, c.rootRejected))
 	}
 	if failed {
 		c.reportOverflow(nil)
@@ -317,7 +401,13 @@ func (c *conn) nextID() uint64 {
 	return c.id
 }
 
-func (c *conn) write(header parser.Header, args ...reflect.Value) {
+func (c *conn) write(header parser.Header, args ...reflect.Value) { c.queue(header, false, args...) }
+
+func (c *conn) writeReserved(header parser.Header, args ...reflect.Value) {
+	c.queue(header, true, args...)
+}
+
+func (c *conn) queue(header parser.Header, reserved bool, args ...reflect.Value) {
 	data := make([]interface{}, len(args))
 
 	for i := range data {
@@ -333,18 +423,56 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	switch {
-	case isDone(c.closing) && (!c.draining || isDone(c.seal) || isDone(c.discard)):
-	case len(c.writeChan) < cap(c.writeChan):
-		c.writeChan <- pkg
-	case !isDone(c.closing):
-		if c.overflow = c.errConn(header.Namespace); c.overflow == nil { // reported as unhandled
-			c.overflow = &namespaceConn{conn: c, namespace: header.Namespace}
-		}
-		if c.pending = c.startClose(); !c.connecting { // else serveConn reports first
-			c.stopLocked()
-		}
+	if reserved {
+		c.pendingWrites--
 	}
+	control := header.Type == parser.Connect || header.Type == parser.Disconnect
+	switch {
+	case isDone(c.closing) && (!c.draining || isDone(c.seal) || isDone(c.discard) || c.appSealed && !control && !reserved):
+	case c.boundary || c.draining:
+		// Server lifecycle packets share ordering with application packets but
+		// do not consume the application budget reserved by pending Emits.
+		// Reserve a finite pair of lifecycle slots per application slot. This
+		// admits CONNECT followed by DISCONNECT even with a one-slot budget.
+		controlSpace := control && c.controlQueued < 2*cap(c.writeChan) && (header.Type == parser.Disconnect || len(c.writeChan)+c.drainQueued < cap(c.writeChan))
+		if control && c.draining {
+			controlSpace = c.closeControls > 0
+		}
+		if controlSpace || reserved || !control && len(c.writeChan)+c.drainQueued+c.pendingWrites < cap(c.writeChan) {
+			c.drainQueue = append(c.drainQueue, drainPacket{pkg, control})
+			if control {
+				c.controlQueued++
+				if c.draining {
+					c.closeControls--
+				}
+			} else {
+				c.drainQueued++
+			}
+			c.notifyWrite()
+		} else if !c.draining {
+			c.overflowWrite(header)
+		}
+	case len(c.writeChan) < cap(c.writeChan) && (reserved || len(c.writeChan)+c.pendingWrites < cap(c.writeChan)):
+		c.writeChan <- pkg
+		c.notifyWrite()
+	case !isDone(c.closing):
+		c.overflowWrite(header)
+	}
+
+}
+
+// overflowWrite starts a library close for a full outbound queue; mu is held.
+func (c *conn) overflowWrite(header parser.Header) {
+	if isDone(c.closing) {
+		return
+	}
+	if c.overflow = c.errConn(header.Namespace); c.overflow == nil {
+		c.overflow = &namespaceConn{conn: c, namespace: header.Namespace}
+	}
+	if c.pending = c.startClose(); !c.connecting {
+		c.stopLocked()
+	}
+
 }
 
 // reportOverflow reports an overflow with conn, nil on a failed connect as in v1.4.
@@ -483,4 +611,37 @@ func (c *conn) report(namespace string, err, failed error) {
 func (c *conn) namespace(nsp string) *namespaceHandler {
 	handler, _ := c.handlers.Get(nsp)
 	return handler
+}
+
+type drainPacket struct {
+	payload parser.Payload
+	control bool
+}
+
+// notifyWrite is called under mu; the signal is only a hint to recheck the queues.
+func (c *conn) notifyWrite() {
+	select {
+	case c.writeReady <- struct{}{}:
+	default:
+	}
+}
+
+func (c *conn) nextQueued() (parser.Payload, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.writeChan) > 0 {
+		return <-c.writeChan, true
+	}
+	if len(c.drainQueue) > 0 {
+		packet := c.drainQueue[0]
+		c.drainQueue[0] = drainPacket{}
+		c.drainQueue = c.drainQueue[1:]
+		if packet.control {
+			c.controlQueued--
+		} else {
+			c.drainQueued--
+		}
+		return packet.payload, true
+	}
+	return parser.Payload{}, false
 }

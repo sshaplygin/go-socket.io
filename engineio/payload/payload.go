@@ -141,6 +141,8 @@ func (p *Payload) FeedIn(r io.Reader, supportBinary bool) error {
 
 		case err := <-p.readError:
 			return p.Store("read", err)
+		case <-p.close:
+			return p.load()
 		}
 	}
 }

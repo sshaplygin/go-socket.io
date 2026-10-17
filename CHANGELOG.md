@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- engineio: closing a polling payload after its reader was acquired releases
+  FeedIn instead of leaving the polling client goroutine waiting forever.
+
+- socketio: `Server.Close` waits for active session handlers to finish, with a
+  10 second bound and a warning that reports the number still open.
+
 - socketio: unknown namespaces receive ERROR "Invalid namespace" without losing the
   session. ERROR packets reach OnError, namespace CONNECT replies use `0/nsp,`, and
   the parser writes namespace DISCONNECT packets with their trailing comma.
@@ -133,6 +139,11 @@ All notable changes to this project are documented here. The format follows
   connection errors, packets, heartbeat, upgrades, polling flush/drain and transport
   errors. Callbacks run synchronously; header hooks may edit response headers.
 
+- socketio: `Server.Of` returns a stable `ServerNamespace` with handler registration,
+  namespace middleware, `Emit`, `Send`, and connected-socket snapshots. `Server.Use`
+  registers middleware through the same namespace. `Namespace` gains `Send`,
+  `Disconnect`, and event `Use`; client-side event middleware registers nothing.
+
 - engineio: expose connection ReadyState, Transport and Upgraded, server Clients
   snapshots and socketio Server.Engine. Clients includes open and closing sessions;
   Count retains the registered-session lifetime until Remove.
@@ -193,6 +204,16 @@ All notable changes to this project are documented here. The format follows
   (roadmap tasks 1.B and 1I).
 
 ### Changed
+
+- socketio: middleware and `OnConnect` rejection send an ERROR packet and keep the
+  engine connection open. The rejected namespace joins no ID room and receives no
+  `OnDisconnect`; packets emitted during the rejected connect are discarded.
+- socketio: `Conn.Close` on a server writes DISCONNECT per connected namespace and
+  calls `OnDisconnect` with `server namespace disconnect`. Reference clients report
+  `io server disconnect` and do not reconnect. Earlier queued packets arrive first;
+  these control packets retain space when the bounded application queue is full.
+- socketio: `Conn.ID()` outside the root namespace is now `<namespace>#<engine id>`,
+  as the reference's `id`; the socket joins the room with that ID after acceptance.
 
 - socketio: OnDisconnect now reports `transport close`, `ping timeout`,
   `transport error` or `forced close` for connection closure instead of always

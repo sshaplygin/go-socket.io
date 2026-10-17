@@ -82,6 +82,8 @@ func (d *Decoder) DecodeHeader(header *Header, event *string) error {
 
 // DecodeArgs consumes all attachments before Go type conversion. A type mismatch
 // can then be reported without leaving binary frames in front of the next packet.
+// A nil types slice decodes every argument into a generic JSON value (binary
+// placeholders become *Buffer); an empty non-nil slice discards the arguments.
 func (d *Decoder) DecodeArgs(types []reflect.Type) ([]reflect.Value, error) {
 	_ = d.DiscardLast()
 	count := d.bufferCount
@@ -97,6 +99,14 @@ func (d *Decoder) DecodeArgs(types []reflect.Type) ([]reflect.Value, error) {
 			return nil, err
 		}
 		buffers[i].Data = data
+	}
+	// A nil type list requests all generic JSON arguments. An empty non-nil
+	// list consumes the packet without passing arguments to a zero-argument handler.
+	if types == nil {
+		types = make([]reflect.Type, len(d.args))
+		for i := range types {
+			types[i] = reflect.TypeOf((*interface{})(nil)).Elem()
+		}
 	}
 	ret := make([]reflect.Value, len(types))
 	for i, typ := range types {
@@ -339,6 +349,19 @@ func (d *Decoder) detachBuffer(v reflect.Value, buffers []Buffer) error {
 	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 		if v.IsNil() {
 			return nil
+		}
+		if v.Kind() == reflect.Interface && v.CanSet() && len(buffers) > 0 {
+			if object, ok := v.Interface().(map[string]interface{}); ok {
+				if placeholder, _ := object["_placeholder"].(bool); placeholder {
+					number, ok := object["num"].(float64)
+					if !ok || number < 0 || number >= float64(len(buffers)) || number != math.Trunc(number) {
+						return errIllegalAttachments
+					}
+					buffer := buffers[int(number)]
+					v.Set(reflect.ValueOf(&buffer))
+					return nil
+				}
+			}
 		}
 		v = v.Elem()
 	}

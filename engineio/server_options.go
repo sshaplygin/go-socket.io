@@ -24,6 +24,18 @@ type Options struct {
 	MaxHTTPBufferSize int64
 	// DisableUpgrades keeps sessions on their handshake transport.
 	DisableUpgrades bool
+	// PerMessageDeflate enables websocket compression; the default is off.
+	PerMessageDeflate bool
+	// DisableHTTPCompression disables gzip/deflate for polling responses.
+	DisableHTTPCompression bool
+	// CompressionThreshold is the encoded size from which compression applies;
+	// nonpositive values mean 1024 bytes.
+	CompressionThreshold int
+	// Cookie is copied with Value replaced by the session ID. Nil defaults to
+	// io, Path=/, HttpOnly, SameSite=Strict. An empty Name defaults to io.
+	Cookie *http.Cookie
+	// DisableCookie suppresses the polling handshake transport's session cookie.
+	DisableCookie bool
 
 	// DisableCORS restores the legacy CORS behavior. By default every origin is
 	// accepted: polling reflects Origin with credentials, or allows * when absent,
@@ -125,28 +137,51 @@ func (c *Options) getTransport() []transport.Transport {
 		configured = c.Transports
 	}
 	defaultOriginCheck := c.getOriginCheck()
-	if defaultOriginCheck == nil {
-		return configured
-	}
 	resolved := make([]transport.Transport, len(configured))
 	for i, t := range configured {
 		resolved[i] = t
 		switch t := t.(type) {
 		case *polling.Transport:
-			if t.CheckOrigin == nil {
-				copied := *t
+			copied := *t
+			if copied.CheckOrigin == nil {
 				copied.CheckOrigin = defaultOriginCheck
-				resolved[i] = &copied
 			}
+			copied.Compression = c == nil || !c.DisableHTTPCompression
+			copied.CompressionThreshold = c.getCompressionThreshold()
+			copied.Cookie = c.getCookie()
+			resolved[i] = &copied
 		case *websocket.Transport:
-			if t.CheckOrigin == nil {
-				copied := *t
+			copied := *t
+			if copied.CheckOrigin == nil {
 				copied.CheckOrigin = defaultOriginCheck
-				resolved[i] = &copied
 			}
+			copied.EnableCompression = c != nil && c.PerMessageDeflate
+			copied.CompressionThreshold = c.getCompressionThreshold()
+			resolved[i] = &copied
 		}
 	}
 	return resolved
+}
+
+func (c *Options) getCompressionThreshold() int {
+	if c != nil && c.CompressionThreshold > 0 {
+		return c.CompressionThreshold
+	}
+	return 1024
+}
+
+func (c *Options) getCookie() *http.Cookie {
+	if c != nil && c.DisableCookie {
+		return nil
+	}
+	cookie := http.Cookie{Name: "io", Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode}
+	if c != nil && c.Cookie != nil {
+		cookie = *c.Cookie
+	}
+	if cookie.Name == "" {
+		cookie.Name = "io"
+	}
+	return &cookie
 }
 
 func (c *Options) getOriginCheck() func(*http.Request) bool {

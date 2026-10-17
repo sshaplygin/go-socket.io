@@ -19,6 +19,10 @@ type wrapper struct {
 	writeLocker *sync.Mutex
 	readLocker  *sync.Mutex
 	writing     *atomic.Bool
+	readLimit   *atomic.Int64
+	readFailed  *atomic.Bool
+	compression bool
+	threshold   int
 }
 
 func newWrapper(conn *websocket.Conn) wrapper {
@@ -27,6 +31,8 @@ func newWrapper(conn *websocket.Conn) wrapper {
 		writeLocker: new(sync.Mutex),
 		readLocker:  new(sync.Mutex),
 		writing:     new(atomic.Bool),
+		readLimit:   new(atomic.Int64),
+		readFailed:  new(atomic.Bool),
 	}
 }
 
@@ -34,11 +40,21 @@ func (w wrapper) NextReader() (frame.Type, io.ReadCloser, error) {
 	w.readLocker.Lock()
 	defer w.readLocker.Unlock()
 
-	// The wrapper remains locked until the returned ReadCloser is Closed.
+	// Only one goroutine advances the websocket message reader.
+	if w.readFailed.Load() {
+		return 0, nil, websocket.ErrReadLimit
+	}
 	typ, r, err := w.Conn.NextReader()
 	if err != nil {
 		return 0, nil, err
 	}
+
+	if limit := w.readLimit.Load(); limit > 0 {
+		r = &inflatedReader{Reader: r, conn: w.Conn, remaining: limit, failed: w.readFailed}
+	}
+	// Gorilla returns its inflater to a pool at EOF. A later drain must not
+	// read that released inflater again (which would return ErrClosedPipe).
+	r = &messageReader{Reader: r}
 
 	switch typ {
 	case websocket.TextMessage:
@@ -91,7 +107,11 @@ func (r rcWrapper) Close() error {
 	return err
 }
 
-func (w wrapper) NextWriter(FType frame.Type) (io.WriteCloser, error) {
+func (w wrapper) NextWriter(ft frame.Type) (io.WriteCloser, error) {
+	return w.nextWriter(ft, true)
+}
+
+func (w wrapper) nextWriter(FType frame.Type, compress bool) (io.WriteCloser, error) {
 	var t int
 
 	switch FType {
@@ -104,12 +124,9 @@ func (w wrapper) NextWriter(FType frame.Type) (io.WriteCloser, error) {
 	}
 
 	w.writeLocker.Lock()
-	writer, err := w.Conn.NextWriter(t)
-	// The wrapper remains locked until the returned WriteCloser is Closed.
-	if err != nil {
-		w.writeLocker.Unlock()
-		return nil, err
-	}
+	// Delay the first wire write only until the encoded packet reaches the
+	// threshold; large packets then stream without an unbounded staging buffer.
+	writer := &thresholdWriter{conn: w.Conn, typ: t, threshold: w.threshold, compress: compress && w.compression}
 
 	w.writing.Store(true)
 	result := newWcWrapper(w.writeLocker, writer)

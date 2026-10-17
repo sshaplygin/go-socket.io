@@ -16,6 +16,8 @@ type BroadcastOptions struct {
 	Volatile bool
 	// Local restricts delivery to this instance without publishing to a cluster.
 	Local bool
+	// NoCompress sends this instance's packet uncompressed; the default is true.
+	NoCompress bool
 }
 
 // Broadcast manages namespace rooms and delivery. Its methods must support
@@ -24,7 +26,8 @@ type BroadcastOptions struct {
 type Broadcast interface {
 	// SendTo snapshots matching sockets and emits on the caller's goroutine after
 	// releasing the adapter lock. Delivery uses target.Emit, or target.Volatile().Emit
-	// when Volatile is set. An adapter unable to exclude returns an error wrapping
+	// when Volatile is set; NoCompress adds target.Compress(false). An adapter
+	// unable to exclude returns an error wrapping
 	// ErrExceptUnsupported before sending anything.
 	SendTo(opts BroadcastOptions, event string, args ...interface{}) error
 	// IDs returns a copy of the IDs in any of rooms, or all sockets when empty.
@@ -181,7 +184,13 @@ func broadcastIDs(targets []Conn) []string {
 
 func deliverBroadcast(targets []Conn, opts BroadcastOptions, event string, args ...interface{}) {
 	for _, c := range targets {
-		if opts.Volatile {
+		if opts.NoCompress {
+			target := c.Compress(false)
+			if opts.Volatile {
+				target = target.Volatile()
+			}
+			_ = target.Emit(event, args...)
+		} else if opts.Volatile {
 			_ = c.Volatile().Emit(event, args...)
 		} else {
 			c.Emit(event, args...)

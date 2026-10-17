@@ -13,6 +13,11 @@ import (
 type Transport struct {
 	Client      *http.Client
 	CheckOrigin func(r *http.Request) bool
+	// Compression enables gzip/deflate responses at CompressionThreshold bytes
+	// (1024 when nonpositive). Cookie is copied with the session ID as its value.
+	Compression          bool
+	CompressionThreshold int
+	Cookie               *http.Cookie
 }
 
 // Default is the default transport.

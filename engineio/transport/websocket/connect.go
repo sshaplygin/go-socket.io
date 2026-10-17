@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
@@ -16,7 +18,6 @@ import (
 // conn implements base.Conn
 type conn struct {
 	transport.FrameReader
-	transport.FrameWriter
 
 	ws wrapper
 
@@ -27,8 +28,15 @@ type conn struct {
 	closeOnce sync.Once
 }
 
-func newConn(ws *websocket.Conn, url url.URL, header http.Header) *conn {
+func newConn(ws *websocket.Conn, url url.URL, header http.Header, settings ...*Transport) *conn {
 	w := newWrapper(ws)
+	if len(settings) != 0 {
+		w.compression = settings[0].EnableCompression
+		w.threshold = settings[0].CompressionThreshold
+	}
+	if w.threshold <= 0 {
+		w.threshold = 1024
+	}
 	closed := make(chan struct{})
 
 	return &conn{
@@ -37,7 +45,6 @@ func newConn(ws *websocket.Conn, url url.URL, header http.Header) *conn {
 		ws:           w,
 		closed:       closed,
 		FrameReader:  packet.NewDecoder(w),
-		FrameWriter:  packet.NewEncoder(w),
 	}
 }
 
@@ -61,8 +68,32 @@ func (c *conn) SetReadDeadline(t time.Time) error {
 	return c.ws.SetReadDeadline(t)
 }
 
-// SetReadLimit caps one websocket message; gorilla answers an excess with code 1009.
-func (c *conn) SetReadLimit(n int64) { c.ws.SetReadLimit(n) }
+// SetReadLimit caps both wire and inflated message bytes, closing with code 1009.
+func (c *conn) SetReadLimit(n int64) {
+	c.ws.readLimit.Store(n)
+	c.ws.SetReadLimit(n)
+}
+
+func (c *conn) NextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, error) {
+	return c.NextWriterCompress(ft, pt, true)
+}
+
+// NextWriterCompress keeps the compression choice for the entire encoded packet.
+func (c *conn) NextWriterCompress(ft frame.Type, pt packet.Type, compress bool) (io.WriteCloser, error) {
+	return packet.NewEncoder(compressFrameWriter{c.ws, compress}).NextWriter(ft, pt)
+}
+
+type compressFrameWriter struct {
+	w        wrapper
+	compress bool
+}
+
+func (w compressFrameWriter) NextWriter(ft frame.Type) (io.WriteCloser, error) {
+	if w.compress {
+		return w.w.NextWriter(ft)
+	}
+	return w.w.nextWriter(ft, false)
+}
 
 func (c *conn) SetWriteDeadline(t time.Time) error {
 	// TODO: is locking really needed for SetWriteDeadline? If so, what about

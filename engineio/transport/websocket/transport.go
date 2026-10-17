@@ -23,6 +23,11 @@ type DialError struct {
 
 // Transport is websocket transport.
 type Transport struct {
+	// EnableCompression negotiates permessage-deflate; frames below the threshold
+	// (1024 when nonpositive) are sent uncompressed.
+	EnableCompression    bool
+	CompressionThreshold int
+
 	ReadBufferSize  int
 	WriteBufferSize int
 
@@ -46,13 +51,14 @@ func (t *Transport) Name() string {
 // Dial creates a new client connection.
 func (t *Transport) Dial(u *url.URL, requestHeader http.Header) (transport.Conn, error) {
 	dialer := websocket.Dialer{
-		ReadBufferSize:   t.ReadBufferSize,
-		WriteBufferSize:  t.WriteBufferSize,
-		NetDial:          t.NetDial,
-		Proxy:            t.Proxy,
-		TLSClientConfig:  t.TLSClientConfig,
-		HandshakeTimeout: t.HandshakeTimeout,
-		Subprotocols:     t.Subprotocols,
+		EnableCompression: t.EnableCompression,
+		ReadBufferSize:    t.ReadBufferSize,
+		WriteBufferSize:   t.WriteBufferSize,
+		NetDial:           t.NetDial,
+		Proxy:             t.Proxy,
+		TLSClientConfig:   t.TLSClientConfig,
+		HandshakeTimeout:  t.HandshakeTimeout,
+		Subprotocols:      t.Subprotocols,
 	}
 
 	switch u.Scheme {
@@ -75,20 +81,21 @@ func (t *Transport) Dial(u *url.URL, requestHeader http.Header) (transport.Conn,
 		}
 	}
 
-	return newConn(c, *u, resp.Header), nil
+	return newConn(c, *u, resp.Header, t), nil
 }
 
 // Accept accepts a http request and create Conn.
 func (t *Transport) Accept(w http.ResponseWriter, r *http.Request) (transport.Conn, error) {
 	upgrader := websocket.Upgrader{
-		ReadBufferSize:  t.ReadBufferSize,
-		WriteBufferSize: t.WriteBufferSize,
-		CheckOrigin:     t.CheckOrigin,
+		EnableCompression: t.EnableCompression,
+		ReadBufferSize:    t.ReadBufferSize,
+		WriteBufferSize:   t.WriteBufferSize,
+		CheckOrigin:       t.CheckOrigin,
 	}
 	c, err := upgrader.Upgrade(w, r, w.Header())
 	if err != nil {
 		return nil, err
 	}
 
-	return newConn(c, *r.URL, r.Header), nil
+	return newConn(c, *r.URL, r.Header, t), nil
 }

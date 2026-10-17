@@ -86,6 +86,10 @@ func (nc *namespaceConn) Connected() bool {
 func (nc *namespaceConn) Emit(eventName string, v ...interface{}) { nc.emit(false, eventName, v...) }
 
 func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{}) {
+	nc.emitFlags(volatile, false, eventName, v...)
+}
+
+func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, v ...interface{}) {
 	header := parser.Header{
 		Type: parser.Event,
 	}
@@ -114,7 +118,7 @@ func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{})
 
 	if !volatile {
 		nc.registerAck(&header, ack)
-		nc.send(header, args...)
+		nc.sendFlags(header, noCompress, args...)
 		return
 	}
 	// The transport callback runs outside queue locks; admission rechecks the
@@ -135,9 +139,9 @@ func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{})
 	nc.registerAck(&header, ack)
 	if nc.connecting {
 		c.pendingWrites++
-		nc.pending = append(nc.pending, pendingPacket{header, args})
+		nc.pending = append(nc.pending, pendingPacket{header: header, args: args, noCompress: noCompress})
 	} else {
-		c.queueLocked(header, false, args...)
+		c.queueFlagsLocked(header, false, noCompress, args...)
 	}
 }
 
@@ -219,8 +223,9 @@ func (nc *namespaceConn) runMiddleware(event string, args []reflect.Value) error
 }
 
 type pendingPacket struct {
-	header parser.Header
-	args   []reflect.Value
+	header     parser.Header
+	args       []reflect.Value
+	noCompress bool
 }
 
 func (nc *namespaceConn) beginConnect() {
@@ -229,7 +234,7 @@ func (nc *namespaceConn) beginConnect() {
 	nc.outMu.Unlock()
 }
 
-func (nc *namespaceConn) send(header parser.Header, args ...reflect.Value) {
+func (nc *namespaceConn) sendFlags(header parser.Header, noCompress bool, args ...reflect.Value) {
 	nc.outMu.Lock()
 	if nc.rejected {
 		nc.outMu.Unlock()
@@ -239,7 +244,7 @@ func (nc *namespaceConn) send(header parser.Header, args ...reflect.Value) {
 		nc.conn.mu.Lock()
 		if (!isDone(nc.conn.closing) || nc.conn.draining && !nc.conn.appSealed && !isDone(nc.conn.discard)) && nc.conn.pendingWrites+len(nc.conn.writeChan)+nc.conn.drainQueued < cap(nc.conn.writeChan) {
 			nc.conn.pendingWrites++
-			nc.pending = append(nc.pending, pendingPacket{header, args})
+			nc.pending = append(nc.pending, pendingPacket{header: header, args: args, noCompress: noCompress})
 		} else {
 			nc.conn.overflowWrite(header)
 		}
@@ -248,7 +253,7 @@ func (nc *namespaceConn) send(header parser.Header, args ...reflect.Value) {
 		return
 	}
 	nc.outMu.Unlock()
-	nc.conn.write(header, args...)
+	nc.conn.writeFlags(header, false, noCompress, args...)
 }
 
 func (nc *namespaceConn) acceptPending() {
@@ -266,7 +271,7 @@ func (nc *namespaceConn) acceptPending() {
 	}
 	nc.conn.write(parser.Header{Type: parser.Connect, Namespace: fmtNS(nc.namespace)})
 	for _, p := range pending {
-		nc.conn.writeReserved(p.header, p.args...)
+		nc.conn.writeFlags(p.header, true, p.noCompress, p.args...)
 	}
 }
 
@@ -330,7 +335,7 @@ func (e emitter) Emit(event string, args ...interface{}) error {
 		}
 		return e.adapter.SendTo(e.opts, event, args...)
 	}
-	e.socket.emit(e.opts.Volatile, event, args...)
+	e.socket.emitFlags(e.opts.Volatile, e.opts.NoCompress, event, args...)
 	return nil
 }
 
@@ -345,3 +350,7 @@ func hasBroadcastAck(args []interface{}) bool {
 func (nc *namespaceConn) To(rooms ...string) Emitter { return (emitter{socket: nc}).To(rooms...) }
 func (nc *namespaceConn) Broadcast() Emitter         { return (emitter{socket: nc}).asBroadcast() }
 func (nc *namespaceConn) Volatile() Emitter          { return (emitter{socket: nc}).Volatile() }
+
+func (e emitter) Compress(on bool) Emitter { e.opts.NoCompress = !on; return e }
+
+func (nc *namespaceConn) Compress(on bool) Emitter { return (emitter{socket: nc}).Compress(on) }

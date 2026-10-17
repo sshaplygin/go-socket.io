@@ -218,3 +218,6 @@ func (n *ServerNamespace) Once(event string, f interface{}) (off func()) {
 // Off removes every listener for event, including the OnEvent handler. Changes
 // during a dispatch take effect on the next event. OnEvent replaces all listeners.
 func (n *ServerNamespace) Off(event string) { n.registration().Off(event) }
+
+// Compress starts a namespace broadcast with the chosen per-packet compression flag.
+func (n *ServerNamespace) Compress(on bool) Emitter { return n.emitter().Compress(on) }

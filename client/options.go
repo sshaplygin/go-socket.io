@@ -11,6 +11,8 @@ import (
 
 // Options configures a Client made by New.
 type Options struct {
+	// PerMessageDeflate offers websocket compression, with a 1024-byte threshold.
+	PerMessageDeflate bool
 	// Transports are tried in upgrade order. Nil means polling then websocket.
 	Transports []transport.Transport
 	// Path is the Engine.IO endpoint; empty means /socket.io.

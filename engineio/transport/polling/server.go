@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
@@ -28,6 +29,8 @@ type serverConn struct {
 	readLimit    int64
 	writableMu   sync.Mutex
 	pollWaiting  bool
+	noCompress   atomic.Bool
+	cookie       atomic.Pointer[http.Cookie]
 }
 
 // newServerConn creates the polling connection of a request. JSONP is not supported
@@ -54,7 +57,7 @@ func (c *serverConn) SetReadLimit(n int64) { c.readLimit = n }
 // CloseGracefully writes CLOSE through the next available poll. The session
 // serializes it after admitted frames and bounds the wait; Close interrupts it.
 func (c *serverConn) CloseGracefully() error {
-	w, err := c.Payload.NextWriter(frame.String, packet.CLOSE)
+	w, err := c.NextWriter(frame.String, packet.CLOSE)
 	if err != nil {
 		return err
 	}
@@ -78,6 +81,9 @@ func (c *serverConn) RemoteHeader() http.Header {
 }
 
 func (c *serverConn) SetHeaders(w http.ResponseWriter, r *http.Request) {
+	if cookie := c.cookie.Load(); cookie != nil {
+		http.SetCookie(w, cookie)
+	}
 	if strings.Contains(r.UserAgent(), ";MSIE") || strings.Contains(r.UserAgent(), "Trident/") {
 		w.Header().Set("X-XSS-Protection", "0")
 	}
@@ -134,7 +140,12 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// already started the response, a second one would corrupt it.
 		c.setPollWaiting(true)
 		defer c.setPollWaiting(false)
-		pw := &progressWriter{w: w, started: func() { c.setPollWaiting(false) }}
+		var out io.Writer = w
+		if c.transport.Compression {
+			w.Header().Add("Vary", "Accept-Encoding")
+			out = &responseWriter{w: w, conn: c, encoding: acceptedEncoding(r.Header.Get("Accept-Encoding"))}
+		}
+		pw := &progressWriter{w: out, started: func() { c.setPollWaiting(false) }}
 		if err := c.Payload.FlushOut(pw); err != nil {
 			if pw.wrote {
 				logger.Log.Debug("engineio: poll response failed after it was started", "err", err)

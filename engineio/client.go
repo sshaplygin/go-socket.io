@@ -190,7 +190,9 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 			}
 
 		case packet.CLOSE:
-			_ = r.Close()
+			if err = r.Close(); err != nil {
+				return 0, nil, c.failure(err)
+			}
 			if err = c.terminate(session.ReasonTransportClose, io.EOF); err != nil {
 				logger.Log.Debug("engineio: close connection failed", "err", err)
 			}
@@ -209,6 +211,11 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 }
 
 func (c *client) NextWriter(typ session.FrameType) (io.WriteCloser, error) {
+	return c.NextWriterCompress(typ, true)
+}
+
+// NextWriterCompress writes a MESSAGE with its per-packet compression preference.
+func (c *client) NextWriterCompress(typ session.FrameType, compress bool) (io.WriteCloser, error) {
 	if err := c.acquireWrite(nil); err != nil {
 		return nil, err
 	}
@@ -218,7 +225,13 @@ func (c *client) NextWriter(typ session.FrameType) (io.WriteCloser, error) {
 		return nil, c.closeError()
 	default:
 	}
-	w, err := c.connection().NextWriter(frame.Type(typ), packet.MESSAGE)
+	var w io.WriteCloser
+	var err error
+	if target, ok := c.connection().(transport.CompressWriter); ok {
+		w, err = target.NextWriterCompress(frame.Type(typ), packet.MESSAGE, compress)
+	} else {
+		w, err = c.connection().NextWriter(frame.Type(typ), packet.MESSAGE)
+	}
 	if err != nil {
 		c.releaseWrite()
 		return nil, c.failure(err)

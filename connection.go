@@ -71,7 +71,7 @@ type conn struct {
 	controlQueued  int
 	closeControls  int
 	controlPending int // claimed namespace disconnects not yet enqueued; guarded by mu
-	writeChan      chan parser.Payload
+	writeChan      chan outboundPayload
 	errorChan      chan error
 
 	log          *slog.Logger
@@ -98,7 +98,7 @@ func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connL
 		disconnectReason: "forced close",
 		Conn:             engineConn,
 		errorChan:        make(chan error),
-		writeChan:        make(chan parser.Payload, limits.writeBufferSize),
+		writeChan:        make(chan outboundPayload, limits.writeBufferSize),
 		writeReady:       make(chan struct{}, 1),
 		handlers:         handlers,
 		namespaces:       newNamespaces(),
@@ -385,20 +385,18 @@ func (c *conn) nextID() uint64 {
 	return c.id.Add(1)
 }
 
-func (c *conn) write(header parser.Header, args ...reflect.Value) { c.queue(header, false, args...) }
-
-func (c *conn) writeReserved(header parser.Header, args ...reflect.Value) {
-	c.queue(header, true, args...)
+func (c *conn) write(header parser.Header, args ...reflect.Value) {
+	c.writeFlags(header, false, false, args...)
 }
 
-func (c *conn) queue(header parser.Header, reserved bool, args ...reflect.Value) {
+func (c *conn) writeFlags(header parser.Header, reserved, noCompress bool, args ...reflect.Value) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.queueLocked(header, reserved, args...)
+	c.queueFlagsLocked(header, reserved, noCompress, args...)
 }
 
-// queueLocked admits a packet with the queue budget and close state locked.
-func (c *conn) queueLocked(header parser.Header, reserved bool, args ...reflect.Value) {
+// queueFlagsLocked admits a packet with the queue budget and close state locked.
+func (c *conn) queueFlagsLocked(header parser.Header, reserved, noCompress bool, args ...reflect.Value) {
 	data := make([]interface{}, len(args))
 
 	for i := range data {
@@ -407,10 +405,7 @@ func (c *conn) queueLocked(header parser.Header, reserved bool, args ...reflect.
 		}
 	}
 
-	pkg := parser.Payload{
-		Header: header,
-		Data:   data,
-	}
+	pkg := outboundPayload{Payload: parser.Payload{Header: header, Data: data}, noCompress: noCompress}
 
 	if reserved {
 		c.pendingWrites--
@@ -499,8 +494,9 @@ func (c *conn) errConn(nsp string) (nc *namespaceConn) {
 // queueWriter starts no packet (its TEXT frame) once the queue is discarded. failed is the
 // first failure of NextWriter or of the frame writer it returned since the last NextWriter.
 type queueWriter struct {
-	c      *conn
-	failed error
+	c          *conn
+	failed     error
+	noCompress bool
 }
 
 func (w *queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
@@ -508,7 +504,13 @@ func (w *queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
 		w.failed = io.EOF
 		return nil, io.EOF
 	}
-	fw, err := w.c.Conn.NextWriter(ft)
+	var fw io.WriteCloser
+	var err error
+	if compressed, ok := w.c.Conn.(engineio.CompressWriter); ok {
+		fw, err = compressed.NextWriterCompress(ft, !w.noCompress)
+	} else {
+		fw, err = w.c.Conn.NextWriter(ft)
+	}
 	if w.failed = err; err != nil {
 		return nil, err
 	}
@@ -603,7 +605,7 @@ func (c *conn) namespace(nsp string) *namespaceHandler {
 }
 
 type drainPacket struct {
-	payload parser.Payload
+	payload outboundPayload
 	control bool
 }
 
@@ -615,7 +617,7 @@ func (c *conn) notifyWrite() {
 	}
 }
 
-func (c *conn) nextQueued() (parser.Payload, bool) {
+func (c *conn) nextQueued() (outboundPayload, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.writeChan) > 0 {
@@ -632,7 +634,7 @@ func (c *conn) nextQueued() (parser.Payload, bool) {
 		}
 		return packet.payload, true
 	}
-	return parser.Payload{}, false
+	return outboundPayload{}, false
 }
 
 func (c *conn) EngineConn() engineio.Conn {
@@ -646,4 +648,10 @@ func (c *conn) Request() *http.Request {
 		return c.request
 	}
 	return nil
+}
+
+// outboundPayload keeps transport flags out of the shared parser codec.
+type outboundPayload struct {
+	parser.Payload
+	noCompress bool
 }

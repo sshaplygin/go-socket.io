@@ -88,6 +88,14 @@ func New(addr string, opts *Options) (*Client, error) {
 	} else {
 		options.Transports = append([]transport.Transport(nil), options.Transports...)
 	}
+	for i, configured := range options.Transports {
+		if t, ok := configured.(*websocket.Transport); ok {
+			copied := *t
+			copied.EnableCompression = options.PerMessageDeflate
+			copied.CompressionThreshold = 1024
+			options.Transports[i] = &copied
+		}
+	}
 	options.Header = options.Header.Clone()
 	query := u.Query()
 	for key, values := range options.Query {

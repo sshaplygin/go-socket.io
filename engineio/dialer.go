@@ -24,6 +24,10 @@ type Dialer struct {
 	// Nonpositive values mean ten seconds; the OPEN heartbeat window clamps it.
 	// A transport's Dial has its own timeout; a late connection is closed.
 	UpgradeTimeout time.Duration
+	// OnPing runs after a PING write on the ping goroutine; OnPong runs on the
+	// NextReader goroutine with the time since that PING. Observers must not block.
+	OnPing func()
+	OnPong func(rtt time.Duration)
 }
 
 // Dial returns a connection which dials to url with requestHeader.
@@ -117,6 +121,8 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 			params:    params,
 			transport: t.Name(),
 			close:     make(chan struct{}),
+			onPing:    d.OnPing,
+			onPong:    d.OnPong,
 		}
 		started := time.Now()
 		ret.initialize()

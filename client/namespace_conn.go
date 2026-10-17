@@ -18,6 +18,8 @@ type Namespace interface {
 	SetContext(ctx interface{})
 
 	Namespace() string
+	// Connected is true from namespace CONNECT until its socket or connection closes.
+	Connected() bool
 	// Emit sends eventName with arguments v to the client. If the last element of v
 	// is a func, it is not sent but registered as the acknowledgement callback: the
 	// client's ACK arguments are decoded into its parameters and it is called on the
@@ -79,6 +81,18 @@ func (nc *namespaceConn) Context() interface{} {
 
 func (nc *namespaceConn) Namespace() string {
 	return nc.namespace
+}
+
+// Connected reports the state of this connection generation's namespace.
+func (nc *namespaceConn) Connected() bool {
+	if m := nc.conn.owner; m != nil {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		s := m.sockets[fmtNS(nc.namespace)]
+		return s != nil && s.nc == nc && s.connected
+	}
+	current, ok := nc.conn.namespaces.Get(fmtNS(nc.namespace))
+	return ok && current == nc && !isDone(nc.conn.closing)
 }
 
 func (nc *namespaceConn) Emit(eventName string, v ...interface{}) {

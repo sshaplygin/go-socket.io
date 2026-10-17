@@ -64,6 +64,36 @@ func (s *Socket) Namespace() string {
 	return s.namespace
 }
 
+// ID is the server-assigned namespace ID, or empty while disconnected.
+func (s *Socket) ID() string {
+	s.state.mu.Lock()
+	defer s.state.mu.Unlock()
+	if s.connected && s.nc != nil {
+		return s.nc.ID()
+	}
+	return ""
+}
+
+// Connected reports whether the server has acknowledged this namespace.
+func (s *Socket) Connected() bool {
+	s.state.mu.Lock()
+	defer s.state.mu.Unlock()
+	return s.connected
+}
+
+// On appends a listener and returns a function removing just that registration.
+func (s *Socket) On(event string, f interface{}) (off func()) {
+	return s.handler.addListener(event, f, false)
+}
+
+// Once appends a listener removed before its first call.
+func (s *Socket) Once(event string, f interface{}) (off func()) {
+	return s.handler.addListener(event, f, true)
+}
+
+// Off removes every listener of event, including the OnEvent registration.
+func (s *Socket) Off(event string) { s.handler.Off(event) }
+
 // Emit queues an event until the namespace CONNECT reply. A full pre-connect
 // buffer drops the event and logs a warning; connected writes use the normal queue.
 func (s *Socket) Emit(event string, args ...interface{}) { s.emit(false, event, args...) }
@@ -220,6 +250,7 @@ func (m *clientState) closeSocket(s *Socket, reason string, closeLast bool, expe
 	}
 	if last && closeLast {
 		m.stopped = true
+		m.cancelRetryLocked()
 		if m.attempt != nil {
 			m.attempt.cancel()
 		}
@@ -246,6 +277,7 @@ func (m *clientState) closeAll() error {
 		return nil
 	}
 	m.stopped, m.closingAll = true, true
+	m.cancelRetryLocked()
 	if m.attempt != nil {
 		m.attempt.cancel()
 	}

@@ -59,6 +59,8 @@ func (nh *namespaceHandler) errorHandler() func(Conn, error) {
 
 type eventListener struct {
 	handler *funcHandler
+	once    bool
+	fired   bool // protected by eventsLock
 }
 
 func (nh *namespaceHandler) OnEvent(event string, f interface{}) {
@@ -66,6 +68,44 @@ func (nh *namespaceHandler) OnEvent(event string, f interface{}) {
 	nh.eventsLock.Lock()
 	defer nh.eventsLock.Unlock()
 	nh.events[event] = []*eventListener{listener}
+}
+
+func (nh *namespaceHandler) addListener(event string, f interface{}, once bool) func() {
+	listener := &eventListener{handler: newEventFunc(f), once: once}
+	nh.eventsLock.Lock()
+	defer nh.eventsLock.Unlock()
+	current := nh.events[event]
+	if len(current) > 0 && !reflect.DeepEqual(current[0].handler.argTypes, listener.handler.argTypes) {
+		panic("event listeners must have identical argument types")
+	}
+	nh.events[event] = append(current, listener)
+	return func() {
+		nh.eventsLock.Lock()
+		defer nh.eventsLock.Unlock()
+		nh.removeListener(event, listener)
+	}
+}
+
+func (nh *namespaceHandler) removeListener(event string, target *eventListener) {
+	current := nh.events[event]
+	for i, listener := range current {
+		if listener == target {
+			next := append([]*eventListener(nil), current[:i]...)
+			next = append(next, current[i+1:]...)
+			if len(next) == 0 {
+				delete(nh.events, event)
+			} else {
+				nh.events[event] = next
+			}
+			return
+		}
+	}
+}
+
+func (nh *namespaceHandler) Off(event string) {
+	nh.eventsLock.Lock()
+	defer nh.eventsLock.Unlock()
+	delete(nh.events, event)
 }
 
 func (nh *namespaceHandler) listeners(event string) []*eventListener {
@@ -110,6 +150,18 @@ func (nh *namespaceHandler) dispatchListeners(conn Conn, event string, snapshot 
 	var result []reflect.Value
 	ownsAck := false
 	for _, listener := range snapshot {
+		if listener.once {
+			// Claim immediately before this callback. Earlier listeners may fail, in
+			// which case later Once listeners remain available for the next event.
+			nh.eventsLock.Lock()
+			if listener.fired {
+				nh.eventsLock.Unlock()
+				continue
+			}
+			listener.fired = true
+			nh.removeListener(event, listener)
+			nh.eventsLock.Unlock()
+		}
 		ownsAck = ownsAck || listener.handler.ack
 		values := make([]reflect.Value, 1, len(args)+2)
 		values[0] = reflect.ValueOf(conn)

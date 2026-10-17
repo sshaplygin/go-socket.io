@@ -18,20 +18,31 @@ type connectAttempt struct {
 func (a *connectAttempt) cancel() { a.once.Do(func() { close(a.stop) }) }
 
 type clientState struct {
-	mu         sync.Mutex
-	client     *Client
-	conn       *conn
-	sockets    map[string]*Socket
-	order      []*Socket
-	attempt    *connectAttempt
-	stopped    bool
-	closingAll bool
-	rootReady  bool
-	buffered   int
+	observersMu sync.RWMutex
+	observers   clientObservers
+	mu          sync.Mutex
+	client      *Client
+	conn        *conn
+	sockets     map[string]*Socket
+	order       []*Socket
+	attempt     *connectAttempt
+	retry       *reconnectRun
+	stopped     bool
+	closingAll  bool
+	rootReady   bool
+	buffered    int
 }
 
 func (m *clientState) connect(c *Client) (result error) {
+	return m.open(c, nil, 0)
+}
+
+func (m *clientState) open(c *Client, retry *reconnectRun, number int) (result error) {
 	m.mu.Lock()
+	if retry != nil && (m.retry != retry || m.stopped) {
+		m.mu.Unlock()
+		return io.ErrClosedPipe
+	}
 	if attempt := m.attempt; attempt != nil {
 		m.mu.Unlock()
 		<-attempt.finished
@@ -41,23 +52,31 @@ func (m *clientState) connect(c *Client) (result error) {
 		m.mu.Unlock()
 		return nil
 	}
+	if retry == nil {
+		m.cancelRetryLocked()
+	}
 	previous := m.conn
 	a := &connectAttempt{stop: make(chan struct{}), finished: make(chan struct{})}
 	m.attempt, m.stopped, m.closingAll = a, false, false
 	// An explicit Connect starts a new lifecycle. A Socket.Close after this
 	// point must remain effective when this attempt's dial eventually returns.
-	for _, socket := range m.order {
-		socket.active = true
+	if retry == nil {
+		for _, socket := range m.order {
+			socket.active = true
+		}
 	}
 	m.mu.Unlock()
-	defer func() {
+	finishAttempt := func() {
 		a.cancel()
 		m.mu.Lock()
-		a.err = result
-		m.attempt = nil
-		close(a.finished)
+		if m.attempt == a {
+			a.err = result
+			m.attempt = nil
+			close(a.finished)
+		}
 		m.mu.Unlock()
-	}()
+	}
+	defer finishAttempt()
 	type dialResult struct {
 		conn engineio.Conn
 		err  error
@@ -109,18 +128,40 @@ func (m *clientState) connect(c *Client) (result error) {
 		if !socket.active {
 			continue
 		}
-		socket.connected, socket.requested = false, true
+		socket.connected, socket.requested = false, false
 		socket.nc, socket.connectPending, socket.connectQueued = nil, false, false
-		if socket.namespace != rootNamespace {
-			current.writeControl(socketConnectHeader(socket))
-		}
 	}
 	m.mu.Unlock()
 	current.connected(nil)
+	// Release callers joining this attempt before invoking a callback that may
+	// itself call Connect or Close. No connection workers have started yet.
+	if retry != nil {
+		finishAttempt()
+		if f := c.observerSnapshot().reconnect; f != nil {
+			f(number)
+		}
+	}
+	m.mu.Lock()
+	if m.conn == current && !m.stopped {
+		for _, socket := range m.order {
+			if !socket.active || socket.requested {
+				continue
+			}
+			socket.requested = true
+			if socket.namespace != rootNamespace {
+				current.writeControl(socketConnectHeader(socket))
+			}
+		}
+	}
+	if retry != nil && m.retry == retry {
+		m.retry = nil
+	}
+	m.mu.Unlock()
 	start := func() {
 		go current.serveError()
 		go current.serveWrite()
 		go current.serveRead(clientConnectPacketHandler, clientDisconnectPacketHandler)
+		go m.connectionEnded(current)
 	}
 	if previous != nil {
 		go func() {

@@ -77,6 +77,12 @@ func (nc *namespaceConn) Namespace() string {
 	return nc.namespace
 }
 
+// Connected reports whether this namespace still belongs to this connection.
+func (nc *namespaceConn) Connected() bool {
+	current, ok := nc.conn.namespaces.Get(fmtNS(nc.namespace))
+	return ok && current == nc && !isDone(nc.conn.closing)
+}
+
 func (nc *namespaceConn) Emit(eventName string, v ...interface{}) { nc.emit(false, eventName, v...) }
 
 func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{}) {

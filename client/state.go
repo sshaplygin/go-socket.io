@@ -44,6 +44,11 @@ func (m *clientState) connect(c *Client) (result error) {
 	previous := m.conn
 	a := &connectAttempt{stop: make(chan struct{}), finished: make(chan struct{})}
 	m.attempt, m.stopped, m.closingAll = a, false, false
+	// An explicit Connect starts a new lifecycle. A Socket.Close after this
+	// point must remain effective when this attempt's dial eventually returns.
+	for _, socket := range m.order {
+		socket.active = true
+	}
 	m.mu.Unlock()
 	defer func() {
 		a.cancel()
@@ -101,7 +106,10 @@ func (m *clientState) connect(c *Client) (result error) {
 	}
 	m.conn, c.conn, m.rootReady = current, current, false
 	for _, socket := range m.order {
-		socket.active, socket.connected, socket.requested = true, false, true
+		if !socket.active {
+			continue
+		}
+		socket.connected, socket.requested = false, true
 		socket.nc, socket.connectPending, socket.connectQueued = nil, false, false
 		if socket.namespace != rootNamespace {
 			current.writeControl(socketConnectHeader(socket))

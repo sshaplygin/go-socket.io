@@ -61,6 +61,62 @@ func TestClientLastSocketCloseCancelsDial(t *testing.T) {
 	}
 }
 
+// A socket removed during opening must not send CONNECT when that same dial ends.
+// Other sockets keep the shared attempt and can exchange events after OPEN.
+// Covers C2
+// Covers C10
+func TestClientClosedSocketSurvivesPendingDial(t *testing.T) {
+	for _, closedNamespace := range []string{"/", "/chat"} {
+		t.Run(closedNamespace, func(t *testing.T) {
+			cl, err := New("http://unused/", &Options{Timeout: -1})
+			require.NoError(t, err)
+			fc := newFakeConn(t)
+			t.Cleanup(func() { _ = cl.Close() })
+			sockets := []*Socket{cl.Socket("/"), cl.Socket("/chat"), cl.Socket("/keep")}
+			connected := make(chan string, 8)
+			for _, socket := range sockets {
+				socket.OnConnect(func(c Conn) error { connected <- c.Namespace(); return nil })
+			}
+			cl.Socket("/keep").OnEvent("echo", func(Conn) string { return "ok" })
+			entered, release := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			defer once.Do(func() { close(release) })
+			cl.dial = func(string) (engineio.Conn, error) { close(entered); <-release; return fc, nil }
+			result := make(chan error, 1)
+			go func() { result <- cl.Connect() }()
+			recv(t, entered, "pending shared dial")
+			require.NoError(t, cl.Socket(closedNamespace).Close())
+			once.Do(func() { close(release) })
+			require.NoError(t, recv(t, result, "remaining sockets open"))
+			closeAtEnd(t, fc, cl.conn)
+			for _, namespace := range []string{"/chat", "/keep"} {
+				if namespace != closedNamespace {
+					require.Equal(t, "0"+namespace+",", recv(t, fc.out, "active namespace CONNECT"))
+				}
+			}
+			fc.reads <- "0"
+			for _, namespace := range []string{"/chat", "/keep"} {
+				if namespace != closedNamespace {
+					fc.reads <- "0" + namespace + ","
+				}
+			}
+			for i := 0; i < 2; i++ {
+				require.NotEqual(t, closedNamespace, recv(t, connected, "remaining OnConnect"))
+			}
+			cl.Socket("/keep").Emit("barrier")
+			require.Equal(t, "2/keep,[\"barrier\"]\n", recv(t, fc.out, "wire barrier after active CONNECTs"))
+			late := "0" + closedNamespace + ","
+			if closedNamespace == "/" {
+				late = "0"
+			}
+			fc.reads <- late
+			fc.reads <- `2/keep,7["echo"]`
+			require.Equal(t, "3/keep,7[\"ok\"]\n", recv(t, fc.out, "read barrier after late reply"))
+			require.Empty(t, connected, "closed socket did not regain its callback")
+		})
+	}
+}
+
 // Covers C4
 func TestClientConcurrentConnectAndRetry(t *testing.T) {
 	cl, err := New("http://unused/", nil)

@@ -29,6 +29,7 @@ var fixture = map[string]string{
 	"parser/helper_test.go":                    "package parser\n\nfunc input() string { return \"abc\" }\n",
 	"adapter/adapter.go":                       "package adapter\n\nfunc Broadcast() int { return 1 }\n",
 	"adapter/adapter_test.go":                  "package adapter\n\nimport \"testing\"\n\nfunc TestBroadcast(t *testing.T) { _ = Broadcast() }\n",
+	"adapter/example_test.go":                  "package adapter\n\nimport \"fmt\"\n\nfunc Example() {\n\tfmt.Println(\"hello\")\n\t// Output:\n\t// hello\n}\n",
 	"internal/conformance/conformance_test.go": "//go:build conformance\n\npackage conformance\n\nimport (\n\t\"testing\"\n\n\tm \"example.com/m\"\n)\n\nfunc TestInterop(t *testing.T) { _ = m.Serve() }\n",
 	"internal/parity/parity_test.go":           "package parity\n\nimport \"testing\"\n\n// Covers B1\nfunc TestB1(t *testing.T) {}\n",
 	"_examples/app/go.mod":                     "module example.com/app\n\ngo 1.22\n",
@@ -149,6 +150,12 @@ func TestClassify(t *testing.T) {
 		}, want: with(map[string]string{
 			"v1": "true", "v1_packages": "./parser", "gates_v1": "true", "bench_v1": "./parser", "changed": "true",
 		})},
+		{name: "expected output of an example", edit: map[string]string{
+			"adapter/example_test.go": "package adapter\n\nimport \"fmt\"\n\nfunc Example() {\n\tfmt.Println(\"hello\")\n\t// Output:\n\t// goodbye\n}\n",
+		}, want: with(map[string]string{"v1": "true", "v1_packages": "./adapter", "gates_v1": "true"})},
+		{name: "comment before an example", edit: map[string]string{
+			"adapter/example_test.go": "package adapter\n\nimport \"fmt\"\n\n// Example prints a greeting.\nfunc Example() {\n\tfmt.Println(\"hello\")\n\t// Output:\n\t// hello\n}\n",
+		}, want: none},
 		{name: "conformance test", edit: map[string]string{
 			"internal/conformance/conformance_test.go": "//go:build conformance\n\npackage conformance\n\nimport (\n\t\"testing\"\n\n\tm \"example.com/m\"\n)\n\nfunc TestInterop(t *testing.T) { _ = m.Serve() + 1 }\n",
 		}, want: with(map[string]string{"gates_v1": "true", "conformance": "true"})},
@@ -187,7 +194,7 @@ func TestClassify(t *testing.T) {
 			want: merge(fullV1, map[string]string{"bench_v1": "./...", "changed": "true"})},
 		{name: "Makefile", edit: map[string]string{"Makefile": "test:\n\tgo test -count=1 ./...\n"},
 			want: merge(fullV1, map[string]string{"sync": "true"})},
-		{name: "deleted package", edit: map[string]string{"adapter/adapter.go": deleted, "adapter/adapter_test.go": deleted},
+		{name: "deleted package", edit: map[string]string{"adapter/adapter.go": deleted, "adapter/adapter_test.go": deleted, "adapter/example_test.go": deleted},
 			want: merge(fullV1, map[string]string{"bench_v1": "./...", "changed": "true"})},
 		{name: "deleted file of a package", edit: map[string]string{"engineio/errors.go": deleted, "v2/engineio/errors.go": deleted, ".github/sync-manifest": "\n"},
 			want: with(map[string]string{

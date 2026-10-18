@@ -1,4 +1,4 @@
-package socketio
+package engineio_test
 
 import (
 	"errors"

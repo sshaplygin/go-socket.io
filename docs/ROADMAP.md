@@ -780,6 +780,44 @@ MV1 acceptance. H is marked done only after that acceptance in a separate review
 This plan-only PR has no changelog entry: this section records it. Its gate is the existing
 work-package section checks, `make lint test`, three independent approvals and normal CI.
 
+**Test ownership cleanup after MV1 acceptance (owner request, 2026-10-18).**
+Tests live beside the implementation they exercise. The repository root is the public
+`socketio` server package, so its Server/namespace/options/factory/lifecycle integration
+tests stay there. Private connection/namespace tests stay with their existing internal
+owners. Client construction and compression belong to `client`; `engineio.Abort` belongs
+to `engineio`. Keep shared fixtures test-only and local to the consuming package.
+
+The Stage 7 extraction left duplicate server/client integration scenarios at both the
+root and `client`. This test-only follow-up removes only those duplicate identities,
+retains every distinct scenario/assertion and documents the old-to-new mapping in its PR:
+
+| Existing identity | Retained owner |
+| --- | --- |
+| Root `TestClientEventAndDisconnect`, `TestClientDecodeErrorReachesOnError`, `TestClientRejectsEmptyAddr` | Existing equivalents in `client`; no second root copy |
+| `client.TestLifecycleRootNamespace`, `TestLifecycleNamespace`, `TestLifecycleRootConnectError`, `TestLifecycleNoRootHandler`, `TestLifecycleHandlerPanicReachesOnError`, `TestLifecycleEventDecodeError`, `TestLifecycleAcks`, `TestLifecycleDisconnectHandlers`, `TestServerRegistrationOrder` | Existing root Server integration tests; preserve the client copy's additional registration `RoomLen` assertion in the root case |
+| Root `TestClientPackageRoundTrip`, `TestClientCompress` | Same names in `client`, using the real public server and preserving the compression recorder/text/binary/negotiation vectors |
+| Root `TestAbortCustomEngineUsesClose` | Same name in `engineio`, retaining custom-engine close/error/Abort fallback assertions |
+
+`TestOptionsReachConnections` remains separate in both roles: its server and client
+configuration/queue assertions are different. Cross-role callback/error identity checks
+remain at the public server entry point. Reorganize client fixtures and lifecycle files
+by responsibility; do not add a shared runtime helper or expose state for tests.
+
+The baseline is accepted master after #133: 494 root-module test/benchmark identities,
+236 Covers markers and 137 parity rows. Twelve duplicate identities map to their
+retained owners, and three identities move; the resulting inventory is 482 identities,
+with all 236 markers and 137 parity rows retained. All runtime/API/dependency/v2 source
+remains byte-identical. Update the Stage 7 focused command to run the moved client
+roundtrip in `./client`; API uncovered stays 0 and the statement floor stays 91.7%.
+Scope is the affected root/client/engineio test files, this owning decision and focused
+command, the layout note in CLAUDE and the root changelog. H remains done and the owner's
+MV1 acceptance remains recorded; this follow-up changes test placement only. Entry is
+#133 merged and the work-package section DoD passing on master. Exit is the same section
+DoD, `make lint test test-race sync-check architecture-check`, strict parity, cover-check,
+both full pinned-client conformance runs, the full MV1 and Stage 7 gates, a source/test
+mapping proof, three independent approvals and every executed final-head CI job
+successful. Release preparation and tagging remain separate owner decisions.
+
 **Entry.** `bash`, from the repository root; `entry <PR>` exits 0 when that PR may start.
 Every check of an arm but its last ends in `|| return 1`, and `entry` runs in a subshell, so
 its result does not rest on `set -e` (which bash ignores inside `if`, `&&` and `||`) and the
@@ -4293,8 +4331,7 @@ with `Emit` to an `OnEvent` handler on each side, a `Send` on one that the serve
 as `message`, `Socket.Close` of one calls its `OnDisconnect` with `io client disconnect`
 and leaves the other; so every method of the `Socket` fence, `Client.Socket` and `New` run
 in a test of V1-10, `Socket.OnError` through the Client's delegating `OnError` in the
-existing root test `TestClientDecodeErrorReachesOnError` (`lifecycle_errors_test.go:247-256`
-at `2667c25`, a file Stage 7 keeps in the root, running through the wrapper), which
+test `client.TestClientDecodeErrorReachesOnError` (`client/lifecycle_test.go`), which
 `make cover-check` counts with `-coverpkg=./...`; `ErrConnectTimeout` is
 `TestClientConnectTimeout`'s),
 `TestClientConnectTimeout` (C4: a server that accepts TCP and never answers; `Connect`
@@ -6332,7 +6369,8 @@ D=$(go list -deps .); test -z "$(printf '%s\n' "$D" | grep -x "$MOD/client")"
 D=$(go list -deps ./parser); test -z "$(printf '%s\n' "$D" | grep -E "^$MOD/(engineio|client|adapter)(/|$)|^$MOD$")"
 test ! -e internal/engineclose; test ! -e engineio/internal/shutdown.go; test ! -e engineio/session
 go test -count=1 -run '^TestRoleConsumerFixtures$' ./internal/parity
-go test -race -count=1 -run '^(TestClientPackageRoundTrip|TestRoleSpecificHandlers|TestClientErrorIdentity|TestEventHandlerRejectsClientConn)$' .
+go test -race -count=1 -run '^(TestRoleSpecificHandlers|TestClientErrorIdentity|TestEventHandlerRejectsClientConn)$' .
+go test -race -count=1 -run '^TestClientPackageRoundTrip$' ./client
 go test -race -count=1 -run '^TestClientRejectsServerConnHandler$' ./client
 PARITY_STRICT=1 make parity-check
 make cover-check

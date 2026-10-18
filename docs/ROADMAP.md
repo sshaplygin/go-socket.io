@@ -572,10 +572,14 @@ MV1 DoD. Removed sync-manifest pairs are listed individually in the PR body as
 Three independent approvals and every executed CI job successful are required to merge
 all steps; the normal three-iteration limit applies. No implementation delegation.
 
-The graph gate reads production `GoFiles.Imports` from `go list -json ./...`, checks the
-package allowlist and transitive edges above, and rejects unexpected runtime packages or
-retired imports. Its tests exercise forbidden server/client, parser/session and Redis
-edges plus an allowed graph; test-only imports remain permitted. Consumer fixtures verify
+The graph gate reads production `Imports` from each package object in the JSON stream
+returned by `go list -json ./...`; `GoFiles` contains filenames, not imports. It excludes
+`TestImports`/`XTestImports`, checks the package allowlist and transitive edges above, and
+rejects unexpected runtime packages or retired imports. Failed listing, malformed or
+empty output and package errors fail the gate. Its tests exercise forbidden server/client,
+parser/session and Redis edges plus an allowed graph; at least one negative fixture runs
+real `go list` with a forbidden production import and must fail. Test-only imports remain
+permitted. Consumer fixtures verify
 role-specific callback/connection types and external memory/Redis factory composition.
 Close/header/heartbeat/upgrade, codec text/binary/UTF-16, ACK, buffering/reconnect, parent
 partial delivery and broadcast-ACK zero-send regressions retain their behavior.

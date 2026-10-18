@@ -25,7 +25,9 @@ type Options struct {
 	Timeout time.Duration
 	// WriteBufferSize bounds queued writes and pre-connect events; nonpositive means 64.
 	WriteBufferSize int
-	Logger          *slog.Logger
+	// CloseTimeout bounds orderly drain; nonpositive means one minute.
+	CloseTimeout time.Duration
+	Logger       *slog.Logger
 	// DisableReconnection disables automatic recovery after an engine failure.
 	DisableReconnection bool
 	// ReconnectionAttempts limits failed retries; zero means unlimited.

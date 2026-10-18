@@ -1,4 +1,4 @@
-package session
+package engineio
 
 import (
 	"errors"
@@ -13,17 +13,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
-
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
-func checkClosed(t *testing.T, s *Session, reason CloseReason, cause error) {
+func checkClosed(t *testing.T, s *session, reason CloseReason, cause error) {
 	t.Helper()
 	for i := 0; i < 2; i++ {
 		_, _, readErr := s.NextReader()
-		_, writeErr := s.NextWriter(TEXT)
+		_, writeErr := s.NextWriter(eioparser.String)
 		for _, err := range []error{readErr, writeErr} {
 			var closed *CloseError
 			require.ErrorAs(t, err, &closed)
@@ -59,16 +58,16 @@ func TestSessionCloseError(t *testing.T) {
 			case ReasonForcedClose:
 				require.NoError(t, s.Close())
 			case ReasonServerShutdown:
-				require.NoError(t, s.Shutdown())
+				require.NoError(t, s.shutdown())
 			case ReasonPingTimeout:
 				// A real transport deadline, rather than a script exhausting its input.
-				accepted := make(chan *Session, 1)
+				accepted := make(chan *session, 1)
 				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					conn, err := websocket.Default.Accept(w, r)
 					if err != nil {
 						return
 					}
-					session, err := New(conn, "timeout", "websocket", eioparser.ConnParameters{PingInterval: 100 * time.Millisecond, PingTimeout: 50 * time.Millisecond}, nil)
+					session, err := newSession(conn, "timeout", "websocket", eioparser.ConnParameters{PingInterval: 100 * time.Millisecond, PingTimeout: 50 * time.Millisecond}, nil)
 					if err != nil {
 						_ = conn.Close()
 						return
@@ -92,7 +91,7 @@ func TestSessionCloseError(t *testing.T) {
 	t.Run("writer failure closes immediately", func(t *testing.T) {
 		cause := errors.New("write reset")
 		s := newTestSession(t, &scriptConn{writerErr: cause}, "polling")
-		_, err := s.NextWriter(TEXT)
+		_, err := s.NextWriter(eioparser.String)
 		var closed *CloseError
 		require.ErrorAs(t, err, &closed)
 		require.ErrorIs(t, err, cause)
@@ -104,7 +103,7 @@ func TestSessionCloseError(t *testing.T) {
 		s := newTestSession(t, fake, "fake")
 		_, r, err := s.NextReader()
 		require.NoError(t, err)
-		w, err := s.NextWriter(TEXT)
+		w, err := s.NextWriter(eioparser.String)
 		require.NoError(t, err)
 		require.NoError(t, s.Close())
 		data, err := io.ReadAll(r)
@@ -122,7 +121,7 @@ func TestSessionWritable(t *testing.T) {
 	t.Run("optional method and open writer", func(t *testing.T) {
 		s := newTestSession(t, &scriptConn{}, "fake")
 		require.True(t, s.Writable())
-		writer, err := s.NextWriter(TEXT)
+		writer, err := s.NextWriter(eioparser.String)
 		require.NoError(t, err)
 		require.False(t, s.Writable())
 		require.NoError(t, writer.Close())
@@ -133,7 +132,7 @@ func TestSessionWritable(t *testing.T) {
 	})
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
-			accepted := make(chan *Session, 1)
+			accepted := make(chan *session, 1)
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				conn, err := tr.Accept(w, r)
 				if err != nil {
@@ -162,7 +161,7 @@ func TestSessionWritable(t *testing.T) {
 				require.NoError(t, err)
 				defer func() { _ = peer.Close() }()
 			}
-			var s *Session
+			var s *session
 			select {
 			case s = <-accepted:
 			case <-time.After(time.Second):
@@ -170,7 +169,7 @@ func TestSessionWritable(t *testing.T) {
 			}
 			defer func() { _ = s.Close() }()
 			require.Eventually(t, s.Writable, time.Second, time.Millisecond)
-			w, err := s.NextWriter(TEXT)
+			w, err := s.NextWriter(eioparser.String)
 			require.NoError(t, err)
 			require.False(t, s.Writable())
 			_, err = w.Write([]byte("hello"))

@@ -14,9 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
-
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -48,7 +47,7 @@ func TestEnginePolling(t *testing.T) {
 
 		ft, r, err := conn.NextReader()
 		must.NoError(err)
-		should.Equal(session.TEXT, ft)
+		should.Equal(eioparser.String, ft)
 
 		b, err := io.ReadAll(r)
 		must.NoError(err)
@@ -56,7 +55,7 @@ func TestEnginePolling(t *testing.T) {
 
 		must.Nil(r.Close())
 
-		w, err := conn.NextWriter(session.BINARY)
+		w, err := conn.NextWriter(eioparser.Binary)
 		must.NoError(err)
 
 		_, err = w.Write([]byte{1, 2, 3, 4})
@@ -64,7 +63,7 @@ func TestEnginePolling(t *testing.T) {
 		must.Nil(w.Close())
 	}()
 
-	dialer := Dialer{
+	dialer := engineclient.Dialer{
 		Transports: []transport.Transport{polling.Default},
 	}
 	header := http.Header{}
@@ -73,7 +72,7 @@ func TestEnginePolling(t *testing.T) {
 	cnt, err := dialer.Dial(httpSvr.URL, header)
 	must.NoError(err)
 
-	w, err := cnt.NextWriter(session.TEXT)
+	w, err := cnt.NextWriter(eioparser.String)
 	must.NoError(err)
 
 	_, err = w.Write([]byte("hello你好"))
@@ -82,7 +81,7 @@ func TestEnginePolling(t *testing.T) {
 
 	ft, r, err := cnt.NextReader()
 	must.NoError(err)
-	should.Equal(session.BINARY, ft)
+	should.Equal(eioparser.Binary, ft)
 
 	b, err := io.ReadAll(r)
 	must.NoError(err)
@@ -131,7 +130,7 @@ func TestEngineWebsocket(t *testing.T) {
 		ft, r, err := conn.NextReader()
 		must.NoError(err)
 
-		should.Equal(session.TEXT, ft)
+		should.Equal(eioparser.String, ft)
 
 		b, err := io.ReadAll(r)
 		must.NoError(err)
@@ -140,7 +139,7 @@ func TestEngineWebsocket(t *testing.T) {
 		err = r.Close()
 		must.NoError(err)
 
-		w, err := conn.NextWriter(session.BINARY)
+		w, err := conn.NextWriter(eioparser.Binary)
 		must.NoError(err)
 
 		_, err = w.Write([]byte{1, 2, 3, 4})
@@ -148,7 +147,7 @@ func TestEngineWebsocket(t *testing.T) {
 		must.Nil(w.Close())
 	}()
 
-	dialer := Dialer{
+	dialer := engineclient.Dialer{
 		Transports: []transport.Transport{websocket.Default},
 	}
 	header := http.Header{}
@@ -163,7 +162,7 @@ func TestEngineWebsocket(t *testing.T) {
 	ur.RawQuery = ""
 	should.Equal(u, ur.String())
 
-	w, err := cnt.NextWriter(session.TEXT)
+	w, err := cnt.NextWriter(eioparser.String)
 	must.NoError(err)
 
 	_, err = w.Write([]byte("hello你好"))
@@ -174,7 +173,7 @@ func TestEngineWebsocket(t *testing.T) {
 
 	ft, r, err := cnt.NextReader()
 	must.NoError(err)
-	should.Equal(session.BINARY, ft)
+	should.Equal(eioparser.Binary, ft)
 
 	b, err := io.ReadAll(r)
 	must.NoError(err)
@@ -235,7 +234,7 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 
 		ft, r, err := conn.NextReader()
 		must.NoError(err)
-		should.Equal(session.TEXT, ft)
+		should.Equal(eioparser.String, ft)
 
 		b, err := io.ReadAll(r)
 		must.NoError(err)
@@ -246,7 +245,7 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 
 		must.NoError(r.Close())
 
-		w, err := conn.NextWriter(session.BINARY)
+		w, err := conn.NextWriter(eioparser.Binary)
 		must.NoError(err)
 
 		_, err = w.Write([]byte{1, 2, 3, 4})
@@ -287,7 +286,7 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 	must.NoError(err)
 	defer func() { _ = p.Close() }()
 
-	params, err := p.(Opener).Open()
+	params, err := p.(engineclient.Opener).Open()
 	must.NoError(err)
 	conn := <-accepted
 	must.Equal(StateOpen, conn.ReadyState())
@@ -410,7 +409,7 @@ func TestEngineRejectsTransportDowngrade(t *testing.T) {
 	must.NoError(err)
 	defer func() { _ = p.Close() }()
 
-	params, err := p.(Opener).Open()
+	params, err := p.(engineclient.Opener).Open()
 	must.NoError(err)
 
 	// Take the session out of the accept queue as the other tests do: it

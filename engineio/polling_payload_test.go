@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 // nodeBinaryPayload splits a binary polling payload the way decodePayloadAsBinary of
@@ -82,7 +82,7 @@ func TestPollingBinaryPayloadNonASCII(t *testing.T) {
 	for _, want := range []string{"€👍a", "ok"} {
 		ft, r, err := conn.NextReader()
 		must.NoError(err)
-		should.Equal(session.TEXT, ft)
+		should.Equal(eioparser.String, ft)
 		b, err := io.ReadAll(r)
 		must.NoError(err)
 		must.NoError(r.Close())
@@ -93,7 +93,7 @@ func TestPollingBinaryPayloadNonASCII(t *testing.T) {
 	// Server to client: the bytes engine.io-parser 2.2.1 produces for the message
 	// "hello 你好" in a binary payload; the length is 13 bytes, not 9 UTF-16 units.
 	go func() {
-		w, err := conn.NextWriter(session.TEXT)
+		w, err := conn.NextWriter(eioparser.String)
 		if err == nil {
 			_, _ = w.Write([]byte("hello 你好"))
 			_ = w.Close()

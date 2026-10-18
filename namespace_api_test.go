@@ -2,7 +2,6 @@ package socketio
 
 import (
 	"errors"
-	gorilla "github.com/gorilla/websocket"
 	"reflect"
 	"strings"
 	"sync"
@@ -10,9 +9,11 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
-	"github.com/sshaplygin/go-socket.io/parser"
+	gorilla "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
+
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 // Covers S8
@@ -279,7 +280,7 @@ func TestEventMiddleware(t *testing.T) {
 	require.Equal(t, []interface{}{"unknown", float64(42), "generic"}, recv(t, seen, "generic middleware"))
 	require.Equal(t, "unknown", recv(t, second, "second middleware"))
 	c.send(`51-["unknown-binary",{"_placeholder":true,"num":0}]`)
-	w, err := c.conn.NextWriter(session.BINARY)
+	w, err := c.conn.NextWriter(eioparser.Binary)
 	require.NoError(t, err)
 	_, err = w.Write([]byte{1, 2, 3})
 	require.NoError(t, err)

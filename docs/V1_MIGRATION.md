@@ -60,3 +60,70 @@ body read error releases the source immediately, including a read that returns d
 and an error together; normal packet EOF remains successful. Acquisition
 failures may be retried because they did not acquire a payload. The codecs own framing; polling owns HTTP requests,
 concurrency, deadlines and pause/resume. Use godoc for the complete streaming contract.
+
+## Server and client roles
+
+| Old import/API | Current import/API |
+| --- | --- |
+| Root `Client`, `NewClient`, `ErrEmptyAddr`, `EmptyAddrErr` | `client.Client`, `client.New`, `client.ErrEmptyAddr` |
+| `client.NewClient(addr, *engineio.Options)` | `client.New(addr, *client.Options)` |
+| Root connection type/error aliases | Server types/errors belong to `socketio`; client types/errors belong to `client` |
+| `engineio.Dialer`, `engineio.Opener` | `engineio/client.Dialer`, `engineio/client.Opener` |
+| `session.ReadyState`, `CloseReason`, `CloseError` | Server contracts in `engineio`; client contracts in `engineio/client` |
+| `session.FrameType`, `TEXT`, `BINARY` | Engine frame APIs use `engineio/parser.FrameType`, `String`, `Binary`; Socket.IO codec APIs use `parser.FrameType`, `Text`, `Binary` |
+| Public `session.New`/`Session`/`Manager` | Server-owned private session/registry; obtain connections through `engineio.Server.Accept`, inspect them through `Clients`/`Count` |
+| `session.IDGenerator`, `DefaultIDGenerator` | Same names in `engineio` |
+| `session.Pauser` | `engineio/transport.Pauser` |
+| Session hook/limit/request setters | `engineio.Options.Hooks`, `MaxHTTPBufferSize`, `UpgradeTimeout`; `ConnInitor` receives the handshake request and connection |
+| Concrete session `Abort` | `engineio.Abort(conn)`; custom engines receive ordinary `Close` |
+| Concrete session `Shutdown` | Shutdown belongs to `engineio.Server.Close` |
+
+Use `socketio.Conn` in server handlers and `client.Conn` in client handlers. The same
+rule applies to `Namespace`, `Emitter`, `AckFunc` and `Handshake`. Their identities are
+independent; callbacks using the other role's `Conn` no longer type-check on typed
+registrations and are rejected at event registration. `ErrWriteBufferFull` has a separate
+identity in each role: use the error of that role with `errors.Is`. `ErrServerOnly` belongs
+to the client. Client `EngineConn` and `Request` still return nil, and `Handshake` still
+returns its zero value. Room, ACK, buffering and reconnect behavior stays the same.
+
+Server `engineio.Conn` and client `engineio/client.Conn` have separate state/error types.
+Use the matching role's constants and `CloseError` with `errors.As`. Both use common
+Engine.IO frame types. Socket.IO parser implementations use their own frame types;
+convert explicitly to/from `engineio/parser.FrameType` at a transport boundary. The
+library's server and client perform these conversions internally.
+
+`socketio.NewServer` now accepts `*socketio.Options`. Move old Engine.IO settings into
+its `Engine` field. Move the Socket.IO queue size to `WriteBufferSize` and explicitly
+set `CloseTimeout` when the old `PingTimeout` also configured drain duration. Engine.IO
+heartbeat `PingTimeout` is independent of the Socket.IO drain bound. Client queue/drain
+settings belong to `client.Options`; its transport, header, reconnect and logger settings
+also remain there. Nonpositive queue/drain values still mean 64 packets and one minute.
+
+```go
+server := socketio.NewServer(&socketio.Options{
+    Engine: &engineio.Options{
+        PingInterval: 25 * time.Second,
+        PingTimeout: 20 * time.Second,
+    },
+    WriteBufferSize: 64,
+    CloseTimeout: time.Minute,
+})
+server.OnConnect("/", func(c socketio.Conn) error {
+    c.Join("lobby")
+    return nil
+})
+
+cl, err := client.New("http://127.0.0.1:8000", &client.Options{
+    WriteBufferSize: 64,
+    CloseTimeout: time.Minute,
+})
+if err != nil {
+    return err
+}
+cl.OnConnect(func(c client.Conn) error { return nil })
+```
+
+`engineio.Conn.Close` remains orderly; `engineio.Abort` is immediate. `Server.Remove`
+remains a registry operation and does not close its transport. Private session state
+is not an application entry point. Configure public server hooks before accepting
+connections, and retain request metadata in `ConnInitor` when needed.

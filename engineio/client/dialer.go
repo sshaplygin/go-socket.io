@@ -1,4 +1,4 @@
-package engineio
+package client
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
-// Dialer is dialer configure.
+// Dialer configures Engine.IO client dialing and optional transport upgrades.
 type Dialer struct {
 	Transports []transport.Transport
 	// Upgrade opens the first transport and probes advertised later transports

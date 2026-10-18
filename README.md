@@ -79,11 +79,12 @@ Runnable examples for gin, echo, iris, gf, CORS, Redis and graceful shutdown are
 
 The Go client is available in
 [`github.com/sshaplygin/go-socket.io/client`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/client);
-see the [client example](_examples/client/main.go). The root `NewClient` is
-deprecated.
+see the [client example](_examples/client/main.go). Server and client use separate
+connection types and constructors.
 
 Existing v1 applications, custom adapters and mocks should read the
-[Unreleased migration notes](CHANGELOG.md#changed) before upgrading: public
+[v1 component migration guide](docs/V1_MIGRATION.md) and
+[Unreleased behavior changes](CHANGELOG.md#changed) before upgrading: public
 interfaces gained methods, and heartbeat, namespace identity, disconnect, CORS,
 polling compression and cookie defaults changed.
 

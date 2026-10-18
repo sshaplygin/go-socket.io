@@ -3,8 +3,9 @@ package client
 import (
 	"testing"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/stretchr/testify/require"
+
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 )
 
 // A server DISCONNECT invalidates cached root state even before Socket("/") exists.
@@ -14,7 +15,7 @@ func TestClientLateRootAfterServerDisconnect(t *testing.T) {
 	cl, err := New("http://unused/chat", nil)
 	require.NoError(t, err)
 	fc := newFakeConn(t)
-	cl.dial = func(string) (engineio.Conn, error) { return fc, nil }
+	cl.dial = func(string) (engineclient.Conn, error) { return fc, nil }
 	ready := make(chan struct{}, 1)
 	cl.OnConnect(func(Conn) error { ready <- struct{}{}; return nil })
 	cl.OnEvent("barrier", func(Conn) string { return "ok" })
@@ -60,7 +61,7 @@ func TestClientOldDisconnectCannotCloseNewSockets(t *testing.T) {
 			defer close(p.fc.release)
 			require.NoError(t, p.cl.Close())
 			next := newFakeConn(t)
-			p.cl.dial = func(string) (engineio.Conn, error) { return next, nil }
+			p.cl.dial = func(string) (engineclient.Conn, error) { return next, nil }
 			p.cl.OnConnect(func(c Conn) error { c.Emit("new root"); return nil })
 			require.NoError(t, p.cl.Connect())
 			closeAtEnd(t, next, p.conn())

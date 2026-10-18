@@ -3,7 +3,6 @@ package socketio
 import (
 	"errors"
 	"fmt"
-	"github.com/sshaplygin/go-socket.io/client"
 )
 
 // connect errors.
@@ -25,13 +24,13 @@ var (
 
 // ErrWriteBufferFull is reported once, to OnError of the packet's namespace and unordered with
 // OnDisconnect, when an Emit or a packet the library queues (an ACK or CONNECT reply) finds the
-// outbound queue (engineio.Options.WriteBufferSize) full before any close started; a packet being
+// outbound queue (Options.WriteBufferSize) full before any close started; a packet being
 // written does not count. Emit never blocks: that packet and every later one are dropped and the
 // connection is closed without draining. An overflow in root OnConnect fails the connect and is
 // reported with a nil Conn. Packets queued faster than they are written can close a healthy client:
 // polling writes one engine.io frame per round trip, and a packet with k binary attachments takes k+1
 // frames.
-var ErrWriteBufferFull = client.ErrWriteBufferFull
+var ErrWriteBufferFull = errors.New("write buffer full")
 
 // ErrExceptUnsupported means the adapter cannot exclude sockets. Nothing is sent.
 var ErrExceptUnsupported = errors.New("socketio: broadcast except is not supported by this adapter")
@@ -40,8 +39,7 @@ var ErrExceptUnsupported = errors.New("socketio: broadcast except is not support
 // Only single-socket emits and the legacy broadcast methods support callbacks.
 var ErrBroadcastAck = errors.New("socketio: callbacks are not supported when broadcasting")
 
-// ErrServerOnly means a client connection cannot perform a server broadcast.
-var ErrServerOnly = client.ErrServerOnly
+var errServerOnly = errors.New("socketio: server-only method on a client connection")
 
 type errorMessage struct {
 	namespace string

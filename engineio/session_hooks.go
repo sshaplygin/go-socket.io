@@ -7,41 +7,39 @@ import (
 	"sync"
 
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
-
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
-func (s *Server) installHooks(c *session.Session, request *http.Request, initial bool) {
+func (s *Server) installHooks(c *session, request *http.Request, initial bool) {
 	h := s.hooks
 	if h == nil {
 		return
 	}
-	sh := &session.Hooks{}
+	sh := &sessionHooks{}
 	if h.Packet != nil {
-		sh.Packet = func(c *session.Session, pt eioparser.PacketType, ft eioparser.FrameType) { h.Packet(c, pt, ft) }
+		sh.Packet = func(c *session, pt eioparser.PacketType, ft eioparser.FrameType) { h.Packet(c, pt, ft) }
 	}
 	if h.PacketCreate != nil {
-		sh.PacketCreate = func(c *session.Session, pt eioparser.PacketType, ft eioparser.FrameType) { h.PacketCreate(c, pt, ft) }
+		sh.PacketCreate = func(c *session, pt eioparser.PacketType, ft eioparser.FrameType) { h.PacketCreate(c, pt, ft) }
 	}
 	if h.Heartbeat != nil {
-		sh.Heartbeat = func(c *session.Session) { h.Heartbeat(c) }
+		sh.Heartbeat = func(c *session) { h.Heartbeat(c) }
 	}
 	if h.Upgrading != nil {
-		sh.Upgrading = func(c *session.Session, tr string) { h.Upgrading(c, tr) }
+		sh.Upgrading = func(c *session, tr string) { h.Upgrading(c, tr) }
 	}
 	if h.Upgrade != nil {
-		sh.Upgrade = func(c *session.Session, tr string) { h.Upgrade(c, tr) }
+		sh.Upgrade = func(c *session, tr string) { h.Upgrade(c, tr) }
 	}
 	if h.Flush != nil {
-		sh.Flush = func(c *session.Session) { h.Flush(c) }
+		sh.Flush = func(c *session) { h.Flush(c) }
 	}
 	if h.Drain != nil {
-		sh.Drain = func(c *session.Session) { h.Drain(c) }
+		sh.Drain = func(c *session) { h.Drain(c) }
 	}
 	if h.Error != nil {
-		sh.Error = func(c *session.Session, err error) { h.Error(c, err) }
+		sh.Error = func(c *session, err error) { h.Error(c, err) }
 	}
 	var once sync.Once
 	sh.Headers = func(r *http.Request, headers http.Header) {
@@ -56,7 +54,7 @@ func (s *Server) installHooks(c *session.Session, request *http.Request, initial
 			h.Headers(r, headers)
 		}
 	}
-	c.SetHooks(sh)
+	c.setHooks(sh)
 }
 
 func (s *Server) websocketHeaders(w http.ResponseWriter, r *http.Request, initial bool) http.ResponseWriter {
@@ -129,4 +127,31 @@ func (s *Server) errorCORSHeaders(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 	}
+}
+
+// sessionHooks is the private session half of public Hooks: NewServer
+// wraps each set field of engineio.Options.sessionHooks into the field of the same name. A nil
+// field is ignored. Plumbing for the engine server, not user API.
+type sessionHooks struct {
+	// Headers observes a session response after the transport prepares its headers
+	// and before they are written. The engine server installs it before startup;
+	// nil leaves an already installed response observer unchanged.
+	Headers      func(r *http.Request, h http.Header)
+	Packet       func(s *session, pt eioparser.PacketType, ft eioparser.FrameType)
+	PacketCreate func(s *session, pt eioparser.PacketType, ft eioparser.FrameType)
+	Heartbeat    func(s *session)
+	Upgrading    func(s *session, transport string)
+	Upgrade      func(s *session, transport string)
+	Flush        func(s *session)
+	Drain        func(s *session)
+	Error        func(s *session, err error)
+}
+
+// setHooks installs h; the engine server calls it after newSession and before initSession,
+// on the goroutine that created the session, so every event of the session is observed.
+func (s *session) setHooks(h *sessionHooks) {
+	if h != nil && h.Headers != nil {
+		s.headers = h.Headers
+	}
+	s.hooks = h
 }

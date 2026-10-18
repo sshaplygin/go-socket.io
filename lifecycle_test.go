@@ -8,8 +8,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	client "github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 )
@@ -36,7 +38,7 @@ func TestLifecycleRootNamespace(t *testing.T) { lifecycleRootNamespace(t, nil) }
 // lifecycleRootNamespace runs the TestLifecycleRootNamespace scenario on NewServer(opts)
 // and returns the session's ID.
 func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
-	srv := NewServer(opts)
+	srv := NewServer(&Options{Engine: opts})
 	connected := make(chan Conn, 1)
 	disconnected := make(chan string, 1)
 	srv.OnConnect("/", func(s Conn) error {
@@ -54,11 +56,11 @@ func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
-	cl, err := NewClient(ts.URL, nil)
+	cl, err := client.New(ts.URL, nil)
 	require.NoError(t, err)
 	news := make(chan string, 8)
-	cl.OnConnect(func(Conn) error { return nil })
-	cl.OnEvent("news", func(_ Conn, msg string) { news <- msg })
+	cl.OnConnect(func(client.Conn) error { return nil })
+	cl.OnEvent("news", func(_ client.Conn, msg string) { news <- msg })
 	require.NoError(t, cl.Connect())
 	defer func() { _ = cl.Close() }()
 
@@ -120,12 +122,17 @@ func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
 // rawClient is an engine.io connection that speaks socket.io packets as text.
 type rawClient struct {
 	t    *testing.T
-	conn engineio.Conn
+	conn interface {
+		NextReader() (eioparser.FrameType, io.ReadCloser, error)
+		NextWriter(eioparser.FrameType) (io.WriteCloser, error)
+		Close() error
+		ID() string
+	}
 }
 
 func dialRaw(t *testing.T, url string) *rawClient {
 	t.Helper()
-	d := engineio.Dialer{Transports: []transport.Transport{polling.Default}}
+	d := engineclient.Dialer{Transports: []transport.Transport{polling.Default}}
 	conn, err := d.Dial(url, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
@@ -134,7 +141,7 @@ func dialRaw(t *testing.T, url string) *rawClient {
 
 func (c *rawClient) send(pkt string) {
 	c.t.Helper()
-	w, err := c.conn.NextWriter(session.TEXT)
+	w, err := c.conn.NextWriter(eioparser.String)
 	require.NoError(c.t, err)
 	_, err = w.Write([]byte(pkt))
 	require.NoError(c.t, err)
@@ -163,7 +170,7 @@ func (c *rawClient) read() string {
 func TestLifecycleNamespace(t *testing.T) {
 	// The engine.io client sends no CLOSE packet, so the server holds its
 	// last long poll until pingTimeout; keep that short for teardown.
-	srv := NewServer(shortPingOptions())
+	srv := NewServer(&Options{Engine: shortPingOptions()})
 	nspConnected := make(chan string, 1)
 	nspDisconnected := make(chan string, 1)
 	srv.OnConnect("/", func(Conn) error { return nil })

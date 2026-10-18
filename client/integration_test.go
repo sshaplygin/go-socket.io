@@ -4,16 +4,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/stretchr/testify/require"
+
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 )
 
-func connWithOptions(t *testing.T, side byte, opts *engineio.Options) *conn {
+func connWithOptions(t *testing.T, side byte, opts *Options) *conn {
 	t.Helper()
 	fc := newFakeConn(t)
-	cl, err := NewClient("http://127.0.0.1/", opts)
+	cl, err := New("http://127.0.0.1/", opts)
 	require.NoError(t, err)
-	cl.dial = func(string) (engineio.Conn, error) { return fc, nil }
+	cl.dial = func(string) (engineclient.Conn, error) { return fc, nil }
 	cl.OnConnect(func(Conn) error { return nil })
 	require.NoError(t, cl.Connect())
 	closeAtEnd(t, fc, cl.conn)
@@ -21,8 +22,8 @@ func connWithOptions(t *testing.T, side byte, opts *engineio.Options) *conn {
 }
 
 // TestOptionsReachConnections checks the queue size and drain deadline each connection
-// stores. Engine.io sessions with a negative PingTimeout expire at once, and on a live
-// session the write deadline equals PingTimeout, so the stored values are what is checked.
+// stores. Engine.io sessions with a negative CloseTimeout expire at once, and on a live
+// session the write deadline equals CloseTimeout, so the stored values are what is checked.
 //
 // Covers 1I-T2 (C).
 // Covers 1I-T3 (C).
@@ -32,14 +33,15 @@ func connWithOptions(t *testing.T, side byte, opts *engineio.Options) *conn {
 func TestOptionsReachConnections(t *testing.T) {
 	cases := []struct {
 		name  string
-		opts  *engineio.Options
+		opts  *Options
 		size  int
 		drain time.Duration
 	}{
 		{"nil options", nil, 64, time.Minute},
-		{"zero", &engineio.Options{}, 64, time.Minute},
-		{"negative", &engineio.Options{WriteBufferSize: -1, PingTimeout: -time.Second}, 64, time.Minute},
-		{"custom", &engineio.Options{WriteBufferSize: 5, PingTimeout: 3 * time.Second}, 5, 3 * time.Second},
+		{"zero", &Options{}, 64, time.Minute},
+		{"dial timeout only", &Options{Timeout: 3 * time.Second}, 64, time.Minute},
+		{"negative", &Options{WriteBufferSize: -1, CloseTimeout: -time.Second}, 64, time.Minute},
+		{"custom", &Options{WriteBufferSize: 5, CloseTimeout: 3 * time.Second}, 5, 3 * time.Second},
 	}
 	sides(t, "C", func(t *testing.T, side byte) {
 		for _, tc := range cases {

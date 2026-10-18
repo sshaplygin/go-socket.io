@@ -6,9 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
-	"github.com/stretchr/testify/require"
 )
 
 func TestDialedClientContextIsLocal(t *testing.T) {
@@ -27,7 +29,7 @@ func TestDialedClientContextIsLocal(t *testing.T) {
 		}
 		accepted <- c
 	}()
-	dialer := Dialer{Transports: []transport.Transport{websocket.Default}}
+	dialer := engineclient.Dialer{Transports: []transport.Transport{websocket.Default}}
 	c, err := dialer.Dial(httpServer.URL, nil)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, c.Close()) }()

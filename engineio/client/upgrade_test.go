@@ -1,4 +1,4 @@
-package engineio
+package client
 
 import (
 	"errors"
@@ -18,9 +18,8 @@ import (
 	gorilla "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sshaplygin/go-socket.io/engineio"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
-
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -81,7 +80,7 @@ func TestClientAcquiredFrameFailure(t *testing.T) {
 			}
 			var err error
 			if strings.HasPrefix(operation, "write") {
-				writer, openErr := c.NextWriter(session.TEXT)
+				writer, openErr := c.NextWriter(eioparser.String)
 				require.NoError(t, openErr)
 				if operation == "write" {
 					n, writeErr := writer.Write([]byte("partial frame"))
@@ -108,16 +107,16 @@ func TestClientAcquiredFrameFailure(t *testing.T) {
 			}
 			require.NoError(t, c.Close())
 			_, _, err = c.NextReader()
-			var closed *session.CloseError
+			var closed *CloseError
 			require.ErrorAs(t, err, &closed)
 			switch operation {
 			case "frame-eof":
-				require.Equal(t, session.ReasonForcedClose, closed.Reason)
+				require.Equal(t, ReasonForcedClose, closed.Reason)
 			case "timeout":
-				require.Equal(t, session.ReasonPingTimeout, closed.Reason)
+				require.Equal(t, ReasonPingTimeout, closed.Reason)
 				require.Nil(t, closed.Err)
 			default:
-				require.Equal(t, session.ReasonTransportError, closed.Reason)
+				require.Equal(t, ReasonTransportError, closed.Reason)
 				require.ErrorIs(t, closed, injected)
 			}
 		})
@@ -232,7 +231,7 @@ func TestClientUpgradeTransportErrors(t *testing.T) {
 		t.Run(phase, func(t *testing.T) {
 			records := newRecorder()
 			setDefault(t, records)
-			srv := NewServer(&Options{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+			srv := engineio.NewServer(&engineio.Options{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 			ts := httptest.NewServer(srv)
 			var c Conn
 			t.Cleanup(func() {
@@ -256,9 +255,9 @@ func TestClientUpgradeTransportErrors(t *testing.T) {
 			if strings.HasPrefix(phase, "upgrade-") {
 				select {
 				case result := <-clientRead:
-					var closed *session.CloseError
+					var closed *CloseError
 					require.ErrorAs(t, result.err, &closed)
-					require.Equal(t, session.ReasonTransportError, closed.Reason)
+					require.Equal(t, ReasonTransportError, closed.Reason)
 					require.ErrorIs(t, closed, injected)
 				case <-time.After(time.Second):
 					t.Fatal("failed UPGRADE did not close the client")
@@ -293,7 +292,7 @@ type clientUpgradeFrames struct {
 	err    error
 }
 
-func clientUpgradeRead(conn Conn, firstTen func()) <-chan clientUpgradeFrames {
+func clientUpgradeRead(conn upgradeMessageConn, firstTen func()) <-chan clientUpgradeFrames {
 	result := make(chan clientUpgradeFrames, 1)
 	go func() {
 		var frames clientUpgradeFrames
@@ -322,7 +321,7 @@ func clientUpgradeRead(conn Conn, firstTen func()) <-chan clientUpgradeFrames {
 	return result
 }
 
-func clientUpgradeWrite(conn Conn, switched func() bool) <-chan error {
+func clientUpgradeWrite(conn upgradeMessageConn, switched func() bool) <-chan error {
 	result := make(chan error, 1)
 	go func() {
 		deadline := time.Now().Add(5 * time.Second)
@@ -336,7 +335,7 @@ func clientUpgradeWrite(conn Conn, switched func() bool) <-chan error {
 			if after == 10 {
 				value = "end"
 			}
-			writer, err := conn.NextWriter(session.TEXT)
+			writer, err := conn.NextWriter(eioparser.String)
 			if err == nil {
 				_, err = io.WriteString(writer, value)
 				closeErr := writer.Close()
@@ -358,7 +357,7 @@ func clientUpgradeWrite(conn Conn, switched func() bool) <-chan error {
 
 // Covers C5
 func TestClientUpgradeOrder(t *testing.T) {
-	s := NewServer(nil)
+	s := engineio.NewServer(nil)
 	firstTen := make(chan struct{})
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(firstTen) }) }
@@ -419,8 +418,8 @@ func TestClientUpgradeOrder(t *testing.T) {
 	require.Equal(t, "websocket", serverConn.Transport())
 }
 
-func clientUpgradeMessage(conn Conn, value string) error {
-	w, err := conn.NextWriter(session.TEXT)
+func clientUpgradeMessage(conn upgradeMessageConn, value string) error {
+	w, err := conn.NextWriter(eioparser.String)
 	if err != nil {
 		return err
 	}
@@ -438,11 +437,11 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			clientRecords, serverRecords := newRecorder(), newRecorder()
 			setDefault(t, clientRecords)
-			opts := &Options{Logger: slog.New(serverRecords)}
+			opts := &engineio.Options{Logger: slog.New(serverRecords)}
 			if name == "clamped" {
 				opts.PingInterval, opts.PingTimeout = 100*time.Millisecond, 100*time.Millisecond
 			}
-			s := NewServer(opts)
+			s := engineio.NewServer(opts)
 			ready, stop := make(chan struct{}), make(chan struct{})
 			var readyOnce sync.Once
 			release := func() { readyOnce.Do(func() { close(ready) }) }
@@ -636,10 +635,16 @@ func TestClientUpgradeDeadline(t *testing.T) {
 	require.Eventually(t, cl.Upgraded, time.Second, time.Millisecond)
 	select {
 	case result := <-read:
-		var closed *session.CloseError
+		var closed *CloseError
 		require.True(t, errors.As(result.err, &closed), "%v", result.err)
-		require.Equal(t, session.ReasonPingTimeout, closed.Reason)
+		require.Equal(t, ReasonPingTimeout, closed.Reason)
 	case <-time.After(2 * time.Second):
 		t.Fatal("the upgraded reader has no heartbeat deadline")
 	}
+}
+
+type upgradeMessageConn interface {
+	Transport() string
+	NextReader() (eioparser.FrameType, io.ReadCloser, error)
+	NextWriter(eioparser.FrameType) (io.WriteCloser, error)
 }

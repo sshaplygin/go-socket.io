@@ -10,10 +10,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
-
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
-	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
@@ -23,7 +22,7 @@ func TestEngineClients(t *testing.T) {
 	s := NewServer(nil)
 	ts := httptest.NewServer(s)
 	t.Cleanup(func() { _ = s.Close(); ts.Close() })
-	d := Dialer{Transports: []transport.Transport{websocket.Default}}
+	d := engineclient.Dialer{Transports: []transport.Transport{websocket.Default}}
 	a, err := d.Dial(ts.URL, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = a.Close() })
@@ -99,25 +98,3 @@ func (c *stateCloseConn) NextWriter(eioparser.FrameType, eioparser.PacketType) (
 type stateWriter struct{ io.Writer }
 
 func (stateWriter) Close() error { return nil }
-
-// Covers E20
-func TestEngineClientState(t *testing.T) {
-	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
-		t.Run(tr.Name(), func(t *testing.T) {
-			s := NewServer(nil)
-			ts := httptest.NewServer(s)
-			t.Cleanup(func() { _ = s.Close(); ts.Close() })
-			c, err := (&Dialer{Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
-			require.NoError(t, err)
-			require.Equal(t, StateOpen, c.ReadyState())
-			require.Equal(t, tr.Name(), c.Transport())
-			require.False(t, c.Upgraded())
-			require.NoError(t, c.Close())
-			require.Equal(t, StateClosed, c.ReadyState())
-		})
-	}
-	c := &client{conn: &brokenConn{}, close: make(chan struct{}), params: eioparser.ConnParameters{PingInterval: time.Millisecond}}
-	require.Equal(t, StateOpen, c.ReadyState())
-	c.serve()
-	require.Equal(t, StateClosed, c.ReadyState(), "ping-loop exit closes the client state")
-}

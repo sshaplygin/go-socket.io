@@ -1,4 +1,4 @@
-package engineio
+package client
 
 import (
 	"context"
@@ -15,8 +15,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
-
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/logger"
@@ -41,7 +39,7 @@ type client struct {
 	upgraded      bool
 	upgrading     bool
 	probe         transport.Conn
-	cause         *session.CloseError
+	cause         *CloseError
 	readDeadline  time.Time
 	writeDeadline time.Time
 	lastPing      time.Time
@@ -100,16 +98,16 @@ func (c *client) Upgraded() bool {
 }
 
 func (c *client) Close() error {
-	return c.terminate(session.ReasonForcedClose, nil)
+	return c.terminate(ReasonForcedClose, nil)
 }
 
-func (c *client) terminate(reason session.CloseReason, err error) error {
+func (c *client) terminate(reason CloseReason, err error) error {
 	c.initialize()
 	var result error
 	c.closeOnce.Do(func() {
 		c.mu.Lock()
 		if c.cause == nil {
-			c.cause = &session.CloseError{Reason: reason, Err: err}
+			c.cause = &CloseError{Reason: reason, Err: err}
 		}
 		conn, probe := c.conn, c.probe
 		close(c.close)
@@ -142,22 +140,22 @@ func (c *client) failure(err error) error {
 	read, write := c.readDeadline, c.writeDeadline
 	c.mu.RUnlock()
 	now := time.Now()
-	reason := session.ReasonTransportError
+	reason := ReasonTransportError
 	if c.params.PingInterval+c.params.PingTimeout > 0 &&
 		(!read.IsZero() && !now.Before(read) || !write.IsZero() && !now.Before(write)) {
-		reason, err = session.ReasonPingTimeout, nil
+		reason, err = ReasonPingTimeout, nil
 	}
 	// Keep the dialer's existing ping-loop lifecycle: a reader reports the first
 	// cause immediately, while Close or the failed ping ends the engine client.
 	c.mu.Lock()
 	if c.cause == nil {
-		c.cause = &session.CloseError{Reason: reason, Err: err}
+		c.cause = &CloseError{Reason: reason, Err: err}
 	}
 	c.mu.Unlock()
 	return c.closeError()
 }
 
-func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
+func (c *client) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 	c.initialize()
 	for {
 		select {
@@ -193,14 +191,14 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 			if err = r.Close(); err != nil {
 				return 0, nil, c.failure(err)
 			}
-			if err = c.terminate(session.ReasonTransportClose, io.EOF); err != nil {
+			if err = c.terminate(ReasonTransportClose, io.EOF); err != nil {
 				logger.Log.Debug("engineio: close connection failed", "err", err)
 			}
 
 			return 0, nil, c.closeError()
 
 		case eioparser.MESSAGE:
-			return session.FrameType(ft), &clientReader{ReadCloser: r, c: c}, nil
+			return eioparser.FrameType(ft), &clientReader{ReadCloser: r, c: c}, nil
 		}
 
 		// Transports keep a read failure, so the next NextReader returns it: DEBUG.
@@ -210,12 +208,12 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 	}
 }
 
-func (c *client) NextWriter(typ session.FrameType) (io.WriteCloser, error) {
+func (c *client) NextWriter(typ eioparser.FrameType) (io.WriteCloser, error) {
 	return c.NextWriterCompress(typ, true)
 }
 
 // NextWriterCompress writes a MESSAGE with its per-packet compression preference.
-func (c *client) NextWriterCompress(typ session.FrameType, compress bool) (io.WriteCloser, error) {
+func (c *client) NextWriterCompress(typ eioparser.FrameType, compress bool) (io.WriteCloser, error) {
 	if err := c.acquireWrite(nil); err != nil {
 		return nil, err
 	}
@@ -485,7 +483,7 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 			_ = conn.Close()
 		}
 		if committing {
-			_ = c.terminate(session.ReasonTransportError, err)
+			_ = c.terminate(ReasonTransportError, err)
 		}
 	}
 	go func() {
@@ -653,16 +651,16 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 		err = w.Close()
 	}
 	if err != nil {
-		_ = c.terminate(session.ReasonTransportError, err)
+		_ = c.terminate(ReasonTransportError, err)
 		return err
 	}
 	nextDeadline := time.Now().Add(c.params.PingInterval + c.params.PingTimeout)
 	if err := probe.SetReadDeadline(nextDeadline); err != nil {
-		_ = c.terminate(session.ReasonTransportError, err)
+		_ = c.terminate(ReasonTransportError, err)
 		return err
 	}
 	if err := probe.SetWriteDeadline(nextDeadline); err != nil {
-		_ = c.terminate(session.ReasonTransportError, err)
+		_ = c.terminate(ReasonTransportError, err)
 		return err
 	}
 	p.mu.Lock()

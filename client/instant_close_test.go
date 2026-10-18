@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/stretchr/testify/require"
+
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 type instantCloseClientConn struct {
@@ -17,9 +18,9 @@ type instantCloseClientConn struct {
 	once        sync.Once
 }
 
-func (c *instantCloseClientConn) NextReader() (session.FrameType, io.ReadCloser, error) {
+func (c *instantCloseClientConn) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 	c.once.Do(func() { close(c.readEntered) })
-	return session.TEXT, nil, io.EOF
+	return eioparser.String, nil, io.EOF
 }
 
 // Covers C3
@@ -31,7 +32,7 @@ func TestClientWorkersWaitForConnectAttempt(t *testing.T) {
 	dialEntered, dialRelease := make(chan struct{}), make(chan struct{})
 	var dialOnce sync.Once
 	defer dialOnce.Do(func() { close(dialRelease) })
-	cl.dial = func(string) (engineio.Conn, error) { close(dialEntered); <-dialRelease; return fc, nil }
+	cl.dial = func(string) (engineclient.Conn, error) { close(dialEntered); <-dialRelease; return fc, nil }
 	attempted := make(chan struct{}, 1)
 	cl.OnReconnectAttempt(func(int) { _ = cl.Close(); attempted <- struct{}{} })
 	result := make(chan error, 1)

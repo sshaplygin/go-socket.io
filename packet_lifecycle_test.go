@@ -114,7 +114,7 @@ func TestOnDisconnectReason(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			disconnected := make(chan string, 1)
 			opts := &engineio.Options{PingInterval: 100 * time.Millisecond, PingTimeout: 50 * time.Millisecond}
-			s := NewServer(opts)
+			s := NewServer(&Options{Engine: opts})
 			s.OnConnect("/", func(Conn) error { return nil })
 			s.OnEvent("/", "close", func(c Conn) { _ = c.Close() })
 			s.OnDisconnect("/", func(_ Conn, reason string) { disconnected <- reason })

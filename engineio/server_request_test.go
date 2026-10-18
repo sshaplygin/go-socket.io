@@ -2,7 +2,6 @@ package engineio
 
 import (
 	"fmt"
-	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,11 +10,13 @@ import (
 	"time"
 
 	gorilla "github.com/gorilla/websocket"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/stretchr/testify/require"
+
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
-	"github.com/stretchr/testify/require"
 )
 
 func TestConnInitorBeforeAccept(t *testing.T) {
@@ -122,12 +123,12 @@ func TestConnInitorBeforeAccept(t *testing.T) {
 func TestSessionRequest(t *testing.T) {
 	t.Run("unset", func(t *testing.T) {
 		c := newBlockingConn()
-		s, err := session.New(c, "request", "polling", eioparser.ConnParameters{PingInterval: time.Second, PingTimeout: time.Second}, nil)
+		s, err := newSession(c, "request", "polling", eioparser.ConnParameters{PingInterval: time.Second, PingTimeout: time.Second}, nil)
 		require.NoError(t, err)
 		defer func() { _ = s.Close() }()
 		require.Nil(t, s.Request())
 		r := httptest.NewRequest("GET", "/handshake?token=ok", nil)
-		s.SetRequest(r)
+		s.setRequest(r)
 		require.Same(t, r, s.Request())
 	})
 	for _, tr := range []string{"polling", "websocket"} {
@@ -137,13 +138,13 @@ func TestSessionRequest(t *testing.T) {
 			defer srv.Close()
 			defer func() { _ = s.Close() }()
 			impl := map[string]transport.Transport{"polling": polling.Default, "websocket": websocket.Default}[tr]
-			d := Dialer{Transports: []transport.Transport{impl}}
+			d := engineclient.Dialer{Transports: []transport.Transport{impl}}
 			client, err := d.Dial(srv.URL+"/?token=ok", http.Header{"X-Request": []string{"retained"}})
 			require.NoError(t, err)
 			defer func() { _ = client.Close() }()
 			c, err := s.Accept()
 			require.NoError(t, err)
-			r := c.(*session.Session).Request()
+			r := c.(*session).Request()
 			require.NotNil(t, r)
 			require.Equal(t, "GET", r.Method)
 			require.Equal(t, "ok", r.URL.Query().Get("token"))
@@ -153,13 +154,13 @@ func TestSessionRequest(t *testing.T) {
 	}
 	t.Run("upgrade", func(t *testing.T) {
 		f := newParityWire(t, nil)
-		r := f.conn.(*session.Session).Request()
+		r := f.conn.(*session).Request()
 		c := f.probe(t)
 		reads := parityReader(f.conn)
 		require.NoError(t, c.WriteMessage(gorilla.TextMessage, []byte("5")))
 		require.NoError(t, c.WriteMessage(gorilla.TextMessage, []byte("4ready")))
 		parityMessage(t, reads, "ready")
-		require.Same(t, r, f.conn.(*session.Session).Request())
+		require.Same(t, r, f.conn.(*session).Request())
 		require.Equal(t, "polling", r.URL.Query().Get("transport"))
 	})
 }

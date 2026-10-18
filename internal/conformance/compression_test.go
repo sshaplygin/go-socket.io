@@ -11,17 +11,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
-	"github.com/stretchr/testify/require"
 )
 
 // Covers E8
 func TestConformancePerMessageDeflate(t *testing.T) {
-	s := socketio.NewServer(&engineio.Options{PerMessageDeflate: true})
+	s := socketio.NewServer(&socketio.Options{Engine: &engineio.Options{PerMessageDeflate: true}})
 	s.OnConnect("/", func(socketio.Conn) error { return nil })
 	s.OnEvent("/", "echo", func(c socketio.Conn, value string) string { c.Emit("reply", value); return value })
 	served := make(chan struct{})

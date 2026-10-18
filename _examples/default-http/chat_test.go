@@ -7,6 +7,7 @@ import (
 	"time"
 
 	socketio "github.com/sshaplygin/go-socket.io"
+	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
 )
 
@@ -16,7 +17,7 @@ type chatEvent struct {
 }
 
 type chatClient struct {
-	*socketio.Client
+	*client.Client
 	events chan chatEvent
 }
 
@@ -24,7 +25,7 @@ type chatClient struct {
 func newChatServer(t *testing.T) (*socketio.Server, *httptest.Server) {
 	t.Helper()
 	// Keep heartbeat tests and transport teardown bounded.
-	server := socketio.NewServer(&engineio.Options{PingInterval: 200 * time.Millisecond, PingTimeout: 2 * time.Second})
+	server := socketio.NewServer(&socketio.Options{Engine: &engineio.Options{PingInterval: 200 * time.Millisecond, PingTimeout: 2 * time.Second}, CloseTimeout: 2 * time.Second})
 	registerChat(server)
 	done := make(chan struct{})
 	go func() {
@@ -45,14 +46,14 @@ func newChatServer(t *testing.T) (*socketio.Server, *httptest.Server) {
 // connectChat connects a client that records every chat event it receives.
 func connectChat(t *testing.T, url string) *chatClient {
 	t.Helper()
-	cl, err := socketio.NewClient(url, nil)
+	cl, err := client.New(url, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	c := &chatClient{Client: cl, events: make(chan chatEvent, 64)}
 	for _, name := range []string{"login", "user joined", "user left", "new message", "typing", "stop typing"} {
-		cl.OnEvent(name, func(_ socketio.Conn, data map[string]interface{}) {
+		cl.OnEvent(name, func(_ client.Conn, data map[string]interface{}) {
 			c.events <- chatEvent{name: name, data: data}
 		})
 	}

@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/stretchr/testify/require"
+
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 )
 
 // Covers C3
@@ -18,7 +19,7 @@ func TestClientInactiveRootDuringReconnect(t *testing.T) {
 			t.Cleanup(func() { _ = cl.Close() })
 			first, second := newFakeConn(t), newFakeConn(t)
 			dials := 0
-			cl.dial = func(string) (engineio.Conn, error) {
+			cl.dial = func(string) (engineclient.Conn, error) {
 				dials++
 				if dials == 1 {
 					return first, nil

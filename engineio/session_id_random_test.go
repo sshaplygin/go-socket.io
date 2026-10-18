@@ -1,4 +1,4 @@
-package session
+package engineio
 
 import (
 	"encoding/base64"

@@ -12,25 +12,26 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
-	"github.com/stretchr/testify/require"
 )
 
 // Covers C2
 func TestClientNamespaces(t *testing.T) {
-	serverConnections := make(chan client.Conn, 8)
+	serverConnections := make(chan socketio.Conn, 8)
 	messages := make(chan string, 8)
 	ts := newTestServer(t, func(srv *socketio.Server) {
 		for _, namespace := range []string{"/", "/chat", "/late"} {
-			srv.OnConnect(namespace, func(c client.Conn) error { serverConnections <- c; return nil })
-			srv.OnEvent(namespace, "echo", func(c client.Conn, value string) string {
+			srv.OnConnect(namespace, func(c socketio.Conn) error { serverConnections <- c; return nil })
+			srv.OnEvent(namespace, "echo", func(c socketio.Conn, value string) string {
 				c.Emit("reply", c.Namespace()+":"+value)
 				return value
 			})
-			srv.OnEvent(namespace, "message", func(c client.Conn, value string) { messages <- c.Namespace() + ":" + value })
+			srv.OnEvent(namespace, "message", func(c socketio.Conn, value string) { messages <- c.Namespace() + ":" + value })
 		}
 	})
 	cl, err := client.New(ts.URL, nil)
@@ -50,7 +51,7 @@ func TestClientNamespaces(t *testing.T) {
 	require.Same(t, chat, cl.Socket("chat?ignored=second"))
 	require.Equal(t, "/chat", chat.Namespace())
 	require.NoError(t, cl.Connect())
-	clients, servers := map[string]client.Conn{}, map[string]client.Conn{}
+	clients, servers := map[string]client.Conn{}, map[string]socketio.Conn{}
 	collect := func(n int) {
 		for i := 0; i < n; i++ {
 			c := recv(t, connected, "namespace OnConnect")
@@ -92,7 +93,7 @@ func TestClientNamespaces(t *testing.T) {
 func TestClientConnectTimeout(t *testing.T) {
 	connected := make(chan struct{}, 2)
 	real := newTestServer(t, func(srv *socketio.Server) {
-		srv.OnConnect("/", func(client.Conn) error { return nil })
+		srv.OnConnect("/", func(socketio.Conn) error { return nil })
 	})
 	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var releaseOnce sync.Once
@@ -149,11 +150,11 @@ func TestClientConnectTimeout(t *testing.T) {
 
 // Covers C6
 func TestClientOptions(t *testing.T) {
-	metadata := make(chan client.Conn, 2)
-	srv := socketio.NewServer(shortPingOptions())
-	srv.OnConnect("/", func(client.Conn) error { return nil })
-	srv.OnConnect("/chat", func(c client.Conn) error { metadata <- c; return nil })
-	srv.OnConnect("/other", func(c client.Conn) error { metadata <- c; return nil })
+	metadata := make(chan socketio.Conn, 2)
+	srv := socketio.NewServer(&socketio.Options{Engine: shortPingOptions()})
+	srv.OnConnect("/", func(socketio.Conn) error { return nil })
+	srv.OnConnect("/chat", func(c socketio.Conn) error { metadata <- c; return nil })
+	srv.OnConnect("/other", func(c socketio.Conn) error { metadata <- c; return nil })
 	go func() { _ = srv.Serve() }()
 	requests := make(chan *http.Request, 64)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -212,8 +213,8 @@ func TestClientEmitBuffered(t *testing.T) {
 			defer once.Do(func() { close(release) })
 			values := make(chan int, 8)
 			ts := newTestServer(t, func(srv *socketio.Server) {
-				srv.OnConnect("/", func(client.Conn) error { close(entered); <-release; return nil })
-				srv.OnEvent("/", "number", func(_ client.Conn, value int) int { values <- value; return value })
+				srv.OnConnect("/", func(socketio.Conn) error { close(entered); <-release; return nil })
+				srv.OnEvent("/", "number", func(_ socketio.Conn, value int) int { values <- value; return value })
 			})
 			var logs bytes.Buffer
 			cl, err := client.New(ts.URL, &client.Options{WriteBufferSize: size, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
@@ -263,9 +264,9 @@ func TestClientCloseSendsDisconnect(t *testing.T) {
 			reasons, clientReasons := make(chan string, 4), make(chan string, 4)
 			ts := newTestServer(t, func(srv *socketio.Server) {
 				for _, nsp := range []string{"/", "/chat"} {
-					srv.OnConnect(nsp, func(client.Conn) error { return nil })
-					srv.OnDisconnect(nsp, func(c client.Conn, reason string) { reasons <- c.Namespace() + ":" + reason })
-					srv.OnEvent(nsp, "echo", func(_ client.Conn, value string) string { return value })
+					srv.OnConnect(nsp, func(socketio.Conn) error { return nil })
+					srv.OnDisconnect(nsp, func(c socketio.Conn, reason string) { reasons <- c.Namespace() + ":" + reason })
+					srv.OnEvent(nsp, "echo", func(_ socketio.Conn, value string) string { return value })
 				}
 			})
 			cl, err := client.New(ts.URL, nil)
@@ -295,4 +296,10 @@ func TestClientCloseSendsDisconnect(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClientRejectsServerConnHandler(t *testing.T) {
+	c, err := client.New("http://127.0.0.1/", nil)
+	require.NoError(t, err)
+	require.Panics(t, func() { c.OnEvent("wrong-role", func(socketio.Conn) {}) })
 }

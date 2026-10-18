@@ -1,4 +1,4 @@
-package engineio
+package client
 
 import (
 	"encoding/json"
@@ -11,11 +11,11 @@ import (
 	"time"
 
 	gorilla "github.com/gorilla/websocket"
-	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+	"github.com/stretchr/testify/require"
 
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
-	"github.com/stretchr/testify/require"
 )
 
 type limitedCompressionTransport struct{ *websocket.Transport }

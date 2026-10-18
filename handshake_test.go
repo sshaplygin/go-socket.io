@@ -2,7 +2,6 @@ package socketio
 
 import (
 	"fmt"
-	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,15 +10,18 @@ import (
 	"time"
 
 	gorilla "github.com/gorilla/websocket"
+	"github.com/stretchr/testify/require"
+
 	"github.com/sshaplygin/go-socket.io/engineio"
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
-	"github.com/stretchr/testify/require"
 )
 
 func handshakeRaw(t *testing.T, target string, headers http.Header, tr transport.Transport) *rawClient {
 	t.Helper()
-	d := engineio.Dialer{Transports: []transport.Transport{tr}}
+	d := engineclient.Dialer{Transports: []transport.Transport{tr}}
 	c, err := d.Dial(target, headers)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
@@ -120,7 +122,7 @@ func TestHandshakeData(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				seen := make(chan Conn, 2)
 				before := time.Now()
-				s := NewServer(shortPingOptions())
+				s := NewServer(&Options{Engine: shortPingOptions()})
 				check := func(c Conn) error {
 					h, r := c.Handshake(), c.Request()
 					if r == nil || h.Secure != secure || h.XDomain != cross || h.Address != r.RemoteAddr || h.Headers.Get("X-Handshake") != "original" || h.URL.Path != "/metadata" || h.Time.Before(before) || h.Time.After(time.Now()) {

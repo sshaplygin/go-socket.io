@@ -9,14 +9,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sshaplygin/go-socket.io/engineio"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 func defectServer(t *testing.T, configure func(*Server)) (*Server, string) {
 	t.Helper()
-	s := NewServer(shortPingOptions())
+	s := NewServer(&Options{Engine: shortPingOptions()})
 	s.OnConnect("/", func(Conn) error { return nil })
 	configure(s)
 	go func() { _ = s.Serve() }()
@@ -83,7 +84,7 @@ func TestWrongTypeArgumentKeepsConnection(t *testing.T) {
 				c.send(`2["typed","bad"]`)
 			case "binary event":
 				c.send(`51-["typed",{"_placeholder":true,"num":0}]`)
-				w, err := c.conn.NextWriter(session.BINARY)
+				w, err := c.conn.NextWriter(eioparser.Binary)
 				require.NoError(t, err)
 				_, err = io.WriteString(w, "bytes")
 				require.NoError(t, err)

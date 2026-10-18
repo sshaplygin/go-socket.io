@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 // pollingHandshake opens a polling session with the extra query and returns the
@@ -101,7 +101,7 @@ func TestPollingRejectsJSONPFormPost(t *testing.T) {
 	b, err := io.ReadAll(r)
 	must.NoError(err)
 	must.NoError(r.Close())
-	should.Equal(session.TEXT, ft)
+	should.Equal(eioparser.String, ft)
 	should.Equal("text", string(b))
 	should.Equal(http.StatusOK, <-posted)
 }

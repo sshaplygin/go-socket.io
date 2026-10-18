@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -45,7 +44,7 @@ type Options struct {
 	DisableCORS bool
 
 	Transports         []transport.Transport
-	SessionIDGenerator session.IDGenerator
+	SessionIDGenerator IDGenerator
 
 	RequestChecker CheckerFunc
 	ConnInitor     ConnInitorFunc
@@ -61,18 +60,6 @@ type Options struct {
 	// Transports, the parser, the packet codec and the client dialer do not
 	// have access to Options and keep using logger.Log.
 	Logger *slog.Logger
-
-	// WriteBufferSize is the number of outbound socket.io packets each connection of
-	// a socketio.Server or socketio.Client queues; 0 and negative values mean 64. It
-	// is unrelated to websocket.Transport.WriteBufferSize, which counts bytes, and
-	// the engine.io server ignores it. A packet the writer has started no longer
-	// counts. An Emit that finds the queue full closes the connection without
-	// draining it (see socketio.ErrWriteBufferFull), so more than WriteBufferSize
-	// packets queued faster than the writer sends them can close a healthy client.
-	// Polling writes one engine.io frame per poll round trip, and a packet with k
-	// binary attachments takes k+1 frames, so polling clients overflow at much lower
-	// emit rates than websocket clients. Temporary v1 placement.
-	WriteBufferSize int
 }
 
 func (c *Options) getHooks() *Hooks {
@@ -193,11 +180,11 @@ func (c *Options) getOriginCheck() func(*http.Request) bool {
 
 func allowEveryOrigin(*http.Request) bool { return true }
 
-func (c *Options) getSessionIDGenerator() session.IDGenerator {
+func (c *Options) getSessionIDGenerator() IDGenerator {
 	if c != nil && c.SessionIDGenerator != nil {
 		return c.SessionIDGenerator
 	}
-	return &session.DefaultIDGenerator{}
+	return &DefaultIDGenerator{}
 }
 
 func defaultChecker(*http.Request) (http.Header, error) {

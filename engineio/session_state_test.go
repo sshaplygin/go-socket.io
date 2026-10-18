@@ -1,4 +1,4 @@
-package session
+package engineio
 
 import (
 	"io"
@@ -24,7 +24,7 @@ func TestSessionReadyState(t *testing.T) {
 	c := &heldCloseConn{entered: make(chan struct{}), release: make(chan struct{})}
 	s := newTestSession(t, c, "polling")
 	require.False(t, s.Upgraded())
-	require.NoError(t, s.InitSession())
+	require.NoError(t, s.initSession())
 	require.Equal(t, StateOpen, s.ReadyState())
 	// A recorded failure starts closing before Close is called.
 	s.observe(reasonTransportError, io.ErrUnexpectedEOF)
@@ -39,7 +39,7 @@ func TestSessionReadyState(t *testing.T) {
 }
 
 func TestManagerAllSnapshot(t *testing.T) {
-	m := NewManager(nil)
+	m := newSessionManager(nil)
 	s := newTestSession(t, &scriptConn{}, "polling")
 	m.Add(s)
 	all := m.All()

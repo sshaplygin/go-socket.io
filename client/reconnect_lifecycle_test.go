@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/stretchr/testify/require"
+
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 )
 
 // Reentrant Connect returns after OPEN, but its read handlers must wait for the
@@ -25,7 +26,7 @@ func TestClientReconnectHandlerSerial(t *testing.T) {
 			third.reads = make(chan string, 1)
 			third.reads <- "0"
 			dials := 0
-			cl.dial = func(string) (engineio.Conn, error) {
+			cl.dial = func(string) (engineclient.Conn, error) {
 				dials++
 				if dials == 1 {
 					return first, nil
@@ -88,7 +89,7 @@ func TestClientReconnectCancellation(t *testing.T) {
 			var once sync.Once
 			defer once.Do(func() { close(release) })
 			dials := 0
-			cl.dial = func(string) (engineio.Conn, error) {
+			cl.dial = func(string) (engineclient.Conn, error) {
 				dials++
 				if dials == 1 {
 					return first, nil
@@ -152,7 +153,7 @@ func TestClientVolatileBeforeConnect(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	fc := newFakeConn(t)
-	cl.dial = func(string) (engineio.Conn, error) { return fc, nil }
+	cl.dial = func(string) (engineclient.Conn, error) { return fc, nil }
 	ready := make(chan Conn, 1)
 	cl.OnConnect(func(c Conn) error { ready <- c; return nil })
 	require.NoError(t, cl.Connect())
@@ -176,7 +177,7 @@ func TestClientCloseBeforeNamespaceReplyReleasesRooms(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	fc := newFakeConn(t)
-	cl.dial = func(string) (engineio.Conn, error) { return fc, nil }
+	cl.dial = func(string) (engineclient.Conn, error) { return fc, nil }
 	require.NoError(t, cl.Connect())
 	nc, ok := cl.conn.namespaces.Get(rootNamespace)
 	require.True(t, ok)

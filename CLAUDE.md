@@ -16,10 +16,11 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 
 | Path | Purpose |
 | --- | --- |
-| `*.go` (root, package `socketio`) | v1 Socket.IO server, namespaces, rooms, in-memory and Redis broadcast; deprecated client wrapper and shared type aliases |
-| `client/` | v1 experimental Go client and the shared Conn/Namespace interfaces; the root keeps a deprecated wrapper and aliases |
-| `parser/` | v1 Socket.IO v4 packet encoder/decoder, binary attachments |
-| `engineio/` | v1 Engine.IO v3 server and client; session implementation until component step C2 |
+| `*.go` (root, package `socketio`) | v1 Socket.IO server, namespaces, rooms, in-memory and Redis broadcast; server-owned connection contracts/options |
+| `client/` | v1 experimental Socket.IO Go client, manager/reconnect, client-owned connection contracts/options |
+| `parser/` | v1 Socket.IO v4 packet encoder/decoder, binary attachments and independent frame types |
+| `engineio/` | v1 Engine.IO v3 server and private session/registry lifecycle |
+| `engineio/client/` | independent v1 Engine.IO client, dialer, heartbeat/upgrade and client connection state/errors |
 | `engineio/parser/` | shared Engine.IO v3 frame/packet/payload codecs and OPEN parameters |
 | `engineio/transport/` | transport contracts, registry and timestamp helper; polling owns HTTP feed/flush, pause and deadline state |
 | `logger/` | v1 package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: parser, transports, `engineio/parser`, client dialer |
@@ -59,23 +60,24 @@ V1 source files follow the same responsibility names in the root and `client/`:
 
 | Files | Responsibility |
 | --- | --- |
-| `types.go` | shared connection contracts in `client/`; aliases in the root |
+| `types.go`, `options.go` | role-owned Socket.IO connection contracts and queue/drain configuration in root and client |
 | `server.go`, `server_namespace.go` | server lifecycle, namespace configuration and broadcast builders |
 | `client.go`, `socket.go`, `state.go`, `reconnect.go` in `client/` | client API, namespace sockets, connection generations and reconnection |
 | `connection.go`, `connection_serve.go` | connection state/queue and its read/write/error loops |
 | `packet_handlers.go`, `event_handler.go` | packet dispatch and reflected event/ACK handlers |
 | `namespace.go`, `namespace_handler.go` | namespace connections/registry and handlers/handler registry |
 | `broadcast.go`, `redis_broadcast.go`, `adapter_options.go` | in-memory/Redis adapters and Redis configuration |
-| `engineio/conn.go`, `engineio/options.go` | Engine.IO connection contracts/state aliases and server configuration |
-| `engineio/session/session.go`, `types.go`, `close.go`, `upgrade.go` | session construction/metadata/frame I/O, frame/state/error types, close lifecycle and upgrade state machine |
-| `engineio/session/manager.go`, `id_generator.go` | session registry and IDs |
+| `engineio/conn.go`, `engineio/options.go` | server Engine.IO connection/state/error contracts and server configuration |
+| `engineio/session.go`, `session_close.go`, `session_upgrade.go`, `session_headers.go`, `session_hooks.go` | private server session I/O, close/upgrade state machines and response observation |
+| `engineio/session_manager.go`, `session_id_generator.go` | private registry and server-owned ID generators |
+| `engineio/client/client.go`, `dialer.go`, `conn.go` | client Engine.IO I/O, dialing, heartbeat/upgrade and role-specific contracts |
 | `engineio/parser/frame.go`, `packet.go`, `packet_encoder.go`, `packet_decoder.go` | shared frame/packet wire types and codecs |
 | `engineio/parser/payload_encoder.go`, `payload_decoder.go`, `payload_length.go`, `parameters.go` | streaming payload codecs, length framing and OPEN JSON |
 | `engineio/parser/fake.go`, `types.go` | packet test fakes and frame/packet values |
 | `engineio/transport/polling/payload.go`, `pauser.go`, `errors.go` | polling feed/flush ownership, pause/deadline state and operation errors |
 
-The Engine.IO server installs response observers through `session.Hooks`; forced close
-and server shutdown call the session directly. There are no private init-time bridge
+The Engine.IO server installs observers through private session hooks and owns shutdown.
+Root forced close calls `engineio.Abort`; custom engines receive their ordinary `Close`. There are no private init-time bridge
 packages. Codec and transport import/API migration is documented in
 [docs/V1_MIGRATION.md](docs/V1_MIGRATION.md); test-only `internal/conformance` and
 `internal/parity` own their gates.

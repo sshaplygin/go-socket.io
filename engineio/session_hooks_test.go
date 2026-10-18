@@ -1,4 +1,4 @@
-package session
+package engineio
 
 import (
 	"errors"
@@ -15,8 +15,8 @@ func TestSessionHooksObserveHandshakeFailure(t *testing.T) {
 	s := newTestSession(t, c, "polling")
 	var causes []error
 	var states []ReadyState
-	s.SetHooks(&Hooks{Error: func(s *Session, err error) { causes = append(causes, err); states = append(states, s.ReadyState()) }})
-	require.ErrorIs(t, s.InitSession(), want)
+	s.setHooks(&sessionHooks{Error: func(s *session, err error) { causes = append(causes, err); states = append(states, s.ReadyState()) }})
+	require.ErrorIs(t, s.initSession(), want)
 	require.Equal(t, []error{want}, causes)
 	require.Equal(t, []ReadyState{StateClosing}, states)
 	require.Equal(t, StateClosed, s.ReadyState())
@@ -27,11 +27,11 @@ func TestSessionHooksObserveHandshakeFailure(t *testing.T) {
 func TestSessionConcurrentCloseKeepsErrorBeforeTransportClose(t *testing.T) {
 	c := &scriptConn{}
 	s := newTestSession(t, c, "polling")
-	require.NoError(t, s.InitSession())
+	require.NoError(t, s.initSession())
 	entered, release := make(chan struct{}), make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 	defer unblock()
-	s.SetHooks(&Hooks{Error: func(*Session, error) { close(entered); <-release }})
+	s.setHooks(&sessionHooks{Error: func(*session, error) { close(entered); <-release }})
 	s.observe(reasonTransportError, errors.New("peer failed"))
 	done := make(chan error, 2)
 	go func() { done <- s.Close() }()

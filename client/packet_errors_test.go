@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 )
 
 func TestClientErrorPackets(t *testing.T) {
@@ -95,21 +95,21 @@ func TestClientRegistrationAndDialFailures(t *testing.T) {
 		{"event", func(c *Client) { c.OnEvent("event", func(Conn) {}) }},
 	} {
 		t.Run(register.name, func(t *testing.T) {
-			c, err := NewClient("http://127.0.0.1/", nil)
+			c, err := New("http://127.0.0.1/", nil)
 			require.NoError(t, err)
 			register.apply(c)
 			failure := errors.New("dial failed")
-			c.dial = func(string) (engineio.Conn, error) { return nil, failure }
+			c.dial = func(string) (engineclient.Conn, error) { return nil, failure }
 			require.ErrorIs(t, c.Connect(), failure)
 		})
 	}
 	t.Run("default root handler uses the configured logger", func(t *testing.T) {
 		var records bytes.Buffer
 		log := slog.New(slog.NewTextHandler(&records, nil))
-		c, err := NewClient("http://127.0.0.1/", &engineio.Options{Logger: log})
+		c, err := New("http://127.0.0.1/", &Options{Logger: log})
 		require.NoError(t, err)
 		fc := newFakeConn(t)
-		c.dial = func(string) (engineio.Conn, error) { return fc, nil }
+		c.dial = func(string) (engineclient.Conn, error) { return fc, nil }
 		require.NoError(t, c.Connect())
 		closeAtEnd(t, fc, c.conn)
 		fc.reads <- `4"refused"`

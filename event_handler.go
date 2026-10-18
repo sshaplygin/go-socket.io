@@ -5,10 +5,6 @@ import (
 	"reflect"
 )
 
-const (
-	goSocketIOConnInterface = "Conn"
-)
-
 type funcHandler struct {
 	argTypes []reflect.Type
 	f        reflect.Value
@@ -39,7 +35,7 @@ func newEventFunc(f interface{}) *funcHandler {
 	}
 	ft := fv.Type()
 
-	if ft.NumIn() < 1 || ft.In(0).Name() != goSocketIOConnInterface {
+	if ft.NumIn() < 1 || ft.In(0) != reflect.TypeOf((*Conn)(nil)).Elem() {
 		panic("handler function should be like func(socketio.Conn, ...)")
 	}
 

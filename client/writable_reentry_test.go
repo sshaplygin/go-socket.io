@@ -4,8 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/stretchr/testify/require"
+
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 )
 
 type callbackWritableClientConn struct {
@@ -44,7 +45,7 @@ func TestClientVolatileWritableReentry(t *testing.T) {
 					return false
 				}
 			}
-			cl.dial = func(string) (engineio.Conn, error) { return wire, nil }
+			cl.dial = func(string) (engineclient.Conn, error) { return wire, nil }
 			ready := make(chan Conn, 1)
 			cl.OnConnect(func(c Conn) error { ready <- c; return nil })
 			require.NoError(t, cl.Connect())

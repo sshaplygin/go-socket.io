@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	client "github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
 )
 
@@ -30,7 +31,7 @@ func shortPingOptions() *engineio.Options {
 // newTestServer starts srv behind httptest with shortPingOptions.
 func newTestServer(t *testing.T, setup func(*Server)) *httptest.Server {
 	t.Helper()
-	srv := NewServer(shortPingOptions())
+	srv := NewServer(&Options{Engine: shortPingOptions()})
 	setup(srv)
 	go func() { _ = srv.Serve() }()
 	ts := httptest.NewServer(srv)
@@ -200,13 +201,13 @@ func (rs *rawServer) accept() *rawClient {
 
 // connectRawClient connects a Go client with the given handlers to a raw
 // engine.io server and completes the root CONNECT exchange.
-func connectRawClient(t *testing.T, setup func(*Client)) *rawClient {
+func connectRawClient(t *testing.T, setup func(*client.Client)) *rawClient {
 	t.Helper()
 	rs := newRawServer(t)
-	cl, err := NewClient(rs.url, nil)
+	cl, err := client.New(rs.url, nil)
 	require.NoError(t, err)
 	connected := make(chan struct{}, 1)
-	cl.OnConnect(func(Conn) error {
+	cl.OnConnect(func(client.Conn) error {
 		connected <- struct{}{}
 		return nil
 	})
@@ -225,9 +226,9 @@ func connectRawClient(t *testing.T, setup func(*Client)) *rawClient {
 func TestClientEventAndDisconnect(t *testing.T) {
 	events := make(chan int, 1)
 	reasons := make(chan string, 1)
-	srv := connectRawClient(t, func(cl *Client) {
-		cl.OnEvent("num", func(_ Conn, n int) { events <- n })
-		cl.OnDisconnect(func(_ Conn, reason string) { reasons <- reason })
+	srv := connectRawClient(t, func(cl *client.Client) {
+		cl.OnEvent("num", func(_ client.Conn, n int) { events <- n })
+		cl.OnDisconnect(func(_ client.Conn, reason string) { reasons <- reason })
 	})
 
 	srv.send(`2["num",5]`)
@@ -242,9 +243,9 @@ func TestClientEventAndDisconnect(t *testing.T) {
 // client; the decode error is reported to OnError.
 func TestClientDecodeErrorReachesOnError(t *testing.T) {
 	errs := make(chan error, 1)
-	srv := connectRawClient(t, func(cl *Client) {
-		cl.OnEvent("num", func(Conn, int) {})
-		cl.OnError(func(_ Conn, err error) { errs <- err })
+	srv := connectRawClient(t, func(cl *client.Client) {
+		cl.OnEvent("num", func(client.Conn, int) {})
+		cl.OnError(func(_ client.Conn, err error) { errs <- err })
 	})
 
 	srv.send(`2["num","five"]`)
@@ -252,9 +253,9 @@ func TestClientDecodeErrorReachesOnError(t *testing.T) {
 }
 
 func TestClientRejectsEmptyAddr(t *testing.T) {
-	_, err := NewClient("", nil)
-	require.ErrorIs(t, err, ErrEmptyAddr)
-	_, err = NewClient("http://[::1", nil)
+	_, err := client.New("", nil)
+	require.ErrorIs(t, err, client.ErrEmptyAddr)
+	_, err = client.New("http://[::1", nil)
 	require.Error(t, err)
 }
 

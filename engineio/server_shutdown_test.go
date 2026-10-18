@@ -5,9 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
-	"github.com/stretchr/testify/require"
 )
 
 // Covers E22
@@ -15,7 +17,7 @@ func TestServerCloseClosesAcceptedSessions(t *testing.T) {
 	s := NewServer(nil)
 	srv := httptest.NewServer(s)
 	defer srv.Close()
-	d := Dialer{Transports: []transport.Transport{websocket.Default}}
+	d := engineclient.Dialer{Transports: []transport.Transport{websocket.Default}}
 	c, err := d.Dial(srv.URL, nil)
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()

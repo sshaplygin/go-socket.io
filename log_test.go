@@ -24,9 +24,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
-
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -127,7 +126,7 @@ func TestRequestRejectedRecords(t *testing.T) {
 		},
 	}
 	rec := captureLogs(t, opts)
-	srv := NewServer(opts)
+	srv := NewServer(&Options{Engine: opts})
 	srv.OnConnect("/", func(Conn) error { return nil })
 	go func() { _ = srv.Serve() }()
 	t.Cleanup(func() { _ = srv.Close() })
@@ -156,7 +155,7 @@ func TestRequestRejectedRecords(t *testing.T) {
 		c, err := tr.Dial(u, nil)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = c.Close() })
-		if o, ok := c.(engineio.Opener); ok {
+		if o, ok := c.(engineclient.Opener); ok {
 			params, err := o.Open()
 			require.NoError(t, err)
 			return params.SID
@@ -233,7 +232,7 @@ type faultConn struct {
 	armed                       *atomic.Bool
 }
 
-func (c faultConn) NextReader() (session.FrameType, io.ReadCloser, error) {
+func (c faultConn) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 	if c.readErr == nil {
 		ft, r, err := c.fakeConn.NextReader()
 		return ft, struct {
@@ -241,10 +240,10 @@ func (c faultConn) NextReader() (session.FrameType, io.ReadCloser, error) {
 			io.Closer
 		}{r, faultWriter{c}}, err
 	}
-	return session.TEXT, io.NopCloser(io.MultiReader(strings.NewReader("2"), iotest.ErrReader(c.readErr))), nil
+	return eioparser.String, io.NopCloser(io.MultiReader(strings.NewReader("2"), iotest.ErrReader(c.readErr))), nil
 }
 
-func (c faultConn) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
+func (c faultConn) NextWriter(ft eioparser.FrameType) (io.WriteCloser, error) {
 	if c.writeErr == nil && c.closeErr == nil || c.armed != nil && !c.armed.Load() {
 		return c.fakeConn.NextWriter(ft)
 	}
@@ -463,7 +462,7 @@ func TestPingTimeoutRecords(t *testing.T) {
 		t.Run(tr.Name(), func(t *testing.T) {
 			opts := &engineio.Options{PingInterval: time.Millisecond, PingTimeout: 100 * time.Millisecond}
 			rec := captureLogs(t, opts)
-			srv := NewServer(opts)
+			srv := NewServer(&Options{Engine: opts})
 			connected := make(chan Conn, 1)
 			srv.OnConnect("/", func(c Conn) error { connected <- c; return nil })
 			go func() { _ = srv.Serve() }()

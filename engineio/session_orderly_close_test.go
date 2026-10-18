@@ -1,4 +1,4 @@
-package session
+package engineio
 
 import (
 	"io"
@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
-
 	"github.com/stretchr/testify/require"
+
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 type orderlyConn struct {
@@ -61,16 +61,16 @@ func waitClose(t *testing.T, done <-chan struct{}) {
 func TestOrderlyCloseDrainsAcceptedWriter(t *testing.T) {
 	c := newOrderlyConn()
 	s := newTestSession(t, c, "polling")
-	t.Cleanup(func() { _ = s.Abort() })
+	t.Cleanup(func() { _ = s.abort() })
 	require.Equal(t, 30*time.Second, s.closeTimeout)
-	require.NoError(t, s.InitSession())
-	w, err := s.NextWriter(TEXT)
+	require.NoError(t, s.initSession())
+	w, err := s.NextWriter(eioparser.String)
 	require.NoError(t, err)
 	_, err = w.Write([]byte("buffered"))
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 	require.Equal(t, StateClosing, s.ReadyState())
-	_, err = s.NextWriter(TEXT)
+	_, err = s.NextWriter(eioparser.String)
 	require.Error(t, err, "no new frame is admitted after close starts")
 	select {
 	case <-c.entered:
@@ -99,11 +99,11 @@ func TestOrderlyCloseDeadline(t *testing.T) {
 			c := newOrderlyConn()
 			s := newTestSession(t, c, "polling")
 			s.closeTimeout = 20 * time.Millisecond
-			require.NoError(t, s.InitSession())
+			require.NoError(t, s.initSession())
 			var w io.WriteCloser
 			if unclosed {
 				var err error
-				w, err = s.NextWriter(TEXT)
+				w, err = s.NextWriter(eioparser.String)
 				require.NoError(t, err)
 			}
 			require.NoError(t, s.Close())
@@ -120,14 +120,14 @@ func TestOrderlyCloseDeadline(t *testing.T) {
 func TestAbortInterruptsOrderlyClose(t *testing.T) {
 	for _, abort := range []struct {
 		name  string
-		close func(*Session) error
+		close func(*session) error
 	}{
-		{"root abort", (*Session).Abort}, {"shutdown", (*Session).Shutdown},
+		{"root abort", (*session).abort}, {"shutdown", (*session).shutdown},
 	} {
 		t.Run(abort.name, func(t *testing.T) {
 			c := newOrderlyConn()
 			s := newTestSession(t, c, "polling")
-			require.NoError(t, s.InitSession())
+			require.NoError(t, s.initSession())
 			require.NoError(t, s.Close())
 			waitClose(t, c.entered)
 			done := make(chan struct{})
@@ -144,9 +144,9 @@ func TestAbortInterruptsOrderlyClose(t *testing.T) {
 func TestFailedSessionDoesNotDrain(t *testing.T) {
 	c := newOrderlyConn()
 	s := newTestSession(t, c, "polling")
-	require.NoError(t, s.InitSession())
+	require.NoError(t, s.initSession())
 	var errors atomic.Int32
-	s.SetHooks(&Hooks{Error: func(*Session, error) { errors.Add(1) }})
+	s.setHooks(&sessionHooks{Error: func(*session, error) { errors.Add(1) }})
 	_ = s.fail(io.ErrUnexpectedEOF)
 	require.NoError(t, s.Close())
 	require.NoError(t, s.Close())
@@ -163,8 +163,8 @@ func TestFailedSessionDoesNotDrain(t *testing.T) {
 func TestOrderlyCloseStopsUpgradeProbe(t *testing.T) {
 	c := newOrderlyConn()
 	s := newTestSession(t, c, "polling")
-	t.Cleanup(func() { _ = s.Abort() })
-	require.NoError(t, s.InitSession())
+	t.Cleanup(func() { _ = s.abort() })
+	require.NoError(t, s.initSession())
 	probe := newClosingConn()
 	s.Upgrade("websocket", probe)
 	select {
@@ -177,24 +177,24 @@ func TestOrderlyCloseStopsUpgradeProbe(t *testing.T) {
 	waitClose(t, c.entered)
 	require.False(t, s.Upgraded())
 	require.Equal(t, "polling", s.Transport())
-	require.NoError(t, s.Abort())
+	require.NoError(t, s.abort())
 	waitClose(t, s.closeDone)
 }
 
 func TestAbortKeepsErrorBeforeTransportClose(t *testing.T) {
 	for _, abort := range []struct {
 		name  string
-		close func(*Session) error
-	}{{"root abort", (*Session).Abort}, {"shutdown", (*Session).Shutdown}} {
+		close func(*session) error
+	}{{"root abort", (*session).abort}, {"shutdown", (*session).shutdown}} {
 		t.Run(abort.name, func(t *testing.T) {
 			c := &scriptConn{}
 			s := newTestSession(t, c, "polling")
-			require.NoError(t, s.InitSession())
+			require.NoError(t, s.initSession())
 			entered, release := make(chan struct{}), make(chan struct{})
 			unblock := sync.OnceFunc(func() { close(release) })
 			defer unblock()
 			var calls atomic.Int32
-			s.SetHooks(&Hooks{Error: func(*Session, error) { calls.Add(1); close(entered); <-release }})
+			s.setHooks(&sessionHooks{Error: func(*session, error) { calls.Add(1); close(entered); <-release }})
 			s.observe(reasonTransportError, io.ErrUnexpectedEOF)
 			done := make(chan error, 2)
 			go func() { done <- s.Close() }()
@@ -238,8 +238,8 @@ func (c *peerClosingConn) NextReader() (eioparser.FrameType, eioparser.PacketTyp
 func TestPeerCloseInterruptsOrderlyClose(t *testing.T) {
 	c := &peerClosingConn{orderlyConn: newOrderlyConn(), reading: make(chan struct{}), sendClose: make(chan struct{})}
 	s := newTestSession(t, c, "polling")
-	t.Cleanup(func() { _ = s.Abort() })
-	require.NoError(t, s.InitSession())
+	t.Cleanup(func() { _ = s.abort() })
+	require.NoError(t, s.initSession())
 	read := make(chan error, 1)
 	go func() { _, _, err := s.NextReader(); read <- err }()
 	waitClose(t, c.reading)
@@ -261,8 +261,8 @@ func TestPeerCloseInterruptsOrderlyClose(t *testing.T) {
 func TestReaderWaitsForOrderlyTransportClose(t *testing.T) {
 	c := newOrderlyConn()
 	s := newTestSession(t, c, "polling")
-	t.Cleanup(func() { _ = s.Abort() })
-	require.NoError(t, s.InitSession())
+	t.Cleanup(func() { _ = s.abort() })
+	require.NoError(t, s.initSession())
 	require.NoError(t, s.Close())
 	waitClose(t, c.entered)
 	read := make(chan error, 1)

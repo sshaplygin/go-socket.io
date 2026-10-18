@@ -6,13 +6,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
-	"github.com/stretchr/testify/require"
 )
 
 const waitFor = 5 * time.Second
@@ -37,25 +39,25 @@ func TestLifecycleRootNamespace(t *testing.T) { lifecycleRootNamespace(t, nil) }
 // lifecycleRootNamespace runs the TestLifecycleRootNamespace scenario on socketio.NewServer(opts)
 // and returns the session's ID.
 func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
-	srv := socketio.NewServer(opts)
-	connected := make(chan client.Conn, 1)
+	srv := socketio.NewServer(&socketio.Options{Engine: opts})
+	connected := make(chan socketio.Conn, 1)
 	disconnected := make(chan string, 1)
-	srv.OnConnect("/", func(s client.Conn) error {
+	srv.OnConnect("/", func(s socketio.Conn) error {
 		s.Join("lobby")
 		connected <- s
 		return nil
 	})
-	srv.OnEvent("/", "echo", func(_ client.Conn, msg string) string { return "echo:" + msg })
-	srv.OnEvent("/", "bye", func(s client.Conn) { _ = s.Close() })
-	srv.OnDisconnect("/", func(_ client.Conn, reason string) { disconnected <- reason })
-	srv.OnError("/", func(client.Conn, error) {})
+	srv.OnEvent("/", "echo", func(_ socketio.Conn, msg string) string { return "echo:" + msg })
+	srv.OnEvent("/", "bye", func(s socketio.Conn) { _ = s.Close() })
+	srv.OnDisconnect("/", func(_ socketio.Conn, reason string) { disconnected <- reason })
+	srv.OnError("/", func(socketio.Conn, error) {})
 
 	go func() { _ = srv.Serve() }()
 	defer func() { _ = srv.Close() }()
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
-	cl, err := client.NewClient(ts.URL, nil)
+	cl, err := client.New(ts.URL, nil)
 	require.NoError(t, err)
 	news := make(chan string, 8)
 	cl.OnConnect(func(client.Conn) error { return nil })
@@ -90,7 +92,7 @@ func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
 	}
 
 	seen := 0
-	require.True(t, srv.ForEach("/", "lobby", func(c client.Conn) { seen++ }))
+	require.True(t, srv.ForEach("/", "lobby", func(c socketio.Conn) { seen++ }))
 	require.Equal(t, 1, seen)
 
 	require.True(t, srv.LeaveRoom("/", "lobby", sc))
@@ -108,7 +110,7 @@ func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
 	require.False(t, srv.ClearRoom("/missing", "r"))
 	require.False(t, srv.BroadcastToRoom("/missing", "r", "e"))
 	require.False(t, srv.BroadcastToNamespace("/missing", "e"))
-	require.False(t, srv.ForEach("/missing", "r", func(client.Conn) {}))
+	require.False(t, srv.ForEach("/missing", "r", func(socketio.Conn) {}))
 	require.Equal(t, -1, srv.RoomLen("/missing", "r"))
 	require.Nil(t, srv.Rooms("/missing"))
 
@@ -121,12 +123,17 @@ func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
 // rawClient is an engine.io connection that speaks socket.io packets as text.
 type rawClient struct {
 	t    *testing.T
-	conn engineio.Conn
+	conn interface {
+		NextReader() (eioparser.FrameType, io.ReadCloser, error)
+		NextWriter(eioparser.FrameType) (io.WriteCloser, error)
+		Close() error
+		ID() string
+	}
 }
 
 func dialRaw(t *testing.T, url string) *rawClient {
 	t.Helper()
-	d := engineio.Dialer{Transports: []transport.Transport{polling.Default}}
+	d := engineclient.Dialer{Transports: []transport.Transport{polling.Default}}
 	conn, err := d.Dial(url, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
@@ -135,7 +142,7 @@ func dialRaw(t *testing.T, url string) *rawClient {
 
 func (c *rawClient) send(pkt string) {
 	c.t.Helper()
-	w, err := c.conn.NextWriter(session.TEXT)
+	w, err := c.conn.NextWriter(eioparser.String)
 	require.NoError(c.t, err)
 	_, err = w.Write([]byte(pkt))
 	require.NoError(c.t, err)
@@ -164,16 +171,16 @@ func (c *rawClient) read() string {
 func TestLifecycleNamespace(t *testing.T) {
 	// The engine.io client sends no CLOSE packet, so the server holds its
 	// last long poll until pingTimeout; keep that short for teardown.
-	srv := socketio.NewServer(shortPingOptions())
+	srv := socketio.NewServer(&socketio.Options{Engine: shortPingOptions()})
 	nspConnected := make(chan string, 1)
 	nspDisconnected := make(chan string, 1)
-	srv.OnConnect("/", func(client.Conn) error { return nil })
-	srv.OnConnect("/chat", func(s client.Conn) error {
+	srv.OnConnect("/", func(socketio.Conn) error { return nil })
+	srv.OnConnect("/chat", func(s socketio.Conn) error {
 		nspConnected <- s.Namespace()
 		return nil
 	})
-	srv.OnEvent("/chat", "ping", func(_ client.Conn, n int) int { return n + 1 })
-	srv.OnDisconnect("/chat", func(s client.Conn, _ string) { nspDisconnected <- s.Namespace() })
+	srv.OnEvent("/chat", "ping", func(_ socketio.Conn, n int) int { return n + 1 })
+	srv.OnDisconnect("/chat", func(s socketio.Conn, _ string) { nspDisconnected <- s.Namespace() })
 
 	go func() { _ = srv.Serve() }()
 	defer func() { _ = srv.Close() }()

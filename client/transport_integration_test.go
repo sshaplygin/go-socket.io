@@ -9,12 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
-	"github.com/stretchr/testify/require"
 )
 
 // Covers C5
@@ -49,7 +51,7 @@ func TestClientWebsocketUpgrade(t *testing.T) {
 			peerDone := make(chan struct{})
 			go func() {
 				defer close(peerDone)
-				writer, err := server.NextWriter(session.TEXT)
+				writer, err := server.NextWriter(eioparser.String)
 				if err != nil {
 					return
 				}
@@ -115,7 +117,7 @@ func TestClientTimeoutClosesLateConnection(t *testing.T) {
 	require.NoError(t, err)
 	late := newFakeConn(t)
 	release, entered := make(chan struct{}), make(chan struct{})
-	cl.dial = func(string) (engineio.Conn, error) { close(entered); <-release; return late, nil }
+	cl.dial = func(string) (engineclient.Conn, error) { close(entered); <-release; return late, nil }
 	require.ErrorIs(t, cl.Connect(), ErrConnectTimeout)
 	recv(t, entered, "pending dial")
 	close(release)

@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -25,21 +25,21 @@ type connLimits struct {
 	drainTimeout    time.Duration
 }
 
-// newConnLimits reads opts.WriteBufferSize and opts.PingTimeout; nil options, 0 and
+// newConnLimits reads opts.WriteBufferSize and opts.CloseTimeout; nil options, 0 and
 // negative values give the defaults.
-func newConnLimits(opts *engineio.Options) connLimits {
+func newConnLimits(opts *Options) connLimits {
 	l := connLimits{defaultWriteBufferSize, defaultDrainTimeout}
 	if opts != nil && opts.WriteBufferSize > 0 {
 		l.writeBufferSize = opts.WriteBufferSize
 	}
-	if opts != nil && opts.PingTimeout > 0 {
-		l.drainTimeout = opts.PingTimeout
+	if opts != nil && opts.CloseTimeout > 0 {
+		l.drainTimeout = opts.CloseTimeout
 	}
 	return l
 }
 
 type conn struct {
-	engineio.Conn
+	engineclient.Conn
 
 	id         atomic.Uint64
 	handlers   *namespaceHandlers
@@ -76,7 +76,7 @@ type conn struct {
 	disconnecting                int            // callbacks claimed but not completed; guarded by mu
 }
 
-func newConn(engineConn engineio.Conn, handlers *namespaceHandlers, limits connLimits, log *slog.Logger) *conn {
+func newConn(engineConn engineclient.Conn, handlers *namespaceHandlers, limits connLimits, log *slog.Logger) *conn {
 	c := &conn{
 		log:              log,
 		disconnectReason: "forced close",
@@ -206,7 +206,7 @@ func (c *conn) disconnectNamespace(nc *namespaceConn, reason string) {
 // returned and before finish invokes any OnDisconnect handlers.
 func (c *conn) finishRead() {
 	reason := "forced close"
-	var closed *engineio.CloseError
+	var closed *engineclient.CloseError
 	failed := c.reader.failed
 	if failed != nil && !errors.As(failed, &closed) {
 		// Dispatch has ended and its error was already reported. Start the
@@ -225,7 +225,7 @@ func (c *conn) finishRead() {
 	}
 	if errors.As(failed, &closed) {
 		switch closed.Reason {
-		case engineio.ReasonTransportClose, engineio.ReasonPingTimeout, engineio.ReasonTransportError:
+		case engineclient.ReasonTransportClose, engineclient.ReasonPingTimeout, engineclient.ReasonTransportError:
 			reason = string(closed.Reason)
 		}
 	}
@@ -371,17 +371,17 @@ type queueWriter struct {
 	noCompress bool
 }
 
-func (w *queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
-	if ft == session.TEXT && isDone(w.c.discard) {
+func (w *queueWriter) NextWriter(ft parser.FrameType) (io.WriteCloser, error) {
+	if ft == parser.Text && isDone(w.c.discard) {
 		w.failed = io.EOF
 		return nil, io.EOF
 	}
 	var fw io.WriteCloser
 	var err error
-	if compressed, ok := w.c.Conn.(engineio.CompressWriter); ok {
-		fw, err = compressed.NextWriterCompress(ft, !w.noCompress)
+	if compressed, ok := w.c.Conn.(engineclient.CompressWriter); ok {
+		fw, err = compressed.NextWriterCompress(eioparser.FrameType(ft), !w.noCompress)
 	} else {
-		fw, err = w.c.Conn.NextWriter(ft)
+		fw, err = w.c.Conn.NextWriter(eioparser.FrameType(ft))
 	}
 	if w.failed = err; err != nil {
 		return nil, err
@@ -391,16 +391,18 @@ func (w *queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
 
 // frameReader is queueWriter's counterpart for the decoder.
 type frameReader struct {
-	parser.FrameReader
+	FrameReader interface {
+		NextReader() (eioparser.FrameType, io.ReadCloser, error)
+	}
 	failed error
 }
 
-func (r *frameReader) NextReader() (session.FrameType, io.ReadCloser, error) {
+func (r *frameReader) NextReader() (parser.FrameType, io.ReadCloser, error) {
 	ft, fr, err := r.FrameReader.NextReader()
 	if r.failed = err; err != nil {
-		return ft, fr, err
+		return parser.FrameType(ft), fr, err
 	}
-	return ft, frameIO{r: fr, c: fr, failed: &r.failed}, nil
+	return parser.FrameType(ft), frameIO{r: fr, c: fr, failed: &r.failed}, nil
 }
 
 // frameIO is a frame reader or writer that records its first failure in *failed; io.EOF
@@ -546,7 +548,7 @@ func (c *conn) runReadTasks() {
 }
 
 // EngineConn returns nil on a client connection.
-func (c *conn) EngineConn() engineio.Conn { return nil }
+func (c *conn) EngineConn() engineclient.Conn { return nil }
 
 // Request returns nil on a client connection.
 func (c *conn) Request() *http.Request { return nil }

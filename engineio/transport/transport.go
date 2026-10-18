@@ -32,3 +32,9 @@ type Conn interface {
 	SetReadDeadline(t time.Time) error
 	SetWriteDeadline(t time.Time) error
 }
+
+// Pauser optionally pauses and resumes a transport around an upgrade.
+type Pauser interface {
+	Pause()
+	Resume()
+}

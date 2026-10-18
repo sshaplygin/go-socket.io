@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 )
 
 type connectAttempt struct {
@@ -80,7 +80,7 @@ func (m *clientState) open(c *Client, retry *reconnectRun, number int) (result e
 	}
 	defer finishAttempt()
 	type dialResult struct {
-		conn engineio.Conn
+		conn engineclient.Conn
 		err  error
 	}
 	dialed := make(chan dialResult)
@@ -100,7 +100,7 @@ func (m *clientState) open(c *Client, retry *reconnectRun, number int) (result e
 		defer timer.Stop()
 		timeout = timer.C
 	}
-	var engine engineio.Conn
+	var engine engineclient.Conn
 	select {
 	case <-a.stop:
 		return io.ErrClosedPipe

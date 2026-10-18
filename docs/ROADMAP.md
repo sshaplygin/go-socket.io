@@ -2727,10 +2727,11 @@ require the heading. V1-30 writes the PROTOCOL.md heading of D19, which the MV1 
 
 Every `BUG` row of the wave, and of any later bug fix, is closed test first, by the rule of
 CONTRIBUTING.md (*Pull requests*, item 6), which also says what counts as red. The helper below
-checks it, `bash`, with or without `set -e`, from the repository root. It reads red from the
-`go test` output: `--- FAIL: <TestName> `, `panic: ` or `fatal error: `, and never
-`[build failed]` or `[setup failed]`; it runs each test with `-race`, since concurrency fixes
-are verified under the race detector, in scratch worktrees that it removes:
+checks it, `bash`, with or without `set -e`, from the repository root. It reads red from a
+failing `go test` status together with a line that starts with `--- FAIL: <TestName> `,
+`panic: ` or `fatal error: `, and never from `[build failed]` or `[setup failed]`; it runs
+each test with `-race`, since concurrency fixes are verified under the race detector, in
+scratch worktrees that it removes:
 
 ```sh
 tdd() (   # tdd <base> <head> <TestName>...: one line per defect; nothing when each test is red on the PR's first commit and green on <head>
@@ -2742,12 +2743,11 @@ r=$(git rev-list --reverse --no-merges "$b..$h" -- "$f" | head -n 1); test -n "$
 test "$r" = "$first" || echo "tdd $t: red commit $r is not the first commit of the PR, $first"
 test -z "$(git diff --name-only "$r^" "$r" -- '*.go' | grep -v '_test[.]go$')" || echo "tdd $t: red commit $r changes a Go file that is not a test"
 git show "$r:$f" | grep -B4 -E "^func $t[(]" | grep -qE '^// Covers [A-Z][0-9]+( |$)' || echo "tdd $t: no // Covers marker above it at $r"
-o=$(run "$r" "$t" "$d" || :); case $o in
+if o=$(run "$r" "$t" "$d"); then echo "tdd $t: not red at $r (go test passed)"; else case $o in
 *'[build failed]'*|*'[setup failed]'*|'no worktree'*) echo "tdd $t: does not build or run at $r";;   # a red that is a build error is no red
-*"--- FAIL: $t "*|*'panic: '*|*'fatal error: '*) ;;   # red: an assertion failure, a panic (a test timeout included) or a runtime abort
-*) echo "tdd $t: not red at $r";;
-esac
-run "$h" "$t" "$d" | grep -q -- "^--- PASS: $t " || echo "tdd $t: not green at $h"
+*) printf '%s\n' "$o" | grep -qE "^(--- FAIL: $t |panic: |fatal error: )" || echo "tdd $t: not red at $r";;   # red: a failing status and, at the start of a line, an assertion failure, a panic (a test timeout included) or a runtime abort
+esac; fi
+o=$(run "$h" "$t" "$d") && printf '%s\n' "$o" | grep -q -- "^--- PASS: $t " || echo "tdd $t: not green at $h"
 done
 )
 ```
@@ -2773,7 +2773,7 @@ The PR that added this wave proved the helper on a scratch repository (`bash`, `
 the repository root, which needs only `git` and `go`): a branch with the test first and the fix
 second prints nothing; a branch whose first commit already holds the fix prints the defect
 lines `not red` and `changes a Go file that is not a test`; a red that does not compile prints
-`does not build or run`:
+`does not build or run`; a passing test that prints `panic: ` prints `not red`:
 
 ```sh
 eval "$(awk '/^tdd[(][)] [(]/ {p=1} p; p && /^[)]$/ {exit}' docs/ROADMAP.md)"   # the helper of the fence above
@@ -2787,6 +2787,8 @@ git checkout -qb planted "$B"; tst Add; add +; git add -A; git commit -qm "test 
 tdd "$B" planted TestAdd | grep -q 'TestAdd: not red at'; tdd "$B" planted TestAdd | grep -q 'changes a Go file that is not a test'   # the fix in the first commit: two defect lines
 git checkout -qb nobuild "$B"; tst Sub; git add -A; git commit -qm red; printf 'package tdd\n\nfunc Sub(a, b int) int { return a + b }\n' >sub.go; git add -A; git commit -qm fix
 tdd "$B" nobuild TestAdd | grep -q 'does not build or run at'   # a red that does not compile is a defect line
+git checkout -qb logpanic "$B"; printf 'package tdd\n\nimport (\n\t"fmt"\n\t"testing"\n)\n\n// Covers G1\nfunc TestLog(t *testing.T) {\n\tt.Log("recovered panic: boom")\n\tfmt.Println("panic: boom")\n}\n' >log_test.go; git add -A; git commit -qm red; add +; git commit -qam fix
+tdd "$B" logpanic TestLog | grep -q 'TestLog: not red at'   # a passing test whose output holds `panic: `, logged and at the start of a line, is no red
 cd - >/dev/null; test "$(git -C "$S/r" worktree list | wc -l)" -eq 1   # tdd left no worktree behind; the scratch repository stays in the temporary directory
 ```
 

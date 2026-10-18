@@ -2609,8 +2609,8 @@ test "$(gh pr view --json body -q .body | grep -c '^fails without the fix: Test'
 Checks specific to a PR, in addition: every PR that owns a `BUG` row (V1-1 to V1-5 as planned,
 and any later one) puts one body line `fails without the fix: <TestName>` per `BUG` row, the
 test being the one under that row's `// Covers`, and has run it red on the base with only the
-PR's test files applied; from wave V1G on, red on the PR's first commit, which holds only those
-tests (CONTRIBUTING.md, *Pull requests*, item 6; the `tdd` check of *Wave V1G*). The DoD block counts the lines against the `BUG` rows of the base. `Server.Close` has two layers and two tests: V1-2 (E22)
+PR's test files applied; from wave V1G on, red on the test-only commit of the PR that adds it
+(CONTRIBUTING.md, *Pull requests*, item 6; the `tdd` check of *Wave V1G*). The DoD block counts the lines against the `BUG` rows of the base. `Server.Close` has two layers and two tests: V1-2 (E22)
 owns the `engineio` one (open sessions are closed), V1-5 (S17) the root one (`Close` returns after
 the sessions are gone). V1-2, on its head, counts the three subtests of
 `TestPingTimeoutIdleClient` (E1 and P3, under the stacked markers `// Covers E1` and
@@ -2734,13 +2734,13 @@ each test with `-race`, since concurrency fixes are verified under the race dete
 scratch worktrees that it removes:
 
 ```sh
-tdd() (   # tdd <base> <head> <TestName>...: one line per defect; nothing when each test is red on the PR's first commit and green on <head>
-b=$1 h=$2; shift 2; first=$(git rev-list --reverse --no-merges "$b..$h" | head -n 1)
+tdd_red() { git log --reverse --no-merges --format=%H -G "^func $3[(]" "$1..$2" -- "$4" | head -n 1; }   # tdd_red <base> <head> <TestName> <file>: the commit of the PR that adds the test to its file (its red commit)
+tdd() (   # tdd <base> <head> <TestName>...: one line per defect; nothing when each test is added by a test-only commit of the PR, red there, and green on <head>
+b=$1 h=$2; shift 2
 run() { w=$(mktemp -d) || return 1; git worktree add -q --detach "$w/wt" "$1" >/dev/null 2>&1 || { echo "no worktree of $1"; rmdir "$w"; return 1; }; (cd "$w/wt" && go test -race -count=1 -timeout 280s -v -run "^$2\$" "./$3" 2>&1) && s=0 || s=$?; git worktree remove --force "$w/wt"; rmdir "$w"; return $s; }   # one test in a scratch worktree of a commit
 for t in "$@"; do
 f=$(git grep -l -E "^func $t[(]" "$h" -- '*_test.go' || :); test -n "$f" -a "$(printf '%s\n' "$f" | wc -l)" -eq 1 || { echo "tdd $t: not one test file at $h"; continue; }; f=${f#"$h":}; d=$(dirname "$f")
-r=$(git rev-list --reverse --no-merges "$b..$h" -- "$f" | head -n 1); test -n "$r" || { echo "tdd $t: $f is not changed by the PR"; continue; }
-test "$r" = "$first" || echo "tdd $t: red commit $r is not the first commit of the PR, $first"
+r=$(tdd_red "$b" "$h" "$t" "$f"); test -n "$r" || { echo "tdd $t: not added to $f by the PR"; continue; }
 test -z "$(git diff --name-only "$r^" "$r" -- '*.go' | grep -v '_test[.]go$')" || echo "tdd $t: red commit $r changes a Go file that is not a test"
 git show "$r:$f" | grep -B4 -E "^func $t[(]" | grep -qE '^// Covers [A-Z][0-9]+( |$)' || echo "tdd $t: no // Covers marker above it at $r"
 if o=$(run "$r" "$t" "$d"); then echo "tdd $t: not red at $r (go test passed)"; else case $o in
@@ -2755,34 +2755,41 @@ done
 A squash merge keeps one commit on `master`, so the evidence that survives it is the PR body
 (the lines `red commit: <sha>` and `fails without the fix: <TestName>`) and the commit list of
 the PR, which GitHub keeps under `refs/pull/<n>/head`; the check therefore runs on the PR head
-before the merge, as every per-PR DoD does. The CI run of the test-only commit is red by
-design and is not required to be green; the head's CI is. Each V1G PR runs, after the per-PR
-DoD with `N` set (whose last two lines count the `fails without the fix:` lines against the
-`BUG` rows of the base), `bash` and `set -e`, with `tdd` defined:
+before the merge, as every per-PR DoD does. The CI run of a test-only commit is red by design
+and is not required to be green; the head's CI is. A red test that a review iteration adds
+comes in a test-only commit of its own before its fix (CONTRIBUTING.md item 6), so `tdd` takes
+each test's red commit from the commit that adds it, not from the PR's first commit, and no
+commit is rewritten. Each V1G PR runs, after the per-PR DoD with `N` set (whose last two lines
+count the `fails without the fix:` lines against the `BUG` rows of the base), `bash` and
+`set -e`, with `tdd_red` and `tdd` defined:
 
 ```sh
 b=$(git merge-base origin/master HEAD); B=$(gh pr view --json body -q .body)
 T=$(printf '%s\n' "$B" | sed -n 's/^fails without the fix: \(Test[A-Za-z0-9_]*\)$/\1/p')
-o=$(tdd "$b" HEAD $T); test -z "$o" || { printf '%s\n' "$o" >&2; exit 1; }   # each named test: added by the PR's first commit under a marker, red there, green on the head
+o=$(tdd "$b" HEAD $T); test -z "$o" || { printf '%s\n' "$o" >&2; exit 1; }   # each named test: added by a test-only commit of the PR under a marker, red there, green on the head
 for id in $(git show origin/master:docs/PARITY.md | awk -F' *[|] *' -v pr="$N" '$3 ~ ("(^|; )BUG " pr "( |;|$)") {print $2}'); do k=; for t in $T; do git grep -h -B4 -E "^func $t[(]" HEAD -- '*_test.go' | grep -qE "^// Covers $id( |$)" && k=1; done; test -n "$k" || { echo "no red test under // Covers $id" >&2; exit 1; }; done   # each BUG row of the base has one of those tests under its own marker
-r=$(git rev-list --reverse --no-merges "$b..HEAD" | head -n 1); test -z "$T" || printf '%s\n' "$B" | grep -qE "^red commit: ${r:0:7}[0-9a-f]{0,33}$"   # the body names the first commit as the red commit
+for t in $T; do f=$(git grep -l -E "^func $t[(]" HEAD -- '*_test.go' | head -n 1); r=$(tdd_red "$b" HEAD "$t" "${f#HEAD:}"); printf '%s\n' "$B" | grep -qE "^red commit: ${r:0:7}[0-9a-f]{0,33}$" || { echo "no line red commit: $r for $t" >&2; exit 1; }; done   # the body names the red commit of each test, one line per commit
 case $N in V1-30) grep -q '^### Deviation D19: Admin UI not in v1' docs/PROTOCOL.md;; esac   # D19, as D3 and D4
 ```
 
 The PR that added this wave proved the helper on a scratch repository (`bash`, `set -e`, from
 the repository root, which needs only `git` and `go`): a branch with the test first and the fix
-second prints nothing; a branch whose first commit already holds the fix prints the defect
-lines `not red` and `changes a Go file that is not a test`; a red that does not compile prints
-`does not build or run`; a passing test that prints `panic: ` prints `not red`:
+second prints nothing; so does a branch where a review iteration adds a second red test in a
+test-only commit after the first fix and fixes it after that; a branch whose first commit
+already holds the fix prints the defect lines `not red` and `changes a Go file that is not a
+test`; a red that does not compile prints `does not build or run`; a passing test that prints
+`panic: ` prints `not red`:
 
 ```sh
-eval "$(awk '/^tdd[(][)] [(]/ {p=1} p; p && /^[)]$/ {exit}' docs/ROADMAP.md)"   # the helper of the fence above
+eval "$(awk '/^tdd_red[(][)] [{]/ {p=1} p; p && /^[)]$/ {exit}' docs/ROADMAP.md)"   # the two helpers of the fence above
 S=$(mktemp -d); git init -q -b master "$S/r"; cd "$S/r"; git config user.name t; git config user.email t@t
 add() { printf 'package tdd\n\nfunc Add(a, b int) int { return a %s b }\n' "$1" >add.go; }   # the code: `-` is the bug, `+` the fix
 tst() { printf 'package tdd\n\nimport "testing"\n\n// Covers G1\nfunc TestAdd(t *testing.T) {\n\tif %s(1, 2) != 3 {\n\t\tt.Fatal("1+2")\n\t}\n}\n' "$1" >add_test.go; }   # the test, of Add or of an undefined function
 printf 'module example.com/tdd\n\ngo 1.22\n' >go.mod; add -; git add -A; git commit -qm base; B=$(git rev-parse HEAD)
 git checkout -qb good "$B"; tst Add; git add -A; git commit -qm red; add +; git commit -qam fix
 test -z "$(tdd "$B" good TestAdd)"   # test first, fix second: prints nothing
+git checkout -qb iter good; printf 'package tdd\n\nfunc Mul(a, b int) int { return a + b }\n' >mul.go; git add -A; git commit -qm "code under review"; printf 'package tdd\n\nimport "testing"\n\n// Covers G2\nfunc TestMul(t *testing.T) {\n\tif Mul(2, 3) != 6 {\n\t\tt.Fatal("2*3")\n\t}\n}\n' >mul_test.go; git add -A; git commit -qm "red 2"; sed 's/a + b/a * b/' mul.go >m && mv m mul.go; git commit -qam "fix 2"
+test -z "$(tdd "$B" iter TestAdd TestMul)"   # a review iteration: red 2 after fix 1, before fix 2; prints nothing
 git checkout -qb planted "$B"; tst Add; add +; git add -A; git commit -qm "test and fix"
 tdd "$B" planted TestAdd | grep -q 'TestAdd: not red at'; tdd "$B" planted TestAdd | grep -q 'changes a Go file that is not a test'   # the fix in the first commit: two defect lines
 git checkout -qb nobuild "$B"; tst Sub; git add -A; git commit -qm red; printf 'package tdd\n\nfunc Sub(a, b int) int { return a + b }\n' >sub.go; git add -A; git commit -qm fix

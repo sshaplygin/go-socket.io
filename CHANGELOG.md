@@ -387,14 +387,13 @@ All notable changes to this project are documented here. The format follows
   queued until then are written in the background, and the engine.io connection closes
   when they are written or after `engineio.Options.PingTimeout`; `Server.Count` counts the
   session until then. They closed engine.io at once (`connection.go:66` at `48cf0d2`).
-  Closes started by the library (read, decode, dispatch or encode error, peer close, ping
-  timeout, overflow, failed connect) discard the queue. See
+  Closes started by the library (fatal read, decode or dispatch error, peer close, ping
+  timeout or overflow) discard the queue. Encode errors and rejected namespace connects
+  keep the engine connection open, as described above. See
   [`Conn`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Conn) (roadmap tasks 1.B
   and 1I).
-- An encode error now closes the connection; it used to leave it open
-  (`server.go:309` at `48cf0d2`).
-- The error that closes a connection is reported to `OnError` before the close's effects
-  run; a failed connect was closed before it was reported (`server.go:249` at `48cf0d2`).
+- Except for queue overflow, an error that closes a connection is reported to
+  `OnError` before the close's effects run.
 - The warning for an invalid `SOCKETIO_LOG_LEVEL` is logged as
   `logger: invalid level ignored` with the value under `value`; it read
   `logger: invalid SOCKETIO_LOG_LEVEL, ignored` (`logger/logger.go:67` at `1151bad`,

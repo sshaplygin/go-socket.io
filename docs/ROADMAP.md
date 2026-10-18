@@ -365,8 +365,10 @@ sequence. It starts from V1-14 on `master`, after this plan PR merges, and keeps
 until the owner accepts the resulting implementation. It does not reopen the completed
 functional packages or authorize a release, tag, version bump or v2 implementation change.
 
-Existing public import paths, root/client aliases, connection interfaces, protocol
-behavior and error identities stay compatible. In particular, public `engineio/frame`
+The preparatory cleanup merged as #118. The compatibility restriction in this paragraph
+applied to #118 only and is superseded for subsequent work by *Component boundaries*
+below. Existing public import paths, root/client aliases, connection interfaces, protocol
+behavior and error identities stayed compatible in #118. In particular, public `engineio/frame`
 and `engineio/transport/utils` stay available; a small package is not deleted at the
 cost of breaking an existing import. No replacement shared runtime package is introduced.
 The root server, Go client, Engine.IO session, transports and codecs remain distinct
@@ -435,9 +437,161 @@ initial/subsequent responses and hook ordering. Existing tests are reused for mo
 focused tests are added only where these direct boundaries lack behavior coverage.
 Three independent approvals and every executed CI job successful are required for merge.
 Repeat the full MV1 DoD, both conformance clients, unchanged browser pages and real Node
-restart acceptance on merged `master`; then return MV1 to the owner for acceptance.
+restart acceptance on merged `master`. The owner subsequently clarified that #118 is
+preparatory; acceptance waits for *Component boundaries* below.
 This plan-only PR runs the existing work-package section checks and normal CI; the new
 implementation exit checks above apply to the implementation PR, not to the plan itself.
+
+**Component boundaries before MV1 acceptance (owner decision, 2026-10-18; #119).**
+The owner's diagram defines the component boundaries, beyond the file cleanup in #118.
+The owner explicitly chose new Go imports and API with a migration guide instead of
+compatibility facades. This decision supersedes the root/client alias, deprecated root
+client and old public import preservation requirements of Stage 7 and the preparatory
+cleanup for this follow-up. Wire behavior, parity scope and release gates remain in force.
+The completed numbered packages stay done; H stays open until owner acceptance after
+this series. No v2 source change, release, tag or version bump is authorized.
+
+The diagram's server-to-browser-client “serves” arrow describes assets and the wire
+protocol; it does not require a Go server dependency on the Go client. The reference is
+socket.io 2.5.0 / engine.io 3.6.2 and their pinned parser/client dependencies in the Node
+conformance installation: both Socket.IO roles use socket.io-parser; both Engine.IO roles
+use engine.io-parser; engine.io-client does not import engine.io server. Redis extends
+the adapter. Where implementation details are uncertain, inspect this JS reference (or
+Rust) before changing behavior.
+
+The final production import graph is acyclic and has these owners. “May import” lists
+repository runtime dependencies, including their transitive closure; standard library
+and existing external dependencies are omitted. Test imports do not define runtime edges.
+
+| Package | Responsibility | May import |
+| --- | --- | --- |
+| root `socketio` | Socket.IO server, server sockets, namespaces and emit builders | `adapter`, `parser`, `engineio`, its lower parser/transports, `logger` |
+| `client` | Socket.IO Go client, manager/reconnect and client sockets | `parser`, `engineio/client`, lower Engine.IO parser/transports, `logger` |
+| `adapter` | Room/index/broadcast contract and in-memory implementation | no other repository runtime package |
+| `adapter/redis` | Redis adapter extending/composing the memory adapter | `adapter`, `logger` |
+| `parser` | Socket.IO packet codec, shared by server and client | `logger` |
+| `engineio` | Engine.IO server, sessions, registry, heartbeat and upgrade | `engineio/parser`, `engineio/transport` and its implementations, `logger` |
+| `engineio/client` | Engine.IO dial, heartbeat, upgrade and client connection | `engineio/parser`, `engineio/transport` and its implementations, `logger` |
+| `engineio/parser` | Engine.IO frame/packet/payload codecs and OPEN parameters | `logger` |
+| `engineio/transport` | Transport contracts and registry | `engineio/parser`, `logger` |
+| `engineio/transport/polling` | HTTP polling, streaming feed/flush, pause/deadline ownership | `engineio/transport`, `engineio/parser`, `logger` |
+| `engineio/transport/websocket` | WebSocket transport | `engineio/transport`, `engineio/parser`, `logger` |
+| `logger` | Existing logging fallback | no other repository runtime package |
+
+In particular root never imports `client`, `adapter/redis` or redigo; neither client
+imports its server; neither parser imports a server, client, session, adapter or transport.
+Delete the retired production packages `engineio/frame`, `engineio/packet`,
+`engineio/payload`, `engineio/session` and `engineio/transport/utils` after moving their
+responsibilities to the owners above. Fold transport header helpers into `transport`.
+No replacement generic helper, shared-connection or init-registration bridge package is
+introduced. Keep test-only `internal/conformance` and `internal/parity` and existing tooling.
+
+API and ownership changes:
+
+- Root and `client` each own their role's `Conn`, `Namespace`, `Emitter`, `AckFunc`,
+  `Handshake` and errors; root no longer aliases the client or exports the deprecated
+  `Client`/`NewClient` wrapper. Keep supported operations and their behavior on each role.
+  Each role's `EngineConn` uses its own Engine.IO connection contract (the client keeps
+  its existing nil result). Reflective handler validation checks the actual role type,
+  not only the name `Conn`; wrong-role callbacks are rejected before invocation.
+- Socket.IO `parser` owns its frame type and text/binary values, with conversions at the
+  server/client Engine.IO boundary. It no longer uses `session.FrameType`.
+- `engineio/parser` owns `FrameType`, `PacketType`, packet encoder/decoder, payload
+  encoder/decoder and `ConnParameters` with OPEN JSON reading/writing. Use distinct
+  `NewPacketEncoder`/`NewPacketDecoder` and `NewPayloadEncoder`/`NewPayloadDecoder`
+  constructors. Streaming payload reader/writer acquisition and release use explicit
+  I/O interfaces; the codec owns wire buffering and lengths, while polling owns channels,
+  deadlines, pause/resume and HTTP lifetimes. Codec errors live with the codec; polling
+  operation/deadline errors live with polling. Preserve error wrapping and error text.
+- `engineio/client.Dialer` replaces server-package `engineio.Dialer`. Each role owns
+  its connection state/close types; frame types come from `engineio/parser`. Fold
+  session implementation into private server types in `engineio`, rather than retaining
+  another public runtime layer. Public `engineio.Hooks` remains server configuration.
+  A server-owned `engineio.Abort(Conn)` function dispatches to its private session for
+  immediate close and calls ordinary `Close` on custom engines. Unrelated custom
+  `Abort` methods must not change that fallback. Shutdown remains server-owned.
+- Socket.IO `client.New(addr, *client.Options)` is the client constructor; remove its
+  legacy `NewClient(addr, *engineio.Options)` and server options dependency. Client
+  queue size and drain timeout belong to client options. Root `socketio.Options` owns
+  server queue size, drain timeout and `Adapter adapter.Factory`, with engine options
+  nested as `Engine *engineio.Options`; `NewServer` accepts these root options. Default
+  queue/drain and wire heartbeat values stay unchanged. Migrate explicit old queue and
+  PingTimeout-as-drain settings to the corresponding role options.
+- `adapter.Adapter`, `adapter.Options`, `adapter.EachFunc` and
+  `adapter.Factory func(namespace string) (Adapter, error)` replace root broadcast
+  declarations. A minimal `adapter.Socket` exposes ID, Emit and flagged delivery without
+  importing root types; root namespace sockets implement it. Iteration callbacks receive
+  this adapter contract. Memory construction is public in `adapter`; Redis composes it.
+  `adapter.ErrExceptUnsupported` owns the adapter error. Root keeps its broadcast-ACK
+  rejection before delivery, and parent broadcasts preserve the approved partial-delivery
+  behavior. Flags and errors continue to reach the same existing operations.
+- `adapter/redis` owns Redis options, pool setup and factory construction. Root accepts
+  an adapter factory, including for future namespaces through a generic setter; root
+  shutdown closes adapters through optional `io.Closer`, without a Redis type assertion.
+  Preserve the existing timing of factory application to future namespaces. Redis DB0,
+  remote flags/Except and mixed-cluster limitations stay documented; this is not V1R.
+
+Implementation PRs are sequential, each based on the preceding merged `master`:
+
+| Step | Scope and exit beyond the common gate |
+| --- | --- |
+| C1 | Shared Engine.IO codecs, OPEN types and polling ownership; fold transport utilities; remove old frame/packet/payload/utils paths and update all v1 consumers. Parser vector tests and polling lifecycle regressions pass. |
+| C2 | Fold server session into `engineio`; move dialer/client into `engineio/client`; update Socket.IO client to its own options/Engine.IO client. Remove server dependencies from production client imports. Close/header/upgrade/OPEN regressions pass. |
+| C3 | Split Socket.IO role contracts; remove deprecated root client and aliases; make Socket.IO parser independent; introduce root server options. Handler type validation and separate server/client consumer fixtures pass. |
+| C4 | Extract adapter and Redis; root uses generic adapter factory and optional close contract. Memory/Redis regressions and factory/shutdown tests pass, with root free of Redis dependencies. |
+| C5 | Final import-graph gate, complete migration guide and acceptance evidence. All final graph edges/package removals hold, examples and migration consumers compile, full MV1 acceptance is repeated. |
+
+All steps may update their affected v1 consumers/tests in root, `client/`, `adapter/`,
+`parser/`, `engineio/`, `internal/`, `_examples/`, existing root module manifests and example
+module manifests (tidy only, no dependency upgrades), `.github/sync-manifest`, `Makefile`,
+`.github/workflows/ci.yaml`, `CLAUDE.md`, `README.md`, root `CHANGELOG.md`,
+`docs/V1_MIGRATION.md`, v1 implementation references in `docs/PROTOCOL.md`, and the current
+owning descriptions/checks in this roadmap. `docs/PARITY.md` may update source locations,
+test identities, current API identifiers and configuration descriptions affected by the
+new component API: preserve all 137 rows, statuses, wire semantics, evidence vectors and
+`(Covers ID, side)` obligations. Old-to-new mappings belong only to the migration guide;
+PROTOCOL keeps protocol behavior and PARITY keeps current parity evidence. Graph tooling
+and its tests live in `.github/architecture/`, with a CI/Makefile target. No other v2 or
+unrelated stage/API contract is changed. Each implementation PR records its change in the
+changelog and migration guide; CLAUDE owns the final layout and the guide's ownership row.
+The guide owns old-to-new import/API/config/error mappings and examples; README links it.
+`docs/MIGRATION.md` stays reserved for v1-to-v2 migration.
+
+C1 entry is #118 and this plan merged, a clean branch and the existing work-package
+section checks passing. Later entries require the preceding step merged and its exit
+green. Before C1 save API and test/benchmark/Covers inventories; each step records explicit
+old-to-new identities and API removals, without losing tests or vectors. Temporary old
+packages may survive only until their listed removal step; no final compatibility facade
+remains. Every PR head builds. The final graph is a C5 exit, not a requirement on the
+plan-only PR or intermediate heads. Current owning MV1/Stage 7/static API checks are
+updated with their API changes, preserving behavioral obligations; historical snapshots
+are identified as such, rather than treated as current compatibility promises.
+
+The common implementation gate is `make lint test test-race sync-check`,
+`PARITY_STRICT=1 make parity-check`, `make cover-check` (unchanged floor 91.7 and API ceiling
+0), full conformance with each pinned Socket.IO client 1.7.4 and 2.5.0, and the current full
+MV1 DoD. Removed sync-manifest pairs are listed individually in the PR body as
+`sync-check left out: <path>: <reason>`; unchanged pairs remain checked, v2 copies untouched.
+Three independent approvals and every executed CI job successful are required to merge
+all steps; the normal three-iteration limit applies. No implementation delegation.
+
+The graph gate reads production `Imports` from each package object in the JSON stream
+returned by `go list -json ./...`; `GoFiles` contains filenames, not imports. It excludes
+`TestImports`/`XTestImports`, checks the package allowlist and transitive edges above, and
+rejects unexpected runtime packages or retired imports. Failed listing, malformed or
+empty output and package errors fail the gate. Its tests exercise forbidden server/client,
+parser/session and Redis edges plus an allowed graph; at least one negative fixture runs
+real `go list` with a forbidden production import and must fail. Test-only imports remain
+permitted. Consumer fixtures verify
+role-specific callback/connection types and external memory/Redis factory composition.
+Close/header/heartbeat/upgrade, codec text/binary/UTF-16, ACK, buffering/reconnect, parent
+partial delivery and broadcast-ACK zero-send regressions retain their behavior.
+After C5 merge repeat the full MV1 DoD, both pinned-client conformance runs, unchanged
+browser pages, and Go client reconnect after a real Node restart on both transports;
+record every executed master CI result and import/test/parity evidence, then request owner
+MV1 acceptance. H is marked done only after that acceptance in a separate reviewed PR.
+This plan-only PR has no changelog entry: this section records it. Its gate is the existing
+work-package section checks, `make lint test`, three independent approvals and normal CI.
 
 **Entry.** `bash`, from the repository root; `entry <PR>` exits 0 when that PR may start.
 Every check of an arm but its last ends in `|| return 1`, and `entry` runs in a subshell, so

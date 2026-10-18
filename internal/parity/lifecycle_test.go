@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -84,12 +83,9 @@ func terminatingReferences(name string, source []byte) ([]string, error) {
 		return nil, err
 	}
 	for _, imp := range file.Imports {
-		path, err := strconv.Unquote(imp.Path.Value)
-		if err != nil {
-			return nil, err
-		}
-		if imp.Name != nil && imp.Name.Name == "." && (path == "log" || path == "os" || path == "syscall") {
-			return nil, fmt.Errorf("%s: dot import of process-termination API %s", name, path)
+		// A dot import can hide any logger's terminating methods from selector checks.
+		if imp.Name != nil && imp.Name.Name == "." {
+			return nil, fmt.Errorf("%s: dot imports are not allowed in library/example source: %s", name, imp.Path.Value)
 		}
 	}
 	var failures []string
@@ -167,8 +163,13 @@ func TestProcessTerminationGate(t *testing.T) {
 		}
 	})
 	t.Run("dot import", func(t *testing.T) {
-		if _, err := terminatingReferences("dot.go", []byte(`package sample; import . "os"; func f(){Exit(1)}`)); err == nil {
-			t.Fatal("dot-imported termination API passed")
+		for _, source := range []string{
+			`package sample; import . "os"; func f(){Exit(1)}`,
+			`package sample; import . "github.com/labstack/gommon/log"; func f(){Fatal("failed")}`,
+		} {
+			if _, err := terminatingReferences("dot.go", []byte(source)); err == nil {
+				t.Fatalf("dot-imported termination API passed: %s", source)
+			}
 		}
 	})
 }

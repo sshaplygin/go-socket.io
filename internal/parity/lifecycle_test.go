@@ -59,7 +59,7 @@ func processTermination(root string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	blocks := strings.Split(string(readme), "```go\n")
+	blocks := strings.Split(strings.ReplaceAll(string(readme), "\r\n", "\n"), "```go\n")
 	if len(blocks) == 1 {
 		return nil, fmt.Errorf("README contains no Go quick start")
 	}
@@ -142,6 +142,23 @@ func TestProcessTerminationGate(t *testing.T) {
 		failures, err := processTermination(root)
 		if err != nil || len(failures) != 1 {
 			t.Fatalf("README gate: %v, %v", failures, err)
+		}
+	})
+	t.Run("CRLF README", func(t *testing.T) {
+		root := t.TempDir()
+		put(t, root, "README.md", "```go\r\npackage main\r\nfunc main(){}\r\n```\r\n")
+		failures, err := processTermination(root)
+		if err != nil || len(failures) != 0 {
+			t.Fatalf("valid CRLF README rejected: %v, %v", failures, err)
+		}
+	})
+	t.Run("mixed README line endings", func(t *testing.T) {
+		root := t.TempDir()
+		put(t, root, "README.md", "```go\npackage main\nfunc main(){}\n```\n"+
+			"```go\r\npackage main\r\nimport \"os\"\r\nfunc main(){os.Exit(1)}\r\n```\r\n")
+		failures, err := processTermination(root)
+		if err != nil || len(failures) != 1 || !strings.Contains(failures[0], "Exit") {
+			t.Fatalf("CRLF block bypassed gate: %v, %v", failures, err)
 		}
 	})
 	t.Run("malformed source", func(t *testing.T) {

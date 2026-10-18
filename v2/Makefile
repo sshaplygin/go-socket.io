@@ -67,7 +67,11 @@ freeze:
 # The gate evidence of ROADMAP wave 2A: the compile fixtures, the package graph and the
 # frozen-contract check. The inventory check keeps docs/API.md complete.
 .PHONY: g2
-g2: graph freeze
+g2: graph freeze fixtures
+
+# The compile fixtures and the inventory check of g2.
+.PHONY: fixtures
+fixtures:
 	go test -count=1 -run '^(TestCompileContracts|TestInventory.*)$$' .
 
 # First the isolation check (the Stage 1b DoD line "_experiments stays standalone", see

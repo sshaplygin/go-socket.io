@@ -118,7 +118,7 @@ make test-stress # race tests of root, adapters, private server/client owners, p
 make bench       # benchmarks only, no tests
 make vuln        # govulncheck ./... in the root and in every _examples module
 make cover       # coverage profile + HTML report
-make gates       # architecture-check and every internal/parity test: the gates that read the whole repository
+make gates       # every internal/parity test (Covers markers, process termination, role fixtures): the gate that reads the whole repository
 make parity-check # validate DONE rows and Covers markers; PARITY_STRICT=1 also checks open planned rows
 make cover-check # cross-package statement floor and exported API zero-coverage ceiling
 make examples    # build/vet example modules and Engine.IO echo, compare chat/lifecycle copies, race-test cleanup and chat
@@ -136,7 +136,8 @@ make bench      # benchmarks only, no tests
 make vuln       # govulncheck ./... in v2/ and in every _experiments module
 make graph      # package graph: no import cycle, the v2 root imports only engineio and parser (docs/API.md)
 make freeze     # G2 check: no unresolved marker in docs/API.md or the frozen declarations, no bare any in an exported frozen declaration
-make g2         # the gate evidence of ROADMAP row 2A: make graph, make freeze and the compile fixtures
+make g2         # the gate evidence of ROADMAP row 2A: make graph, make freeze and make fixtures
+make fixtures   # the compile fixtures and the docs/API.md inventory check
 make cover      # coverage profile + HTML report
 make examples   # check that every _examples/*/chat.go is identical; the legacy examples are not built until 2.5D
 make experiments # check that _experiments stays standalone, then vet, gofmt -s, golangci-lint and race tests in every _experiments/*/ module
@@ -211,7 +212,8 @@ matrix always starts and skips its steps, because a skipped matrix job reports o
 under its unexpanded name. v1 jobs, in the root: `conformance` (Node LTS with exact clients
 1.7.4 and 2.5.0, `make conformance examples-node`), `sync-check` (the pairs of
 `.github/sync-manifest`), `gates-v1` (`make gates`), `lint-v1` (tidy diff, mod verify,
-gofmt, vet, `make architecture-check parity-check cover-check`, golangci-lint,
+gofmt, vet, `make architecture-check parity-check cover-check` when packages are selected,
+golangci-lint,
 `make vuln` on ubuntu with the newest Go release from go.dev, because `setup-go` lags
 behind it), `test-v1` (race tests of the
 selected packages on ubuntu, macos and windows with `stable` and `oldstable` Go, plus the
@@ -220,10 +222,14 @@ graph fixtures and checker, so conditional production imports obey the same poli
 `min-go-v1` (build and race tests on ubuntu with the latest Go 1.22.x and
 `GOTOOLCHAIN=local`, so it fails if `go.mod` or a dependency requires a newer Go) and
 `examples-v1` (`make examples`). v2 jobs, with `working-directory: v2`: `gates-v2`
-(`make g2`), `lint-v2` (tidy, mod verify, format/vet, `make graph freeze`, golangci-lint and
+(`make fixtures`, and `make graph freeze` only when `lint-v2` does not run), `lint-v2` (tidy,
+mod verify, format/vet, `make graph freeze` when `gates_v2` is set, golangci-lint and
 `make vuln`), `test-v2`, `min-go-v2`, `examples-v2` (`make examples`, the identical-copy
 check only) and `experiments-v2` (`make experiments`; installs golangci-lint with
-`go install`). Validate the classifier with `go test ./.github/changes`. Dependabot groups Go minor/patch updates of every
+`go install`). One check runs twice when both jobs run: `TestParityCovers`, in
+`make parity-check` of `lint-v1` (the step the V1-20 record of `docs/ROADMAP.md` names) and
+in `make gates`; it is a single test. Validate the classifier with
+`go test ./.github/changes`. Dependabot groups Go minor/patch updates of every
 module (`/`, `/v2`, `/_examples/*`, `/v2/_examples/*`, `/v2/_experiments/*`) and Actions
 updates weekly.
 

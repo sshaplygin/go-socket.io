@@ -68,11 +68,11 @@ vuln:
 cover:
 	go test -count=1 -coverprofile=c.out ./... && go tool cover -html=c.out
 
-# The gates that read the whole repository: internal/parity (Covers markers against
-# docs/PARITY.md, process termination in every non-test file and the README, role
-# fixtures) and the component graph.
+# The gate that reads the whole repository: every internal/parity test (Covers markers
+# against docs/PARITY.md, process termination in every non-test file and the README, role
+# fixtures). The component graph reads only the root module's imports: architecture-check.
 .PHONY: gates
-gates: architecture-check
+gates:
 	go test -race -count=1 ./internal/parity
 
 .PHONY: parity-check

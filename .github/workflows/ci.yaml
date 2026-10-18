@@ -142,8 +142,10 @@ jobs:
       - name: Compare shared sources across modules
         run: make sync-check
 
+  # The component graph reads only the imports of the root module, so it runs in lint-v1
+  # with the packages a code change selects, not here.
   gates-v1:
-    name: Gates v1 (parity, architecture)
+    name: Gates v1 (parity)
     needs: changes
     if: needs.changes.outputs.gates_v1 == 'true'
     runs-on: ubuntu-latest
@@ -154,11 +156,11 @@ jobs:
         with:
           go-version: stable
           check-latest: true
-      - name: Parity, termination and role gates; component graph and negative fixtures
+      - name: Parity, termination and role gates
         run: make gates
 
   gates-v2:
-    name: Gates v2 (graph, frozen contract, inventory)
+    name: Gates v2 (compile fixtures, inventory)
     needs: changes
     if: needs.changes.outputs.gates_v2 == 'true'
     runs-on: ubuntu-latest
@@ -173,8 +175,13 @@ jobs:
           go-version: stable
           check-latest: true
           cache-dependency-path: v2/go.sum
-      - name: Package graph, frozen contract, compile fixtures and API inventory
-        run: make g2
+      # The other half of make g2 (make graph freeze) runs in lint-v2, which a change that
+      # sets gates_v2 also starts; it runs here only if lint-v2 does not.
+      - name: Package graph and frozen contract
+        if: needs.changes.outputs.v2 != 'true'
+        run: make graph freeze
+      - name: Compile fixtures and API inventory
+        run: make fixtures
 
   lint-v1:
     name: Lint v1
@@ -249,9 +256,13 @@ jobs:
         run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
       - name: Vet
         run: go vet ./...
+      # The v2 gates of make g2 that lint has always run; skipped, with gates-v2, for a
+      # change of comments or formatting outside the frozen files.
       - name: Package graph
+        if: needs.changes.outputs.gates_v2 == 'true'
         run: make graph
       - name: Frozen contract
+        if: needs.changes.outputs.gates_v2 == 'true'
         run: make freeze
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8

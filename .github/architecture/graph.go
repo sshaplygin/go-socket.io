@@ -144,10 +144,10 @@ func checkDependencyClosure(path string, dependencies []string) error {
 	server := relative == "" || relative == "internal/connection" || relative == "internal/namespace" || relative == "engineio" || relative == "engineio/internal/session"
 	for _, dependency := range dependencies {
 		local, repository := relativePath(dependency)
-		if client && (dependency == modulePath || local == "engineio" || local == "internal/connection" || local == "internal/namespace" || local == "engineio/internal/session" || local == "adapter" || strings.HasPrefix(local, "adapter/") || strings.Contains(dependency, "redigo")) {
+		if client && (repository && (local == "" || local == "engineio" || local == "internal/connection" || local == "internal/namespace" || local == "engineio/internal/session" || local == "adapter" || strings.HasPrefix(local, "adapter/")) || strings.Contains(dependency, "redigo")) {
 			return fmt.Errorf("client reaches server/adapter: %s -> %s", path, dependency)
 		}
-		if server && (local == "client" || strings.HasPrefix(local, "client/") || local == "engineio/client" || local == "adapter/redis" || strings.Contains(dependency, "redigo")) {
+		if server && (repository && (local == "client" || strings.HasPrefix(local, "client/") || local == "engineio/client" || local == "adapter/redis") || strings.Contains(dependency, "redigo")) {
 			return fmt.Errorf("server reaches client/Redis: %s -> %s", path, dependency)
 		}
 		if repository && relative == "parser" && local != "logger" {

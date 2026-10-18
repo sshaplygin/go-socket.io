@@ -85,6 +85,13 @@ func TestForbiddenProductionImports(t *testing.T) {
 }
 
 func TestTransitiveRoleAndCodecExclusions(t *testing.T) {
+	t.Run("external package names stay distinct", func(t *testing.T) {
+		for _, role := range []string{"", "client", "engineio/client", "parser", "engineio/parser/internal/packet"} {
+			if err := checkDependencyClosure(fullPath(role), []string{"client", "client/namespace", "engineio", "internal/connection", "adapter", "adapter/redis"}); err != nil {
+				t.Fatalf("external import name misclassified as a repository role: %v", err)
+			}
+		}
+	})
 	// Exercise closure rules independently of direct-edge rules, so a future
 	// allowed-edge amendment cannot silently couple roles through a private owner.
 	for _, chain := range [][]string{

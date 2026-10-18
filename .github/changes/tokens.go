@@ -102,8 +102,14 @@ func exampleBodies(fset *token.FileSet, file *ast.File) spans {
 	return result
 }
 
+// spacedDirective is a // comment that reads as a compiler directive after leading
+// whitespace, such as "// go:noinline": staticcheck SA9009 (checks: all in both
+// .golangci.yml) flags it, so adding or removing one changes the lint result.
+var spacedDirective = regexp.MustCompile(`^//[ \t]+go:`)
+
 func directive(text string) bool {
 	return strings.HasPrefix(text, "//go:") ||
+		spacedDirective.MatchString(text) ||
 		constraint.IsPlusBuild(text) ||
 		strings.HasPrefix(text, "//line ") ||
 		strings.HasPrefix(text, "/*line ") ||

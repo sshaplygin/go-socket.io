@@ -175,7 +175,8 @@ the diff reaches something it checks:
   classifier names the skipped gate in the job summary, and a classifier test fails when a
   Go file names a Markdown file outside that list.
 - Go comments and formatting run nothing. Comments that a tool reads count as code:
-  `//go:` and `//line` directives, build constraints, cgo preambles, `//nolint`, `//lint:`,
+  `//go:` and `//line` directives, a `// go:` comment with a space (staticcheck SA9009),
+  build constraints, cgo preambles, `//nolint`, `//lint:`,
   generated-file markers, a line opening a `Deprecated:` paragraph (staticcheck SA1019)
   and, in test files, every comment inside the body of an `Example` function (go test
   compares its output with all lines of the `Output:` block). Comments of v1 test files with a

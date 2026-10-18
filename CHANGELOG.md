@@ -425,8 +425,8 @@ All notable changes to this project are documented here. The format follows
   the dialer's and the polling client's reader `Close` failures during the handshake,
   and `engineio: transport dial failed` (with
   `transport`) for a transport attempt whose error `Dial` does not return (the last
-  attempt is DEBUG). The dialer also returns an OPEN reader `Close` error when
-  that attempt has no earlier packet or decode error and no transport fallback succeeds
+  attempt is DEBUG). The dialer's OPEN reader `Close` failures use WARN even
+  when returned by `Dial`; they do not replace an earlier packet or decode error
   (`engineio/session/session.go:56`-`:507`, `engineio/client.go:70`-`:133`,
   `engineio/dialer.go:23`-`:87`, `engineio/transport/polling/connect.go:38`-`:277`,
   `engineio/packet/encoder.go:40`, `engineio/transport/websocket/wrapper.go:66`, `:131`

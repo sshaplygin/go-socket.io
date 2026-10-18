@@ -129,6 +129,20 @@ func (d *decision) note(format string, args ...any) {
 	d.reasons = append(d.reasons, fmt.Sprintf(format, args...))
 }
 
+// lint runs the lint job of mod without selecting a package to test.
+func (d *decision) lint(mod, why string) {
+	d.mods[mod].lint = true
+	d.note("%s: lint (%s)", mod, why)
+}
+
+// vulnInput reports whether rel is the go.mod or go.sum of a standalone module directly
+// under _examples/ or _experiments/, which make vuln of the lint job scans.
+func vulnInput(rel string) bool {
+	parts := strings.Split(rel, "/")
+	return len(parts) == 3 && (parts[0] == "_examples" || parts[0] == "_experiments") &&
+		(parts[2] == "go.mod" || parts[2] == "go.sum")
+}
+
 func (d *decision) fullRun(mod string, bench bool, why string) {
 	d.mods[mod].full = true
 	d.mods[mod].benchFull = d.mods[mod].benchFull || bench
@@ -288,6 +302,10 @@ func (d *decision) path(status, name string, before, after []byte) {
 		if mod == v1 && isGo && !test && !same {
 			m.gates = true
 		}
+		// make vuln of lint-v1 runs govulncheck in every _examples/*/ module.
+		if mod == v1 && vulnInput(rel) {
+			d.lint(mod, name)
+		}
 		d.note("%s: examples (%s)", mod, name)
 		return
 	case slices.Contains(parts, "_experiments"):
@@ -298,6 +316,10 @@ func (d *decision) path(status, name string, before, after []byte) {
 			return
 		}
 		m.experiments = true
+		// make vuln of lint-v2 runs govulncheck in every _experiments/*/ module.
+		if vulnInput(rel) {
+			d.lint(mod, name)
+		}
 		d.note("%s: experiments (%s)", mod, name)
 		return
 	case slices.Contains(parts, "testdata"):
@@ -353,8 +375,7 @@ func (d *decision) goFile(mod, status, name, rel string, before, after []byte) {
 	if sameTokens(before, after, test) {
 		// Comments and formatting: golangci-lint and gofmt read every comment, so the lint
 		// job runs and no package is tested.
-		m.lint = true
-		d.note("%s: lint (comments or formatting of %s)", mod, name)
+		d.lint(mod, "comments or formatting of "+name)
 		// Comments that gates read: Covers markers of the parity gate in v1 tests, and the
 		// comments of the files frozenGoFiles names (TestFrozenContract).
 		if mod == v1 && test && (bytes.Contains(before, []byte("// Covers ")) || bytes.Contains(after, []byte("// Covers "))) {

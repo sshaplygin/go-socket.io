@@ -211,9 +211,13 @@ func TestClassify(t *testing.T) {
 		{name: "comment in a byte-compared example copy", edit: map[string]string{
 			"_examples/app/chat.go": "package main\n\n// chat is a shared copy, edited.\nfunc chat() {}\n",
 		}, want: with(map[string]string{"examples_v1": "true", "conformance": "true"})},
+		// make vuln of the lint job scans the example and experiment modules.
 		{name: "example module file", edit: map[string]string{
 			"_examples/app/go.mod": "module example.com/app\n\ngo 1.23\n",
-		}, want: with(map[string]string{"examples_v1": "true", "conformance": "true"})},
+		}, want: with(map[string]string{"v1": "true", "examples_v1": "true", "conformance": "true"})},
+		{name: "example module checksums", edit: map[string]string{
+			"_examples/app/go.sum": "example.com/dep v1.0.0 h1:x=\n",
+		}, want: with(map[string]string{"v1": "true", "examples_v1": "true", "conformance": "true"})},
 		{name: "Markdown only", edit: map[string]string{"CHANGELOG.md": "# Changelog\n\n- x\n"}, want: none},
 		{name: "Markdown read by the parity gate", edit: map[string]string{"docs/PARITY.md": "| B1 | DONE | y |\n"},
 			want: none},
@@ -299,6 +303,10 @@ func TestClassify(t *testing.T) {
 			want: with(map[string]string{"examples_v2": "true"})},
 		{name: "v2 experiment", edit: map[string]string{"v2/_experiments/e/e.go": "package e\n\nfunc E() { println() }\n"},
 			want: with(map[string]string{"experiments_v2": "true"})},
+		{name: "v2 experiment module file", edit: map[string]string{"v2/_experiments/e/go.mod": "module example.com/e\n\ngo 1.23\n"},
+			want: with(map[string]string{"v2": "true", "experiments_v2": "true"})},
+		{name: "v2 example module file", edit: map[string]string{"v2/_examples/x/go.mod": "module example.com/x\n\ngo 1.23\n"},
+			want: with(map[string]string{"examples_v2": "true"})},
 		{name: "v2 experiment comment", edit: map[string]string{"v2/_experiments/e/e.go": "package e\n\n// E runs. nolint:unused\nfunc E() {}\n"},
 			want: with(map[string]string{"experiments_v2": "true"})},
 		{name: "v2 module file", edit: map[string]string{"v2/go.mod": "module example.com/m/v2\n\ngo 1.23\n"},

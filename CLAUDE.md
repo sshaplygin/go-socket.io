@@ -193,7 +193,9 @@ the diff reaches something it checks:
   v1 `_examples/` also runs `conformance`, which runs the examples with Node. A comment or
   formatting change of an example runs nothing unless the file is a byte-compared copy
   (`chat.go`, `lifecycle.go`); any change of an experiment runs `experiments-v2`, the only
-  golangci-lint run of those modules. A code change of a v1 example also runs `gates-v1`
+  golangci-lint run of those modules. The `go.mod` or `go.sum` of a v1 `_examples/*/` or a
+  v2 `_experiments/*/` module also runs the lint job of its module, whose `make vuln` scans
+  that module with govulncheck. A code change of a v1 example also runs `gates-v1`
   (`internal/parity` scans every non-test Go file of the tree). A v1 non-test code change
   also builds the v1 examples and runs `conformance`.
 - `go.mod`, `go.sum`, `testdata/`, a build-constraint change, a module `Makefile` or

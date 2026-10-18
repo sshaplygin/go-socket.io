@@ -14,22 +14,22 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/engineio/payload"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
 // Opener is client connection which need receive open message first.
 type Opener interface {
-	Open() (transport.ConnParameters, error)
+	Open() (eioparser.ConnParameters, error)
 }
 
 type client struct {
 	conn          transport.Conn
-	params        transport.ConnParameters
+	params        eioparser.ConnParameters
 	transport     string
 	context       interface{}
 	close         chan struct{}
@@ -175,7 +175,7 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 		}
 
 		switch pt {
-		case packet.PONG:
+		case eioparser.PONG:
 			deadline := time.Now().Add(c.params.PingInterval + c.params.PingTimeout)
 			if err = conn.SetReadDeadline(deadline); err != nil {
 				_ = r.Close()
@@ -189,7 +189,7 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 				c.onPong(time.Since(ping))
 			}
 
-		case packet.CLOSE:
+		case eioparser.CLOSE:
 			if err = r.Close(); err != nil {
 				return 0, nil, c.failure(err)
 			}
@@ -199,7 +199,7 @@ func (c *client) NextReader() (session.FrameType, io.ReadCloser, error) {
 
 			return 0, nil, c.closeError()
 
-		case packet.MESSAGE:
+		case eioparser.MESSAGE:
 			return session.FrameType(ft), &clientReader{ReadCloser: r, c: c}, nil
 		}
 
@@ -228,9 +228,9 @@ func (c *client) NextWriterCompress(typ session.FrameType, compress bool) (io.Wr
 	var w io.WriteCloser
 	var err error
 	if target, ok := c.connection().(transport.CompressWriter); ok {
-		w, err = target.NextWriterCompress(frame.Type(typ), packet.MESSAGE, compress)
+		w, err = target.NextWriterCompress(eioparser.FrameType(typ), eioparser.MESSAGE, compress)
 	} else {
-		w, err = c.connection().NextWriter(frame.Type(typ), packet.MESSAGE)
+		w, err = c.connection().NextWriter(eioparser.FrameType(typ), eioparser.MESSAGE)
 	}
 	if err != nil {
 		c.releaseWrite()
@@ -275,7 +275,7 @@ func (c *client) serve() {
 			return
 		}
 		conn := c.connection()
-		w, err := conn.NextWriter(frame.String, packet.PING)
+		w, err := conn.NextWriter(eioparser.String, eioparser.PING)
 		if err != nil {
 			c.releaseWrite()
 			c.pingFailed(err)
@@ -314,13 +314,13 @@ func (c *client) serve() {
 // it is expected closure: a Close the client started, io.EOF or a closed connection, a
 // *net.OpError (a peer close, reset or passed deadline), a websocket close frame from
 // the peer (websocket.ErrCloseSent after the reply to it, or a *websocket.CloseError),
-// or a polling *payload.OpError that is not temporary (the transport stores a request
+// or a polling *polling.OpError that is not temporary (the transport stores a request
 // failure and closes itself before a writer sees it, or the deadline passed). It is WARN
 // otherwise: no caller receives it.
 func (c *client) pingFailed(err error) {
 	level := slog.LevelWarn
 	var netErr *net.OpError
-	var payloadErr *payload.OpError
+	var payloadErr *polling.OpError
 	var closeErr *websocket.CloseError
 	select {
 	case <-c.close:
@@ -591,7 +591,7 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 	if err := probe.SetWriteDeadline(deadline); err != nil {
 		return err
 	}
-	w, err := probe.NextWriter(frame.String, packet.PING)
+	w, err := probe.NextWriter(eioparser.String, eioparser.PING)
 	if err != nil {
 		return err
 	}
@@ -615,7 +615,7 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 	if closeErr != nil {
 		return closeErr
 	}
-	if pt != packet.PONG || string(answer) != "probe" {
+	if pt != eioparser.PONG || string(answer) != "probe" {
 		return errors.New("engineio: invalid upgrade probe answer")
 	}
 	if err := c.acquireWrite(p.cancel); err != nil {
@@ -648,7 +648,7 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 	}
 	p.committing = true
 	p.mu.Unlock()
-	w, err = probe.NextWriter(frame.String, packet.UPGRADE)
+	w, err = probe.NextWriter(eioparser.String, eioparser.UPGRADE)
 	if err == nil {
 		err = w.Close()
 	}

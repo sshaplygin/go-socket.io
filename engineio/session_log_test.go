@@ -19,8 +19,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
@@ -102,8 +102,8 @@ func (f *logFixture) accept(t *testing.T) Conn {
 	return conn
 }
 
-func (f *logFixture) send(t *testing.T, pt packet.Type, data string) {
-	w, err := f.cl.NextWriter(frame.String, pt)
+func (f *logFixture) send(t *testing.T, pt eioparser.PacketType, data string) {
+	w, err := f.cl.NextWriter(eioparser.String, pt)
 	require.NoError(t, err)
 	_, err = w.Write([]byte(data))
 	require.NoError(t, err)
@@ -129,12 +129,12 @@ func (f *logFixture) upgrade(t *testing.T, conn Conn) {
 	f.cl, err = websocket.Default.Dial(u, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = f.cl.Close() })
-	f.send(t, packet.PING, "probe")
+	f.send(t, eioparser.PING, "probe")
 	_, pt, r, err := f.cl.NextReader()
 	require.NoError(t, err)
-	require.Equal(t, packet.PONG, pt)
+	require.Equal(t, eioparser.PONG, pt)
 	require.NoError(t, r.Close())
-	f.send(t, packet.UPGRADE, "")
+	f.send(t, eioparser.UPGRADE, "")
 	require.Eventually(t, func() bool { return conn.(*session.Session).Transport() == "websocket" },
 		time.Second, time.Millisecond)
 }
@@ -153,12 +153,12 @@ func TestSessionCloseRecord(t *testing.T) {
 	}{
 		{"close packet", "PW", "transport close", "", func(t *testing.T, f *logFixture) {
 			conn := f.accept(t)
-			f.send(t, packet.CLOSE, "")
+			f.send(t, eioparser.CLOSE, "")
 			require.ErrorIs(t, readAll(conn), io.EOF)
 		}},
 		{"close packet then Close", "PW", "transport close", "", func(t *testing.T, f *logFixture) {
 			conn := f.accept(t)
-			f.send(t, packet.CLOSE, "")
+			f.send(t, eioparser.CLOSE, "")
 			require.ErrorIs(t, readAll(conn), io.EOF)
 			require.NoError(t, conn.Close())
 		}},
@@ -185,7 +185,7 @@ func TestSessionCloseRecord(t *testing.T) {
 		}},
 		{"Close after a message", "PW", "forced close", "", func(t *testing.T, f *logFixture) {
 			conn := f.accept(t)
-			f.send(t, packet.MESSAGE, "hi")
+			f.send(t, eioparser.MESSAGE, "hi")
 			_, r, err := conn.NextReader()
 			require.NoError(t, err)
 			b, err := io.ReadAll(r)
@@ -370,16 +370,16 @@ type brokenReader struct{ io.Reader }
 
 func (brokenReader) Close() error { return errBroken }
 
-func (c *brokenConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+func (c *brokenConn) NextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
 	if c.reads++; c.reads == 1 {
-		return frame.String, packet.PONG, brokenReader{strings.NewReader("")}, nil
+		return eioparser.String, eioparser.PONG, brokenReader{strings.NewReader("")}, nil
 	}
 	return 0, 0, nil, errBroken
 }
 
 func (c *brokenConn) SetReadDeadline(time.Time) error { return nil }
 
-func (c *brokenConn) NextWriter(frame.Type, packet.Type) (io.WriteCloser, error) {
+func (c *brokenConn) NextWriter(eioparser.FrameType, eioparser.PacketType) (io.WriteCloser, error) {
 	return nil, errBroken
 }
 
@@ -393,7 +393,7 @@ func (c *brokenConn) Close() error { return nil }
 func TestClientPingFailureRecord(t *testing.T) {
 	rec := newRecorder()
 	setDefault(t, rec)
-	params := transport.ConnParameters{PingInterval: time.Millisecond}
+	params := eioparser.ConnParameters{PingInterval: time.Millisecond}
 	(&client{conn: &brokenConn{}, params: params, close: make(chan struct{})}).serve()
 	recs := rec.find("engineio: ping failed")
 	require.Len(t, recs, 1)

@@ -531,13 +531,17 @@ API and ownership changes:
   Preserve the existing timing of factory application to future namespaces. Redis DB0,
   remote flags/Except and mixed-cluster limitations stay documented; this is not V1R.
 
-Implementation PRs are sequential, each based on the preceding merged `master`:
+Implementation PRs are sequential, each based on the preceding merged `master`.
+C2 and C3 are delivered in one atomic PR: the existing root/client aliases couple
+Socket.IO `EngineConn` signatures to one Engine.IO role, so independent Engine.IO
+connection contracts and Socket.IO role contracts must land together. This preserves
+a buildable head throughout the series without an interim compatibility bridge.
 
 | Step | Scope and exit beyond the common gate |
 | --- | --- |
 | C1 | Shared Engine.IO codecs, OPEN types and polling ownership; fold transport utilities; remove old frame/packet/payload/utils paths and update all v1 consumers. Parser vector tests and polling lifecycle regressions pass. |
-| C2 | Fold server session into `engineio`; move dialer/client into `engineio/client`; update Socket.IO client to its own options/Engine.IO client. Remove server dependencies from production client imports. Close/header/upgrade/OPEN regressions pass. |
-| C3 | Split Socket.IO role contracts; remove deprecated root client and aliases; make Socket.IO parser independent; introduce root server options. Handler type validation and separate server/client consumer fixtures pass. |
+| C2 (with C3) | Fold server session into `engineio`; move dialer/client into `engineio/client`; update Socket.IO client to its own options/Engine.IO client. Remove server dependencies from production client imports. Close/header/upgrade/OPEN regressions pass. |
+| C3 (with C2) | Split Socket.IO role contracts; remove deprecated root client and aliases; make Socket.IO parser independent; introduce root server options. Handler type validation and separate server/client consumer fixtures pass. |
 | C4 | Extract adapter and Redis; root uses generic adapter factory and optional close contract. Memory/Redis regressions and factory/shutdown tests pass, with root free of Redis dependencies. |
 | C5 | Final import-graph gate, complete migration guide and acceptance evidence. All final graph edges/package removals hold, examples and migration consumers compile, full MV1 acceptance is repeated. |
 

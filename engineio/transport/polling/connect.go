@@ -11,15 +11,15 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/engineio/payload"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
-	"github.com/sshaplygin/go-socket.io/engineio/transport/utils"
+
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
 type clientConn struct {
-	*payload.Payload
+	*payload
 
 	httpClient   *http.Client
 	request      http.Request
@@ -34,11 +34,11 @@ type clientConn struct {
 	changed      chan struct{}
 }
 
-func (c *clientConn) Open() (transport.ConnParameters, error) {
+func (c *clientConn) Open() (eioparser.ConnParameters, error) {
 	c.writableMu.Lock()
 	if c.stopped {
 		c.writableMu.Unlock()
-		return transport.ConnParameters{}, io.ErrClosedPipe
+		return eioparser.ConnParameters{}, io.ErrClosedPipe
 	}
 	c.started, c.polling = true, true
 	c.writableMu.Unlock()
@@ -54,28 +54,28 @@ func (c *clientConn) Open() (transport.ConnParameters, error) {
 
 	_, pt, r, err := c.NextReader()
 	if err != nil {
-		return transport.ConnParameters{}, err
+		return eioparser.ConnParameters{}, err
 	}
 
-	if pt != packet.OPEN {
+	if pt != eioparser.OPEN {
 		if err = r.Close(); err != nil {
 			logger.Log.Warn("engineio: close reader failed", "err", err)
 		}
 
-		return transport.ConnParameters{}, errors.New("invalid open")
+		return eioparser.ConnParameters{}, errors.New("invalid open")
 	}
 
-	conn, err := transport.ReadConnParameters(r)
+	conn, err := eioparser.ReadConnParameters(r)
 	if err != nil {
 		if closeErr := r.Close(); closeErr != nil {
 			logger.Log.Debug("engineio: read open packet failed", "err", err)
 		}
 
-		return transport.ConnParameters{}, err
+		return eioparser.ConnParameters{}, err
 	}
 
 	if err = r.Close(); err != nil {
-		return transport.ConnParameters{}, err
+		return eioparser.ConnParameters{}, err
 	}
 
 	query := c.request.URL.Query()
@@ -140,7 +140,7 @@ func (c *clientConn) Resume() {
 	c.writableMu.Unlock()
 	if start {
 		// Raw transport users can start polling without decoding OPEN.
-		c.Payload.Resume()
+		c.payload.Resume()
 		go c.serveGet(nil)
 		go c.servePost()
 	}
@@ -152,7 +152,7 @@ func (c *clientConn) Close() error {
 	c.pauseEpoch++
 	c.notifyChanged()
 	c.writableMu.Unlock()
-	return c.Payload.Close()
+	return c.payload.Close()
 }
 
 func (c *clientConn) servePost() {
@@ -170,15 +170,15 @@ func (c *clientConn) servePost() {
 	for {
 		buf.Reset()
 
-		if err := c.Payload.FlushOut(postBodyWriter{Writer: &buf, c: c}); err != nil {
+		if err := c.payload.FlushOut(postBodyWriter{Writer: &buf, c: c}); err != nil {
 			return
 		}
-		query.Set("t", utils.Timestamp())
+		query.Set("t", transport.Timestamp())
 		req.URL.RawQuery = query.Encode()
 
 		resp, err := c.httpClient.Do(&req)
 		if err != nil {
-			if err = c.Payload.Store("post", err); err != nil {
+			if err = c.payload.Store("post", err); err != nil {
 				logger.Log.Debug("engineio: post request failed", "err", err)
 			}
 
@@ -193,7 +193,7 @@ func (c *clientConn) servePost() {
 		c.setPosting(false)
 
 		if resp.StatusCode != http.StatusOK {
-			err = c.Payload.Store("post", fmt.Errorf("invalid response: %s(%d)", resp.Status, resp.StatusCode))
+			err = c.payload.Store("post", fmt.Errorf("invalid response: %s(%d)", resp.Status, resp.StatusCode))
 			if err != nil {
 				logger.Log.Debug("engineio: post request failed", "err", err)
 			}
@@ -217,12 +217,12 @@ func (c *clientConn) getOpen() {
 	req.URL = &reqUrl
 	req.Method = http.MethodGet
 
-	query.Set("t", utils.Timestamp())
+	query.Set("t", transport.Timestamp())
 	req.URL.RawQuery = query.Encode()
 
 	resp, err := c.httpClient.Do(&req)
 	if err != nil {
-		if err = c.Payload.Store("get", err); err != nil {
+		if err = c.payload.Store("get", err); err != nil {
 			logger.Log.Debug("engineio: get request failed", "err", err)
 		}
 
@@ -251,7 +251,7 @@ func (c *clientConn) getOpen() {
 	}
 
 	if err != nil {
-		if err = c.Payload.Store("get", err); err != nil {
+		if err = c.payload.Store("get", err); err != nil {
 			logger.Log.Debug("engineio: get request failed", "err", err)
 		}
 
@@ -264,7 +264,7 @@ func (c *clientConn) getOpen() {
 
 	c.remoteHeader.Store(resp.Header)
 
-	if err = c.Payload.FeedIn(resp.Body, isSupportBinary); err != nil {
+	if err = c.payload.FeedIn(resp.Body, isSupportBinary); err != nil {
 		logger.Log.Debug("engineio: get payload failed", "err", err)
 
 		return
@@ -289,7 +289,7 @@ func (c *clientConn) serveGet(after <-chan struct{}) {
 		if !c.beginPoll() {
 			return
 		}
-		query.Set("t", utils.Timestamp())
+		query.Set("t", transport.Timestamp())
 		req.URL.RawQuery = query.Encode()
 		keep := c.poll(&req)
 		c.setPolling(false)
@@ -302,7 +302,7 @@ func (c *clientConn) serveGet(after <-chan struct{}) {
 func (c *clientConn) poll(req *http.Request) bool {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		if err = c.Payload.Store("get", err); err != nil {
+		if err = c.payload.Store("get", err); err != nil {
 			logger.Log.Debug("engineio: get request failed", "err", err)
 		}
 
@@ -329,7 +329,7 @@ func (c *clientConn) poll(req *http.Request) bool {
 	if err != nil {
 		discardBody(resp.Body)
 
-		if err = c.Payload.Store("get", err); err != nil {
+		if err = c.payload.Store("get", err); err != nil {
 			logger.Log.Debug("engineio: get request failed", "err", err)
 		}
 
@@ -340,7 +340,7 @@ func (c *clientConn) poll(req *http.Request) bool {
 		return false
 	}
 
-	if err = c.Payload.FeedIn(resp.Body, isSupportBinary); err != nil {
+	if err = c.payload.FeedIn(resp.Body, isSupportBinary); err != nil {
 		discardBody(resp.Body)
 
 		return false

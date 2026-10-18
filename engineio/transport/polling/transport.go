@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
@@ -72,7 +71,7 @@ func dial(client *http.Client, url *url.URL, requestHeader http.Header) (*client
 	}
 
 	return &clientConn{
-		Payload:    payload.New(supportBinary),
+		payload:    newPayload(supportBinary),
 		httpClient: client,
 		request:    *req,
 	}, nil

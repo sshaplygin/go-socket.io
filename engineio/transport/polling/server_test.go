@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
@@ -53,7 +53,7 @@ func TestServerIgnoresJSONPParameter(t *testing.T) {
 			must.NoError(sc.Close())
 		}()
 
-		w, err := sc.NextWriter(frame.Binary, packet.MESSAGE)
+		w, err := sc.NextWriter(eioparser.Binary, eioparser.MESSAGE)
 		require.NoError(t, err)
 
 		_, err = w.Write([]byte("hello"))
@@ -62,7 +62,7 @@ func TestServerIgnoresJSONPParameter(t *testing.T) {
 		err = w.Close()
 		require.NoError(t, err)
 
-		w, err = sc.NextWriter(frame.String, packet.MESSAGE)
+		w, err = sc.NextWriter(eioparser.String, eioparser.MESSAGE)
 		require.NoError(t, err)
 
 		_, err = w.Write([]byte("world"))

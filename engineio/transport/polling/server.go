@@ -10,15 +10,13 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 
-	"github.com/sshaplygin/go-socket.io/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
 type serverConn struct {
-	*payload.Payload
+	*payload
 	transport     *Transport
 	supportBinary bool
 
@@ -39,7 +37,7 @@ func newServerConn(t *Transport, r *http.Request) *serverConn {
 	supportBinary := r.URL.Query().Get("b64") == ""
 
 	return &serverConn{
-		Payload:       payload.New(supportBinary),
+		payload:       newPayload(supportBinary),
 		transport:     t,
 		supportBinary: supportBinary,
 		remoteHeader:  r.Header,
@@ -57,7 +55,7 @@ func (c *serverConn) SetReadLimit(n int64) { c.readLimit = n }
 // CloseGracefully writes CLOSE through the next available poll. The session
 // serializes it after admitted frames and bounds the wait; Close interrupts it.
 func (c *serverConn) CloseGracefully() error {
-	w, err := c.NextWriter(frame.String, packet.CLOSE)
+	w, err := c.NextWriter(eioparser.String, eioparser.CLOSE)
 	if err != nil {
 		return err
 	}
@@ -146,7 +144,7 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			out = &responseWriter{w: w, conn: c, encoding: acceptedEncoding(r.Header.Get("Accept-Encoding"))}
 		}
 		pw := &progressWriter{w: out, started: func() { c.setPollWaiting(false) }}
-		if err := c.Payload.FlushOut(pw); err != nil {
+		if err := c.payload.FlushOut(pw); err != nil {
 			if pw.wrote {
 				logger.Log.Debug("engineio: poll response failed after it was started", "err", err)
 				return
@@ -171,10 +169,10 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			c.rejectLargeBody(w, &http.MaxBytesError{Limit: c.readLimit})
 			return
 		}
-		if err := c.Payload.FeedIn(body, isSupportBinary); err != nil {
+		if err := c.payload.FeedIn(body, isSupportBinary); err != nil {
 			logger.Log.Debug("engineio: post payload failed", "err", err)
 			cause := err
-			if op, ok := cause.(*payload.OpError); ok {
+			if op, ok := cause.(*OpError); ok {
 				cause = op.Err
 			}
 			var limitErr *http.MaxBytesError
@@ -197,7 +195,7 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *serverConn) rejectLargeBody(w http.ResponseWriter, err *http.MaxBytesError) {
-	_ = c.Payload.Store("read", err)
+	_ = c.payload.Store("read", err)
 	_ = c.Close()
 	http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
 }

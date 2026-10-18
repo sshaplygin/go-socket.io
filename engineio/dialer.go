@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/logger"
 )
@@ -74,7 +74,7 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 			continue
 		}
 
-		var params transport.ConnParameters
+		var params eioparser.ConnParameters
 		if p, ok := conn.(Opener); ok {
 			params, err = p.Open()
 			if err != nil {
@@ -83,7 +83,7 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 				continue
 			}
 		} else {
-			var pt packet.Type
+			var pt eioparser.PacketType
 			var r io.ReadCloser
 
 			_, pt, r, err = conn.NextReader()
@@ -101,13 +101,13 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 					}
 				}()
 
-				if pt != packet.OPEN {
+				if pt != eioparser.OPEN {
 					err = errors.New("invalid open")
 
 					return
 				}
 
-				params, err = transport.ReadConnParameters(r)
+				params, err = eioparser.ReadConnParameters(r)
 				if err != nil {
 					return
 				}

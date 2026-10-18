@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- engineio/parser: a decoding or source-release failure terminates the streaming
+  payload decoder, preventing reuse and repeated release of the failed source.
+  Body read errors are retained on their first observation, including a read that
+  returns data together with an error.
+
 - engineio: orderly polling close drains admitted frames before sending CLOSE
   through the pending or next poll, with a 30 second bound. Forced root stops and
   server shutdown interrupt the wait immediately; upgrade cleanup stays immediate.
@@ -273,6 +278,11 @@ All notable changes to this project are documented here. The format follows
   (roadmap tasks 1.B and 1I).
 
 ### Changed
+
+- engineio: shared wire codecs and OPEN parameters now live in `engineio/parser`;
+  polling owns its feed/flush and pause/deadline state. The former frame, packet,
+  payload and transport-utils import paths are removed. See
+  [the v1 migration guide](docs/V1_MIGRATION.md) for the new imports and API.
 
 - v1 source layout is organized by responsibility. Session abort, shutdown and response
   header observation use direct session methods/hooks instead of private packages with

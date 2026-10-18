@@ -11,10 +11,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/engineio/payload"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
@@ -36,7 +36,7 @@ type Session struct {
 	stopWrites    chan struct{}
 	closeTimeout  time.Duration
 	conn          transport.Conn
-	params        transport.ConnParameters
+	params        eioparser.ConnParameters
 	transport     string
 	baseLog       *slog.Logger                // logger with the sid attribute
 	log           atomic.Pointer[slog.Logger] // baseLog plus the current transport
@@ -61,7 +61,7 @@ type Session struct {
 // New creates a session over conn. log receives errors the session cannot
 // return to a caller, with sid and transport attributes added; the transport
 // attribute follows upgrades. nil means logger.Log.
-func New(conn transport.Conn, sid, transport string, params transport.ConnParameters, log *slog.Logger) (*Session, error) {
+func New(conn transport.Conn, sid, transport string, params eioparser.ConnParameters, log *slog.Logger) (*Session, error) {
 	params.SID = sid
 	baseLog := logger.Wrap(log).With("sid", sid)
 
@@ -200,13 +200,13 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 		}
 
 		switch pt {
-		case packet.PING:
+		case eioparser.PING:
 			if s.hooks != nil && s.hooks.Heartbeat != nil {
 				s.hooks.Heartbeat(s)
 			}
 			// Respond to a ping with a pong.
 			err := func() error {
-				w, err := s.nextWriter(ft, packet.PONG)
+				w, err := s.nextWriter(ft, eioparser.PONG)
 				if err != nil {
 					return err
 				}
@@ -233,7 +233,7 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 
 				return 0, nil, s.readerCloseError()
 			}
-		case packet.CLOSE:
+		case eioparser.CLOSE:
 			// unlocks the wrapped connection's FrameReader
 			if err = s.fail(r.Close()); err != nil {
 				s.logger().Debug("engineio: close reader failed", "err", err)
@@ -246,7 +246,7 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 
 			return 0, nil, s.readerCloseError()
 
-		case packet.MESSAGE:
+		case eioparser.MESSAGE:
 			// Caller must Close the ReadCloser to unlock the connection's
 			// FrameReader when finished reading.
 			return FrameType(ft), frameReader{r, s}, nil
@@ -299,7 +299,7 @@ func (s *Session) NextWriter(typ FrameType) (io.WriteCloser, error) {
 
 // NextWriterCompress writes a MESSAGE with its per-packet compression preference.
 func (s *Session) NextWriterCompress(typ FrameType, compress bool) (io.WriteCloser, error) {
-	w, err := s.nextWriterCompress(frame.Type(typ), packet.MESSAGE, compress)
+	w, err := s.nextWriterCompress(eioparser.FrameType(typ), eioparser.MESSAGE, compress)
 	if s.fail(err) != nil {
 		_ = s.Close()
 		return nil, fmt.Errorf("next writer: %w", s.closeError())
@@ -309,7 +309,7 @@ func (s *Session) NextWriterCompress(typ FrameType, compress bool) (io.WriteClos
 }
 
 func (s *Session) InitSession() error {
-	w, err := s.nextWriter(frame.String, packet.OPEN)
+	w, err := s.nextWriter(eioparser.String, eioparser.OPEN)
 	if err != nil {
 		_ = s.fail(err)
 		if closeErr := s.Close(); closeErr != nil {
@@ -378,7 +378,7 @@ func (s *Session) readerCloseError() error {
 	return fmt.Errorf("next reader: %w", s.closeError())
 }
 
-func (s *Session) nextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+func (s *Session) nextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
 	for {
 		s.upgradeLocker.RLock()
 		conn, closed := s.conn, s.closed
@@ -389,7 +389,7 @@ func (s *Session) nextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
 
 		ft, pt, r, err := conn.NextReader()
 		if err != nil {
-			if op, ok := err.(payload.Error); ok && op.Temporary() {
+			if op, ok := err.(polling.Error); ok && op.Temporary() {
 				continue
 			}
 			if s.replaced(conn) {
@@ -403,11 +403,11 @@ func (s *Session) nextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
 	}
 }
 
-func (s *Session) nextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, error) {
+func (s *Session) nextWriter(ft eioparser.FrameType, pt eioparser.PacketType) (io.WriteCloser, error) {
 	return s.nextWriterCompress(ft, pt, true)
 }
 
-func (s *Session) nextWriterCompress(ft frame.Type, pt packet.Type, compress bool) (io.WriteCloser, error) {
+func (s *Session) nextWriterCompress(ft eioparser.FrameType, pt eioparser.PacketType, compress bool) (io.WriteCloser, error) {
 	select {
 	case <-s.stopWrites:
 		return nil, s.closeError()
@@ -440,7 +440,7 @@ func (s *Session) nextWriterCompress(ft frame.Type, pt packet.Type, compress boo
 			w, err = conn.NextWriter(ft, pt)
 		}
 		if err != nil {
-			if op, ok := err.(payload.Error); ok && op.Temporary() {
+			if op, ok := err.(polling.Error); ok && op.Temporary() {
 				continue
 			}
 			if s.replaced(conn) {

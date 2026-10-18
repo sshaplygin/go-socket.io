@@ -10,7 +10,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
-	"github.com/sshaplygin/go-socket.io/engineio/transport/utils"
 )
 
 // DialError is the error when dialing to a server. It saves Response from
@@ -70,7 +69,7 @@ func (t *Transport) Dial(u *url.URL, requestHeader http.Header) (transport.Conn,
 
 	query := u.Query()
 	query.Set("transport", t.Name())
-	query.Set("t", utils.Timestamp())
+	query.Set("t", transport.Timestamp())
 
 	u.RawQuery = query.Encode()
 	c, resp, err := dialer.Dial(u.String(), requestHeader)

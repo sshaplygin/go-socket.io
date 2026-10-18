@@ -18,8 +18,8 @@ import (
 	gorilla "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
@@ -32,10 +32,10 @@ type clientFrameFailureConn struct {
 	writer io.WriteCloser
 }
 
-func (c clientFrameFailureConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
-	return frame.String, packet.MESSAGE, c.reader, nil
+func (c clientFrameFailureConn) NextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
+	return eioparser.String, eioparser.MESSAGE, c.reader, nil
 }
-func (c clientFrameFailureConn) NextWriter(frame.Type, packet.Type) (io.WriteCloser, error) {
+func (c clientFrameFailureConn) NextWriter(eioparser.FrameType, eioparser.PacketType) (io.WriteCloser, error) {
 	return c.writer, nil
 }
 func (c clientFrameFailureConn) Close() error { return nil }
@@ -75,7 +75,7 @@ func TestClientAcquiredFrameFailure(t *testing.T) {
 				injected = os.ErrDeadlineExceeded
 				body.read = injected
 			}
-			c := &client{conn: clientFrameFailureConn{reader: body, writer: body}, params: transport.ConnParameters{PingInterval: time.Second, PingTimeout: time.Second}}
+			c := &client{conn: clientFrameFailureConn{reader: body, writer: body}, params: eioparser.ConnParameters{PingInterval: time.Second, PingTimeout: time.Second}}
 			if operation == "timeout" {
 				c.readDeadline = time.Now().Add(-time.Millisecond)
 			}
@@ -161,8 +161,8 @@ func (c *upgradeFaultConn) SetWriteDeadline(deadline time.Time) error {
 	return c.Conn.SetWriteDeadline(deadline)
 }
 
-func (c *upgradeFaultConn) NextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, error) {
-	if c.phase == "ping-next" && pt == packet.PING || c.phase == "upgrade-next" && pt == packet.UPGRADE {
+func (c *upgradeFaultConn) NextWriter(ft eioparser.FrameType, pt eioparser.PacketType) (io.WriteCloser, error) {
+	if c.phase == "ping-next" && pt == eioparser.PING || c.phase == "upgrade-next" && pt == eioparser.UPGRADE {
 		return nil, c.err
 	}
 	w, err := c.Conn.NextWriter(ft, pt)
@@ -175,7 +175,7 @@ func (c *upgradeFaultConn) NextWriter(ft frame.Type, pt packet.Type) (io.WriteCl
 type upgradeFaultWriter struct {
 	io.WriteCloser
 	c      *upgradeFaultConn
-	packet packet.Type
+	packet eioparser.PacketType
 }
 
 func (w *upgradeFaultWriter) Write(p []byte) (int, error) {
@@ -187,13 +187,13 @@ func (w *upgradeFaultWriter) Write(p []byte) (int, error) {
 
 func (w *upgradeFaultWriter) Close() error {
 	err := w.WriteCloser.Close()
-	if w.c.phase == "ping-close" && w.packet == packet.PING || w.c.phase == "upgrade-close" && w.packet == packet.UPGRADE {
+	if w.c.phase == "ping-close" && w.packet == eioparser.PING || w.c.phase == "upgrade-close" && w.packet == eioparser.UPGRADE {
 		return w.c.err
 	}
 	return err
 }
 
-func (c *upgradeFaultConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+func (c *upgradeFaultConn) NextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
 	if c.phase == "read-next" {
 		return 0, 0, nil, c.err
 	}

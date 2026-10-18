@@ -12,8 +12,8 @@ import (
 	gorilla "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -51,7 +51,7 @@ func TestSessionCloseError(t *testing.T) {
 			var cause error
 			switch reason {
 			case ReasonTransportClose:
-				fake.reads = []scriptedPacket{{ft: frame.String, pt: packet.CLOSE}}
+				fake.reads = []scriptedPacket{{ft: eioparser.String, pt: eioparser.CLOSE}}
 				cause = io.EOF
 			case ReasonTransportError:
 				cause = errors.New("reset")
@@ -68,7 +68,7 @@ func TestSessionCloseError(t *testing.T) {
 					if err != nil {
 						return
 					}
-					session, err := New(conn, "timeout", "websocket", transport.ConnParameters{PingInterval: 100 * time.Millisecond, PingTimeout: 50 * time.Millisecond}, nil)
+					session, err := New(conn, "timeout", "websocket", eioparser.ConnParameters{PingInterval: 100 * time.Millisecond, PingTimeout: 50 * time.Millisecond}, nil)
 					if err != nil {
 						_ = conn.Close()
 						return
@@ -100,7 +100,7 @@ func TestSessionCloseError(t *testing.T) {
 	})
 	t.Run("previous frames keep their own errors", func(t *testing.T) {
 		cause := errors.New("frame close failed")
-		fake := &scriptConn{reads: []scriptedPacket{{ft: frame.String, pt: packet.MESSAGE, data: "hello"}}, wCloseErr: cause}
+		fake := &scriptConn{reads: []scriptedPacket{{ft: eioparser.String, pt: eioparser.MESSAGE, data: "hello"}}, wCloseErr: cause}
 		s := newTestSession(t, fake, "fake")
 		_, r, err := s.NextReader()
 		require.NoError(t, err)

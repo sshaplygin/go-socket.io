@@ -13,8 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 // blockingConn is a transport.Conn whose NextReader and NextWriter block
@@ -26,12 +25,12 @@ type blockingConn struct {
 
 func newBlockingConn() *blockingConn { return &blockingConn{closed: make(chan struct{})} }
 
-func (c *blockingConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+func (c *blockingConn) NextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
 	<-c.closed
 	return 0, 0, nil, io.EOF
 }
 
-func (c *blockingConn) NextWriter(frame.Type, packet.Type) (io.WriteCloser, error) {
+func (c *blockingConn) NextWriter(eioparser.FrameType, eioparser.PacketType) (io.WriteCloser, error) {
 	<-c.closed
 	return nil, io.EOF
 }

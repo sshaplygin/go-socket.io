@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
@@ -304,7 +304,7 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 	must.NoError(err)
 	defer func() { _ = ws.Close() }()
 
-	w, err := ws.NextWriter(frame.String, packet.PING)
+	w, err := ws.NextWriter(eioparser.String, eioparser.PING)
 	must.NoError(err)
 
 	_, err = w.Write([]byte("probe"))
@@ -315,8 +315,8 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 	ft, pt, r, err := ws.NextReader()
 	must.NoError(err)
 
-	should.Equal(frame.String, ft)
-	should.Equal(packet.PONG, pt)
+	should.Equal(eioparser.String, ft)
+	should.Equal(eioparser.PONG, pt)
 
 	b, err := io.ReadAll(r)
 	must.NoError(err)
@@ -339,8 +339,8 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 			return
 		}
 		closeErr := r.Close()
-		if ft != frame.String || pt != packet.NOOP {
-			pollDone <- fmt.Errorf("expected polling NOOP (%v, %v), got (%v, %v)", frame.String, packet.NOOP, ft, pt)
+		if ft != eioparser.String || pt != eioparser.NOOP {
+			pollDone <- fmt.Errorf("expected polling NOOP (%v, %v), got (%v, %v)", eioparser.String, eioparser.NOOP, ft, pt)
 			return
 		}
 		pollDone <- closeErr
@@ -353,12 +353,12 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 	}
 	must.NoError(p.Close())
 
-	w, err = ws.NextWriter(frame.String, packet.UPGRADE)
+	w, err = ws.NextWriter(eioparser.String, eioparser.UPGRADE)
 	must.NoError(err)
 
 	must.NoError(w.Close())
 
-	w, err = ws.NextWriter(frame.String, packet.MESSAGE)
+	w, err = ws.NextWriter(eioparser.String, eioparser.MESSAGE)
 	must.NoError(err)
 
 	_, err = w.Write([]byte("hello你好"))
@@ -369,8 +369,8 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 	ft, pt, r, err = ws.NextReader()
 	must.NoError(err)
 
-	should.Equal(frame.Binary, ft)
-	should.Equal(packet.MESSAGE, pt)
+	should.Equal(eioparser.Binary, ft)
+	should.Equal(eioparser.MESSAGE, pt)
 
 	b, err = io.ReadAll(r)
 	must.NoError(err)
@@ -438,7 +438,7 @@ func TestEngineRejectsTransportDowngrade(t *testing.T) {
 	must.NoError(err)
 	defer func() { _ = ws.Close() }()
 
-	w, err := ws.NextWriter(frame.String, packet.PING)
+	w, err := ws.NextWriter(eioparser.String, eioparser.PING)
 	must.NoError(err)
 	_, err = w.Write([]byte("probe"))
 	must.NoError(err)
@@ -446,10 +446,10 @@ func TestEngineRejectsTransportDowngrade(t *testing.T) {
 
 	_, pt, r, err := ws.NextReader()
 	must.NoError(err)
-	should.Equal(packet.PONG, pt)
+	should.Equal(eioparser.PONG, pt)
 	must.NoError(r.Close())
 
-	w, err = ws.NextWriter(frame.String, packet.UPGRADE)
+	w, err = ws.NextWriter(eioparser.String, eioparser.UPGRADE)
 	must.NoError(err)
 	must.NoError(w.Close())
 

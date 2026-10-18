@@ -3,8 +3,7 @@ package engineio
 import (
 	"net/http"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 // Hooks are the engine events as observer callbacks, the shape of v2/engineio/hooks.go
@@ -37,8 +36,8 @@ type Hooks struct {
 
 	// Packet fires for every packet read from the client, PacketCreate for every
 	// packet about to be written, each with the packet and frame types.
-	Packet       func(c Conn, pt packet.Type, ft frame.Type)
-	PacketCreate func(c Conn, pt packet.Type, ft frame.Type)
+	Packet       func(c Conn, pt eioparser.PacketType, ft eioparser.FrameType)
+	PacketCreate func(c Conn, pt eioparser.PacketType, ft eioparser.FrameType)
 	// Heartbeat fires when a PING is received, before the PONG is written.
 	Heartbeat func(c Conn)
 	// Upgrading fires when the probe is accepted, Upgrade when the transport has

@@ -13,8 +13,8 @@ import (
 	gorilla "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -190,9 +190,13 @@ func TestEngineSocketEvents(t *testing.T) {
 	h := &Hooks{
 		InitialHeaders: func(r *http.Request, _ http.Header) { records.add("initial-header:" + r.URL.Query().Get("transport")) },
 		Headers:        func(r *http.Request, _ http.Header) { records.add("headers:" + r.URL.Query().Get("transport")) },
-		Packet:         func(_ Conn, pt packet.Type, ft frame.Type) { records.add(fmt.Sprintf("read:%d:%d", pt, ft)) },
-		PacketCreate:   func(_ Conn, pt packet.Type, ft frame.Type) { records.add(fmt.Sprintf("create:%d:%d", pt, ft)) },
-		Heartbeat:      func(Conn) { records.add("heartbeat") },
+		Packet: func(_ Conn, pt eioparser.PacketType, ft eioparser.FrameType) {
+			records.add(fmt.Sprintf("read:%d:%d", pt, ft))
+		},
+		PacketCreate: func(_ Conn, pt eioparser.PacketType, ft eioparser.FrameType) {
+			records.add(fmt.Sprintf("create:%d:%d", pt, ft))
+		},
+		Heartbeat: func(Conn) { records.add("heartbeat") },
 		Upgrading: func(c Conn, tr string) {
 			records.add(fmt.Sprintf("upgrading:%s:%s:%t", tr, c.Transport(), c.Upgraded()))
 		},

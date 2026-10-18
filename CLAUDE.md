@@ -19,8 +19,10 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `*.go` (root, package `socketio`) | v1 Socket.IO server, namespaces, rooms, in-memory and Redis broadcast; deprecated client wrapper and shared type aliases |
 | `client/` | v1 experimental Go client and the shared Conn/Namespace interfaces; the root keeps a deprecated wrapper and aliases |
 | `parser/` | v1 Socket.IO v4 packet encoder/decoder, binary attachments |
-| `engineio/` | v1 Engine.IO v3 server and client: sessions, polling and websocket transports, payload codec |
-| `logger/` | v1 package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: parser, transports, `engineio/packet`, client dialer |
+| `engineio/` | v1 Engine.IO v3 server and client; session implementation until component step C2 |
+| `engineio/parser/` | shared Engine.IO v3 frame/packet/payload codecs and OPEN parameters |
+| `engineio/transport/` | transport contracts, registry and timestamp helper; polling owns HTTP feed/flush, pause and deadline state |
+| `logger/` | v1 package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: parser, transports, `engineio/parser`, client dialer |
 | `internal/conformance/` | interoperability and raw protocol tests behind the `conformance` build tag; Node fixtures under `testdata/node/` |
 | `internal/parity/` | portable PARITY marker and executable-test checks, including tagged tests without running Node |
 | `_examples/` | v1 runnable examples, each with its own `go.mod` except the Go client in `_examples/client`, which belongs to the root module; excluded from `./...` of the root build by the `_` prefix |
@@ -67,12 +69,16 @@ V1 source files follow the same responsibility names in the root and `client/`:
 | `engineio/conn.go`, `engineio/options.go` | Engine.IO connection contracts/state aliases and server configuration |
 | `engineio/session/session.go`, `types.go`, `close.go`, `upgrade.go` | session construction/metadata/frame I/O, frame/state/error types, close lifecycle and upgrade state machine |
 | `engineio/session/manager.go`, `id_generator.go` | session registry and IDs |
-| `engineio/packet/fake.go` | exported packet test fakes retained for existing consumers |
+| `engineio/parser/frame.go`, `packet.go`, `packet_encoder.go`, `packet_decoder.go` | shared frame/packet wire types and codecs |
+| `engineio/parser/payload_encoder.go`, `payload_decoder.go`, `payload_length.go`, `parameters.go` | streaming payload codecs, length framing and OPEN JSON |
+| `engineio/parser/fake.go`, `types.go` | packet test fakes and frame/packet values |
+| `engineio/transport/polling/payload.go`, `pauser.go`, `errors.go` | polling feed/flush ownership, pause/deadline state and operation errors |
 
 The Engine.IO server installs response observers through `session.Hooks`; forced close
 and server shutdown call the session directly. There are no private init-time bridge
-packages. Existing public `engineio/frame` and `engineio/transport/utils` imports remain
-available; test-only `internal/conformance` and `internal/parity` own their gates.
+packages. Codec and transport import/API migration is documented in
+[docs/V1_MIGRATION.md](docs/V1_MIGRATION.md); test-only `internal/conformance` and
+`internal/parity` own their gates.
 
 ## Commands
 
@@ -220,6 +226,7 @@ owner below and put it there.
 | `docs/API.md` | method-signature inventory of the v2 skeleton, the frozen-contract record, package graph and its rules, compile fixtures | behaviour (ROADMAP, godoc) |
 | `docs/PARITY.md` | the v1 parity matrix against the Node reference (socket.io 2.5.0 / engine.io 3.6.2): per-row status, evidence, verification mark and plan (kind, PR, owner decision) | PR order, PR scope and release gates (ROADMAP), protocol description (PROTOCOL.md), API usage |
 | `docs/PROTOCOL.md` | which parts of Engine.IO / Socket.IO protocols are implemented, deviations, upgrade sequence | API usage |
+| `docs/V1_MIGRATION.md` | v1 component import/API/config/error migration mappings and examples | protocol, v2 migration |
 | `docs/MIGRATION.md` (from v2) | v1 → v2 API mapping | protocol |
 | `docs/ADAPTERS.md` (from v2) | `Adapter` contract, thread-safety rules, conformance suite, shared message format | backend-specific options (`v2/adapters/<name>/README.md`) |
 | `v2/adapter/codec/testdata/README.md` | provenance of the Node adapter fixtures and the Go and Node commands that reproduce them | codec format (godoc) |

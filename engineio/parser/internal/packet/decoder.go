@@ -1,4 +1,4 @@
-package parser
+package packet
 
 import (
 	"io"
@@ -9,17 +9,17 @@ type FrameReader interface {
 	NextReader() (FrameType, io.ReadCloser, error)
 }
 
-type PacketDecoder struct {
+type Decoder struct {
 	r FrameReader
 }
 
-func NewPacketDecoder(r FrameReader) *PacketDecoder {
-	return &PacketDecoder{
+func NewDecoder(r FrameReader) *Decoder {
+	return &Decoder{
 		r: r,
 	}
 }
 
-func (e *PacketDecoder) NextReader() (FrameType, PacketType, io.ReadCloser, error) {
+func (e *Decoder) NextReader() (FrameType, PacketType, io.ReadCloser, error) {
 	ft, r, err := e.r.NextReader()
 	if err != nil {
 		return 0, 0, nil, err

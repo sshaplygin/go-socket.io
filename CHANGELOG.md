@@ -294,6 +294,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- engineio/parser: private packet and payload components own the wire types and
+  streaming codecs. Active public types remain aliases and constructors/options
+  delegate to their owner; OPEN parameters and frame/packet fakes remain public.
+  Packet/payload framing, lease/error precedence and all golden vectors are retained.
+  Canonical reflection package paths may change; application imports stay at
+  `engineio/parser`.
+
 - engineio: private session I/O, heartbeat, close/upgrade, registry and ID providers
   now belong to `engineio/internal/session`. The public server retains acceptance,
   hooks adaptation and shutdown coordination. Active connection/state/error/ID

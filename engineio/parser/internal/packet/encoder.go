@@ -1,4 +1,4 @@
-package parser
+package packet
 
 import (
 	"io"
@@ -11,17 +11,17 @@ type FrameWriter interface {
 	NextWriter(typ FrameType) (io.WriteCloser, error)
 }
 
-type PacketEncoder struct {
+type Encoder struct {
 	w FrameWriter
 }
 
-func NewPacketEncoder(w FrameWriter) *PacketEncoder {
-	return &PacketEncoder{
+func NewEncoder(w FrameWriter) *Encoder {
+	return &Encoder{
 		w: w,
 	}
 }
 
-func (e *PacketEncoder) NextWriter(ft FrameType, pt PacketType) (io.WriteCloser, error) {
+func (e *Encoder) NextWriter(ft FrameType, pt PacketType) (io.WriteCloser, error) {
 	w, err := e.w.NextWriter(ft)
 	if err != nil {
 		return nil, err

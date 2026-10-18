@@ -14,9 +14,10 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sshaplygin/go-socket.io/engineio"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 var rawHTTP = &http.Client{Timeout: 5 * time.Second}
@@ -162,13 +163,13 @@ func TestWebsocketFraming(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 	for _, message := range []struct {
-		frame session.FrameType
+		frame eioparser.FrameType
 		ws    int
 		body  []byte
 		wire  []byte
 	}{
-		{session.TEXT, websocket.TextMessage, []byte("hello"), []byte("4hello")},
-		{session.BINARY, websocket.BinaryMessage, []byte{0, 255, 1}, []byte{4, 0, 255, 1}},
+		{eioparser.String, websocket.TextMessage, []byte("hello"), []byte("4hello")},
+		{eioparser.Binary, websocket.BinaryMessage, []byte{0, 255, 1}, []byte{4, 0, 255, 1}},
 	} {
 		// Two writes produce two distinct messages, with no polling length prefix
 		// or base64 transformation; binary data follows the numeric packet type.
@@ -208,7 +209,7 @@ func TestPollingGracefulClose(t *testing.T) {
 				polled := make(chan response, 1)
 				if mode == "buffered writer" {
 					go func() { polled <- request(http.MethodGet, poll, nil) }()
-					w, err := c.NextWriter(session.TEXT)
+					w, err := c.NextWriter(eioparser.String)
 					require.NoError(t, err)
 					_, err = w.Write([]byte("buffered"))
 					require.NoError(t, err)
@@ -221,10 +222,10 @@ func TestPollingGracefulClose(t *testing.T) {
 					require.Equal(t, []string{"4buffered"}, pollPackets(t, r.body, binary))
 				} else if mode == "pending poll" {
 					go func() { polled <- request(http.MethodGet, poll, nil) }()
-					require.Eventually(t, func() bool { return c.(*session.Session).Writable() }, time.Second, time.Millisecond)
+					require.Eventually(t, func() bool { return c.(interface{ Writable() bool }).Writable() }, time.Second, time.Millisecond)
 				}
 				require.NoError(t, c.Close())
-				_, err = c.NextWriter(session.TEXT)
+				_, err = c.NextWriter(eioparser.String)
 				require.Error(t, err)
 				if mode != "pending poll" {
 					require.Equal(t, engineio.StateClosing, c.ReadyState())
@@ -250,7 +251,7 @@ func TestPollingOverlaps(t *testing.T) {
 		require.NoError(t, err)
 		first := make(chan response, 1)
 		go func() { first <- request(http.MethodGet, poll, nil) }()
-		w, err := c.NextWriter(session.TEXT)
+		w, err := c.NextWriter(eioparser.String)
 		require.NoError(t, err) // the first FlushOut has acquired its writer
 		_, err = w.Write([]byte("first"))
 		require.NoError(t, err)

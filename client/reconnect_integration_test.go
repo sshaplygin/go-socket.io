@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
-	"github.com/stretchr/testify/require"
 )
 
 // stop drops the transport without sending namespace DISCONNECT, then releases
@@ -23,9 +24,9 @@ func reconnectServer(t *testing.T, address string) (string, func()) {
 	require.NoError(t, err)
 	srv := socketio.NewServer(nil)
 	for _, ns := range []string{"/", "/chat", "/gone"} {
-		srv.OnConnect(ns, func(client.Conn) error { return nil })
-		srv.OnEvent(ns, "echo", func(_ client.Conn, value string) string { return value })
-		srv.OnEvent(ns, "disconnect", func(c client.Conn) { c.Disconnect() })
+		srv.OnConnect(ns, func(socketio.Conn) error { return nil })
+		srv.OnEvent(ns, "echo", func(_ socketio.Conn, value string) string { return value })
+		srv.OnEvent(ns, "disconnect", func(c socketio.Conn) { c.Disconnect() })
 	}
 	httpServer := &http.Server{Handler: srv, ReadHeaderTimeout: time.Second}
 	done := make(chan struct{})

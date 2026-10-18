@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/stretchr/testify/require"
+
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 )
 
 // Covers C4
@@ -20,7 +21,7 @@ func TestClientCloseCancelsPendingConnect(t *testing.T) {
 	var once sync.Once
 	defer once.Do(func() { close(release) })
 	late := newFakeConn(t)
-	cl.dial = func(string) (engineio.Conn, error) { close(entered); <-release; return late, nil }
+	cl.dial = func(string) (engineclient.Conn, error) { close(entered); <-release; return late, nil }
 	result := make(chan error, 1)
 	go func() { result <- cl.Connect() }()
 	recv(t, entered, "pending unbounded dial")
@@ -43,7 +44,7 @@ func TestClientLastSocketCloseCancelsDial(t *testing.T) {
 			entered, release := make(chan struct{}), make(chan struct{})
 			var once sync.Once
 			defer once.Do(func() { close(release) })
-			cl.dial = func(string) (engineio.Conn, error) { close(entered); <-release; return fc, nil }
+			cl.dial = func(string) (engineclient.Conn, error) { close(entered); <-release; return fc, nil }
 			result := make(chan error, 1)
 			go func() { result <- cl.Connect() }()
 			recv(t, entered, "pending dial")
@@ -81,7 +82,7 @@ func TestClientClosedSocketSurvivesPendingDial(t *testing.T) {
 			entered, release := make(chan struct{}), make(chan struct{})
 			var once sync.Once
 			defer once.Do(func() { close(release) })
-			cl.dial = func(string) (engineio.Conn, error) { close(entered); <-release; return fc, nil }
+			cl.dial = func(string) (engineclient.Conn, error) { close(entered); <-release; return fc, nil }
 			result := make(chan error, 1)
 			go func() { result <- cl.Connect() }()
 			recv(t, entered, "pending shared dial")
@@ -122,12 +123,12 @@ func TestClientConcurrentConnectAndRetry(t *testing.T) {
 	cl, err := New("http://unused/", nil)
 	require.NoError(t, err)
 	refused := errors.New("dial rejected")
-	cl.dial = func(string) (engineio.Conn, error) { return nil, refused }
+	cl.dial = func(string) (engineclient.Conn, error) { return nil, refused }
 	require.ErrorIs(t, cl.Connect(), refused)
 	fc := newFakeConn(t)
 	entered, release := make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32
-	cl.dial = func(string) (engineio.Conn, error) {
+	cl.dial = func(string) (engineclient.Conn, error) {
 		if calls.Add(1) == 1 {
 			close(entered)
 		}
@@ -162,7 +163,7 @@ func TestClientLateConnectHandler(t *testing.T) {
 			cl, err := New("http://unused/", nil)
 			require.NoError(t, err)
 			fc := newFakeConn(t)
-			cl.dial = func(string) (engineio.Conn, error) { return fc, nil }
+			cl.dial = func(string) (engineclient.Conn, error) { return fc, nil }
 			cl.OnEvent("barrier", func(Conn) string { return "ready" })
 			errs := make(chan error, 1)
 			cl.OnError(func(_ Conn, err error) { errs <- err })
@@ -222,7 +223,7 @@ func TestClientRootSocketAddedAfterConnect(t *testing.T) {
 	cl, err := New("http://unused/chat", nil)
 	require.NoError(t, err)
 	fc := newFakeConn(t)
-	cl.dial = func(string) (engineio.Conn, error) { return fc, nil }
+	cl.dial = func(string) (engineclient.Conn, error) { return fc, nil }
 	chatReady := make(chan struct{}, 1)
 	cl.OnConnect(func(Conn) error { chatReady <- struct{}{}; return nil })
 	require.NoError(t, cl.Connect())
@@ -247,7 +248,7 @@ func TestClientConnectAfterTransportFailure(t *testing.T) {
 	close(p.fc.peerGone)
 	recv(t, old.done, "old connection close")
 	next := newFakeConn(t)
-	p.cl.dial = func(string) (engineio.Conn, error) { return next, nil }
+	p.cl.dial = func(string) (engineclient.Conn, error) { return next, nil }
 	require.NoError(t, p.cl.Connect())
 	closeAtEnd(t, next, p.conn())
 	select {

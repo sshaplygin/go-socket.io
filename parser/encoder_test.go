@@ -2,7 +2,6 @@ package parser
 
 import (
 	"bytes"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"io"
 	"reflect"
 	"testing"
@@ -12,13 +11,13 @@ import (
 )
 
 type fakeWriter struct {
-	typ     session.FrameType
+	typ     FrameType
 	current *bytes.Buffer
-	types   []session.FrameType
+	types   []FrameType
 	data    []*bytes.Buffer
 }
 
-func (w *fakeWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
+func (w *fakeWriter) NextWriter(ft FrameType) (io.WriteCloser, error) {
 	w.current = bytes.NewBuffer(nil)
 	w.typ = ft
 
@@ -64,12 +63,12 @@ func TestEncoder(t *testing.T) {
 
 			for i := range w.types {
 				if i == 0 {
-					should.Equal(session.TEXT, w.types[i])
+					should.Equal(Text, w.types[i])
 					should.Equal(string(test.Data[i]), w.data[i].String())
 					continue
 				}
 
-				should.Equal(session.BINARY, w.types[i])
+				should.Equal(Binary, w.types[i])
 				should.Equal(test.Data[i], w.data[i].Bytes())
 			}
 		})

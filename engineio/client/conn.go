@@ -1,25 +1,46 @@
-package session
+package client
 
 import (
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
-// FrameType is type of message frame.
-type FrameType eioparser.FrameType
+// Conn is an established client-side Engine.IO connection.
+type Conn interface {
+	ID() string
+	// ReadyState returns the connection's current state.
+	ReadyState() ReadyState
+	// Transport returns the current transport's name.
+	Transport() string
+	// Upgraded reports whether a transport upgrade has completed.
+	Upgraded() bool
+	NextReader() (eioparser.FrameType, io.ReadCloser, error)
+	NextWriter(fType eioparser.FrameType) (io.WriteCloser, error)
+	Close() error
+	URL() url.URL
+	LocalAddr() net.Addr
+	RemoteAddr() net.Addr
+	RemoteHeader() http.Header
+	SetContext(v interface{})
+	Context() interface{}
+}
 
-const (
-	// TEXT is text type message.
-	TEXT = FrameType(eioparser.String)
-	// BINARY is binary type message.
-	BINARY = FrameType(eioparser.Binary)
-)
+// CompressWriter optionally writes packets with a per-packet compression flag.
+// NextWriter on these connections is NextWriterCompress with compress true.
+type CompressWriter interface {
+	NextWriterCompress(ft eioparser.FrameType, compress bool) (io.WriteCloser, error)
+}
 
 // ReadyState is the state of a session.
 type ReadyState string
 
 const (
-	StateOpening ReadyState = "opening" // The OPEN packet has not been written.
-	StateOpen    ReadyState = "open"    // The OPEN packet is written; no close has started.
+	StateOpening ReadyState = "opening" // The OPEN handshake is incomplete.
+	StateOpen    ReadyState = "open"    // The OPEN handshake completed; no close has started.
 	StateClosing ReadyState = "closing" // A close has started; the transport is not closed yet.
 	StateClosed  ReadyState = "closed"  // The transport connection is closed.
 )
@@ -34,7 +55,7 @@ const (
 	ReasonPingTimeout CloseReason = "ping timeout"
 	// ReasonTransportError means a transport read or write failed before the deadline.
 	ReasonTransportError CloseReason = "transport error"
-	// ReasonForcedClose means Session.Close was called.
+	// ReasonForcedClose means Conn.Close was called.
 	ReasonForcedClose CloseReason = "forced close"
 	// ReasonServerShutdown means engineio.Server.Close closed the session.
 	ReasonServerShutdown CloseReason = "server shutting down"

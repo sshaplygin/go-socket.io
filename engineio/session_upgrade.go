@@ -1,4 +1,4 @@
-package session
+package engineio
 
 import (
 	"io"
@@ -9,16 +9,16 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
-func (s *Session) Upgrade(transport string, conn transport.Conn) {
+func (s *session) Upgrade(transport string, conn transport.Conn) {
 	started := time.Now()
 	go s.upgradingAt(transport, conn, started)
 }
 
-func (s *Session) upgrading(t string, conn transport.Conn) {
+func (s *session) upgrading(t string, conn transport.Conn) {
 	s.upgradingAt(t, conn, time.Now())
 }
 
-func (s *Session) upgradingAt(t string, conn transport.Conn, started time.Time) {
+func (s *session) upgradingAt(t string, conn transport.Conn, started time.Time) {
 	s.upgradeLocker.Lock()
 	if s.closed || s.probe != nil {
 		s.upgradeLocker.Unlock()
@@ -82,7 +82,7 @@ func (s *Session) upgradingAt(t string, conn transport.Conn, started time.Time) 
 	if s.hooks != nil && s.hooks.Upgrading != nil {
 		s.hooks.Upgrading(s, t)
 	}
-	p, ok := old.(Pauser)
+	p, ok := old.(transport.Pauser)
 	if !ok {
 		return
 	}
@@ -151,7 +151,7 @@ func (s *Session) upgradingAt(t string, conn transport.Conn, started time.Time) 
 // switchTransport makes conn, on transport t, the session's connection and
 // updates the logger's transport attribute. If the session has been closed,
 // conn is closed instead and switchTransport reports false.
-func (s *Session) switchTransport(t string, conn transport.Conn) bool {
+func (s *session) switchTransport(t string, conn transport.Conn) bool {
 	s.upgradeLocker.Lock()
 	if s.closed {
 		s.upgradeLocker.Unlock()
@@ -171,7 +171,7 @@ func (s *Session) switchTransport(t string, conn transport.Conn) bool {
 // replaced reports whether conn is no longer the session's connection
 // because an upgrade switched to another one. It is false once the session
 // is closed, so a closed session's operations fail instead of moving on.
-func (s *Session) replaced(conn transport.Conn) bool {
+func (s *session) replaced(conn transport.Conn) bool {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
 	return !s.closed && s.conn != conn

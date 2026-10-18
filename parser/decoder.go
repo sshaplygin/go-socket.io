@@ -11,8 +11,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 )
 
 const (
@@ -21,7 +19,7 @@ const (
 )
 
 type FrameReader interface {
-	NextReader() (session.FrameType, io.ReadCloser, error)
+	NextReader() (FrameType, io.ReadCloser, error)
 }
 type byteReader interface {
 	io.Reader
@@ -60,7 +58,7 @@ func (d *Decoder) DecodeHeader(header *Header, event *string) error {
 		return err
 	}
 	d.lastFrame = r
-	if ft != session.TEXT {
+	if ft != Text {
 		return errInvalidFirstPacketType
 	}
 	br := bufio.NewReader(r)
@@ -332,8 +330,8 @@ func (d *Decoder) validatePlaceholders(value interface{}) error {
 	return nil
 }
 
-func (d *Decoder) readBuffer(ft session.FrameType, r io.ReadCloser) ([]byte, error) {
-	if ft != session.BINARY {
+func (d *Decoder) readBuffer(ft FrameType, r io.ReadCloser) ([]byte, error) {
+	if ft != Binary {
 		_ = r.Close()
 		return nil, errInvalidBinaryBufferType
 	}

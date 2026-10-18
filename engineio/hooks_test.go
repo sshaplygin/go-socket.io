@@ -13,8 +13,8 @@ import (
 	gorilla "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
-
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -59,7 +59,7 @@ func TestEngineServerEvents(t *testing.T) {
 			})
 			ts := httptest.NewServer(s)
 			t.Cleanup(func() { _ = s.Close(); ts.Close() })
-			client, err := (&Dialer{Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
+			client, err := (&engineclient.Dialer{Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = client.Close() })
 			conn, err := s.Accept()
@@ -84,7 +84,7 @@ func TestEngineServerEvents(t *testing.T) {
 			}})
 			ts := httptest.NewServer(s)
 			t.Cleanup(func() { _ = s.Close(); ts.Close() })
-			client, err := (&Dialer{Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
+			client, err := (&engineclient.Dialer{Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = client.Close() })
 			require.Equal(t, "present", client.RemoteHeader().Get("X-Initial"))

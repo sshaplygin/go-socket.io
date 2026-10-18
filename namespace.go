@@ -323,7 +323,7 @@ func (e emitter) Send(args ...interface{}) error { return e.Emit("message", args
 func (e emitter) Emit(event string, args ...interface{}) error {
 	if e.broadcast {
 		if e.adapter == nil {
-			return ErrServerOnly
+			return errServerOnly
 		}
 		if hasBroadcastAck(args) {
 			return ErrBroadcastAck

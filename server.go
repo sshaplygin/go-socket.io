@@ -49,13 +49,17 @@ type Server struct {
 }
 
 // NewServer returns a server.
-func NewServer(opts *engineio.Options) *Server {
+func NewServer(opts *Options) *Server {
+	var engineOptions *engineio.Options
+	if opts != nil {
+		engineOptions = opts.Engine
+	}
 	return &Server{
 		handlers:      newNamespaceHandlers(),
 		active:        make(map[*conn]struct{}),
 		activeChanged: make(chan struct{}),
 		closeDone:     make(chan struct{}),
-		engine:        engineio.NewServer(opts),
+		engine:        engineio.NewServer(engineOptions),
 		limits:        newConnLimits(opts),
 		log:           loggerFrom(opts),
 	}
@@ -64,9 +68,9 @@ func NewServer(opts *engineio.Options) *Server {
 // loggerFrom returns opts.Logger passed through logger.Wrap, or logger.Log
 // when opts or the field is nil. It mirrors engineio.Options.getLogger for the
 // socket.io layer.
-func loggerFrom(opts *engineio.Options) *slog.Logger {
-	if opts != nil && opts.Logger != nil {
-		return logger.Wrap(opts.Logger)
+func loggerFrom(opts *Options) *slog.Logger {
+	if opts != nil && opts.Engine != nil && opts.Engine.Logger != nil {
+		return logger.Wrap(opts.Engine.Logger)
 	}
 	return logger.Log
 }

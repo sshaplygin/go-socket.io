@@ -1,4 +1,4 @@
-package session
+package engineio
 
 import (
 	"bytes"
@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
-
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
@@ -126,9 +125,9 @@ func (c *pausableConn) Resume() {
 	c.mu.Unlock()
 }
 
-func newTestSession(t *testing.T, conn transport.Conn, tr string) *Session {
+func newTestSession(t *testing.T, conn transport.Conn, tr string) *session {
 	t.Helper()
-	s, err := New(conn, "sid1", tr, eioparser.ConnParameters{
+	s, err := newSession(conn, "sid1", tr, eioparser.ConnParameters{
 		PingInterval: time.Second,
 		PingTimeout:  time.Second,
 		Upgrades:     []string{"websocket"},
@@ -159,7 +158,7 @@ func TestSessionNextReaderAnswersPingAndSkipsUnknown(t *testing.T) {
 
 	ft, r, err := s.NextReader()
 	require.NoError(t, err)
-	require.Equal(t, TEXT, ft)
+	require.Equal(t, eioparser.String, ft)
 	b, err := io.ReadAll(r)
 	require.NoError(t, err)
 	require.Equal(t, "hello", string(b))
@@ -201,7 +200,7 @@ func TestSessionNextWriter(t *testing.T) {
 	conn := &scriptConn{}
 	s := newTestSession(t, conn, "polling")
 
-	w, err := s.NextWriter(BINARY)
+	w, err := s.NextWriter(eioparser.Binary)
 	require.NoError(t, err)
 	_, err = w.Write([]byte{1, 2})
 	require.NoError(t, err)
@@ -212,7 +211,7 @@ func TestSessionNextWriter(t *testing.T) {
 func TestSessionInitSession(t *testing.T) {
 	conn := &scriptConn{}
 	s := newTestSession(t, conn, "polling")
-	require.NoError(t, s.InitSession())
+	require.NoError(t, s.initSession())
 	w := conn.written()
 	require.Len(t, w, 1)
 	require.Equal(t, eioparser.OPEN, w[0].pt)
@@ -222,13 +221,13 @@ func TestSessionInitSession(t *testing.T) {
 	writerErr := errors.New("no writer")
 	conn = &scriptConn{writerErr: writerErr}
 	s = newTestSession(t, conn, "polling")
-	require.ErrorIs(t, s.InitSession(), writerErr)
+	require.ErrorIs(t, s.initSession(), writerErr)
 	require.True(t, conn.isClosed())
 
 	closeErr := errors.New("flush failed")
 	conn = &scriptConn{wCloseErr: closeErr}
 	s = newTestSession(t, conn, "polling")
-	require.ErrorIs(t, s.InitSession(), closeErr)
+	require.ErrorIs(t, s.initSession(), closeErr)
 	require.True(t, conn.isClosed())
 }
 
@@ -419,7 +418,7 @@ func TestSessionWriteSurvivesUpgrade(t *testing.T) {
 
 	errs := make(chan error, 1)
 	go func() {
-		w, err := s.NextWriter(TEXT)
+		w, err := s.NextWriter(eioparser.String)
 		if err == nil {
 			_, _ = w.Write([]byte("x"))
 			err = w.Close()
@@ -483,7 +482,7 @@ func TestSessionClosedBeforeUpgradeCompletes(t *testing.T) {
 					errs <- err
 					return
 				}
-				_, err := s.NextWriter(TEXT)
+				_, err := s.NextWriter(eioparser.String)
 				errs <- err
 			}()
 			<-old.entered
@@ -495,7 +494,7 @@ func TestSessionClosedBeforeUpgradeCompletes(t *testing.T) {
 
 			select {
 			case err := <-errs:
-				require.Error(t, err, "%s must fail after Session.Close", op)
+				require.Error(t, err, "%s must fail after session.Close", op)
 			case <-time.After(5 * time.Second):
 				t.Fatalf("%s did not return", op)
 			}
@@ -519,7 +518,7 @@ func TestUpgradeTimeoutEndsAtUpgradePacket(t *testing.T) {
 	old := &delayedPauseConn{pausing: make(chan struct{}), release: make(chan struct{})}
 	s := newTestSession(t, old, "polling")
 	defer func() { _ = s.Close() }()
-	s.SetLimits(1_000_000, 100*time.Millisecond)
+	s.setLimits(1_000_000, 100*time.Millisecond)
 	next := &scriptConn{reads: []scriptedPacket{
 		{ft: eioparser.String, pt: eioparser.PING, data: "probe"},
 		{ft: eioparser.String, pt: eioparser.UPGRADE},

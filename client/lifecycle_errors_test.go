@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/stretchr/testify/require"
 )
 
 // shortPingOptions returns engine.io options with a short pingTimeout, so a raw
@@ -31,7 +32,7 @@ func shortPingOptions() *engineio.Options {
 // newTestServer starts srv behind httptest with shortPingOptions.
 func newTestServer(t *testing.T, setup func(*socketio.Server)) *httptest.Server {
 	t.Helper()
-	srv := socketio.NewServer(shortPingOptions())
+	srv := socketio.NewServer(&socketio.Options{Engine: shortPingOptions()})
 	setup(srv)
 	go func() { _ = srv.Serve() }()
 	ts := httptest.NewServer(srv)
@@ -51,8 +52,8 @@ func (c *rawClient) readClosed() bool {
 func TestLifecycleRootConnectError(t *testing.T) {
 	rootErrs := make(chan error, 1)
 	ts := newTestServer(t, func(srv *socketio.Server) {
-		srv.OnConnect("/", func(client.Conn) error { return errors.New("rejected") })
-		srv.OnError("/", func(c client.Conn, err error) {
+		srv.OnConnect("/", func(socketio.Conn) error { return errors.New("rejected") })
+		srv.OnError("/", func(c socketio.Conn, err error) {
 			if c == nil {
 				rootErrs <- err
 			}
@@ -67,7 +68,7 @@ func TestLifecycleRootConnectError(t *testing.T) {
 
 func TestLifecycleNoRootHandler(t *testing.T) {
 	ts := newTestServer(t, func(srv *socketio.Server) {
-		srv.OnConnect("/chat", func(client.Conn) error { return nil })
+		srv.OnConnect("/chat", func(socketio.Conn) error { return nil })
 	})
 
 	c := dialRaw(t, ts.URL)
@@ -77,9 +78,9 @@ func TestLifecycleNoRootHandler(t *testing.T) {
 func TestLifecycleHandlerPanicReachesOnError(t *testing.T) {
 	errs := make(chan error, 1)
 	ts := newTestServer(t, func(srv *socketio.Server) {
-		srv.OnConnect("/", func(client.Conn) error { return nil })
-		srv.OnEvent("/", "boom", func(client.Conn) { panic("handler failed") })
-		srv.OnError("/", func(_ client.Conn, err error) { errs <- err })
+		srv.OnConnect("/", func(socketio.Conn) error { return nil })
+		srv.OnEvent("/", "boom", func(socketio.Conn) { panic("handler failed") })
+		srv.OnError("/", func(_ socketio.Conn, err error) { errs <- err })
 	})
 
 	c := dialRaw(t, ts.URL)
@@ -92,9 +93,9 @@ func TestLifecycleHandlerPanicReachesOnError(t *testing.T) {
 func TestLifecycleEventDecodeError(t *testing.T) {
 	errs := make(chan error, 1)
 	ts := newTestServer(t, func(srv *socketio.Server) {
-		srv.OnConnect("/", func(client.Conn) error { return nil })
-		srv.OnEvent("/", "num", func(_ client.Conn, n int) int { return n })
-		srv.OnError("/", func(_ client.Conn, err error) { errs <- err })
+		srv.OnConnect("/", func(socketio.Conn) error { return nil })
+		srv.OnEvent("/", "num", func(_ socketio.Conn, n int) int { return n })
+		srv.OnError("/", func(_ socketio.Conn, err error) { errs <- err })
 	})
 
 	c := dialRaw(t, ts.URL)
@@ -109,14 +110,14 @@ func TestLifecycleEventDecodeError(t *testing.T) {
 // server Emit with a callback answered by the client, and client ACK packets
 // for an unknown id or an unknown namespace, which the server ignores.
 func TestLifecycleAcks(t *testing.T) {
-	connected := make(chan client.Conn, 1)
+	connected := make(chan socketio.Conn, 1)
 	answers := make(chan string, 1)
 	ts := newTestServer(t, func(srv *socketio.Server) {
-		srv.OnConnect("/", func(s client.Conn) error {
+		srv.OnConnect("/", func(s socketio.Conn) error {
 			connected <- s
 			return nil
 		})
-		srv.OnEvent("/", "ping", func(client.Conn) string { return "pong" })
+		srv.OnEvent("/", "ping", func(socketio.Conn) string { return "pong" })
 	})
 
 	c := dialRaw(t, ts.URL)
@@ -147,9 +148,9 @@ func TestLifecycleAcks(t *testing.T) {
 func TestLifecycleDisconnectHandlers(t *testing.T) {
 	reasons := make(chan string, 2)
 	ts := newTestServer(t, func(srv *socketio.Server) {
-		srv.OnConnect("/", func(client.Conn) error { return nil })
-		srv.OnConnect("/chat", func(client.Conn) error { return nil })
-		srv.OnDisconnect("/chat", func(_ client.Conn, reason string) { reasons <- reason })
+		srv.OnConnect("/", func(socketio.Conn) error { return nil })
+		srv.OnConnect("/chat", func(socketio.Conn) error { return nil })
+		srv.OnDisconnect("/chat", func(_ socketio.Conn, reason string) { reasons <- reason })
 	})
 
 	c := dialRaw(t, ts.URL)
@@ -204,7 +205,7 @@ func (rs *rawServer) accept() *rawClient {
 func connectRawClient(t *testing.T, setup func(*client.Client)) *rawClient {
 	t.Helper()
 	rs := newRawServer(t)
-	cl, err := client.NewClient(rs.url, nil)
+	cl, err := client.New(rs.url, nil)
 	require.NoError(t, err)
 	connected := make(chan struct{}, 1)
 	cl.OnConnect(func(client.Conn) error {
@@ -253,9 +254,9 @@ func TestClientDecodeErrorReachesOnError(t *testing.T) {
 }
 
 func TestClientRejectsEmptyAddr(t *testing.T) {
-	_, err := client.NewClient("", nil)
+	_, err := client.New("", nil)
 	require.ErrorIs(t, err, client.ErrEmptyAddr)
-	_, err = client.NewClient("http://[::1", nil)
+	_, err = client.New("http://[::1", nil)
 	require.Error(t, err)
 }
 
@@ -263,9 +264,9 @@ func TestClientRejectsEmptyAddr(t *testing.T) {
 // before OnConnect, each creating the namespace, and removes a session.
 func TestServerRegistrationOrder(t *testing.T) {
 	srv := socketio.NewServer(nil)
-	srv.OnError("/a", func(client.Conn, error) {})
-	srv.OnDisconnect("/b", func(client.Conn, string) {})
-	srv.OnEvent("/c", "e", func(client.Conn) {})
+	srv.OnError("/a", func(socketio.Conn, error) {})
+	srv.OnDisconnect("/b", func(socketio.Conn, string) {})
+	srv.OnEvent("/c", "e", func(socketio.Conn) {})
 	for _, nsp := range []string{"/a", "/b", "/c"} {
 		require.Equal(t, 0, srv.RoomLen(nsp, "unjoined"), nsp)
 	}

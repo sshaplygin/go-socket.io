@@ -1,34 +1,34 @@
-package session
+package engineio
 
 import (
 	"sync"
 )
 
-type Manager struct {
+type sessionManager struct {
 	IDGenerator
 
-	sessions map[string]*Session
+	sessions map[string]*session
 	locker   sync.RWMutex
 }
 
-func NewManager(gen IDGenerator) *Manager {
+func newSessionManager(gen IDGenerator) *sessionManager {
 	if gen == nil {
 		gen = &DefaultIDGenerator{}
 	}
-	return &Manager{
+	return &sessionManager{
 		IDGenerator: gen,
-		sessions:    make(map[string]*Session),
+		sessions:    make(map[string]*session),
 	}
 }
 
-func (m *Manager) Add(s *Session) {
+func (m *sessionManager) Add(s *session) {
 	m.locker.Lock()
 	defer m.locker.Unlock()
 
 	m.sessions[s.ID()] = s
 }
 
-func (m *Manager) Get(sid string) (*Session, bool) {
+func (m *sessionManager) Get(sid string) (*session, bool) {
 	m.locker.RLock()
 	defer m.locker.RUnlock()
 
@@ -36,7 +36,7 @@ func (m *Manager) Get(sid string) (*Session, bool) {
 	return s, ok
 }
 
-func (m *Manager) Remove(sid string) {
+func (m *sessionManager) Remove(sid string) {
 	m.locker.Lock()
 	defer m.locker.Unlock()
 
@@ -46,7 +46,7 @@ func (m *Manager) Remove(sid string) {
 	delete(m.sessions, sid)
 }
 
-func (m *Manager) Count() int {
+func (m *sessionManager) Count() int {
 	m.locker.RLock()
 	defer m.locker.RUnlock()
 
@@ -54,10 +54,10 @@ func (m *Manager) Count() int {
 }
 
 // All returns a snapshot of the registered sessions keyed by session ID.
-func (m *Manager) All() map[string]*Session {
+func (m *sessionManager) All() map[string]*session {
 	m.locker.RLock()
 	defer m.locker.RUnlock()
-	sessions := make(map[string]*Session, len(m.sessions))
+	sessions := make(map[string]*session, len(m.sessions))
 	for id, s := range m.sessions {
 		sessions[id] = s
 	}

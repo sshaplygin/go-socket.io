@@ -3,7 +3,6 @@ package engineio
 import (
 	"encoding/json"
 	"fmt"
-	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,9 +14,9 @@ import (
 	"time"
 
 	gorilla "github.com/gorilla/websocket"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
-
 	"github.com/stretchr/testify/require"
+
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 // Optional fields keep the regression tests runnable with only tests applied to
@@ -137,7 +136,7 @@ func parityMessage(t *testing.T, reads <-chan parityRead, want string) {
 func parityWrite(c Conn, message string) <-chan error {
 	done := make(chan error, 1)
 	go func() {
-		w, err := c.NextWriter(session.TEXT)
+		w, err := c.NextWriter(eioparser.String)
 		if err == nil {
 			_, err = io.WriteString(w, message)
 			closeErr := w.Close()

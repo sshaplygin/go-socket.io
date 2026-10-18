@@ -2,5 +2,3 @@
 logger/logger.go v2/logger/logger.go
 engineio/transport/manager.go v2/engineio/transport/manager.go
 engineio/transport/errors.go v2/engineio/transport/errors.go
-engineio/session/id_generator.go v2/engineio/session/id_generator.go
-engineio/session/manager.go v2/engineio/session/manager.go

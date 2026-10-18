@@ -4,17 +4,19 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/sshaplygin/go-socket.io/engineio"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
-
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/parser"
-	"github.com/stretchr/testify/require"
 )
 
 // This transport can only complete its orderly close when forced to abort.
@@ -44,16 +46,27 @@ type discardFrame struct{}
 func (discardFrame) Write(b []byte) (int, error) { return len(b), nil }
 func (discardFrame) Close() error                { return nil }
 
-func rootWithOrderlyEngine(t *testing.T) (*conn, *session.Session, *rootOrderlyTransport) {
+func rootWithOrderlyEngine(t *testing.T) (*conn, engineio.Conn, *rootOrderlyTransport) {
 	t.Helper()
 	tr := &rootOrderlyTransport{entered: make(chan struct{}), closed: make(chan struct{})}
-	s, err := session.New(tr, "orderly", "polling", eioparser.ConnParameters{PingInterval: time.Hour, PingTimeout: time.Hour}, nil)
+	engine := engineio.NewServer(&engineio.Options{Transports: []transport.Transport{rootOrderlyFactory{tr}}, PingInterval: time.Hour, PingTimeout: time.Hour})
+	engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example.test/?EIO=3&transport=polling", nil))
+	s, err := engine.Accept()
 	require.NoError(t, err)
-	require.NoError(t, s.InitSession())
 	c := newConn(s, newNamespaceHandlers(), connLimits{writeBufferSize: 1, drainTimeout: 50 * time.Millisecond}, slog.Default())
 	c.boundary, c.connecting = true, false
-	t.Cleanup(func() { c.stop(); _ = s.Abort() })
+	t.Cleanup(func() { c.stop(); _ = engineio.Abort(s); _ = engine.Close() })
 	return c, s, tr
+}
+
+type rootOrderlyFactory struct{ conn *rootOrderlyTransport }
+
+func (rootOrderlyFactory) Name() string { return "polling" }
+func (f rootOrderlyFactory) Accept(http.ResponseWriter, *http.Request) (transport.Conn, error) {
+	return f.conn, nil
+}
+func (rootOrderlyFactory) Dial(*url.URL, http.Header) (transport.Conn, error) {
+	return nil, io.ErrClosedPipe
 }
 
 func TestRootDrainDeadlineAbortsOrderlyEngine(t *testing.T) {

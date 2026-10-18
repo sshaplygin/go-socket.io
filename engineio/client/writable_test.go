@@ -1,4 +1,4 @@
-package engineio
+package client
 
 import (
 	"io"
@@ -9,7 +9,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	"github.com/sshaplygin/go-socket.io/engineio"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -19,7 +20,7 @@ import (
 func TestEngineClientWritable(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
-			engine := NewServer(&Options{PingInterval: 10 * time.Second, PingTimeout: 10 * time.Second})
+			engine := engineio.NewServer(&engineio.Options{PingInterval: 10 * time.Second, PingTimeout: 10 * time.Second})
 			defer func() { _ = engine.Close() }()
 			posting, release := make(chan struct{}, 1), make(chan struct{})
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +45,7 @@ func TestEngineClientWritable(t *testing.T) {
 			}))
 			defer func() { _ = engine.Close(); ts.Close() }()
 			defer close(release)
-			accepted := make(chan Conn, 1)
+			accepted := make(chan engineio.Conn, 1)
 			go func() {
 				c, err := engine.Accept()
 				if err != nil {
@@ -72,7 +73,7 @@ func TestEngineClientWritable(t *testing.T) {
 			writable, ok := c.(interface{ Writable() bool })
 			require.True(t, ok)
 			require.True(t, writable.Writable())
-			w, err := c.NextWriter(session.TEXT)
+			w, err := c.NextWriter(eioparser.String)
 			require.NoError(t, err)
 			require.False(t, writable.Writable())
 			_, err = w.Write([]byte("hello"))

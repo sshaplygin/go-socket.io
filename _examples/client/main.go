@@ -17,7 +17,7 @@ func main() {
 	message := flag.String("message", "hello from the Go client", "message to send")
 	flag.Parse()
 
-	cl, err := client.NewClient(*addr, nil)
+	cl, err := client.New(*addr, nil)
 	if err != nil {
 		log.Fatal(err)
 	}

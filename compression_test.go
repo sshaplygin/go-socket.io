@@ -15,12 +15,13 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/stretchr/testify/require"
+
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 	"github.com/sshaplygin/go-socket.io/parser"
-	"github.com/stretchr/testify/require"
 )
 
 type compressedPeer struct {
@@ -83,7 +84,7 @@ func (p *compressedPeer) frame(t *testing.T) (byte, []byte) {
 }
 func newCompressedServer(t *testing.T, connected func(Conn)) (*Server, *httptest.Server) {
 	t.Helper()
-	s := NewServer(&engineio.Options{PerMessageDeflate: true, CompressionThreshold: 32})
+	s := NewServer(&Options{Engine: &engineio.Options{PerMessageDeflate: true, CompressionThreshold: 32}})
 	s.OnConnect("/", func(c Conn) error {
 		c.Join("room")
 		if connected != nil {

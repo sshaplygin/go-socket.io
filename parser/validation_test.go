@@ -7,12 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/stretchr/testify/require"
 )
 
 type validationFrame struct {
-	typ  session.FrameType
+	typ  FrameType
 	data string
 }
 type validationFrames struct {
@@ -20,7 +19,7 @@ type validationFrames struct {
 	closed int
 }
 
-func (f *validationFrames) NextReader() (session.FrameType, io.ReadCloser, error) {
+func (f *validationFrames) NextReader() (FrameType, io.ReadCloser, error) {
 	if len(f.frames) == 0 {
 		return 0, nil, io.EOF
 	}
@@ -36,7 +35,7 @@ type validationReader struct {
 
 func (r *validationReader) Close() error { r.close(); return nil }
 func validationDecoder(packet string) (*Decoder, *validationFrames) {
-	f := &validationFrames{frames: []validationFrame{{session.TEXT, packet}}}
+	f := &validationFrames{frames: []validationFrame{{Text, packet}}}
 	return NewDecoder(f), f
 }
 
@@ -57,7 +56,7 @@ func TestMaxAttachments(t *testing.T) {
 	t.Run("ten", func(t *testing.T) {
 		d, f := validationDecoder(`510-["e",{"_placeholder":true,"num":9}]`)
 		for i := 0; i < 10; i++ {
-			f.frames = append(f.frames, validationFrame{session.BINARY, "bytes"})
+			f.frames = append(f.frames, validationFrame{Binary, "bytes"})
 		}
 		var h Header
 		var event string
@@ -109,7 +108,7 @@ func TestPayloadValidation(t *testing.T) {
 
 func TestWrongTypeConsumesBinaryAttachments(t *testing.T) {
 	d, f := validationDecoder(`51-["typed",{"_placeholder":true,"num":0}]`)
-	f.frames = append(f.frames, validationFrame{session.BINARY, "bytes"}, validationFrame{session.TEXT, `2["typed",42]`})
+	f.frames = append(f.frames, validationFrame{Binary, "bytes"}, validationFrame{Text, `2["typed",42]`})
 	var h Header
 	var event string
 	require.NoError(t, d.DecodeHeader(&h, &event))

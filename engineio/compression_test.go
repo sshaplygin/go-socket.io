@@ -8,7 +8,6 @@ import (
 	"compress/zlib"
 	"encoding/binary"
 	"encoding/json"
-	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"io"
 	"net"
 	"net/http"
@@ -17,14 +16,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	gorilla "github.com/gorilla/websocket"
 	"testing"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/session"
-
+	gorilla "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
+
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 type compressionPeer struct {
@@ -141,7 +139,7 @@ func TestPerMessageDeflateNegotiated(t *testing.T) {
 				size     int
 				compress bool
 			}{{1022, true}, {1023, true}, {4096, false}, {4096, true}} {
-				w, err := c.(CompressWriter).NextWriterCompress(session.TEXT, tc.compress)
+				w, err := c.(CompressWriter).NextWriterCompress(eioparser.String, tc.compress)
 				require.NoError(t, err)
 				_, err = io.WriteString(w, strings.Repeat("a", tc.size))
 				require.NoError(t, err)
@@ -224,7 +222,7 @@ func TestPollingHTTPCompression(t *testing.T) {
 			}{{"gzip", boundary - 1, true, ""}, {"gzip", boundary, true, "gzip"}, {"gzip", 4096, true, "gzip"}, {"deflate", 4096, true, "deflate"}, {"gzip, deflate", 4096, true, "gzip"}, {"gzip;q=0, deflate", 4096, true, "deflate"}, {"gzip;q=0.1, deflate;q=1", 4096, true, "deflate"}, {"*;q=0", 4096, true, ""}, {"", 4096, true, ""}, {"gzip", 3, true, ""}, {"gzip", 4096, false, ""}, {"gzip", 0, true, ""}} {
 				done := make(chan error, 1)
 				go func() {
-					w, err := f.conn.(CompressWriter).NextWriterCompress(session.TEXT, tc.compress)
+					w, err := f.conn.(CompressWriter).NextWriterCompress(eioparser.String, tc.compress)
 					if err == nil {
 						_, err = io.WriteString(w, strings.Repeat("x", tc.size))
 						if closeErr := w.Close(); err == nil {

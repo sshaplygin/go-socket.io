@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -40,8 +40,8 @@ func newFakeConn(t *testing.T) *fakeConn {
 	return f
 }
 
-func (f *fakeConn) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
-	if ft == session.TEXT {
+func (f *fakeConn) NextWriter(ft eioparser.FrameType) (io.WriteCloser, error) {
+	if ft == eioparser.String {
 		f.texts.Add(1)
 	}
 	if f.hold.Load() {
@@ -60,14 +60,14 @@ func (f *fakeConn) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
 	return &frameWriter{out: f.out}, nil
 }
 
-func (f *fakeConn) NextReader() (session.FrameType, io.ReadCloser, error) {
+func (f *fakeConn) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 	select {
 	case frame := <-f.reads:
-		return session.TEXT, io.NopCloser(strings.NewReader(frame)), nil
+		return eioparser.String, io.NopCloser(strings.NewReader(frame)), nil
 	case <-f.peerGone:
 	case <-f.closed:
 	}
-	return session.TEXT, nil, io.EOF
+	return eioparser.String, nil, io.EOF
 }
 
 func (f *fakeConn) Close() error { f.closeOnce.Do(func() { close(f.closed) }); return nil }
@@ -106,7 +106,7 @@ func (f *gatedFinishConn) Close() error {
 	return nil
 }
 
-func (f *gatedFinishConn) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
+func (f *gatedFinishConn) NextWriter(ft eioparser.FrameType) (io.WriteCloser, error) {
 	w, err := f.fakeConn.NextWriter(ft)
 	if err != nil {
 		f.writerFailed.Do(func() { close(f.writeFailed) })

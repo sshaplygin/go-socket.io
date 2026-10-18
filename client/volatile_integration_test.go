@@ -10,12 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
-	"github.com/stretchr/testify/require"
 )
 
 type watchedClientTransport struct {
@@ -37,10 +38,10 @@ func TestClientVolatile(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			opts := shortPingOptions()
 			opts.PingInterval = time.Hour // no heartbeat can race this idle admission
-			srv := socketio.NewServer(opts)
+			srv := socketio.NewServer(&socketio.Options{Engine: opts})
 			values := make(chan string, 8)
-			srv.OnConnect("/", func(client.Conn) error { return nil })
-			srv.OnEvent("/", "value", func(_ client.Conn, v string) string { values <- v; return v })
+			srv.OnConnect("/", func(socketio.Conn) error { return nil })
+			srv.OnEvent("/", "value", func(_ socketio.Conn, v string) string { values <- v; return v })
 			go func() { _ = srv.Serve() }()
 			var armed atomic.Bool
 			entered, release := make(chan struct{}), make(chan struct{})

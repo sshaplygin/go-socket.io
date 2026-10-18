@@ -181,7 +181,7 @@ All notable changes to this project are documented here. The format follows
   supported Node clients in CI.
 
 - The Go client is available as `github.com/sshaplygin/go-socket.io/client`,
-  with connection interfaces shared through root aliases.
+  with its own client connection interfaces.
 
 - ci: `parity-check` verifies PARITY markers against executable tests, including
   tagged scenarios. `cover-check` enforces measured statement and API coverage ratchets.
@@ -279,6 +279,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Server and client now have independent connection contracts. Socket.IO queue/drain
+  options belong to their own role; Engine.IO server/client share only wire codecs
+  and transports. The Socket.IO parser owns its frame type and imports no Engine.IO
+  runtime. Wrong-role event callbacks are rejected at registration.
+
 - engineio: shared wire codecs and OPEN parameters now live in `engineio/parser`;
   polling owns its feed/flush and pause/deadline state. The former frame, packet,
   payload and transport-utils import paths are removed. See
@@ -303,8 +308,8 @@ All notable changes to this project are documented here. The format follows
   nothing, and the emitters from `To` or `Broadcast` return `ErrServerOnly` from
   `Emit` and `Send`. Client room methods maintain a local index; they do not join
   server rooms. `Send`, `Disconnect`, `Connected`, `Volatile` and `Compress`
-  have client behavior. Root connection types remain aliases of the client
-  package's shared interfaces.
+  have client behavior. Server and client connection types now belong to their
+  respective packages, with role-specific callbacks and errors.
 - engineio: the reference `cookie` default now sets an `io` session cookie on
   every response from the polling transport that opened the session, where no
   cookie was set before. Defaults are Path=/, HttpOnly and SameSite=Strict;
@@ -451,8 +456,6 @@ All notable changes to this project are documented here. The format follows
 
 ### Deprecated
 
-- Root `Client` and `NewClient`; use `client.Client` and `client.NewClient`.
-
 - `logger.Error` and `logger.Info`: the library no longer calls them. Use `slog`'s
   methods on `logger.Log` or on the logger passed as `engineio.Options.Logger`. See
   [`logger`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/logger), whose
@@ -460,6 +463,10 @@ All notable changes to this project are documented here. The format follows
   records (roadmap task 1.L).
 
 ### Removed
+
+- Root client wrappers and type/error aliases, client `NewClient`, the server-package
+  Engine.IO dialer and the public `engineio/session` layer. See
+  [the v1 migration guide](docs/V1_MIGRATION.md) for role-specific replacements.
 
 - engineio: JSONP polling. The `j` query parameter is ignored: a poll answers the ordinary
   payload with the usual headers instead of `___eio[<j>]("...")`, in which `j` was copied

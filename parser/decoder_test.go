@@ -2,7 +2,6 @@ package parser
 
 import (
 	"bytes"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"io"
 	"reflect"
 	"testing"
@@ -17,14 +16,14 @@ type fakeReader struct {
 	buf   *bytes.Buffer
 }
 
-func (r *fakeReader) NextReader() (session.FrameType, io.ReadCloser, error) {
+func (r *fakeReader) NextReader() (FrameType, io.ReadCloser, error) {
 	if r.index >= len(r.data) {
 		return 0, nil, io.EOF
 	}
 	r.buf = bytes.NewBuffer(r.data[r.index])
-	ft := session.BINARY
+	ft := Binary
 	if r.index == 0 {
-		ft = session.TEXT
+		ft = Text
 	}
 	return ft, r, nil
 }

@@ -29,7 +29,7 @@ func main() {
 		},
 	}
 
-	server := socketio.NewServer(opts)
+	server := socketio.NewServer(&socketio.Options{Engine: opts})
 
 	registerChat(server)
 

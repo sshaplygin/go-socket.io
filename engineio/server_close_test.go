@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
@@ -24,25 +25,25 @@ func TestServerCloseClosesUnacceptedSessions(t *testing.T) {
 	httpSvr := httptest.NewServer(svr)
 	defer httpSvr.Close()
 
-	dial := func() Conn {
-		d := Dialer{Transports: []transport.Transport{websocket.Default}}
+	dial := func() engineclient.Conn {
+		d := engineclient.Dialer{Transports: []transport.Transport{websocket.Default}}
 		c, err := d.Dial(httpSvr.URL, nil)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = c.Close() })
 		return c
 	}
-	clients := []Conn{dial(), dial()}
+	clients := []engineclient.Conn{dial(), dial()}
 	require.Eventually(t, func() bool { return len(svr.connChan) == 1 }, time.Second, time.Millisecond,
 		"a session in the hand-off buffer")
 	require.NoError(t, svr.Close())
-	d := Dialer{Transports: []transport.Transport{websocket.Default}}
+	d := engineclient.Dialer{Transports: []transport.Transport{websocket.Default}}
 	_, err := d.Dial(httpSvr.URL, nil)
 	require.Error(t, err, "handshakes after Close must fail")
 
 	deadline := time.After(time.Second)
 	errs := make(chan error, len(clients))
 	for _, c := range clients {
-		go func(c Conn) { _, _, err := c.NextReader(); errs <- err }(c)
+		go func(c engineclient.Conn) { _, _, err := c.NextReader(); errs <- err }(c)
 	}
 	for range clients {
 		select {

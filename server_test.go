@@ -14,7 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/logger"
@@ -77,7 +78,7 @@ func TestServerLoggerOption(t *testing.T) {
 		log.SetFlags(prevFlags)
 	})
 
-	srv := NewServer(&engineio.Options{Logger: slog.New(custom)})
+	srv := NewServer(&Options{Engine: &engineio.Options{Logger: slog.New(custom)}})
 	srv.OnConnect("/", func(Conn) error { return nil })
 	go func() { _ = srv.Serve() }()
 	defer func() { _ = srv.Close() }()
@@ -87,12 +88,12 @@ func TestServerLoggerOption(t *testing.T) {
 
 	// A raw engine.io client sends a CONNECT for a namespace that has no
 	// handler; the server logs it as an unhandled error with nsp=/nope.
-	dialer := engineio.Dialer{Transports: []transport.Transport{polling.Default}}
+	dialer := engineclient.Dialer{Transports: []transport.Transport{polling.Default}}
 	conn, err := dialer.Dial(ts.URL, nil)
 	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
 
-	w, err := conn.NextWriter(session.TEXT)
+	w, err := conn.NextWriter(eioparser.String)
 	require.NoError(t, err)
 	_, err = w.Write([]byte("0/nope"))
 	require.NoError(t, err)
@@ -166,10 +167,10 @@ func TestConnLogWrappedWithSid(t *testing.T) {
 	rec := newAttrRecorder()
 	app := slog.New(rec)
 	errOnly := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	require.True(t, loggerFrom(&engineio.Options{Logger: errOnly}).Enabled(context.Background(), slog.LevelDebug))
+	require.True(t, loggerFrom(&Options{Engine: &engineio.Options{Logger: errOnly}}).Enabled(context.Background(), slog.LevelDebug))
 	require.Same(t, logger.Log, loggerFrom(nil))
 
-	srv := NewServer(&engineio.Options{Logger: app})
+	srv := NewServer(&Options{Engine: &engineio.Options{Logger: app}})
 	srv.OnConnect("/", func(Conn) error { return nil })
 	go func() { _ = srv.Serve() }()
 	defer func() { _ = srv.Close() }()
@@ -177,12 +178,12 @@ func TestConnLogWrappedWithSid(t *testing.T) {
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
-	dialer := engineio.Dialer{Transports: []transport.Transport{polling.Default}}
+	dialer := engineclient.Dialer{Transports: []transport.Transport{polling.Default}}
 	conn, err := dialer.Dial(ts.URL, nil)
 	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
 
-	w, err := conn.NextWriter(session.TEXT)
+	w, err := conn.NextWriter(eioparser.String)
 	require.NoError(t, err)
 	_, err = w.Write([]byte("0/nope"))
 	require.NoError(t, err)

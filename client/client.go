@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -15,7 +15,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
-// ErrEmptyAddr is returned by NewClient and New when addr is empty.
+// ErrEmptyAddr is returned by New when addr is empty.
 var ErrEmptyAddr = errors.New("empty addr")
 
 // ErrConnectTimeout means the engine connection did not open within Options.Timeout.
@@ -27,27 +27,11 @@ type Client struct {
 	url       string
 	conn      *conn // the current connection; retained for internal queue tests
 	handlers  *namespaceHandlers
-	opts      *engineio.Options
 	limits    connLimits
 	log       *slog.Logger
 	options   Options
 	state     *clientState
-	dial      func(string) (engineio.Conn, error) // internal transport fixture
-}
-
-// NewClient retains the original constructor and its close drain deadline.
-// WriteBufferSize and Logger map to Options; PingTimeout bounds the close drain.
-func NewClient(addr string, opts *engineio.Options) (*Client, error) {
-	var options Options
-	if opts != nil {
-		options.WriteBufferSize, options.Logger = opts.WriteBufferSize, opts.Logger
-	}
-	c, err := New(addr, &options)
-	if err != nil {
-		return nil, err
-	}
-	c.opts, c.limits = opts, newConnLimits(opts)
-	return c, nil
+	dial      func(string) (engineclient.Conn, error) // internal transport fixture
 }
 
 // New configures addr (http://host:port[/namespace]) without opening a connection.
@@ -104,9 +88,9 @@ func New(addr string, opts *Options) (*Client, error) {
 	options.Query = query
 	namespace := fmtNS(u.Path)
 	u.Path, u.RawPath, u.RawQuery = strings.TrimRight(options.Path, "/")+"/", "", query.Encode()
-	engineOptions := &engineio.Options{WriteBufferSize: options.WriteBufferSize, Logger: options.Logger}
+
 	c := &Client{namespace: namespace, url: u.String(), handlers: newNamespaceHandlers(),
-		limits: newConnLimits(engineOptions), log: loggerFrom(engineOptions), options: options}
+		limits: newConnLimits(&options), log: loggerFrom(&options), options: options}
 	c.state = &clientState{client: c, sockets: make(map[string]*Socket)}
 	c.createNamespace(rootNamespace)
 	c.Socket(namespace)
@@ -118,7 +102,7 @@ func New(addr string, opts *Options) (*Client, error) {
 func (c *Client) Connect() error { return c.state.connect(c) }
 
 // Close disconnects all namespace sockets and drains their queued packets before
-// closing Engine.IO. New uses a one-minute drain bound; NewClient keeps PingTimeout.
+// closing Engine.IO, bounded by Options.CloseTimeout.
 func (c *Client) Close() error { return c.state.closeAll() }
 
 // Emit sends through the namespace selected by the address passed to New.
@@ -162,16 +146,16 @@ func (c *conn) connectClient() error {
 	return nil
 }
 
-func (c *Client) engineDial() (engineio.Conn, error) {
+func (c *Client) engineDial() (engineclient.Conn, error) {
 	if c.dial != nil {
 		return c.dial(c.url)
 	}
-	d := engineio.Dialer{Transports: c.options.Transports, Upgrade: true, OnPing: c.ping, OnPong: c.pong}
+	d := engineclient.Dialer{Transports: c.options.Transports, Upgrade: true, OnPing: c.ping, OnPong: c.pong}
 	return d.Dial(c.url, c.options.Header)
 }
 
-// loggerFrom mirrors engineio.Options' logger selection for the Socket.IO layer.
-func loggerFrom(opts *engineio.Options) *slog.Logger {
+// loggerFrom chooses this client's configured logger or the package fallback.
+func loggerFrom(opts *Options) *slog.Logger {
 	if opts != nil && opts.Logger != nil {
 		return logger.Wrap(opts.Logger)
 	}

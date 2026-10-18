@@ -4,9 +4,10 @@ import (
 	"io"
 	"testing"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/stretchr/testify/require"
+
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 type compressionClientConn struct {
@@ -14,7 +15,7 @@ type compressionClientConn struct {
 	flags chan bool
 }
 
-func (c *compressionClientConn) NextWriterCompress(ft session.FrameType, compress bool) (io.WriteCloser, error) {
+func (c *compressionClientConn) NextWriterCompress(ft eioparser.FrameType, compress bool) (io.WriteCloser, error) {
 	c.flags <- compress
 	return c.fakeConn.NextWriter(ft)
 }
@@ -26,7 +27,7 @@ func TestClientCompressBuffered(t *testing.T) {
 	t.Cleanup(func() { _ = cl.Close() })
 	fc := newFakeConn(t)
 	wire := &compressionClientConn{fakeConn: fc, flags: make(chan bool, 16)}
-	cl.dial = func(string) (engineio.Conn, error) { return wire, nil }
+	cl.dial = func(string) (engineclient.Conn, error) { return wire, nil }
 	ready := make(chan Conn, 1)
 	cl.OnConnect(func(c Conn) error { ready <- c; return nil })
 	require.NoError(t, cl.Connect())

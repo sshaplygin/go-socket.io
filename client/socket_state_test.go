@@ -4,9 +4,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/client"
-	"github.com/stretchr/testify/require"
 )
 
 // Covers C8
@@ -14,9 +15,9 @@ func TestClientSocketState(t *testing.T) {
 	serverReady, serverClosed := make(chan bool, 2), make(chan bool, 2)
 	ts := newTestServer(t, func(srv *socketio.Server) {
 		for _, ns := range []string{"/", "/chat"} {
-			srv.OnConnect(ns, func(c client.Conn) error { serverReady <- c.Connected(); return nil })
-			srv.OnDisconnect(ns, func(c client.Conn, _ string) { serverClosed <- c.Connected() })
-			srv.OnEvent(ns, "fire", func(c client.Conn, event string) { c.Emit(event, "value"); c.Emit("barrier") })
+			srv.OnConnect(ns, func(c socketio.Conn) error { serverReady <- c.Connected(); return nil })
+			srv.OnDisconnect(ns, func(c socketio.Conn, _ string) { serverClosed <- c.Connected() })
+			srv.OnEvent(ns, "fire", func(c socketio.Conn, event string) { c.Emit(event, "value"); c.Emit("barrier") })
 		}
 	})
 	cl, err := client.New(ts.URL, retryOptions())

@@ -12,18 +12,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
-	"github.com/sshaplygin/go-socket.io/parser"
 	"github.com/stretchr/testify/require"
+
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+	"github.com/sshaplygin/go-socket.io/parser"
 )
 
-// fakeConn is an engineio.Conn driven by the test. The peer sends frames on reads (unbuffered: a
+// fakeConn is a client Engine.IO connection driven by the test. The peer sends frames on reads (unbuffered: a
 // send returns once the previous frame is handled); each written frame goes to out. While hold is
 // set, NextWriter signals held and blocks until a send on release, its close, or Close; after
 // Close, or with failWrite, it fails.
 type fakeConn struct {
-	engineio.Conn                   // methods the library does not call
+	engineclient.Conn               // methods the library does not call
 	reads, out                      chan string
 	hold, failWrite                 atomic.Bool
 	held, release, peerGone, closed chan struct{}
@@ -38,8 +39,8 @@ func newFakeConn(t *testing.T) *fakeConn {
 	return f
 }
 
-func (f *fakeConn) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
-	if ft == session.TEXT {
+func (f *fakeConn) NextWriter(ft eioparser.FrameType) (io.WriteCloser, error) {
+	if ft == eioparser.String {
 		f.texts.Add(1)
 	}
 	if f.hold.Load() {
@@ -58,14 +59,14 @@ func (f *fakeConn) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
 	return &frameWriter{out: f.out}, nil
 }
 
-func (f *fakeConn) NextReader() (session.FrameType, io.ReadCloser, error) {
+func (f *fakeConn) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 	select {
 	case frame := <-f.reads:
-		return session.TEXT, io.NopCloser(strings.NewReader(frame)), nil
+		return eioparser.String, io.NopCloser(strings.NewReader(frame)), nil
 	case <-f.peerGone:
 	case <-f.closed:
 	}
-	return session.TEXT, nil, io.EOF
+	return eioparser.String, nil, io.EOF
 }
 
 func (f *fakeConn) Close() error { f.closeOnce.Do(func() { close(f.closed) }); return nil }
@@ -84,7 +85,7 @@ func closeAtEnd(t *testing.T, f *fakeConn, c *conn) {
 
 func (f *fakeConn) ID() string { return fmt.Sprintf("%p", f) }
 
-func (f *fakeConn) ReadyState() engineio.ReadyState { return engineio.StateOpen }
+func (f *fakeConn) ReadyState() engineclient.ReadyState { return engineclient.StateOpen }
 
 func (f *fakeConn) Transport() string { return "fake" }
 
@@ -206,10 +207,10 @@ type peer struct {
 
 func newPeer(t *testing.T, side byte, h hooks, nsps ...string) *peer {
 	p := &peer{fc: newFakeConn(t), conns: make(chan Conn, 8), errs: make(chan nsErr, 128), nilErrs: make(chan error, 8), discs: make(chan string, 8), extra: make(map[string]Conn), nsps: nsps}
-	cl, err := NewClient("http://127.0.0.1/", nil)
+	cl, err := New("http://127.0.0.1/", nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
-	cl.dial = func(string) (engineio.Conn, error) { return p.fc, nil }
+	cl.dial = func(string) (engineclient.Conn, error) { return p.fc, nil }
 	p.cl = cl
 	for _, namespace := range append([]string{cl.namespace}, nsps...) {
 		cl.Socket(namespace)

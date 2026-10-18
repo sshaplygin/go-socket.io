@@ -13,28 +13,28 @@ import (
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/session"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 // The outbound queue size (see ErrWriteBufferFull) and drain deadline (see Conn.Close).
 const defaultWriteBufferSize, defaultDrainTimeout = 64, time.Minute
 
-// connLimits are the queue size and drain deadline of the connections a Server or Client creates.
+// connLimits are the queue size and drain deadline of the connections a Server creates.
 type connLimits struct {
 	writeBufferSize int
 	drainTimeout    time.Duration
 }
 
-// newConnLimits reads opts.WriteBufferSize and opts.PingTimeout; nil options, 0 and
+// newConnLimits reads opts.WriteBufferSize and opts.CloseTimeout; nil options, 0 and
 // negative values give the defaults.
-func newConnLimits(opts *engineio.Options) connLimits {
+func newConnLimits(opts *Options) connLimits {
 	l := connLimits{defaultWriteBufferSize, defaultDrainTimeout}
 	if opts != nil && opts.WriteBufferSize > 0 {
 		l.writeBufferSize = opts.WriteBufferSize
 	}
-	if opts != nil && opts.PingTimeout > 0 {
-		l.drainTimeout = opts.PingTimeout
+	if opts != nil && opts.CloseTimeout > 0 {
+		l.drainTimeout = opts.CloseTimeout
 	}
 	return l
 }
@@ -168,7 +168,7 @@ func (c *conn) stopLocked() {
 		if c.drainTimer != nil {
 			c.drainTimer.Stop()
 		}
-		go func() { _ = abortEngineConn(c.Conn) }() // the emitter of an overflow must not block
+		go func() { _ = engineio.Abort(c.Conn) }() // the emitter of an overflow must not block
 	}
 }
 
@@ -240,7 +240,7 @@ func (c *conn) finishRead() {
 		// An acquired frame reader keeps its own transport error. Closing the
 		// engine preserves the cause that reader recorded; the next reader then
 		// exposes it through CloseError without changing the frame's error.
-		_ = abortEngineConn(c.Conn)
+		_ = engineio.Abort(c.Conn)
 		_, reader, err := c.Conn.NextReader()
 		if reader != nil {
 			_ = reader.Close()
@@ -488,17 +488,17 @@ type queueWriter struct {
 	noCompress bool
 }
 
-func (w *queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
-	if ft == session.TEXT && isDone(w.c.discard) {
+func (w *queueWriter) NextWriter(ft parser.FrameType) (io.WriteCloser, error) {
+	if ft == parser.Text && isDone(w.c.discard) {
 		w.failed = io.EOF
 		return nil, io.EOF
 	}
 	var fw io.WriteCloser
 	var err error
 	if compressed, ok := w.c.Conn.(engineio.CompressWriter); ok {
-		fw, err = compressed.NextWriterCompress(ft, !w.noCompress)
+		fw, err = compressed.NextWriterCompress(eioparser.FrameType(ft), !w.noCompress)
 	} else {
-		fw, err = w.c.Conn.NextWriter(ft)
+		fw, err = w.c.Conn.NextWriter(eioparser.FrameType(ft))
 	}
 	if w.failed = err; err != nil {
 		return nil, err
@@ -508,16 +508,18 @@ func (w *queueWriter) NextWriter(ft session.FrameType) (io.WriteCloser, error) {
 
 // frameReader is queueWriter's counterpart for the decoder.
 type frameReader struct {
-	parser.FrameReader
+	FrameReader interface {
+		NextReader() (eioparser.FrameType, io.ReadCloser, error)
+	}
 	failed error
 }
 
-func (r *frameReader) NextReader() (session.FrameType, io.ReadCloser, error) {
+func (r *frameReader) NextReader() (parser.FrameType, io.ReadCloser, error) {
 	ft, fr, err := r.FrameReader.NextReader()
 	if r.failed = err; err != nil {
-		return ft, fr, err
+		return parser.FrameType(ft), fr, err
 	}
-	return ft, frameIO{r: fr, c: fr, failed: &r.failed}, nil
+	return parser.FrameType(ft), frameIO{r: fr, c: fr, failed: &r.failed}, nil
 }
 
 // frameIO is a frame reader or writer that records its first failure in *failed; io.EOF
@@ -644,13 +646,4 @@ func (c *conn) Request() *http.Request {
 type outboundPayload struct {
 	parser.Payload
 	noCompress bool
-}
-
-// abortEngineConn preserves ordinary Close for custom engine connections. Only
-// built-in server sessions have an orderly polling close that needs interruption.
-func abortEngineConn(c engineio.Conn) error {
-	if s, ok := c.(*session.Session); ok {
-		return s.Abort()
-	}
-	return c.Close()
 }

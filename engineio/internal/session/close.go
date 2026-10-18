@@ -1,4 +1,4 @@
-package engineio
+package session
 
 import (
 	"io"
@@ -25,23 +25,23 @@ type closeCause struct {
 // Close starts an orderly polling close after accepted writes. It returns while
 // waiting for a poll; the transport remains closing for at most 30 seconds.
 // Other transports and failed sessions close immediately. The first cause wins.
-func (s *session) Close() error {
+func (s *Session) Close() error {
 	return s.close(reasonForcedClose)
 }
 
-// abort closes the transport immediately, interrupting an orderly Close already
+// Abort closes the transport immediately, interrupting an orderly Close already
 // waiting for a polling request. It preserves the first close cause.
-func (s *session) abort() error { return s.closeMode(reasonForcedClose, true) }
+func (s *Session) Abort() error { return s.closeMode(reasonForcedClose, true) }
 
-// shutdown closes the transport immediately for server shutdown. It interrupts
+// Shutdown closes the transport immediately for server shutdown. It interrupts
 // an orderly Close and preserves a previously observed close cause.
-func (s *session) shutdown() error { return s.closeMode(reasonShutdown, true) }
+func (s *Session) Shutdown() error { return s.closeMode(reasonShutdown, true) }
 
-func (s *session) close(reason string) error {
+func (s *Session) close(reason string) error {
 	return s.closeMode(reason, false)
 }
 
-func (s *session) closeMode(reason string, abort bool) error {
+func (s *Session) closeMode(reason string, abort bool) error {
 	s.observe(reason, nil)
 	s.upgradeLocker.Lock()
 	first, opened := !s.closed, s.opened
@@ -104,7 +104,7 @@ func (s *session) closeMode(reason string, abort bool) error {
 	return s.closeErr
 }
 
-func (s *session) closeTransport(conn transport.Conn) {
+func (s *Session) closeTransport(conn transport.Conn) {
 	s.transportOnce.Do(func() {
 		s.closeErr = conn.Close()
 		s.upgradeLocker.Lock()
@@ -115,13 +115,13 @@ func (s *session) closeTransport(conn transport.Conn) {
 }
 
 // observe records reason as the close cause unless one was observed before.
-func (s *session) observe(reason string, err error) {
+func (s *Session) observe(reason string, err error) {
 	s.cause.CompareAndSwap(nil, &closeCause{reason, err})
 }
 
 // fail observes a non-nil err of a transport read or write as "ping timeout" once the
 // PingTimeout deadline has passed, as "transport error" before, and returns it.
-func (s *session) fail(err error) error {
+func (s *Session) fail(err error) error {
 	if err != nil && time.Now().UnixNano() >= s.deadline.Load() {
 		s.observe(reasonPingTimeout, nil)
 	} else if err != nil {
@@ -141,7 +141,7 @@ func (s *session) fail(err error) error {
 }
 
 // closeError returns the immutable first cause; close records it before publishing closed.
-func (s *session) closeError() *CloseError {
+func (s *Session) closeError() *CloseError {
 	c := s.cause.Load()
 	if c == nil {
 		return &CloseError{Reason: ReasonForcedClose}

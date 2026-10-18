@@ -218,3 +218,21 @@ it. `ForEach` callbacks needing server-specific metadata can use a checked type 
 to `socketio.Conn`. `adapter.Memory` releases its index lock before invoking sockets or
 callbacks. Redis composes Memory; its legacy JSON format, remote flags, exclusion,
 subscription timing and DB0 limitations remain unchanged.
+
+## Private Engine.IO session ownership
+
+The active server API remains `engineio.Conn`, `CompressWriter`, `ReadyState`,
+`CloseReason`, `CloseError`, `IDGenerator`, `DefaultIDGenerator` and their constants.
+These names now alias canonical server types owned by `engineio/internal/session`.
+Applications keep using `engineio` and its functional options; the internal import is
+not an application entry point. The retired public `engineio/session` path remains
+removed. The Engine.IO client retains its own independent contracts.
+
+Code using the active public types, callback signatures, methods and constants still
+compiles. `errors.Is`/`errors.As` and error text remain unchanged; a reflected type's
+canonical package path or `%T` spelling can now refer to the private session package.
+The server still installs hooks before startup, retains the handshake request, owns
+shutdown and exposes snapshots through `Clients`/`Count`. `engineio.Abort` recognizes
+only its own concrete session and uses ordinary `Close` for custom engines, including
+ones with an unrelated Abort method. No init-time registration or compatibility
+session wrapper is introduced.

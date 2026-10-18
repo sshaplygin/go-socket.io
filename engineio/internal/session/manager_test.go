@@ -1,4 +1,4 @@
-package engineio
+package session
 
 import (
 	"testing"
@@ -8,7 +8,7 @@ import (
 // TestManagerCountAlongsideReaders checks that Count is a read operation:
 // it must not wait for other readers of the session map.
 func TestManagerCountAlongsideReaders(t *testing.T) {
-	m := newSessionManager(nil)
+	m := NewManager(nil)
 	m.locker.RLock()
 	defer m.locker.RUnlock()
 
@@ -26,13 +26,13 @@ func TestManagerCountAlongsideReaders(t *testing.T) {
 }
 
 func TestManagerAddGetRemove(t *testing.T) {
-	m := newSessionManager(nil)
+	m := NewManager(nil)
 	sid := m.NewID()
 	if sid == "" || sid == m.NewID() {
 		t.Fatal("NewID must return distinct non-empty ids")
 	}
 
-	s := &session{params: transportParams(sid)}
+	s := &Session{params: transportParams(sid)}
 	m.Add(s)
 	if got, ok := m.Get(sid); !ok || got != s {
 		t.Fatalf("Get(%q) = %v, %v; want the added session", sid, got, ok)

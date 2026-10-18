@@ -1,4 +1,4 @@
-package engineio
+package session
 
 import (
 	"bytes"
@@ -125,9 +125,9 @@ func (c *pausableConn) Resume() {
 	c.mu.Unlock()
 }
 
-func newTestSession(t *testing.T, conn transport.Conn, tr string) *session {
+func newTestSession(t *testing.T, conn transport.Conn, tr string) *Session {
 	t.Helper()
-	s, err := newSession(conn, "sid1", tr, eioparser.ConnParameters{
+	s, err := New(conn, "sid1", tr, eioparser.ConnParameters{
 		PingInterval: time.Second,
 		PingTimeout:  time.Second,
 		Upgrades:     []string{"websocket"},
@@ -211,7 +211,7 @@ func TestSessionNextWriter(t *testing.T) {
 func TestSessionInitSession(t *testing.T) {
 	conn := &scriptConn{}
 	s := newTestSession(t, conn, "polling")
-	require.NoError(t, s.initSession())
+	require.NoError(t, s.Init())
 	w := conn.written()
 	require.Len(t, w, 1)
 	require.Equal(t, eioparser.OPEN, w[0].pt)
@@ -221,13 +221,13 @@ func TestSessionInitSession(t *testing.T) {
 	writerErr := errors.New("no writer")
 	conn = &scriptConn{writerErr: writerErr}
 	s = newTestSession(t, conn, "polling")
-	require.ErrorIs(t, s.initSession(), writerErr)
+	require.ErrorIs(t, s.Init(), writerErr)
 	require.True(t, conn.isClosed())
 
 	closeErr := errors.New("flush failed")
 	conn = &scriptConn{wCloseErr: closeErr}
 	s = newTestSession(t, conn, "polling")
-	require.ErrorIs(t, s.initSession(), closeErr)
+	require.ErrorIs(t, s.Init(), closeErr)
 	require.True(t, conn.isClosed())
 }
 
@@ -518,7 +518,7 @@ func TestUpgradeTimeoutEndsAtUpgradePacket(t *testing.T) {
 	old := &delayedPauseConn{pausing: make(chan struct{}), release: make(chan struct{})}
 	s := newTestSession(t, old, "polling")
 	defer func() { _ = s.Close() }()
-	s.setLimits(1_000_000, 100*time.Millisecond)
+	s.SetLimits(1_000_000, 100*time.Millisecond)
 	next := &scriptConn{reads: []scriptedPacket{
 		{ft: eioparser.String, pt: eioparser.PING, data: "probe"},
 		{ft: eioparser.String, pt: eioparser.UPGRADE},

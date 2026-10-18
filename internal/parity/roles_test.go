@@ -19,6 +19,8 @@ func TestRoleConsumerFixtures(t *testing.T) {
 	}{
 		{"positive", ""},
 		{"adapter", ""},
+		{"engine_session", ""},
+		{"private_engine_session", "use of internal package"},
 		{"retired_root_adapter", "undefined: socketio.Broadcast"},
 		{"retired_redis_options", "undefined: socketio.RedisAdapterOptions"},
 		{"wrong_server_callback", "cannot use"},

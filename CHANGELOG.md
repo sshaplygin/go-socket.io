@@ -294,6 +294,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- engineio: private session I/O, heartbeat, close/upgrade, registry and ID providers
+  now belong to `engineio/internal/session`. The public server retains acceptance,
+  hooks adaptation and shutdown coordination. Active connection/state/error/ID
+  names alias their canonical server types; custom-engine Abort fallback and
+  orderly close, error identity, hook/header order and wire behavior stay unchanged.
+  See [the v1 migration guide](docs/V1_MIGRATION.md).
+
 - adapters: room/delivery contracts and the memory implementation now live in
   `adapter`; Redis configuration, factory and lifecycle live in `adapter/redis`.
   Redis composes the shared local room index. Configure servers with `WithAdapter`

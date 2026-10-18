@@ -1,4 +1,4 @@
-package engineio
+package session
 
 import (
 	"io"
@@ -20,7 +20,7 @@ import (
 func TestPingTimeoutIdleClient(t *testing.T) {
 	for _, name := range []string{"ping", "messages", "silent"} {
 		t.Run(name, func(t *testing.T) {
-			accepted := make(chan *session, 1)
+			accepted := make(chan *Session, 1)
 			done := make(chan error, 1)
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				c, err := websocket.Default.Accept(w, r)
@@ -28,7 +28,7 @@ func TestPingTimeoutIdleClient(t *testing.T) {
 					done <- err
 					return
 				}
-				s, err := newSession(c, "heartbeat", "websocket", eioparser.ConnParameters{
+				s, err := New(c, "heartbeat", "websocket", eioparser.ConnParameters{
 					PingInterval: 100 * time.Millisecond, PingTimeout: 50 * time.Millisecond,
 				}, nil)
 				if err != nil {

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	sessionImpl "github.com/sshaplygin/go-socket.io/engineio/internal/session"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
@@ -120,7 +121,7 @@ func (f *logFixture) upgrade(t *testing.T, conn Conn) {
 	require.Equal(t, eioparser.PONG, pt)
 	require.NoError(t, r.Close())
 	f.send(t, eioparser.UPGRADE, "")
-	require.Eventually(t, func() bool { return conn.(*session).Transport() == "websocket" },
+	require.Eventually(t, func() bool { return conn.(*sessionImpl.Session).Transport() == "websocket" },
 		time.Second, time.Millisecond)
 }
 

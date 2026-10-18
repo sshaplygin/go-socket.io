@@ -1,4 +1,4 @@
-package engineio
+package session
 
 import (
 	"net/http"
@@ -9,7 +9,7 @@ import (
 // has prepared headers. FlushOut joins that writer before ServeHTTP returns.
 type responseObserver struct {
 	http.ResponseWriter
-	session *session
+	session *Session
 	request *http.Request
 	once    sync.Once
 	flushed bool

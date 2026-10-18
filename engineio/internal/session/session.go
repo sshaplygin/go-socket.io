@@ -1,4 +1,5 @@
-package engineio
+// Package session implements the private server Engine.IO session lifecycle.
+package session
 
 import (
 	"fmt"
@@ -17,8 +18,9 @@ import (
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
-type session struct {
-	hooks         *sessionHooks
+// Session owns one server connection across heartbeat, transport upgrade and close.
+type Session struct {
+	hooks         *Hooks
 	headers       func(*http.Request, http.Header)
 	closeDone     chan struct{}
 	notified      chan struct{} // the first closer has finished its synchronous Error hook
@@ -42,7 +44,7 @@ type session struct {
 
 	upgradeLocker   sync.RWMutex // guards conn, transport, closed and opened
 	closed          bool         // set by Close; a closed session is never upgraded
-	opened          time.Time    // set by initSession; a session never opened logs no close
+	opened          time.Time    // set by Init; a session never opened logs no close
 	transportClosed bool         // set after the transport's Close returns
 	upgraded        bool         // set when switchTransport commits an upgrade
 
@@ -51,14 +53,14 @@ type session struct {
 	deadline atomic.Int64               // UnixNano of the liveness deadline of conn
 }
 
-// newSession creates a session over conn. log receives errors the session cannot
+// New creates a session over conn. log receives errors the session cannot
 // return to a caller, with sid and transport attributes added; the transport
 // attribute follows upgrades. nil means logger.Log.
-func newSession(conn transport.Conn, sid, transport string, params eioparser.ConnParameters, log *slog.Logger) (*session, error) {
+func New(conn transport.Conn, sid, transport string, params eioparser.ConnParameters, log *slog.Logger) (*Session, error) {
 	params.SID = sid
 	baseLog := logger.Wrap(log).With("sid", sid)
 
-	ses := &session{
+	ses := &Session{
 		closeDone:      make(chan struct{}),
 		notified:       make(chan struct{}),
 		transportDone:  make(chan struct{}),
@@ -74,7 +76,7 @@ func newSession(conn transport.Conn, sid, transport string, params eioparser.Con
 	}
 	ses.writeGate <- struct{}{}
 	ses.log.Store(baseLog.With("transport", transport))
-	ses.setLimits(ses.maxMessageSize, ses.upgradeTimeout)
+	ses.SetLimits(ses.maxMessageSize, ses.upgradeTimeout)
 	if target, ok := conn.(interface{ SetSessionID(string) }); ok {
 		target.SetSessionID(sid)
 	}
@@ -90,9 +92,9 @@ func newSession(conn transport.Conn, sid, transport string, params eioparser.Con
 	return ses, nil
 }
 
-// setLimits configures message and upgrade bounds before initSession. Nonpositive
+// SetLimits configures message and upgrade bounds before Init. Nonpositive
 // values use 1,000,000 bytes and 10 seconds. It also configures the transport.
-func (s *session) setLimits(maxMessageSize int64, upgradeTimeout time.Duration) {
+func (s *Session) SetLimits(maxMessageSize int64, upgradeTimeout time.Duration) {
 	if maxMessageSize <= 0 {
 		maxMessageSize = 1_000_000
 	}
@@ -105,27 +107,27 @@ func (s *session) setLimits(maxMessageSize int64, upgradeTimeout time.Duration) 
 	}
 }
 
-// setRequest retains the handshake request before initSession and ConnInitor.
-func (s *session) setRequest(r *http.Request) { s.request = r }
+// SetRequest retains the handshake request before Init and ConnInitor.
+func (s *Session) SetRequest(r *http.Request) { s.request = r }
 
-// Request returns the retained handshake request, nil before setRequest. Its Body
+// Request returns the retained handshake request, nil before SetRequest. Its Body
 // is consumed and its Context is canceled after the handshake handler returns;
 // only its metadata should be used afterwards.
-func (s *session) Request() *http.Request { return s.request }
+func (s *Session) Request() *http.Request { return s.request }
 
-func (s *session) SetContext(v interface{}) {
+func (s *Session) SetContext(v interface{}) {
 	s.context = v
 }
 
-func (s *session) Context() interface{} {
+func (s *Session) Context() interface{} {
 	return s.context
 }
 
-func (s *session) ID() string {
+func (s *Session) ID() string {
 	return s.params.SID
 }
 
-func (s *session) Transport() string {
+func (s *Session) Transport() string {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
 
@@ -135,7 +137,7 @@ func (s *session) Transport() string {
 // frameReader and frameWriter observe the failures of a frame; io.EOF ends a frame.
 type frameReader struct {
 	io.ReadCloser
-	s *session
+	s *Session
 }
 
 func (r frameReader) Read(p []byte) (int, error) {
@@ -150,7 +152,7 @@ func (r frameReader) Close() error { return r.s.fail(r.ReadCloser.Close()) }
 
 type frameWriter struct {
 	io.WriteCloser
-	s    *session
+	s    *Session
 	once sync.Once
 	err  error
 }
@@ -171,7 +173,7 @@ func (w *frameWriter) Close() error {
 // NextReader attempts to obtain a ReadCloser from the session's connection.
 // When finished writing, the caller MUST Close the ReadCloser to unlock the
 // connection's FramerReader.
-func (s *session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
+func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 	for {
 		ft, pt, r, err := s.nextReader()
 		if err != nil {
@@ -255,28 +257,28 @@ func (s *session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 	}
 }
 
-func (s *session) URL() url.URL {
+func (s *Session) URL() url.URL {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
 
 	return s.conn.URL()
 }
 
-func (s *session) LocalAddr() net.Addr {
+func (s *Session) LocalAddr() net.Addr {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
 
 	return s.conn.LocalAddr()
 }
 
-func (s *session) RemoteAddr() net.Addr {
+func (s *Session) RemoteAddr() net.Addr {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
 
 	return s.conn.RemoteAddr()
 }
 
-func (s *session) RemoteHeader() http.Header {
+func (s *Session) RemoteHeader() http.Header {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
 
@@ -286,12 +288,12 @@ func (s *session) RemoteHeader() http.Header {
 // NextWriter attempts to obtain a WriteCloser from the session's connection.
 // When finished writing, the caller MUST Close the WriteCloser to unlock the
 // connection's FrameWriter.
-func (s *session) NextWriter(typ eioparser.FrameType) (io.WriteCloser, error) {
+func (s *Session) NextWriter(typ eioparser.FrameType) (io.WriteCloser, error) {
 	return s.NextWriterCompress(typ, true)
 }
 
 // NextWriterCompress writes a MESSAGE with its per-packet compression preference.
-func (s *session) NextWriterCompress(typ eioparser.FrameType, compress bool) (io.WriteCloser, error) {
+func (s *Session) NextWriterCompress(typ eioparser.FrameType, compress bool) (io.WriteCloser, error) {
 	w, err := s.nextWriterCompress(eioparser.FrameType(typ), eioparser.MESSAGE, compress)
 	if s.fail(err) != nil {
 		_ = s.Close()
@@ -301,7 +303,7 @@ func (s *session) NextWriterCompress(typ eioparser.FrameType, compress bool) (io
 	return &frameWriter{WriteCloser: w, s: s}, nil
 }
 
-func (s *session) initSession() error {
+func (s *Session) Init() error {
 	w, err := s.nextWriter(eioparser.String, eioparser.OPEN)
 	if err != nil {
 		_ = s.fail(err)
@@ -348,7 +350,7 @@ func (s *session) initSession() error {
 	return nil
 }
 
-func (s *session) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (s *Session) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.upgradeLocker.RLock()
 	conn := s.conn
 	s.upgradeLocker.RUnlock()
@@ -366,12 +368,12 @@ func (s *session) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // A root reader ending also starts forced cleanup. Keep it alive while an orderly
 // transport close is still draining, so that cleanup cannot abort accepted writes.
-func (s *session) readerCloseError() error {
+func (s *Session) readerCloseError() error {
 	<-s.closeDone
 	return fmt.Errorf("next reader: %w", s.closeError())
 }
 
-func (s *session) nextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
+func (s *Session) nextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
 	for {
 		s.upgradeLocker.RLock()
 		conn, closed := s.conn, s.closed
@@ -396,11 +398,11 @@ func (s *session) nextReader() (eioparser.FrameType, eioparser.PacketType, io.Re
 	}
 }
 
-func (s *session) nextWriter(ft eioparser.FrameType, pt eioparser.PacketType) (io.WriteCloser, error) {
+func (s *Session) nextWriter(ft eioparser.FrameType, pt eioparser.PacketType) (io.WriteCloser, error) {
 	return s.nextWriterCompress(ft, pt, true)
 }
 
-func (s *session) nextWriterCompress(ft eioparser.FrameType, pt eioparser.PacketType, compress bool) (io.WriteCloser, error) {
+func (s *Session) nextWriterCompress(ft eioparser.FrameType, pt eioparser.PacketType, compress bool) (io.WriteCloser, error) {
 	select {
 	case <-s.stopWrites:
 		return nil, s.closeError()
@@ -464,7 +466,7 @@ func (w *orderedWriter) Close() error {
 	return w.err
 }
 
-func (s *session) setDeadline() error {
+func (s *Session) setDeadline() error {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
 
@@ -480,14 +482,14 @@ func (s *session) setDeadline() error {
 }
 
 // logger returns the session logger; its transport attribute follows upgrades.
-func (s *session) logger() *slog.Logger {
+func (s *Session) logger() *slog.Logger {
 	return s.log.Load()
 }
 
 // Writable reports whether an open session can take a frame now. It is false
 // while a returned writer is open or the transport reports itself not writable.
 // A transport without a Writable method counts as writable.
-func (s *session) Writable() bool {
+func (s *Session) Writable() bool {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
 	if s.closed || s.writers.Load() != 0 {
@@ -500,7 +502,7 @@ func (s *session) Writable() bool {
 }
 
 // ReadyState returns the current session state.
-func (s *session) ReadyState() ReadyState {
+func (s *Session) ReadyState() ReadyState {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
 	switch {
@@ -516,7 +518,7 @@ func (s *session) ReadyState() ReadyState {
 }
 
 // Upgraded reports whether the session completed a transport upgrade.
-func (s *session) Upgraded() bool {
+func (s *Session) Upgraded() bool {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
 	return s.upgraded

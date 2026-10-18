@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	sessionImpl "github.com/sshaplygin/go-socket.io/engineio/internal/session"
 )
 
 func TestEngineHeadersSurviveSessionHookReplacement(t *testing.T) {
@@ -12,11 +14,11 @@ func TestEngineHeadersSurviveSessionHookReplacement(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			records := &hookRecords{}
 			f := newParityWire(t, []Option{WithConnInitor(func(_ *http.Request, c Conn) {
-				var hooks *sessionHooks
+				var hooks *sessionImpl.Hooks
 				if name == "replace" {
-					hooks = &sessionHooks{}
+					hooks = &sessionImpl.Hooks{}
 				}
-				c.(*session).setHooks(hooks)
+				c.(*sessionImpl.Session).SetHooks(hooks)
 			}), WithHooks(&Hooks{
 				InitialHeaders: func(_ *http.Request, _ http.Header) { records.add("initial") },
 				Headers:        func(r *http.Request, _ http.Header) { records.add(r.Method) },

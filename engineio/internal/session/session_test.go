@@ -1,4 +1,4 @@
-package engineio
+package session
 
 import (
 	"context"
@@ -75,7 +75,7 @@ func (c failingConn) SetWriteDeadline(time.Time) error { return c.deadlineErr }
 
 var _ transport.Conn = failingConn{}
 
-// TestNewReportsCloseErrorToLogger checks that newSession uses the logger it is
+// TestNewReportsCloseErrorToLogger checks that New uses the logger it is
 // given: when the initial deadline cannot be set and closing the transport
 // fails too, the close error is reported through that logger.
 func TestNewReportsCloseErrorToLogger(t *testing.T) {
@@ -83,7 +83,7 @@ func TestNewReportsCloseErrorToLogger(t *testing.T) {
 	deadlineErr := errors.New("deadline failed")
 	closeErr := errors.New("close failed")
 
-	s, err := newSession(failingConn{deadlineErr: deadlineErr, closeErr: closeErr},
+	s, err := New(failingConn{deadlineErr: deadlineErr, closeErr: closeErr},
 		"sid", "polling", eioparser.ConnParameters{PingTimeout: time.Second}, slog.New(h))
 
 	require.Nil(t, s)
@@ -92,11 +92,11 @@ func TestNewReportsCloseErrorToLogger(t *testing.T) {
 }
 
 // TestNewNilLoggerDefaults checks that a nil logger is accepted and does not
-// panic when newSession has to report an error.
+// panic when New has to report an error.
 func TestNewNilLoggerDefaults(t *testing.T) {
 	deadlineErr := errors.New("deadline failed")
 
-	s, err := newSession(failingConn{deadlineErr: deadlineErr, closeErr: errors.New("close failed")},
+	s, err := New(failingConn{deadlineErr: deadlineErr, closeErr: errors.New("close failed")},
 		"sid", "polling", eioparser.ConnParameters{PingTimeout: time.Second}, nil)
 
 	require.Nil(t, s)
@@ -111,7 +111,7 @@ func TestNewNilLoggerDefaults(t *testing.T) {
 // Covers the 1.L Levels rule on the upgrade switch (W); no 1L-T case.
 func TestSwitchTransportAfterCloseRecord(t *testing.T) {
 	h := &recordingHandler{}
-	s, err := newSession(failingConn{}, "sid", "polling", eioparser.ConnParameters{PingTimeout: time.Second}, slog.New(h))
+	s, err := New(failingConn{}, "sid", "polling", eioparser.ConnParameters{PingTimeout: time.Second}, slog.New(h))
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 
@@ -172,7 +172,7 @@ func (h *attrHandler) last() map[string]string {
 // current transport, and that the transport follows an upgrade.
 func TestSessionLogAttributes(t *testing.T) {
 	h := newAttrHandler()
-	s, err := newSession(failingConn{}, "sid7", "polling",
+	s, err := New(failingConn{}, "sid7", "polling",
 		eioparser.ConnParameters{PingTimeout: time.Second}, slog.New(h))
 	require.NoError(t, err)
 

@@ -14,6 +14,8 @@ import (
 
 	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/sshaplygin/go-socket.io/internal/connection"
+	"github.com/sshaplygin/go-socket.io/internal/namespace"
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
@@ -21,7 +23,8 @@ import (
 type Server struct {
 	engine *engineio.Server
 
-	handlers *namespaceHandlers
+	handlers *namespace.Registry
+	views    map[string]*ServerNamespace
 
 	adapter    adapter.Factory
 	parentsMu  sync.RWMutex
@@ -35,7 +38,7 @@ type Server struct {
 	closeDone     chan struct{}
 	closeErr      error
 	activeMu      sync.Mutex
-	active        map[*conn]struct{}
+	active        map[*connection.Connection]struct{}
 	activeChanged chan struct{}
 
 	limits connLimits
@@ -46,9 +49,10 @@ type Server struct {
 func NewServer(opts ...Option) *Server {
 	config := resolveOptions(opts...)
 	return &Server{
-		handlers:      newNamespaceHandlers(),
+		handlers:      namespace.NewRegistry(),
+		views:         make(map[string]*ServerNamespace),
 		adapter:       config.Adapter,
-		active:        make(map[*conn]struct{}),
+		active:        make(map[*connection.Connection]struct{}),
 		activeChanged: make(chan struct{}),
 		closeDone:     make(chan struct{}),
 		engine:        engineio.NewServer(config.EngineOptions...),
@@ -78,7 +82,7 @@ func (s *Server) closeWithTimeout(timeout time.Duration) error {
 		go func() {
 			s.closeErr = s.engine.Close()
 			s.activeMu.Lock()
-			active := make([]*conn, 0, len(s.active))
+			active := make([]*connection.Connection, 0, len(s.active))
 			for c := range s.active {
 				active = append(active, c)
 			}
@@ -88,8 +92,8 @@ func (s *Server) closeWithTimeout(timeout time.Duration) error {
 			}
 			s.createMu.Lock()
 			var closers []io.Closer
-			s.handlers.Range(func(h *namespaceHandler) {
-				if closer, ok := h.broadcast.(io.Closer); ok {
+			s.handlers.Range(func(h *namespace.Handler) {
+				if closer, ok := h.Adapter().(io.Closer); ok {
 					closers = append(closers, closer)
 				}
 			})
@@ -194,8 +198,8 @@ func (s *Server) Serve() error {
 // broadcastOf returns the broadcast of namespace, or nil when the namespace has no
 // handler or its adapter could not be created.
 func (s *Server) broadcastOf(namespace string) adapter.Adapter {
-	if h := s.getNamespace(namespace); h != nil && h.err == nil {
-		return h.broadcast
+	if h := s.getNamespace(namespace); h != nil && h.Err() == nil {
+		return h.Adapter()
 	}
 	return nil
 }
@@ -298,41 +302,41 @@ func (s *Server) ForEach(namespace string, room string, f adapter.EachFunc) bool
 // rechecks, builds, records the first construction error and only then stores the
 // handler, so one namespace never builds two broadcasts and dispatch, which reads
 // s.handlers, never waits for factory construction.
-func (s *Server) createNamespace(nsp string) *namespaceHandler {
+func (s *Server) createNamespace(nsp string) *namespace.Handler {
 	s.createMu.Lock()
 	defer s.createMu.Unlock()
 	return s.createNamespaceLocked(serverNamespaceName(nsp), nil)
 }
 
-func (s *Server) createNamespaceLocked(nsp string, parent *namespaceHandler) *namespaceHandler {
+func (s *Server) createNamespaceLocked(nsp string, parent *namespace.Handler) *namespace.Handler {
 	if handler, ok := s.handlers.Get(nsp); ok {
 		return handler
 	}
-	var handler *namespaceHandler
+	var handler *namespace.Handler
 	if s.closed.Load() && s.adapter != nil {
-		handler = newNamespaceHandler()
-		handler.broadcast, handler.err = nopBroadcast{}, errServerClosed
+		handler = namespace.NewHandler()
+		handler.SetAdapter(namespace.NopAdapter{}, errServerClosed)
 	} else if s.adapter != nil {
-		handler = newNamespaceHandler()
+		handler = namespace.NewHandler()
 		bc, err := s.adapter(nsp)
 		if err == nil && bc == nil {
 			err = errors.New("adapter returned nil")
 		}
 		if err != nil {
-			handler.broadcast, handler.err = nopBroadcast{}, fmt.Errorf("socketio: broadcast of namespace %q: %w", cmp.Or(nsp, aliasRootNamespace), err)
+			handler.SetAdapter(namespace.NopAdapter{}, fmt.Errorf("socketio: broadcast of namespace %q: %w", cmp.Or(nsp, aliasRootNamespace), err))
 		} else {
-			handler.broadcast = bc
+			handler.SetAdapter(bc, nil)
 		}
 	} else {
-		handler = newNamespaceHandler()
+		handler = namespace.NewHandler()
 	}
-	if handler.err != nil && !s.closed.Load() && s.adapterErr.Load() == nil {
-		s.adapterErr.Store(&handler.err)
+	if err := handler.Err(); err != nil && !s.closed.Load() && s.adapterErr.Load() == nil {
+		s.adapterErr.Store(&err)
 	}
 	if parent != nil {
-		parent.copyRegistrations(handler)
+		parent.CopyRegistrations(handler)
 	}
-	handler.view = &ServerNamespace{server: s, name: nsp}
+	s.views[nsp] = &ServerNamespace{server: s, name: nsp}
 	s.handlers.Set(nsp, handler)
 	return handler
 }
@@ -345,7 +349,7 @@ func (s *Server) SetAdapter(f adapter.Factory) {
 	s.adapter = f
 }
 
-func (s *Server) resolveNamespace(name string, query url.Values) *namespaceHandler {
+func (s *Server) resolveNamespace(name string, query url.Values) *namespace.Handler {
 	s.parentsMu.RLock()
 	parents := append([]*dynamicNamespace(nil), s.parents...)
 	s.parentsMu.RUnlock()
@@ -360,7 +364,7 @@ func (s *Server) resolveNamespace(name string, query url.Values) *namespaceHandl
 		}
 		h := s.createNamespaceLocked(name, parent.registration)
 		parent.mu.Lock()
-		parent.children[name] = h.view
+		parent.children[name] = s.views[name]
 		parent.mu.Unlock()
 		s.createMu.Unlock()
 		return h
@@ -368,7 +372,7 @@ func (s *Server) resolveNamespace(name string, query url.Values) *namespaceHandl
 	return nil
 }
 
-func (s *Server) getNamespace(nsp string) *namespaceHandler {
+func (s *Server) getNamespace(nsp string) *namespace.Handler {
 	nsp = serverNamespaceName(nsp)
 	ret, ok := s.handlers.Get(nsp)
 	if !ok {
@@ -378,10 +382,10 @@ func (s *Server) getNamespace(nsp string) *namespaceHandler {
 	return ret
 }
 
-func (s *Server) releaseConnection(c *conn) {
+func (s *Server) releaseConnection(c *connection.Connection) {
 	// finish has closed registration before this wait, so every disconnect has
 	// already registered its callback, including calls from application goroutines.
-	c.disconnects.Wait()
+	c.Wait()
 	s.activeMu.Lock()
 	delete(s.active, c)
 	close(s.activeChanged)
@@ -411,4 +415,25 @@ func (s *Server) waitForConnections(timeout time.Duration) error {
 			return nil
 		}
 	}
+}
+
+func (s *Server) serveConn(conn engineio.Conn) {
+	c := connection.New(conn, s.handlers, s.limits.writeBufferSize, s.limits.drainTimeout, s.log.With("sid", conn.ID()))
+	s.activeMu.Lock()
+	if s.closed.Load() {
+		s.activeMu.Unlock()
+		_ = conn.Close()
+		return
+	}
+	s.active[c] = struct{}{}
+	s.activeMu.Unlock()
+	if !c.Start(s.resolveNamespace) {
+		s.releaseConnection(c)
+		return
+	}
+	go func() {
+		defer s.releaseConnection(c)
+		c.Read()
+		s.engine.Remove(c.Conn.ID())
+	}()
 }

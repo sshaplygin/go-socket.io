@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -253,7 +254,9 @@ func TestRedisConcurrentRegistrationBuildsOneBroadcast(t *testing.T) {
 	closed("the connections of a single broadcast")
 
 	srv := NewServer()
+	srv.OnConnect("/", func(Conn) error { return nil })
 	useRedis(t, srv, addr)
+	observed := make(chan string, 8)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
@@ -261,13 +264,26 @@ func TestRedisConcurrentRegistrationBuildsOneBroadcast(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			srv.OnEvent("/x", fmt.Sprintf("e%d", i), func(Conn) {})
+			event := fmt.Sprintf("e%d", i)
+			srv.OnEvent("/x", event, func(Conn) { observed <- event })
 		}()
 	}
 	close(start)
 	wg.Wait()
 	require.Equal(t, want, settled(), "Redis connections of the registered namespace")
-	require.Len(t, srv.getNamespace("/x").events, 8)
+	srv.OnConnect("/x", func(Conn) error { return nil })
+	go func() { _ = srv.Serve() }()
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+	c := dialRaw(t, ts.URL)
+	require.Equal(t, "0", c.read())
+	c.send("0/x,")
+	require.Equal(t, "0/x,", c.read())
+	for i := 0; i < 8; i++ {
+		event := fmt.Sprintf("e%d", i)
+		c.send("2/x,[\"" + event + "\"]")
+		require.Equal(t, event, recv(t, observed, "concurrently registered event"))
+	}
 
 	require.NoError(t, srv.Close())
 	closed("Redis connections left after Close")

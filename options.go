@@ -6,6 +6,7 @@ import (
 
 	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/sshaplygin/go-socket.io/internal/connection"
 )
 
 type options struct {
@@ -59,3 +60,24 @@ func resolveOptions(opts ...Option) *options {
 func WithAdapter(factory adapter.Factory) Option {
 	return func(config *options) { config.Adapter = factory }
 }
+
+// connLimits are the queue size and drain deadline of the connections a Server creates.
+type connLimits struct {
+	writeBufferSize int
+	drainTimeout    time.Duration
+}
+
+// newConnLimits reads opts.WriteBufferSize and opts.CloseTimeout; nil options, 0 and
+// negative values give the defaults.
+func newConnLimits(opts *options) connLimits {
+	l := connLimits{defaultWriteBufferSize, defaultDrainTimeout}
+	if opts != nil && opts.WriteBufferSize > 0 {
+		l.writeBufferSize = opts.WriteBufferSize
+	}
+	if opts != nil && opts.CloseTimeout > 0 {
+		l.drainTimeout = opts.CloseTimeout
+	}
+	return l
+}
+
+const defaultWriteBufferSize, defaultDrainTimeout = connection.DefaultWriteBufferSize, connection.DefaultDrainTimeout

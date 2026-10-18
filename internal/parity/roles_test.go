@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,9 @@ func TestRoleConsumerFixtures(t *testing.T) {
 		{"adapter", ""},
 		{"engine_session", ""},
 		{"engine_codecs", ""},
+		{"external_server", ""},
+		{"external_server_namespace", "use of internal package"},
+		{"external_server_connection", "use of internal package"},
 		{"private_packet_codec", "use of internal package"},
 		{"private_payload_codec", "use of internal package"},
 		{"private_engine_session", "use of internal package"},
@@ -38,8 +42,36 @@ func TestRoleConsumerFixtures(t *testing.T) {
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			source := filepath.Join(root, "internal", "parity", "testdata", "roles", fixture.name+".go")
+			directory := root
+			if strings.HasPrefix(fixture.name, "external_") {
+				directory = t.TempDir()
+				code, err := os.ReadFile(source)
+				if err != nil {
+					t.Fatal(err)
+				}
+				source = filepath.Join(directory, "main.go")
+				if err := os.WriteFile(source, code, 0600); err != nil {
+					t.Fatal(err)
+				}
+				mod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				module := strings.Replace(string(mod), "module github.com/sshaplygin/go-socket.io", "module example.com/consumer", 1)
+				module += "\nrequire github.com/sshaplygin/go-socket.io v0.0.0\nreplace github.com/sshaplygin/go-socket.io => " + strconv.Quote(root) + "\n"
+				if err := os.WriteFile(filepath.Join(directory, "go.mod"), []byte(module), 0600); err != nil {
+					t.Fatal(err)
+				}
+				sums, err := os.ReadFile(filepath.Join(root, "go.sum"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(directory, "go.sum"), sums, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			cmd := exec.Command("go", "test", "-mod=readonly", source)
-			cmd.Dir = root
+			cmd.Dir = directory
 			cmd.Env = append(os.Environ(), "GOWORK=off", "GOPROXY=off")
 			out, err := cmd.CombinedOutput()
 			if fixture.failure == "" {

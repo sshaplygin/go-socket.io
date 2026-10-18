@@ -251,3 +251,20 @@ Reflection package paths or `%T` output may now name those private codec package
 source signatures, constant values, exported fields and method sets are retained.
 Existing custom frame and payload sources/destinations continue to implement the
 public contracts. Streaming lease/error behavior is described above and in godoc.
+
+## Private Socket.IO server ownership
+
+Keep using the root `socketio.Server`, `ServerNamespace` and functional options.
+The active server `Conn`, `Namespace`, `Emitter`, `AckFunc` and `Handshake` names
+alias canonical server contracts in `internal/namespace`. The independent client
+contracts remain separate. Callback signatures and wrong-role rejection are
+unchanged; `ErrWriteBufferFull` and `ErrBroadcastAck` retain their error identities.
+Reflection package paths and concrete `%T` output can now name the private server
+components. Applications do not import either private component.
+
+`internal/connection` owns concrete sockets and their transport connection together,
+including atomic queue admission, claimed DISCONNECT sealing, ACK registration and
+drain timeout. The public Server still owns acceptance, active connection tracking,
+adapter factories, stable namespace views and shutdown. Public constructors and
+options, wire ordering, callback/error behavior and partial parent delivery remain
+as described at their active public entry points.

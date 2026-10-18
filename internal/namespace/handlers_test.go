@@ -1,4 +1,4 @@
-package socketio
+package namespace
 
 import (
 	"fmt"
@@ -35,7 +35,7 @@ func TestNewEventFunc(t *testing.T) {
 				must.Equal(test.ok, r == nil)
 			}()
 
-			h := newEventFunc(test.f)
+			h := NewEventFunc(test.f)
 			must.Equal(len(test.argTypes), len(h.argTypes))
 			for i := range h.argTypes {
 				should.Equal(reflect.TypeOf(test.argTypes[i]), h.argTypes[i])
@@ -67,7 +67,7 @@ func TestNewAckFunc(t *testing.T) {
 				must.Equal(test.ok, r == nil)
 			}()
 
-			h := newAckFunc(test.f)
+			h := NewAckFunc(test.f)
 			must.Equal(len(test.argTypes), len(h.argTypes))
 
 			for i := range h.argTypes {
@@ -97,7 +97,7 @@ func TestHandlerCall(t *testing.T) {
 			should := assert.New(t)
 			must := require.New(t)
 
-			h := newAckFunc(test.f)
+			h := NewAckFunc(test.f)
 
 			args := make([]reflect.Value, len(test.args))
 			for i := range args {

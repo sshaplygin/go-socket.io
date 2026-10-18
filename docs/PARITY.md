@@ -81,14 +81,14 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | S17 | DONE V1-5 | D8 | `close(fn)` closes all clients + http server | index.js:485-499 | PARITY | Server.Close waits for OnDisconnect after closing sessions; a bounded wait is covered by TestServerCloseBound. Verified by `TestServerCloseWaits`. | `Server.Close` | N | 1-2 | T |
 | S18 | DONE V1-16 | D16 | `engine` / `eio` property | index.js:425 | PARITY | `TestServerEngine`: stable, non-nil handle of the engine created by NewServer | `Server.Engine` | Y | 1 | T |
 | S19 | - | - | `set(key,val)` legacy BC, `bind`, `onconnection`, `httpServer`, `checkRequest` | index.js:143,424-443 | N/A | deprecated or JS plumbing | - | - | 0 | R |
-| S20 | - | - | event `connection` / `connect` | namespace.js:189-190 | PARITY | `OnConnect(ns, func(Conn) error)` server.go:122; one handler per namespace, a second call replaces it (namespace_handler.go:55-57) | `OnConnect` | - | 0 | R |
+| S20 | - | - | event `connection` / `connect` | namespace.js:189-190 | PARITY | `OnConnect(ns, func(Conn) error)` server.go (`OnConnect`); one handler per namespace, a second call replaces it (internal/namespace/handlers.go) | `OnConnect` | - | 0 | R |
 | S21 | DONE V1-6; DONE V1-15; REDIS | D5, D11, D2 | flags `volatile`, `local`, `json`, `compress(b)`, `binary(b)` on server | index.js:509-523; namespace.js:32 | PARTIAL (Redis) | `TestServerBroadcastFlags` checks volatile/local; `TestBroadcastCompressFlag` checks immutable compression flags on namespace broadcasts and room targets. Redis honours compression locally and publishes without it (legacy wire format). | `ServerNamespace.Volatile`, `Local`, `Compress` | Y | see K | T |
 
 ## 2. Namespace (`socket.io/lib/namespace.js`)
 
 | ID | Plan | Decision | Reference item | Ref | Status | Go evidence | Nearest Go API | API? | PRs | Ver |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| N1 | - | - | `name` | namespace.js:53 | PARITY | `Conn.Namespace()` namespace.go:72 | `Conn.Namespace` | - | 0 | R |
+| N1 | - | - | `name` | namespace.js:53 | PARITY | `Conn.Namespace()` internal/connection/socket.go | `Conn.Namespace` | - | 0 | R |
 | N2 | DONE V1-5 | D5 | `use` | namespace.js:102 | PARITY | middleware runs in registration order before OnConnect and the ID room join. Verified by `TestNamespaceMiddleware`. | `ServerNamespace.Use` | Y | see S11 | T |
 | N3 | DONE V1-6 | D1 | `to/in/emit/send/clients` per namespace | namespace.js:147-279 | PARITY | `TestServerNamespaceMethods` drives /chat To/Emit/Send/SocketIDs and legacy broadcasts over real polling sockets. | `ServerNamespace` | - | see S12-S15 | T |
 | N4 | DONE V1-5 | D5 | `connected`, `sockets`, `ids`, `rooms` | namespace.js:55-59 | PARITY | namespace snapshots and ID lookup track connected sockets independently of their rooms. Verified by `TestNamespaceSockets`. | `ServerNamespace.Sockets; Socket` | Y | see S16 | T |
@@ -97,25 +97,25 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | N7 | DONE V1-6 | D1 | `emit` with callback throws "Callbacks are not supported when broadcasting" | namespace.js:229 | PARTIAL (legacy deviation) | `TestBroadcastCallback` verifies ErrBroadcastAck with nothing sent by new paths; all four legacy paths register and execute one ACK callback per socket. | `Emitter.Emit`, `ServerNamespace.Emit`, `Send` | N | 0-1 | T |
 | N8 | DONE V1-7 | D5 | namespace CONNECT carrying a query (`/nsp?x=1`) available as `handshake.query` | client.js:208; socket.js:117-120 | PARITY | `TestNamespaceConnectQuery` observes CONNECT query in namespace middleware; protocol notes now name Handshake.Query. | `Conn.Handshake` | Y | 1 | T |
 | N9 | DONE V1-4 | D1 | namespace CONNECT reply wire form `0/nsp,` | socket.js:311 | PARITY | namespace CONNECT replies with exactly 0/chat,. Verified by `TestNamespaceConnectPacket`. | - | N | 1 | T |
-| N10 | - | - | root CONNECT merged into the handshake (`initialPacket`) | index.js:295-301; engine socket.js:72 | N/A | optimisation only; Go sends `0` right after OPEN (connection.go:223-229). Same client-visible result | - | - | 0 | R |
+| N10 | - | - | root CONNECT merged into the handshake (`initialPacket`) | index.js:295-301; engine socket.js:72 | N/A | optimisation only; Go sends `0` right after OPEN (internal/connection/socket.go, `acceptPending`). Same client-visible result | - | - | 0 | R |
 
 ## 3. Socket (`socket.io/lib/socket.js`, `client.js`)
 
 | ID | Plan | Decision | Reference item | Ref | Status | Go evidence | Nearest Go API | API? | PRs | Ver |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | K1 | DONE V1-5 | D15 | `id` (`/` : engine id, other nsp: `nsp#id`) | socket.js:64 | PARITY | root ID is the engine sid, other namespaces use nsp#sid and join that ID room. Verified by `TestConnIDNamespace`. | `Conn.ID` | N | 0-1 | T |
-| K2 | - | - | `rooms` | socket.js:67 | PARITY | `Conn.Rooms()` namespace.go:166; includes the sid room (lifecycle_test.go:75) | `Conn.Rooms` | - | 0 | R |
+| K2 | - | - | `rooms` | socket.js:67 | PARITY | `Conn.Rooms()` internal/connection/socket.go; includes the sid room (lifecycle_test.go:75) | `Conn.Rooms` | - | 0 | R |
 | K3 | - | - | `client` | socket.js:65 | N/A | no per-engine `Client` object in Go; conn-level state is internal | - | - | 0 | R |
 | K4 | DONE V1-7 | D5, D10 | `conn` (engine socket: transport, readyState, upgraded) | socket.js:66 | PARITY | `TestConnEngineConn` reaches engine state/transport on a server socket and returns nil on a client socket. | `Conn.EngineConn` | Y | 1 | T |
 | K5 | DONE V1-7 | D5, D10 | `request` (`http.IncomingMessage`) | socket.js:102 | PARITY | `TestConnRequest` checks original method/URL/header in root OnConnect and namespace middleware on 20 connections, retains requests after close, and checks nil for fakes/clients. | `Conn.Request` | Y | 1 | T |
-| K6 | - | - | `handshake.headers` | socket.js:122 | PARITY | `Conn.RemoteHeader()` connection.go:65 | `RemoteHeader` | - | 0 | R |
+| K6 | - | - | `handshake.headers` | socket.js:122 | PARITY | `Conn.RemoteHeader()` the embedded engine connection in internal/connection/connection.go | `RemoteHeader` | - | 0 | R |
 | K7 | DONE V1-7 | D5, D10 | `handshake.query` (request query merged with nsp query) | socket.js:116-129 | PARITY | `TestHandshakeQuery` checks namespace query override, repeated values, root isolation and copied metadata. | `Conn.Handshake().Query` | Y | 1 | T |
 | K8 | - | - | `handshake.address` | socket.js:124 | PARITY | `Conn.RemoteAddr()` | `RemoteAddr` | - | 0 | R |
 | K9 | - | - | `handshake.url` | socket.js:128 | PARITY | `Conn.URL()` (request URL, no scheme/host) | `URL` | - | 0 | R |
 | K10 | DONE V1-7 | D5, D10 | `handshake.time`, `issued`, `secure`, `xdomain` | socket.js:123-127 | PARITY | `TestHandshakeData` checks time, address, Origin and TLS inside root handlers and namespace middleware; a namespace created after websocket upgrade retains polling headers, URL and address. | `Conn.Handshake` | Y | 1 (with K7) | T |
 | K11 | DONE V1-6 | D5, D10 | `join(room \| rooms[], cb)` | socket.js:236 | PARITY | `TestConnJoinRooms` verifies ordered variadic joins with duplicate rooms ignored. | `Join(rooms ...string)` | Y (variadic) | 1 | T |
-| K12 | - | - | `leave(room, cb)`, `leaveAll()` | socket.js:269,287 | PARITY | `Leave`, `LeaveAll` namespace.go:158-164 | same | - | 0 | R |
-| K13 | - | - | `emit(ev, ...args[, ack])` to this client | socket.js:140-181 | PARITY | `Conn.Emit` namespace.go:82-141; trailing func is the ack callback (not sent), called on ACK | `Emit` | - | 0 | R |
+| K12 | - | - | `leave(room, cb)`, `leaveAll()` | socket.js:269,287 | PARITY | `Leave`, `LeaveAll` internal/connection/socket.go | same | - | 0 | R |
+| K13 | - | - | `emit(ev, ...args[, ack])` to this client | socket.js:140-181 | PARITY | `Conn.Emit` internal/connection/socket.go; trailing func is the ack callback (not sent), called on ACK | `Emit` | - | 0 | R |
 | K14 | DONE V1-6 | D5, D10 | `socket.broadcast.emit` / `socket.to(room).emit` (everyone except sender) | socket.js:170-175,191 | PARTIAL (Redis) | `TestBroadcastExceptSender` executes handler broadcasts, volatile target conversion, single-socket Local, and client ErrServerOnly. Redis exclusion returns adapter.ErrExceptUnsupported before I/O. | `To`, `adapter.Adapter`, `Emitter.Except` | Y | 2 | T |
 | K15 | DONE V1-5 | D5, D10 | `send` / `write` | socket.js:204 | PARITY | Send delivers message and its trailing acknowledgement callback. Verified by `TestConnSend`. | `Namespace.Send` | Y (sugar) | 0-1 | T |
 | K16 | DONE V1-6 | D5, D10 | flag `volatile` (drop if transport not writable) | socket.js:39; client.js:167 | PARITY | `TestVolatileEmit` observes polling drops without a pending poll and websocket delivery; `TestVolatileDropsQueuedPacket` checks queue drops without ACK registration or close. | `Volatile` | Y | 2 | T |
@@ -129,9 +129,9 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | K24 | DONE V1-4 | D1 | event `disconnect` with reason (`client namespace disconnect`, `server namespace disconnect`, `transport close`, `transport error`, `ping timeout`, `forced close`) | socket.js:421,484 | PARITY | engine causes are wrapped and mapped to namespace reasons on the read goroutine. Verified by `TestOnDisconnectReason; engineio/internal/session.TestSessionCloseError`. | `OnDisconnect(Conn, string)` | N | 1-2 | T |
 | K25 | DONE V1-5 | D5, D10 | `use(fn)` event middleware `fn(event, next)` | socket.js:548 | PARITY | typed and generic JSON/binary arguments reach event middleware; rejection skips the handler and ACK. Verified by `TestEventMiddleware`. | `Namespace.Use` | Y | 2 | T |
 | K26 | DONE V1-7 | D5 | ack of client events: handler gets a callback `ack(...)`, may be called later, once only | socket.js:376-393 | PARITY | `TestLateAck` sends an ACK from another goroutine after a barrier proves handler return; repeated and unrequested ACKs send nothing. Mixed listeners suppress automatic return ACKs. | `AckFunc` | Y | 1-2 | T |
-| K27 | - | - | server to client ack callback | socket.js:153-161,401-410 | PARITY | `Emit(..., func(args))` ack stored per conn and dropped when called (namespace.go:144-149, packet_handlers.go:15-42) | `Emit` | - | 0 | R |
+| K27 | - | - | server to client ack callback | socket.js:153-161,401-410 | PARITY | `Emit(..., func(args))` ack stored per conn and dropped when called (internal/connection/socket.go, internal/connection/packets.go) | `Emit` | - | 0 | R |
 | K28 | DONE V1-7 | D5 | many listeners per event, `on/once/off` | EventEmitter | PARITY | `TestEventListeners` checks order, Once, off, Off, replacement, type validation and snapshot changes; `TestOnceAcrossConnections` verifies one global invocation under concurrent clients. | `ServerNamespace.On`, `Once`, `Off` | Y | 1 | T |
-| K29 | - | - | decode error / protocol violation: sockets get `error`, connection closed | client.js:191-198,228-235 | PARITY | `serveRead` reports to root `OnError` and returns (connection_serve.go:112-126) | `OnError` | - | 0 | R |
+| K29 | - | - | decode error / protocol violation: sockets get `error`, connection closed | client.js:191-198,228-235 | PARITY | `serveRead` reports to root `OnError` and returns (internal/connection/io.go) | `OnError` | - | 0 | R |
 
 ## 4. Rooms / Adapter (`socket.io-adapter` 1.1.2; Redis parts: `socket.io-redis` 5.4.0)
 

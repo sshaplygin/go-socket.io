@@ -1,4 +1,4 @@
-package socketio
+package connection
 
 import (
 	"io"
@@ -16,6 +16,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	namespaceImpl "github.com/sshaplygin/go-socket.io/internal/namespace"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -46,14 +47,14 @@ type discardFrame struct{}
 func (discardFrame) Write(b []byte) (int, error) { return len(b), nil }
 func (discardFrame) Close() error                { return nil }
 
-func rootWithOrderlyEngine(t *testing.T) (*conn, engineio.Conn, *rootOrderlyTransport) {
+func rootWithOrderlyEngine(t *testing.T) (*Connection, engineio.Conn, *rootOrderlyTransport) {
 	t.Helper()
 	tr := &rootOrderlyTransport{entered: make(chan struct{}), closed: make(chan struct{})}
 	engine := engineio.NewServer(engineio.WithTransports([]transport.Transport{rootOrderlyFactory{tr}}...), engineio.WithPingInterval(time.Hour), engineio.WithPingTimeout(time.Hour))
 	engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example.test/?EIO=3&transport=polling", nil))
 	s, err := engine.Accept()
 	require.NoError(t, err)
-	c := newConn(s, newNamespaceHandlers(), connLimits{writeBufferSize: 1, drainTimeout: 50 * time.Millisecond}, slog.Default())
+	c := New(s, namespaceImpl.NewRegistry(), 1, 50*time.Millisecond, slog.Default())
 	c.boundary, c.connecting = true, false
 	t.Cleanup(func() { c.stop(); _ = engineio.Abort(s); _ = engine.Close() })
 	return c, s, tr

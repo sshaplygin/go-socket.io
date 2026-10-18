@@ -1,4 +1,4 @@
-package socketio
+package connection
 
 import (
 	"encoding/json"
@@ -7,12 +7,13 @@ import (
 	"reflect"
 	"sync"
 
+	namespaceImpl "github.com/sshaplygin/go-socket.io/internal/namespace"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
-var emtpyFH = newAckFunc(func() {})
+var emtpyFH = namespaceImpl.NewAckFunc(func() {})
 
-func ackPacketHandler(c *conn, header parser.Header) error {
+func ackPacketHandler(c *Connection, header parser.Header) error {
 	nc, ok := c.namespaces.Get(header.Namespace)
 	if !ok {
 		_ = c.decoder.DiscardLast()
@@ -27,7 +28,7 @@ func ackPacketHandler(c *conn, header parser.Header) error {
 		rawFunc = emtpyFH
 	}
 
-	handler, ok := rawFunc.(*funcHandler)
+	handler, ok := rawFunc.(*namespaceImpl.Func)
 	if !ok {
 		// This should never get here and would be solved with generic sync.Map
 		c.log.Warn("socketio: invalid ack function", nspAttr(header.Namespace), "ack_id", header.ID)
@@ -35,7 +36,7 @@ func ackPacketHandler(c *conn, header parser.Header) error {
 	}
 
 	// Read the body because Ack can have body as well
-	types := handler.argTypes
+	types := handler.ArgTypes()
 	if types == nil {
 		types = []reflect.Type{}
 	}
@@ -61,7 +62,7 @@ func ackPacketHandler(c *conn, header parser.Header) error {
 	return nil
 }
 
-func eventPacketHandler(c *conn, event string, header parser.Header) error {
+func eventPacketHandler(c *Connection, event string, header parser.Header) error {
 	conn, ok := c.namespaces.Get(header.Namespace)
 	if !ok {
 		_ = c.decoder.DiscardLast()
@@ -75,10 +76,10 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 		return nil
 	}
 
-	snapshot := handler.listeners(event)
+	snapshot := handler.Listeners(event)
 	var types []reflect.Type
 	if len(snapshot) != 0 {
-		types = snapshot[0].handler.argTypes
+		types = snapshot[0].ArgTypes()
 		if types == nil {
 			types = []reflect.Type{}
 		}
@@ -99,7 +100,7 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 		return nil
 	}
 	var once sync.Once
-	ack := AckFunc(func(values ...interface{}) {
+	ack := namespaceImpl.AckFunc(func(values ...interface{}) {
 		if !header.NeedAck {
 			return
 		}
@@ -113,7 +114,7 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 			c.write(reply, args...)
 		})
 	})
-	ret, ownsAck, err := handler.dispatchListeners(conn, event, snapshot, ack, args...)
+	ret, ownsAck, err := handler.DispatchListeners(conn, event, snapshot, ack, args...)
 	if err != nil {
 		c.onError(header.Namespace, err)
 		c.log.Debug("socketio: event handler failed", nspAttr(header.Namespace), "event", event, "err", err)
@@ -128,7 +129,7 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 	return nil
 }
 
-func connectPacketHandler(c *conn, header parser.Header) error {
+func connectPacketHandler(c *Connection, header parser.Header) error {
 	if err := c.decoder.DiscardLast(); err != nil {
 		c.onError(header.Namespace, err)
 		c.log.Debug("socketio: connect discard failed", nspAttr(header.Namespace), "err", err)
@@ -152,10 +153,10 @@ func connectPacketHandler(c *conn, header parser.Header) error {
 		return nil
 	}
 
-	if handler.err != nil && !isDone(c.closing) { // its Redis broadcast could not be created
-		c.log.Debug("socketio: connect without broadcast", nspAttr(header.Namespace), "err", handler.err)
-		c.connectRecord(header.Namespace, handler.err)
-		c.onError(header.Namespace, handler.err)
+	if handler.Err() != nil && !isDone(c.closing) { // its Redis broadcast could not be created
+		c.log.Debug("socketio: connect without broadcast", nspAttr(header.Namespace), "err", handler.Err())
+		c.connectRecord(header.Namespace, handler.Err())
+		c.onError(header.Namespace, handler.Err())
 		return errHandleDispatch
 	}
 
@@ -165,13 +166,13 @@ func connectPacketHandler(c *conn, header parser.Header) error {
 	if _, exists := c.namespaces.Get(header.Namespace); exists {
 		return nil
 	}
-	nc := newNamespaceConn(c, header.Namespace, handler.broadcast, header.Query)
+	nc := newNamespaceConn(c, header.Namespace, handler.Adapter(), header.Query)
 	nc.beginConnect()
 	nc.SetContext(c.Conn.Context())
 	if !c.register(header.Namespace, nc) {
 		return nil
 	}
-	err := handler.connect(nc)
+	err := handler.Connect(nc)
 	c.connectRecord(header.Namespace, err)
 	if err != nil {
 		if isDone(c.closing) {
@@ -190,7 +191,7 @@ func connectPacketHandler(c *conn, header parser.Header) error {
 	return nil
 }
 
-func disconnectPacketHandler(c *conn, header parser.Header) error {
+func disconnectPacketHandler(c *Connection, header parser.Header) error {
 	if err := c.decoder.DiscardLast(); err != nil {
 		c.onError(header.Namespace, err)
 		return errDecodeArgs
@@ -204,7 +205,7 @@ func disconnectPacketHandler(c *conn, header parser.Header) error {
 	return nil
 }
 
-func errorPacketHandler(c *conn, header parser.Header) error {
+func errorPacketHandler(c *Connection, header parser.Header) error {
 	args, err := c.decoder.DecodeArgs([]reflect.Type{reflect.TypeOf((*interface{})(nil)).Elem()})
 	if err != nil {
 		c.onError(header.Namespace, err)

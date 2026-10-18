@@ -2,7 +2,9 @@ package engineio
 
 import (
 	"net/http"
+	"sync"
 
+	sessionImpl "github.com/sshaplygin/go-socket.io/engineio/internal/session"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
@@ -50,4 +52,64 @@ type Hooks struct {
 	// Error fires with the transport error that closes the session (V1-4's cause
 	// transport error), before the close; a peer close or a ping timeout fires nothing.
 	Error func(c Conn, err error)
+}
+
+func (s *Server) installHooks(c *sessionImpl.Session, request *http.Request, initial bool) {
+	h := s.hooks
+	if h == nil {
+		return
+	}
+	sh := &sessionImpl.Hooks{}
+	if h.Packet != nil {
+		sh.Packet = func(c *sessionImpl.Session, pt eioparser.PacketType, ft eioparser.FrameType) { h.Packet(c, pt, ft) }
+	}
+	if h.PacketCreate != nil {
+		sh.PacketCreate = func(c *sessionImpl.Session, pt eioparser.PacketType, ft eioparser.FrameType) {
+			h.PacketCreate(c, pt, ft)
+		}
+	}
+	if h.Heartbeat != nil {
+		sh.Heartbeat = func(c *sessionImpl.Session) { h.Heartbeat(c) }
+	}
+	if h.Upgrading != nil {
+		sh.Upgrading = func(c *sessionImpl.Session, tr string) { h.Upgrading(c, tr) }
+	}
+	if h.Upgrade != nil {
+		sh.Upgrade = func(c *sessionImpl.Session, tr string) { h.Upgrade(c, tr) }
+	}
+	if h.Flush != nil {
+		sh.Flush = func(c *sessionImpl.Session) { h.Flush(c) }
+	}
+	if h.Drain != nil {
+		sh.Drain = func(c *sessionImpl.Session) { h.Drain(c) }
+	}
+	if h.Error != nil {
+		sh.Error = func(c *sessionImpl.Session, err error) { h.Error(c, err) }
+	}
+	var once sync.Once
+	sh.Headers = func(r *http.Request, headers http.Header) {
+		if initial && r == request {
+			once.Do(func() {
+				if h.InitialHeaders != nil {
+					h.InitialHeaders(r, headers)
+				}
+			})
+		}
+		if h.Headers != nil {
+			h.Headers(r, headers)
+		}
+	}
+	c.SetHooks(sh)
+}
+
+func (s *Server) connectionError(r *http.Request, code int, err error) {
+	if h := s.hooks; h != nil && h.ConnectionError != nil {
+		h.ConnectionError(r, code, serverErrors[code], err)
+	}
+}
+
+func (s *Server) writeServerError(w http.ResponseWriter, r *http.Request, code int, err error) {
+	s.errorCORSHeaders(w, r)
+	s.connectionError(r, code, err)
+	writeServerError(w, code)
 }

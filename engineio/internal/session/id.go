@@ -1,4 +1,4 @@
-package engineio
+package session
 
 import (
 	"crypto/rand"
@@ -7,7 +7,7 @@ import (
 
 // IDGenerator generates a new session id. The default uses cryptographic randomness.
 // If you need custom session id, for example using local ip as prefix, you can
-// set WithSessionIDGenerator. The server uses it to generate session IDs.
+// configure engineio.WithSessionIDGenerator. The server uses it for session IDs.
 type IDGenerator interface {
 	NewID() string
 }

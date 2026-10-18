@@ -21,7 +21,8 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `adapter/redis/` | v1 Redis factory/options, publication, requests and reconnect; composes the memory adapter |
 | `client/` | v1 experimental Socket.IO Go client, manager/reconnect, client-owned connection contracts/options |
 | `parser/` | v1 Socket.IO v4 packet encoder/decoder, binary attachments and independent frame types |
-| `engineio/` | v1 Engine.IO v3 server and private session/registry lifecycle |
+| `engineio/` | v1 Engine.IO v3 acceptance/server lifecycle, options/hooks and active connection contracts |
+| `engineio/internal/session/` | private server session I/O, registry/IDs, heartbeat, close/upgrade and polling response observation |
 | `engineio/client/` | independent v1 Engine.IO client, dialer, heartbeat/upgrade and client connection state/errors |
 | `engineio/parser/` | shared Engine.IO v3 frame/packet/payload codecs and OPEN parameters |
 | `engineio/transport/` | transport contracts, registry and timestamp helper; polling owns HTTP feed/flush, pause and deadline state |
@@ -70,9 +71,9 @@ V1 source files follow the same responsibility names in the root and `client/`:
 | `namespace.go`, `namespace_handler.go` | namespace connections/registry and handlers/handler registry |
 | `adapter/adapter.go`, `memory.go` | minimal socket/factory contracts and local room/index/delivery ownership |
 | `adapter/redis/options.go`, `adapter.go`, `codec.go`, `requests.go`, `subscription.go` | Redis configuration/construction, legacy wire format, cluster queries and subscription lifecycle |
-| `engineio/conn.go`, `engineio/options.go` | server Engine.IO connection/state/error contracts and server configuration |
-| `engineio/session.go`, `session_close.go`, `session_upgrade.go`, `session_headers.go`, `session_hooks.go` | private server session I/O, close/upgrade state machines and response observation |
-| `engineio/session_manager.go`, `session_id_generator.go` | private registry and server-owned ID generators |
+| `engineio/conn.go`, `id.go`, `options.go`, `hooks.go`, `headers.go` | active connection/state/error/ID contract aliases, configuration, public hook adaptation and websocket header observation |
+| `engineio/internal/session/session.go`, `close.go`, `upgrade.go`, `headers.go`, `hooks.go` | private session I/O, close/upgrade state machines and response observation |
+| `engineio/internal/session/contracts.go`, `registry.go`, `id.go` | canonical server connection/state/error contracts, private registry and ID providers |
 | `engineio/client/client.go`, `dialer.go`, `conn.go` | client Engine.IO I/O, dialing, heartbeat/upgrade and role-specific contracts |
 | `engineio/parser/frame.go`, `packet.go`, `packet_encoder.go`, `packet_decoder.go` | shared frame/packet wire types and codecs |
 | `engineio/parser/payload_encoder.go`, `payload_decoder.go`, `payload_length.go`, `parameters.go` | streaming payload codecs, length framing and OPEN JSON |

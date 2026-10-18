@@ -515,7 +515,7 @@ API and ownership changes:
   operation/deadline errors live with polling. Preserve error wrapping and error text.
 - `engineio/client.Dialer` replaces server-package `engineio.Dialer`. Each role owns
   its connection state/close types; frame types come from `engineio/parser`. Fold
-  session implementation into private server types in `engineio`, rather than retaining
+  session implementation into private server types in the `engineio` component, rather than retaining
   another public runtime layer. Public `engineio.Hooks` remains server configuration.
   A server-owned `engineio.Abort(Conn)` function dispatches to its private session for
   immediate close and calls ordinary `Close` on custom engines. Unrelated custom
@@ -2590,8 +2590,8 @@ each old text gone and each new one present; `v1p` prints the v1 Engine.IO secti
 copies of the old handshake, heartbeat and error text):
 
 ```sh
-test "$(go test -race -count=1 -json -run '^TestPingTimeoutIdleClient$' ./engineio/session | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|test("^TestPingTimeoutIdleClient/(ping|messages|silent)$")))|.Test' | sort -u | wc -l)" -eq 3   # the reference close window (E1, P3): a client pinging at the interval stays, one sending only messages stays until it stops, a silent one is closed
-grep -qF 'the polling connection is paused only on `5`, then the session switches to the' docs/PROTOCOL.md; grep -qF '  unpaused. Implemented in `session.Session.upgrading`.' docs/PROTOCOL.md   # V1-2's own v1 upgrade bullet (P4)
+test "$(go test -race -count=1 -json -run '^TestPingTimeoutIdleClient$' ./engineio/internal/session | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|test("^TestPingTimeoutIdleClient/(ping|messages|silent)$")))|.Test' | sort -u | wc -l)" -eq 3   # the reference close window (E1, P3): a client pinging at the interval stays, one sending only messages stays until it stops, a silent one is closed
+grep -qF 'the polling connection is paused only on `5`, then the session switches to the' docs/PROTOCOL.md; sed -n '/^## Implemented: Engine.IO protocol v3 in the v1 module$/,/^## Implemented: Socket.IO protocol v4$/p' docs/PROTOCOL.md | grep -qF '  unpaused. Implemented in the private server session upgrade state machine (`engineio/internal/session/upgrade.go`).'   # V1-2's own v1 upgrade bullet (P4)
 test -z "$(grep -n 'the sequence of the previous section, implemented in the' docs/PROTOCOL.md)"; grep -q 'paused polling connection is resumed' docs/PROTOCOL.md   # the v1 bullet no longer inherits the v2 note, which stays for v2
 v1p() { sed -n '/^## Implemented: Engine.IO protocol v3 in the v1 module$/,/^## Implemented: Socket.IO protocol v4$/p' docs/PROTOCOL.md; }
 test -z "$(v1p | grep -F -e '`pingInterval` (default 20 s)' -e '`pingTimeout` (default 60 s)')"; test -n "$(v1p | grep -F '  25 s) and `pingTimeout` (default 20 s). There is no `maxPayload`: protocol v3 has none.')"   # handshake (:81-82; E1, E2, E7, E15, P12)

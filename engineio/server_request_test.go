@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	sessionImpl "github.com/sshaplygin/go-socket.io/engineio/internal/session"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
@@ -123,12 +124,12 @@ func TestConnInitorBeforeAccept(t *testing.T) {
 func TestSessionRequest(t *testing.T) {
 	t.Run("unset", func(t *testing.T) {
 		c := newBlockingConn()
-		s, err := newSession(c, "request", "polling", eioparser.ConnParameters{PingInterval: time.Second, PingTimeout: time.Second}, nil)
+		s, err := sessionImpl.New(c, "request", "polling", eioparser.ConnParameters{PingInterval: time.Second, PingTimeout: time.Second}, nil)
 		require.NoError(t, err)
 		defer func() { _ = s.Close() }()
 		require.Nil(t, s.Request())
 		r := httptest.NewRequest("GET", "/handshake?token=ok", nil)
-		s.setRequest(r)
+		s.SetRequest(r)
 		require.Same(t, r, s.Request())
 	})
 	for _, tr := range []string{"polling", "websocket"} {
@@ -144,7 +145,7 @@ func TestSessionRequest(t *testing.T) {
 			defer func() { _ = client.Close() }()
 			c, err := s.Accept()
 			require.NoError(t, err)
-			r := c.(*session).Request()
+			r := c.(*sessionImpl.Session).Request()
 			require.NotNil(t, r)
 			require.Equal(t, "GET", r.Method)
 			require.Equal(t, "ok", r.URL.Query().Get("token"))
@@ -154,13 +155,13 @@ func TestSessionRequest(t *testing.T) {
 	}
 	t.Run("upgrade", func(t *testing.T) {
 		f := newParityWire(t, nil)
-		r := f.conn.(*session).Request()
+		r := f.conn.(*sessionImpl.Session).Request()
 		c := f.probe(t)
 		reads := parityReader(f.conn)
 		require.NoError(t, c.WriteMessage(gorilla.TextMessage, []byte("5")))
 		require.NoError(t, c.WriteMessage(gorilla.TextMessage, []byte("4ready")))
 		parityMessage(t, reads, "ready")
-		require.Same(t, r, f.conn.(*session).Request())
+		require.Same(t, r, f.conn.(*sessionImpl.Session).Request())
 		require.Equal(t, "polling", r.URL.Query().Get("transport"))
 	})
 }

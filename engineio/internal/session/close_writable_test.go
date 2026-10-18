@@ -1,4 +1,4 @@
-package engineio
+package session
 
 import (
 	"errors"
@@ -18,7 +18,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
-func checkClosed(t *testing.T, s *session, reason CloseReason, cause error) {
+func checkClosed(t *testing.T, s *Session, reason CloseReason, cause error) {
 	t.Helper()
 	for i := 0; i < 2; i++ {
 		_, _, readErr := s.NextReader()
@@ -58,21 +58,21 @@ func TestSessionCloseError(t *testing.T) {
 			case ReasonForcedClose:
 				require.NoError(t, s.Close())
 			case ReasonServerShutdown:
-				require.NoError(t, s.shutdown())
+				require.NoError(t, s.Shutdown())
 			case ReasonPingTimeout:
 				// A real transport deadline, rather than a script exhausting its input.
-				accepted := make(chan *session, 1)
+				accepted := make(chan *Session, 1)
 				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					conn, err := websocket.Default.Accept(w, r)
 					if err != nil {
 						return
 					}
-					session, err := newSession(conn, "timeout", "websocket", eioparser.ConnParameters{PingInterval: 100 * time.Millisecond, PingTimeout: 50 * time.Millisecond}, nil)
+					Session, err := New(conn, "timeout", "websocket", eioparser.ConnParameters{PingInterval: 100 * time.Millisecond, PingTimeout: 50 * time.Millisecond}, nil)
 					if err != nil {
 						_ = conn.Close()
 						return
 					}
-					accepted <- session
+					accepted <- Session
 				}))
 				defer srv.Close()
 				peer, _, err := gorilla.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
@@ -132,7 +132,7 @@ func TestSessionWritable(t *testing.T) {
 	})
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
-			accepted := make(chan *session, 1)
+			accepted := make(chan *Session, 1)
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				conn, err := tr.Accept(w, r)
 				if err != nil {
@@ -161,7 +161,7 @@ func TestSessionWritable(t *testing.T) {
 				require.NoError(t, err)
 				defer func() { _ = peer.Close() }()
 			}
-			var s *session
+			var s *Session
 			select {
 			case s = <-accepted:
 			case <-time.After(time.Second):

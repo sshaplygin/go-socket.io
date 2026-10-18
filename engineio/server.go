@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	sessionImpl "github.com/sshaplygin/go-socket.io/engineio/internal/session"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
@@ -27,19 +28,19 @@ type Server struct {
 	disableUpgrades   bool
 
 	transports *transport.Manager
-	sessions   *sessionManager
+	sessions   *sessionImpl.Manager
 
 	requestChecker CheckerFunc
 	connInitor     ConnInitorFunc
 	hooks          *Hooks
 
-	connChan  chan *session // hands sessions to Accept; never closed
-	closed    chan struct{} // closed by Close
+	connChan  chan *sessionImpl.Session // hands sessions to Accept; never closed
+	closed    chan struct{}             // closed by Close
 	closeOnce sync.Once
 	// lifecycle orders registration against shutdown; live supplies the shutdown
-	// snapshot until session.Manager gains its public snapshot API.
+	// snapshot independently of Remove, so shutdown includes unregistered accepted sessions.
 	lifecycle sync.Mutex
-	live      map[string]*session
+	live      map[string]*sessionImpl.Session
 
 	log *slog.Logger
 }
@@ -54,13 +55,13 @@ func NewServer(opts ...Option) *Server {
 		upgradeTimeout:    config.getUpgradeTimeout(),
 		maxHTTPBufferSize: config.getMaxHTTPBufferSize(),
 		disableUpgrades:   config.DisableUpgrades,
-		live:              make(map[string]*session),
+		live:              make(map[string]*sessionImpl.Session),
 		requestChecker:    config.getRequestChecker(),
 		originCheck:       config.getOriginCheck(),
 		connInitor:        config.getConnInitor(),
 		hooks:             config.getHooks(),
-		sessions:          newSessionManager(config.getSessionIDGenerator()),
-		connChan:          make(chan *session, 1),
+		sessions:          sessionImpl.NewManager(config.getSessionIDGenerator()),
+		connChan:          make(chan *sessionImpl.Session, 1),
 		closed:            make(chan struct{}),
 		log:               config.getLogger(),
 	}
@@ -73,13 +74,13 @@ func (s *Server) Close() error {
 		s.lifecycle.Lock()
 		close(s.closed)
 		live := s.live
-		s.live = make(map[string]*session)
+		s.live = make(map[string]*sessionImpl.Session)
 		for id := range live {
 			s.sessions.Remove(id)
 		}
 		s.lifecycle.Unlock()
 		for _, c := range live {
-			_ = c.shutdown()
+			_ = c.Shutdown()
 		}
 		s.dropUnaccepted()
 	})
@@ -108,8 +109,8 @@ func (s *Server) dropUnaccepted() {
 	}
 }
 
-func (s *Server) drop(c *session) {
-	_ = c.shutdown()
+func (s *Server) drop(c *sessionImpl.Session) {
+	_ = c.Shutdown()
 	s.Remove(c.ID())
 }
 
@@ -253,7 +254,7 @@ func (s *Server) Remove(sid string) {
 	s.sessions.Remove(sid)
 }
 
-func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport string) (*session, error) {
+func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport string) (*sessionImpl.Session, error) {
 	params := eioparser.ConnParameters{
 		PingInterval: s.pingInterval,
 		PingTimeout:  s.pingTimeout,
@@ -268,13 +269,13 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 		_ = conn.Close()
 		return nil, fmt.Errorf("generate session id: empty identifier")
 	}
-	newSession, err := newSession(conn, sid, reqTransport, params, s.log)
+	newSession, err := sessionImpl.New(conn, sid, reqTransport, params, s.log)
 	if err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
-	newSession.setLimits(s.maxHTTPBufferSize, s.upgradeTimeout)
-	newSession.setRequest(r)
+	newSession.SetLimits(s.maxHTTPBufferSize, s.upgradeTimeout)
+	newSession.SetRequest(r)
 	s.installHooks(newSession, r, reqTransport != "websocket")
 
 	// Register before the handshake: the client may send its next request
@@ -282,7 +283,7 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 	s.lifecycle.Lock()
 	if isClosed(s.closed) {
 		s.lifecycle.Unlock()
-		_ = newSession.shutdown()
+		_ = newSession.Shutdown()
 		return nil, io.EOF
 	}
 	s.sessions.Add(newSession)
@@ -290,8 +291,8 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 	s.lifecycle.Unlock()
 	s.connInitor(r, newSession)
 
-	go func(newSession *session) {
-		if err := newSession.initSession(); err != nil {
+	go func(newSession *sessionImpl.Session) {
+		if err := newSession.Init(); err != nil {
 			s.Remove(newSession.ID())
 			s.connectionError(r, 3, err)
 			s.reject(reqTransport, fmt.Sprint(conn.RemoteAddr()), "init", err)

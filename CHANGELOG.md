@@ -230,14 +230,16 @@ All notable changes to this project are documented here. The format follows
   foundation files against drift after rewriting the module import path.
 
 - engineio: `Options.UpgradeTimeout` (10 seconds), `MaxHTTPBufferSize` (1,000,000 bytes)
-  and `DisableUpgrades`; nonpositive limits use the defaults. `Session.SetLimits`,
-  `SetRequest` and `Request` retain handshake configuration and request metadata;
-  transports expose `SetReadLimit`, and `Payload.AnswerPoll` can answer an idle poll.
+  and `DisableUpgrades`; nonpositive limits use the defaults. The server configures
+  private sessions before `ConnInitor` receives the original handshake request and
+  connection. Transports expose `SetReadLimit`; private polling state can answer an
+  idle poll during upgrade.
 
-- `engineio.Options.Logger` (`*slog.Logger`): the Engine.IO server, its sessions, the
-  socket.io `Server`, `Client` and every connection log through it; nil means
-  `logger.Log`. The parser, the transports, `engineio/packet` and the client dialer still
-  use the package-level `logger.Log` (roadmap stage 1.2).
+- `engineio.Options.Logger` (`*slog.Logger`) routes Engine.IO server/session records;
+  Socket.IO servers also use it through `socketio.Options.Engine`. Socket.IO clients
+  and their connections use `client.Options.Logger`. Nil selects `logger.Log`.
+  Both parsers, transports and Engine.IO client/dialer use package-level `logger.Log`
+  (roadmap stage 1.2).
 - `SOCKETIO_LOG_LEVEL` (`error`, `warn`, `info`, `debug`, `trace`), read once at start
   into `logger.Level`: while set, it decides which library records are enabled,
   whatever the level of the application's handler. Applications can also call
@@ -388,11 +390,8 @@ All notable changes to this project are documented here. The format follows
 - `logger/README.md` is removed. It told applications to assign `logger.Log`, which
   replaces the handler that applies `logger.Level`, so `SOCKETIO_LOG_LEVEL` and
   `logger.Level.Set` do not apply to records logged through it.
-  `engineio.Options.Logger` routes the records of the socket.io server, client and
-  connections and of the Engine.IO server and its sessions; the parser, the
-  transports, `engineio/packet` and the client dialer log through `logger.Log`, which
-  follows `slog.SetDefault`. The `logger` package godoc documents it (roadmap task
-  1.D).
+  The role-specific options and package-level fallback described above route library
+  records. The `logger` package godoc documents the routing (roadmap task 1.D).
 - Backpressure: `Emit` never blocks; it blocked until the writer took the packet
   (`connection.go:136` at `48cf0d2`). A connection whose queue overflows is closed
   without draining and reports `ErrWriteBufferFull`; more than `WriteBufferSize` packets
@@ -402,7 +401,8 @@ All notable changes to this project are documented here. The format follows
 - Server `Conn.Close` and client `Client.Close` drain: they run `OnDisconnect` and return,
   the packets queued until then are written in the background, and the engine.io
   connection closes when they are written or after the role's `Options.CloseTimeout`
-  (one minute if not positive); `Server.Count` counts the session until then. They closed engine.io at once (`connection.go:66` at `48cf0d2`).
+  (one minute if not positive); `Server.Count` counts the session until then. They closed
+  engine.io at once (`connection.go:66` at `48cf0d2`).
   Closes started by the library (fatal read, decode or dispatch error, peer close, ping
   timeout or overflow) discard the queue. Encode errors and rejected namespace connects
   keep the engine connection open, as described above. See
@@ -457,7 +457,7 @@ All notable changes to this project are documented here. The format follows
 ### Deprecated
 
 - `logger.Error` and `logger.Info`: the library no longer calls them. Use `slog`'s
-  methods on `logger.Log` or on the logger passed as `engineio.Options.Logger`. See
+  methods on `logger.Log` or on the logger configured for that server/client role. See
   [`logger`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/logger), whose
   godoc now documents the levels, the message pattern and the attribute keys of library
   records (roadmap task 1.L).

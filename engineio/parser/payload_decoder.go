@@ -21,8 +21,12 @@ type PayloadReader interface {
 }
 
 // PayloadDecoder reads Engine.IO v3 polling payload packets. Close each packet
-// reader before acquiring the next; Close drains unread packet bytes.
+// reader before acquiring the next; Close drains unread packet bytes. A decode
+// or release failure is terminal: later reader, read and close calls return the
+// saved error without reusing or releasing the source again. Acquisition failures
+// may be retried because no payload was acquired.
 type PayloadDecoder struct {
+	terminalErr error
 	b64Reader   io.Reader
 	limitReader io.LimitedReader
 	rawReader   byteReader
@@ -34,6 +38,9 @@ type PayloadDecoder struct {
 }
 
 func (d *PayloadDecoder) NextReader() (FrameType, PacketType, io.ReadCloser, error) {
+	if d.terminalErr != nil {
+		return 0, 0, nil, d.terminalErr
+	}
 	if d.rawReader == nil {
 		r, supportBinary, err := d.feeder.AcquirePayloadReader()
 		if err != nil {
@@ -52,6 +59,9 @@ func (d *PayloadDecoder) NextReader() (FrameType, PacketType, io.ReadCloser, err
 }
 
 func (d *PayloadDecoder) Read(p []byte) (int, error) {
+	if d.terminalErr != nil {
+		return 0, d.terminalErr
+	}
 	if d.b64Reader != nil {
 		return d.b64Reader.Read(p)
 	}
@@ -81,6 +91,12 @@ func (d *PayloadDecoder) Read(p []byte) (int, error) {
 }
 
 func (d *PayloadDecoder) Close() error {
+	if d.terminalErr != nil {
+		return d.terminalErr
+	}
+	if d.rawReader == nil {
+		return nil
+	}
 	if _, err := io.Copy(io.Discard, d); err != nil {
 		return d.sendError(err)
 	}
@@ -89,10 +105,6 @@ func (d *PayloadDecoder) Close() error {
 		if err != io.EOF {
 			return d.sendError(err)
 		}
-		d.rawReader = nil
-		d.limitReader.R = nil
-		d.limitReader.N = 0
-		d.b64Reader = nil
 		err = d.sendError(nil)
 	}
 	return err
@@ -126,9 +138,15 @@ func (d *PayloadDecoder) setNextReader(r byteReader, supportBinary bool) error {
 }
 
 func (d *PayloadDecoder) sendError(err error) error {
+	// A released payload must never be read or released again. Retain terminal
+	// errors so another call cannot silently acquire or reuse a failed source.
+	d.rawReader = nil
+	d.limitReader = io.LimitedReader{}
+	d.b64Reader = nil
 	if e := d.feeder.ReleasePayloadReader(err); e != nil {
-		return e
+		err = e
 	}
+	d.terminalErr = err
 	return err
 }
 

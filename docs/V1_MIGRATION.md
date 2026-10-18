@@ -54,5 +54,7 @@ packet reader is closed. A sink lends a writer for each packet through
 `AcquirePayloadWriter() (io.Writer, error)` and receives its completion through
 `ReleasePayloadWriter(error) error`. An acquisition error does not trigger release;
 a release error takes precedence over the codec error. Close every packet reader/writer
-before requesting another. The codecs own framing; polling owns HTTP requests,
+before requesting another. A decoder retains decode/release failures: later calls
+return that terminal error without reading or releasing the source again. Acquisition
+failures may be retried because they did not acquire a payload. The codecs own framing; polling owns HTTP requests,
 concurrency, deadlines and pause/resume. Use godoc for the complete streaming contract.

@@ -460,19 +460,29 @@ the adapter. Where implementation details are uncertain, inspect this JS referen
 Rust) before changing behavior.
 
 The final production import graph is acyclic and has these owners. “May import” lists
-repository runtime dependencies, including their transitive closure; standard library
-and existing external dependencies are omitted. Test imports do not define runtime edges.
+allowed direct repository runtime dependencies; their transitive closure must also obey
+every row and the role/codec exclusions below. Standard library and existing external
+dependencies are omitted. Test imports do not define runtime edges. Internal paths are
+implementation owners of the public component immediately above them, not new public
+components. There are 12 public runtime packages and seven private component packages.
 
 | Package | Responsibility | May import |
 | --- | --- | --- |
-| root `socketio` | Socket.IO server, server sockets, namespaces and emit builders | `adapter`, `parser`, `engineio`, its lower parser/transports, `logger` |
-| `client` | Socket.IO Go client, manager/reconnect and client sockets | `parser`, `engineio/client`, lower Engine.IO parser/transports, `logger` |
+| root `socketio` | Server lifecycle, adapter factories, dynamic namespace coordination, public namespace views and options | `internal/connection`, `internal/namespace`, `adapter`, `engineio`, `logger` |
+| `internal/connection` | Server transport connection, per-connection namespace sockets, queues/drain, packet dispatch and emitters | `internal/namespace`, `adapter`, `parser`, `engineio`, `engineio/parser`, `logger` |
+| `internal/namespace` | Server-role contracts, namespace handler/connected-socket registries, middleware and listener reflection | `adapter`, `parser`, `engineio` |
+| `client` | Client construction/options and public client/socket entry points | `client/internal/connection`, `client/internal/namespace`, `engineio/client`, `engineio/transport`, its polling/websocket implementations, `logger` |
+| `client/internal/connection` | Client manager/generations/reconnect, connection queues, concrete namespace sockets and emitters | `client/internal/namespace`, `parser`, `engineio/client`, `engineio/parser`, `engineio/transport`, its polling/websocket implementations, `logger` |
+| `client/internal/namespace` | Client-role contracts, handler/listener registry and local room index | `parser`, `engineio/client` |
 | `adapter` | Room/index/broadcast contract and in-memory implementation | no other repository runtime package |
 | `adapter/redis` | Redis adapter extending/composing the memory adapter | `adapter`, `logger` |
 | `parser` | Socket.IO packet codec, shared by server and client | `logger` |
-| `engineio` | Engine.IO server, sessions, registry, heartbeat and upgrade | `engineio/parser`, `engineio/transport` and its implementations, `logger` |
-| `engineio/client` | Engine.IO dial, heartbeat, upgrade and client connection | `engineio/parser`, `engineio/transport` and its implementations, `logger` |
-| `engineio/parser` | Engine.IO frame/packet/payload codecs and OPEN parameters | `logger` |
+| `engineio` | Engine.IO acceptance/server lifecycle, public options/hooks and session coordination | `engineio/internal/session`, `engineio/parser`, `engineio/transport`, its polling/websocket implementations, `logger` |
+| `engineio/internal/session` | Server session I/O, registry/IDs, heartbeat, close/upgrade and polling response observation | `engineio/parser`, `engineio/transport`, `engineio/transport/polling`, `logger` |
+| `engineio/client` | Engine.IO dial, heartbeat, upgrade and client connection | `engineio/parser`, `engineio/transport`, its polling/websocket implementations, `logger` |
+| `engineio/parser` | Public Engine.IO codec entry points, OPEN parameters and frame/packet test fakes | `engineio/parser/internal/packet`, `engineio/parser/internal/payload` |
+| `engineio/parser/internal/packet` | Canonical frame/packet types and packet encoder/decoder | `logger` |
+| `engineio/parser/internal/payload` | Streaming payload encoder/decoder, framing lengths and lease/error state | `engineio/parser/internal/packet` |
 | `engineio/transport` | Transport contracts and registry | `engineio/parser`, `logger` |
 | `engineio/transport/polling` | HTTP polling, streaming feed/flush, pause/deadline ownership | `engineio/transport`, `engineio/parser`, `logger` |
 | `engineio/transport/websocket` | WebSocket transport | `engineio/transport`, `engineio/parser`, `logger` |
@@ -584,14 +594,89 @@ For README Go blocks, the source gate may use the test-only pinned dependency
 `github.com/yuin/goldmark v1.4.13` and add it to root `go.mod`/`go.sum` in C3b.
 Parse Markdown structure before inspecting Go ASTs; runtime imports stay unchanged.
 
-The owner's additional request to group files with repeated prefixes requires a
-responsibility inventory, covering session, connection, namespace, packet and payload
-groups. Internal component packages are the working default; public components still
-follow the diagram. Before their implementation, record the concrete owners, allowed
-edges, API/type ownership and test moves in this section and validate that amendment
-with the three reviewers. This constructor/lifecycle amendment does not approve an
-unspecified package graph. C5 cannot start until that structural amendment and its
-implementation have merged; no acceptance is inferred from C1–C3b.
+**Internal responsibility refinement (owner request, 2026-10-18).**
+The owner confirmed private packages by responsibility for the remaining repeated-prefix
+groups. This amendment supplies the concrete graph above and the inventory below. It
+follows merged C4 and precedes all internal extraction. The public components still
+follow the diagram. Internal exports are for typed implementation boundaries; do not
+expose private mutexes, queues or channels as production API to keep tests compiling.
+No new generic `wire`, shared-role, helper-registration or test-access runtime package
+is authorized. Packet types belong to the packet codec, so payload can depend on it.
+
+| Current production group | Concrete owner after extraction | Boundary and files retained by its public component |
+| --- | --- | --- |
+| `engineio/session.go`, `session_close.go`, `session_upgrade.go`, `session_headers.go`, session half of `session_hooks.go`, `session_manager.go`, `session_id_generator.go` | `engineio/internal/session`, with `session.go`, `close.go`, `upgrade.go`, `headers.go`, `hooks.go`, `registry.go`, `id.go` | `engineio.Server` retains acceptance, transport selection, server hooks adaptation, websocket header observation and shutdown coordination. Its current session-prefixed mixed hooks file is split into public-server `hooks.go`/`headers.go` and private session hooks. |
+| `engineio/parser/frame.go`, `packet.go`, `packet_encoder.go`, `packet_decoder.go`, frame/packet values in `types.go` | `engineio/parser/internal/packet`, with `types.go`, `encoder.go`, `decoder.go` | Public parser retains active frame/packet names, constants and constructors, OPEN `parameters.go` and test fake implementations. No old public frame/packet import path returns. |
+| `engineio/parser/payload_encoder.go`, `payload_decoder.go`, `payload_length.go` | `engineio/parser/internal/payload`, with `encoder.go`, `decoder.go`, `length.go` | Public parser retains active payload constructors/interfaces and `WithBinarySupport`; polling keeps HTTP payload/feed/flush/pause/deadline ownership. |
+| Root `connection.go`, connection methods of `connection_serve.go`, `namespace.go`, `packet_handlers.go`, connection error-message/frame/queue helpers | `internal/connection`, with `connection.go`, `io.go`, `queue.go`, `close.go`, `socket.go`, `emitter.go`, `packets.go`, `frames.go`, `errors.go` | `Server.serveConn` and active-connection tracking stay root. They construct/start the internal connection and await typed completion, without touching private queue state. Concrete namespace sockets stay with their transport connection because ACK installation, CONNECT buffering, claim/seal and queue admission share one atomic lifecycle. |
+| Root `namespace_handler.go`, reflected handlers in `event_handler.go`, server-role contracts in `types.go` | `internal/namespace`, with `contracts.go`, `handlers.go`, `registry.go`, `listeners.go` | Root `ServerNamespace` remains the public registration/broadcast view. Root stores views under its creation lock instead of a child handler pointing back to `ServerNamespace`; `Of` and dynamic child creation retrieve the same view there. Handler middleware/snapshots/registration copying use typed methods, with locks owned by this package. |
+| `client/connection.go`, `connection_serve.go`, `namespace.go`, `packet_handlers.go`, concrete `socket.go`, `state.go`, `reconnect.go`, observer state | `client/internal/connection`, with `connection.go`, `io.go`, `queue.go`, `close.go`, `socket.go`, `emitter.go`, `packets.go`, `manager.go`, `reconnect.go`, `observers.go` | Public `client.Client` retains construction/options and delegates through a typed manager. Manager, generation state and concrete namespace sockets move together, eliminating their current backreferences to the public client. The manager takes required resolved per-instance configuration/dial dependencies; public options do not become an application-facing configuration bag. |
+| `client/namespace_handler.go`, `event_handler.go`, `rooms.go`, client-role `types.go` | `client/internal/namespace`, with `contracts.go`, `handlers.go`, `registry.go`, `listeners.go`, `rooms.go` | Local client rooms and callback type validation stay independent of server and adapters. Public client callbacks continue to receive the client role's connection. |
+| Root `server.go`, `server_namespace.go` | root `socketio`, with `server.go` and `namespace.go` after the old socket implementation moves | These are the diagram's server lifecycle and public namespace view, not another private server wrapper. Their repeated filename prefix disappears; factories, dynamic parents, shutdown and options stay with the server. |
+
+Canonical server `Conn`, `Namespace`, `Emitter`, `AckFunc` and `Handshake` belong to
+`internal/namespace`; the independent client equivalents belong to
+`client/internal/namespace`. The current public role names expose those canonical types
+through aliases, rather than copying interfaces with incompatible callback signatures.
+Public `client.Socket` exposes the canonical manager-owned concrete socket. The two
+roles never alias each other. Handler reflection validates the actual canonical role
+identity; wrong-role callbacks remain rejected. The server connection package owns its
+queue/broadcast errors and the client connection package owns its distinct queue,
+server-only and connect-timeout errors; existing public variables retain those error
+identities. Constructor validation errors may remain with the public constructor.
+
+The private Engine.IO session package canonically owns server `Conn`, `CompressWriter`,
+`ReadyState`, `CloseReason`, `CloseError`, `IDGenerator` and `DefaultIDGenerator`; active
+`engineio` names alias those types/constants. The independent Engine.IO client contracts
+stay client-owned. `engineio.Abort` checks the exact private session concrete type and
+uses its immediate close; custom engines still receive ordinary `Close`, even if they
+have an unrelated `Abort` method. Server hooks are adapted explicitly before session
+startup; headers survive session hook replacement as today. No init bridge returns.
+Registry snapshots, first close cause/error wrapping, hook order and close bounds stay.
+
+The private packet codec canonically owns `FrameType`, `PacketType`, `Frame`, `Packet`,
+`FrameReader` and `FrameWriter`; the private payload codec owns its reader/writer
+contracts and encoder option type. Active public codec names alias these types, and
+public constructors/With functions delegate to their owner. This is the implementation
+of the current public component, not compatibility for retired import paths. Numeric
+values, text/binary/UTF-16 framing, OPEN JSON, streaming lease/error precedence and
+terminal failures stay unchanged. Canonical type package paths seen through reflection
+may change; source signatures, callback role identities and `errors.Is`/`errors.As`
+contracts at the active public entry points must continue to work. The migration guide
+owns that implementation-type note. No application imports an internal package.
+
+Tests follow these concrete owners. Before each extraction save function/benchmark and
+Covers inventories on merged master; its PR body records every changed package/function
+identity and all additional tests. Preserve all vectors/assertions, case/side markers,
+137 parity rows and public constructor behavior. The post-C4 baseline is 464 root-module
+test/benchmark identities and 236 Covers markers; later additive tests raise this baseline.
+Mixed fixtures are split without making actual public integration tests use mock servers.
+
+| Existing test group | Owner and required retained integration |
+| --- | --- |
+| `engineio/session_test.go`, `session_lifecycle_test.go`, `session_close_writable_test.go`, `session_state_test.go`, `session_manager_test.go`, `session_hooks_test.go`, `session_orderly_close_test.go`, `session_heartbeat_test.go` | Move their whitebox tests/helpers to `engineio/internal/session`. Preserve every close/upgrade/heartbeat/registry scenario. |
+| `engineio/session_log_test.go`, `session_id_random_test.go`, `header_observer_test.go`, `server_session_test.go`, other `server_*`, hooks/header/limits tests | Keep actual public engine/server/ID behavior in `engineio`, rename session-prefixed integration files by purpose. Use public connection methods or explicit private session methods already needed by the engine; preserve header replacement, attributes/causes and shutdown vectors. |
+| `engineio/parser/payload_length_test.go` | Move every test and benchmark to private payload; preserve boundary/error and length vectors. |
+| Private-field tables in `engineio/parser/payload_encoder_test.go`, `payload_decoder_test.go` | Move to private payload or express through the active public codec option/streaming API; constructor/default/override cases remain public. Their function identities and every table vector are retained. |
+| `engineio/parser/payload_vectors_test.go`, `payload_lifetime_test.go`, golden `testdata/payload.json`; packet/frame/fake/parameter tests and benchmarks | Keep public codec/constructor/fake/OPEN integration at `engineio/parser`; preserve all 13 golden vectors and terminal lease probes. Packet codec unit tests needing private state move to private packet with their identities; public fake/OPEN contracts remain exercised at their entry points. |
+| Root and client `namespace_handler_test.go`, `event_handler_test.go` | Move to the matching private namespace package, using test-only contract fakes instead of importing the parent. Preserve ACK parameter/reflection/panic/type-validation vectors; public wrong-role consumer fixtures remain public. |
+| Root `packet_handlers_test.go` and private queue/claim/seal assertions from `backpressure_test.go`, `packet_lifecycle_test.go`, `lifecycle_errors_test.go` | Put low-level connection tests in `internal/connection` with local test-only fake engine plus real namespace registry/adapter. Keep actual `Server` lifecycle/factory/broadcast/dynamic-namespace/metadata/close integration root. A mixed test keeps its public integration identity/marker and transfers private-state assertions to an additional internal case, with an explicit mapping and equivalent wire/callback/cleanup assertions. Do not drop a failing order, late ACK, queue/control slot or no-extra-packet vector. |
+| Client private generation/queue/packet/socket/reconnect/writable tests, including the state observations behind `client/export_test.go` | Move whitebox cases/helpers to `client/internal/connection`; these tests may use the public root server because server production does not import client. Keep actual public `client.New`/With/default/copy/option-order integration and tagged conformance at their public entry points. Remove the old writable test bridge rather than exposing its state in production. Preserve reconnect cancellation, late dials, buffering, ACK, namespace generations and transport readiness barriers. |
+
+Required typed boundaries include connection construction/start/completion and limits,
+namespace handler registration/copy/middleware/snapshots, and server pending broadcast
+emitter creation. Each owner keeps its synchronization and state transitions; do not
+replace atomic volatile admission or claimed-DISCONNECT sealing with independent checks
+across packages. External callbacks remain outside room/registry/shutdown locks. No
+compatibility constructor, retired import facade or root/client role bridge is added.
+
+The extraction order is I1 session, I2 codecs, I3 server internals, I4 client internals,
+each a separate PR after the preceding merge. This amendment changes only the roadmap
+and records its own change here instead of a changelog entry; entry/exit is the existing
+work-package section check and three independent roadmap reviews plus all executed CI
+successful. Implementation uses the common gate below without lowering coverage or
+parity obligations. C5 starts only after I1–I4 merge and verifies the entire final graph,
+all active public consumers and acceptance again. No MV1 acceptance is inferred from C4.
 
 Implementation PRs are sequential, each based on the preceding merged `master`.
 C2 and C3 are delivered in one atomic PR: the existing root/client aliases couple
@@ -607,6 +692,10 @@ a buildable head throughout the series without an interim compatibility bridge.
 | C3a | Functional options for public constructors with optional configuration; migrate all v1 consumers and owning API checks. Default/configured/ordered/independent-instance consumer and runtime checks pass. |
 | C3b | Remove process-terminating calls from library/examples and supervise example lifecycles. Source gate, explicit Engine.IO example build and failure-cleanup checks pass. |
 | C4 | Extract adapter and Redis; root uses generic adapter factory and optional close contract. Memory/Redis regressions and factory/shutdown tests pass, with root free of Redis dependencies. |
+| I1 | Extract the private Engine.IO session/registry/IDs and adapt server hooks/Abort/contracts; private session and actual public engine integration regressions pass. |
+| I2 | Extract private packet and payload codecs with canonical packet types; public codec constructors/options, 13 golden vectors and lease/failure regressions pass. |
+| I3 | Extract server connection and namespace responsibilities; preserve real public Server lifecycle/factories/dynamic views and atomic queue/close/ACK behavior. |
+| I4 | Extract client connection/manager and namespace responsibilities; preserve real public Client construction/options/reconnect/generations and remove the old test bridge. |
 | C5 | Final import-graph gate, complete migration guide and acceptance evidence. All final graph edges/package removals hold, examples and migration consumers compile, full MV1 acceptance is repeated. |
 
 All steps may update their affected v1 consumers/tests in root, `client/`, `adapter/`,
@@ -645,10 +734,10 @@ all steps; the normal three-iteration limit applies. No implementation delegatio
 
 The graph gate reads production `Imports` from each package object in the JSON stream
 returned by `go list -json ./...`; `GoFiles` contains filenames, not imports. It excludes
-`TestImports`/`XTestImports`, checks the package allowlist and transitive edges above, and
+`TestImports`/`XTestImports`, checks every allowed direct edge and the transitive role/codec exclusions above, and
 rejects unexpected runtime packages or retired imports. Failed listing, malformed or
 empty output and package errors fail the gate. Its tests exercise forbidden server/client,
-parser/session and Redis edges plus an allowed graph; at least one negative fixture runs
+parser/session and Redis edges, including edges through private component packages, plus an allowed graph; at least one negative fixture runs
 real `go list` with a forbidden production import and must fail. Test-only imports remain
 permitted. Consumer fixtures verify
 role-specific callback/connection types and external memory/Redis factory composition.

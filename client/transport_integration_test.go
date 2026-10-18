@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
-	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -81,13 +80,13 @@ func TestClientWebsocketUpgrade(t *testing.T) {
 					}
 				}
 			}()
-			t.Cleanup(func() { _ = srv.Close(); recv(t, peerDone, "peer reader exit") })
-			recv(t, ready, "Socket.IO CONNECT reply")
+			t.Cleanup(func() { _ = srv.Close(); receive(t, peerDone, "peer reader exit") })
+			receive(t, ready, "Socket.IO CONNECT reply")
 			cl.Emit("echo", "before or during upgrade")
-			require.Equal(t, "before or during upgrade", recv(t, echoed, "echo"))
+			require.Equal(t, "before or during upgrade", receive(t, echoed, "echo"))
 			if name == "default" {
 				deadline := time.Now().Add(5 * time.Second)
-				for !cl.conn.Conn.Upgraded() || server.Transport() != "websocket" {
+				for server.Transport() != "websocket" {
 					if time.Now().After(deadline) {
 						t.Fatal("both endpoints did not finish the upgrade")
 					}
@@ -95,52 +94,14 @@ func TestClientWebsocketUpgrade(t *testing.T) {
 				}
 			} else {
 				require.Equal(t, name, server.Transport())
-				require.Equal(t, name, cl.conn.Conn.Transport())
-				require.False(t, cl.conn.Conn.Upgraded())
 			}
 			want := "polling"
 			if name == "websocket" {
 				want = name
 			}
-			require.Equal(t, want, recv(t, handshake, "initial handshake transport"))
+			require.Equal(t, want, receive(t, handshake, "initial handshake transport"))
 			cl.Emit("echo", "after upgrade")
-			require.Equal(t, "after upgrade", recv(t, echoed, "later echo"))
+			require.Equal(t, "after upgrade", receive(t, echoed, "later echo"))
 		})
 	}
-}
-
-// A timed-out Dial can still return: its connection must be closed rather than attached.
-// Covers C4
-func TestClientTimeoutClosesLateConnection(t *testing.T) {
-	cl, err := New("http://unused/", WithTimeout(20*time.Millisecond))
-	require.NoError(t, err)
-	late := newFakeConn(t)
-	release, entered := make(chan struct{}), make(chan struct{})
-	cl.dial = func(string) (engineclient.Conn, error) { close(entered); <-release; return late, nil }
-	require.ErrorIs(t, cl.Connect(), ErrConnectTimeout)
-	recv(t, entered, "pending dial")
-	close(release)
-	recv(t, late.closed, "late connection discarded")
-	require.Nil(t, cl.conn)
-	require.NoError(t, cl.Close())
-}
-
-// A full application queue cannot consume the slot needed for a namespace DISCONNECT.
-// Covers C10
-func TestClientDisconnectWithFullQueue(t *testing.T) {
-	p := start(t, 'C', hooks{}, "/chat")
-	p.stall(t, p.nc, defaultWriteBufferSize)
-	require.NoError(t, p.cl.Socket("/chat").Close())
-	require.Equal(t, "/chat", recv(t, p.discs, "namespace close callback"))
-	require.NoError(t, p.cl.Close())
-	close(p.fc.release)
-	require.Equal(t, ev("first"), recv(t, p.fc.out, "in-flight packet"))
-	for i := 0; i < defaultWriteBufferSize; i++ {
-		require.Equal(t, ev("x", i), recv(t, p.fc.out, "queued event"))
-	}
-	require.Equal(t, "1/chat,", recv(t, p.fc.out, "namespace DISCONNECT after earlier events"))
-	require.Equal(t, "1", recv(t, p.fc.out, "root DISCONNECT"))
-	recv(t, p.fc.closed, "engine closed after controls drain")
-	require.Empty(t, p.errs)
-	require.Empty(t, p.fc.out)
 }

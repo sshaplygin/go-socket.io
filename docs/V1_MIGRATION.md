@@ -268,3 +268,24 @@ drain timeout. The public Server still owns acceptance, active connection tracki
 adapter factories, stable namespace views and shutdown. Public constructors and
 options, wire ordering, callback/error behavior and partial parent delivery remain
 as described at their active public entry points.
+
+## Private Socket.IO client ownership
+
+Continue importing `client` and using `client.New(addr, ...client.Option)` and
+its With options. The public constructor retains address validation, default
+resolution, option ordering and per-instance query/header/transport copies.
+`Client` delegates to its private manager; no application imports
+`client/internal/connection` or `client/internal/namespace`.
+
+Active `Conn`, `Namespace`, `Emitter`, `AckFunc` and `Handshake` names alias
+canonical client-role contracts in the private namespace owner. `client.Socket`
+aliases its canonical manager-owned socket. These contracts remain independent
+of the server; callback signatures, wrong-role rejection and `ErrWriteBufferFull`,
+`ErrServerOnly` and `ErrConnectTimeout` identities remain unchanged. Reflection's
+canonical package path or `%T` spelling may refer to the private components.
+
+The manager owns transport generations, buffered events, reconnect cancellation,
+observers and concrete namespace sockets together. Queue admission and ACK
+registration remain atomic; namespace disconnects, drain bounds, late dial cleanup,
+listener order and callbacks keep their existing behavior. There is no retired
+constructor/import facade or production accessor for private test state.

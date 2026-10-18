@@ -294,6 +294,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- client: private connection/manager and namespace packages own generations,
+  reconnect, queues/drain, ACK dispatch, concrete sockets, reflected handlers and
+  local rooms. Public client construction still resolves defaults, applies ordered
+  With options and copies mutable inputs; active role/socket aliases and distinct
+  error identities preserve source signatures. Private tests follow their owners
+  without the old writable test bridge or a duplicate current-connection cache.
+
 - socketio: server transport connections, namespace sockets, queue/drain, ACK and
   packet dispatch move to `internal/connection`; canonical role contracts and
   namespace registrations/listeners move to `internal/namespace`. The public

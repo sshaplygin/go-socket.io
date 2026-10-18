@@ -75,10 +75,12 @@ func TestForbiddenProductionImports(t *testing.T) {
 			t.Fatalf("role reached Redis dependency: %v", err)
 		}
 	}
-	graph := allowedGraph()
-	graph[fullPath("adapter")] = append(graph[fullPath("adapter")], "example.org/rooms")
-	if err := validateGraph(graph); err == nil || !strings.Contains(err.Error(), "standard-library") {
-		t.Fatalf("memory adapter accepted an external runtime dependency: %v", err)
+	for _, imported := range []string{"example.org/rooms", "localrooms"} {
+		graph := allowedGraph()
+		graph[fullPath("adapter")] = append(graph[fullPath("adapter")], imported)
+		if err := validateGraph(graph); err == nil || !strings.Contains(err.Error(), "standard-library") {
+			t.Fatalf("memory adapter accepted an external runtime dependency %s: %v", imported, err)
+		}
 	}
 }
 

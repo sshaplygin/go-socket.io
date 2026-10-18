@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/build"
 	"io"
 	"os"
 	"os/exec"
@@ -109,8 +110,11 @@ func validateGraph(graph packageGraph) error {
 			if local && !slices.Contains(allowed, dependency) {
 				return fmt.Errorf("forbidden production import: %s -> %s", path, imported)
 			}
-			if relative == "adapter" && (local || strings.Contains(strings.Split(imported, "/")[0], ".")) {
-				return fmt.Errorf("adapter requires standard-library dependencies only: %s", imported)
+			if relative == "adapter" {
+				dependency, err := build.Default.Import(imported, "", build.FindOnly)
+				if err != nil || !dependency.Goroot {
+					return fmt.Errorf("adapter requires standard-library dependencies only: %s", imported)
+				}
 			}
 		}
 	}

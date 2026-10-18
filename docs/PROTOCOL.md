@@ -65,7 +65,7 @@ server->>server: switch session to websocket
 server->>server: close old conn
 ```
 
-  Implemented in the private server session upgrade state machine (`engineio/session_upgrade.go`). If the client never sends `UPGRADE`, the
+  Implemented in `session.Session.upgrading`. If the client never sends `UPGRADE`, the
   paused polling connection is resumed.
 - Error responses are plain text with HTTP 400 (bad transport, bad sid) or 502
   (request checker or transport accept failure).

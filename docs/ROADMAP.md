@@ -358,6 +358,87 @@ Entry is V1-15 merged; exit is `make lint test test-race sync-check parity-check
 cover-check` green, three independent approvals and every executed CI job successful.
 This section records that coverage-gate PR, so it adds no changelog entry.
 
+**Structural rework before MV1 acceptance (owner decision, 2026-10-18; #116).**
+The owner returned MV1 for rework after V1-14: the files need a coherent organization
+and avoidable helper packages must go. This follow-up is outside the numbered package
+sequence. It starts from V1-14 on `master`, after this plan PR merges, and keeps H open
+until the owner accepts the resulting implementation. It does not reopen the completed
+functional packages or authorize a release, tag, version bump or v2 implementation change.
+
+Existing public import paths, root/client aliases, connection interfaces, protocol
+behavior and error identities stay compatible. In particular, public `engineio/frame`
+and `engineio/transport/utils` stay available; a small package is not deleted at the
+cost of breaking an existing import. No replacement shared runtime package is introduced.
+The root server, Go client, Engine.IO session, transports and codecs remain distinct
+owners of their state; the client still does not import the root or Redis.
+
+The implementation has two commits before review: remove the private bridges and their
+init-time function registration, then organize files without changing their algorithms.
+Each subsequent review finding has its own commit. The two commits squash together on
+merge under the normal PR rule. Allowed paths are root `*.go`, `client/`, `engineio/`,
+`internal/engineclose/` (deletion only), `.github/sync-manifest`, `CLAUDE.md`, root
+`CHANGELOG.md`, this rework section and the current bridge/closure descriptions that it
+supersedes below. `docs/PARITY.md` may update evidence filenames for moves only: no row,
+status, marker or plan entry is removed. `_examples/`, other `.github/` files, module
+manifests, `v2/`, `README.md` and unrelated roadmap sections are outside this follow-up.
+
+The concrete session owns immediate close operations: add `(*session.Session).Abort()
+error` for forced close and `Shutdown() error` for server shutdown. Both call the existing
+close-mode implementation, preserving the first close cause, once-only hooks, issued
+reader/writer errors and immediate interruption of an orderly close. `Session.Close`
+retains orderly polling drain. Root forced-close paths type-assert `*session.Session`
+and call `Abort`; other engine implementations still receive their ordinary `Close`.
+Engine.IO server shutdown calls `Shutdown` directly. Add an optional
+`Headers func(*http.Request, http.Header)` field to the existing `session.Hooks`, installed
+through `SetHooks` before session startup; response observation uses it with the same
+ordering and first-response behavior. These two concrete methods and the hook field
+are the only API additions. No method is added to a connection interface.
+
+Delete `internal/engineclose` and `engineio/internal`: neither a global function variable
+nor an `init` bridge remains. Remove the obsolete shutdown pair from the sync manifest,
+with `sync-check left out: engineio/internal/shutdown.go: v1 uses direct session shutdown`
+in the PR body. Its v2 copy stays untouched under D14. Rename the two session manager/id
+manifest paths to their new root filenames; their bodies and v2 counterparts stay equal.
+
+Source organization (a row with several old files consolidates them; tests move with the
+corresponding responsibility and keep their function names and Covers markers):
+
+| Owner | Source organization |
+| --- | --- |
+| Shared connection API | Move `Conn`, `Namespace`, `Emitter`, `AckFunc` and `Handshake` declarations to `client/types.go`, and root aliases to root `types.go`. Leave feature configuration and concrete types beside their implementation. |
+| Socket.IO server | `server.go` owns server lifecycle/configuration; its connection worker loops move to `connection_serve.go`, matching `client/connection_serve.go` (renamed from `serve.go`). |
+| Packet/event dispatch | Root and client `connection_handlers.go` become `packet_handlers.go`; `handler.go` becomes `event_handler.go`. |
+| Namespace state | In root and client, `namespace_conn.go` and `namespaces.go` join `namespace.go`; `namespace_handlers.go` joins `namespace_handler.go`. Namespace formatting/constants belong here, not in the deprecated client wrapper. |
+| Redis | Keep Redis logic/options together; replace the UUID-only `helpers.go` wrapper with `uuid.NewString` at its Redis call sites. |
+| Engine.IO connection API | `connect.go`, `compress.go`, `state.go` and `close_error.go` join `conn.go`. `server_options.go` and `types.go` join `options.go`. |
+| Session | `types.go` holds the frame/state/close-reason declarations from `base.go`, `state.go` and `close_error.go`; state getters stay with session metadata. `close.go` owns close causes and close operations; `upgrade.go` owns the upgrade state machine. `session.go` retains construction, metadata and frame I/O. |
+| Session registry/IDs | `session_manager.go` and its test become `manager.go`/`manager_test.go`; `session_id_generator.go` becomes `id_generator.go`. |
+| Packet test fakes | The four `engineio/packet/fake_*.go` files join `fake.go`; exported constructors and their inferred return types remain usable. |
+
+The implementation PR has a changelog entry and updates the v1 layout/file ownership in
+`CLAUDE.md`, including deletion of the private bridge row. Historical pre-restructure
+maps remain historical; the current V1-8 close contract and Stage 7 dependency closure
+are updated where they still describe the retired bridges. No generic `helpers` or
+`utils` package is added to replace them.
+
+Entry evidence is V1-14 merged and the plan PR merged, with a clean implementation branch
+from that `master`. Before moving files, save the existing exported API, test/benchmark
+names and `(Covers ID, side)` pairs. Exit requires no removed public declaration or
+signature change, only the two session methods and hook field added above, no lost test
+or marker, no remaining retired package imports/directories or init bridges, an acyclic
+`go list ./...`, and the Stage 7 client dependency rule. Run `make lint test test-race
+sync-check`, `PARITY_STRICT=1 make parity-check`, `make cover-check` with the floor and API
+ceiling unchanged, both pinned-client conformance runs, and the full MV1 DoD on the saved
+head. Close regressions cover immediate abort/shutdown during orderly drain, first-cause
+preservation, once-only hooks, and custom-engine Close fallback; header regressions cover
+initial/subsequent responses and hook ordering. Existing tests are reused for moves;
+focused tests are added only where these direct boundaries lack behavior coverage.
+Three independent approvals and every executed CI job successful are required for merge.
+Repeat the full MV1 DoD, both conformance clients, unchanged browser pages and real Node
+restart acceptance on merged `master`; then return MV1 to the owner for acceptance.
+This plan-only PR runs the existing work-package section checks and normal CI; the new
+implementation exit checks above apply to the implementation PR, not to the plan itself.
+
 **Entry.** `bash`, from the repository root; `entry <PR>` exits 0 when that PR may start.
 Every check of an arm but its last ends in `|| return 1`, and `entry` runs in a subshell, so
 its result does not rest on `set -e` (which bash ignores inside `if`, `&&` and `||`) and the

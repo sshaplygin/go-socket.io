@@ -321,8 +321,10 @@ func (d *decision) path(status, name string, before, after []byte) {
 			return
 		}
 		m.experiments = true
-		// make vuln of lint-v2 runs govulncheck in every _experiments/*/ module.
-		if vulnInput(rel) {
+		// make vuln of lint-v2 runs govulncheck in every _experiments/*/ module; its result
+		// depends on the code that reaches a vulnerable symbol as well as on the module
+		// files. Comments and formatting are checked by make experiments alone.
+		if vulnInput(rel) || (isGo && !sameTokens(before, after, test)) {
 			d.lint(mod, name)
 		}
 		d.note("%s: experiments (%s)", mod, name)

@@ -204,8 +204,10 @@ the diff reaches something it checks:
   byte-compared copy (`chat.go`, `lifecycle.go`), and one of a v2 example runs nothing
   (no job compiles the v2 examples until 2.5D). Any change of an experiment runs
   `experiments-v2`, the only golangci-lint run of those modules. The `go.mod` or `go.sum`
-  of a v1 `_examples/*/` or a v2 `_experiments/*/` module also runs the lint job of its
-  module, whose `make vuln` scans that module with govulncheck. A code change of a v1
+  of a v1 `_examples/*/` or a v2 `_experiments/*/` module, and a Go code change (not
+  comments or formatting) of an experiment, also run the lint job of its module, whose
+  `make vuln` scans that module with govulncheck (its result depends on the code that
+  reaches a vulnerable symbol, not only on the module files). A code change of a v1
   example also runs `gates-v1` (`internal/parity` scans every non-test Go file of the
   tree). A v1 non-test code change also builds the v1 examples and runs `conformance`.
 - A full run of a module is every job of that module with `./...`. It is started by

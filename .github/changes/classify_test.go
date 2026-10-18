@@ -317,8 +317,12 @@ func TestClassify(t *testing.T) {
 		}, want: lintV2},
 		{name: "v2 example copy", edit: map[string]string{"v2/_examples/x/chat.go": "package main\n\nfunc chat() { println() }\n"},
 			want: with(map[string]string{"examples_v2": "true"})},
+		// A code change of an experiment also runs lint-v2: make vuln scans the experiment
+		// modules, and what reaches a vulnerable symbol depends on the code.
 		{name: "v2 experiment", edit: map[string]string{"v2/_experiments/e/e.go": "package e\n\nfunc E() { println() }\n"},
-			want: with(map[string]string{"experiments_v2": "true"})},
+			want: with(map[string]string{"v2": "true", "experiments_v2": "true"})},
+		{name: "v2 experiment file added", edit: map[string]string{"v2/_experiments/e/f.go": "package e\n\nfunc F() {}\n"},
+			want: with(map[string]string{"v2": "true", "experiments_v2": "true"})},
 		{name: "v2 experiment module file", edit: map[string]string{"v2/_experiments/e/go.mod": "module example.com/e\n\ngo 1.23\n"},
 			want: with(map[string]string{"v2": "true", "experiments_v2": "true"})},
 		{name: "v2 example module file", edit: map[string]string{"v2/_examples/x/go.mod": "module example.com/x\n\ngo 1.23\n"},

@@ -727,15 +727,24 @@ are identified as such, rather than treated as current compatibility promises.
 The common implementation gate is `make lint test test-race sync-check`,
 `PARITY_STRICT=1 make parity-check`, `make cover-check` (unchanged floor 91.7 and API ceiling
 0), full conformance with each pinned Socket.IO client 1.7.4 and 2.5.0, and the current full
-MV1 DoD. Removed sync-manifest pairs are listed individually in the PR body as
+MV1 DoD. From C5 onward the common gate also includes `make architecture-check`.
+Removed sync-manifest pairs are listed individually in the PR body as
 `sync-check left out: <path>: <reason>`; unchanged pairs remain checked, v2 copies untouched.
 Three independent approvals and every executed CI job successful are required to merge
 all steps; the normal three-iteration limit applies. No implementation delegation.
 
 The graph gate reads production `Imports` from each package object in the JSON stream
-returned by `go list -json ./...`; `GoFiles` contains filenames, not imports. It excludes
+returned by `go list -json ./...`; `GoFiles` contains filenames, not imports. Production
+`Deps` also checks the allowed inventory and role/codec exclusions through external
+modules, whose objects are not
+listed by `./...`. It excludes
 `TestImports`/`XTestImports`, checks every allowed direct edge and the transitive role/codec exclusions above, and
-rejects unexpected runtime packages or retired imports. Failed listing, malformed or
+rejects unexpected runtime packages or retired imports. `make architecture-check` runs
+the graph tests and checker from `.github/architecture/`; the v1 lint CI job invokes
+it and includes the checker in vet/lint. All v1 platform/toolchain test jobs repeat
+the graph fixtures and checker for their conditional production imports. Its executable
+policy is checked against this section's single owning graph table. The gate also rejects retained retired
+paths, including the removed writable test bridge. Failed listing, malformed or
 empty output and package errors fail the gate. Its tests exercise forbidden server/client,
 parser/session and Redis edges, including edges through private component packages, plus an allowed graph; at least one negative fixture runs
 real `go list` with a forbidden production import and must fail. Test-only imports remain

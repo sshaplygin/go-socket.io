@@ -294,6 +294,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- build: enforce the final v1 component graph in CI, with 12 public packages and
+  seven private implementation owners. Forbidden role/codec/Redis dependencies,
+  unexpected runtime packages, incomplete listings and retired paths fail the gate.
+  Negative fixtures include a forbidden production import measured by real go list;
+  the migration guide shows the complete component layout and active entry points.
+
 - client: private connection/manager and namespace packages own generations,
   reconnect, queues/drain, ACK dispatch, concrete sockets, reflected handlers and
   local rooms. Public client construction still resolves defaults, applies ordered

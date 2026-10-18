@@ -123,6 +123,8 @@ Existing v1 applications, custom adapters and mocks should read the
 [Unreleased behavior changes](CHANGELOG.md#changed) before upgrading: public
 interfaces gained methods, and heartbeat, namespace identity, disconnect, CORS,
 polling compression and cookie defaults changed.
+The guide maps public components to their private owners; `make architecture-check`
+enforces these boundaries in CI.
 
 ## Contributing
 

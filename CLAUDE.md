@@ -199,12 +199,18 @@ the diff reaches something it checks:
   that module with govulncheck. A code change of a v1 example also runs `gates-v1`
   (`internal/parity` scans every non-test Go file of the tree). A v1 non-test code change
   also builds the v1 examples and runs `conformance`.
-- `go.mod`, `go.sum`, `testdata/`, a build-constraint change, a module `Makefile` or
-  `.golangci.yml`, `ci.yaml`, `.github/architecture/`, `.github/coverage/`, the classifier,
-  any other file and a change that cannot be attributed to a package (a deleted package)
-  run every job of the module.
-- `sync-check` runs when the manifest, a file it names, the root `Makefile` or `ci.yaml`
-  changes.
+- A full run of a module is every job of that module with `./...`. It is started by
+  `go.mod`, `go.sum`, `go.work` or `go.work.sum` of the module, a file under `testdata/`, a
+  build-constraint change, a change that cannot be attributed to a package (a deleted
+  package), a file or directory no other rule classifies (such as `LICENSE`, or a directory
+  starting with `_` or `.` other than `_examples/` and `_experiments/`), a `v1`
+  `_experiments/` path, and the module's `Makefile` or `.golangci.yml`; for v1 also by
+  `.github/architecture/` and `.github/coverage/`; for both modules by `ci.yaml`, the
+  classifier `.github/changes/` and any other `.github/` file. `.github/dependabot.yml`
+  runs nothing; `benchmarks.yml` and `.github/benchmarks/` run no CI job, only every
+  benchmark of both modules.
+- `sync-check` runs when `.github/sync-manifest`, a file it names, the root `Makefile`,
+  `ci.yaml`, the classifier or any other `.github/` file of the full-run rule changes.
 
 Jobs are skipped with a job-level `if`, never a workflow `paths` filter, so the required
 checks report: a skipped `sync-check` reports success, and the required `conformance`
@@ -238,8 +244,9 @@ one Ubuntu runner with the same stable Go toolchain. Each side runs, ten times i
 file, the benchmarks of the packages the classifier selects for the whole PR (merge base to
 head): the packages with Benchmark functions among those a code change reaches, a package
 whose test change declares a benchmark or a declaration its benchmarks reach, and every
-package for `go.mod`, `go.sum`, `testdata/`, the benchmark workflow or tooling and the
-classifier. The base drops the selected packages that have no benchmark there; when none is
+package of a module on a full run of it, except a full run started only by `ci.yaml`, the
+module's `Makefile` or `.golangci.yml`, `.github/architecture/` or `.github/coverage/`;
+`benchmarks.yml` and `.github/benchmarks/` select every package of both modules. The base drops the selected packages that have no benchmark there; when none is
 left, both sides run every benchmark (the base `v2/` run is skipped when the base has no
 `v2/go.mod`);
 pinned `benchstat` reports timing and allocation deltas in the job summary, a

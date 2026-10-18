@@ -294,6 +294,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Tests follow their implementation owners: client construction/compression scenarios
+  live in `client`, Engine.IO Abort fallback in `engineio`, and server lifecycle
+  integration in the root package. Duplicate server/client integration copies are
+  removed while retaining their scenarios, assertions and parity evidence.
+
 - build: enforce the final v1 component graph in CI, with 12 public packages and
   seven private implementation owners. Forbidden role/codec/Redis dependencies,
   unexpected runtime packages, incomplete listings and retired paths fail the gate.

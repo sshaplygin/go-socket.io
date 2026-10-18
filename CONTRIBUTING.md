@@ -23,6 +23,16 @@ planned and in which order: [docs/ROADMAP.md](docs/ROADMAP.md).
    use "Rebase and merge", which needs the repository setting "Allow rebase merging"
    and adds no merge commit; the commit SHAs change, so the roadmap's gates read
    `master`, not the PR branch.
+6. A bug fix is test first. The PR's first commit adds only the tests that show the bug,
+   each under the `// Covers <ID>` marker of its `docs/PARITY.md` row when it has one, and
+   they fail on that commit with an assertion failure or a panic, not a build error; a later
+   commit of the same PR fixes the code and makes them pass. The PR body names that commit
+   (`red commit: <sha>`) and each test (`fails without the fix: <TestName>`). This is how
+   "a test for each fix" (item 3) and "every fix carries a test that fails without it"
+   ([CLAUDE.md](CLAUDE.md), *Conventions*) are shown: the PR body and the PR's commit list
+   keep the evidence after the squash merge, the CI run of the first commit is expected to be
+   red, and the check is the `tdd` helper of [docs/ROADMAP.md](docs/ROADMAP.md) (Stage V1,
+   *Wave V1G*), run on the PR head before the merge.
 
 ## Work packages
 

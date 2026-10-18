@@ -1,6 +1,6 @@
 # Roadmap
 
-Scope approved: 2026-09-28. Updated: 2026-10-10. Owner: Sam Shaplygin.
+Scope approved: 2026-09-28. Updated: 2026-10-18. Owner: Sam Shaplygin.
 
 This file owns scope, dependencies, implementation contracts and release gates.
 Current implementation: [PROTOCOL.md](PROTOCOL.md). Completed changes:
@@ -27,14 +27,14 @@ The other prepared experiments are listed in Stage 2 *Prepared components*.
 | --- | --- | --- |
 | Core | Own Engine.IO/Socket.IO core; no dependency on or rebase onto `zishang520/socket.io` | 2.0–2.3 |
 | Protocol | v2 supports Engine.IO v4 / Socket.IO protocol v5; old clients (Engine.IO v3 / Socket.IO v4) use the v1 module at the repository root | 2.1, 2.3 |
-| API | Generic `Event[T]` / `AckEvent[T, R]` from the first v2 implementation; explicit raw escape hatch; no reflection-based dispatch | 2.0, 2.3 |
+| API | Generic `Event[T]` / `AckEvent[T, R]` from the first v2 implementation; explicit raw escape hatch; no reflection-based dispatch. v1 gets the same typed surface as additive generic functions over its reflective dispatcher before `v1.5.0` (D18, 2026-10-18) | 2.0, 2.3; V1-29 (v1) |
 | Modules | v1 is the repository root module `github.com/sshaplygin/go-socket.io`, independent of the upstream module; v2 is the module in `v2/`, `github.com/sshaplygin/go-socket.io/v2`; adapters and contrib are separate modules under `v2/` | 2.5, 4b, 5 |
 | Go | Go 1.22 minimum for runtime modules; compatible dependencies pinned and minimum tested; build tools may use stable Go | Stage 1 DoD, 2.5 |
 | Transport | `gobwas/ws` + `wsutil` on server and client; standard `http.Handler` integration | 2.1 |
 | Brokers | Redis `go-redis/v9`, Node non-sharded adapter wire compatibility; NATS core pub/sub, no JetStream | 4b |
 | Logging | Application `slog.Handler` through an injected logger; instance routing, process-wide level override | 1.L (v1 records), 2.4 |
 | Observability | Nil-able hooks and logging in the root package of the v2 module; OTel bridge in `v2/contrib/otel`; no OTel dependency in the v2 module | 2.4 |
-| Admin UI | Required final product stage, separate `v2/contrib/admin`, unchanged official UI; commands disabled by default | 5 |
+| Admin UI | Required final product stage, separate `v2/contrib/admin`, unchanged official UI; commands disabled by default; not in v1 (D19, 2026-10-18) | 5 |
 | Benchmarks | Final comparative campaign after all product features: our v2, existing Go and official JS/TS implementations | 6 |
 | Client packages | Go client as its own package on both lines: v1 gets `client` in the repository-root module inside Stage V1 (2026-10-10 replaces "scheduled last"); the 2026-10-18 component decision removes root wrappers/aliases and uses independent role contracts before MV1 acceptance; v2 keeps `client/` in the v2 module, scheduled last, no separate `go.mod` | 2.3C (v2), V1 and 7 (v1) |
 | Documentation | English; each contract has one owner; other sections refer to it | CLAUDE.md |
@@ -167,6 +167,7 @@ workers submit changes to these files through that integrator.
 | V1D | V1C | V1-9, then V1-10, then V1-11 (`client/`, root `client.go`, `connection.go`, and for V1-10 `engineio/client.go`, the engine client's close reasons and the upgrade probe, `engineio/dialer.go`, `Dialer.Upgrade` and `UpgradeTimeout`, `engineio/transport/polling/connect.go`, the polling client's part of the probe (no exported identifier), and the new `engineio/client_upgrade_test.go`, none of them a SYNC manifest file, `### V1-10 contract`; for V1-11 the same two `engineio/` files again, `Dialer.OnPing` and `OnPong` and their calls in the engine client, `### V1-11 contract`); beside them V1-19 (new files under `internal/conformance` and its `testdata/node`, no workflow edit) | Stage 7 DoD, then per-PR DoD; the V1-19 block |
 | V1E | V1D (V1-12 may start after V1-8) | V1-12 and V1-13, one directory per example; beside them V1-15 (needs V1-2, V1-6 and V1-11: `engineio` options and handshake, `engineio/transport/websocket`, `engineio/transport/polling`, the new `engineio/transport/compress.go`, `engineio/session` (`Session.NextWriterCompress`, the `SetSessionID` call of `session.New`), `engineio/client.go` (the engine client's `NextWriterCompress`), the root emit and broadcast flags and its queue element, `client/`, new files under `internal/conformance`; `parser` is unchanged). The V1-12 author integrates the wave's shared files (`Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md`): V1-13's `Makefile` edit merges after V1-12, and V1-15 edits none of them, since `make conformance` already runs every tagged test of `internal/conformance` | `make examples`, then `examples-node` once per gate client (the two lines of the per-PR checks of V1-12 and V1-13); the per-PR DoD and the V1-15 block (Stage V1) |
 | V1F | V1E | V1-14 release preparation, no tag | MV1 DoD and Acceptance (Stage V1) |
+| V1G | V1F; MV1 reopened by the review of 2026-10-18 and D18 (Stage V1, *Wave V1G*) | the fixes of the review in severity order: A (V1-22 to V1-25 and V1-27: root `*.go`, `internal/connection`, `internal/namespace`, `parser`, `adapter`) beside B (V1-21, V1-26: `engineio/`), no common file in this wave; then D (V1-28, V1-29: `client/`, `engineio/client`, the client dial of the transports, new root typed-API files), whose `### V1-28 contract` and `### V1-29 contract` merge before their entry; then A's V1-30 beside B's V1-31; every `BUG` row test first | per-PR DoD with the `tdd` check of *Wave V1G*; then the MV1 DoD and Acceptance again |
 | SY | row R step C passed | the PR SYNC (Stage V1, *Shared-file drift check*): root `Makefile`, `.github/workflows/ci.yaml`, `.github/sync-manifest`, `CLAUDE.md`; it runs beside V1A or V1B, whose PRs are not planned to edit those files, and never beside V1C or V1E, which edit `ci.yaml` and the `Makefile` | the SYNC DoD; the `sync-check` job green on `master` |
 | 2B | G2, row R merged (its step C passed), MV1 accepted and SYNC merged | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
 | 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets`); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
@@ -198,7 +199,7 @@ replace unresolved findings with optimistic estimates.
 
 The PRs of Stage V1 grouped so that one taker, a person or an agent, can hold a package
 without reading the whole roadmap; V1-0 (#70) and V1-1 (#69) have merged. Derived from the
-wave rows V1A to V1F and SY above, the PR table and the contracts of Stage V1 and its
+wave rows V1A to V1G and SY above, the PR table and the contracts of Stage V1 and its
 *Shared-file drift check*: those stay the owners of order, scope and file lists, and a
 contradiction is fixed there first. Taking, handing over and reviewing a package:
 [CONTRIBUTING.md](../CONTRIBUTING.md#work-packages). When a PR may start is decided only by
@@ -209,10 +210,10 @@ arm), and the definition of `S` under *Beside* says why two packages never run t
 | Package | PRs in order | Waves | Integrates | Exit gate |
 | --- | --- | --- | --- | --- |
 | SY | SYNC | SY | its four files | the SYNC DoD; `sync-check` green on `master` (feeds the 2B entry, no MV1 line) |
-| A | V1-3, V1-4, V1-5, V1-6, V1-7 | V1B | root Go files and `parser`, and in V1B the root hunks and `CHANGELOG.md` entries of B (row V1B) | per PR the Stage V1 DoD with `N`; V1-4 and V1-7 their `s4p` arm, V1-6 the `V6` count; MV1: no open row; the `### Changed` entries of its PRs are H's (V1-14 row) |
-| B | V1-1 (merged, #69), V1-2, V1-16, V1-17, V1-18 | V1A, V1B | `engineio/` (V1-4's files while V1-4 is open are A's) and the `v2/` copies of the manifest files it changes | per PR the Stage V1 DoD; V1-2 the `TestPingTimeoutIdleClient` count and the `v1p` lines; V1-17 the `E17` count; MV1: no open row; the `### Changed` entries of its PRs are H's (V1-14 row) |
+| A | V1-3, V1-4, V1-5, V1-6, V1-7, V1-22, V1-23, V1-24, V1-25, V1-27, V1-30 | V1B, V1G | root Go files and `parser`, and in V1B the root hunks and `CHANGELOG.md` entries of B (row V1B) | per PR the Stage V1 DoD with `N`; V1-4 and V1-7 their `s4p` arm, V1-6 the `V6` count; in V1G the `tdd` check, V1-30 its `D19` heading line; MV1: no open row; the `### Changed` entries of its V1B PRs are H's (V1-14 row), those of V1G its own |
+| B | V1-1 (merged, #69), V1-2, V1-16, V1-17, V1-18, V1-21, V1-26, V1-31 | V1A, V1B, V1G | `engineio/` (V1-4's files while V1-4 is open are A's) and the `v2/` copies of the manifest files it changes | per PR the Stage V1 DoD; V1-2 the `TestPingTimeoutIdleClient` count and the `v1p` lines; V1-17 the `E17` count; in V1G the `tdd` check; MV1: no open row; the `### Changed` entries of its V1A and V1B PRs are H's (V1-14 row), those of V1G its own |
 | C | V1-8, V1-20 | V1C | `.github/`, `Makefile`, `CLAUDE.md` in V1C (row V1C) | V1-8: the DoD and `conformance` green; V1-20: its fence and the `parity-check cover-check` step green; MV1: the `socket.io-client@` greps, `PARITY_STRICT=1 make parity-check`, `make cover-check` |
-| D | V1-9, V1-10, V1-11 | V1D | root Go files and `client/` in V1D | V1-9: Stage 7 DoD and Acceptance; V1-10, V1-11: the DoD and the Go-client step of `conformance` green; MV1: `cl Added` with `go-socket.io/client`, no open row, the Go-client line of the Acceptance |
+| D | V1-9, V1-10, V1-11, V1-28, V1-29 | V1D, V1G | root Go files and `client/` in V1D and V1G | V1-9: Stage 7 DoD and Acceptance; V1-10, V1-11: the DoD and the Go-client step of `conformance` green; V1-28, V1-29: the DoD, the `tdd` check and `conformance` green; MV1: `cl Added` with `go-socket.io/client`, no open row, the Go-client line of the Acceptance |
 | E | V1-19 | V1D | none | the V1-19 fence (twelve names, `-list`, 24 passes) and `conformance` green; MV1: the `TestDifferential` line |
 | F | V1-12, V1-13 | V1E | `Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md` in V1E (the V1-12 author, row V1E) | per PR the DoD, `make examples` and the `examples-node` loop; MV1: those two lines, the four `go.mod`, `client.js` and `index-1.7.html` lines, the `CONFORMANCE_NODE_MODULES` and `examples-node` greps |
 | G | V1-15 | V1E | none (row V1E: no `Makefile`, workflow or `CLAUDE.md` edit) | the DoD, the `V15` and `V15C` counts, `conformance` green; MV1: no open row; the `### Changed` entries of its PR are H's (V1-14 row) |
@@ -224,13 +225,17 @@ ending in `/` is a directory and everything under it, `*.go` the Go files direct
 directory (`*.go` alone: the repository root's, test files included). Besides its set,
 every package edits, by row only: the `docs/PARITY.md` rows whose `Plan` names its PR, its
 own entries under `## Unreleased` of `CHANGELOG.md` (through A in V1B, through H once H is
-`taken`); the registry below is the coordinator's, never a package's. Narrower than the set: A edits `engineio/` only in
+`taken`; in V1G, where H is `done`, each PR writes its own); the registry below is the coordinator's, never a package's. Narrower than the set: A edits `engineio/` only in
 V1-4 (the close error of `engineio/session`, its aliases in one new `engineio/*.go` file,
 `Writable` in `engineio/client.go` and the two transports); B's root files are V1-16's
 (`Server.Engine`, the fakes of `backpressure_test.go` and `log_test.go`), its `v2/` files the
 two mirrors of *Shared-file drift check*, its `docs/PROTOCOL.md` lines V1-2's; A's are
 V1-4's and V1-7's, G's V1-15's, H's the two deviation headings; D's root files are those of
-row 7A and the root tests Stage 7 splits. V1-10 also updates the root
+row 7A and the root tests Stage 7 splits, and in V1G the new typed-API files of V1-29 (`### V1-29 contract`).
+In V1G, A's set is used only for root `*.go`, `internal/connection/`, `internal/namespace/`,
+`parser/`, `adapter/` and V1-30's line of `docs/PROTOCOL.md`; B's only for `engineio/` without
+`engineio/client/`; D's only for `client/`, `engineio/client/`, `engineio/transport/polling/connect.go`,
+`engineio/transport/websocket/transport.go` and V1-29's root files. V1-10 also updates the root
 `lifecycle_errors_test.go` client fixture to wait for the server's root CONNECT
 and its `TestClientEventAndDisconnect` to assert the contract's disconnect reason.
 
@@ -246,6 +251,9 @@ A|engineio/session/
 A|engineio/transport/polling/
 A|engineio/transport/websocket/
 A|docs/PROTOCOL.md
+A|internal/connection/
+A|internal/namespace/
+A|adapter/
 B|engineio/
 B|v2/engineio/session/id_generator.go
 B|v2/engineio/session/manager.go
@@ -273,6 +281,8 @@ D|engineio/client.go
 D|engineio/dialer.go
 D|engineio/client_upgrade_test.go
 D|engineio/transport/polling/connect.go
+D|engineio/client/
+D|engineio/transport/websocket/transport.go
 D|internal/conformance/goclient_test.go
 D|internal/conformance/testdata/node/server/goclient-server.js
 D|CLAUDE.md
@@ -312,7 +322,8 @@ manifest file; H no Go file. A path outside the set is a plan change (CONTRIBUTI
 directory), so the two run at the same time and merge in either order (the DoD below checks
 both), though an entry may still wait for a PR of the other (V1-13 for V1-19 of E); `O`: they may run at the same time but share paths or a Go package, merged in the
 order of the next table; `S`: never at the same time (an entry needs the other's exit, or, for SY, the SYNC arm
-of *Entry*, as the paragraph after the next table derives it from row SY).
+of *Entry*, as the paragraph after the next table derives it from row SY; in wave V1G, A and B
+beside D, per PR: *`S` in wave V1G* below).
 
 | Beside | SY | A | B | C | D | E | F | G | H |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -328,10 +339,20 @@ of *Entry*, as the paragraph after the next table derives it from row SY).
 
 | `O` pair | Shared paths | Order |
 | --- | --- | --- |
-| A, B | V1-4's `engineio/` files; `server.go`, `backpressure_test.go`, `log_test.go`; `docs/PROTOCOL.md` (other lines) | V1-2 merges before V1-3 starts and V1-4 before V1-16 starts (wave V1B); B's root hunks and `CHANGELOG.md` entries in V1B go through A |
+| A, B | V1-4's `engineio/` files; `server.go`, `backpressure_test.go`, `log_test.go`; `docs/PROTOCOL.md` (other lines) | V1-2 merges before V1-3 starts and V1-4 before V1-16 starts (wave V1B); B's root hunks and `CHANGELOG.md` entries in V1B go through A; in V1G the two edit no common file (row V1G) and merge in either order, each with `master` merged in |
 | C, F | `Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md` | V1-12 starts after V1-8 and merges after V1-20 (V1C before V1E) |
 | D, E | the Go package `internal/conformance` under tag `conformance`: `goclient_test.go` (V1-10, V1-11) and `differential_test.go` (V1-19), both written against V1-8's helpers, so a top-level name can collide | whichever of V1-10, V1-11 and V1-19 merges after another of them merges with `master` merged in and `make conformance` green on that head (the `conformance` job) |
 | D, F | `CLAUDE.md`; `_examples/` (D only `_examples/client/`) | V1-9 merges before V1-12 (V1D before V1E), and V1-12 merges with that `master` merged in and `make examples` (the `examples-v1` job) green on that head |
+
+**`S` in wave V1G.** A and B have PRs before and after D's in V1G, so there the `S` cells of
+A–D and B–D hold per PR, not per package exit, and the entry arms enforce it: V1-28 starts only
+after A's V1-27 and B's V1-26 have merged, which by the arms of A and B in order is every
+earlier V1G PR of both, and A's V1-30 and B's V1-31 start only after D's V1-29 has merged; so
+no PR of A or B is in flight while one of D is. In the registry, A and B stay `taken` with their
+last merged PR (V1-27, V1-26) while D runs, as B stayed while V1-16 waited for V1-4
+(CONTRIBUTING.md, *Taking and handing back*); D is set `taken` once V1-28's entry passes and
+`done` once V1-29 has merged. No gate reads the `taken` of
+A, B or D as started.
 
 An integrator acts only while its package is `taken`. When the integrating package is `open`
 or `done` (A done before B's V1-16 to V1-18, or A without a taker), the worker's PR integrates
@@ -828,6 +849,14 @@ V1-12) wave 8 || return 1; grep -q '^  conformance:' .github/workflows/ci.yaml |
 V1-13) wave 10 11 || return 1; test -f client/client.go || return 1; test -f internal/conformance/differential_test.go || return 1; test -f _examples/ack/go.mod -a -f _examples/binary/go.mod || return 1; sy;;   # entry of V1E, after V1-12
 V1-15) wave 10 11 || return 1; test -f client/client.go || return 1; test -f internal/conformance/differential_test.go || return 1; sy;;   # entry of V1E
 V1-14) wave 15 || return 1; grep -qE '^API_UNCOVERED_MAX *[:?]?= *0$' Makefile || return 1; test -f _examples/ack/go.mod -a -f _examples/binary/go.mod -a -f _examples/namespaces/go.mod -a -f _examples/middleware/go.mod || return 1; for k in A B C D E F G; do test "$(st $k)" = done || return 1; done;;   # entry of V1F
+V1-21|V1-22) wave 2 3 4 5 6 7 10 11 15 16 17 18;;   # entry of V1G: every earlier PR with rows is done
+V1-23|V1-24|V1-25) wave $((${1#V1-} - 1));;   # A in order
+V1-26) wave 21;;   # B in order
+V1-27) wave 25;;
+V1-28) wave 26 27 || return 1; grep -q '^### V1-28 contract' docs/ROADMAP.md;;   # D after A's and B's first PRs of V1G; its ADD row needs the contract
+V1-29) wave 28 || return 1; grep -q '^### V1-29 contract' docs/ROADMAP.md;;   # the typed API (D18)
+V1-30) wave 27 29;;
+V1-31) wave 26 29;;
 *) echo "no PR $1" >&2; return 1;;
 esac; )
 ```
@@ -859,12 +888,17 @@ item 3, asks the roadmap to name).
 | G | done | - | `v1-g/` | #109 (V1-15) |
 | H | done | - | `v1-h/` | #132 (C5) |
 
+Wave V1G adds PRs to A, B and D after their rows were set `done`. This roadmap PR does not
+edit the registry: the coordinator sets those rows back to `open` in a registry PR (*Taking and
+handing back*), and the MV1 DoD, which requires A to G `done`, fails until they are `done`
+again.
+
 DoD of this section, after the helpers of the entry fence, `bash`, `set -e` and `set -f`
 (the paths hold `*`); on a pass it prints nothing and exits 0, and every check that fails
 prints a line naming the defect (no check ends the script silently):
 
 ```sh
-diff <({ printf 'V1-%s\n' $(seq 1 20); echo SYNC; } | sort) <(tbl '| Package | PRs in order |' | awk -F' *[|] *' '{print $3}' | grep -oE 'V1-[0-9]+|SYNC' | sort)   # every PR of V1-1 to V1-20 and SYNC in exactly one package row
+diff <({ printf 'V1-%s\n' $(seq 1 31); echo SYNC; } | sort) <(tbl '| Package | PRs in order |' | awk -F' *[|] *' '{print $3}' | grep -oE 'V1-[0-9]+|SYNC' | sort)   # every PR of V1-1 to V1-31 and SYNC in exactly one package row
 K='SY A B C D E F G H'; test "$(tbl '| Package | PRs in order |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K " || echo "package order: packages table"; test "$(tbl '| Package | Status |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K " || echo "package order: registry"; test "$(tbl '| Beside | SY |' | awk -F' *[|] *' '{printf "%s ", $2}')" = "$K " || echo "package order: matrix rows"; grep -qxF '| Beside | SY | A | B | C | D | E | F | G | H |' docs/ROADMAP.md || echo "package order: matrix columns"   # the packages, the registry and the matrix rows and columns name the same packages in one order
 ps() { awk -F'|' -v k="$1" '/^(SY|[A-H])[|][^ |]+$/ && $1 == k {print $2}' docs/ROADMAP.md; }; for k in $K; do test -n "$(ps $k)" || echo "no paths: $k"; done   # the path set of a package
 c() { tbl '| Beside | SY |' | awk -F' *[|] *' -v r="$1" -v col="$2" -v k="$K" '{n=split(k, h, " "); for (i = 1; i <= n; i++) if (h[i] == col) j = i + 2} $2 == r {print $j}'; }; for x in $K; do for y in $K; do test "$(c $x $y)" = "$(c $y $x)" || echo "asymmetric: $x $y"; done; done   # the matrix cell of row $1, column $2; the matrix is symmetric
@@ -2058,9 +2092,9 @@ git worktree remove --force $BASE
 
 ## Stage V1. Complete v1 (repository-root module), then `v1.5.0`
 
-Owner decisions of 2026-10-10 (D1 to D8), 2026-10-13 (D9 to D14) and 2026-10-14 (D15 to D17),
-recorded as given; D9 to D17 are quoted in the owner's two comments on PR #68, which its body
-cites per answer. The stage starts when row R has passed step C
+Owner decisions of 2026-10-10 (D1 to D8), 2026-10-13 (D9 to D14), 2026-10-14 (D15 to D17) and
+2026-10-18 (D18, D19), recorded as given; D9 to D17 are quoted in the owner's two comments on PR #68 and D18, D19 in the owner's
+comment on PR #136, which their bodies cite per answer. The stage starts when row R has passed step C
 and ends before the Stage 2 continuation. Paths and `make` targets are those of the repository
 root (the v1 module). [PARITY.md](PARITY.md) owns every matrix row (status, evidence, plan,
 decision tag); this section owns the order, the PR scope and the gates. Stage 7 (the `client`
@@ -2085,6 +2119,8 @@ package) is executed inside it as PR V1-9.
 | D15 | (2026-10-14, answer to O3; not the recommendation.) CORS is enabled by default, as in the reference, and an option disables it (S4, P8). The other defaults are aligned to the reference: `pingInterval` 25000 ms and `pingTimeout` 20000 ms of engine.io 3.6.2 (E1, E2), and `Conn.ID()` in a non-root namespace is `/ns#id` (K1). |
 | D16 | (2026-10-14, answer to O6; not the recommendation.) The full engine layer as in Node is in `v1.5.0`: the `engine` handle, the `clients` map and count, the engine events (`connection`, `initial_headers`, `headers`, `connection_error`) and the engine socket state (`readyState`, `transport`, `upgraded`); rows S18, E17, E19, E20. Code work, so it adds PRs to this stage: V1-16 and V1-17. |
 | D17 | (2026-10-14, tests and examples.) Working examples that run against `socket.io-client` 1.7 and 2.5. Mandatory tests that check the contract between JS and Go and the API coverage. |
+| D18 | (2026-10-18, typed API.) v1 gets a typed API as additive generic functions over the current dispatcher, with the same names and semantics as v2's `Event[T]` and `AckEvent[T, R]`; it blocks `v1.5.0`. Rows T1 to T3 of PARITY.md, PR V1-29; the signatures are `### V1-29 contract`, which a docs PR writes before V1-29 starts. |
+| D19 | (2026-10-18, Admin UI.) The Admin UI is not in v1: the official Admin UI needs `socket.io-client` ^4.5 and a Socket.IO >= 3.1 server, that is Socket.IO protocol v5 over Engine.IO v4, which v1 does not speak; it stays v2 Stage 5 (`v2/contrib/admin`). A documented deviation as D3 and D4 are: row S22, the PROTOCOL.md heading of V1-30, *Out of scope*. |
 
 **How the plan applies D10, D11, D13, D15, D16 and D17** (plan choices, not the owner's words). The
 plan reads D13's "fixed" API as the API released by the first tag of a major line (`v1.5.0`
@@ -2118,7 +2154,8 @@ API-coverage gate (V1-20) reads the `// Covers` markers the per-PR DoD already r
 Go API coverage is a ratchet from a measured baseline, not a target chosen here. Silence is
 not an answer: a decision row is recorded only from a comment of the repository owner on the
 PR that records it, which that PR's body cites as `Owner answer O<n>: <answer> <URL of the
-comment>` (D9 to D17: the two owner comments on #68); no decision is pending.
+comment>` (D9 to D17: the two owner comments on #68; D18, D19: the owner's comment on #136); no
+decision is pending.
 
 **PR sequence.** Commits are titled `<type>(V1.<n>): ...`. A PR whose `Plan` rows include `ADD`
 changes the public API only as recorded by V1-0 (CLAUDE.md: public API goes through the roadmap
@@ -2152,6 +2189,17 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-18 | CORS (D15): the server-level default that accepts every origin and writes the headers of `polling-xhr.js:48-62` on every polling response (P8), one `engineio.Options` field that disables it (S4), the per-transport `CheckOrigin` kept as the override; `### Changed` entry; contract and checks in *CORS default and option (V1-18)* below |
 | V1-19 | Differential JS/Go contract tests (D17): the scenarios of *Differential contract tests (V1-19)* below, each run by the conformance job's Node client against the reference `socket.io@2.5.0` server and against the Go server, the two transcripts compared; new files under `internal/conformance` and its `testdata/node`, tag `conformance`, no new Go dependency |
 | V1-20 | API-coverage gate (D17): `make parity-check`, a Go test that fails when a PARITY.md row with a `DONE` entry (with `PARITY_STRICT=1`, also `ADD`, `CHG`, `BUG` or `TEST`) has no `// Covers <ID>` marker above a test function, and `make cover-check`, the statement-coverage floor and the ceiling on exported functions no test executes, both ratchets from the values measured on its head; `Makefile`, `internal/parity`, a `lint-v1` step in `.github/workflows/ci.yaml`, the CLAUDE.md Commands lines; checks in *API coverage gate (V1-20)* below |
+| V1-21 | Wave V1G, B (high): a `transport=websocket` request with the sid of a live websocket session no longer parks its handler: the handler returns without waiting for the session, and the websocket connection's `ServeHTTP` returns when the request context ends (G1). Which answer the request gets is a Go-only choice of this PR, stated in its PR body and in G1's evidence when the row is closed: engine.io 3.6.2 has none to copy (G1's `Ref`); `engineio/server.go`, `engineio/internal/session`, `engineio/transport/websocket`; checks in *Wave V1G* |
+| V1-22 | Wave V1G, A: the engine session is removed on every end of `serveConn`, the failed root connect included (no root handler, an overflowing root `OnConnect`, a failed root adapter), and a root test requires `Server.Count()` and `Engine().Count()` to reach 0 after client close, ping timeout and a rejected or failed root connect without `Server.Close` (G2); root `server.go` and its tests |
+| V1-23 | Wave V1G, A (races): an application `Disconnect` cannot remove the rooms of a socket that re-CONNECTed under the same ID (G3); `Conn.Close` does not run `disconnecting`/`OnDisconnect` or write CONNECT for a socket still in `OnConnect` (G4); a new dynamic namespace's adapter factory runs outside `createMu`, one creation per name (G5); `internal/connection`, `adapter/memory.go`, root `server.go` |
+| V1-24 | Wave V1G, A (panics): emitted values are encoded, or copied, before `Emit` and the broadcast methods return (G6); the encoder recognises `parser.Buffer` by its type (G7), rejects a cyclic value with an error (G8) and encodes a `Buffer` that is not addressable (G12); `parser/encoder.go`, `internal/connection/queue.go` |
+| V1-25 | Wave V1G, A: a binary EVENT or ACK for an unjoined namespace or a namespace without a handler consumes its attachments and is dropped, the connection stays (G9). The server (`internal/connection/packets.go`) and the Go client (`client/internal/connection/packets.go`) both drop such a packet with `Decoder.DiscardLast`, so G9 is fixed once, in that shared decoder of `parser/` (`parser/decoder.go`), not in `internal/connection` alone, and the Go client is fixed with it; the red tests under `// Covers G9` are a `parser` test and a server test; a panic in `OnConnect` or a middleware, and `Use(nil)`, are reported like an event-handler panic instead of crashing (G18); `parser/decoder.go`, `internal/connection/packets.go`, `internal/namespace` |
+| V1-26 | Wave V1G, B: a PING in a POST is released before its PONG is written, so the POST, `Pause` and the upgrade proceed during a probe (G10); an aborted long-poll closes the session with a transport error (G11); `engineio/internal/session`, `engineio/transport/polling` |
+| V1-27 | Wave V1G, A (Redis adapter): the namespace is compared exactly, not split from the channel, and the subscription pattern cannot match another namespace (G13); one publishing pool and one subscriber connection per factory, shared by its namespaces (G14); a room `""` is never published as the whole namespace (G15); `adapter/redis` |
+| V1-28 | Wave V1G, D (client): a Go-client test that a binary EVENT or ACK for an unjoined namespace keeps the connection, on the decoder fix V1-25 merged (G9, a `TEST` entry: green when written, so not under the test-first rule); a client message size limit (G16, an `ADD` row: its option is `### V1-28 contract`, which a docs PR writes first); `client/`, `engineio/client`, the client dial of `engineio/transport/polling/connect.go` and `engineio/transport/websocket/transport.go` |
+| V1-29 | Wave V1G, D: the typed API of D18 (T1 to T3), additive generic functions over the current dispatcher with the names and semantics of v2's `Event[T]` and `AckEvent[T, R]`, on the server and the Go client; `### V1-29 contract` first, as V1-0 did; new root and `client/` files |
+| V1-30 | Wave V1G, A (the rest of the Socket.IO layer): the root namespace exists without a registered `OnConnect` (G17); a client event cannot fire the `disconnecting` listener (G19); variadic handlers are rejected at registration or decoded per argument (G20); no ACK for an event without an ack id (G21); `JoinRoom`/`LeaveRoom` check their `Conn` (G23); reserved event names are not sent (G28); the PROTOCOL.md heading `### Deviation D19: Admin UI not in v1` under *Known deviations from the v3/v4 specs* (D19, row S22); root `*.go`, `internal/connection`, `internal/namespace`, `docs/PROTOCOL.md` |
+| V1-31 | Wave V1G, B (the rest of Engine.IO): negative ping options are rejected or replaced (G22); a polling GET carries every queued packet (G24); the text payload decoder rejects invalid lengths (G25); an unknown packet type closes the session with a parse error (G26); an empty binary POST is no packets (G27); a test for the second-probe guard (G29); `engineio/` without `engineio/client` |
 
 **`Except` with the Redis adapter in `v1.5.0` (rows A4, K14, S21; D2, D10).** Decided here by
 the rule of D10: the `Except` options are methods added directly to the exported `Broadcast`
@@ -2554,7 +2602,7 @@ quotes the measured values instead, as above:
 v() { git show "$2:Makefile" | awk -F'[:?]?= *' -v k="$1" '$1 ~ "^" k " *$" {print $2}'; }; test "$(echo "$(v COVER_FLOOR HEAD) >= $(v COVER_FLOOR origin/master)" | bc)" -eq 1; test "$(v API_UNCOVERED_MAX HEAD)" -le "$(v API_UNCOVERED_MAX origin/master)"   # a PR never lowers the floor or raises the ceiling
 ```
 
-Waves V1A to V1F are in *Execution and parallel work*; the packages that group these PRs for
+Waves V1A to V1G are in *Execution and parallel work*; the packages that group these PRs for
 separate takers, their paths, entry checks and registry are its subsection *Stage V1 work
 packages*.
 
@@ -2576,6 +2624,7 @@ wave 10 11; test -f client/client.go                           # entry of V1E, w
 test -f internal/conformance/differential_test.go              # V1-19 has no row: its file
 wave 15                                                        # entry of V1F, with the next line
 test -f _examples/ack/go.mod -a -f _examples/binary/go.mod -a -f _examples/namespaces/go.mod -a -f _examples/middleware/go.mod   # entry of V1F
+wave 2 3 4 5 6 7 10 11 15 16 17 18                             # entry of V1G (V1-21, V1-22); the order inside it is the entry arms of *Stage V1 work packages*
 ```
 
 Each PR runs the DoD below with `N` set to its number. `bash` and `set -e`, rules as in the
@@ -2584,7 +2633,7 @@ Stage 1b DoD; the awk reads the pipe-delimited rows of PARITY.md (`$2` is the ID
 ```sh
 rows() { awk -F' *[|] *' '$2 ~ /^[A-Z][0-9]+$/' docs/PARITY.md; }
 test "$(go list -m)" = github.com/sshaplygin/go-socket.io; test -f v2/go.mod   # entry: the restructure has merged
-test "$(rows | wc -l)" -eq 137   # 133 audit rows and B1 to B4: none lost, none added silently
+test "$(rows | wc -l)" -eq 170   # 133 audit rows, B1 to B4, S22 (D19), G1 to G29 (the review of 2026-10-18) and T1 to T3 (D18): none lost, none added silently
 test -z "$(rows | awk -F' *[|] *' '{n=split($3,e,/; */); for(i=1;i<=n;i++) if (e[i] !~ /^(-|DEV|REDIS|(DONE|DROP|BUG|ADD|CHG|TEST) V1-[0-9]+)$/) print $2}')"   # every entry of every plan is well formed; no decision is pending, so no other kind exists
 N=${N:?the PR, e.g. V1-4}
 make lint test-race
@@ -2599,7 +2648,8 @@ test "$(gh pr view --json body -q .body | grep -c '^fails without the fix: Test'
 Checks specific to a PR, in addition: every PR that owns a `BUG` row (V1-1 to V1-5 as planned,
 and any later one) puts one body line `fails without the fix: <TestName>` per `BUG` row, the
 test being the one under that row's `// Covers`, and has run it red on the base with only the
-PR's test files applied. The DoD block counts the lines against the `BUG` rows of the base. `Server.Close` has two layers and two tests: V1-2 (E22)
+PR's test files applied; from wave V1G on, red on the test-only commit of the PR that adds it
+(CONTRIBUTING.md, *Pull requests*, item 6; the `tdd` check of *Wave V1G*). The DoD block counts the lines against the `BUG` rows of the base. `Server.Close` has two layers and two tests: V1-2 (E22)
 owns the `engineio` one (open sessions are closed), V1-5 (S17) the root one (`Close` returns after
 the sessions are gone). V1-2, on its head, counts the three subtests of
 `TestPingTimeoutIdleClient` (E1 and P3, under the stacked markers `// Covers E1` and
@@ -2681,6 +2731,113 @@ V6='TestRedisBroadcastDropsUnknownOpts|TestRedisBroadcastDropsUnknownKeys|TestRe
 test "$(go test -race -count=1 -json -run "^($V6)\$" ./adapter/redis | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test' | sort -u | wc -l)" -eq 4   # the decoder guard, the unknown-key guard and the two flags, without a Redis server
 ```
 
+**Wave V1G (the review of 2026-10-18; rows G1 to G29, T1 to T3, S22; D18, D19).** An
+independent review of the v1 implementation at `3db9751` (`master` after #133), in six
+dimensions, reported 18 findings that a second reviewer checked and could not refute, and
+further items it did not check twice; [PARITY.md](PARITY.md#findings-of-the-review-of-2026-10-18)
+records them as rows G1 to G29 (a defect found in two dimensions is one row, so the 18 are 15
+rows), with their severity, evidence and plan. D18 adds the typed API (T1 to T3) and D19 keeps
+the Admin UI out of v1 (S22). Nothing of it is fixed by the PR that recorded it. The wave
+reopens MV1 (*MV1 reopened* below). The PRs, in the wave's order: the high finding and the
+session leak first, then the races and panics, the Redis adapter, the client, the typed API
+and the rest:
+
+| PR | Package | Rows | Highest severity |
+| --- | --- | --- | --- |
+| V1-21 | B | G1 | high |
+| V1-22 | A | G2 | medium |
+| V1-23 | A | G3, G4, G5 | medium (races) |
+| V1-24 | A | G6, G7, G8, G12 | medium (panics) |
+| V1-25 | A | G9 (the decoder fix), G18 | medium |
+| V1-26 | B | G10, G11 | low (engine races) |
+| V1-27 | A | G13, G14, G15 | medium (Redis adapter) |
+| V1-28 | D | G9 (the client test), G16 | medium (client) |
+| V1-29 | D | T1, T2, T3 | D18, blocks `v1.5.0` |
+| V1-30 | A | G17, G19, G20, G21, G23, G28; S22's heading | not rated, low |
+| V1-31 | B | G22, G24, G25, G26, G27, G29 | not rated, low |
+
+The packages are those of *Stage V1 work packages* (A, B, D), by file ownership; their
+registry rows were `done`, and the coordinator reopens them (the note after the registry).
+Each V1G PR writes its own `CHANGELOG.md` entries, since H is `done`. G16 and T1 to T3 are
+`ADD` rows: no signature is decided here. `### V1-28 contract` and `### V1-29 contract` are
+written first by a docs PR each, as V1-0 wrote the earlier contracts, and that PR adds 28 or
+29 to the loop of the `ADD`-row check of *V1-0 contracts*; the entry arms of V1-28 and V1-29
+require the heading. V1-30 writes the PROTOCOL.md heading of D19, which the MV1 DoD greps.
+
+Every `BUG` row of the wave, and of any later bug fix, is closed test first, by the rule of
+CONTRIBUTING.md (*Pull requests*, item 6), which also says what counts as red. The helper below
+checks it, `bash`, with or without `set -e`, from the repository root. It reads red from a
+failing `go test` status together with a line that starts with `--- FAIL: <TestName> `,
+`panic: ` or `fatal error: `, and never from `[build failed]` or `[setup failed]`; it runs
+each test with `-race`, since concurrency fixes are verified under the race detector, in
+scratch worktrees that it removes:
+
+```sh
+tdd_red() { git log --reverse --no-merges --format=%H -G "^func $3[(]" "$1..$2" -- "$4" | head -n 1; }   # tdd_red <base> <head> <TestName> <file>: the commit of the PR that adds the test to its file (its red commit)
+tdd() (   # tdd <base> <head> <TestName>...: one line per defect; nothing when each test is added by a test-only commit of the PR, red there, and green on <head>
+b=$1 h=$2; shift 2
+run() { w=$(mktemp -d) || return 1; git worktree add -q --detach "$w/wt" "$1" >/dev/null 2>&1 || { echo "no worktree of $1"; rmdir "$w"; return 1; }; (cd "$w/wt" && go test -race -count=1 -timeout 280s -v -run "^$2\$" "./$3" 2>&1) && s=0 || s=$?; git worktree remove --force "$w/wt"; rmdir "$w"; return $s; }   # one test in a scratch worktree of a commit
+for t in "$@"; do
+f=$(git grep -l -E "^func $t[(]" "$h" -- '*_test.go' || :); test -n "$f" -a "$(printf '%s\n' "$f" | wc -l)" -eq 1 || { echo "tdd $t: not one test file at $h"; continue; }; f=${f#"$h":}; d=$(dirname "$f")
+r=$(tdd_red "$b" "$h" "$t" "$f"); test -n "$r" || { echo "tdd $t: not added to $f by the PR"; continue; }
+test -z "$(git diff --name-only "$r^" "$r" -- '*.go' | grep -v '_test[.]go$')" || echo "tdd $t: red commit $r changes a Go file that is not a test"
+git show "$r:$f" | grep -B4 -E "^func $t[(]" | grep -qE '^// Covers [A-Z][0-9]+( |$)' || echo "tdd $t: no // Covers marker above it at $r"
+if o=$(run "$r" "$t" "$d"); then echo "tdd $t: not red at $r (go test passed)"; else case $o in
+*'[build failed]'*|*'[setup failed]'*|'no worktree'*) echo "tdd $t: does not build or run at $r";;   # a red that is a build error is no red
+*) printf '%s\n' "$o" | grep -qE "^(--- FAIL: $t |panic: |fatal error: )" || echo "tdd $t: not red at $r";;   # red: a failing status and, at the start of a line, an assertion failure, a panic (a test timeout included) or a runtime abort
+esac; fi
+o=$(run "$h" "$t" "$d") && printf '%s\n' "$o" | grep -q -- "^--- PASS: $t " || echo "tdd $t: not green at $h"
+done
+)
+```
+
+A squash merge keeps one commit on `master`, so the evidence that survives it is the PR body
+(the lines `red commit: <sha>` and `fails without the fix: <TestName>`) and the commit list of
+the PR, which GitHub keeps under `refs/pull/<n>/head`; the check therefore runs on the PR head
+before the merge, as every per-PR DoD does. The CI run of a test-only commit is red by design
+and is not required to be green; the head's CI is. A red test that a review iteration adds
+comes in a test-only commit of its own before its fix (CONTRIBUTING.md item 6), so `tdd` takes
+each test's red commit from the commit that adds it, not from the PR's first commit, and no
+commit is rewritten. Each V1G PR runs, after the per-PR DoD with `N` set (whose last two lines
+count the `fails without the fix:` lines against the `BUG` rows of the base), `bash` and
+`set -e`, with `tdd_red` and `tdd` defined:
+
+```sh
+b=$(git merge-base origin/master HEAD); B=$(gh pr view --json body -q .body)
+T=$(printf '%s\n' "$B" | sed -n 's/^fails without the fix: \(Test[A-Za-z0-9_]*\)$/\1/p')
+o=$(tdd "$b" HEAD $T); test -z "$o" || { printf '%s\n' "$o" >&2; exit 1; }   # each named test: added by a test-only commit of the PR under a marker, red there, green on the head
+for id in $(git show origin/master:docs/PARITY.md | awk -F' *[|] *' -v pr="$N" '$3 ~ ("(^|; )BUG " pr "( |;|$)") {print $2}'); do k=; for t in $T; do git grep -h -B4 -E "^func $t[(]" HEAD -- '*_test.go' | grep -qE "^// Covers $id( |$)" && k=1; done; test -n "$k" || { echo "no red test under // Covers $id" >&2; exit 1; }; done   # each BUG row of the base has one of those tests under its own marker
+for t in $T; do f=$(git grep -l -E "^func $t[(]" HEAD -- '*_test.go' | head -n 1); r=$(tdd_red "$b" HEAD "$t" "${f#HEAD:}"); printf '%s\n' "$B" | grep -qE "^red commit: ${r:0:7}[0-9a-f]{0,33}$" || { echo "no line red commit: $r for $t" >&2; exit 1; }; done   # the body names the red commit of each test, one line per commit
+case $N in V1-30) grep -q '^### Deviation D19: Admin UI not in v1' docs/PROTOCOL.md;; esac   # D19, as D3 and D4
+```
+
+The PR that added this wave proved the helper on a scratch repository (`bash`, `set -e`, from
+the repository root, which needs only `git` and `go`): a branch with the test first and the fix
+second prints nothing; so does a branch where a review iteration adds a second red test in a
+test-only commit after the first fix and fixes it after that; a branch whose first commit
+already holds the fix prints the defect lines `not red` and `changes a Go file that is not a
+test`; a red that does not compile prints `does not build or run`; a passing test that prints
+`panic: ` prints `not red`:
+
+```sh
+eval "$(awk '/^tdd_red[(][)] [{]/ {p=1} p; p && /^[)]$/ {exit}' docs/ROADMAP.md)"   # the two helpers of the fence above
+S=$(mktemp -d); git init -q -b master "$S/r"; cd "$S/r"; git config user.name t; git config user.email t@t
+add() { printf 'package tdd\n\nfunc Add(a, b int) int { return a %s b }\n' "$1" >add.go; }   # the code: `-` is the bug, `+` the fix
+tst() { printf 'package tdd\n\nimport "testing"\n\n// Covers G1\nfunc TestAdd(t *testing.T) {\n\tif %s(1, 2) != 3 {\n\t\tt.Fatal("1+2")\n\t}\n}\n' "$1" >add_test.go; }   # the test, of Add or of an undefined function
+printf 'module example.com/tdd\n\ngo 1.22\n' >go.mod; add -; git add -A; git commit -qm base; B=$(git rev-parse HEAD)
+git checkout -qb good "$B"; tst Add; git add -A; git commit -qm red; add +; git commit -qam fix
+test -z "$(tdd "$B" good TestAdd)"   # test first, fix second: prints nothing
+git checkout -qb iter good; printf 'package tdd\n\nfunc Mul(a, b int) int { return a + b }\n' >mul.go; git add -A; git commit -qm "code under review"; printf 'package tdd\n\nimport "testing"\n\n// Covers G2\nfunc TestMul(t *testing.T) {\n\tif Mul(2, 3) != 6 {\n\t\tt.Fatal("2*3")\n\t}\n}\n' >mul_test.go; git add -A; git commit -qm "red 2"; sed 's/a + b/a * b/' mul.go >m && mv m mul.go; git commit -qam "fix 2"
+test -z "$(tdd "$B" iter TestAdd TestMul)"   # a review iteration: red 2 after fix 1, before fix 2; prints nothing
+git checkout -qb planted "$B"; tst Add; add +; git add -A; git commit -qm "test and fix"
+tdd "$B" planted TestAdd | grep -q 'TestAdd: not red at'; tdd "$B" planted TestAdd | grep -q 'changes a Go file that is not a test'   # the fix in the first commit: two defect lines
+git checkout -qb nobuild "$B"; tst Sub; git add -A; git commit -qm red; printf 'package tdd\n\nfunc Sub(a, b int) int { return a + b }\n' >sub.go; git add -A; git commit -qm fix
+tdd "$B" nobuild TestAdd | grep -q 'does not build or run at'   # a red that does not compile is a defect line
+git checkout -qb logpanic "$B"; printf 'package tdd\n\nimport (\n\t"fmt"\n\t"testing"\n)\n\n// Covers G1\nfunc TestLog(t *testing.T) {\n\tt.Log("recovered panic: boom")\n\tfmt.Println("panic: boom")\n}\n' >log_test.go; git add -A; git commit -qm red; add +; git commit -qam fix
+tdd "$B" logpanic TestLog | grep -q 'TestLog: not red at'   # a passing test whose output holds `panic: `, logged and at the start of a line, is no red
+cd - >/dev/null; test "$(git -C "$S/r" worktree list | wc -l)" -eq 1   # tdd left no worktree behind; the scratch repository stays in the temporary directory
+```
+
 **MV1 DoD** (V1-14 head, then again on the merged `master`):
 
 ```sh
@@ -2698,6 +2855,7 @@ test -n "$(cl Changed | grep -w OnConnect | grep -w ERROR)"   # V1-5's connect r
 test -n "$(cl Changed | grep -w POST | grep -w UPGRADE)"   # V1-2's upgrade window (P4): a POST before the UPGRADE packet is accepted
 test -n "$(cl Changed | grep -w OnDisconnect | grep -F 'transport close')"; test -n "$(cl Changed | grep -w Close | grep -w DISCONNECT)"   # V1-4's disconnect reasons; V1-5's Conn.Close sends DISCONNECT per namespace
 grep -q '^### Deviation D4: JSONP unsupported' docs/PROTOCOL.md; grep -q '^### Deviation D3: mixed Go/Node Redis cluster' docs/PROTOCOL.md   # the V1-14 headings; master's PROTOCOL.md already mentions JSONP
+grep -q '^### Deviation D19: Admin UI not in v1' docs/PROTOCOL.md   # the V1-30 heading (D19, wave V1G)
 for d in ack binary namespaces middleware; do test -f _examples/$d/go.mod; done
 test -f _examples/default-http/client.js; test -f _examples/asset/index-1.7.html; grep -q 'socket.io-client@1.7.4' _examples/asset/index-1.7.html   # D17: the chat's client script and the 1.7 page (V1-12, V1-13)
 grep -q CONFORMANCE_NODE_MODULES Makefile; grep -q examples-node .github/workflows/ci.yaml   # examples-node takes the job's client, so it ran under 1.7.4 and 2.5.0
@@ -2716,6 +2874,25 @@ client connects to a Node `socket.io` 2.5.0 server over polling and websocket an
 after the server restarts. The owner then declares the v1 line complete (*Branch and tag
 policy*) and orders the release commit and the `v1.5.0` tag; v2 work (Stage 2 continuation)
 resumes on the owner's order after MV1, not on the tag.
+
+**MV1 reopened (2026-10-18).** MV1 was accepted by #133, which set H `done` in the registry
+after the component follow-up (C5, #132). The review of 2026-10-18 at `3db9751` and D18 reopen
+it: rows G1 to G29 and T1 to T3 are open `BUG`, `ADD` and `TEST` rows, so the MV1 DoD line
+"no open row" and `PARITY_STRICT=1 make parity-check` fail again, and so does its registry
+line once the coordinator sets A, B and D back to `open` for the V1G PRs. MV1 is accepted
+again when the rows of wave V1G are closed: V1-21 to V1-31 merged, the MV1 DoD above passing
+on the merged `master` (it now also greps the D19 heading), and the owner's Acceptance
+repeated. Nothing is accepted beyond what those commands compute; the `v1.5.0` tag stays the
+owner's order after that.
+
+Three gates read *MV1 accepted*: the entry of wave 2B (*Execution and parallel work*), the
+entry of Stage V1R below, and the resumption of v2 work on the owner's order after MV1 (*Repository
+layout*, *Execution and parallel work*, *Repository restructure* and its replay table, the MV1
+Acceptance). The
+review and D18 name only `v1.5.0`; whether these three keep the acceptance of #133 or wait for
+the re-acceptance is an open question to the owner on the PR that records wave V1G, recorded
+here as the owner answers. Until then each is read as written: 2B and V1R wait for the
+re-acceptance, and v2 work resumes only on the owner's order.
 
 **Stage V1R. Redis parity (next v1 minor, after MV1).** Scope, from D2: `Except` and
 broadcast-except-sender over Redis (A4), the `volatile` (A4) and `compress` (S21) flags across instances, a room union as one
@@ -6236,7 +6413,7 @@ stage. The v1 runtime stays in the repository-root module.
 | M0 | Stage 0 docs baseline | none |
 | M1 | Stage 1 complete and the 1.D link-form commit merged | none |
 | M1b | Stage 1b closed: step 0 done (branch `v1.x` cut) and steps 1–3 merged, with the Stage 1b DoD, `v1.x` gates and Acceptance blocks passing on `master` | none (first commits after the cut commit `$CUT`) |
-| MV1 | Stage V1: PRs V1-0 to V1-20 merged on `master`, the MV1 DoD and Acceptance passing; includes the `client` package (Stage 7), the engine layer (D16), the examples and the D17 gates | `v1.5.0` (v1 line complete), on the owner's explicit order after the declaration of *Repository layout* |
+| MV1 | Stage V1: PRs V1-0 to V1-31 merged on `master` (V1-21 to V1-31: wave V1G, after the review of 2026-10-18 and D18 reopened it), the MV1 DoD and Acceptance passing; includes the `client` package (Stage 7), the engine layer (D16), the examples and the D17 gates | `v1.5.0` (v1 line complete), on the owner's explicit order after the declaration of *Repository layout* |
 | MV1R | Stage V1R: Redis parity on the v1 line | next v1 minor after `v1.5.0` (`v1.6.0` when that is the latest tag), on the owner's order |
 | M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance; accepted at the 2B join, which also puts the 2.2 and 2.3P code on `master` unreleased (below) | branch `v2-next` (a snapshot of `master`; v2 paths under `v2/`) |
 | M3 | 2.2 + 2.3 + 2.4 + 2.5 (2.2 and 2.3P are already on `master` at M2 acceptance; the M3 tags release them) | `v2.0.0`, `v2/contrib/otel/v2.0.0`, only after the owner's declaration and `v1.5.0` (*Repository layout*) |
@@ -6279,7 +6456,7 @@ snapshot/Node interoperability prototype before treating it as a delivery commit
 
 ## Out of scope
 
-EIO=3 in v2; in v1: JSONP and a mixed Go/Node Redis cluster on the `socket.io-redis` wire format (Stage V1, D3 and D4); connection state recovery; WebTransport; permessage-deflate in v2 (v1 has it: V1-15, D11; a user moving from `v1.5.0` loses it, which `docs/MIGRATION.md` says, 2.5); sharded Redis
+EIO=3 in v2; in v1: JSONP, a mixed Go/Node Redis cluster on the `socket.io-redis` wire format and the Admin UI (Stage V1, D3, D4 and D19); connection state recovery; WebTransport; permessage-deflate in v2 (v1 has it: V1-15, D11; a user moving from `v1.5.0` loses it, which `docs/MIGRATION.md` says, 2.5); sharded Redis
 adapter (Redis 7 sharded pub/sub); Redis Cluster, Ring and replica-routed clients for
 `v2/adapters/redis` (see 4b `adapters/redis`); cluster broadcast-with-ack; NATS JetStream persistence;
 framework-specific integration packages (gin, echo, iris, gf use `http.Handler`); trace

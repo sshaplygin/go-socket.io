@@ -240,7 +240,7 @@ func TestProcessTerminationGate(t *testing.T) {
 		}
 	})
 	t.Run("invalid openers cannot hide Go", func(t *testing.T) {
-		for _, opener := range []string{"    ```text"} {
+		for _, opener := range []string{"    ```text", "```text `"} {
 			root := t.TempDir()
 			put(t, root, "README.md", "```go\npackage main\nfunc main(){}\n```\n\n"+
 				opener+"\n\n~~~go\npackage main\nimport \"os\"\nfunc main(){os.Exit(1)}\n~~~\n")

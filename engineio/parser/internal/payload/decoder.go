@@ -1,8 +1,9 @@
-package parser
+package payload
 
 import (
 	"bufio"
 	"encoding/base64"
+	"github.com/sshaplygin/go-socket.io/engineio/parser/internal/packet"
 	"io"
 )
 
@@ -11,35 +12,35 @@ type byteReader interface {
 	io.Reader
 }
 
-// PayloadReader lends an entire Engine.IO payload and reports whether it uses
+// Reader lends an entire Engine.IO payload and reports whether it uses
 // binary payload framing. ReleasePayloadReader runs after the final packet is
 // closed or decoding fails; its error takes precedence. Acquisition errors are
 // returned without a release.
-type PayloadReader interface {
+type Reader interface {
 	AcquirePayloadReader() (io.Reader, bool, error)
 	ReleasePayloadReader(error) error
 }
 
-// PayloadDecoder reads Engine.IO v3 polling payload packets. Close each packet
+// Decoder reads Engine.IO v3 polling payload packets. Close each packet
 // reader before acquiring the next; Close drains unread packet bytes. A decode
 // or release failure is terminal: later reader, read and close calls return the
 // saved error without reusing or releasing the source again. Non-EOF body read
 // failures release the source immediately, including reads returning data and an
 // error together. EOF ends the current packet. Acquisition failures
 // may be retried because no payload was acquired.
-type PayloadDecoder struct {
+type Decoder struct {
 	terminalErr error
 	b64Reader   io.Reader
 	limitReader io.LimitedReader
 	rawReader   byteReader
-	feeder      PayloadReader
+	feeder      Reader
 
-	ft            FrameType
-	pt            PacketType
+	ft            packet.FrameType
+	pt            packet.PacketType
 	supportBinary bool
 }
 
-func (d *PayloadDecoder) NextReader() (FrameType, PacketType, io.ReadCloser, error) {
+func (d *Decoder) NextReader() (packet.FrameType, packet.PacketType, io.ReadCloser, error) {
 	if d.terminalErr != nil {
 		return 0, 0, nil, d.terminalErr
 	}
@@ -60,7 +61,7 @@ func (d *PayloadDecoder) NextReader() (FrameType, PacketType, io.ReadCloser, err
 	return d.ft, d.pt, d, nil
 }
 
-func (d *PayloadDecoder) Read(p []byte) (n int, err error) {
+func (d *Decoder) Read(p []byte) (n int, err error) {
 	if d.terminalErr != nil {
 		return 0, d.terminalErr
 	}
@@ -97,7 +98,7 @@ func (d *PayloadDecoder) Read(p []byte) (n int, err error) {
 	return dd, err
 }
 
-func (d *PayloadDecoder) Close() error {
+func (d *Decoder) Close() error {
 	if d.terminalErr != nil {
 		return d.terminalErr
 	}
@@ -117,8 +118,8 @@ func (d *PayloadDecoder) Close() error {
 	return err
 }
 
-func (d *PayloadDecoder) setNextReader(r byteReader, supportBinary bool) error {
-	var read func(byteReader) (FrameType, PacketType, int64, error)
+func (d *Decoder) setNextReader(r byteReader, supportBinary bool) error {
+	var read func(byteReader) (packet.FrameType, packet.PacketType, int64, error)
 	if supportBinary {
 		read = d.binaryRead
 	} else {
@@ -136,7 +137,7 @@ func (d *PayloadDecoder) setNextReader(r byteReader, supportBinary bool) error {
 	d.limitReader.R = r
 	d.limitReader.N = l
 	d.supportBinary = supportBinary
-	if !supportBinary && ft == Binary {
+	if !supportBinary && ft == packet.Binary {
 		d.b64Reader = base64.NewDecoder(base64.StdEncoding, &d.limitReader)
 	} else {
 		d.b64Reader = nil
@@ -144,7 +145,7 @@ func (d *PayloadDecoder) setNextReader(r byteReader, supportBinary bool) error {
 	return nil
 }
 
-func (d *PayloadDecoder) sendError(err error) error {
+func (d *Decoder) sendError(err error) error {
 	if d.terminalErr != nil {
 		return d.terminalErr
 	}
@@ -160,13 +161,13 @@ func (d *PayloadDecoder) sendError(err error) error {
 	return err
 }
 
-func (d *PayloadDecoder) textRead(r byteReader) (FrameType, PacketType, int64, error) {
+func (d *Decoder) textRead(r byteReader) (packet.FrameType, packet.PacketType, int64, error) {
 	l, err := readTextLen(r)
 	if err != nil {
 		return 0, 0, 0, err
 	}
 
-	ft := String
+	ft := packet.String
 	b, err := r.ReadByte()
 	if err != nil {
 		return 0, 0, 0, err
@@ -174,7 +175,7 @@ func (d *PayloadDecoder) textRead(r byteReader) (FrameType, PacketType, int64, e
 	l--
 
 	if b == 'b' {
-		ft = Binary
+		ft = packet.Binary
 		b, err = r.ReadByte()
 		if err != nil {
 			return 0, 0, 0, err
@@ -182,11 +183,11 @@ func (d *PayloadDecoder) textRead(r byteReader) (FrameType, PacketType, int64, e
 		l--
 	}
 
-	pt := ByteToPacketType(b, String)
+	pt := packet.ByteToPacketType(b, packet.String)
 	return ft, pt, l, nil
 }
 
-func (d *PayloadDecoder) binaryRead(r byteReader) (FrameType, PacketType, int64, error) {
+func (d *Decoder) binaryRead(r byteReader) (packet.FrameType, packet.PacketType, int64, error) {
 	b, err := r.ReadByte()
 	if err != nil {
 		return 0, 0, 0, err
@@ -194,7 +195,7 @@ func (d *PayloadDecoder) binaryRead(r byteReader) (FrameType, PacketType, int64,
 	if b > 1 {
 		return 0, 0, 0, errInvalidPayload
 	}
-	ft := ByteToFrameType(b)
+	ft := packet.ByteToFrameType(b)
 
 	l, err := readBinaryLen(r)
 	if err != nil {
@@ -205,11 +206,11 @@ func (d *PayloadDecoder) binaryRead(r byteReader) (FrameType, PacketType, int64,
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	pt := ByteToPacketType(b, ft)
+	pt := packet.ByteToPacketType(b, ft)
 	l--
 
 	return ft, pt, l, nil
 }
 
-// NewPayloadDecoder binds a payload source. Each acquired reader is released after its last packet or a decoding failure.
-func NewPayloadDecoder(r PayloadReader) *PayloadDecoder { return &PayloadDecoder{feeder: r} }
+// NewDecoder binds a payload source. Each acquired reader is released after its last packet or a decoding failure.
+func NewDecoder(r Reader) *Decoder { return &Decoder{feeder: r} }

@@ -24,7 +24,9 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `engineio/` | v1 Engine.IO v3 acceptance/server lifecycle, options/hooks and active connection contracts |
 | `engineio/internal/session/` | private server session I/O, registry/IDs, heartbeat, close/upgrade and polling response observation |
 | `engineio/client/` | independent v1 Engine.IO client, dialer, heartbeat/upgrade and client connection state/errors |
-| `engineio/parser/` | shared Engine.IO v3 frame/packet/payload codecs and OPEN parameters |
+| `engineio/parser/` | shared Engine.IO v3 codec entry points, active wire-type aliases, OPEN parameters and fakes |
+| `engineio/parser/internal/packet/` | canonical frame/packet types and packet codec |
+| `engineio/parser/internal/payload/` | streaming payload codec, length framing and source/destination leases |
 | `engineio/transport/` | transport contracts, registry and timestamp helper; polling owns HTTP feed/flush, pause and deadline state |
 | `logger/` | v1 package-level `slog` fallback (`logger.Log`) for packages that do not receive per-instance `WithLogger` configuration: parser, transports, `engineio/parser`, client dialer |
 | `internal/conformance/` | interoperability and raw protocol tests behind the `conformance` build tag; Node fixtures under `testdata/node/` |
@@ -75,9 +77,9 @@ V1 source files follow the same responsibility names in the root and `client/`:
 | `engineio/internal/session/session.go`, `close.go`, `upgrade.go`, `headers.go`, `hooks.go` | private session I/O, close/upgrade state machines and response observation |
 | `engineio/internal/session/contracts.go`, `registry.go`, `id.go` | canonical server connection/state/error contracts, private registry and ID providers |
 | `engineio/client/client.go`, `dialer.go`, `conn.go` | client Engine.IO I/O, dialing, heartbeat/upgrade and role-specific contracts |
-| `engineio/parser/frame.go`, `packet.go`, `packet_encoder.go`, `packet_decoder.go` | shared frame/packet wire types and codecs |
-| `engineio/parser/payload_encoder.go`, `payload_decoder.go`, `payload_length.go`, `parameters.go` | streaming payload codecs, length framing and OPEN JSON |
-| `engineio/parser/fake.go`, `types.go` | packet test fakes and frame/packet values |
+| `engineio/parser/packet.go`, `payload.go`, `parameters.go`, `fake.go` | active codec aliases/constructors/options, OPEN JSON and frame/packet fakes |
+| `engineio/parser/internal/packet/types.go`, `encoder.go`, `decoder.go` | canonical frame/packet values, framing interfaces and packet wire codec |
+| `engineio/parser/internal/payload/encoder.go`, `decoder.go`, `length.go` | streaming payload encoding/decoding, leases and text/binary length framing |
 | `engineio/transport/polling/payload.go`, `pauser.go`, `errors.go` | polling feed/flush ownership, pause/deadline state and operation errors |
 
 The Engine.IO server installs observers through private session hooks and owns shutdown.

@@ -236,3 +236,18 @@ shutdown and exposes snapshots through `Clients`/`Count`. `engineio.Abort` recog
 only its own concrete session and uses ordinary `Close` for custom engines, including
 ones with an unrelated Abort method. No init-time registration or compatibility
 session wrapper is introduced.
+
+## Private Engine.IO codec ownership
+
+Keep importing `engineio/parser`. Its active frame/packet types, reader/writer
+contracts and packet/payload encoder/decoder types now alias canonical private
+codec types. Public constructors and `WithBinarySupport` retain their signatures,
+defaults and option ordering. OPEN parameters and the public frame/packet fakes
+remain in the public component. The retired public `engineio/frame`, `packet` and
+`payload` import paths stay removed.
+
+No application imports `engineio/parser/internal/packet` or `internal/payload`.
+Reflection package paths or `%T` output may now name those private codec packages;
+source signatures, constant values, exported fields and method sets are retained.
+Existing custom frame and payload sources/destinations continue to implement the
+public contracts. Streaming lease/error behavior is described above and in godoc.

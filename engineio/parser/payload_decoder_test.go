@@ -47,9 +47,7 @@ func TestPayloadDecoder(t *testing.T) {
 			data:          test.data,
 			supportBinary: test.supportBinary,
 		}
-		d := PayloadDecoder{
-			feeder: &feeder,
-		}
+		d := NewPayloadDecoder(&feeder)
 		var packets []payloadVectorPacket
 
 		for i := 0; i < len(test.packets); i++ {
@@ -83,9 +81,7 @@ func TestPayloadDecoderNextReaderError(t *testing.T) {
 		data:          []byte{0x00, 0x01, 0xff, '0'},
 		supportBinary: true,
 	}
-	d := PayloadDecoder{
-		feeder: &feeder,
-	}
+	d := NewPayloadDecoder(&feeder)
 
 	targetErr := errors.New("error")
 	feeder.returnError = targetErr
@@ -98,9 +94,7 @@ func BenchmarkStringDecoder(b *testing.B) {
 		data:          []byte("4:4你好\n6:2probe"),
 		supportBinary: false,
 	}
-	d := PayloadDecoder{
-		feeder: &feeder,
-	}
+	d := NewPayloadDecoder(&feeder)
 	buf := make([]byte, 10)
 
 	b.ResetTimer()
@@ -123,9 +117,7 @@ func BenchmarkB64Decoder(b *testing.B) {
 		data:          []byte("10:b4aGVsbG8K6:2probe"),
 		supportBinary: false,
 	}
-	d := PayloadDecoder{
-		feeder: &feeder,
-	}
+	d := NewPayloadDecoder(&feeder)
 	buf := make([]byte, 10)
 
 	b.ResetTimer()
@@ -152,9 +144,7 @@ func BenchmarkBinaryDecoder(b *testing.B) {
 		},
 		supportBinary: true,
 	}
-	d := PayloadDecoder{
-		feeder: &feeder,
-	}
+	d := NewPayloadDecoder(&feeder)
 	buf := make([]byte, 10)
 
 	b.ResetTimer()

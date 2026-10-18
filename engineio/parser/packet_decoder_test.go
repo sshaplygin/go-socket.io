@@ -14,43 +14,43 @@ var packetVectors = []struct {
 }{
 	{nil, nil},
 	{[]Packet{
-		{String, OPEN, []byte{}},
+		{FType: String, PType: OPEN, Data: []byte{}},
 	}, []Frame{
-		{String, []byte("0")},
+		{FType: String, Data: []byte("0")},
 	},
 	},
 	{[]Packet{
-		{String, MESSAGE, []byte("hello 你好")},
+		{FType: String, PType: MESSAGE, Data: []byte("hello 你好")},
 	}, []Frame{
-		{String, []byte("4hello 你好")},
+		{FType: String, Data: []byte("4hello 你好")},
 	},
 	},
 	{[]Packet{
-		{Binary, MESSAGE, []byte("hello 你好")},
+		{FType: Binary, PType: MESSAGE, Data: []byte("hello 你好")},
 	}, []Frame{
-		{Binary, []byte{0x04, 'h', 'e', 'l', 'l', 'o', ' ', 0xe4, 0xbd, 0xa0, 0xe5, 0xa5, 0xbd}},
+		{FType: Binary, Data: []byte{0x04, 'h', 'e', 'l', 'l', 'o', ' ', 0xe4, 0xbd, 0xa0, 0xe5, 0xa5, 0xbd}},
 	},
 	},
 	{[]Packet{
-		{String, OPEN, []byte{}},
-		{Binary, MESSAGE, []byte("hello\n")},
-		{String, MESSAGE, []byte("你好\n")},
-		{String, PING, []byte("probe")},
+		{FType: String, PType: OPEN, Data: []byte{}},
+		{FType: Binary, PType: MESSAGE, Data: []byte("hello\n")},
+		{FType: String, PType: MESSAGE, Data: []byte("你好\n")},
+		{FType: String, PType: PING, Data: []byte("probe")},
 	}, []Frame{
-		{String, []byte("0")},
-		{Binary, []byte{0x04, 'h', 'e', 'l', 'l', 'o', '\n'}},
-		{String, []byte("4你好\n")},
-		{String, []byte("2probe")},
+		{FType: String, Data: []byte("0")},
+		{FType: Binary, Data: []byte{0x04, 'h', 'e', 'l', 'l', 'o', '\n'}},
+		{FType: String, Data: []byte("4你好\n")},
+		{FType: String, Data: []byte("2probe")},
 	},
 	},
 	{[]Packet{
-		{Binary, MESSAGE, []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}},
-		{String, MESSAGE, []byte("hello")},
-		{String, CLOSE, []byte{}},
+		{FType: Binary, PType: MESSAGE, Data: []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}},
+		{FType: String, PType: MESSAGE, Data: []byte("hello")},
+		{FType: String, PType: CLOSE, Data: []byte{}},
 	}, []Frame{
-		{Binary, []byte{4, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}},
-		{String, []byte("4hello")},
-		{String, []byte("1")},
+		{FType: Binary, Data: []byte{4, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}},
+		{FType: String, Data: []byte("4hello")},
+		{FType: String, Data: []byte("1")},
 	},
 	},
 }

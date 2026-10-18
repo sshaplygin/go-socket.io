@@ -1,42 +1,43 @@
-package parser
+package payload
 
 import (
 	"bytes"
 	"encoding/base64"
+	"github.com/sshaplygin/go-socket.io/engineio/parser/internal/packet"
 	"io"
 	"unicode/utf8"
 )
 
-// PayloadWriter lends a destination for one encoded packet. ReleasePayloadWriter
+// Writer lends a destination for one encoded packet. ReleasePayloadWriter
 // receives the encoding/write error, or nil, after that packet; its error takes
 // precedence. AcquirePayloadWriter errors are returned without a release.
-type PayloadWriter interface {
+type Writer interface {
 	AcquirePayloadWriter() (io.Writer, error)
 	ReleasePayloadWriter(error) error
 }
 
-// PayloadEncoder writes Engine.IO v3 polling payload packets. Use one writer at a
+// Encoder writes Engine.IO v3 polling payload packets. Use one writer at a
 // time and close each packet writer before acquiring the next.
-type PayloadEncoder struct {
+type Encoder struct {
 	supportBinary bool
-	feeder        PayloadWriter
+	feeder        Writer
 
-	ft         FrameType
-	pt         PacketType
+	ft         packet.FrameType
+	pt         packet.PacketType
 	header     bytes.Buffer
 	frameCache bytes.Buffer
 	b64Writer  io.WriteCloser
 	rawWriter  io.Writer
 }
 
-func (e *PayloadEncoder) NOOP() []byte {
+func (e *Encoder) NOOP() []byte {
 	if e.supportBinary {
 		return []byte{0x00, 0x01, 0xff, '6'}
 	}
 	return []byte("1:6")
 }
 
-func (e *PayloadEncoder) NextWriter(ft FrameType, pt PacketType) (io.WriteCloser, error) {
+func (e *Encoder) NextWriter(ft packet.FrameType, pt packet.PacketType) (io.WriteCloser, error) {
 	w, err := e.feeder.AcquirePayloadWriter()
 	if err != nil {
 		return nil, err
@@ -47,7 +48,7 @@ func (e *PayloadEncoder) NextWriter(ft FrameType, pt PacketType) (io.WriteCloser
 	e.pt = pt
 	e.frameCache.Reset()
 
-	if !e.supportBinary && ft == Binary {
+	if !e.supportBinary && ft == packet.Binary {
 		e.b64Writer = base64.NewEncoder(base64.StdEncoding, &e.frameCache)
 	} else {
 		e.b64Writer = nil
@@ -55,7 +56,7 @@ func (e *PayloadEncoder) NextWriter(ft FrameType, pt PacketType) (io.WriteCloser
 	return e, nil
 }
 
-func (e *PayloadEncoder) Write(p []byte) (int, error) {
+func (e *Encoder) Write(p []byte) (int, error) {
 	if e.b64Writer != nil {
 		return e.b64Writer.Write(p)
 	}
@@ -63,7 +64,7 @@ func (e *PayloadEncoder) Write(p []byte) (int, error) {
 	return e.frameCache.Write(p)
 }
 
-func (e *PayloadEncoder) Close() error {
+func (e *Encoder) Close() error {
 	if e.b64Writer != nil {
 		if err := e.b64Writer.Close(); err != nil {
 			return err
@@ -74,7 +75,7 @@ func (e *PayloadEncoder) Close() error {
 	if e.supportBinary {
 		writeHeader = e.writeBinaryHeader
 	} else {
-		if e.ft == Binary {
+		if e.ft == packet.Binary {
 			writeHeader = e.writeB64Header
 		} else {
 			writeHeader = e.writeTextHeader
@@ -95,7 +96,7 @@ func (e *PayloadEncoder) Close() error {
 	return err
 }
 
-func (e *PayloadEncoder) writeTextHeader() error {
+func (e *Encoder) writeTextHeader() error {
 
 	err := writeTextLen(e.calcCodeUnitLength(), &e.header)
 	if err == nil {
@@ -104,7 +105,7 @@ func (e *PayloadEncoder) writeTextHeader() error {
 	return err
 }
 
-func (e *PayloadEncoder) writeB64Header() error {
+func (e *Encoder) writeB64Header() error {
 	l := int64(utf8.RuneCount(e.frameCache.Bytes()) + 2) // length for 'b' and packet type
 	err := writeTextLen(l, &e.header)
 	if err == nil {
@@ -116,7 +117,7 @@ func (e *PayloadEncoder) writeB64Header() error {
 	return err
 }
 
-func (e *PayloadEncoder) calcCodeUnitLength() int64 {
+func (e *Encoder) calcCodeUnitLength() int64 {
 	var l int64 = 1
 	var codeUnitSize int64
 	bytes := e.frameCache.Bytes()
@@ -147,10 +148,10 @@ func (e *PayloadEncoder) calcCodeUnitLength() int64 {
 // in bytes, the packet type byte included, for string and binary frames alike, as in
 // encodePayloadAsBinary of engine.io-parser 2.2.1 (a string packet is UTF-8 encoded
 // there before it is measured).
-func (e *PayloadEncoder) writeBinaryHeader() error {
+func (e *Encoder) writeBinaryHeader() error {
 	l := int64(e.frameCache.Len()) + 1 // length for packet type
 	b := e.pt.StringByte()
-	if e.ft == Binary {
+	if e.ft == packet.Binary {
 		b = e.pt.BinaryByte()
 	}
 	err := e.header.WriteByte(e.ft.Byte())
@@ -163,18 +164,18 @@ func (e *PayloadEncoder) writeBinaryHeader() error {
 	return err
 }
 
-// PayloadEncoderOption configures a payload encoder.
-type PayloadEncoderOption func(*PayloadEncoder)
+// EncoderOption configures a payload encoder.
+type EncoderOption func(*Encoder)
 
 // WithBinarySupport selects binary payload framing. The default is true;
 // transports pass the support negotiated with their peer.
-func WithBinarySupport(enabled bool) PayloadEncoderOption {
-	return func(encoder *PayloadEncoder) { encoder.supportBinary = enabled }
+func WithBinarySupport(enabled bool) EncoderOption {
+	return func(encoder *Encoder) { encoder.supportBinary = enabled }
 }
 
-// NewPayloadEncoder binds a writer with binary payload support enabled.
-func NewPayloadEncoder(w PayloadWriter, opts ...PayloadEncoderOption) *PayloadEncoder {
-	encoder := &PayloadEncoder{feeder: w, supportBinary: true}
+// NewEncoder binds a writer with binary payload support enabled.
+func NewEncoder(w Writer, opts ...EncoderOption) *Encoder {
+	encoder := &Encoder{feeder: w, supportBinary: true}
 	for _, option := range opts {
 		if option != nil {
 			option(encoder)

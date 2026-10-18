@@ -47,10 +47,7 @@ func TestPayloadEncoder(t *testing.T) {
 
 	for _, test := range payloadVectors {
 		buf.Reset()
-		e := PayloadEncoder{
-			supportBinary: test.supportBinary,
-			feeder:        f,
-		}
+		e := NewPayloadEncoder(f, WithBinarySupport(test.supportBinary))
 
 		for _, packet := range test.packets {
 			fw, err := e.NextWriter(packet.ft, packet.pt)
@@ -96,10 +93,7 @@ func TestPayloadEncoderBeginError(t *testing.T) {
 	f := &fakeWriterFeeder{
 		w: buf,
 	}
-	e := PayloadEncoder{
-		supportBinary: true,
-		feeder:        f,
-	}
+	e := NewPayloadEncoder(f, WithBinarySupport(true))
 
 	buf.Reset()
 	targetErr := temporaryPayloadError{errors.New("payload: paused")}
@@ -127,10 +121,7 @@ func TestPayloadEncoderEndError(t *testing.T) {
 			err: werr,
 		},
 	}
-	e := PayloadEncoder{
-		supportBinary: true,
-		feeder:        f,
-	}
+	e := NewPayloadEncoder(f, WithBinarySupport(true))
 
 	targetErr := errors.New("error")
 
@@ -155,9 +146,7 @@ func TestPayloadEncoderNOOP(t *testing.T) {
 	}
 
 	for _, test := range payloadVectors {
-		e := PayloadEncoder{
-			supportBinary: test.supportBinary,
-		}
+		e := NewPayloadEncoder(nil, WithBinarySupport(test.supportBinary))
 		assert.Equal(test.data, e.NOOP())
 	}
 
@@ -169,9 +158,7 @@ func TestPayloadEncoderNOOP(t *testing.T) {
 	for i := 0; i < max; i++ {
 		go func(i int) {
 			defer wg.Done()
-			e := PayloadEncoder{
-				supportBinary: i&0x1 == 0,
-			}
+			e := NewPayloadEncoder(nil, WithBinarySupport(i&0x1 == 0))
 			e.NOOP()
 		}(i)
 	}
@@ -186,12 +173,9 @@ func BenchmarkStringEncoder(b *testing.B) {
 		{String, MESSAGE, []byte("你好\n")},
 		{String, PING, []byte("probe")},
 	}
-	e := PayloadEncoder{
-		supportBinary: false,
-		feeder: &fakeWriterFeeder{
-			w: io.Discard,
-		},
-	}
+	e := NewPayloadEncoder(&fakeWriterFeeder{
+		w: io.Discard,
+	}, WithBinarySupport(false))
 
 	// warm up for memory allocation
 	for _, p := range packets {
@@ -225,12 +209,9 @@ func BenchmarkB64Encoder(b *testing.B) {
 		{Binary, MESSAGE, []byte("你好\n")},
 		{Binary, PING, []byte("probe")},
 	}
-	e := PayloadEncoder{
-		supportBinary: false,
-		feeder: &fakeWriterFeeder{
-			w: io.Discard,
-		},
-	}
+	e := NewPayloadEncoder(&fakeWriterFeeder{
+		w: io.Discard,
+	}, WithBinarySupport(false))
 
 	// warm up for memory allocation
 	for _, p := range packets {
@@ -267,12 +248,9 @@ func BenchmarkBinaryEncoder(b *testing.B) {
 		{Binary, MESSAGE, []byte("你好\n")},
 		{String, PING, []byte("probe")},
 	}
-	e := PayloadEncoder{
-		supportBinary: true,
-		feeder: &fakeWriterFeeder{
-			w: io.Discard,
-		},
-	}
+	e := NewPayloadEncoder(&fakeWriterFeeder{
+		w: io.Discard,
+	}, WithBinarySupport(true))
 
 	// warm up for memory allocation
 	for _, p := range packets {

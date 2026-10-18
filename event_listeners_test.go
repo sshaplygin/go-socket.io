@@ -130,7 +130,7 @@ func TestOnceAcrossConnections(t *testing.T) {
 }
 
 func TestOnceSurvivesEarlierListenerFailure(t *testing.T) {
-	h := newNamespaceHandler("", nil)
+	h := newNamespaceHandler()
 	attempts, called := 0, 0
 	h.OnEvent("event", func(Conn) {
 		attempts++

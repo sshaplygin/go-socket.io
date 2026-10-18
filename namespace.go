@@ -6,12 +6,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 type namespaceConn struct {
 	*conn
-	broadcast Broadcast
+	broadcast adapter.Adapter
 
 	namespace string
 	handshake Handshake
@@ -25,7 +26,7 @@ type namespaceConn struct {
 	middleware []func(string, []interface{}) error
 }
 
-func newNamespaceConn(conn *conn, namespace string, broadcast Broadcast, query ...string) *namespaceConn {
+func newNamespaceConn(conn *conn, namespace string, broadcast adapter.Adapter, query ...string) *namespaceConn {
 	nc := &namespaceConn{conn: conn, namespace: namespace, broadcast: broadcast}
 	if r := conn.Request(); r != nil {
 		h := Handshake{Headers: r.Header.Clone(), Time: time.Now(), Address: r.RemoteAddr, XDomain: r.Header.Get("Origin") != "", Secure: r.TLS != nil, Query: make(url.Values)}
@@ -285,9 +286,9 @@ func (nc *namespaceConn) reject() {
 
 type emitter struct {
 	socket    *namespaceConn
-	adapter   Broadcast
+	adapter   adapter.Adapter
 	broadcast bool
-	opts      BroadcastOptions
+	opts      adapter.Options
 }
 
 func (e emitter) asBroadcast() emitter {
@@ -411,3 +412,8 @@ func (n *namespaces) Range(fn func(ns string, nc *namespaceConn)) {
 const (
 	clientDisconnectMsg = "client namespace disconnect"
 )
+
+// EmitWithOptions applies per-socket delivery flags; selection belongs to adapters.
+func (nc *namespaceConn) EmitWithOptions(opts adapter.Options, event string, args ...interface{}) {
+	nc.emitFlags(opts.Volatile, opts.NoCompress, event, args...)
+}

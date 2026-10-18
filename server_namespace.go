@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
 // ServerNamespace is a server namespace's registration and broadcast object.
@@ -133,7 +135,7 @@ func (n *ServerNamespace) registration() *namespaceHandler {
 }
 
 // Adapter returns the namespace adapter, nil for a dynamic parent or failed construction.
-func (n *ServerNamespace) Adapter() Broadcast {
+func (n *ServerNamespace) Adapter() adapter.Adapter {
 	if n.parent != nil {
 		return nil
 	}
@@ -160,7 +162,7 @@ type dynamicNamespace struct {
 func (s *Server) OfFunc(match func(string, url.Values) bool) *ServerNamespace {
 	s.parentsMu.Lock()
 	defer s.parentsMu.Unlock()
-	parent := &dynamicNamespace{match: match, registration: newNamespaceHandler("", nil), children: make(map[string]*ServerNamespace)}
+	parent := &dynamicNamespace{match: match, registration: newNamespaceHandler(), children: make(map[string]*ServerNamespace)}
 	n := &ServerNamespace{server: s, name: "/_" + strconv.Itoa(len(s.parents)), parent: parent}
 	s.parents = append(s.parents, parent)
 	return n
@@ -181,7 +183,7 @@ type parentBroadcast struct {
 	namespace *ServerNamespace
 }
 
-func (b parentBroadcast) SendTo(opts BroadcastOptions, event string, args ...interface{}) error {
+func (b parentBroadcast) SendTo(opts adapter.Options, event string, args ...interface{}) error {
 	for _, child := range b.namespace.children() {
 		if err := child.registration().broadcast.SendTo(opts, event, args...); err != nil {
 			return err

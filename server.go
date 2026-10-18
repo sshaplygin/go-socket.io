@@ -12,15 +12,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gomodule/redigo/redis"
-
+	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/logger"
 )
-
-// AdapterFunc constructs a namespace's Broadcast once under the creation lock.
-// Errors leave a no-op adapter and are reported by Serve as Redis errors are.
-type AdapterFunc func(namespace string) (Broadcast, error)
 
 // Server is a go-socket.io server.
 type Server struct {
@@ -28,14 +23,13 @@ type Server struct {
 
 	handlers *namespaceHandlers
 
-	redisAdapter *RedisAdapterOptions
-	adapter      AdapterFunc
-	parentsMu    sync.RWMutex
-	parents      []*dynamicNamespace
-	createMu     sync.Mutex            // serialises handler creation, not dispatch; see createNamespace
-	closed       atomic.Bool           // set by Close; read under createMu by createNamespace
-	adapterErr   atomic.Pointer[error] // the first Redis construction error, read by Serve
-	served       chan struct{}         // tests set it; Serve closes it after its entry check
+	adapter    adapter.Factory
+	parentsMu  sync.RWMutex
+	parents    []*dynamicNamespace
+	createMu   sync.Mutex            // serialises handler creation, not dispatch; see createNamespace
+	closed     atomic.Bool           // set by Close; read under createMu by createNamespace
+	adapterErr atomic.Pointer[error] // the first adapter construction error, read by Serve
+	served     chan struct{}         // tests set it; Serve closes it after its entry check
 
 	closeOnce     sync.Once
 	closeDone     chan struct{}
@@ -53,6 +47,7 @@ func NewServer(opts ...Option) *Server {
 	config := resolveOptions(opts...)
 	return &Server{
 		handlers:      newNamespaceHandlers(),
+		adapter:       config.Adapter,
 		active:        make(map[*conn]struct{}),
 		activeChanged: make(chan struct{}),
 		closeDone:     make(chan struct{}),
@@ -70,52 +65,11 @@ func loggerFrom(opts *options) *slog.Logger {
 	return logger.Log
 }
 
-// Adapter sets the Redis broadcast adapter for the namespaces registered after it. A
-// namespace builds its Redis broadcast when its first handler is registered; its two
-// Redis connections must be dialled, AUTH and SELECT included, within 10 seconds. If that
-// fails, the namespace keeps a no-op broadcast and the error, which names the namespace
-// and wraps the Redis error; registering more handlers does not retry. Serve, if called
-// before Close, returns the first such error recorded before it was called (see Serve).
-// The Server room methods of that namespace do nothing (RoomLen returns -1, Rooms nil,
-// the others false; ForEach does not call f). A connection to it fails before
-// OnConnect: for the root namespace the error goes to root OnError with a nil Conn and
-// nothing is written; for another namespace it goes to that namespace's OnError, whose
-// Conn has no rooms, and the connection closes as on a dispatch error.
-//
-// A namespace's Redis broadcast sends its subscription commands when it is built, and
-// handler registration returns without waiting until Redis has registered that
-// subscription. Only once Redis has registered it does the namespace on this instance
-// receive the broadcasts and the ClearRoom, RoomLen and Rooms requests that other
-// instances publish, and only then do their RoomLen and Rooms count it. Its own RoomLen
-// and Rooms can miss its local connections until then too, because this instance
-// answers its own requests through Redis. When the subscriber connection is lost, the
-// broadcast reopens the subscription after a delay that grows while attempts fail, and
-// the same holds again until Redis has registered the reopened subscription.
-func (s *Server) Adapter(opts *RedisAdapterOptions) (bool, error) {
-	opts = getOptions(opts)
-	var redisOpts []redis.DialOption
-	if len(opts.Password) > 0 {
-		redisOpts = append(redisOpts, redis.DialPassword(opts.Password))
-	}
-	if opts.DB > 0 {
-		redisOpts = append(redisOpts, redis.DialDatabase(opts.DB))
-	}
-
-	conn, err := redis.Dial(opts.Network, opts.getAddr(), redisOpts...)
-	if err != nil {
-		return false, err
-	}
-
-	s.SetAdapter(func(namespace string) (Broadcast, error) { return newRedisBroadcast(namespace, opts) })
-	return true, conn.Close()
-}
-
-// Close closes every engine session and waits for its OnDisconnect handlers, with
-// a 10 second bound after which it logs the number still open and returns. Serve
-// returns nil. It also stops every namespace's Redis connections and waits for a handler registration
-// that is dialling Redis, up to the 10 seconds that dial may take. With Adapter set, a
-// namespace registered after Close has no broadcast, as if its construction failed, but
-// Serve does not return that error.
+// Close closes engine sessions, waits for OnDisconnect handlers and closes namespace
+// adapters implementing io.Closer. It waits for in-progress namespace construction.
+// The wait is bounded by ten seconds; on timeout it logs remaining connections.
+// A factory configured after Close is not invoked for new namespaces. Serve returns nil.
+// Completed shutdown returns the engine and adapter close errors joined together.
 func (s *Server) Close() error { return s.closeWithTimeout(10 * time.Second) }
 
 func (s *Server) closeWithTimeout(timeout time.Duration) error {
@@ -134,8 +88,8 @@ func (s *Server) closeWithTimeout(timeout time.Duration) error {
 			}
 			s.createMu.Lock()
 			s.handlers.Range(func(h *namespaceHandler) {
-				if bc, ok := h.broadcast.(*redisBroadcast); ok {
-					bc.close()
+				if closer, ok := h.broadcast.(io.Closer); ok {
+					s.closeErr = errors.Join(s.closeErr, closer.Close())
 				}
 			})
 			s.createMu.Unlock()
@@ -204,7 +158,7 @@ func (s *Server) OnEvent(namespace, event string, f interface{}) {
 }
 
 // Serve accepts and serves connections until Close is called, then returns nil. If a
-// namespace's Redis broadcast could not be created before Serve was called (see Adapter)
+// namespace's adapter could not be created before Serve was called (see SetAdapter)
 // and Close has not been called, Serve returns that error at once without accepting a
 // connection. The engine.io server then still completes handshakes, which nobody serves,
 // until Close is called.
@@ -233,8 +187,8 @@ func (s *Server) Serve() error {
 }
 
 // broadcastOf returns the broadcast of namespace, or nil when the namespace has no
-// handler or its Redis broadcast could not be created.
-func (s *Server) broadcastOf(namespace string) Broadcast {
+// handler or its adapter could not be created.
+func (s *Server) broadcastOf(namespace string) adapter.Adapter {
 	if h := s.getNamespace(namespace); h != nil && h.err == nil {
 		return h.broadcast
 	}
@@ -295,22 +249,8 @@ func (s *Server) BroadcastToNamespace(namespace string, event string, args ...in
 	return bc != nil
 }
 
-// RoomLen returns the number of connections in room of namespace, or -1 when the
-// namespace has no handler, its Redis broadcast could not be created (see Adapter), it
-// was registered after Close with Adapter set (see Close) or a Redis command fails.
-//
-// For a namespace registered after Adapter, RoomLen publishes a request that every
-// instance subscribed to the namespace, this one included, answers through Redis with
-// its own count, and returns the sum of the answers. It returns when an answer brings
-// the number of answers to the number of subscribers that Redis counted before the
-// request, and otherwise after 5 seconds with the answers received by then. It waits
-// the full 5 seconds when this instance has not yet registered its subscription (see
-// Adapter), because the answers do not reach it, or when an instance that Redis counts
-// does not answer. An instance that has not registered its subscription is not counted
-// and does not receive the request, so RoomLen returns without its connections. An
-// instance that registers between that count and the request answers without being
-// counted, so RoomLen can return before a counted instance has answered. In each of
-// these cases RoomLen can return fewer connections than the room has.
+// RoomLen delegates the room count to its namespace adapter. It returns -1 when
+// there is no namespace handler or adapter construction failed.
 func (s *Server) RoomLen(namespace string, room string) int {
 	if bc := s.broadcastOf(namespace); bc != nil {
 		return bc.Len(room)
@@ -318,23 +258,8 @@ func (s *Server) RoomLen(namespace string, room string) int {
 	return -1
 }
 
-// Rooms returns the rooms of namespace that have connections, or nil when the namespace
-// has no handler, its Redis broadcast could not be created (see Adapter) or it was
-// registered after Close with Adapter set (see Close).
-//
-// For a namespace registered after Adapter, Rooms publishes a request that every
-// instance subscribed to the namespace, this one included, answers through Redis with
-// its own rooms, and returns the union of the answers, or an empty list when publishing
-// the request fails. It returns when an answer brings the number of answers to the
-// number of subscribers that Redis counted before the request, and otherwise after 5
-// seconds with the answers received by then. It waits the full 5 seconds when this
-// instance has not yet registered its subscription (see Adapter), because the answers
-// do not reach it, when an instance that Redis counts does not answer, or when Redis
-// cannot report that count. An instance that has not registered its subscription is not
-// counted and does not receive the request, so Rooms returns without its rooms. An
-// instance that registers between that count and the request answers without being
-// counted, so Rooms can return before a counted instance has answered. In each of these
-// cases Rooms can omit rooms that have connections.
+// Rooms delegates the namespace room query to its adapter. It returns nil when
+// there is no namespace handler or adapter construction failed.
 func (s *Server) Rooms(namespace string) []string {
 	if bc := s.broadcastOf(namespace); bc != nil {
 		return bc.Rooms(nil)
@@ -355,8 +280,8 @@ func (s *Server) Remove(sid string) {
 	s.engine.Remove(sid)
 }
 
-// ForEach sends data by DataFunc, if room does not exit sends anything.
-func (s *Server) ForEach(namespace string, room string, f EachFunc) bool {
+// ForEach visits the local members of room through their minimal adapter.Socket contract.
+func (s *Server) ForEach(namespace string, room string, f adapter.EachFunc) bool {
 	bc := s.broadcastOf(namespace)
 	if bc != nil {
 		bc.ForEach(room, f)
@@ -367,7 +292,7 @@ func (s *Server) ForEach(namespace string, room string, f EachFunc) bool {
 // createNamespace returns the handler of nsp, creating it if needed. Under createMu it
 // rechecks, builds, records the first construction error and only then stores the
 // handler, so one namespace never builds two broadcasts and dispatch, which reads
-// s.handlers, never waits for a Redis dial.
+// s.handlers, never waits for factory construction.
 func (s *Server) createNamespace(nsp string) *namespaceHandler {
 	s.createMu.Lock()
 	defer s.createMu.Unlock()
@@ -379,11 +304,11 @@ func (s *Server) createNamespaceLocked(nsp string, parent *namespaceHandler) *na
 		return handler
 	}
 	var handler *namespaceHandler
-	if s.closed.Load() && (s.adapter != nil || s.redisAdapter != nil) {
-		handler = newNamespaceHandler(nsp, nil)
+	if s.closed.Load() && s.adapter != nil {
+		handler = newNamespaceHandler()
 		handler.broadcast, handler.err = nopBroadcast{}, errServerClosed
 	} else if s.adapter != nil {
-		handler = newNamespaceHandler(nsp, nil)
+		handler = newNamespaceHandler()
 		bc, err := s.adapter(nsp)
 		if err == nil && bc == nil {
 			err = errors.New("adapter returned nil")
@@ -394,7 +319,7 @@ func (s *Server) createNamespaceLocked(nsp string, parent *namespaceHandler) *na
 			handler.broadcast = bc
 		}
 	} else {
-		handler = newNamespaceHandler(nsp, s.redisAdapter)
+		handler = newNamespaceHandler()
 	}
 	if handler.err != nil && !s.closed.Load() && s.adapterErr.Load() == nil {
 		s.adapterErr.Store(&handler.err)
@@ -408,11 +333,11 @@ func (s *Server) createNamespaceLocked(nsp string, parent *namespaceHandler) *na
 }
 
 // SetAdapter installs the factory for namespaces created after this call. Nil
-// restores the memory adapter. The last SetAdapter or Adapter call wins.
-func (s *Server) SetAdapter(f AdapterFunc) {
+// restores the memory adapter. Existing namespaces keep their adapter.
+func (s *Server) SetAdapter(f adapter.Factory) {
 	s.createMu.Lock()
 	defer s.createMu.Unlock()
-	s.adapter, s.redisAdapter = f, nil
+	s.adapter = f
 }
 
 func (s *Server) resolveNamespace(name string, query url.Values) *namespaceHandler {

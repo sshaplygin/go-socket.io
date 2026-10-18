@@ -28,7 +28,7 @@ conformance:
 # Race tests of the packages that run goroutines per connection, repeated and shuffled.
 .PHONY: test-stress
 test-stress:
-	go test -race -count=5 -shuffle=on -cpu=1,4 . ./parser ./engineio/...
+	go test -race -count=5 -shuffle=on -cpu=1,4 . ./adapter/... ./parser ./engineio/...
 
 .PHONY: bench
 bench:

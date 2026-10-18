@@ -39,14 +39,14 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
   (`N`), or `-`. PRs = the audit's rough PR estimate, 0 for PARITY; the plan is in `Plan`.
 - Adding methods to the exported `Conn` / `Namespace` interfaces breaks external implementers
   (mocks); decision D10 (ROADMAP Stage V1) adds them directly, and `v1.5.0` documents the
-  change; the plan applies the same rule to the exported `Broadcast` and to `engineio.Conn`
+  change; the plan applies the same rule to the exported `adapter.Adapter` and to `engineio.Conn`
   (E20, D16). `D10` in `Decision` marks the rows
   whose plan puts a method on `Conn`, `Namespace` (the per-connection view embedded in `Conn`),
-  `Broadcast` or `engineio.Conn`. The V1-0 contracts are the list of those methods: a contract that puts one on
+  `adapter.Adapter` or `engineio.Conn`. The V1-0 contracts are the list of those methods: a contract that puts one on
   an untagged row adds `D10` to it in the same PR. Untagged on purpose: the server namespace
   object of S8 (S14, S16, N2, N4), the ack parameter of a handler (K26), handler registration on
   the server (K28), the flags of server broadcasts (S21: `Server` is a struct; the flags reach
-  `Broadcast` through the methods of A4).
+  `adapter.Adapter` through the methods of A4).
 - `Plan` is `<kind> V1-<n>` with the PR of ROADMAP Stage V1 that closes the row, several
   entries separated by `;`. Kinds: `BUG` fixed as a bug (a behaviour change); `ADD` new public
   API; `CHG` behaviour or internal change without new API; `TEST` a test verifies an unverified
@@ -66,7 +66,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | S2 | - | - | `path` option / `path()` | index.js:210 | PARITY | Server is an `http.Handler` (server.go:117); path is the mux pattern | mux registration | - | 0 | R |
 | S3 | - | - | `serveClient` (serves `/socket.io.js`) | index.js:105,335 | N/A | JS client bundle serving; examples serve static files with `http.FileServer` | - | - | 0 | R |
 | S4 | DONE V1-18 | D15 | `origins` option / `origins()` (default `*:*`, list or `fn(origin, cb)`) | index.js:69-95,243 | PARITY | `TestCORSDisabled` verifies no polling CORS headers and same-origin websocket checks with DisableCORS; explicit transport CheckOrigin overrides either setting. | `engineio.WithCORS(false)`, transport `CheckOrigin` | Y (the option that disables the default) | 1 | T |
-| S5 | DONE V1-7 | D5 | `adapter(v)` pluggable adapter class | index.js:224 | PARITY | `TestSetAdapter` verifies factory construction once, Join/SendTo/IDs calls, and errors surfaced by Serve. `TestNamespaceAdapter` checks last Adapter/SetAdapter wins for later namespaces. | `SetAdapter`, `AdapterFunc` | Y | 2 | T |
+| S5 | DONE V1-7 | D5 | `adapter(v)` pluggable adapter class | index.js:224 | PARITY | `TestSetAdapter` verifies factory construction once, Join/SendTo/IDs calls, and errors surfaced by Serve. `TestNamespaceAdapter` checks WithAdapter option order and last SetAdapter wins for later namespaces. | `SetAdapter`, `adapter.Factory` | Y | 2 | T |
 | S6 | - | - | `parser` option (custom parser) | index.js:54 | N/A | fixed parser package; custom parsers not a v1 goal (msgpack is a v2 roadmap item) | - | - | 0 | R |
 | S7 | - | - | `attach` / `listen(srv or port)` | index.js:259 | PARITY | `ServeHTTP` + `Serve()` server.go:117,172 (idiomatic Go; `listen(port)` convenience not needed) | `Server.ServeHTTP`, `Serve` | - | 0 | R |
 | S8 | DONE V1-5 | D5 | `of(name[, fn])` static namespace, returns `Namespace` | index.js:453-476 | PARITY | Server.Of normalizes names and shares the stable handler and namespace object. Verified by `TestServerOf`. | `Server.Of` | Y (`Of`) | 2 | T |
@@ -74,7 +74,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | S10 | DONE V1-4 | D8 | CONNECT to unknown namespace answers `ERROR "Invalid namespace"`, connection stays open | client.js:69-76 | PARITY | unknown CONNECT replies with ERROR and a following root ACK succeeds. Verified by `TestUnknownNamespaceKeepsConnection`. | - | N | 1 | T |
 | S11 | DONE V1-5 | D5 | `use(fn)` namespace middleware `fn(socket, next)`, error becomes `ERROR` packet | index.js:509; namespace.js:102,119,172-176 | PARITY | namespace middleware and OnConnect rejection send ERROR and retain the engine/root socket. Verified by `TestNamespaceMiddleware`. | `Server.Use; ServerNamespace.Use` | Y | 2 | T |
 | S12 | DONE V1-3 | D8 | `emit(ev, ...)` to all sockets of `/` (once per socket) | namespace.js:217; adapter 122-163 | PARITY | `TestNamespaceBroadcastOnce`: two sockets in several rooms receive a single namespace broadcast followed by a distinct marker; `TestLifecycleRootNamespace` also asserts no duplicate | `Server.BroadcastToNamespace` | N | 1 | T |
-| S13 | DONE V1-6; REDIS | D1, D2 | `to(room)/in(room).emit` (one room, or union of several rooms with dedupe) | namespace.js:147; adapter 122 | PARTIAL (Redis) | `ServerNamespace.To` and memory `SendTo` dedupe room unions; `TestRoomUnion` verifies immutable builders and one delivery. Redis dedupes locally and publishes per room. | `ServerNamespace.To`, `Broadcast.SendTo` | N | 1 | T |
+| S13 | DONE V1-6; REDIS | D1, D2 | `to(room)/in(room).emit` (one room, or union of several rooms with dedupe) | namespace.js:147; adapter 122 | PARTIAL (Redis) | `ServerNamespace.To` and memory `SendTo` dedupe room unions; `TestRoomUnion` verifies immutable builders and one delivery. Redis dedupes locally and publishes per room. | `ServerNamespace.To`, `adapter.Adapter.SendTo` | N | 1 | T |
 | S14 | DONE V1-5 | D5 | `send` / `write` (emits `message`) | namespace.js:255 | PARITY | namespace Send delivers the message event. Verified by `TestNamespaceSend`. | `ServerNamespace.Send` | Y (sugar) | 0-1 | T |
 | S15 | DONE V1-6; REDIS | D5, D2 | `clients(cb)` list of socket ids (all, or `in(room)`) | namespace.js:270; adapter 173 | PARTIAL (Redis) | `TestNamespaceSocketIDs` checks all/room snapshots and copies. Redis IDs list this instance only (`TestRedisBroadcastLocalFlag`). | `ServerNamespace.SocketIDs` | Y | 1 | T |
 | S16 | DONE V1-5 | D5 | `nsp.connected`, `nsp.sockets` maps | namespace.js:55-56 | PARITY | connected sockets are snapshotted by ID; disconnected and rejected sockets are absent. Verified by `TestNamespaceSockets`. | `ServerNamespace.Sockets; Socket` | Y | 1 | T |
@@ -116,7 +116,7 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 | K11 | DONE V1-6 | D5, D10 | `join(room \| rooms[], cb)` | socket.js:236 | PARITY | `TestConnJoinRooms` verifies ordered variadic joins with duplicate rooms ignored. | `Join(rooms ...string)` | Y (variadic) | 1 | T |
 | K12 | - | - | `leave(room, cb)`, `leaveAll()` | socket.js:269,287 | PARITY | `Leave`, `LeaveAll` namespace.go:158-164 | same | - | 0 | R |
 | K13 | - | - | `emit(ev, ...args[, ack])` to this client | socket.js:140-181 | PARITY | `Conn.Emit` namespace.go:82-141; trailing func is the ack callback (not sent), called on ACK | `Emit` | - | 0 | R |
-| K14 | DONE V1-6 | D5, D10 | `socket.broadcast.emit` / `socket.to(room).emit` (everyone except sender) | socket.js:170-175,191 | PARTIAL (Redis) | `TestBroadcastExceptSender` executes handler broadcasts, volatile target conversion, single-socket Local, and client ErrServerOnly. Redis exclusion returns ErrExceptUnsupported before I/O. | `To`, `Broadcast`, `Emitter.Except` | Y | 2 | T |
+| K14 | DONE V1-6 | D5, D10 | `socket.broadcast.emit` / `socket.to(room).emit` (everyone except sender) | socket.js:170-175,191 | PARTIAL (Redis) | `TestBroadcastExceptSender` executes handler broadcasts, volatile target conversion, single-socket Local, and client ErrServerOnly. Redis exclusion returns adapter.ErrExceptUnsupported before I/O. | `To`, `adapter.Adapter`, `Emitter.Except` | Y | 2 | T |
 | K15 | DONE V1-5 | D5, D10 | `send` / `write` | socket.js:204 | PARITY | Send delivers message and its trailing acknowledgement callback. Verified by `TestConnSend`. | `Namespace.Send` | Y (sugar) | 0-1 | T |
 | K16 | DONE V1-6 | D5, D10 | flag `volatile` (drop if transport not writable) | socket.js:39; client.js:167 | PARITY | `TestVolatileEmit` observes polling drops without a pending poll and websocket delivery; `TestVolatileDropsQueuedPacket` checks queue drops without ACK registration or close. | `Volatile` | Y | 2 | T |
 | K17 | DONE V1-15 | D11, D10 | `compress(bool)` | socket.js:497 | PARITY | `TestEmitCompressFlag` reads raw RSV1 bits for pending emits, text/binary attachments, immutable builders and sender-excluding room broadcasts. | `Namespace.Compress`, `Emitter.Compress` | Y | 1 + E8 | T |
@@ -137,16 +137,16 @@ file in the installed socket.io 2.5.0 / engine.io 3.6.2 sources (`socket.io/lib/
 
 | ID | Plan | Decision | Reference item | Ref | Status | Go evidence | Nearest Go API | API? | PRs | Ver |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| A1 | DONE V1-6 | D1 | `rooms`, `sids` maps | adapter 21-26 | PARITY | `TestBroadcastRoomsMaps` checks both indexes after Join/Leave/LeaveAll/Clear, including sockets left in no rooms. Rooms and LeaveAll use sids. | internal | N | 0-1 | T |
+| A1 | DONE V1-6 | D1 | `rooms`, `sids` maps | adapter 21-26 | PARITY | `adapter.TestBroadcastRoomsMaps` checks both indexes after Join/Leave/LeaveAll/Clear, including sockets left in no rooms. Rooms and LeaveAll use sids. | internal | N | 0-1 | T |
 | A2 | DONE V1-7 | D5 | `add/addAll(id, rooms, cb)` | adapter 43-65 | PARITY | `TestAdapterJoinRooms` observes ordered multi-room Join calls through an injected adapter and verifies membership/IDs. D9 keeps the Conn argument. | `Namespace.Join`, `SetAdapter` | Y | 1 | T |
-| A3 | - | - | `del`, `delAll` | adapter 76-108 | PARITY | `Leave`, `LeaveAll` broadcast.go:50-75 | same | - | 0 | R |
-| A4 | DONE V1-6; REDIS | D5, D2, D10 | `broadcast(packet, {rooms, except, flags})` once per socket | adapter 122-163 | PARTIAL (Redis) | `TestBroadcastSendTo` verifies union/dedupe, exclusion, flags through target emitters, lock-free delivery and adapter errors. Redis exclusion fails before I/O; unknown message extensions are dropped and logged. | `Broadcast.SendTo`, `BroadcastOptions` | Y (options) | 2 | T |
-| A5 | DONE V1-6; REDIS | D5, D2, D10 | `clients(rooms, cb)` ids | adapter 173-211 | PARTIAL (Redis) | `TestBroadcastIDs` checks all/room unions, dedupe and copies. Redis IDs list this instance only. | `Broadcast.IDs` | Y | 1 | T |
-| A6 | - | - | `clientRooms(id, cb)` | adapter 220 | PARITY | `Conn.Rooms()`; `Broadcast.Rooms(conn)` broadcast.go:131 | `Rooms` | - | 0 | R |
-| A7 | - | - | `allRooms(cb)` **[not in socket.io-adapter 1.1.2; Redis 5.4.0 only]** | redis index.js:553 | PARITY | `Server.Rooms(ns)` server.go:299, `Broadcast.AllRooms` | `Rooms` | - | 0 | R |
+| A3 | - | - | `del`, `delAll` | adapter 76-108 | PARITY | `adapter.Memory.Leave`, `LeaveAll` in adapter/memory.go | same | - | 0 | R |
+| A4 | DONE V1-6; REDIS | D5, D2, D10 | `broadcast(packet, {rooms, except, flags})` once per socket | adapter 122-163 | PARTIAL (Redis) | `adapter.TestBroadcastSendTo` verifies union/dedupe, exclusion, flags through the minimal socket contract and lock-free delivery; root `TestBroadcastAdapterError` verifies error propagation. Redis exclusion fails before I/O; unknown message extensions are dropped and logged. | `adapter.Adapter.SendTo`, `adapter.Options` | Y (options) | 2 | T |
+| A5 | DONE V1-6; REDIS | D5, D2, D10 | `clients(rooms, cb)` ids | adapter 173-211 | PARTIAL (Redis) | `adapter.TestBroadcastIDs` checks all/room unions, dedupe and copies. Redis IDs list this instance only. | `adapter.Adapter.IDs` | Y | 1 | T |
+| A6 | - | - | `clientRooms(id, cb)` | adapter 220 | PARITY | `Conn.Rooms()`; `adapter.Adapter.Rooms(conn)` in adapter/memory.go | `Rooms` | - | 0 | R |
+| A7 | - | - | `allRooms(cb)` **[not in socket.io-adapter 1.1.2; Redis 5.4.0 only]** | redis index.js:553 | PARITY | `Server.Rooms(ns)` server.go:299, `adapter.Adapter.AllRooms` | `Rooms` | - | 0 | R |
 | A8 | DEV | D3 | `remoteJoin`, `remoteLeave`, `remoteDisconnect`, `customRequest` **[Redis 5.4.0 only, not core adapter]** | redis index.js:598,640,680,721 | ABSENT | none | - | Y | 2-3 (needs A9 first) | R |
-| A9 | DEV | D3 | Redis wire interop with `socket.io-redis` 5.4.0 (msgpack, channels `prefix#nsp#room#`, `prefix-request#nsp#`, `prefix-response#nsp#`) | redis index.js:8,85-87 | ABSENT | Go uses JSON and channel `prefix#nsp#uid` (redis_broadcast.go:171,375,609): Go instances talk to each other only (not run against Node) | `Server.Adapter` | N | 3+ | R/U |
-| A10 | REDIS | D2, D8 | Redis adapter options (`key`, `host/port`, own pub/sub clients, `requestsTimeout`) | redis index.js:52 | PARTIAL | `RedisAdapterOptions{Addr, Prefix, Network, Password, DB}` adapter_options.go:6-17. **Defect**: `getOptions` never copies `DB` (adapter_options.go:34-61), so `Server.Adapter`/broadcast always use DB 0 (server.go:81, redis_broadcast.go:123-124). No TLS/user/sentinel. Not run | `RedisAdapterOptions` | N | 1 | R |
+| A9 | DEV | D3 | Redis wire interop with `socket.io-redis` 5.4.0 (msgpack, channels `prefix#nsp#room#`, `prefix-request#nsp#`, `prefix-response#nsp#`) | redis index.js:8,85-87 | ABSENT | Go uses JSON and channel `prefix#nsp#uid` (adapter/redis/adapter.go and codec.go): Go instances talk to each other only (not run against Node) | `redis.New` | N | 3+ | R/U |
+| A10 | REDIS | D2, D8 | Redis adapter options (`key`, `host/port`, own pub/sub clients, `requestsTimeout`) | redis index.js:52 | PARTIAL | `redis.New` with targeted `WithAddr`, `WithPrefix`, `WithNetwork`, `WithPassword`, `WithDB` options in adapter/redis/options.go. **Defect**: normalization still drops DB and uses DB0. `redis.TestFactoryOptionsAndIndependentNamespaces` retains DB0; no TLS/user/sentinel. | `redis.New`, `redis.Option` | N | 1 | R |
 
 ## 5. Engine.IO server options (`engine.io/lib/server.js`)
 
@@ -244,7 +244,7 @@ without limit; it is a behaviour difference with no reference counterpart.
 1. Default session id is a sequential counter (E15): ids are guessable.
 2. Polling JSONP callback `j` is echoed unsanitised (P5).
 3. No cap on attachment count (R6, measured) and no payload size cap (E4).
-4. `RedisAdapterOptions.DB` is dropped by `getOptions` (A10).
+4. Redis database selection is normalized to DB0 (A10).
 5. `BroadcastToNamespace` duplicates per room (S12, already pinned by a test).
 
 Findings 1 to 5 are rows E15, P5, R6 with E4, A10 and S12; their plan is in those rows.

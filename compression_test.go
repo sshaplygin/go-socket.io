@@ -17,6 +17,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
@@ -213,14 +214,14 @@ func TestRedisBroadcastCompress(t *testing.T) {
 	local.Join("room", c)
 	remote.Join("room", d)
 	value := strings.Repeat("redis", 1024)
-	require.NoError(t, local.SendTo(BroadcastOptions{Rooms: []string{"room"}, NoCompress: true}, "news", value))
+	require.NoError(t, local.SendTo(adapter.Options{Rooms: []string{"room"}, NoCompress: true}, "news", value))
 	flag, data := a.message(t)
 	require.False(t, flag)
 	require.Contains(t, string(data), "news")
 	flag, data = b.message(t)
 	require.True(t, flag, "legacy Redis publishes without the flag")
 	require.Contains(t, string(data), "news")
-	require.NoError(t, local.SendTo(BroadcastOptions{Rooms: []string{"room"}, Local: true, NoCompress: true}, "only local", value))
+	require.NoError(t, local.SendTo(adapter.Options{Rooms: []string{"room"}, Local: true, NoCompress: true}, "only local", value))
 	flag, data = a.message(t)
 	require.False(t, flag)
 	require.Contains(t, string(data), "only local")

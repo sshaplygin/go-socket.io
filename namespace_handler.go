@@ -1,12 +1,11 @@
 package socketio
 
 import (
-	"cmp"
 	"errors"
-	"fmt"
 	"reflect"
 	"sync"
 
+	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -15,8 +14,8 @@ type namespaceHandler struct {
 	connected   map[string]Conn
 	view        *ServerNamespace
 	middleware  []func(Conn) error
-	broadcast   Broadcast
-	err         error // why broadcast is a nopBroadcast: the Redis broadcast could not be created
+	broadcast   adapter.Adapter
+	err         error // why broadcast is a nopBroadcast: the adapter could not be created
 
 	events     map[string][]*eventListener
 	eventsLock sync.RWMutex
@@ -26,31 +25,19 @@ type namespaceHandler struct {
 	onError      func(conn Conn, err error)
 }
 
-func newNamespaceHandler(nsp string, adapterOpts *RedisAdapterOptions) *namespaceHandler {
-	nh := &namespaceHandler{
-		broadcast: nopBroadcast{},
-		connected: make(map[string]Conn),
-		events:    make(map[string][]*eventListener),
-	}
-	if adapterOpts == nil {
-		nh.broadcast = newBroadcast()
-	} else if bc, err := newRedisBroadcast(nsp, adapterOpts); err != nil {
-		nh.err = fmt.Errorf("socketio: redis broadcast of namespace %q: %w", cmp.Or(nsp, aliasRootNamespace), err)
-	} else {
-		nh.broadcast = bc
-	}
-	return nh
+func newNamespaceHandler() *namespaceHandler {
+	return &namespaceHandler{broadcast: adapter.NewMemory(), connected: make(map[string]Conn), events: make(map[string][]*eventListener)}
 }
 
-// nopBroadcast is the Broadcast of a namespace whose Redis broadcast could not be
+// nopBroadcast is the adapter.Adapter of a namespace whose adapter could not be
 // created: it keeps no rooms and sends nothing.
 type nopBroadcast struct{}
 
-func (nopBroadcast) Join(string, Conn) {}
+func (nopBroadcast) Join(string, adapter.Socket) {}
 
-func (nopBroadcast) Leave(string, Conn) {}
+func (nopBroadcast) Leave(string, adapter.Socket) {}
 
-func (nopBroadcast) LeaveAll(Conn) {}
+func (nopBroadcast) LeaveAll(adapter.Socket) {}
 
 func (nopBroadcast) Clear(string) {}
 
@@ -58,11 +45,11 @@ func (nopBroadcast) Send(string, string, ...interface{}) {}
 
 func (nopBroadcast) SendAll(string, ...interface{}) {}
 
-func (nopBroadcast) ForEach(string, EachFunc) {}
+func (nopBroadcast) ForEach(string, adapter.EachFunc) {}
 
 func (nopBroadcast) Len(string) int { return -1 }
 
-func (nopBroadcast) Rooms(Conn) []string { return nil }
+func (nopBroadcast) Rooms(adapter.Socket) []string { return nil }
 
 func (nopBroadcast) AllRooms() []string { return nil }
 
@@ -254,7 +241,7 @@ func (nh *namespaceHandler) removeSocket(c Conn) {
 	nh.connectedMu.Unlock()
 }
 
-func (nopBroadcast) SendTo(BroadcastOptions, string, ...interface{}) error { return nil }
+func (nopBroadcast) SendTo(adapter.Options, string, ...interface{}) error { return nil }
 
 func (nopBroadcast) IDs(...string) []string { return nil }
 

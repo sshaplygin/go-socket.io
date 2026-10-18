@@ -131,7 +131,7 @@ All notable changes to this project are documented here. The format follows
   (`engineio/server.go:53`, `:178` at `79a393c`, roadmap task 1I).
 - A namespace whose Redis broadcast could not be created held a nil broadcast, so every
   room call on it panicked, and the error was dropped. See
-  [`Server.Adapter`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Server.Adapter)
+  [`redis.New`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/adapter/redis#New)
   and [`Server.Serve`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Server.Serve)
   (`namespace_handler.go:27` at `79a393c`, roadmap task 1I).
 - Concurrent handler registrations on one new namespace could each build a Redis
@@ -219,7 +219,7 @@ All notable changes to this project are documented here. The format follows
   broadcast except their sender; adapters and namespaces expose socket ID snapshots.
   New broadcast entry points reject acknowledgement callbacks with ErrBroadcastAck;
   legacy broadcasts retain one callback per socket. Redis exclusions return
-  ErrExceptUnsupported without delivery, and unknown message extensions are dropped.
+  adapter.ErrExceptUnsupported without delivery, and unknown message extensions are dropped.
 
 - engineio: optional Hooks observe connection, initial and per-response headers,
   connection errors, packets, heartbeat, upgrades, polling flush/drain and transport
@@ -294,6 +294,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- adapters: room/delivery contracts and the memory implementation now live in
+  `adapter`; Redis configuration, factory and lifecycle live in `adapter/redis`.
+  Redis composes the shared local room index. Configure servers with `WithAdapter`
+  and `redis.New(...redis.Option)`; construction errors are deferred to namespace
+  registration and reported by `Serve`. Root no longer probes Redis at configuration
+  time. `ForEach` receives `adapter.Socket`; adapters close through optional
+  `io.Closer`. Old root adapter declarations and Redis configuration API are removed.
+  See [the v1 migration guide](docs/V1_MIGRATION.md).
+
 - Public constructors use targeted functional options: default servers are
   `NewServer()` and clients are `client.New(addr)`. `With…` functions configure
   their owning role, in order, without sharing per-instance configuration.
@@ -315,13 +324,13 @@ All notable changes to this project are documented here. The format follows
   function registration. Orderly close, forced close and hook ordering retain their
   behavior. Imports and role contracts change; see the migration guide.
 
-- v1 migration: this minor release expands `Conn`, `Namespace`, `Broadcast` and
+- v1 migration: this minor release expands `Conn`, `Namespace`, `adapter.Adapter` and
   `engineio.Conn`, breaking custom implementations and mocks. `Conn` gains
-  `EngineConn`, `Request` and `Handshake`; its embedded `Namespace` gains
+  `EngineConn`, `Request`, `Handshake` and `EmitWithOptions`; its embedded `Namespace` gains
   `Send`, `Disconnect`, `Use`, `To`, `Broadcast`, `Volatile`, `Connected` and
   `Compress`. `Namespace.Join(room string)` changes to `Join(rooms ...string)`:
   existing single-room calls compile unchanged, but implementations must adopt
-  the variadic signature. `Broadcast` gains `SendTo` and `IDs`;
+  the variadic signature. `adapter.Adapter` supplies `SendTo` and `IDs` over the minimal `adapter.Socket`;
   `engineio.Conn` gains `ReadyState`, `Transport` and `Upgraded`. Add these
   methods to implementations, or embed the corresponding interface in a mock
   and implement each method the test calls. On a client connection, `EngineConn`
@@ -497,20 +506,19 @@ All notable changes to this project are documented here. The format follows
 ### Known limitations
 
 - Redis broadcast: `Emit` and `Send` from socket-excluding builders, including
-  `Conn.To` and `Conn.Broadcast`, return `ErrExceptUnsupported` before delivery.
+  `Conn.To` and `Conn.Broadcast`, return `adapter.ErrExceptUnsupported` before delivery.
   Socket ID snapshots describe this instance only. `Volatile` and `Compress(false)` are honored locally;
   the legacy Redis wire format omits these flags, so remote instances use
   ordinary delivery and default compression. A room union publishes per room
   and can deliver duplicates across instances. Mixed Go/Node Redis clusters
   are unsupported; see [protocol deviation D3](docs/PROTOCOL.md#deviation-d3-mixed-gonode-redis-cluster).
-- Redis broadcast: `Server.Adapter` does not honor `RedisAdapterOptions.DB` and
-  uses DB 0. Binary arguments across instances have not been validated.
+- Redis broadcast: `redis.New` normalizes `WithDB` to DB 0. Binary arguments across instances have not been validated.
 - Redis broadcast: handler registration does not wait until Redis has registered the
   namespace's subscription, and a lost subscription is reopened later, so until Redis
   has registered it the namespace on that instance misses other instances' broadcasts
   and room requests, and room queries on every instance, its own included, leave out
   its connections (see
-  [`Server.Adapter`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Server.Adapter)).
+  [`redis.New`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/adapter/redis#New)).
 - Redis broadcast: `Server.RoomLen` and `Server.Rooms` wait the full 5 s and return the
   answers received by then when the requesting instance has not yet registered its
   subscription or an instance that Redis counts does not answer (`Rooms` also when Redis

@@ -15,6 +15,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/engineio"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/parser"
@@ -680,7 +681,7 @@ func TestBackpressureConnectFailureReportsOverflowFromOnError(t *testing.T) {
 func TestBackpressureOverflowInBroadcast(t *testing.T) {
 	for _, overflow := range []func(*Server){
 		func(s *Server) { s.BroadcastToRoom("/", "r", "x") },
-		func(s *Server) { s.ForEach("/", "r", func(c Conn) { flood(c, 2) }) },
+		func(s *Server) { s.ForEach("/", "r", func(c adapter.Socket) { c.Emit("x"); c.Emit("x") }) },
 	} {
 		p := start(t, 'S', hooks{connect: func(c Conn) error { c.Join("r"); return nil }})
 		p.stall(t, p.nc, defaultWriteBufferSize)
@@ -827,7 +828,7 @@ func (c *emitConn) Emit(event string, _ ...interface{}) { c.onEmit(event) }
 // A recipient whose Emit blocks does not stop others from joining or leaving
 // rooms; one whose Emit leaves all rooms does not deadlock Send or SendAll.
 func TestBroadcastDoesNotHoldLockWhileEmitting(t *testing.T) {
-	bc := newBroadcast()
+	bc := adapter.NewMemory()
 	entered, release := make(chan struct{}), make(chan struct{})
 	slow := &emitConn{id: "slow", onEmit: func(string) {
 		entered <- struct{}{}
@@ -863,12 +864,12 @@ func TestBroadcastDoesNotHoldLockWhileEmitting(t *testing.T) {
 // The ForEach callback may change rooms; it visits the members present when
 // ForEach started.
 func TestBroadcastForEachCallbackChangesRooms(t *testing.T) {
-	bc := newBroadcast()
+	bc := adapter.NewMemory()
 	bc.Join("r", &emitConn{id: "a"})
 	bc.Join("r", &emitConn{id: "b"})
 	var visited []string
 	recv(t, inBackground(func() {
-		bc.ForEach("r", func(c Conn) {
+		bc.ForEach("r", func(c adapter.Socket) {
 			visited = append(visited, c.ID())
 			bc.Leave("r", c)
 			bc.Join("moved", c)

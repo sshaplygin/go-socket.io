@@ -16,7 +16,9 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 
 | Path | Purpose |
 | --- | --- |
-| `*.go` (root, package `socketio`) | v1 Socket.IO server, namespaces, rooms, in-memory and Redis broadcast; server-owned connection contracts/options |
+| `*.go` (root, package `socketio`) | v1 Socket.IO server, namespaces and generic adapter factory; server-owned connection contracts/options |
+| `adapter/` | v1 adapter/socket contracts and local in-memory room index; standard-library dependencies only |
+| `adapter/redis/` | v1 Redis factory/options, publication, requests and reconnect; composes the memory adapter |
 | `client/` | v1 experimental Socket.IO Go client, manager/reconnect, client-owned connection contracts/options |
 | `parser/` | v1 Socket.IO v4 packet encoder/decoder, binary attachments and independent frame types |
 | `engineio/` | v1 Engine.IO v3 server and private session/registry lifecycle |
@@ -66,7 +68,8 @@ V1 source files follow the same responsibility names in the root and `client/`:
 | `connection.go`, `connection_serve.go` | connection state/queue and its read/write/error loops |
 | `packet_handlers.go`, `event_handler.go` | packet dispatch and reflected event/ACK handlers |
 | `namespace.go`, `namespace_handler.go` | namespace connections/registry and handlers/handler registry |
-| `broadcast.go`, `redis_broadcast.go`, `adapter_options.go` | in-memory/Redis adapters and Redis configuration |
+| `adapter/adapter.go`, `memory.go` | minimal socket/factory contracts and local room/index/delivery ownership |
+| `adapter/redis/options.go`, `adapter.go`, `codec.go`, `requests.go`, `subscription.go` | Redis configuration/construction, legacy wire format, cluster queries and subscription lifecycle |
 | `engineio/conn.go`, `engineio/options.go` | server Engine.IO connection/state/error contracts and server configuration |
 | `engineio/session.go`, `session_close.go`, `session_upgrade.go`, `session_headers.go`, `session_hooks.go` | private server session I/O, close/upgrade state machines and response observation |
 | `engineio/session_manager.go`, `session_id_generator.go` | private registry and server-owned ID generators |

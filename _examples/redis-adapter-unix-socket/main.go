@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"log"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	socketio "github.com/sshaplygin/go-socket.io"
+	redisadapter "github.com/sshaplygin/go-socket.io/adapter/redis"
 )
 
 func main() {
@@ -28,15 +28,7 @@ func main() {
 func run(ctx context.Context, addr string) error {
 	router := gin.New()
 
-	server := socketio.NewServer()
-
-	_, err := server.Adapter(&socketio.RedisAdapterOptions{
-		Addr:    "/tmp/docker/redis.sock",
-		Network: "unix",
-	})
-	if err != nil {
-		return errors.Join(err, server.Close())
-	}
+	server := socketio.NewServer(socketio.WithAdapter(redisadapter.New(redisadapter.WithAddr("/tmp/docker/redis.sock"), redisadapter.WithNetwork("unix"))))
 
 	registerChat(server)
 

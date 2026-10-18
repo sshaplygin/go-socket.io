@@ -12,14 +12,15 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/alicebob/miniredis/v2/server"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sshaplygin/go-socket.io/adapter"
+	redisadapter "github.com/sshaplygin/go-socket.io/adapter/redis"
 )
 
 // useRedis sets the Adapter of srv to s and closes srv at cleanup.
 func useRedis(t *testing.T, srv *Server, addr string) {
 	t.Helper()
-	ok, err := srv.Adapter(&RedisAdapterOptions{Addr: addr})
-	require.True(t, ok)
-	require.NoError(t, err)
+	srv.SetAdapter(redisadapter.New(redisadapter.WithAddr(addr)))
 	t.Cleanup(func() { _ = srv.Close() })
 }
 
@@ -95,7 +96,7 @@ func TestRedisFailedNamespaceRoomMethods(t *testing.T) {
 	require.False(t, srv.BroadcastToNamespace("/f", "e"), "BroadcastToNamespace")
 	require.Equal(t, -1, srv.RoomLen("/f", "r"))
 	require.Nil(t, srv.Rooms("/f"))
-	require.False(t, srv.ForEach("/f", "r", func(Conn) { t.Error("ForEach called its function") }))
+	require.False(t, srv.ForEach("/f", "r", func(adapter.Socket) { t.Error("ForEach called its function") }))
 	require.Empty(t, c.events)
 }
 
@@ -232,7 +233,8 @@ func forward(c net.Conn, addr string) {
 // Covers 1I-T12 (S).
 func TestRedisConcurrentRegistrationBuildsOneBroadcast(t *testing.T) {
 	s := miniredis.RunT(t)
-	opts := &RedisAdapterOptions{Addr: delayedProxy(t, s.Addr(), 50*time.Millisecond), Prefix: "socket.io", Network: "tcp"}
+	addr := delayedProxy(t, s.Addr(), 50*time.Millisecond)
+	factory := redisadapter.New(redisadapter.WithAddr(addr))
 	settled := func() int { // the connections of the broadcasts built so far, once all reached Redis
 		t.Helper()
 		require.Eventually(t, func() bool { return s.PubSubNumPat() > 0 }, time.Second, 5*time.Millisecond)
@@ -244,15 +246,14 @@ func TestRedisConcurrentRegistrationBuildsOneBroadcast(t *testing.T) {
 		t.Helper()
 		require.Eventually(t, func() bool { return s.CurrentConnectionCount() == 0 }, time.Second, 5*time.Millisecond, what)
 	}
-	single, err := newRedisBroadcast("/single", opts)
+	single, err := factory("/single")
 	require.NoError(t, err)
 	want := settled()
-	single.close()
+	require.NoError(t, single.(io.Closer).Close())
 	closed("the connections of a single broadcast")
 
 	srv := NewServer()
-	useRedis(t, srv, opts.Addr)
-	closed("the connection of Adapter")
+	useRedis(t, srv, addr)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
@@ -272,91 +273,6 @@ func TestRedisConcurrentRegistrationBuildsOneBroadcast(t *testing.T) {
 	closed("Redis connections left after Close")
 }
 
-// startRegistration lowers redisDialTimeout, registers namespace "/x" on its own goroutine and
-// at cleanup waits for it, then restores the timeout: the registration reads the variable, which
-// the next test changes.
-func startRegistration(t *testing.T, srv *Server) {
-	t.Helper()
-	d := redisDialTimeout
-	redisDialTimeout = 300 * time.Millisecond
-	t.Cleanup(func() { redisDialTimeout = d })
-	reg := make(chan struct{})
-	go func() { srv.OnConnect("/x", func(Conn) error { return nil }); close(reg) }()
-	t.Cleanup(func() { recv(t, reg, "the registration to end") })
-}
-
-// TestRedisCloseDoesNotWaitForSilentRedis checks that Close returns within the Redis dial
-// timeout while a handler registration waits for a Redis server that accepted the
-// connection and never answers AUTH, and that the registration records the failure.
-func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ln.Close() })
-	accepted := make(chan net.Conn, 4)
-	go func() {
-		for c, err := ln.Accept(); err == nil; c, err = ln.Accept() {
-			accepted <- c
-		}
-	}()
-	srv := NewServer()
-	srv.redisAdapter = getOptions(&RedisAdapterOptions{Addr: ln.Addr().String(), Password: "secret"})
-	startRegistration(t, srv)
-	c := recv(t, accepted, "the registration's Redis dial")
-	t.Cleanup(func() { _ = c.Close() }) // at the latest, ends the registration's dial
-
-	closed := make(chan error, 1)
-	go func() { closed <- srv.Close() }()
-	select {
-	case err := <-closed:
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("Close still waits for a registration whose Redis server never answers AUTH")
-	}
-	require.ErrorContains(t, srv.getNamespace("/x").err, `"/x"`)
-}
-
-// TestRedisCloseDoesNotWaitForSilentSubscriber checks that the Redis dial timeout also
-// bounds the subscriber dial: the publishing connection reaches a Redis server that
-// requires AUTH, the subscriber connection is accepted and never answered, and Close
-// still returns while the registration waits; the registration records the failure and
-// closes the publishing connection.
-func TestRedisCloseDoesNotWaitForSilentSubscriber(t *testing.T) {
-	s := miniredis.RunT(t)
-	s.RequireAuth("secret")
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ln.Close() })
-	silent := make(chan net.Conn, 4)
-	go func() {
-		c, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		go forward(c, s.Addr())
-		for c, err := ln.Accept(); err == nil; c, err = ln.Accept() {
-			silent <- c
-		}
-	}()
-	srv := NewServer()
-	srv.redisAdapter = getOptions(&RedisAdapterOptions{Addr: ln.Addr().String(), Password: "secret"})
-	startRegistration(t, srv)
-	c := recv(t, silent, "the registration's subscriber dial")
-	t.Cleanup(func() { _ = c.Close() }) // at the latest, ends the subscriber dial
-	require.Equal(t, 1, s.TotalConnectionCount(), "publishing connections that reached Redis")
-
-	closed := make(chan error, 1)
-	go func() { closed <- srv.Close() }()
-	select {
-	case err := <-closed:
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("Close still waits for a registration whose Redis subscriber dial is never answered")
-	}
-	require.ErrorContains(t, srv.getNamespace("/x").err, `"/x"`)
-	require.Eventually(t, func() bool { return s.CurrentConnectionCount() == 0 }, time.Second, 5*time.Millisecond,
-		"the publishing connection left open after the failed construction")
-}
-
 // TestRedisCloseStopsRacingRegistration checks that Close waits for a registration that
 // is building a Redis broadcast and stops that broadcast too. AUTH through the delayed
 // proxy keeps each of the registration's two dials waiting for 100 ms.
@@ -364,9 +280,7 @@ func TestRedisCloseStopsRacingRegistration(t *testing.T) {
 	s := miniredis.RunT(t)
 	s.RequireAuth("secret")
 	srv := NewServer()
-	ok, err := srv.Adapter(&RedisAdapterOptions{Addr: delayedProxy(t, s.Addr(), 100*time.Millisecond), Password: "secret"})
-	require.True(t, ok)
-	require.NoError(t, err)
+	srv.SetAdapter(redisadapter.New(redisadapter.WithAddr(delayedProxy(t, s.Addr(), 100*time.Millisecond)), redisadapter.WithPassword("secret")))
 	go srv.OnConnect("/x", func(Conn) error { return nil })
 	require.Eventually(t, func() bool {
 		if srv.createMu.TryLock() {

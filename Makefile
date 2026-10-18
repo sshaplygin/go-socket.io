@@ -3,6 +3,12 @@ CHAT_SKIP := _examples/redis-adapter _examples/redis-adapter-unix-socket
 CHAT_COPIES := $(filter-out $(CHAT_SKIP),$(patsubst %/chat.go,%,$(wildcard _examples/*/chat.go)))
 LIFECYCLE_COPIES := $(wildcard _examples/*/lifecycle.go)
 
+# Packages of test, test-race, test-stress and bench; CI passes the affected packages
+# chosen by .github/changes.
+PKGS ?= ./...
+# The packages that run goroutines per connection.
+STRESS_PKGS := . ./adapter/... ./internal/connection ./internal/namespace ./client/... ./parser ./engineio/...
+
 # Measured on V1-20; later PRs may raise the floor or lower the ceiling only.
 COVER_FLOOR := 91.7
 API_UNCOVERED_MAX := 0
@@ -13,11 +19,11 @@ all:
 
 .PHONY: test
 test:
-	go test -count=1 ./...
+	go test -count=1 $(PKGS)
 
 .PHONY: test-race
 test-race:
-	go test -race -count=1 ./...
+	go test -race -count=1 $(PKGS)
 
 # Optional interoperability gate; default Go tests do not require Node.
 .PHONY: conformance
@@ -25,20 +31,24 @@ conformance:
 	go vet -tags conformance ./internal/conformance/...
 	go test -race -count=1 -tags conformance ./internal/conformance/...
 
-# Race tests of the packages that run goroutines per connection, repeated and shuffled.
+# Race tests of STRESS_PKGS that are also in PKGS, repeated and shuffled.
 .PHONY: test-stress
 test-stress:
-	go test -race -count=5 -shuffle=on -cpu=1,4 . ./adapter/... ./internal/connection ./internal/namespace ./client/... ./parser ./engineio/...
+	@set -e; selected=$$(go list $(PKGS)); \
+	pkgs=$$(go list $(STRESS_PKGS) | grep -Fx "$$selected" || true); \
+	if test -z "$$pkgs"; then echo "test-stress: no stress package in PKGS"; exit 0; fi; \
+	echo go test -race -count=5 -shuffle=on -cpu=1,4 $$pkgs; \
+	go test -race -count=5 -shuffle=on -cpu=1,4 $$pkgs
 
 .PHONY: bench
 bench:
-	go test -run '^$$' -bench . -benchmem ./...
+	go test -run '^$$' -bench . -benchmem $(PKGS)
 
 .PHONY: lint
 lint:
 	gofmt -s -l . | tee /dev/stderr | test -z "$$(cat)"
-	go vet ./... ./.github/architecture
-	golangci-lint run ./... ./.github/architecture
+	go vet ./... ./.github/architecture ./.github/changes
+	golangci-lint run ./... ./.github/architecture ./.github/changes
 
 # The final Component boundaries graph is owned by docs/ROADMAP.md.
 .PHONY: architecture-check
@@ -57,6 +67,13 @@ vuln:
 .PHONY: cover
 cover:
 	go test -count=1 -coverprofile=c.out ./... && go tool cover -html=c.out
+
+# The gates that read the whole repository: internal/parity (Covers markers against
+# docs/PARITY.md, process termination in every non-test file and the README, role
+# fixtures) and the component graph.
+.PHONY: gates
+gates: architecture-check
+	go test -race -count=1 ./internal/parity
 
 .PHONY: parity-check
 parity-check:

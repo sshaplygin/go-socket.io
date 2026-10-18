@@ -1,21 +1,25 @@
 EXAMPLES := $(patsubst %/go.mod,%,$(wildcard _examples/*/go.mod))
 EXPERIMENTS := $(patsubst %/go.mod,%,$(wildcard _experiments/*/go.mod))
 
+# Packages of test, test-race and bench; CI passes the affected packages chosen by
+# .github/changes.
+PKGS ?= ./...
+
 .PHONY: all
 all:
 	go install ./...
 
 .PHONY: test
 test:
-	go test -count=1 ./...
+	go test -count=1 $(PKGS)
 
 .PHONY: test-race
 test-race:
-	go test -race -count=1 ./...
+	go test -race -count=1 $(PKGS)
 
 .PHONY: bench
 bench:
-	go test -run '^$$' -bench . -benchmem ./...
+	go test -run '^$$' -bench . -benchmem $(PKGS)
 
 .PHONY: lint
 lint:

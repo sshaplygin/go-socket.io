@@ -288,6 +288,8 @@ func TestNativeProductionDependencies(t *testing.T) {
 		{"client/internal/connection", "internal/connection"},
 		{"engineio/parser/internal/payload", "engineio/internal/session"},
 		{"parser", "engineio/transport"},
+		{"", "engineio/session"}, {"logger", "helpers"},
+		{"client/internal/connection", "v2/parser"}, {"engineio/parser", "engineio/packet"},
 	} {
 		var stream bytes.Buffer
 		if err := json.NewEncoder(&stream).Encode(listedPackage{
@@ -385,6 +387,29 @@ func TestPolicyTableLineEndings(t *testing.T) {
 			}
 			if !reflect.DeepEqual(want, got) {
 				t.Fatalf("line endings changed component policy: %v/%v", want, got)
+			}
+		})
+	}
+}
+
+func TestRealGoListRejectsUnlistedExternalImports(t *testing.T) {
+	for _, path := range []string{"engineio/session", "engineio/packet", "engineio/transport/utils", "helpers"} {
+		t.Run(path, func(t *testing.T) {
+			root, helper, unlisted := t.TempDir(), t.TempDir(), t.TempDir()
+			dependency := fullPath(path)
+			writeFixture(t, root, "go.mod", "module "+modulePath+"\n\ngo 1.22\nrequire (\nexample.org/helper v0.0.0\n"+dependency+" v0.0.0\n)\nreplace example.org/helper => "+strconv.Quote(helper)+"\nreplace "+dependency+" => "+strconv.Quote(unlisted)+"\n")
+			for path := range allowedImports {
+				writeFixture(t, root, filepath.Join(path, "component.go"), "package component\n")
+			}
+			writeFixture(t, root, "component.go", "package component\nimport _ \"example.org/helper\"\n")
+			writeFixture(t, helper, "go.mod", "module example.org/helper\n\ngo 1.22\nrequire "+dependency+" v0.0.0\n")
+			writeFixture(t, helper, "helper.go", "package helper\nimport _ "+strconv.Quote(dependency)+"\n")
+			writeFixture(t, unlisted, "go.mod", "module "+dependency+"\n\ngo 1.22\n")
+			writeFixture(t, unlisted, "component.go", "package component\n")
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			if _, err := inspect(ctx, root); err == nil || !strings.Contains(err.Error(), "unlisted repository dependency") || !strings.Contains(err.Error(), dependency) {
+				t.Fatalf("external module concealed retired/unlisted repository dependency: %v", err)
 			}
 		})
 	}

@@ -144,6 +144,11 @@ func checkDependencyClosure(path string, dependencies []string) error {
 	server := relative == "" || relative == "internal/connection" || relative == "internal/namespace" || relative == "engineio" || relative == "engineio/internal/session"
 	for _, dependency := range dependencies {
 		local, repository := relativePath(dependency)
+		if repository {
+			if _, known := allowedImports[local]; !known {
+				return fmt.Errorf("unlisted repository dependency: %s -> %s", path, dependency)
+			}
+		}
 		if client && (repository && (local == "" || local == "engineio" || local == "internal/connection" || local == "internal/namespace" || local == "engineio/internal/session" || local == "adapter" || strings.HasPrefix(local, "adapter/")) || strings.Contains(dependency, "redigo")) {
 			return fmt.Errorf("client reaches server/adapter: %s -> %s", path, dependency)
 		}

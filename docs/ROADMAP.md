@@ -2503,7 +2503,7 @@ test -z "$(grep -n 'the sequence of the previous section, implemented in the' do
 v1p() { sed -n '/^## Implemented: Engine.IO protocol v3 in the v1 module$/,/^## Implemented: Socket.IO protocol v4$/p' docs/PROTOCOL.md; }
 test -z "$(v1p | grep -F -e '`pingInterval` (default 20 s)' -e '`pingTimeout` (default 60 s)')"; test -n "$(v1p | grep -F '  25 s) and `pingTimeout` (default 20 s). There is no `maxPayload`: protocol v3 has none.')"   # handshake (:81-82; E1, E2, E7, E15, P12)
 test -z "$(v1p | grep -F 'the read/write deadline by `pingTimeout`')"; test -n "$(v1p | grep -F '  without one, the session closes with reason `ping timeout`.')"   # heartbeat (:83-84; E1, P3)
-test -n "$(v1p | grep -F -e '- Message limit: `Options.MaxHTTPBufferSize`, default 1e6 bytes. A longer polling POST')"   # message limit (E4)
+test -n "$(v1p | grep -F -e '- Message limit: `WithMaxHTTPBufferSize`, default 1e6 bytes. A longer polling POST')"   # message limit (E4)
 test -z "$(v1p | grep -F 'plain text with HTTP 400')"; test -n "$(v1p | grep -F -e '- Requests the server rejects before a transport handles them are answered with JSON')"; test -n "$(v1p | grep -F 'where engine.io 3.6.2 writes a plain-text HTTP 400 and closes the socket')"   # errors (:94-95; E5, E7, P11, P12; the upgrade difference, D9)
 test -z "$(grep -F -e 'no payload size limit' -e 'Engine.IO v3 runtime (v1, repository root' docs/PROTOCOL.md)"   # the v1 entry of Known deviations (:124-126) is gone
 ```

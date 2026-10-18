@@ -1,13 +1,13 @@
 // Package logger holds the log level control shared by every package of the
 // library and the fallback logger for packages that cannot reach
-// engineio.Options.Logger.
+// per-instance WithLogger configuration.
 //
 // # Variables
 //
-// Log is the fallback logger: the parser, the transports, engineio/packet and
+// Log is the fallback logger: the parser, the transports, engineio/parser and
 // the client dialer log through it, and it writes to whatever slog.Default()
 // is when a record is logged. Level is the library log level described below.
-// To route library records, pass a logger as engineio.Options.Logger or call
+// To route library records, use the server/client role's WithLogger option or call
 // slog.SetDefault; assigning Log bypasses Wrap.
 //
 // # Runtime level
@@ -23,7 +23,7 @@
 // without the variable; Level.Set(LevelUnset) hands the decision back to the
 // application's handler.
 //
-// engineio.Options.Logger chooses where records go; it never chooses the
+// Each role's WithLogger chooses where records go; it never chooses the
 // level. Every logger the library uses is passed through Wrap.
 //
 // # Levels
@@ -92,7 +92,7 @@ var Level = new(slog.LevelVar)
 func overrideOn() bool { return Level.Level() != LevelUnset }
 
 // Log is the fallback logger for packages without access to
-// engineio.Options: the parser, the transports, engineio/packet and the client
+// per-instance configuration: the parsers, transports and Engine.IO client
 // dialer. It writes to whatever slog.Default() is when a record is logged, so
 // an application's later slog.SetDefault applies to it.
 var Log = slog.New(&levelHandler{next: &defaultHandler{}})
@@ -227,7 +227,7 @@ func (h *defaultHandler) WithGroup(name string) slog.Handler {
 // Error logs msg with err at ERROR through Log. A nil err is logged as such.
 //
 // Deprecated: the library no longer calls Error. Use slog's methods on
-// logger.Log or on the logger passed as engineio.Options.Logger instead.
+// logger.Log or on the logger passed as engineio.WithLogger instead.
 func Error(msg string, err error) {
 	Log.Error(msg, "err", err)
 }
@@ -235,7 +235,7 @@ func Error(msg string, err error) {
 // Info logs msg with args at INFO through Log.
 //
 // Deprecated: the library no longer calls Info. Use slog's methods on
-// logger.Log or on the logger passed as engineio.Options.Logger instead.
+// logger.Log or on the logger passed as engineio.WithLogger instead.
 func Info(msg string, args ...interface{}) {
 	Log.Info(msg, args...)
 }

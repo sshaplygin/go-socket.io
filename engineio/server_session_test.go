@@ -55,7 +55,7 @@ func TestNewSessionRegistersBeforeHandshake(t *testing.T) {
 	// The handshake goroutine removes the session and then logs the rejection: wait for that
 	// record, or it reaches the slog.Default recorder of the next log test.
 	rec := newRecorder()
-	s := NewServer(&Options{Logger: slog.New(rec)})
+	s := NewServer(WithLogger(slog.New(rec)))
 	conn := newBlockingConn()
 
 	ses, err := s.newSession(httptest.NewRequest(http.MethodGet, "/", nil), conn, "polling")

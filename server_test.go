@@ -60,7 +60,7 @@ func (h *recordingHandler) hasAttr(key, val string) bool {
 }
 
 // TestServerLoggerOption checks that a server created with
-// engineio.Options.Logger reports connection errors through that logger and
+// engineio.WithLogger reports connection errors through that logger and
 // not through the package-level default.
 //
 // Covers 1L-T12 (S).
@@ -78,7 +78,7 @@ func TestServerLoggerOption(t *testing.T) {
 		log.SetFlags(prevFlags)
 	})
 
-	srv := NewServer(&Options{Engine: &engineio.Options{Logger: slog.New(custom)}})
+	srv := NewServer(WithEngineOptions(engineio.WithLogger(slog.New(custom))), WithLogger(slog.New(custom)))
 	srv.OnConnect("/", func(Conn) error { return nil })
 	go func() { _ = srv.Serve() }()
 	defer func() { _ = srv.Close() }()
@@ -157,7 +157,7 @@ func (h *attrRecorder) find(key, val string) map[string]string {
 }
 
 // TestConnLogWrappedWithSid checks that the socket.io layer wraps
-// Options.Logger (a debug record is enabled under logger.Level even though
+// WithLogger (a debug record is enabled under logger.Level even though
 // the handler is at ERROR) and that connection records carry the engine sid.
 func TestConnLogWrappedWithSid(t *testing.T) {
 	prev := logger.Level.Level()
@@ -167,10 +167,10 @@ func TestConnLogWrappedWithSid(t *testing.T) {
 	rec := newAttrRecorder()
 	app := slog.New(rec)
 	errOnly := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-	require.True(t, loggerFrom(&Options{Engine: &engineio.Options{Logger: errOnly}}).Enabled(context.Background(), slog.LevelDebug))
+	require.True(t, loggerFrom(resolveOptions(WithLogger(errOnly))).Enabled(context.Background(), slog.LevelDebug))
 	require.Same(t, logger.Log, loggerFrom(nil))
 
-	srv := NewServer(&Options{Engine: &engineio.Options{Logger: app}})
+	srv := NewServer(WithEngineOptions(engineio.WithLogger(app)), WithLogger(app))
 	srv.OnConnect("/", func(Conn) error { return nil })
 	go func() { _ = srv.Serve() }()
 	defer func() { _ = srv.Close() }()

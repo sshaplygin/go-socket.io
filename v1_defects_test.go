@@ -17,7 +17,7 @@ import (
 
 func defectServer(t *testing.T, configure func(*Server)) (*Server, string) {
 	t.Helper()
-	s := NewServer(&Options{Engine: shortPingOptions()})
+	s := NewServer(WithEngineOptions(shortPingOptions()...))
 	s.OnConnect("/", func(Conn) error { return nil })
 	configure(s)
 	go func() { _ = s.Serve() }()

@@ -32,12 +32,12 @@ func TestManager(t *testing.T) {
 	t3 := fakeTransport{"t3"}
 	t4 := fakeTransport{"t4"}
 
-	m := NewManager([]Transport{
+	m := NewManager(WithTransports([]Transport{
 		t1,
 		t2,
 		t3,
 		t4,
-	})
+	}...))
 
 	tg, ok := m.Get("t1")
 	at.True(ok)
@@ -55,4 +55,22 @@ func TestManager(t *testing.T) {
 
 	names = m.UpgradeFrom("not_ exist")
 	at.Nil(names)
+}
+
+func TestManagerOptionsDefaultOverrideAndReuse(t *testing.T) {
+	empty := NewManager()
+	_, ok := empty.Get("first")
+	assert.False(t, ok)
+	transports := []Transport{fakeTransport{"first"}, fakeTransport{"second"}}
+	shared := WithTransports(transports...)
+	first := NewManager(shared, WithTransports(fakeTransport{"only"}))
+	second := NewManager(shared)
+	transports[0] = fakeTransport{"changed"}
+	_, ok = first.Get("first")
+	assert.False(t, ok)
+	_, ok = first.Get("only")
+	assert.True(t, ok)
+	_, ok = second.Get("first")
+	assert.True(t, ok)
+	assert.Equal(t, []string{"second"}, second.UpgradeFrom("first"))
 }

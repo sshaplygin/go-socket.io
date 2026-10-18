@@ -65,6 +65,31 @@ func TestPayloadEncoder(t *testing.T) {
 	}
 }
 
+func TestPayloadEncoderOptionsDefaultAndOverride(t *testing.T) {
+	text := WithBinarySupport(false)
+	for _, tc := range []struct {
+		name string
+		opts []PayloadEncoderOption
+		want []byte
+	}{
+		{"default binary", nil, []byte{0, 3, 255, '4', 'h', 'i'}},
+		{"text", []PayloadEncoderOption{text}, []byte("3:4hi")},
+		{"last wins", []PayloadEncoderOption{WithBinarySupport(true), text}, []byte("3:4hi")},
+		{"reused", []PayloadEncoderOption{text}, []byte("3:4hi")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var output bytes.Buffer
+			encoder := NewPayloadEncoder(&fakeWriterFeeder{w: &output}, tc.opts...)
+			writer, err := encoder.NextWriter(String, MESSAGE)
+			require.NoError(t, err)
+			_, err = io.WriteString(writer, "hi")
+			require.NoError(t, err)
+			require.NoError(t, writer.Close())
+			require.Equal(t, tc.want, output.Bytes())
+		})
+	}
+}
+
 func TestPayloadEncoderBeginError(t *testing.T) {
 	assert := assert.New(t)
 	buf := bytes.NewBuffer(nil)

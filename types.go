@@ -40,7 +40,7 @@ type Conn interface {
 	// "server namespace disconnect". It returns without waiting.
 	// The packets queued until then, Emits from OnDisconnect included, are written in the background;
 	// an Emit that finds the queue full, or comes later, is dropped without a report. Then, or
-	// Options.CloseTimeout (one minute if not positive) after Close started, the rest is
+	// WithCloseTimeout (one minute if not positive) after Close started, the rest is
 	// discarded and the engine.io connection is closed; Server.Count counts the session until then.
 	// Incoming packets are no longer dispatched, and a read or write failure ends the drain at once.
 	// The library closes a connection on a read, decode or dispatch error, a peer close, a ping
@@ -89,7 +89,7 @@ type Namespace interface {
 	// client's ACK arguments are decoded into its parameters and it is called on the
 	// read goroutine of the connection. Emit never blocks: it queues the packet, and Emits
 	// from OnConnect are written once the writer starts. A queue already holding
-	// Options.WriteBufferSize packets not yet started drops the packet and every
+	// WithWriteBufferSize packets not yet started drops the packet and every
 	// later one and closes the connection (see ErrWriteBufferFull). Once a close started,
 	// Emit drops the packet without a report, except that Close still queues packets until
 	// the OnDisconnect calls it runs have returned (see Conn.Close).

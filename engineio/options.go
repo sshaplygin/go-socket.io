@@ -11,8 +11,8 @@ import (
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
-// Options is options to create a server.
-type Options struct {
+// options holds private server configuration.
+type options struct {
 	PingTimeout  time.Duration
 	PingInterval time.Duration
 
@@ -58,67 +58,67 @@ type Options struct {
 	// decides what is enabled while it is not logger.LevelUnset (set from
 	// SOCKETIO_LOG_LEVEL or by logger.Level.Set), the handler otherwise.
 	// Transports, the parser, the packet codec and the client dialer do not
-	// have access to Options and keep using logger.Log.
+	// have access to options and keep using logger.Log.
 	Logger *slog.Logger
 }
 
-func (c *Options) getHooks() *Hooks {
+func (c *options) getHooks() *Hooks {
 	if c != nil {
 		return c.Hooks
 	}
 	return nil
 }
 
-func (c *Options) getLogger() *slog.Logger {
+func (c *options) getLogger() *slog.Logger {
 	if c != nil && c.Logger != nil {
 		return logger.Wrap(c.Logger)
 	}
 	return logger.Log
 }
 
-func (c *Options) getRequestChecker() CheckerFunc {
+func (c *options) getRequestChecker() CheckerFunc {
 	if c != nil && c.RequestChecker != nil {
 		return c.RequestChecker
 	}
 	return defaultChecker
 }
 
-func (c *Options) getConnInitor() ConnInitorFunc {
+func (c *options) getConnInitor() ConnInitorFunc {
 	if c != nil && c.ConnInitor != nil {
 		return c.ConnInitor
 	}
 	return defaultInitor
 }
 
-func (c *Options) getPingTimeout() time.Duration {
+func (c *options) getPingTimeout() time.Duration {
 	if c != nil && c.PingTimeout != 0 {
 		return c.PingTimeout
 	}
 	return 20 * time.Second
 }
 
-func (c *Options) getPingInterval() time.Duration {
+func (c *options) getPingInterval() time.Duration {
 	if c != nil && c.PingInterval != 0 {
 		return c.PingInterval
 	}
 	return 25 * time.Second
 }
 
-func (c *Options) getUpgradeTimeout() time.Duration {
+func (c *options) getUpgradeTimeout() time.Duration {
 	if c != nil && c.UpgradeTimeout > 0 {
 		return c.UpgradeTimeout
 	}
 	return 10 * time.Second
 }
 
-func (c *Options) getMaxHTTPBufferSize() int64 {
+func (c *options) getMaxHTTPBufferSize() int64 {
 	if c != nil && c.MaxHTTPBufferSize > 0 {
 		return c.MaxHTTPBufferSize
 	}
 	return 1_000_000
 }
 
-func (c *Options) getTransport() []transport.Transport {
+func (c *options) getTransport() []transport.Transport {
 	configured := []transport.Transport{polling.Default, websocket.Default}
 	if c != nil && len(c.Transports) != 0 {
 		configured = c.Transports
@@ -150,14 +150,14 @@ func (c *Options) getTransport() []transport.Transport {
 	return resolved
 }
 
-func (c *Options) getCompressionThreshold() int {
+func (c *options) getCompressionThreshold() int {
 	if c != nil && c.CompressionThreshold > 0 {
 		return c.CompressionThreshold
 	}
 	return 1024
 }
 
-func (c *Options) getCookie() *http.Cookie {
+func (c *options) getCookie() *http.Cookie {
 	if c != nil && c.DisableCookie {
 		return nil
 	}
@@ -171,7 +171,7 @@ func (c *Options) getCookie() *http.Cookie {
 	return &cookie
 }
 
-func (c *Options) getOriginCheck() func(*http.Request) bool {
+func (c *options) getOriginCheck() func(*http.Request) bool {
 	if c != nil && c.DisableCORS {
 		return nil
 	}
@@ -180,7 +180,7 @@ func (c *Options) getOriginCheck() func(*http.Request) bool {
 
 func allowEveryOrigin(*http.Request) bool { return true }
 
-func (c *Options) getSessionIDGenerator() IDGenerator {
+func (c *options) getSessionIDGenerator() IDGenerator {
 	if c != nil && c.SessionIDGenerator != nil {
 		return c.SessionIDGenerator
 	}
@@ -201,3 +201,101 @@ type CheckerFunc func(*http.Request) (http.Header, error)
 // goroutine, with the request live, before OPEN is written and Accept can return
 // it. Closing the session here prevents it from reaching Accept.
 type ConnInitorFunc func(*http.Request, Conn)
+
+// Option configures one instance. Options are applied in order; the last setting wins.
+type Option func(*options)
+
+// WithPingTimeout sets the heartbeat reply timeout; zero means 20 seconds.
+func WithPingTimeout(value time.Duration) Option {
+	return func(config *options) { config.PingTimeout = value }
+}
+
+// WithPingInterval sets the heartbeat interval; zero means 25 seconds.
+func WithPingInterval(value time.Duration) Option {
+	return func(config *options) { config.PingInterval = value }
+}
+
+// WithUpgradeTimeout bounds the upgrade probe; nonpositive means 10 seconds.
+func WithUpgradeTimeout(value time.Duration) Option {
+	return func(config *options) { config.UpgradeTimeout = value }
+}
+
+// WithMaxHTTPBufferSize caps a polling POST or websocket message; nonpositive means 1,000,000 bytes.
+func WithMaxHTTPBufferSize(value int64) Option {
+	return func(config *options) { config.MaxHTTPBufferSize = value }
+}
+
+// WithUpgrades enables transport upgrades; the default is true.
+func WithUpgrades(value bool) Option {
+	return func(config *options) { config.DisableUpgrades = !value }
+}
+
+// WithPerMessageDeflate enables websocket compression; the default is false.
+func WithPerMessageDeflate(value bool) Option {
+	return func(config *options) { config.PerMessageDeflate = value }
+}
+
+// WithHTTPCompression enables polling response compression; the default is true.
+func WithHTTPCompression(value bool) Option {
+	return func(config *options) { config.DisableHTTPCompression = !value }
+}
+
+// WithCompressionThreshold sets the compression threshold; nonpositive means 1024 bytes.
+func WithCompressionThreshold(value int) Option {
+	return func(config *options) { config.CompressionThreshold = value }
+}
+
+// WithCookie sets the polling cookie template; nil selects the default io cookie. The template is copied per server.
+func WithCookie(value *http.Cookie) Option {
+	return func(config *options) { config.Cookie = value }
+}
+
+// WithCookieEnabled enables polling session cookies; the default is true.
+func WithCookieEnabled(value bool) Option {
+	return func(config *options) { config.DisableCookie = !value }
+}
+
+// WithCORS enables permissive cross-origin polling and websocket access; the default is true. Explicit transport origin checks take precedence.
+func WithCORS(value bool) Option {
+	return func(config *options) { config.DisableCORS = !value }
+}
+
+// WithSessionIDGenerator sets session ID generation; nil selects cryptographic random IDs.
+func WithSessionIDGenerator(value IDGenerator) Option {
+	return func(config *options) { config.SessionIDGenerator = value }
+}
+
+// WithRequestChecker sets the pre-handshake request check; nil accepts requests.
+func WithRequestChecker(value CheckerFunc) Option {
+	return func(config *options) { config.RequestChecker = value }
+}
+
+// WithConnInitor sets the handshake initializer; nil leaves initialization unchanged.
+func WithConnInitor(value ConnInitorFunc) Option {
+	return func(config *options) { config.ConnInitor = value }
+}
+
+// WithHooks sets synchronous engine observers; nil disables observation. Configure the callbacks before accepting connections.
+func WithHooks(value *Hooks) Option {
+	return func(config *options) { config.Hooks = value }
+}
+
+// WithLogger sets the server and session log sink; nil selects logger.Log.
+func WithLogger(value *slog.Logger) Option {
+	return func(config *options) { config.Logger = value }
+}
+
+// WithTransports sets transports in dial/upgrade order. The slice is copied for each instance.
+func WithTransports(values ...transport.Transport) Option {
+	return func(config *options) { config.Transports = append(values[:0:0], values...) }
+}
+
+func resolveOptions(opts ...Option) *options {
+	config := new(options)
+	for _, option := range opts {
+		if option != nil {
+			option(config)
+		}
+	}
+	return config
+}

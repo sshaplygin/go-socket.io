@@ -42,7 +42,7 @@ func TestPollingBinaryPayloadNonASCII(t *testing.T) {
 	must := require.New(t)
 	should := assert.New(t)
 
-	svr := NewServer(nil)
+	svr := NewServer()
 	defer func() { must.NoError(svr.Close()) }()
 	httpSvr := httptest.NewServer(svr)
 	defer httpSvr.Close()

@@ -55,7 +55,7 @@ func serveAsync(srv *Server) <-chan error {
 // Covers 1I-T7 (S).
 func TestRedisConstructionErrorReturnedByServe(t *testing.T) {
 	s := miniredis.RunT(t)
-	srv := NewServer(nil)
+	srv := NewServer()
 	useRedis(t, srv, s.Addr())
 	s.Close()
 	srv.OnConnect("/first", func(Conn) error { return nil })
@@ -81,7 +81,7 @@ func TestRedisConstructionErrorReturnedByServe(t *testing.T) {
 // Covers 1I-T9 (S).
 func TestRedisFailedNamespaceRoomMethods(t *testing.T) {
 	s := miniredis.RunT(t)
-	srv := NewServer(nil)
+	srv := NewServer()
 	useRedis(t, srv, s.Addr())
 	s.Close()
 	srv.OnConnect("/f", func(Conn) error { return nil })
@@ -169,7 +169,7 @@ func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 // Covers 1I-T10 (S).
 func TestRedisServerCloseStopsBroadcasts(t *testing.T) {
 	s := miniredis.RunT(t)
-	srv := NewServer(nil)
+	srv := NewServer()
 	useRedis(t, srv, s.Addr())
 	srv.OnConnect("/one", func(Conn) error { return nil })
 	srv.OnConnect("/two", func(Conn) error { return nil })
@@ -250,7 +250,7 @@ func TestRedisConcurrentRegistrationBuildsOneBroadcast(t *testing.T) {
 	single.close()
 	closed("the connections of a single broadcast")
 
-	srv := NewServer(nil)
+	srv := NewServer()
 	useRedis(t, srv, opts.Addr)
 	closed("the connection of Adapter")
 	start := make(chan struct{})
@@ -298,7 +298,7 @@ func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
 			accepted <- c
 		}
 	}()
-	srv := NewServer(nil)
+	srv := NewServer()
 	srv.redisAdapter = getOptions(&RedisAdapterOptions{Addr: ln.Addr().String(), Password: "secret"})
 	startRegistration(t, srv)
 	c := recv(t, accepted, "the registration's Redis dial")
@@ -337,7 +337,7 @@ func TestRedisCloseDoesNotWaitForSilentSubscriber(t *testing.T) {
 			silent <- c
 		}
 	}()
-	srv := NewServer(nil)
+	srv := NewServer()
 	srv.redisAdapter = getOptions(&RedisAdapterOptions{Addr: ln.Addr().String(), Password: "secret"})
 	startRegistration(t, srv)
 	c := recv(t, silent, "the registration's subscriber dial")
@@ -363,7 +363,7 @@ func TestRedisCloseDoesNotWaitForSilentSubscriber(t *testing.T) {
 func TestRedisCloseStopsRacingRegistration(t *testing.T) {
 	s := miniredis.RunT(t)
 	s.RequireAuth("secret")
-	srv := NewServer(nil)
+	srv := NewServer()
 	ok, err := srv.Adapter(&RedisAdapterOptions{Addr: delayedProxy(t, s.Addr(), 100*time.Millisecond), Password: "secret"})
 	require.True(t, ok)
 	require.NoError(t, err)

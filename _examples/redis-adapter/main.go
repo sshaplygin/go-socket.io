@@ -12,7 +12,7 @@ import (
 func main() {
 	router := gin.New()
 
-	server := socketio.NewServer(nil)
+	server := socketio.NewServer()
 
 	_, err := server.Adapter(nil)
 	if err != nil {

@@ -1,4 +1,2 @@
 # Root source and its v2 copy, compared after rewriting the module import path.
-logger/logger.go v2/logger/logger.go
-engineio/transport/manager.go v2/engineio/transport/manager.go
 engineio/transport/errors.go v2/engineio/transport/errors.go

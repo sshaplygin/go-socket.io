@@ -21,7 +21,7 @@ import (
 //
 // Covers 1I-T11 (S).
 func TestServerCloseClosesUnacceptedSessions(t *testing.T) {
-	svr := NewServer(nil)
+	svr := NewServer()
 	httpSvr := httptest.NewServer(svr)
 	defer httpSvr.Close()
 

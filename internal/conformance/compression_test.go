@@ -22,7 +22,7 @@ import (
 
 // Covers E8
 func TestConformancePerMessageDeflate(t *testing.T) {
-	s := socketio.NewServer(&socketio.Options{Engine: &engineio.Options{PerMessageDeflate: true}})
+	s := socketio.NewServer(socketio.WithEngineOptions(engineio.WithPerMessageDeflate(true)))
 	s.OnConnect("/", func(socketio.Conn) error { return nil })
 	s.OnEvent("/", "echo", func(c socketio.Conn, value string) string { c.Emit("reply", value); return value })
 	served := make(chan struct{})
@@ -48,7 +48,7 @@ func TestConformanceClientPerMessageDeflate(t *testing.T) {
 	if !scanner.Scan() || !strings.HasPrefix(scanner.Text(), "http://127.0.0.1:") {
 		t.Fatalf("compression reference did not start: %s", stderr.String())
 	}
-	cl, err := client.New(scanner.Text(), &client.Options{Transports: []transport.Transport{websocket.Default}, PerMessageDeflate: true, DisableReconnection: true})
+	cl, err := client.New(scanner.Text(), client.WithTransports([]transport.Transport{websocket.Default}...), client.WithPerMessageDeflate(true), client.WithReconnection(!(true)))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	connected := make(chan client.Conn, 1)

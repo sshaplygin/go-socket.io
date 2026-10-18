@@ -163,7 +163,22 @@ func (e *PayloadEncoder) writeBinaryHeader() error {
 	return err
 }
 
-// NewPayloadEncoder binds a payload writer and selects binary or text payload framing.
-func NewPayloadEncoder(w PayloadWriter, supportBinary bool) *PayloadEncoder {
-	return &PayloadEncoder{feeder: w, supportBinary: supportBinary}
+// PayloadEncoderOption configures a payload encoder.
+type PayloadEncoderOption func(*PayloadEncoder)
+
+// WithBinarySupport selects binary payload framing. The default is true;
+// transports pass the support negotiated with their peer.
+func WithBinarySupport(enabled bool) PayloadEncoderOption {
+	return func(encoder *PayloadEncoder) { encoder.supportBinary = enabled }
+}
+
+// NewPayloadEncoder binds a writer with binary payload support enabled.
+func NewPayloadEncoder(w PayloadWriter, opts ...PayloadEncoderOption) *PayloadEncoder {
+	encoder := &PayloadEncoder{feeder: w, supportBinary: true}
+	for _, option := range opts {
+		if option != nil {
+			option(encoder)
+		}
+	}
+	return encoder
 }

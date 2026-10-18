@@ -53,10 +53,7 @@ func TestEngineServerEvents(t *testing.T) {
 		for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 			seen := make(chan Conn, 1)
 			records := &hookRecords{}
-			s := NewServer(&Options{
-				ConnInitor: func(_ *http.Request, c Conn) { c.SetContext("initialized"); records.add("init") },
-				Hooks:      &Hooks{Connection: func(c Conn) { records.add("connection"); seen <- c }},
-			})
+			s := NewServer(WithConnInitor(func(_ *http.Request, c Conn) { c.SetContext("initialized"); records.add("init") }), WithHooks(&Hooks{Connection: func(c Conn) { records.add("connection"); seen <- c }}))
 			ts := httptest.NewServer(s)
 			t.Cleanup(func() { _ = s.Close(); ts.Close() })
 			client, err := (&engineclient.Dialer{Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
@@ -73,7 +70,7 @@ func TestEngineServerEvents(t *testing.T) {
 	t.Run("initial_headers", func(t *testing.T) {
 		for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 			records := &hookRecords{}
-			s := NewServer(&Options{Hooks: &Hooks{
+			s := NewServer(WithHooks(&Hooks{
 				InitialHeaders: func(_ *http.Request, h http.Header) { records.add("initial"); h.Set("X-Initial", "present") },
 				Headers: func(_ *http.Request, h http.Header) {
 					if h.Get("X-Initial") == "present" {
@@ -81,7 +78,7 @@ func TestEngineServerEvents(t *testing.T) {
 					}
 					h.Set("X-Headers", "present")
 				},
-			}})
+			}))
 			ts := httptest.NewServer(s)
 			t.Cleanup(func() { _ = s.Close(); ts.Close() })
 			client, err := (&engineclient.Dialer{Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
@@ -97,14 +94,14 @@ func TestEngineServerEvents(t *testing.T) {
 		entered, release := make(chan struct{}, 1), make(chan struct{})
 		unblock := sync.OnceFunc(func() { close(release) })
 		defer unblock()
-		f := newParityWire(t, &Options{Hooks: &Hooks{Headers: func(r *http.Request, h http.Header) {
+		f := newParityWire(t, []Option{WithHooks(&Hooks{Headers: func(r *http.Request, h http.Header) {
 			records.add(r.Method + " " + h.Get("Content-Type"))
 			h.Set("X-Observed", "yes")
 			if r.Method == http.MethodGet && r.URL.Query().Get("sid") != "" {
 				entered <- struct{}{}
 				<-release
 			}
-		}}})
+		}})})
 		reads := parityReader(f.conn)
 		written := parityWrite(f.conn, "hello")
 		responses := make(chan *http.Response, 1)
@@ -155,20 +152,17 @@ func TestEngineServerEvents(t *testing.T) {
 			var codes []int
 			var messages []string
 			var causes []error
-			s := NewServer(&Options{
-				RequestChecker: func(r *http.Request) (http.Header, error) {
-					if r.URL.Query().Get("deny") != "" {
-						return nil, blocked
-					}
-					return nil, nil
-				},
-				Hooks: &Hooks{ConnectionError: func(r *http.Request, code int, message string, err error) {
-					requests = append(requests, r)
-					codes = append(codes, code)
-					messages = append(messages, message)
-					causes = append(causes, err)
-				}},
-			})
+			s := NewServer(WithRequestChecker(func(r *http.Request) (http.Header, error) {
+				if r.URL.Query().Get("deny") != "" {
+					return nil, blocked
+				}
+				return nil, nil
+			}), WithHooks(&Hooks{ConnectionError: func(r *http.Request, code int, message string, err error) {
+				requests = append(requests, r)
+				codes = append(codes, code)
+				messages = append(messages, message)
+				causes = append(causes, err)
+			}}))
 			t.Cleanup(func() { _ = s.Close() })
 			r := httptest.NewRequest(tc.method, "/?EIO=3&"+tc.query, nil)
 			w := httptest.NewRecorder()
@@ -209,7 +203,7 @@ func TestEngineSocketEvents(t *testing.T) {
 			}
 		},
 	}
-	f := newParityWire(t, &Options{Hooks: h})
+	f := newParityWire(t, []Option{WithHooks(h)})
 	reads := parityReader(f.conn)
 	ws := f.probe(t)
 	_, body := f.request(t, http.MethodGet, f.poll, "")
@@ -254,7 +248,7 @@ func TestEngineSocketEvents(t *testing.T) {
 
 func TestEngineClosePacketDoesNotEmitError(t *testing.T) {
 	errors := make(chan error, 1)
-	f := newParityWire(t, &Options{Hooks: &Hooks{Error: func(_ Conn, err error) { errors <- err }}})
+	f := newParityWire(t, []Option{WithHooks(&Hooks{Error: func(_ Conn, err error) { errors <- err }})})
 	reads := parityReader(f.conn)
 	_, _ = f.request(t, http.MethodPost, f.poll, "1:1")
 	require.Error(t, hookReceive(t, reads).err)
@@ -271,9 +265,9 @@ func TestRejectedWebsocketHasNoSessionHeaders(t *testing.T) {
 				Headers:         func(r *http.Request, _ http.Header) { records.add("headers:" + r.URL.Query().Get("transport")) },
 				ConnectionError: func(_ *http.Request, _ int, _ string, _ error) { records.add("error") },
 			}
-			opts := &Options{Hooks: h, Transports: []transport.Transport{polling.Default, &websocket.Transport{CheckOrigin: func(*http.Request) bool { return false }}}}
+			opts := []Option{WithHooks(h), WithTransports([]transport.Transport{polling.Default, &websocket.Transport{CheckOrigin: func(*http.Request) bool { return false }}}...)}
 			if kind == "malformed" {
-				s := NewServer(opts)
+				s := NewServer(opts...)
 				t.Cleanup(func() { _ = s.Close() })
 				w := httptest.NewRecorder()
 				s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/?EIO=3&transport=websocket", nil))
@@ -289,7 +283,7 @@ func TestRejectedWebsocketHasNoSessionHeaders(t *testing.T) {
 				server = f.srv
 				target = "ws" + f.http.URL[4:] + "/?EIO=3&transport=websocket&sid=" + f.params.SID
 			} else {
-				server = NewServer(opts)
+				server = NewServer(opts...)
 				ts := httptest.NewServer(server)
 				t.Cleanup(func() { _ = server.Close(); ts.Close() })
 				target = "ws" + ts.URL[4:] + "/?EIO=3&transport=websocket"

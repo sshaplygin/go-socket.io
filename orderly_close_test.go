@@ -49,7 +49,7 @@ func (discardFrame) Close() error                { return nil }
 func rootWithOrderlyEngine(t *testing.T) (*conn, engineio.Conn, *rootOrderlyTransport) {
 	t.Helper()
 	tr := &rootOrderlyTransport{entered: make(chan struct{}), closed: make(chan struct{})}
-	engine := engineio.NewServer(&engineio.Options{Transports: []transport.Transport{rootOrderlyFactory{tr}}, PingInterval: time.Hour, PingTimeout: time.Hour})
+	engine := engineio.NewServer(engineio.WithTransports([]transport.Transport{rootOrderlyFactory{tr}}...), engineio.WithPingInterval(time.Hour), engineio.WithPingTimeout(time.Hour))
 	engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example.test/?EIO=3&transport=polling", nil))
 	s, err := engine.Accept()
 	require.NoError(t, err)

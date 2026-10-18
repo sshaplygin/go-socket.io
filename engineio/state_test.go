@@ -19,7 +19,7 @@ import (
 // Covers E17
 // Covers E16
 func TestEngineClients(t *testing.T) {
-	s := NewServer(nil)
+	s := NewServer()
 	ts := httptest.NewServer(s)
 	t.Cleanup(func() { _ = s.Close(); ts.Close() })
 	d := engineclient.Dialer{Transports: []transport.Transport{websocket.Default}}
@@ -52,7 +52,7 @@ func TestEngineClients(t *testing.T) {
 func TestEngineConnState(t *testing.T) {
 	t.Run("upgrade", func(t *testing.T) { testEngineUpgrade(t, false) })
 	t.Run("close", func(t *testing.T) {
-		s := NewServer(nil)
+		s := NewServer()
 		c := &stateCloseConn{blockingConn: *newBlockingConn(), entered: make(chan struct{}), release: make(chan struct{})}
 		var release sync.Once
 		defer release.Do(func() { close(c.release) })

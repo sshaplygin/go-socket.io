@@ -7,7 +7,7 @@ import (
 
 // IDGenerator generates a new session id. The default uses cryptographic randomness.
 // If you need custom session id, for example using local ip as prefix, you can
-// set Options.SessionIDGenerator. The server uses it to generate session IDs.
+// set WithSessionIDGenerator. The server uses it to generate session IDs.
 type IDGenerator interface {
 	NewID() string
 }

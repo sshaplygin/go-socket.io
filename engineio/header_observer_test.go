@@ -11,19 +11,16 @@ func TestEngineHeadersSurviveSessionHookReplacement(t *testing.T) {
 	for _, name := range []string{"clear", "replace"} {
 		t.Run(name, func(t *testing.T) {
 			records := &hookRecords{}
-			f := newParityWire(t, &Options{
-				ConnInitor: func(_ *http.Request, c Conn) {
-					var hooks *sessionHooks
-					if name == "replace" {
-						hooks = &sessionHooks{}
-					}
-					c.(*session).setHooks(hooks)
-				},
-				Hooks: &Hooks{
-					InitialHeaders: func(_ *http.Request, _ http.Header) { records.add("initial") },
-					Headers:        func(r *http.Request, _ http.Header) { records.add(r.Method) },
-				},
-			})
+			f := newParityWire(t, []Option{WithConnInitor(func(_ *http.Request, c Conn) {
+				var hooks *sessionHooks
+				if name == "replace" {
+					hooks = &sessionHooks{}
+				}
+				c.(*session).setHooks(hooks)
+			}), WithHooks(&Hooks{
+				InitialHeaders: func(_ *http.Request, _ http.Header) { records.add("initial") },
+				Headers:        func(r *http.Request, _ http.Header) { records.add(r.Method) },
+			})})
 			require.Equal(t, []string{"initial", "GET"}, records.all())
 			reads := parityReader(f.conn)
 			status, _ := f.request(t, http.MethodPost, f.poll, "2:4x")

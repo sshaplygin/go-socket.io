@@ -34,11 +34,11 @@ import (
 
 // captureLogs sends the records of opts.Logger and of slog.Default to one recorder. It
 // must not run in parallel; Cleanup restores the default logger.
-func captureLogs(t *testing.T, opts *engineio.Options) *attrRecorder {
+func captureLogs(t *testing.T, opts []engineio.Option) (*attrRecorder, []engineio.Option) {
 	rec := newAttrRecorder()
 	setDefault(t, rec)
-	opts.Logger = slog.New(rec)
-	return rec
+	opts = append(opts, engineio.WithLogger(slog.New(rec)))
+	return rec, opts
 }
 
 // setDefault makes h the default handler until Cleanup; the test must not run in parallel.
@@ -116,17 +116,14 @@ func (faultyConn) NextWriter(eioparser.FrameType, eioparser.PacketType) (io.Writ
 
 // Covers 1L-T9 (S).
 func TestRequestRejectedRecords(t *testing.T) {
-	opts := &engineio.Options{
-		Transports: []transport.Transport{polling.Default, websocket.Default, faultyTransport{}},
-		RequestChecker: func(r *http.Request) (http.Header, error) {
-			if r.Header.Get("X-Reject") != "" {
-				return nil, errors.New("rejected")
-			}
-			return nil, nil
-		},
-	}
-	rec := captureLogs(t, opts)
-	srv := NewServer(&Options{Engine: opts})
+	opts := []engineio.Option{engineio.WithTransports([]transport.Transport{polling.Default, websocket.Default, faultyTransport{}}...), engineio.WithRequestChecker(func(r *http.Request) (http.Header, error) {
+		if r.Header.Get("X-Reject") != "" {
+			return nil, errors.New("rejected")
+		}
+		return nil, nil
+	})}
+	rec, opts := captureLogs(t, opts)
+	srv := NewServer(WithEngineOptions(opts...), WithLogger(slog.New(rec)))
 	srv.OnConnect("/", func(Conn) error { return nil })
 	go func() { _ = srv.Serve() }()
 	t.Cleanup(func() { _ = srv.Close() })
@@ -334,7 +331,7 @@ func TestUnhandledErrorRecords(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := newAttrRecorder()
-			setDefault(t, rec) // the peer's NewServer(nil) logs through logger.Log, which follows slog.Default
+			setDefault(t, rec) // the peer's NewServer() logs through logger.Log, which follows slog.Default
 			p := newPeer(t, 'S', tc.h, "/a")
 			for _, nsp := range []string{"/", "/a"} {
 				if !tc.keep {
@@ -460,9 +457,9 @@ func TestNamespaceRecords(t *testing.T) {
 func TestPingTimeoutRecords(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
-			opts := &engineio.Options{PingInterval: time.Millisecond, PingTimeout: 100 * time.Millisecond}
-			rec := captureLogs(t, opts)
-			srv := NewServer(&Options{Engine: opts})
+			opts := []engineio.Option{engineio.WithPingInterval(time.Millisecond), engineio.WithPingTimeout(100 * time.Millisecond)}
+			rec, opts := captureLogs(t, opts)
+			srv := NewServer(WithEngineOptions(opts...), WithLogger(slog.New(rec)))
 			connected := make(chan Conn, 1)
 			srv.OnConnect("/", func(c Conn) error { connected <- c; return nil })
 			go func() { _ = srv.Serve() }()
@@ -590,7 +587,7 @@ func moduleGoroutines() map[string]bool {
 }
 
 // TestNoBadKeyAttrs runs the TestLifecycleRootNamespace scenario at trace with checking
-// handlers on Options.Logger and slog.Default.
+// handlers on WithLogger and slog.Default.
 //
 // Covers 1L-T11 (S).
 func TestNoBadKeyAttrs(t *testing.T) {
@@ -601,7 +598,7 @@ func TestNoBadKeyAttrs(t *testing.T) {
 	t.Cleanup(func() { logger.Level.Set(prev) })
 
 	before := moduleGoroutines()
-	sid := lifecycleRootNamespace(t, &engineio.Options{Logger: slog.New(inst)})
+	sid := lifecycleRootNamespace(t, WithLogger(slog.New(inst)))
 	// Check the records only once the goroutines the scenario started, which include the
 	// Go client's polling goroutines after Close, have all returned.
 	require.Eventually(t, func() bool {
@@ -627,4 +624,33 @@ func TestNoBadKeyAttrs(t *testing.T) {
 	assert.Empty(t, problems, "instance logger")
 	problems, _ = def.result("")
 	assert.Empty(t, problems, "slog.Default")
+}
+
+func TestLoggerOptionsOrder(t *testing.T) {
+	previous := logger.Level.Level()
+	logger.Level.Set(slog.LevelDebug)
+	t.Cleanup(func() { logger.Level.Set(previous) })
+	for _, rootLast := range []bool{false, true} {
+		t.Run(fmt.Sprint(rootLast), func(t *testing.T) {
+			rootRecords, engineRecords := newKeyChecker(), newKeyChecker()
+			rootOption := WithLogger(slog.New(rootRecords))
+			engineOption := WithEngineOptions(engineio.WithLogger(slog.New(engineRecords)))
+			opts := []Option{rootOption, engineOption}
+			if rootLast {
+				opts = []Option{engineOption, rootOption}
+			}
+			lifecycleRootNamespace(t, opts...)
+			_, namespaces := rootRecords.result("socketio: namespace connect")
+			require.NotEmpty(t, namespaces)
+			_, rootSessions := rootRecords.result("engineio: session open")
+			_, engineSessions := engineRecords.result("engineio: session open")
+			if rootLast {
+				require.NotEmpty(t, rootSessions)
+				require.Empty(t, engineSessions)
+			} else {
+				require.Empty(t, rootSessions)
+				require.NotEmpty(t, engineSessions)
+			}
+		})
+	}
 }

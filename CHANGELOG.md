@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- tests: synchronize the compressed-limit CLOSE assertion with the error hook so
+  a Windows TCP reset cannot hide CLOSE 1009 after a pipelined packet.
+
 - engineio/parser: a decoding or source-release failure terminates the streaming
   payload decoder, preventing reuse and repeated release of the failed source.
   Body read errors are retained on their first observation, including a read that
@@ -198,7 +201,7 @@ All notable changes to this project are documented here. The format follows
   metadata, including namespace query overrides, across transport upgrades and close.
   A final `AckFunc` handler parameter supports one asynchronous acknowledgement.
 
-- engineio: `Options.DisableCORS` restores polling without CORS headers and
+- engineio: `WithCORS(false)` restores polling without CORS headers and
   websocket same-origin checks. Explicit transport `CheckOrigin` callbacks override
   both settings; resolving the server default copies built-in transports.
 
@@ -229,15 +232,15 @@ All notable changes to this project are documented here. The format follows
 - Development: `make sync-check` and an unfiltered CI check guard shared v1/v2
   foundation files against drift after rewriting the module import path.
 
-- engineio: `Options.UpgradeTimeout` (10 seconds), `MaxHTTPBufferSize` (1,000,000 bytes)
-  and `DisableUpgrades`; nonpositive limits use the defaults. The server configures
+- engineio: `WithUpgradeTimeout` (10 seconds), `WithMaxHTTPBufferSize` (1,000,000 bytes)
+  and `WithUpgrades(false)`; nonpositive limits use the defaults. The server configures
   private sessions before `ConnInitor` receives the original handshake request and
   connection. Transports expose `SetReadLimit`; private polling state can answer an
   idle poll during upgrade.
 
-- `engineio.Options.Logger` (`*slog.Logger`) routes Engine.IO server/session records;
-  Socket.IO servers also use it through `socketio.Options.Engine`. Socket.IO clients
-  and their connections use `client.Options.Logger`. Nil selects `logger.Log`.
+- `engineio.WithLogger` (`*slog.Logger`) routes Engine.IO server/session records;
+  `socketio.WithLogger` configures both Socket.IO and its engine. Socket.IO clients
+  and their connections use `client.WithLogger`. A nil logger selects `logger.Log`.
   Both parsers, transports and Engine.IO client/dialer use package-level `logger.Log`
   (roadmap stage 1.2).
 - `SOCKETIO_LOG_LEVEL` (`error`, `warn`, `info`, `debug`, `trace`), read once at start
@@ -273,14 +276,20 @@ All notable changes to this project are documented here. The format follows
   namespace, `socketio: disconnect` (DEBUG, `sid`, `nsp`, `reason` `namespace disconnect`
   or `connection close`; text sent by the peer is not logged). `Client` logs neither
   (roadmap task 1.L).
-- Socket.IO server/client `Options.WriteBufferSize` and role-specific `ErrWriteBufferFull`:
+- Socket.IO server/client `WithWriteBufferSize` and role-specific `ErrWriteBufferFull`:
   each connection queues at most that many outbound packets (default 64). See
-  [`socketio.Options`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Options)
-  and [`client.Options`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/client#Options)
+  [`socketio.WithWriteBufferSize`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#WithWriteBufferSize)
+  and [`client.WithWriteBufferSize`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/client#WithWriteBufferSize)
   and [`ErrWriteBufferFull`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#ErrWriteBufferFull)
   (roadmap tasks 1.B and 1I).
 
 ### Changed
+
+- Public constructors use targeted functional options: default servers are
+  `NewServer()` and clients are `client.New(addr)`. `With…` functions configure
+  their owning role, in order, without sharing per-instance configuration.
+  Required codec streams and client addresses remain positional. See
+  [the v1 migration guide](docs/V1_MIGRATION.md) for field-to-option mappings.
 
 - Server and client now have independent connection contracts. Socket.IO queue/drain
   options belong to their own role; Engine.IO server/client share only wire codecs
@@ -316,15 +325,15 @@ All notable changes to this project are documented here. The format follows
 - engineio: the reference `cookie` default now sets an `io` session cookie on
   every response from the polling transport that opened the session, where no
   cookie was set before. Defaults are Path=/, HttpOnly and SameSite=Strict;
-  websocket-first connections set none. Configure `Options.Cookie` to change
-  attributes or `DisableCookie` to opt out.
+  websocket-first connections set none. Configure `WithCookie` to change
+  attributes or `WithCookieEnabled(false)` to opt out.
 - engineio: the reference `httpCompression` default now compresses polling
   responses of at least 1024 encoded bytes with gzip or deflate when accepted
   by the client. Earlier responses were uncompressed. Set
-  `DisableHTTPCompression` to opt out or `CompressionThreshold` to change the
+  `WithHTTPCompression(false)` to opt out or `WithCompressionThreshold` to change the
   boundary. Websocket permessage-deflate remains opt-in.
 - engineio: CORS defaults now send polling access-control headers and accept
-  cross-origin websocket upgrades. Set `Options.DisableCORS` for the former
+  cross-origin websocket upgrades. Set `WithCORS(false)` for the former
   polling behavior and websocket same-origin checks; explicit transport
   `CheckOrigin` callbacks still take precedence.
 
@@ -368,7 +377,7 @@ All notable changes to this project are documented here. The format follows
   Consumers must change upstream-path imports and remove the old `replace`
   directive; README installation instructions use the fork directly. Examples
   now all build against the checked-out fork, including the Docker example.
-- Engine.IO server sessions receive their logger from `engineio.Options.Logger`.
+- Engine.IO server sessions receive their logger from `engineio.WithLogger`.
 - `logger.Error` accepts a nil error instead of panicking.
 - Toolchain: `go 1.22` in `go.mod`; `golang.org/x/exp/slog` replaced by `log/slog`;
   `gofrs/uuid` replaced by `google/uuid`; `gorilla/websocket` 1.5.3; `testify` 1.12.1;
@@ -400,7 +409,7 @@ All notable changes to this project are documented here. The format follows
   (roadmap task 1.B).
 - Server `Conn.Close` and client `Client.Close` drain: they run `OnDisconnect` and return,
   the packets queued until then are written in the background, and the engine.io
-  connection closes when they are written or after the role's `Options.CloseTimeout`
+  connection closes when they are written or after the role's `WithCloseTimeout` duration
   (one minute if not positive); `Server.Count` counts the session until then. They closed
   engine.io at once (`connection.go:66` at `48cf0d2`).
   Closes started by the library (fatal read, decode or dispatch error, peer close, ping
@@ -463,6 +472,9 @@ All notable changes to this project are documented here. The format follows
   records (roadmap task 1.L).
 
 ### Removed
+
+- Public Socket.IO server/client and Engine.IO server option bags; constructor
+  configuration now uses the corresponding `With…` functions.
 
 - Root client wrappers and type/error aliases, client `NewClient`, the server-package
   Engine.IO dialer and the public `engineio/session` layer. See

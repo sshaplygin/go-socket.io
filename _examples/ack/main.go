@@ -13,7 +13,7 @@ import (
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8000", "HTTP listen address")
 	flag.Parse()
-	server := socketio.NewServer(nil)
+	server := socketio.NewServer()
 	server.OnConnect("/", func(c socketio.Conn) error { return nil })
 	server.OnEvent("/", "sum", func(_ socketio.Conn, a, b int) int { return a + b })
 	// AckFunc may be saved and called after the handler returns.

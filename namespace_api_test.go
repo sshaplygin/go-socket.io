@@ -18,7 +18,7 @@ import (
 
 // Covers S8
 func TestServerOf(t *testing.T) {
-	s := NewServer(nil)
+	s := NewServer()
 	defer func() { _ = s.Close() }()
 	require.Same(t, s.Of(""), s.Of("/"))
 	require.Same(t, s.Of("chat"), s.Of("/chat"))
@@ -142,7 +142,7 @@ func TestNamespaceSend(t *testing.T) {
 
 func TestNamespaceBroadcastAcrossInstances(t *testing.T) {
 	r := miniredis.RunT(t)
-	a, b := NewServer(nil), NewServer(nil)
+	a, b := NewServer(), NewServer()
 	useRedis(t, a, r.Addr())
 	useRedis(t, b, r.Addr())
 	first, second := a.Of("/chat"), b.Of("/chat")

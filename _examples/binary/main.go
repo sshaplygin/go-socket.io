@@ -14,7 +14,7 @@ import (
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8000", "HTTP listen address")
 	flag.Parse()
-	server := socketio.NewServer(nil)
+	server := socketio.NewServer()
 	server.OnConnect("/", func(c socketio.Conn) error {
 		c.Emit("binary-question", &parser.Buffer{Data: []byte{0, 255, 2}}, func(reply *parser.Buffer) {
 			c.Emit("binary-confirmed", reply)

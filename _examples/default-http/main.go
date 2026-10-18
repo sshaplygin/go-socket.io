@@ -22,16 +22,14 @@ var allowOriginFunc = func(r *http.Request) bool {
 func main() {
 	addr := flag.String("addr", ":8000", "HTTP listen address")
 	flag.Parse()
-	server := socketio.NewServer(&socketio.Options{Engine: &engineio.Options{
-		Transports: []transport.Transport{
-			&polling.Transport{
-				CheckOrigin: allowOriginFunc,
-			},
-			&websocket.Transport{
-				CheckOrigin: allowOriginFunc,
-			},
+	server := socketio.NewServer(socketio.WithEngineOptions(engineio.WithTransports([]transport.Transport{
+		&polling.Transport{
+			CheckOrigin: allowOriginFunc,
 		},
-	}})
+		&websocket.Transport{
+			CheckOrigin: allowOriginFunc,
+		},
+	}...)))
 
 	registerChat(server)
 

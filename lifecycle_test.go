@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	client "github.com/sshaplygin/go-socket.io/client"
-	"github.com/sshaplygin/go-socket.io/engineio"
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
@@ -33,12 +32,12 @@ func recv[T any](t *testing.T, ch <-chan T, what string) T {
 // TestLifecycleRootNamespace drives one Go client through connect, an event
 // with an acknowledgement, room membership and broadcasts, and a
 // server-initiated disconnect.
-func TestLifecycleRootNamespace(t *testing.T) { lifecycleRootNamespace(t, nil) }
+func TestLifecycleRootNamespace(t *testing.T) { lifecycleRootNamespace(t) }
 
 // lifecycleRootNamespace runs the TestLifecycleRootNamespace scenario on NewServer(opts)
 // and returns the session's ID.
-func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
-	srv := NewServer(&Options{Engine: opts})
+func lifecycleRootNamespace(t *testing.T, opts ...Option) string {
+	srv := NewServer(opts...)
 	connected := make(chan Conn, 1)
 	disconnected := make(chan string, 1)
 	srv.OnConnect("/", func(s Conn) error {
@@ -56,7 +55,7 @@ func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
-	cl, err := client.New(ts.URL, nil)
+	cl, err := client.New(ts.URL)
 	require.NoError(t, err)
 	news := make(chan string, 8)
 	cl.OnConnect(func(client.Conn) error { return nil })
@@ -170,7 +169,7 @@ func (c *rawClient) read() string {
 func TestLifecycleNamespace(t *testing.T) {
 	// The engine.io client sends no CLOSE packet, so the server holds its
 	// last long poll until pingTimeout; keep that short for teardown.
-	srv := NewServer(&Options{Engine: shortPingOptions()})
+	srv := NewServer(WithEngineOptions(shortPingOptions()...))
 	nspConnected := make(chan string, 1)
 	nspDisconnected := make(chan string, 1)
 	srv.OnConnect("/", func(Conn) error { return nil })

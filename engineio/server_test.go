@@ -25,7 +25,7 @@ func TestEnginePolling(t *testing.T) {
 	should := assert.New(t)
 	must := require.New(t)
 
-	svr := NewServer(nil)
+	svr := NewServer()
 	defer func() {
 		must.NoError(svr.Close())
 	}()
@@ -97,7 +97,7 @@ func TestEngineWebsocket(t *testing.T) {
 	should := assert.New(t)
 	must := require.New(t)
 
-	svr := NewServer(nil)
+	svr := NewServer()
 	defer func() {
 		must.NoError(svr.Close())
 	}()
@@ -209,7 +209,7 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 	should := assert.New(t)
 	must := require.New(t)
 
-	svr := NewServer(nil)
+	svr := NewServer()
 	defer func() {
 		must.NoError(svr.Close())
 	}()
@@ -390,7 +390,7 @@ func TestEngineRejectsTransportDowngrade(t *testing.T) {
 	should := assert.New(t)
 	must := require.New(t)
 
-	svr := NewServer(nil)
+	svr := NewServer()
 	defer func() {
 		must.NoError(svr.Close())
 	}()

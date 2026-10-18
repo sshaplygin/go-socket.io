@@ -14,7 +14,7 @@ import (
 )
 
 func TestDialedClientContextIsLocal(t *testing.T) {
-	server := NewServer(&Options{Transports: []transport.Transport{websocket.Default}})
+	server := NewServer(WithTransports([]transport.Transport{websocket.Default}...))
 	httpServer := httptest.NewServer(server)
 	defer httpServer.Close()
 	defer func() { require.NoError(t, server.Close()) }()

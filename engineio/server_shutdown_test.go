@@ -14,7 +14,7 @@ import (
 
 // Covers E22
 func TestServerCloseClosesAcceptedSessions(t *testing.T) {
-	s := NewServer(nil)
+	s := NewServer()
 	srv := httptest.NewServer(s)
 	defer srv.Close()
 	d := engineclient.Dialer{Transports: []transport.Transport{websocket.Default}}

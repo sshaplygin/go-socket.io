@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	"github.com/stretchr/testify/require"
+
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
-	"github.com/stretchr/testify/require"
 )
 
 func TestCORSErrorResponses(t *testing.T) {
@@ -19,18 +19,18 @@ func TestCORSErrorResponses(t *testing.T) {
 		t.Run(policy, func(t *testing.T) {
 			disabled := policy == "disabled" || policy == "disabled allow" || policy == "disabled deny"
 			allowed := !disabled
-			opts := &Options{DisableCORS: disabled, RequestChecker: func(r *http.Request) (http.Header, error) {
+			opts := []Option{WithCORS(!(disabled)), WithRequestChecker(func(r *http.Request) (http.Header, error) {
 				if r.URL.Query().Has("deny") {
 					return nil, errors.New("denied")
 				}
 				return nil, nil
-			}}
+			})}
 			if policy != "default" && policy != "disabled" {
 				allowed = policy == "enabled allow" || policy == "disabled allow"
 				check := func(*http.Request) bool { return allowed }
-				opts.Transports = []transport.Transport{&polling.Transport{CheckOrigin: check}, &websocket.Transport{CheckOrigin: check}}
+				opts = append(opts, WithTransports(&polling.Transport{CheckOrigin: check}, &websocket.Transport{CheckOrigin: check}))
 			}
-			s := NewServer(opts)
+			s := NewServer(opts...)
 			ts := httptest.NewServer(s)
 			client := &http.Client{Timeout: time.Second}
 			t.Cleanup(func() { _ = s.Close(); ts.Close(); client.CloseIdleConnections() })

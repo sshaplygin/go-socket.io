@@ -18,7 +18,7 @@ import (
 // ErrEmptyAddr is returned by New when addr is empty.
 var ErrEmptyAddr = errors.New("empty addr")
 
-// ErrConnectTimeout means the engine connection did not open within Options.Timeout.
+// ErrConnectTimeout means the engine connection did not open within options.Timeout.
 var ErrConnectTimeout = errors.New("client: connect timeout")
 
 // Client multiplexes namespace sockets over one Engine.IO connection.
@@ -29,14 +29,14 @@ type Client struct {
 	handlers  *namespaceHandlers
 	limits    connLimits
 	log       *slog.Logger
-	options   Options
+	options   options
 	state     *clientState
 	dial      func(string) (engineclient.Conn, error) // internal transport fixture
 }
 
 // New configures addr (http://host:port[/namespace]) without opening a connection.
 // The address path selects the namespace of the Client's own event methods.
-func New(addr string, opts *Options) (*Client, error) {
+func New(addr string, opts ...Option) (*Client, error) {
 	if addr == "" {
 		return nil, ErrEmptyAddr
 	}
@@ -44,53 +44,50 @@ func New(addr string, opts *Options) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	var options Options
-	if opts != nil {
-		options = *opts
+	config := *resolveOptions(opts...)
+	if config.Timeout == 0 {
+		config.Timeout = 20 * time.Second
 	}
-	if options.Timeout == 0 {
-		options.Timeout = 20 * time.Second
+	if config.ReconnectionDelay <= 0 {
+		config.ReconnectionDelay = time.Second
 	}
-	if options.ReconnectionDelay <= 0 {
-		options.ReconnectionDelay = time.Second
+	if config.ReconnectionDelayMax <= 0 {
+		config.ReconnectionDelayMax = 5 * time.Second
 	}
-	if options.ReconnectionDelayMax <= 0 {
-		options.ReconnectionDelayMax = 5 * time.Second
+	if config.RandomizationFactor == 0 {
+		config.RandomizationFactor = 0.5
 	}
-	if options.RandomizationFactor == 0 {
-		options.RandomizationFactor = 0.5
+	if config.Path == "" {
+		config.Path = "/socket.io"
 	}
-	if options.Path == "" {
-		options.Path = "/socket.io"
-	}
-	if options.Transports == nil {
-		handshake := options.Timeout
+	if config.Transports == nil {
+		handshake := config.Timeout
 		if handshake < 0 {
 			handshake = 0
 		}
-		options.Transports = []transport.Transport{polling.Default, &websocket.Transport{HandshakeTimeout: handshake}}
+		config.Transports = []transport.Transport{polling.Default, &websocket.Transport{HandshakeTimeout: handshake}}
 	} else {
-		options.Transports = append([]transport.Transport(nil), options.Transports...)
+		config.Transports = append([]transport.Transport(nil), config.Transports...)
 	}
-	for i, configured := range options.Transports {
+	for i, configured := range config.Transports {
 		if t, ok := configured.(*websocket.Transport); ok {
 			copied := *t
-			copied.EnableCompression = options.PerMessageDeflate
+			copied.EnableCompression = config.PerMessageDeflate
 			copied.CompressionThreshold = 1024
-			options.Transports[i] = &copied
+			config.Transports[i] = &copied
 		}
 	}
-	options.Header = options.Header.Clone()
+	config.Header = config.Header.Clone()
 	query := u.Query()
-	for key, values := range options.Query {
+	for key, values := range config.Query {
 		query[key] = append([]string(nil), values...)
 	}
-	options.Query = query
+	config.Query = query
 	namespace := fmtNS(u.Path)
-	u.Path, u.RawPath, u.RawQuery = strings.TrimRight(options.Path, "/")+"/", "", query.Encode()
+	u.Path, u.RawPath, u.RawQuery = strings.TrimRight(config.Path, "/")+"/", "", query.Encode()
 
 	c := &Client{namespace: namespace, url: u.String(), handlers: newNamespaceHandlers(),
-		limits: newConnLimits(&options), log: loggerFrom(&options), options: options}
+		limits: newConnLimits(&config), log: loggerFrom(&config), options: config}
 	c.state = &clientState{client: c, sockets: make(map[string]*Socket)}
 	c.createNamespace(rootNamespace)
 	c.Socket(namespace)
@@ -102,7 +99,7 @@ func New(addr string, opts *Options) (*Client, error) {
 func (c *Client) Connect() error { return c.state.connect(c) }
 
 // Close disconnects all namespace sockets and drains their queued packets before
-// closing Engine.IO, bounded by Options.CloseTimeout.
+// closing Engine.IO, bounded by WithCloseTimeout.
 func (c *Client) Close() error { return c.state.closeAll() }
 
 // Emit sends through the namespace selected by the address passed to New.
@@ -155,7 +152,7 @@ func (c *Client) engineDial() (engineclient.Conn, error) {
 }
 
 // loggerFrom chooses this client's configured logger or the package fallback.
-func loggerFrom(opts *Options) *slog.Logger {
+func loggerFrom(opts *options) *slog.Logger {
 	if opts != nil && opts.Logger != nil {
 		return logger.Wrap(opts.Logger)
 	}

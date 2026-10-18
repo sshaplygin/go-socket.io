@@ -26,9 +26,9 @@ func TestConnInitorBeforeAccept(t *testing.T) {
 				URL string
 				Err error
 			}
-			s := NewServer(&Options{ConnInitor: func(r *http.Request, c Conn) {
+			s := NewServer(WithConnInitor(func(r *http.Request, c Conn) {
 				c.SetContext(contextRecord{r.URL.String(), r.Context().Err()})
-			}})
+			}))
 			srv := httptest.NewServer(s)
 			defer srv.Close()
 			defer func() { _ = s.Close() }()
@@ -79,7 +79,7 @@ func TestConnInitorBeforeAccept(t *testing.T) {
 	t.Run("rejected", func(t *testing.T) {
 		for _, tr := range []string{"polling", "websocket"} {
 			t.Run(tr, func(t *testing.T) {
-				s := NewServer(&Options{ConnInitor: func(_ *http.Request, c Conn) { _ = c.Close() }})
+				s := NewServer(WithConnInitor(func(_ *http.Request, c Conn) { _ = c.Close() }))
 				srv := httptest.NewServer(s)
 				defer srv.Close()
 				defer func() { _ = s.Close() }()
@@ -133,7 +133,7 @@ func TestSessionRequest(t *testing.T) {
 	})
 	for _, tr := range []string{"polling", "websocket"} {
 		t.Run(tr, func(t *testing.T) {
-			s := NewServer(nil)
+			s := NewServer()
 			srv := httptest.NewServer(s)
 			defer srv.Close()
 			defer func() { _ = s.Close() }()

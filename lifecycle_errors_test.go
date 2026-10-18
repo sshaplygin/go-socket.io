@@ -20,18 +20,14 @@ import (
 // of such a test closes by ping timeout around or after the end of the test, so its
 // records go to a discarding logger: with the default one they would reach the
 // slog.Default capture of whichever test runs next.
-func shortPingOptions() *engineio.Options {
-	return &engineio.Options{
-		PingTimeout:  500 * time.Millisecond,
-		PingInterval: 200 * time.Millisecond,
-		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-	}
+func shortPingOptions() []engineio.Option {
+	return []engineio.Option{engineio.WithPingTimeout(500 * time.Millisecond), engineio.WithPingInterval(200 * time.Millisecond), engineio.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))}
 }
 
 // newTestServer starts srv behind httptest with shortPingOptions.
 func newTestServer(t *testing.T, setup func(*Server)) *httptest.Server {
 	t.Helper()
-	srv := NewServer(&Options{Engine: shortPingOptions()})
+	srv := NewServer(WithEngineOptions(shortPingOptions()...))
 	setup(srv)
 	go func() { _ = srv.Serve() }()
 	ts := httptest.NewServer(srv)
@@ -176,7 +172,7 @@ type rawServer struct {
 
 func newRawServer(t *testing.T) *rawServer {
 	t.Helper()
-	eio := engineio.NewServer(shortPingOptions())
+	eio := engineio.NewServer(shortPingOptions()...)
 	ts := httptest.NewServer(eio)
 	rs := &rawServer{t: t, conn: make(chan engineio.Conn, 1), url: ts.URL}
 	go func() {
@@ -204,7 +200,7 @@ func (rs *rawServer) accept() *rawClient {
 func connectRawClient(t *testing.T, setup func(*client.Client)) *rawClient {
 	t.Helper()
 	rs := newRawServer(t)
-	cl, err := client.New(rs.url, nil)
+	cl, err := client.New(rs.url)
 	require.NoError(t, err)
 	connected := make(chan struct{}, 1)
 	cl.OnConnect(func(client.Conn) error {
@@ -253,16 +249,16 @@ func TestClientDecodeErrorReachesOnError(t *testing.T) {
 }
 
 func TestClientRejectsEmptyAddr(t *testing.T) {
-	_, err := client.New("", nil)
+	_, err := client.New("")
 	require.ErrorIs(t, err, client.ErrEmptyAddr)
-	_, err = client.New("http://[::1", nil)
+	_, err = client.New("http://[::1")
 	require.Error(t, err)
 }
 
 // TestServerRegistrationOrder registers OnError, OnDisconnect and OnEvent
 // before OnConnect, each creating the namespace, and removes a session.
 func TestServerRegistrationOrder(t *testing.T) {
-	srv := NewServer(nil)
+	srv := NewServer()
 	srv.OnError("/a", func(Conn, error) {})
 	srv.OnDisconnect("/b", func(Conn, string) {})
 	srv.OnEvent("/c", "e", func(Conn) {})

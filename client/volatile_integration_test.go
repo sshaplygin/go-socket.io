@@ -14,6 +14,7 @@ import (
 
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/client"
+	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -37,8 +38,8 @@ func TestClientVolatile(t *testing.T) {
 	for _, name := range []string{"polling", "websocket"} {
 		t.Run(name, func(t *testing.T) {
 			opts := shortPingOptions()
-			opts.PingInterval = time.Hour // no heartbeat can race this idle admission
-			srv := socketio.NewServer(&socketio.Options{Engine: opts})
+			opts = append(opts, engineio.WithPingInterval(time.Hour)) // no heartbeat can race this idle admission
+			srv := socketio.NewServer(socketio.WithEngineOptions(opts...))
 			values := make(chan string, 8)
 			srv.OnConnect("/", func(socketio.Conn) error { return nil })
 			srv.OnEvent("/", "value", func(_ socketio.Conn, v string) string { values <- v; return v })
@@ -61,7 +62,7 @@ func TestClientVolatile(t *testing.T) {
 				base = websocket.Default
 			}
 			watched := watchedClientTransport{base, make(chan transport.Conn, 1)}
-			cl, err := client.New(ts.URL, &client.Options{Transports: []transport.Transport{watched}})
+			cl, err := client.New(ts.URL, client.WithTransports([]transport.Transport{watched}...))
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
 			connected := make(chan client.Conn, 1)

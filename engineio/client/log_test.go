@@ -144,7 +144,7 @@ func TestClientPeerCloseRecords(t *testing.T) {
 		t.Run(tr.Name(), func(t *testing.T) {
 			rec := newRecorder()
 			setDefault(t, rec)
-			srv := engineio.NewServer(&engineio.Options{PingInterval: 50 * time.Millisecond, Transports: []transport.Transport{tr}})
+			srv := engineio.NewServer(engineio.WithPingInterval(50*time.Millisecond), engineio.WithTransports([]transport.Transport{tr}...))
 			defer func() { _ = srv.Close() }()
 			ts := httptest.NewServer(srv)
 			defer ts.Close()

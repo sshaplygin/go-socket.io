@@ -10,7 +10,7 @@ import (
 // TestServeReturnsNilAfterClose checks that Serve treats the end of the
 // accept loop caused by Close as a normal shutdown.
 func TestServeReturnsNilAfterClose(t *testing.T) {
-	srv := NewServer(nil)
+	srv := NewServer()
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve() }()
 

@@ -84,7 +84,7 @@ func (p *compressedPeer) frame(t *testing.T) (byte, []byte) {
 }
 func newCompressedServer(t *testing.T, connected func(Conn)) (*Server, *httptest.Server) {
 	t.Helper()
-	s := NewServer(&Options{Engine: &engineio.Options{PerMessageDeflate: true, CompressionThreshold: 32}})
+	s := NewServer(WithEngineOptions(engineio.WithPerMessageDeflate(true), engineio.WithCompressionThreshold(32)))
 	s.OnConnect("/", func(c Conn) error {
 		c.Join("room")
 		if connected != nil {
@@ -306,7 +306,7 @@ func TestClientCompress(t *testing.T) {
 				}
 				return recordingCompressionConn{Conn: recordingCompressionConn{Conn: c, record: outgoing}, record: incoming, recordRead: true}, nil
 			}}
-			cl, err := client.New(ts.URL, &client.Options{Transports: []transport.Transport{transportConfig}, PerMessageDeflate: enabled, DisableReconnection: true})
+			cl, err := client.New(ts.URL, client.WithTransports([]transport.Transport{transportConfig}...), client.WithPerMessageDeflate(enabled), client.WithReconnection(!(true)))
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
 			// Install the handler before Connect; it receives binary attachments in order.

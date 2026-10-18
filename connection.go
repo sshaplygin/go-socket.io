@@ -28,7 +28,7 @@ type connLimits struct {
 
 // newConnLimits reads opts.WriteBufferSize and opts.CloseTimeout; nil options, 0 and
 // negative values give the defaults.
-func newConnLimits(opts *Options) connLimits {
+func newConnLimits(opts *options) connLimits {
 	l := connLimits{defaultWriteBufferSize, defaultDrainTimeout}
 	if opts != nil && opts.WriteBufferSize > 0 {
 		l.writeBufferSize = opts.WriteBufferSize

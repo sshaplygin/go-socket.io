@@ -23,7 +23,7 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `engineio/client/` | independent v1 Engine.IO client, dialer, heartbeat/upgrade and client connection state/errors |
 | `engineio/parser/` | shared Engine.IO v3 frame/packet/payload codecs and OPEN parameters |
 | `engineio/transport/` | transport contracts, registry and timestamp helper; polling owns HTTP feed/flush, pause and deadline state |
-| `logger/` | v1 package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: parser, transports, `engineio/parser`, client dialer |
+| `logger/` | v1 package-level `slog` fallback (`logger.Log`) for packages that do not receive per-instance `WithLogger` configuration: parser, transports, `engineio/parser`, client dialer |
 | `internal/conformance/` | interoperability and raw protocol tests behind the `conformance` build tag; Node fixtures under `testdata/node/` |
 | `internal/parity/` | portable PARITY marker and executable-test checks, including tagged tests without running Node |
 | `_examples/` | v1 runnable examples, each with its own `go.mod` except the Go client in `_examples/client`, which belongs to the root module; excluded from `./...` of the root build by the `_` prefix |
@@ -60,7 +60,7 @@ V1 source files follow the same responsibility names in the root and `client/`:
 
 | Files | Responsibility |
 | --- | --- |
-| `types.go`, `options.go` | role-owned Socket.IO connection contracts and queue/drain configuration in root and client |
+| `types.go`, `options.go` | role-owned Socket.IO contracts, private configuration and public functional With options in root and client |
 | `server.go`, `server_namespace.go` | server lifecycle, namespace configuration and broadcast builders |
 | `client.go`, `socket.go`, `state.go`, `reconnect.go` in `client/` | client API, namespace sockets, connection generations and reconnection |
 | `connection.go`, `connection_serve.go` | connection state/queue and its read/write/error loops |

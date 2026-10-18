@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/sshaplygin/go-socket.io/client"
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 	"github.com/sshaplygin/go-socket.io/parser"
-	"github.com/stretchr/testify/require"
 )
 
 func goClientReference(t *testing.T) string {
@@ -66,14 +66,14 @@ type goClientMetadata struct {
 func TestGoClientConformance(t *testing.T) {
 	for _, name := range []string{"polling", "websocket", "upgrade"} {
 		t.Run(name, func(t *testing.T) {
-			opts := &client.Options{Path: "/client-engine", Query: url.Values{"custom": {"value"}}, Header: http.Header{"X-Go-Client": {"header"}}}
+			opts := []client.Option{client.WithPath("/client-engine"), client.WithQuery(url.Values{"custom": {"value"}}), client.WithHeader(http.Header{"X-Go-Client": {"header"}})}
 			if name == "polling" {
-				opts.Transports = []transport.Transport{polling.Default}
+				opts = append(opts, client.WithTransports(polling.Default))
 			}
 			if name == "websocket" {
-				opts.Transports = []transport.Transport{websocket.Default}
+				opts = append(opts, client.WithTransports(websocket.Default))
 			}
-			cl, err := client.New(goClientReference(t), opts)
+			cl, err := client.New(goClientReference(t), opts...)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
 			connected := make(chan client.Conn, 4)
@@ -148,14 +148,14 @@ func TestGoClientConformance(t *testing.T) {
 func TestGoClientReconnect(t *testing.T) {
 	for _, name := range []string{"polling", "websocket", "upgrade"} {
 		t.Run(name, func(t *testing.T) {
-			opts := &client.Options{Path: "/client-engine", ReconnectionDelay: 10 * time.Millisecond, ReconnectionDelayMax: 20 * time.Millisecond, RandomizationFactor: -1, ReconnectionAttempts: 3}
+			opts := []client.Option{client.WithPath("/client-engine"), client.WithReconnectionDelay(10 * time.Millisecond), client.WithReconnectionDelayMax(20 * time.Millisecond), client.WithRandomizationFactor(-1), client.WithReconnectionAttempts(3)}
 			if name == "polling" {
-				opts.Transports = []transport.Transport{polling.Default}
+				opts = append(opts, client.WithTransports(polling.Default))
 			}
 			if name == "websocket" {
-				opts.Transports = []transport.Transport{websocket.Default}
+				opts = append(opts, client.WithTransports(websocket.Default))
 			}
-			cl, err := client.New(goClientReference(t), opts)
+			cl, err := client.New(goClientReference(t), opts...)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
 			connected := make(chan client.Conn, 6)

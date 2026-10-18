@@ -20,9 +20,13 @@ func TestRoleConsumerFixtures(t *testing.T) {
 		{"positive", ""},
 		{"wrong_server_callback", "cannot use"},
 		{"wrong_client_callback", "cannot use"},
+		{"wrong_server_option", "cannot use"},
 		{"retired_root_client", "undefined: socketio.NewClient"},
 		{"retired_client_constructor", "undefined: client.NewClient"},
 		{"retired_engine_dialer", "undefined: engineio.Dialer"},
+		{"retired_server_options", "undefined: socketio.Options"},
+		{"retired_engine_options", "undefined: engineio.Options"},
+		{"retired_client_options", "undefined: client.Options"},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			source := filepath.Join(root, "internal", "parity", "testdata", "roles", fixture.name+".go")

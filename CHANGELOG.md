@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- tests: synchronize the compressed-limit CLOSE assertion with the error hook so
+  a Windows TCP reset cannot hide CLOSE 1009 after a pipelined packet.
+
 - engineio/parser: a decoding or source-release failure terminates the streaming
   payload decoder, preventing reuse and repeated release of the failed source.
   Body read errors are retained on their first observation, including a read that

@@ -453,7 +453,10 @@ func TestPerMessageDeflateControlPacketLimit(t *testing.T) {
 			wire := bytes.Clone(compressed.Bytes()[:compressed.Len()-4])
 			require.NoError(t, deflater.Close())
 			causes := make(chan error, 2)
-			s, ts := compressionServer(t, []Option{WithPerMessageDeflate(true), WithMaxHTTPBufferSize(1024), WithHooks(&Hooks{Error: func(_ Conn, err error) { causes <- err }})})
+			release := make(chan struct{})
+			unblock := sync.OnceFunc(func() { close(release) })
+			defer unblock()
+			s, ts := compressionServer(t, []Option{WithPerMessageDeflate(true), WithMaxHTTPBufferSize(1024), WithHooks(&Hooks{Error: func(_ Conn, err error) { causes <- err; <-release }})})
 			peer := compressionDial(t, ts.URL)
 			_, _ = peer.frame(t)
 			c := compressionAccept(t, s)
@@ -478,6 +481,9 @@ func TestPerMessageDeflateControlPacketLimit(t *testing.T) {
 			require.Equal(t, byte(8), flags&15)
 			require.GreaterOrEqual(t, len(body), 2)
 			require.Equal(t, uint16(1009), binary.BigEndian.Uint16(body))
+			// Read CLOSE before allowing physical shutdown: an unread pipelined
+			// packet can otherwise make Windows reset TCP and hide that frame.
+			unblock()
 			select {
 			case got := <-done:
 				require.Error(t, got.err, "application packet delivered after a rejected control packet: %q", got.message)

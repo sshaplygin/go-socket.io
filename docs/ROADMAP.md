@@ -6145,7 +6145,7 @@ D=$(go list -deps ./client); test -z "$(printf '%s\n' "$D" | grep -E "redigo|^$M
 D=$(go list -deps ./engineio/client); test -z "$(printf '%s\n' "$D" | grep -E "redigo|^$MOD$|^$MOD/client$|^$MOD/engineio$|^$MOD/adapter(/|$)")"
 D=$(go list -deps .); test -z "$(printf '%s\n' "$D" | grep -x "$MOD/client")"
 D=$(go list -deps ./parser); test -z "$(printf '%s\n' "$D" | grep -E "^$MOD/(engineio|client|adapter)(/|$)|^$MOD$")"
-test ! -d internal/engineclose; test ! -d engineio/internal; test ! -d engineio/session
+test ! -e internal/engineclose; test ! -e engineio/internal/shutdown.go; test ! -e engineio/session
 go test -count=1 -run '^TestRoleConsumerFixtures$' ./internal/parity
 go test -race -count=1 -run '^(TestClientPackageRoundTrip|TestRoleSpecificHandlers|TestClientErrorIdentity|TestEventHandlerRejectsClientConn)$' .
 go test -race -count=1 -run '^TestClientRejectsServerConnHandler$' ./client
@@ -6156,8 +6156,10 @@ make examples
 
 The `go list` assignments fail on listing errors before dependency filters run. Production
 closure checks exclude test imports, so tests may exercise both roles without coupling
-the runtime. The migration consumer uses the new API and the existing S/C parity and
-MV1 checks retain the behavioral requirements of the original extraction.
+the runtime. The retired bridge checks exclude `internal/engineclose` and the former
+`engineio/internal/shutdown.go`, while allowing the private server session component.
+The migration consumer uses the new API and the existing S/C parity and MV1 checks
+retain the behavioral requirements of the original extraction.
 
 Acceptance remains the Go client connecting to `_examples/default-http`, both pinned
 Node client conformance runs, and the Go client's namespaces/reconnect against the Node

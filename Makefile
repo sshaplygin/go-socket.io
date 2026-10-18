@@ -37,8 +37,14 @@ bench:
 .PHONY: lint
 lint:
 	gofmt -s -l . | tee /dev/stderr | test -z "$$(cat)"
-	go vet ./...
-	golangci-lint run ./...
+	go vet ./... ./.github/architecture
+	golangci-lint run ./... ./.github/architecture
+
+# The final Component boundaries graph is owned by docs/ROADMAP.md.
+.PHONY: architecture-check
+architecture-check:
+	go test -race -count=1 ./.github/architecture
+	go run ./.github/architecture
 
 .PHONY: vuln
 vuln:

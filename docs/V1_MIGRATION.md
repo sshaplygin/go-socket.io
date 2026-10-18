@@ -1,9 +1,44 @@
 # V1 component migration
 
 The v1 component restructuring changes Go imports and API on `master`. Socket.IO v4
-and Engine.IO v3 wire behavior stays the same. This guide covers changes already landed
-in the component series; the remaining work is tracked in
+and Engine.IO v3 wire behavior stays the same. This guide covers the completed component extractions and their active entry
+points; acceptance and release status are tracked in
 [ROADMAP.md](ROADMAP.md#stage-v1-work-packages). V1-to-v2 migration has its own guide.
+
+## Component layout
+
+The public packages follow the Socket.IO / Engine.IO component model. Arrows below
+show Go dependencies; a browser client communicates with the server over the wire.
+The Go Socket.IO client does not import either server.
+
+```mermaid
+flowchart TD
+  S["socketio: server"] --> A["adapter: memory and contracts"]
+  R["adapter/redis"] --> A
+  S --> P["parser: Socket.IO packets"]
+  C["client: Socket.IO client"] --> P
+  S --> E["engineio: server"]
+  C --> EC["engineio/client"]
+  E --> EP["engineio/parser: shared codecs"]
+  EC --> EP
+```
+
+| Public component | Private implementation owner |
+| --- | --- |
+| Root `socketio` server and namespace views | `internal/connection` for transport/socket/queue/ACK/drain; `internal/namespace` for canonical server contracts and registrations |
+| `client` constructor/options and client/socket entry points | `client/internal/connection` for manager/generations/reconnect/sockets; `client/internal/namespace` for canonical client contracts, listeners and local rooms |
+| `engineio` server | `engineio/internal/session` for accepted session I/O, registry/IDs, heartbeat and upgrade/close |
+| `engineio/parser` codec entry points | `engineio/parser/internal/packet` for canonical frame/packet values and codec; `engineio/parser/internal/payload` for streaming payload/framing/leases |
+| `adapter`, `adapter/redis`, `parser`, `engineio/client` | Implementation stays within each public component |
+
+`engineio/transport` and its polling/websocket packages supply the transport layer;
+`logger` retains the package fallback for components without a per-instance logger.
+The complete allowed import graph has 12 public and seven private runtime packages.
+[ROADMAP's Component boundaries](ROADMAP.md#stage-v1-work-packages) owns the exact
+allowed edges. `make architecture-check` enforces them in CI, along with independent
+client/server roles, parser isolation, Redis composition and retired-path removal.
+Private exports serve typed boundaries within the library; applications use the
+active public names. There is no generic helper package or old import facade.
 
 ## Engine.IO codecs and polling
 

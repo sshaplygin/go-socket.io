@@ -56,6 +56,7 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `v2/_examples/` | the examples written against the v1 API, each with its own `go.mod` requiring the v2 module; they do not build until 2.5D migrates them |
 | `v2/_experiments/` | standalone prototypes, each with its own `go.mod`, never imported by the v2 module; built by `make -C v2 experiments` |
 | `docs/` | shared by both modules: protocol notes, roadmap, v1 parity matrix (`PARITY.md`), v2 API signature inventory |
+| `.github/architecture/` | v1 runtime graph gate and negative go-list/privacy/role fixtures; executable policy follows ROADMAP Component boundaries |
 | `.github/` | shared: one CI workflow with jobs per module, the benchmark workflow and its tools, Dependabot |
 
 Runtime model of v1: `engineio.Server` accepts HTTP requests and emits `engineio.Conn`
@@ -99,7 +100,8 @@ packages. Codec and transport import/API migration is documented in
 Each module has its own `Makefile` and `.golangci.yml`. In the repository root (v1):
 
 ```sh
-make lint        # gofmt -s check, go vet, golangci-lint (v2 config)
+make lint        # gofmt, vet and golangci-lint, including the architecture checker
+make architecture-check # allowed runtime imports, role/codec closures and retired paths
 make sync-check  # compare shared v1/v2 files after the module import-path rewrite
 make test        # go test -count=1 ./...
 make test-race   # the same with -race; what CI runs
@@ -157,14 +159,16 @@ matrix with Node LTS and exact clients 1.7.4 and 2.5.0. The other jobs run per m
 filter: on a pull request the v1 jobs run when a file outside `v2/` changed, the v2 jobs
 when a file in `v2/`, `.github/` or `docs/API.md` (read by the v2 tests) changed; push and
 schedule run both. v1 jobs, in the root: `lint-v1` (tidy diff, mod verify, gofmt, vet,
-`make parity-check cover-check`,
+`make architecture-check parity-check cover-check`,
 golangci-lint, `make vuln` on ubuntu with the newest Go release from go.dev, because
 `setup-go` lags behind it), `test-v1` (race tests on ubuntu, macos and windows with
 `stable` and `oldstable` Go), `stress-v1` (`make test-stress`, pull requests only),
 `min-go-v1` (build and race tests on ubuntu with the latest Go 1.22.x and
 `GOTOOLCHAIN=local`, so it fails if `go.mod` or a dependency requires a newer Go) and
-`examples-v1` (`make examples`). v2 jobs, with `working-directory: v2`: `lint-v2` (as
-`lint-v1`, plus `make graph` and `make freeze`), `test-v2`, `min-go-v2`, `examples-v2`
+`examples-v1` (`make examples`). Every v1 platform/toolchain test job also runs the graph fixtures
+and checker, so conditional production imports obey the same policy. v2 jobs, with
+`working-directory: v2`: `lint-v2` (tidy, mod verify, format/vet, `make graph freeze`,
+golangci-lint and `make vuln`), `test-v2`, `min-go-v2`, `examples-v2`
 (`make examples`, the identical-copy check only) and `experiments-v2` (`make experiments`;
 installs golangci-lint with `go install`). Dependabot groups Go minor/patch updates of every
 module (`/`, `/v2`, `/_examples/*`, `/v2/_examples/*`, `/v2/_experiments/*`) and Actions

@@ -108,13 +108,16 @@ jobs:
       - name: Format
         run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
       - name: Vet
-        run: go vet ./...
+        run: go vet ./... ./.github/architecture
+      - name: Component graph and negative fixtures
+        run: make architecture-check
       - name: Parity markers and API coverage ratchets
         run: make parity-check cover-check
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
           version: latest
+          args: ./... ./.github/architecture
       - name: govulncheck
         # setup-go reads a manifest that can lag behind go.dev, so scan with the newest
         # published release; the go command downloads that toolchain via the module proxy.
@@ -196,6 +199,10 @@ jobs:
           check-latest: true
       - name: Go version
         run: go version
+      - name: Component graph negative fixtures
+        run: go test -race -count=1 ./.github/architecture
+      - name: Component graph production imports
+        run: go run ./.github/architecture
       - name: Tests with race detector
         run: go test -race -count=1 ./...
 
@@ -262,6 +269,10 @@ jobs:
           go version | grep -q ' go1\.22\.'
       - name: Build
         run: go build ./...
+      - name: Component graph negative fixtures
+        run: go test -race -count=1 ./.github/architecture
+      - name: Component graph production imports
+        run: go run ./.github/architecture
       - name: Tests with race detector
         run: go test -race -count=1 ./...
 

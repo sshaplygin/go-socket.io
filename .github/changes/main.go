@@ -1,5 +1,5 @@
 // Command changes decides which CI jobs a pull request needs. It reads the diff between
-// two revisions, drops what no job reads (Markdown that no gate reads, Go comments and
+// two revisions, drops what no job needs on a pull request (Markdown, Go comments and
 // formatting), maps Go changes to packages and their reverse dependencies through
 // `go list -deps -test`, and prints the job inputs as GitHub Actions outputs:
 //

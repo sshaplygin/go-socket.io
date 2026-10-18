@@ -23,7 +23,9 @@ const (
 
 // gateInputs are the Markdown files that a gate reads, with the module whose gate job
 // reads them: internal/parity reads README.md and docs/PARITY.md, .github/architecture
-// reads docs/ROADMAP.md, the v2 root tests read docs/API.md.
+// reads docs/ROADMAP.md, the v2 root tests read docs/API.md. Markdown starts no job on a
+// pull request, these files included (the owner accepted that the push to master checks
+// them); the classifier only names them in its reasons so the job summary shows the skip.
 var gateInputs = map[string]string{
 	"README.md":       v1,
 	"docs/PARITY.md":  v1,
@@ -230,8 +232,7 @@ func classify(dir, base, head string) (*decision, error) {
 func (d *decision) path(status, name string, before, after []byte) {
 	if strings.HasSuffix(name, ".md") {
 		if mod, ok := gateInputs[name]; ok {
-			d.mods[mod].gates = true
-			d.note("%s: gates (%s is read by a gate)", mod, name)
+			d.note("%s: gates-%s reads %s; skipped on a pull request, the push to master runs it", mod, mod, name)
 		}
 		return
 	}

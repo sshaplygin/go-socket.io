@@ -169,9 +169,13 @@ func TestClassify(t *testing.T) {
 		}, want: with(map[string]string{"examples_v1": "true", "conformance": "true"})},
 		{name: "Markdown only", edit: map[string]string{"CHANGELOG.md": "# Changelog\n\n- x\n"}, want: none},
 		{name: "Markdown read by the parity gate", edit: map[string]string{"docs/PARITY.md": "| B1 | DONE | y |\n"},
-			want: with(map[string]string{"gates_v1": "true"})},
+			want: none},
 		{name: "Markdown read by the v2 gates", edit: map[string]string{"docs/API.md": "# API\n\nmore\n"},
-			want: with(map[string]string{"gates_v2": "true"})},
+			want: none},
+		{name: "Markdown read by a gate with a Go comment", edit: map[string]string{
+			"README.md":        "# m\n\nmore\n",
+			"parser/parser.go": "package parser\n\n// Parse parses a string.\nfunc Parse(s string) int {\n\treturn len(s)\n}\n",
+		}, want: none},
 		{name: "module file", edit: map[string]string{"go.mod": "module example.com/m\n\ngo 1.23\n"},
 			want: merge(fullV1, map[string]string{"bench_v1": "./...", "changed": "true"})},
 		{name: "build constraint", edit: map[string]string{
@@ -399,7 +403,8 @@ func TestFrozenFallback(t *testing.T) {
 }
 
 // TestGateInputsCoverRepository fails when a Go file of the repository names a Markdown
-// file that gateInputs does not list: a Markdown-only change to it would skip its reader.
+// file that gateInputs does not list: the job summary would not name the gate that a
+// Markdown-only change to it skips.
 func TestGateInputsCoverRepository(t *testing.T) {
 	known := map[string]bool{}
 	for name := range gateInputs {

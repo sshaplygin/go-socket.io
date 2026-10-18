@@ -169,9 +169,11 @@ of the changed Go files. A push to master and the weekly schedule select every j
 a pull request the classifier reads the diff from the merge base, and a job runs only when
 the diff reaches something it checks:
 
-- Markdown runs nothing, except the files a gate reads (`README.md`, `docs/PARITY.md` and
-  `docs/ROADMAP.md` for v1, `docs/API.md` for v2), which run the gate job of their module.
-  A classifier test fails when a Go file names a Markdown file outside that list.
+- Markdown runs nothing. Accepted gap: the gates also read Markdown (`README.md`,
+  `docs/PARITY.md` and `docs/ROADMAP.md` for v1, `docs/API.md` for v2), so a pull request
+  that breaks a gate only through these files passes and the push to master fails; the
+  classifier names the skipped gate in the job summary, and a classifier test fails when a
+  Go file names a Markdown file outside that list.
 - Go comments and formatting run nothing. Comments that a tool reads count as code:
   `//go:` and `//line` directives, build constraints, cgo preambles, `//nolint`, `//lint:`,
   generated-file markers, a line opening a `Deprecated:` paragraph (staticcheck SA1019)

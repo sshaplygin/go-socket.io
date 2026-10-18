@@ -16,7 +16,7 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 
 | Path | Purpose |
 | --- | --- |
-| `*.go` (root, package `socketio`) | v1 Socket.IO server, client, namespaces, rooms, in-memory and Redis broadcast |
+| `*.go` (root, package `socketio`) | v1 Socket.IO server, namespaces, rooms, in-memory and Redis broadcast; deprecated client wrapper and shared type aliases |
 | `client/` | v1 experimental Go client and the shared Conn/Namespace interfaces; the root keeps a deprecated wrapper and aliases |
 | `parser/` | v1 Socket.IO v4 packet encoder/decoder, binary attachments |
 | `engineio/` | v1 Engine.IO v3 server and client: sessions, polling and websocket transports, payload codec |
@@ -52,6 +52,27 @@ sessions; `socketio.Server.Serve` takes each session and starts three goroutines
 the read goroutine of that connection, so a blocking handler blocks that client only.
 The v2 root package has no runtime yet: every operation that needs one returns
 `ErrNotImplemented`, and stages 2.1 to 2.4 of the roadmap add it.
+
+V1 source files follow the same responsibility names in the root and `client/`:
+
+| Files | Responsibility |
+| --- | --- |
+| `types.go` | shared connection contracts in `client/`; aliases in the root |
+| `server.go`, `server_namespace.go` | server lifecycle, namespace configuration and broadcast builders |
+| `client.go`, `socket.go`, `state.go`, `reconnect.go` in `client/` | client API, namespace sockets, connection generations and reconnection |
+| `connection.go`, `connection_serve.go` | connection state/queue and its read/write/error loops |
+| `packet_handlers.go`, `event_handler.go` | packet dispatch and reflected event/ACK handlers |
+| `namespace.go`, `namespace_handler.go` | namespace connections/registry and handlers/handler registry |
+| `broadcast.go`, `redis_broadcast.go`, `adapter_options.go` | in-memory/Redis adapters and Redis configuration |
+| `engineio/conn.go`, `engineio/options.go` | Engine.IO connection contracts/state aliases and server configuration |
+| `engineio/session/session.go`, `types.go`, `close.go`, `upgrade.go` | session construction/metadata/frame I/O, frame/state/error types, close lifecycle and upgrade state machine |
+| `engineio/session/manager.go`, `id_generator.go` | session registry and IDs |
+| `engineio/packet/fake.go` | exported packet test fakes retained for existing consumers |
+
+The Engine.IO server installs response observers through `session.Hooks`; forced close
+and server shutdown call the session directly. There are no private init-time bridge
+packages. Existing public `engineio/frame` and `engineio/transport/utils` imports remain
+available; test-only `internal/conformance` and `internal/parity` own their gates.
 
 ## Commands
 

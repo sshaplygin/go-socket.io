@@ -6,12 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
-
-// Namespace is the shared server and client interface.
-type Namespace = client.Namespace
 
 type namespaceConn struct {
 	*conn
@@ -287,9 +283,6 @@ func (nc *namespaceConn) reject() {
 	nc.LeaveAll()
 }
 
-// Emitter is the shared server and client interface.
-type Emitter = client.Emitter
-
 type emitter struct {
 	socket    *namespaceConn
 	adapter   Broadcast
@@ -321,8 +314,10 @@ func (e emitter) Except(ids ...string) Emitter {
 	return e
 }
 
-func (e emitter) Volatile() Emitter              { e.opts.Volatile = true; return e }
-func (e emitter) Local() Emitter                 { e.opts.Local = true; return e }
+func (e emitter) Volatile() Emitter { e.opts.Volatile = true; return e }
+
+func (e emitter) Local() Emitter { e.opts.Local = true; return e }
+
 func (e emitter) Send(args ...interface{}) error { return e.Emit("message", args...) }
 
 func (e emitter) Emit(event string, args ...interface{}) error {
@@ -348,9 +343,71 @@ func hasBroadcastAck(args []interface{}) bool {
 }
 
 func (nc *namespaceConn) To(rooms ...string) Emitter { return (emitter{socket: nc}).To(rooms...) }
-func (nc *namespaceConn) Broadcast() Emitter         { return (emitter{socket: nc}).asBroadcast() }
-func (nc *namespaceConn) Volatile() Emitter          { return (emitter{socket: nc}).Volatile() }
+
+func (nc *namespaceConn) Broadcast() Emitter { return (emitter{socket: nc}).asBroadcast() }
+
+func (nc *namespaceConn) Volatile() Emitter { return (emitter{socket: nc}).Volatile() }
 
 func (e emitter) Compress(on bool) Emitter { e.opts.NoCompress = !on; return e }
 
 func (nc *namespaceConn) Compress(on bool) Emitter { return (emitter{socket: nc}).Compress(on) }
+
+// namespace
+const (
+	aliasRootNamespace = "/"
+	rootNamespace      = ""
+)
+
+func fmtNS(ns string) string {
+	if ns == aliasRootNamespace {
+		return rootNamespace
+	}
+	return ns
+}
+
+type namespaces struct {
+	namespaces map[string]*namespaceConn
+	mu         sync.RWMutex
+}
+
+func newNamespaces() *namespaces {
+	return &namespaces{
+		namespaces: make(map[string]*namespaceConn),
+	}
+}
+
+func (n *namespaces) Get(ns string) (*namespaceConn, bool) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	namespace, ok := n.namespaces[ns]
+	return namespace, ok
+}
+
+func (n *namespaces) Set(ns string, conn *namespaceConn) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	n.namespaces[ns] = conn
+}
+
+func (n *namespaces) Delete(ns string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	delete(n.namespaces, ns)
+}
+
+func (n *namespaces) Range(fn func(ns string, nc *namespaceConn)) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	for ns, nc := range n.namespaces {
+		fn(ns, nc)
+	}
+}
+
+// message
+const (
+	clientDisconnectMsg = "client namespace disconnect"
+)

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/gomodule/redigo/redis"
+	"github.com/google/uuid"
+
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
@@ -162,7 +164,7 @@ func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, 
 		return nil, err
 	}
 
-	uid := newV4UUID()
+	uid := uuid.NewString()
 	rbc := &redisBroadcast{
 		rooms:      make(map[string]map[string]Conn),
 		requests:   make(map[string]interface{}),
@@ -213,7 +215,7 @@ func (bc *redisBroadcast) subscribe(ctx context.Context) (*redis.PubSubConn, err
 func (bc *redisBroadcast) AllRooms() []string {
 	req := allRoomRequest{
 		RequestType: allRoomReqType,
-		RequestID:   newV4UUID(),
+		RequestID:   uuid.NewString(),
 	}
 	reqJSON, _ := json.Marshal(&req)
 
@@ -314,7 +316,7 @@ func (bc *redisBroadcast) ForEach(room string, f EachFunc) {
 func (bc *redisBroadcast) Len(room string) int {
 	req := roomLenRequest{
 		RequestType: roomLenReqType,
-		RequestID:   newV4UUID(),
+		RequestID:   uuid.NewString(),
 		Room:        room,
 	}
 
@@ -564,7 +566,7 @@ func (bc *redisBroadcast) onResponse(msg []byte) {
 func (bc *redisBroadcast) publishClear(room string) {
 	req := clearRoomRequest{
 		RequestType: clearRoomReqType,
-		RequestID:   newV4UUID(),
+		RequestID:   uuid.NewString(),
 		Room:        room,
 		UUID:        bc.uid,
 	}

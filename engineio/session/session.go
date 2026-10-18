@@ -57,20 +57,6 @@ type Session struct {
 	deadline atomic.Int64               // UnixNano of the liveness deadline of conn
 }
 
-// The reasons of the "engineio: session close" record.
-const (
-	reasonTransportClose = string(ReasonTransportClose)
-	reasonPingTimeout    = string(ReasonPingTimeout)
-	reasonTransportError = string(ReasonTransportError)
-	reasonForcedClose    = string(ReasonForcedClose)
-	reasonShutdown       = string(ReasonServerShutdown)
-)
-
-type closeCause struct {
-	reason string
-	err    error // set for reasonTransportError only
-}
-
 // New creates a session over conn. log receives errors the session cannot
 // return to a caller, with sid and transport attributes added; the transport
 // attribute follows upgrades. nil means logger.Log.
@@ -150,124 +136,6 @@ func (s *Session) Transport() string {
 	defer s.upgradeLocker.RUnlock()
 
 	return s.transport
-}
-
-// Close starts an orderly polling close after accepted writes. It returns while
-// waiting for a poll; the transport remains closing for at most 30 seconds.
-// Other transports and failed sessions close immediately. The first cause wins.
-func (s *Session) Close() error {
-	return s.close(reasonForcedClose)
-}
-
-// Abort closes the transport immediately, interrupting an orderly Close already
-// waiting for a polling request. It preserves the first close cause.
-func (s *Session) Abort() error { return s.closeMode(reasonForcedClose, true) }
-
-// Shutdown closes the transport immediately for server shutdown. It interrupts
-// an orderly Close and preserves a previously observed close cause.
-func (s *Session) Shutdown() error { return s.closeMode(reasonShutdown, true) }
-
-func (s *Session) close(reason string) error {
-	return s.closeMode(reason, false)
-}
-
-func (s *Session) closeMode(reason string, abort bool) error {
-	s.observe(reason, nil)
-	s.upgradeLocker.Lock()
-	first, opened := !s.closed, s.opened
-	s.closed = true
-	conn, probe := s.conn, s.probe
-	if first {
-		close(s.stopWrites)
-	}
-	s.upgradeLocker.Unlock()
-	c := s.cause.Load()
-	graceful, canDrain := conn.(interface{ CloseGracefully() error })
-	orderly := canDrain && !opened.IsZero() && c.reason == reasonForcedClose && !abort
-	if !first {
-		if abort {
-			// Abort interrupts an established orderly wait, but cannot pass
-			// the first closer's synchronous error notification.
-			<-s.notified
-			s.closeTransport(conn)
-		} else if orderly {
-			return nil
-		}
-		<-s.closeDone
-		return s.closeErr
-	}
-	if c.reason == reasonTransportError && s.hooks != nil && s.hooks.Error != nil {
-		s.hooks.Error(s, c.err)
-	}
-	close(s.notified)
-	if !opened.IsZero() {
-		args := []any{"reason", c.reason, slog.Duration("duration", time.Since(opened))}
-		if c.err != nil {
-			args = append(args, "err", c.err)
-		}
-		s.logger().Debug("engineio: session close", args...)
-	}
-	if probe != nil {
-		_ = probe.Close()
-	}
-	if orderly {
-		go func() {
-			defer close(s.closeDone)
-			timer := time.AfterFunc(s.closeTimeout, func() { s.closeTransport(conn) })
-			defer timer.Stop()
-			select {
-			case <-s.transportDone:
-			case <-s.writeGate:
-				// The token orders CLOSE after an already admitted frame. An
-				// abort or the timer also releases a blocked transport writer.
-				if err := graceful.CloseGracefully(); err != nil {
-					s.logger().Debug("engineio: orderly close ended", "err", err)
-				}
-				s.writeGate <- struct{}{}
-			}
-			s.closeTransport(conn)
-		}()
-		return nil
-	}
-	s.closeTransport(conn)
-	close(s.closeDone)
-	return s.closeErr
-}
-
-func (s *Session) closeTransport(conn transport.Conn) {
-	s.transportOnce.Do(func() {
-		s.closeErr = conn.Close()
-		s.upgradeLocker.Lock()
-		s.transportClosed = true
-		s.upgradeLocker.Unlock()
-		close(s.transportDone)
-	})
-}
-
-// observe records reason as the close cause unless one was observed before.
-func (s *Session) observe(reason string, err error) {
-	s.cause.CompareAndSwap(nil, &closeCause{reason, err})
-}
-
-// fail observes a non-nil err of a transport read or write as "ping timeout" once the
-// PingTimeout deadline has passed, as "transport error" before, and returns it.
-func (s *Session) fail(err error) error {
-	if err != nil && time.Now().UnixNano() >= s.deadline.Load() {
-		s.observe(reasonPingTimeout, nil)
-	} else if err != nil {
-		s.observe(reasonTransportError, err)
-	}
-	if err != nil {
-		if _, synthetic := err.(*CloseError); !synthetic {
-			s.upgradeLocker.RLock()
-			conn, closed := s.conn, s.closed
-			s.upgradeLocker.RUnlock()
-			if closed && s.cause.Load().reason == reasonForcedClose {
-				s.closeTransport(conn)
-			}
-		}
-	}
-	return err
 }
 
 // frameReader and frameWriter observe the failures of a frame; io.EOF ends a frame.
@@ -437,11 +305,6 @@ func (s *Session) NextWriterCompress(typ FrameType, compress bool) (io.WriteClos
 	}
 	s.writers.Add(1)
 	return &frameWriter{WriteCloser: w, s: s}, nil
-}
-
-func (s *Session) Upgrade(transport string, conn transport.Conn) {
-	started := time.Now()
-	go s.upgradingAt(transport, conn, started)
 }
 
 func (s *Session) InitSession() error {
@@ -622,185 +485,9 @@ func (s *Session) setDeadline() error {
 	return s.conn.SetWriteDeadline(deadline)
 }
 
-func (s *Session) upgrading(t string, conn transport.Conn) {
-	s.upgradingAt(t, conn, time.Now())
-}
-
-func (s *Session) upgradingAt(t string, conn transport.Conn, started time.Time) {
-	s.upgradeLocker.Lock()
-	if s.closed || s.probe != nil {
-		s.upgradeLocker.Unlock()
-		_ = conn.Close()
-		return
-	}
-	old := s.conn
-	s.probe = conn
-	s.upgradeLocker.Unlock()
-	defer func() {
-		s.upgradeLocker.Lock()
-		s.probe = nil
-		s.upgradeLocker.Unlock()
-	}()
-	if c, ok := conn.(interface{ SetReadLimit(int64) }); ok {
-		c.SetReadLimit(s.maxMessageSize)
-	}
-
-	// Closing the candidate also bounds transports whose deadline methods do not
-	// interrupt a pending operation. The mutex orders expiry against the switch.
-	var state sync.Mutex
-	expired, switched := false, false
-	deadline := started.Add(s.upgradeTimeout)
-	timer := time.AfterFunc(time.Until(deadline), func() {
-		state.Lock()
-		defer state.Unlock()
-		expired = true
-		_ = conn.Close()
-	})
-	defer timer.Stop()
-	defer func() {
-		if !switched {
-			_ = conn.Close()
-		}
-	}()
-	if err := conn.SetReadDeadline(deadline); err != nil {
-		return
-	}
-	if err := conn.SetWriteDeadline(deadline); err != nil {
-		return
-	}
-	ft, pt, r, err := conn.NextReader()
-	if err != nil {
-		return
-	}
-	if pt != packet.PING {
-		_ = r.Close()
-		return
-	}
-	w, err := conn.NextWriter(ft, packet.PONG)
-	if err != nil {
-		_ = r.Close()
-		return
-	}
-	_, copyErr := io.Copy(w, r)
-	readErr := r.Close()
-	writeErr := w.Close()
-	if copyErr != nil || readErr != nil || writeErr != nil {
-		return
-	}
-	if s.hooks != nil && s.hooks.Upgrading != nil {
-		s.hooks.Upgrading(s, t)
-	}
-	p, ok := old.(Pauser)
-	if !ok {
-		return
-	}
-
-	// Polling remains writable throughout the probe. A tick answers only a poll
-	// currently waiting for a session writer, so an idle client cannot spin.
-	stopChecks := make(chan struct{})
-	checksDone := make(chan struct{})
-	if poll, ok := old.(interface{ AnswerPoll() bool }); ok {
-		go func() {
-			defer close(checksDone)
-			ticker := time.NewTicker(100 * time.Millisecond)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-stopChecks:
-					return
-				case <-ticker.C:
-					poll.AnswerPoll()
-				}
-			}
-		}()
-	} else {
-		close(checksDone)
-	}
-	stopPollChecks := sync.OnceFunc(func() { close(stopChecks); <-checksDone })
-	defer stopPollChecks()
-
-	_, pt, r, err = conn.NextReader()
-	if err != nil {
-		return
-	}
-	readErr = r.Close()
-	if pt != packet.UPGRADE || readErr != nil {
-		return
-	}
-
-	// The timeout ends when UPGRADE is read. Waiting for an in-flight POST
-	// afterwards must not let its timer close the newly selected websocket.
-	state.Lock()
-	if expired || !timer.Stop() {
-		state.Unlock()
-		return
-	}
-	state.Unlock()
-	stopPollChecks()
-	// Pause only after UPGRADE, waiting for any in-flight POST to finish.
-	p.Pause()
-	if !s.switchTransport(t, conn) {
-		p.Resume()
-		return
-	}
-	switched = true
-	if s.hooks != nil && s.hooks.Upgrade != nil {
-		s.hooks.Upgrade(s, t)
-	}
-	if err := s.setDeadline(); err != nil {
-		s.observe(reasonTransportError, err)
-		_ = s.Close()
-	}
-	if err := old.Close(); err != nil {
-		s.logger().Debug("engineio: close connection failed", "err", err)
-	}
-}
-
 // logger returns the session logger; its transport attribute follows upgrades.
 func (s *Session) logger() *slog.Logger {
 	return s.log.Load()
-}
-
-// switchTransport makes conn, on transport t, the session's connection and
-// updates the logger's transport attribute. If the session has been closed,
-// conn is closed instead and switchTransport reports false.
-func (s *Session) switchTransport(t string, conn transport.Conn) bool {
-	s.upgradeLocker.Lock()
-	if s.closed {
-		s.upgradeLocker.Unlock()
-		if err := conn.Close(); err != nil {
-			s.logger().Debug("engineio: close connection failed", "err", err)
-		}
-		return false
-	}
-	s.conn = conn
-	s.transport = t
-	s.upgraded = true
-	s.log.Store(s.baseLog.With("transport", t))
-	s.upgradeLocker.Unlock()
-	return true
-}
-
-// replaced reports whether conn is no longer the session's connection
-// because an upgrade switched to another one. It is false once the session
-// is closed, so a closed session's operations fail instead of moving on.
-func (s *Session) replaced(conn transport.Conn) bool {
-	s.upgradeLocker.RLock()
-	defer s.upgradeLocker.RUnlock()
-	return !s.closed && s.conn != conn
-}
-
-// closeError returns the immutable first cause; close records it before publishing closed.
-func (s *Session) closeError() *CloseError {
-	c := s.cause.Load()
-	if c == nil {
-		return &CloseError{Reason: ReasonForcedClose}
-	}
-	err := c.err
-	if c.reason == reasonTransportClose {
-		err = io.EOF
-	}
-	return &CloseError{Reason: CloseReason(c.reason), Err: err}
 }
 
 // Writable reports whether an open session can take a frame now. It is false
@@ -816,4 +503,27 @@ func (s *Session) Writable() bool {
 		return c.Writable()
 	}
 	return true
+}
+
+// ReadyState returns the current session state.
+func (s *Session) ReadyState() ReadyState {
+	s.upgradeLocker.RLock()
+	defer s.upgradeLocker.RUnlock()
+	switch {
+	case s.transportClosed:
+		return StateClosed
+	case s.closed || s.cause.Load() != nil:
+		return StateClosing
+	case s.opened.IsZero():
+		return StateOpening
+	default:
+		return StateOpen
+	}
+}
+
+// Upgraded reports whether the session completed a transport upgrade.
+func (s *Session) Upgraded() bool {
+	s.upgradeLocker.RLock()
+	defer s.upgradeLocker.RUnlock()
+	return s.upgraded
 }

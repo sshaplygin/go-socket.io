@@ -113,13 +113,6 @@ func New(addr string, opts *Options) (*Client, error) {
 	return c, nil
 }
 
-func fmtNS(ns string) string {
-	if ns == aliasRootNamespace {
-		return rootNamespace
-	}
-	return ns
-}
-
 // Connect returns once Engine.IO is open and namespace CONNECT packets are queued.
 // A failed or timed-out attempt can be retried; late dial results are closed.
 func (c *Client) Connect() error { return c.state.connect(c) }

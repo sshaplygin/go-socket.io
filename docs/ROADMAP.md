@@ -378,7 +378,7 @@ Each subsequent review finding has its own commit. The two commits squash togeth
 merge under the normal PR rule. Allowed paths are root `*.go`, `client/`, `engineio/`,
 `internal/engineclose/` (deletion only), `.github/sync-manifest`, `CLAUDE.md`, root
 `CHANGELOG.md`, this rework section and the current bridge/closure descriptions that it
-supersedes below. `docs/PARITY.md` may update evidence filenames for moves only: no row,
+supersedes below. `docs/PARITY.md` may update evidence source locations for moves only: no row,
 status, marker or plan entry is removed. `_examples/`, other `.github/` files, module
 manifests, `v2/`, `README.md` and unrelated roadmap sections are outside this follow-up.
 

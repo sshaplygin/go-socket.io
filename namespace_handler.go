@@ -46,16 +46,25 @@ func newNamespaceHandler(nsp string, adapterOpts *RedisAdapterOptions) *namespac
 // created: it keeps no rooms and sends nothing.
 type nopBroadcast struct{}
 
-func (nopBroadcast) Join(string, Conn)                   {}
-func (nopBroadcast) Leave(string, Conn)                  {}
-func (nopBroadcast) LeaveAll(Conn)                       {}
-func (nopBroadcast) Clear(string)                        {}
+func (nopBroadcast) Join(string, Conn) {}
+
+func (nopBroadcast) Leave(string, Conn) {}
+
+func (nopBroadcast) LeaveAll(Conn) {}
+
+func (nopBroadcast) Clear(string) {}
+
 func (nopBroadcast) Send(string, string, ...interface{}) {}
-func (nopBroadcast) SendAll(string, ...interface{})      {}
-func (nopBroadcast) ForEach(string, EachFunc)            {}
-func (nopBroadcast) Len(string) int                      { return -1 }
-func (nopBroadcast) Rooms(Conn) []string                 { return nil }
-func (nopBroadcast) AllRooms() []string                  { return nil }
+
+func (nopBroadcast) SendAll(string, ...interface{}) {}
+
+func (nopBroadcast) ForEach(string, EachFunc) {}
+
+func (nopBroadcast) Len(string) int { return -1 }
+
+func (nopBroadcast) Rooms(Conn) []string { return nil }
+
+func (nopBroadcast) AllRooms() []string { return nil }
 
 func (nh *namespaceHandler) OnConnect(f func(Conn) error) {
 	nh.eventsLock.Lock()
@@ -246,7 +255,8 @@ func (nh *namespaceHandler) removeSocket(c Conn) {
 }
 
 func (nopBroadcast) SendTo(BroadcastOptions, string, ...interface{}) error { return nil }
-func (nopBroadcast) IDs(...string) []string                                { return nil }
+
+func (nopBroadcast) IDs(...string) []string { return nil }
 
 func (nh *namespaceHandler) copyRegistrations(child *namespaceHandler) {
 	nh.eventsLock.RLock()
@@ -259,5 +269,41 @@ func (nh *namespaceHandler) copyRegistrations(child *namespaceHandler) {
 			copied = append(copied, &eventListener{handler: listener.handler, once: listener.once})
 		}
 		child.events[event] = copied
+	}
+}
+
+type namespaceHandlers struct {
+	handlers map[string]*namespaceHandler
+	mu       sync.RWMutex
+}
+
+func newNamespaceHandlers() *namespaceHandlers {
+	return &namespaceHandlers{
+		handlers: make(map[string]*namespaceHandler),
+	}
+}
+
+func (h *namespaceHandlers) Set(namespace string, handler *namespaceHandler) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.handlers[namespace] = handler
+}
+
+func (h *namespaceHandlers) Get(nsp string) (*namespaceHandler, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	handler, ok := h.handlers[nsp]
+	return handler, ok
+}
+
+// Range calls f for every handler; f must not register handlers.
+func (h *namespaceHandlers) Range(f func(handler *namespaceHandler)) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for _, handler := range h.handlers {
+		f(handler)
 	}
 }

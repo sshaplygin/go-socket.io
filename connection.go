@@ -12,7 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/parser"
@@ -39,15 +38,6 @@ func newConnLimits(opts *engineio.Options) connLimits {
 	}
 	return l
 }
-
-// AckFunc acknowledges an incoming event once, including after its handler returns.
-type AckFunc = client.AckFunc
-
-// Handshake describes the original engine handshake and namespace query.
-type Handshake = client.Handshake
-
-// Conn is the shared server and client connection type.
-type Conn = client.Conn
 
 type conn struct {
 	engineio.Conn
@@ -642,6 +632,7 @@ func (c *conn) EngineConn() engineio.Conn {
 	}
 	return nil
 }
+
 func (c *conn) Request() *http.Request {
 	if c.boundary {
 		return c.request

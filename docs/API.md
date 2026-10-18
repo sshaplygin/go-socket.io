@@ -245,9 +245,10 @@ method or struct field of the frozen files; type parameter constraints and unexp
 declarations are not examined, and `TestAnyUsesDetects` pins the shapes it catches) and the compile fixtures
 (`go test -run TestCompileContracts .`) with the inventory check. CI runs `make graph`
 and `make freeze` in the `lint-v2` job and `make fixtures` (the fixtures and the inventory check)
-in the `gates-v2` job, both for every change that reaches these gates, and the fixtures in every
-`go test` of `v2/` that selects the root package (every package on a push to master), including
-`min-go-v2` on Go 1.22 with `GOTOOLCHAIN=local`.
+in the `gates-v2` job, both for every change that reaches these gates without selecting the
+root package for testing, and all of them as tests of the root package in every `go test` of
+`v2/` that selects it (every package on a push to master), including `min-go-v2` on Go 1.22
+with `GOTOOLCHAIN=local`.
 
 ## Package graph
 

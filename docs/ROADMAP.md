@@ -5195,9 +5195,9 @@ positive fixtures and the negative fixtures with their recorded diagnostics, and
 API.md lists every exported declaration with its declared result types. CI runs `make
 graph` and `make freeze` in the `lint` job and the fixtures in `go test ./...`, so `min-go`
 runs them on Go 1.22 with `GOTOOLCHAIN=local`. (Later note: since PR #137 this holds for a
-push to master; a pull request runs them when the change classifier sets `gates_v2`, the
-fixtures also in `make fixtures` of `gates-v2`, and on Go 1.22 when it selects the v2 root
-package; see docs/API.md.)
+push to master; a pull request runs them as tests of the v2 root package, Go 1.22 included,
+when it selects that package, and otherwise in `lint-v2` and `make fixtures` of `gates-v2`
+when the change classifier sets `gates_v2`; see docs/API.md.)
 
 ### 2.1 Engine.IO v4 and gobwas/ws
 

@@ -143,7 +143,11 @@ jobs:
         run: make sync-check
 
   # The component graph reads only the imports of the root module, so it runs in lint-v1
-  # with the packages a code change selects, not here.
+  # with the packages a code change selects, not here. The classifier sets gates_v1 only
+  # when a gate input changes and no package is selected: when one is, make cover-check of
+  # lint-v1 tests every package of the module, internal/parity included (without -race:
+  # the parity tests read files and run go subprocesses, and a full run tests the package
+  # under -race in test-v1). On push and schedule every job runs.
   gates-v1:
     name: Gates v1 (parity)
     needs: changes
@@ -159,6 +163,9 @@ jobs:
       - name: Parity, termination and role gates
         run: make gates
 
+  # The v2 gates are tests of the v2 root package. The classifier sets gates_v2 only when a
+  # gate input changes and the root package is not selected: when it is, test-v2 and
+  # min-go-v2 run these tests. On push and schedule every job runs.
   gates-v2:
     name: Gates v2 (compile fixtures, inventory)
     needs: changes
@@ -208,7 +215,10 @@ jobs:
         run: make vet
       # These two steps run tests. A pull request that changes only Go comments or
       # formatting runs lint-v1 without packages to test (v1_packages is empty) and skips
-      # them; Covers markers start gates-v1 instead.
+      # them; Covers markers start gates-v1 instead. make cover-check tests every package
+      # of the module, internal/parity included, so gates-v1 is not started when packages
+      # are selected; make parity-check runs TestParityCovers alone first, so that a
+      # parity failure is reported under its own name before the coverage run.
       - name: Component graph and negative fixtures
         if: needs.changes.outputs.v1_packages != ''
         run: make architecture-check
@@ -261,7 +271,8 @@ jobs:
       - name: Vet
         run: make vet
       # The v2 gates of make g2 that lint has always run; skipped, with gates-v2, for a
-      # change of comments or formatting outside the frozen files.
+      # change of comments or formatting outside the frozen files and for a change that
+      # selects the v2 root package, whose tests test-v2 and min-go-v2 then run.
       - name: Package graph
         if: needs.changes.outputs.gates_v2 == 'true'
         run: make graph

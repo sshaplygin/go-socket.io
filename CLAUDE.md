@@ -243,9 +243,17 @@ graph fixtures and checker, so conditional production imports obey the same poli
 mod verify, gofmt, `make vet`, `make graph freeze` when `gates_v2` is set, golangci-lint and
 `make vuln`), `test-v2`, `min-go-v2`, `examples-v2` (`make examples`, the identical-copy
 check only) and `experiments-v2` (`make experiments`; installs golangci-lint with
-`go install`). One check runs twice when both jobs run: `TestParityCovers`, in
-`make parity-check` of `lint-v1` (the step the V1-20 record of `docs/ROADMAP.md` names) and
-in `make gates`; it is a single test. Validate the classifier with
+`go install`). The gate jobs run only when no test job runs the gate tests: `gates-v1`
+when a gate input changes and no v1 package is selected, because `make cover-check` of
+`lint-v1` (`go test -coverpkg=./... ./...`, without `-race`; the parity tests read files
+and run `go` subprocesses) tests every package of the module, `internal/parity` included,
+whenever one is; `gates-v2` and the `make graph freeze` steps of `lint-v2` when a gate
+input changes and the v2 root package is not selected, because the v2 gates are tests of
+that package, which `test-v2` and `min-go-v2` then run. On a pull request one gate test
+runs twice: `TestParityCovers`, in `make parity-check` of `lint-v1` (the step the V1-20
+record of `docs/ROADMAP.md` names, which reports a parity failure under its own name before
+the coverage run) and again inside `make cover-check`. A full run starts every job, so the
+gate tests then also run in the test matrix. Validate the classifier with
 `go test ./.github/changes`. Dependabot groups Go minor/patch updates of every
 module (`/`, `/v2`, `/_examples/*`, `/v2/_examples/*`, `/v2/_experiments/*`) and Actions
 updates weekly.

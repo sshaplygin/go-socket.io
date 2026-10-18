@@ -490,6 +490,18 @@ func (d *decision) result(mod, root string) (result, error) {
 		r.run = true
 		r.packages = patterns(run)
 	}
+	// The gate job runs only when no test job runs the gate tests. v1: make cover-check of
+	// lint-v1 tests every package of the module, internal/parity included, whenever a
+	// package is selected. v2: the gates are tests of the root package, which test-v2 and
+	// min-go-v2 run when it is selected. A full run starts every job.
+	if !m.full && m.gates {
+		switch mod {
+		case v1:
+			r.gates = len(run) == 0
+		case v2:
+			r.gates = run[g.module] == nil
+		}
+	}
 	if m.benchFull {
 		return r, nil
 	}

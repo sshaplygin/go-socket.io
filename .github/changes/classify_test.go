@@ -128,15 +128,17 @@ func TestClassify(t *testing.T) {
 		{name: "formatting only", edit: map[string]string{
 			"parser/parser.go": "package parser\n// Parse parses.\nfunc Parse(s string)int{\n\treturn len( s )\n\n}\n",
 		}, want: lintV1},
+		// gates_v1 stays false when packages are selected: make cover-check of lint-v1 then
+		// tests every package, internal/parity included.
 		{name: "function body of a leaf package", edit: map[string]string{
 			"adapter/adapter.go": "package adapter\n\nfunc Broadcast() int { return 2 }\n",
 		}, want: with(map[string]string{
-			"v1": "true", "v1_packages": "./adapter", "gates_v1": "true", "examples_v1": "true", "conformance": "true",
+			"v1": "true", "v1_packages": "./adapter", "examples_v1": "true", "conformance": "true",
 		})},
 		{name: "package imported by the server root", edit: map[string]string{
 			"parser/parser.go": "package parser\n\n// Parse parses.\nfunc Parse(s string) int {\n\treturn len(s) + 1\n}\n",
 		}, want: with(map[string]string{
-			"v1": "true", "v1_packages": ". ./engineio ./parser", "gates_v1": "true", "examples_v1": "true",
+			"v1": "true", "v1_packages": ". ./engineio ./parser", "examples_v1": "true",
 			"conformance": "true", "bench_v1": "./parser", "changed": "true",
 		})},
 		// Comments that linters read run lint only.
@@ -162,13 +164,13 @@ func TestClassify(t *testing.T) {
 		{name: "compiler directive", edit: map[string]string{
 			"parser/parser.go": "package parser\n\n// Parse parses.\n//\n//go:noinline\nfunc Parse(s string) int {\n\treturn len(s)\n}\n",
 		}, want: with(map[string]string{
-			"v1": "true", "v1_packages": ". ./engineio ./parser", "gates_v1": "true", "examples_v1": "true",
+			"v1": "true", "v1_packages": ". ./engineio ./parser", "examples_v1": "true",
 			"conformance": "true", "bench_v1": "./parser", "changed": "true",
 		})},
 		{name: "line directive", edit: map[string]string{
 			"adapter/adapter.go": "package adapter\n\n//line broadcast.go:10\nfunc Broadcast() int { return 1 }\n",
 		}, want: with(map[string]string{
-			"v1": "true", "v1_packages": "./adapter", "gates_v1": "true", "examples_v1": "true", "conformance": "true",
+			"v1": "true", "v1_packages": "./adapter", "examples_v1": "true", "conformance": "true",
 		})},
 		{name: "legacy build constraint", edit: map[string]string{
 			"adapter/adapter.go": "// +build linux\n\npackage adapter\n\nfunc Broadcast() int { return 1 }\n",
@@ -176,22 +178,22 @@ func TestClassify(t *testing.T) {
 		{name: "server root", edit: map[string]string{
 			"server.go": "package m\n\nimport \"example.com/m/engineio\"\n\nfunc Serve() int { return engineio.Open() + 1 }\n",
 		}, want: with(map[string]string{
-			"v1": "true", "v1_packages": ".", "gates_v1": "true", "examples_v1": "true", "conformance": "true",
+			"v1": "true", "v1_packages": ".", "examples_v1": "true", "conformance": "true",
 		})},
 		{name: "test that no benchmark reaches", edit: map[string]string{
 			"parser/parser_test.go": "package parser\n\nimport \"testing\"\n\nfunc TestParse(t *testing.T) {\n\tif Parse(\"abc\") != 3 {\n\t\tt.Fatal(\"len\")\n\t}\n}\n",
-		}, want: with(map[string]string{"v1": "true", "v1_packages": "./parser", "gates_v1": "true"})},
+		}, want: with(map[string]string{"v1": "true", "v1_packages": "./parser"})},
 		{name: "helper that a benchmark reaches", edit: map[string]string{
 			"parser/helper_test.go": "package parser\n\nfunc input() string { return \"abcd\" }\n",
 		}, want: with(map[string]string{
-			"v1": "true", "v1_packages": "./parser", "gates_v1": "true", "bench_v1": "./parser", "changed": "true",
+			"v1": "true", "v1_packages": "./parser", "bench_v1": "./parser", "changed": "true",
 		})},
 		{name: "expected output of an example", edit: map[string]string{
 			"adapter/example_test.go": "package adapter\n\nimport \"fmt\"\n\nfunc Example() {\n\tfmt.Println(\"hello\")\n\t// Output:\n\t// goodbye\n}\n",
-		}, want: with(map[string]string{"v1": "true", "v1_packages": "./adapter", "gates_v1": "true"})},
+		}, want: with(map[string]string{"v1": "true", "v1_packages": "./adapter"})},
 		{name: "unordered output of an example", edit: map[string]string{
 			"adapter/example_test.go": "package adapter\n\nimport \"fmt\"\n\nfunc Example() {\n\tfmt.Println(\"hello\")\n\t// Unordered output:\n\t// hello\n}\n",
-		}, want: with(map[string]string{"v1": "true", "v1_packages": "./adapter", "gates_v1": "true"})},
+		}, want: with(map[string]string{"v1": "true", "v1_packages": "./adapter"})},
 		{name: "comment before an example", edit: map[string]string{
 			"adapter/example_test.go": "package adapter\n\nimport \"fmt\"\n\n// Example prints a greeting.\nfunc Example() {\n\tfmt.Println(\"hello\")\n\t// Output:\n\t// hello\n}\n",
 		}, want: lintV1},
@@ -258,12 +260,12 @@ func TestClassify(t *testing.T) {
 			want: merge(fullV1, map[string]string{"bench_v1": "./...", "changed": "true"})},
 		{name: "deleted file of a package", edit: map[string]string{"engineio/errors.go": deleted, "v2/engineio/errors.go": deleted, ".github/sync-manifest": "\n"},
 			want: with(map[string]string{
-				"v1": "true", "v1_packages": ". ./engineio", "gates_v1": "true", "examples_v1": "true", "conformance": "true",
-				"v2": "true", "v2_packages": ". ./engineio", "gates_v2": "true", "sync": "true",
+				"v1": "true", "v1_packages": ". ./engineio", "examples_v1": "true", "conformance": "true",
+				"v2": "true", "v2_packages": ". ./engineio", "sync": "true",
 			})},
 		{name: "renamed file", moves: [][2]string{{"adapter/adapter.go", "adapter/broadcast.go"}},
 			want: with(map[string]string{
-				"v1": "true", "v1_packages": "./adapter", "gates_v1": "true", "examples_v1": "true", "conformance": "true",
+				"v1": "true", "v1_packages": "./adapter", "examples_v1": "true", "conformance": "true",
 			})},
 		{name: "comment in a shared file", edit: map[string]string{
 			"engineio/errors.go": "package engineio\n\n// ErrX is shared.\nvar ErrX = 1\n",
@@ -290,17 +292,19 @@ func TestClassify(t *testing.T) {
 			want: merge(fullV2)},
 		{name: "assembly source", edit: map[string]string{"parser/parse_amd64.s": "#include \"textflag.h\"\n"},
 			want: with(map[string]string{
-				"v1": "true", "v1_packages": ". ./engineio ./parser", "gates_v1": "true", "examples_v1": "true",
+				"v1": "true", "v1_packages": ". ./engineio ./parser", "examples_v1": "true",
 				"conformance": "true", "bench_v1": "./parser", "changed": "true",
 			})},
 		{name: "C source", edit: map[string]string{"adapter/native.c": "int answer(void) { return 42; }\n"},
 			want: with(map[string]string{
-				"v1": "true", "v1_packages": "./adapter", "gates_v1": "true", "examples_v1": "true", "conformance": "true",
+				"v1": "true", "v1_packages": "./adapter", "examples_v1": "true", "conformance": "true",
 			})},
 		{name: "dependabot", edit: map[string]string{".github/dependabot.yml": "version: 2\nupdates: []\n"}, want: none},
+		// gates_v2 is false when the root package is selected (test-v2 runs the gate tests)
+		// and true for a leaf package that the root does not import.
 		{name: "v2 package", edit: map[string]string{
 			"v2/engineio/conn.go": "package engineio\n\n// Conn is a connection.\ntype Conn struct{ ID, N int }\n",
-		}, want: with(map[string]string{"v2": "true", "v2_packages": ". ./engineio", "gates_v2": "true"})},
+		}, want: with(map[string]string{"v2": "true", "v2_packages": ". ./engineio"})},
 		{name: "v2 leaf package", edit: map[string]string{"v2/parser/parser.go": "package parser\n\nfunc Decode() { println() }\n"},
 			want: with(map[string]string{"v2": "true", "v2_packages": "./parser", "gates_v2": "true"})},
 		{name: "v2 frozen comment", edit: map[string]string{

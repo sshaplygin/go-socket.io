@@ -545,9 +545,12 @@ All steps may update their affected v1 consumers/tests in root, `client/`, `adap
 `parser/`, `engineio/`, `internal/`, `_examples/`, existing root module manifests and example
 module manifests (tidy only, no dependency upgrades), `.github/sync-manifest`, `Makefile`,
 `.github/workflows/ci.yaml`, `CLAUDE.md`, `README.md`, root `CHANGELOG.md`,
-`docs/V1_MIGRATION.md`, and the current owning descriptions/checks in this roadmap.
-`docs/PARITY.md` changes only source locations/test identities caused by moves: preserve
-all 137 rows, statuses, evidence vectors and `(Covers ID, side)` obligations. Graph tooling
+`docs/V1_MIGRATION.md`, v1 implementation references in `docs/PROTOCOL.md`, and the current
+owning descriptions/checks in this roadmap. `docs/PARITY.md` may update source locations,
+test identities, current API identifiers and configuration descriptions affected by the
+new component API: preserve all 137 rows, statuses, wire semantics, evidence vectors and
+`(Covers ID, side)` obligations. Old-to-new mappings belong only to the migration guide;
+PROTOCOL keeps protocol behavior and PARITY keeps current parity evidence. Graph tooling
 and its tests live in `.github/architecture/`, with a CI/Makefile target. No other v2 or
 unrelated stage/API contract is changed. Each implementation PR records its change in the
 changelog and migration guide; CLAUDE owns the final layout and the guide's ownership row.

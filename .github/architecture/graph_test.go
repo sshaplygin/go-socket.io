@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -262,37 +263,9 @@ func TestPolicyMatchesRoadmap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, table, found := strings.Cut(string(text), "| Package | Responsibility | May import |\n")
-	if !found {
-		t.Fatal("owning Component boundaries table missing")
-	}
-	quoted := regexp.MustCompile("`([^`]+)`")
-	documented := make(map[string][]string)
-	for _, line := range strings.Split(table, "\n")[1:] {
-		if !strings.HasPrefix(line, "|") {
-			break
-		}
-		cells := strings.Split(line, "|")
-		if len(cells) != 5 {
-			t.Fatalf("invalid component row: %s", line)
-		}
-		path := quoted.FindStringSubmatch(cells[1])
-		if len(path) != 2 {
-			t.Fatalf("component package missing: %s", line)
-		}
-		key := path[1]
-		if strings.HasPrefix(strings.TrimSpace(cells[1]), "root ") {
-			key = ""
-		}
-		dependencies := []string{}
-		for _, match := range quoted.FindAllStringSubmatch(cells[3], -1) {
-			dependencies = append(dependencies, match[1])
-		}
-		if strings.Contains(cells[3], "its polling/websocket implementations") {
-			dependencies = append(dependencies, "engineio/transport/polling", "engineio/transport/websocket")
-		}
-		slices.Sort(dependencies)
-		documented[key] = dependencies
+	documented, err := parsePolicyTable(string(text))
+	if err != nil {
+		t.Fatal(err)
 	}
 	if len(documented) != len(allowedImports) {
 		t.Fatalf("roadmap/policy component count differs: %d/%d", len(documented), len(allowedImports))
@@ -342,5 +315,77 @@ func TestRealGoListRejectsTransitiveExternalImport(t *testing.T) {
 	defer cancel()
 	if _, err := inspect(ctx, root); err == nil || !strings.Contains(err.Error(), "server reaches client/Redis: "+modulePath+" -> "+fullPath("client")) {
 		t.Fatalf("external module concealed transitive client dependency: %v", err)
+	}
+}
+
+func parsePolicyTable(text string) (map[string][]string, error) {
+	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
+	_, table, found := strings.Cut(text, "| Package | Responsibility | May import |\n")
+	if !found {
+		return nil, fmt.Errorf("owning Component boundaries table missing")
+	}
+	quoted := regexp.MustCompile("`([^`]+)`")
+	documented := make(map[string][]string)
+	for _, line := range strings.Split(table, "\n")[1:] {
+		if !strings.HasPrefix(line, "|") {
+			break
+		}
+		cells := strings.Split(line, "|")
+		if len(cells) != 5 {
+			return nil, fmt.Errorf("invalid component row: %s", line)
+		}
+		path := quoted.FindStringSubmatch(cells[1])
+		if len(path) != 2 {
+			return nil, fmt.Errorf("component package missing: %s", line)
+		}
+		key := path[1]
+		if strings.HasPrefix(strings.TrimSpace(cells[1]), "root ") {
+			key = ""
+		}
+		dependencies := []string{}
+		for _, match := range quoted.FindAllStringSubmatch(cells[3], -1) {
+			dependencies = append(dependencies, match[1])
+		}
+		if strings.Contains(cells[3], "its polling/websocket implementations") {
+			dependencies = append(dependencies, "engineio/transport/polling", "engineio/transport/websocket")
+		}
+		slices.Sort(dependencies)
+		documented[key] = dependencies
+	}
+
+	return documented, nil
+}
+
+func TestPolicyTableLineEndings(t *testing.T) {
+	raw, err := os.ReadFile("../../docs/ROADMAP.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical := strings.ReplaceAll(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\r", "\n")
+	want, err := parsePolicyTable(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mixed strings.Builder
+	lines := strings.Split(canonical, "\n")
+	for i, line := range lines {
+		mixed.WriteString(line)
+		if i+1 < len(lines) {
+			mixed.WriteString([]string{"\n", "\r\n", "\r"}[i%3])
+		}
+	}
+	for name, text := range map[string]string{
+		"LF": canonical, "CRLF": strings.ReplaceAll(canonical, "\n", "\r\n"),
+		"CR": strings.ReplaceAll(canonical, "\n", "\r"), "mixed": mixed.String(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := parsePolicyTable(text)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(want, got) {
+				t.Fatalf("line endings changed component policy: %v/%v", want, got)
+			}
+		})
 	}
 }

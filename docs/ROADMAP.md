@@ -510,13 +510,13 @@ API and ownership changes:
   A server-owned `engineio.Abort(Conn)` function dispatches to its private session for
   immediate close and calls ordinary `Close` on custom engines. Unrelated custom
   `Abort` methods must not change that fallback. Shutdown remains server-owned.
-- Socket.IO `client.New(addr, *client.Options)` is the client constructor; remove its
-  legacy `NewClient(addr, *engineio.Options)` and server options dependency. Client
-  queue size and drain timeout belong to client options. Root `socketio.Options` owns
-  server queue size, drain timeout and `Adapter adapter.Factory`, with engine options
-  nested as `Engine *engineio.Options`; `NewServer` accepts these root options. Default
-  queue/drain and wire heartbeat values stay unchanged. Migrate explicit old queue and
-  PingTimeout-as-drain settings to the corresponding role options.
+- Socket.IO client construction belongs to `client.New`, without the legacy
+  `NewClient` or a server-options dependency. C2/C3 introduced role-owned option
+  structs; C3a below replaces constructor configuration with functional options.
+  Root owns server queue/drain and the adapter factory; the client owns its queue/drain.
+  Engine.IO heartbeat remains separate. Default queue/drain and wire heartbeat values
+  stay unchanged. Migrate explicit old queue and PingTimeout-as-drain settings to the
+  corresponding role options.
 - `adapter.Adapter`, `adapter.Options`, `adapter.EachFunc` and
   `adapter.Factory func(namespace string) (Adapter, error)` replace root broadcast
   declarations. A minimal `adapter.Socket` exposes ID, Emit and flagged delivery without
@@ -531,6 +531,64 @@ API and ownership changes:
   Preserve the existing timing of factory application to future namespaces. Redis DB0,
   remote flags/Except and mixed-cluster limitations stay documented; this is not V1R.
 
+**Constructor and example lifecycle refinement (owner decision, 2026-10-18).**
+Defaults require no nil configuration argument: `socketio.NewServer()` and
+`engineio.NewServer()` create default servers; `client.New(addr)` creates a default
+client. Optional configuration uses each package's `Option` and targeted `With…`
+functions. `socketio.WithEngineOptions(...engineio.Option)` carries lower-layer
+configuration, `WithWriteBufferSize` and `WithCloseTimeout` belong to each Socket.IO
+role, and C4 supplies `socketio.WithAdapter(adapter.Factory)`. `WithLogger` configures
+the owning role; root `WithLogger` also supplies the underlying engine's logger.
+Explicit engine logger options may override only that lower layer in option order.
+Preserve every existing optional setting and its zero/negative/default semantics;
+provide a targeted option for each setting, with godoc explaining positive enabled
+booleans where old configuration used `Disable…`. Apply options in call order so the
+last setting wins. Constructors retain private configuration types rather than exported
+option bags or a `WithOptions` compatibility escape hatch. Reusing an option across
+instances must not share mutable per-instance configuration. Preserve existing
+copy/ownership rules for headers, queries, cookies and built-in transports.
+
+The same rule covers the other public constructors with optional configuration:
+`transport.NewManager(...transport.Option)` selects an empty registry by default and
+`transport.WithTransports` sets its ordered transports;
+`parser.NewPayloadEncoder(writer, ...parser.PayloadEncoderOption)` defaults to binary
+support, with `WithBinarySupport(bool)` preserving each transport's explicit negotiation;
+C4's `redis.New(...redis.Option)` returns its namespace factory without a nil options
+argument. Required input data and I/O dependencies remain positional: client addresses,
+codec readers/writers and fake-reader frames are not optional configuration. Constructors
+that have no configuration gain no empty option machinery. Engine.IO dialer fields are
+an existing connection configuration API, not a constructor, and remain outside C3a.
+All supported operations, error propagation and wire behavior remain unchanged.
+
+C3a migrates every v1 call site, test, example and current owning API/check description.
+The migration guide owns old field-to-With mappings and default/configured examples;
+historical API snapshots remain identified as such. Consumer fixtures exercise default
+constructors, configured role/lower-layer constructors, ordered overrides and independent
+instances. Runtime regressions retain heartbeat, queue/drain, headers, transport order,
+compression, hooks, ACK and reconnect semantics. API coverage remains zero uncovered;
+new With functions are exercised through observable configured behavior.
+
+Library and example execution must not terminate the process with `Fatal`, `Fatalf`,
+`Fatalln` or explicit exit calls. Example helpers return errors; `main` may log an error
+and return after cleanup. Supervised goroutines report terminal errors to their owner,
+which stops HTTP/Engine.IO/Socket.IO work and releases resources; a failed individual
+connection ends that connection only. Preserve orderly shutdown and the existing
+example wire flows. Test `testing.T.Fatal` calls and tooling CLI exit codes are outside
+this rule. C3b adds a portable source gate for the v1 library and examples, including
+`engineio/_examples`, and builds that Engine.IO example explicitly because `./...`
+excludes underscore directories. Verify cleanup when an example's listener or serving
+goroutine fails, alongside the existing default-http race test and both pinned Node
+example runs. Do not replace Fatal with a log that leaves its owning services running.
+
+The owner's additional request to group files with repeated prefixes requires a
+responsibility inventory, covering session, connection, namespace, packet and payload
+groups. Internal component packages are the working default; public components still
+follow the diagram. Before their implementation, record the concrete owners, allowed
+edges, API/type ownership and test moves in this section and validate that amendment
+with the three reviewers. This constructor/lifecycle amendment does not approve an
+unspecified package graph. C5 cannot start until that structural amendment and its
+implementation have merged; no acceptance is inferred from C1–C3b.
+
 Implementation PRs are sequential, each based on the preceding merged `master`.
 C2 and C3 are delivered in one atomic PR: the existing root/client aliases couple
 Socket.IO `EngineConn` signatures to one Engine.IO role, so independent Engine.IO
@@ -542,6 +600,8 @@ a buildable head throughout the series without an interim compatibility bridge.
 | C1 | Shared Engine.IO codecs, OPEN types and polling ownership; fold transport utilities; remove old frame/packet/payload/utils paths and update all v1 consumers. Parser vector tests and polling lifecycle regressions pass. |
 | C2 (with C3) | Fold server session into `engineio`; move dialer/client into `engineio/client`; update Socket.IO client to its own options/Engine.IO client. Remove server dependencies from production client imports. Close/header/upgrade/OPEN regressions pass. |
 | C3 (with C2) | Split Socket.IO role contracts; remove deprecated root client and aliases; make Socket.IO parser independent; introduce root server options. Handler type validation and separate server/client consumer fixtures pass. |
+| C3a | Functional options for public constructors with optional configuration; migrate all v1 consumers and owning API checks. Default/configured/ordered/independent-instance consumer and runtime checks pass. |
+| C3b | Remove process-terminating calls from library/examples and supervise example lifecycles. Source gate, explicit Engine.IO example build and failure-cleanup checks pass. |
 | C4 | Extract adapter and Redis; root uses generic adapter factory and optional close contract. Memory/Redis regressions and factory/shutdown tests pass, with root free of Redis dependencies. |
 | C5 | Final import-graph gate, complete migration guide and acceptance evidence. All final graph edges/package removals hold, examples and migration consumers compile, full MV1 acceptance is repeated. |
 

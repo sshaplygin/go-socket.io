@@ -195,8 +195,10 @@ jobs:
         run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
       - name: Vet
         run: go vet ./... ./.github/architecture ./.github/changes
-      - name: API coverage ratchets
-        run: make cover-check
+      - name: Component graph and negative fixtures
+        run: make architecture-check
+      - name: Parity markers and API coverage ratchets
+        run: make parity-check cover-check
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
@@ -241,6 +243,10 @@ jobs:
         run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
       - name: Vet
         run: go vet ./...
+      - name: Package graph
+        run: make graph
+      - name: Frozen contract
+        run: make freeze
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:

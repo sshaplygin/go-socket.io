@@ -244,7 +244,8 @@ the frozen declarations, no bare `any` in an exported function, method, func typ
 method or struct field of the frozen files; type parameter constraints and unexported
 declarations are not examined, and `TestAnyUsesDetects` pins the shapes it catches) and the compile fixtures
 (`go test -run TestCompileContracts .`) with the inventory check. CI runs `make graph`
-and `make freeze` in the `lint-v2` job and the fixtures in every `go test ./...` of `v2/`, including
+and `make freeze` in the `lint-v2` job, `make g2` in the `gates-v2` job, and the fixtures in every
+`go test` of `v2/` that selects the root package (every package on a push to master), including
 `min-go-v2` on Go 1.22 with `GOTOOLCHAIN=local`.
 
 ## Package graph

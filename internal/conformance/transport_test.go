@@ -60,7 +60,7 @@ func receive[T any](t *testing.T, ch <-chan T) T {
 
 func engineServer(t *testing.T) (*engineio.Server, *httptest.Server) {
 	t.Helper()
-	s := engineio.NewServer(nil)
+	s := engineio.NewServer()
 	ts := httptest.NewServer(s)
 	t.Cleanup(func() { _ = s.Close(); ts.Close() })
 	return s, ts

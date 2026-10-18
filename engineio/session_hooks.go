@@ -130,7 +130,7 @@ func (s *Server) errorCORSHeaders(w http.ResponseWriter, r *http.Request) {
 }
 
 // sessionHooks is the private session half of public Hooks: NewServer
-// wraps each set field of engineio.Options.sessionHooks into the field of the same name. A nil
+// wraps each configured Hooks callback into the field of the same name. A nil
 // field is ignored. Plumbing for the engine server, not user API.
 type sessionHooks struct {
 	// Headers observes a session response after the transport prepares its headers

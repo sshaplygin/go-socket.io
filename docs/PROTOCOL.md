@@ -76,11 +76,11 @@ Package `engineio` of the v1 module at the repository root.
 
 - Query parameter `EIO` is not checked; the server behaves as protocol v3 regardless.
 - Transports: `polling` (XHR only; JSONP is removed and the `j` query parameter is
-  ignored) and `websocket` (`gorilla/websocket`). Order and upgrade path come from `engineio.Options.Transports`,
+  ignored) and `websocket` (`gorilla/websocket`). Order and upgrade path come from `engineio.WithTransports`,
   default `[polling, websocket]`.
 - Handshake: a GET without `sid` opens a session (any other method is answered HTTP 400
   with code 2, below). The `OPEN` packet carries `sid` (random, as engine.io's
-  `base64id`), `upgrades` (`[]` with `Options.DisableUpgrades`), `pingInterval` (default
+  `base64id`), `upgrades` (`[]` with `WithUpgrades(false)`), `pingInterval` (default
   25 s) and `pingTimeout` (default 20 s). There is no `maxPayload`: protocol v3 has none.
 - Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`). Every packet
   the session reads re-arms a window of `pingInterval + pingTimeout`; when it passes
@@ -104,7 +104,7 @@ Package `engineio` of the v1 module at the repository root.
   response (default io, Path=/, HttpOnly, SameSite=Strict). The cookie's attributes
   and name are configurable, and it can be disabled. A websocket-first handshake
   sets no cookie, matching engine.io 3.6.2.
-- Message limit: `Options.MaxHTTPBufferSize`, default 1e6 bytes. A longer polling POST
+- Message limit: `WithMaxHTTPBufferSize`, default 1e6 bytes. A longer polling POST
   body is answered HTTP 413 (plain text) and closes the session; a longer websocket
   message closes the connection with close code 1009. With permessage-deflate, the
   same limit applies to inflated bytes; rejection does not buffer the full message.
@@ -113,7 +113,7 @@ Package `engineio` of the v1 module at the repository root.
   delivered, and a pending poll is answered with data or, at a 100 ms check, a NOOP;
   the polling connection is paused only on `5`, then the session switches to the
   websocket and closes the polling connection. A failed probe, or one without `5`
-  within `Options.UpgradeTimeout`, closes the probe connection and leaves polling
+  within `WithUpgradeTimeout`, closes the probe connection and leaves polling
   unpaused. Implemented in the private server session upgrade state machine (`engineio/session_upgrade.go`).
 - Requests the server rejects before a transport handles them are answered with JSON
   `{"code":<n>,"message":"<text>"}`, as engine.io 3.6.2 answers a request that is not a
@@ -121,7 +121,7 @@ Package `engineio` of the v1 module at the repository root.
   `Bad handshake method` or 3 `Bad request` (also a transport that cannot accept the
   request, except a websocket handshake that gorilla/websocket answers itself, and a
   session that cannot be created), and HTTP 403 with code 4 and the fixed message
-  `Forbidden` when `Options.RequestChecker` rejects the request (3.6.2 sends the error
+  `Forbidden` when `WithRequestChecker` rejects the request (3.6.2 sends the error
   of `allowRequest` as the message). A websocket upgrade request gets the same
   answers, where engine.io 3.6.2 writes a plain-text HTTP 400 and closes the socket. What
   the polling transport rejects itself stays plain text: HTTP 400 for an unsupported

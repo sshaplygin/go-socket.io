@@ -12,7 +12,7 @@ import (
 // Covers C2
 // Covers C10
 func TestClientLateRootAfterServerDisconnect(t *testing.T) {
-	cl, err := New("http://unused/chat", nil)
+	cl, err := New("http://unused/chat")
 	require.NoError(t, err)
 	fc := newFakeConn(t)
 	cl.dial = func(string) (engineclient.Conn, error) { return fc, nil }

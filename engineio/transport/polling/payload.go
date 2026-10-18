@@ -53,7 +53,7 @@ func newPayload(supportBinary bool) *payload {
 	ret.readDeadline.Store(time.Time{})
 	ret.decoder = eioparser.NewPayloadDecoder(ret)
 	ret.writeDeadline.Store(time.Time{})
-	ret.encoder = eioparser.NewPayloadEncoder(ret, supportBinary)
+	ret.encoder = eioparser.NewPayloadEncoder(ret, eioparser.WithBinarySupport(supportBinary))
 	return ret
 }
 

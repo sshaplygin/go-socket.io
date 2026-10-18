@@ -231,7 +231,7 @@ func TestClientUpgradeTransportErrors(t *testing.T) {
 		t.Run(phase, func(t *testing.T) {
 			records := newRecorder()
 			setDefault(t, records)
-			srv := engineio.NewServer(&engineio.Options{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+			srv := engineio.NewServer(engineio.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))))
 			ts := httptest.NewServer(srv)
 			var c Conn
 			t.Cleanup(func() {
@@ -357,7 +357,7 @@ func clientUpgradeWrite(conn upgradeMessageConn, switched func() bool) <-chan er
 
 // Covers C5
 func TestClientUpgradeOrder(t *testing.T) {
-	s := engineio.NewServer(nil)
+	s := engineio.NewServer()
 	firstTen := make(chan struct{})
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(firstTen) }) }
@@ -437,11 +437,11 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			clientRecords, serverRecords := newRecorder(), newRecorder()
 			setDefault(t, clientRecords)
-			opts := &engineio.Options{Logger: slog.New(serverRecords)}
+			opts := []engineio.Option{engineio.WithLogger(slog.New(serverRecords))}
 			if name == "clamped" {
-				opts.PingInterval, opts.PingTimeout = 100*time.Millisecond, 100*time.Millisecond
+				opts = append(opts, engineio.WithPingInterval(100*time.Millisecond), engineio.WithPingTimeout(100*time.Millisecond))
 			}
-			s := engineio.NewServer(opts)
+			s := engineio.NewServer(opts...)
 			ready, stop := make(chan struct{}), make(chan struct{})
 			var readyOnce sync.Once
 			release := func() { readyOnce.Do(func() { close(ready) }) }

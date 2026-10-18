@@ -18,7 +18,7 @@ import (
 func TestEngineClientState(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
-			s := engineio.NewServer(nil)
+			s := engineio.NewServer()
 			ts := httptest.NewServer(s)
 			t.Cleanup(func() { _ = s.Close(); ts.Close() })
 			c, err := (&Dialer{Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)

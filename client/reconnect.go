@@ -107,7 +107,7 @@ func (m *clientState) reconnect(run *reconnectRun) {
 
 // backo2 uses one sample for both the deviation and its sign, then caps it.
 // Floating point growth avoids duration overflow on an unlimited retry loop.
-func reconnectDelay(opts Options, attempt int, sample float64) time.Duration {
+func reconnectDelay(opts options, attempt int, sample float64) time.Duration {
 	delay := float64(opts.ReconnectionDelay) * math.Pow(2, float64(attempt-1))
 	factor := opts.RandomizationFactor
 	if factor > 0 && factor <= 1 {

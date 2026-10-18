@@ -45,23 +45,24 @@ type Server struct {
 }
 
 // NewServer returns a server.
-func NewServer(opts *Options) *Server {
+func NewServer(opts ...Option) *Server {
+	config := resolveOptions(opts...)
 	return &Server{
-		transports:        transport.NewManager(opts.getTransport()),
-		pingInterval:      opts.getPingInterval(),
-		pingTimeout:       opts.getPingTimeout(),
-		upgradeTimeout:    opts.getUpgradeTimeout(),
-		maxHTTPBufferSize: opts.getMaxHTTPBufferSize(),
-		disableUpgrades:   opts != nil && opts.DisableUpgrades,
+		transports:        transport.NewManager(transport.WithTransports(config.getTransport()...)),
+		pingInterval:      config.getPingInterval(),
+		pingTimeout:       config.getPingTimeout(),
+		upgradeTimeout:    config.getUpgradeTimeout(),
+		maxHTTPBufferSize: config.getMaxHTTPBufferSize(),
+		disableUpgrades:   config.DisableUpgrades,
 		live:              make(map[string]*session),
-		requestChecker:    opts.getRequestChecker(),
-		originCheck:       opts.getOriginCheck(),
-		connInitor:        opts.getConnInitor(),
-		hooks:             opts.getHooks(),
-		sessions:          newSessionManager(opts.getSessionIDGenerator()),
+		requestChecker:    config.getRequestChecker(),
+		originCheck:       config.getOriginCheck(),
+		connInitor:        config.getConnInitor(),
+		hooks:             config.getHooks(),
+		sessions:          newSessionManager(config.getSessionIDGenerator()),
 		connChan:          make(chan *session, 1),
 		closed:            make(chan struct{}),
-		log:               opts.getLogger(),
+		log:               config.getLogger(),
 	}
 }
 

@@ -1,7 +1,6 @@
 package engineio
 
 import (
-	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,10 +9,12 @@ import (
 	"time"
 
 	gorilla "github.com/gorilla/websocket"
+	"github.com/stretchr/testify/require"
+
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
-	"github.com/stretchr/testify/require"
 )
 
 const foreignOrigin = "https://elsewhere.test"
@@ -38,9 +39,9 @@ func corsRequest(t *testing.T, client *http.Client, method, target, origin, body
 
 // corsSession exercises every successful polling response method and both
 // Origin header forms. It returns a live polling session for upgrade checks.
-func corsSession(t *testing.T, opts *Options, origin string, allowed bool) *parityWire {
+func corsSession(t *testing.T, opts []Option, origin string, allowed bool) *parityWire {
 	t.Helper()
-	f := &parityWire{srv: NewServer(opts), client: &http.Client{Timeout: 2 * time.Second}}
+	f := &parityWire{srv: NewServer(opts...), client: &http.Client{Timeout: 2 * time.Second}}
 	f.http = httptest.NewServer(f.srv)
 	t.Cleanup(func() { _ = f.srv.Close(); f.http.Close(); f.client.CloseIdleConnections() })
 	check := func(response *http.Response) {
@@ -127,9 +128,9 @@ func TestCORSDefault(t *testing.T) {
 	for _, kind := range []string{"nil options", "zero options"} {
 		for _, origin := range []string{"", foreignOrigin} {
 			t.Run(kind+"/"+origin, func(t *testing.T) {
-				var opts *Options
+				var opts []Option
 				if kind == "zero options" {
-					opts = &Options{}
+					opts = []Option{}
 				}
 				f := corsSession(t, opts, origin, true)
 				corsWebsocket(t, f, origin, true, true)
@@ -143,7 +144,7 @@ func TestCORSDefault(t *testing.T) {
 func TestCORSDisabled(t *testing.T) {
 	for _, origin := range []string{"", foreignOrigin} {
 		t.Run("legacy/"+origin, func(t *testing.T) {
-			f := corsSession(t, &Options{DisableCORS: true}, origin, false)
+			f := corsSession(t, []Option{WithCORS(!(true))}, origin, false)
 			corsWebsocket(t, f, origin, true, origin == "")
 			corsWebsocket(t, f, origin, false, origin == "")
 		})
@@ -161,7 +162,7 @@ func TestCORSDisabled(t *testing.T) {
 			}
 			t.Run(name, func(t *testing.T) {
 				check := func(r *http.Request) bool { return allowed && r.Header.Get("Origin") == foreignOrigin }
-				opts := &Options{DisableCORS: disabled, Transports: []transport.Transport{&polling.Transport{CheckOrigin: check}, &websocket.Transport{CheckOrigin: check}}}
+				opts := []Option{WithCORS(!(disabled)), WithTransports([]transport.Transport{&polling.Transport{CheckOrigin: check}, &websocket.Transport{CheckOrigin: check}}...)}
 				f := corsSession(t, opts, foreignOrigin, allowed)
 				corsWebsocket(t, f, foreignOrigin, true, allowed)
 				corsWebsocket(t, f, foreignOrigin, false, allowed)
@@ -180,7 +181,7 @@ func TestCORSTransportCopies(t *testing.T) {
 	w := &websocket.Transport{ReadBufferSize: 123, WriteBufferSize: 456}
 	other := &otherCORSTransport{}
 	configured := []transport.Transport{p, w, other}
-	s := NewServer(&Options{Transports: configured})
+	s := NewServer(WithTransports(configured...))
 	t.Cleanup(func() { _ = s.Close() })
 	pt, ok := s.transports.Get("polling")
 	require.True(t, ok)
@@ -201,11 +202,11 @@ func TestCORSTransportCopies(t *testing.T) {
 	// Resolving one enabled server must not enable another disabled server or
 	// mutate either package's global default transport.
 	beforePolling, beforeWebsocket := polling.Default.CheckOrigin, websocket.Default.CheckOrigin
-	defaultServer := NewServer(nil)
+	defaultServer := NewServer()
 	defer func() { _ = defaultServer.Close() }()
 	require.Equal(t, beforePolling == nil, polling.Default.CheckOrigin == nil)
 	require.Equal(t, beforeWebsocket == nil, websocket.Default.CheckOrigin == nil)
-	disabled := NewServer(&Options{DisableCORS: true, Transports: configured})
+	disabled := NewServer(WithCORS(!(true)), WithTransports(configured...))
 	defer func() { _ = disabled.Close() }()
 	dp, _ := disabled.transports.Get("polling")
 	dw, _ := disabled.transports.Get("websocket")

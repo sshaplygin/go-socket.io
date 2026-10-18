@@ -36,7 +36,7 @@ type Handshake struct {
 type Conn interface {
 	// Close sends DISCONNECT for each connected namespace and reports
 	// "io client disconnect". It returns without waiting while queued packets
-	// drain in the background, bounded by Options.CloseTimeout (one minute by
+	// drain in the background, bounded by WithCloseTimeout (one minute by
 	// default). Queue overflow or an Engine.IO failure discards queued packets.
 	Close() error
 	Namespace
@@ -73,7 +73,7 @@ type Namespace interface {
 	// client's ACK arguments are decoded into its parameters and it is called on the
 	// read goroutine of the connection. Emit never blocks: it queues the packet, and Emits
 	// from OnConnect are written once the writer starts. A queue already holding
-	// Options.WriteBufferSize packets not yet started drops the packet and every
+	// WithWriteBufferSize packets not yet started drops the packet and every
 	// later one and closes the connection (see ErrWriteBufferFull). Once a close started,
 	// Emit drops the packet without a report, except that Close still queues packets until
 	// the OnDisconnect calls it runs have returned (see Conn.Close).

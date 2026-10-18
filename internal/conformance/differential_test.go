@@ -21,7 +21,7 @@ import (
 
 func differentialGoServer(t *testing.T, configure ...func(*socketio.Server)) *httptest.Server {
 	t.Helper()
-	s := socketio.NewServer(nil)
+	s := socketio.NewServer()
 	for _, name := range []string{"/", "/chat"} {
 		n := s.Of(name)
 		n.OnConnect(func(socketio.Conn) error { return nil })

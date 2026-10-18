@@ -323,7 +323,7 @@ func TestBroadcastCallback(t *testing.T) {
 
 // Covers S21
 func TestServerBroadcastFlags(t *testing.T) {
-	s := NewServer(nil)
+	s := NewServer()
 	defer func() { _ = s.Close() }()
 	n := s.Of("/chat")
 	b := s.getNamespace("/chat").broadcast

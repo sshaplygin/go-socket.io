@@ -20,7 +20,7 @@ func TestClientSocketState(t *testing.T) {
 			srv.OnEvent(ns, "fire", func(c socketio.Conn, event string) { c.Emit(event, "value"); c.Emit("barrier") })
 		}
 	})
-	cl, err := client.New(ts.URL, retryOptions())
+	cl, err := client.New(ts.URL, retryOptions()...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	root, chat := cl.Socket("/"), cl.Socket("/chat")

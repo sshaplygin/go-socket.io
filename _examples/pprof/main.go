@@ -18,18 +18,16 @@ var allowOriginFunc = func(r *http.Request) bool {
 }
 
 func main() {
-	opts := &engineio.Options{
-		Transports: []transport.Transport{
-			&polling.Transport{
-				CheckOrigin: allowOriginFunc,
-			},
-			&websocket.Transport{
-				CheckOrigin: allowOriginFunc,
-			},
+	opts := []engineio.Option{engineio.WithTransports([]transport.Transport{
+		&polling.Transport{
+			CheckOrigin: allowOriginFunc,
 		},
-	}
+		&websocket.Transport{
+			CheckOrigin: allowOriginFunc,
+		},
+	}...)}
 
-	server := socketio.NewServer(&socketio.Options{Engine: opts})
+	server := socketio.NewServer(socketio.WithEngineOptions(opts...))
 
 	registerChat(server)
 

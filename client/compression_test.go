@@ -22,7 +22,7 @@ func (c *compressionClientConn) NextWriterCompress(ft eioparser.FrameType, compr
 
 // Covers C11
 func TestClientCompressBuffered(t *testing.T) {
-	cl, err := New("http://unused/", &Options{DisableReconnection: true})
+	cl, err := New("http://unused/", WithReconnection(!(true)))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	fc := newFakeConn(t)

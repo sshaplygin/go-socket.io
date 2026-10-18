@@ -25,7 +25,7 @@ type chatClient struct {
 func newChatServer(t *testing.T) (*socketio.Server, *httptest.Server) {
 	t.Helper()
 	// Keep heartbeat tests and transport teardown bounded.
-	server := socketio.NewServer(&socketio.Options{Engine: &engineio.Options{PingInterval: 200 * time.Millisecond, PingTimeout: 2 * time.Second}, CloseTimeout: 2 * time.Second})
+	server := socketio.NewServer(socketio.WithEngineOptions(engineio.WithPingInterval(200*time.Millisecond), engineio.WithPingTimeout(2*time.Second)), socketio.WithCloseTimeout(2*time.Second))
 	registerChat(server)
 	done := make(chan struct{})
 	go func() {
@@ -46,7 +46,7 @@ func newChatServer(t *testing.T) (*socketio.Server, *httptest.Server) {
 // connectChat connects a client that records every chat event it receives.
 func connectChat(t *testing.T, url string) *chatClient {
 	t.Helper()
-	cl, err := client.New(url, nil)
+	cl, err := client.New(url)
 	if err != nil {
 		t.Fatal(err)
 	}

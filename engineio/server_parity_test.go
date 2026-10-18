@@ -19,17 +19,22 @@ import (
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
-// Optional fields keep the regression tests runnable with only tests applied to
-// the pre-fix tree. A missing option there leaves the old behavior in effect.
-func parityOptions(values map[string]any) *Options {
-	o := &Options{}
+// parityOptions retains named wire-scenario settings independently of public API spelling.
+func parityOptions(values map[string]any) []Option {
+	var opts []Option
 	for name, value := range values {
-		f := reflect.ValueOf(o).Elem().FieldByName(name)
-		if f.IsValid() {
-			f.Set(reflect.ValueOf(value))
+		switch name {
+		case "UpgradeTimeout":
+			opts = append(opts, WithUpgradeTimeout(value.(time.Duration)))
+		case "MaxHTTPBufferSize":
+			opts = append(opts, WithMaxHTTPBufferSize(value.(int64)))
+		case "DisableUpgrades":
+			opts = append(opts, WithUpgrades(!value.(bool)))
+		default:
+			panic("unsupported wire-scenario option: " + name)
 		}
 	}
-	return o
+	return opts
 }
 
 type parityWire struct {
@@ -41,9 +46,9 @@ type parityWire struct {
 	params eioparser.ConnParameters
 }
 
-func newParityWire(t *testing.T, opts *Options) *parityWire {
+func newParityWire(t *testing.T, opts []Option) *parityWire {
 	t.Helper()
-	f := &parityWire{srv: NewServer(opts), client: &http.Client{Timeout: 2 * time.Second}}
+	f := &parityWire{srv: NewServer(opts...), client: &http.Client{Timeout: 2 * time.Second}}
 	f.http = httptest.NewServer(f.srv)
 	t.Cleanup(func() { _ = f.srv.Close(); f.http.Close(); f.client.CloseIdleConnections() })
 	code, b := f.request(t, http.MethodGet, f.http.URL+"/?EIO=3&transport=polling&b64=1", "")
@@ -226,8 +231,8 @@ func TestUpgradeTimeout(t *testing.T) {
 	require.Equal(t, 200, code)
 	require.Equal(t, "14:4still polling", b)
 	require.NoError(t, <-write)
-	for _, opts := range []*Options{nil, {}} {
-		s := NewServer(opts)
+	for _, opts := range [][]Option{nil, {}} {
+		s := NewServer(opts...)
 		v := reflect.ValueOf(s).Elem().FieldByName("upgradeTimeout")
 		require.True(t, v.IsValid())
 		require.Equal(t, int64(10*time.Second), v.Int())
@@ -240,7 +245,7 @@ func TestMaxHTTPBufferSize(t *testing.T) {
 	t.Run("polling", func(t *testing.T) {
 		rec := newRecorder()
 		opts := parityOptions(map[string]any{"MaxHTTPBufferSize": int64(8)})
-		opts.Logger = slog.New(rec)
+		opts = append(opts, WithLogger(slog.New(rec)))
 		f := newParityWire(t, opts)
 		reads := parityReader(f.conn)
 		code, b := f.request(t, http.MethodPost, f.poll, "6:4hello")
@@ -269,8 +274,8 @@ func TestMaxHTTPBufferSize(t *testing.T) {
 		require.True(t, gorilla.IsCloseError(err, gorilla.CloseMessageTooBig), "%v", err)
 	})
 	t.Run("default", func(t *testing.T) {
-		for _, opts := range []*Options{nil, {}, parityOptions(map[string]any{"MaxHTTPBufferSize": int64(-1)})} {
-			s := NewServer(opts)
+		for _, opts := range [][]Option{nil, {}, parityOptions(map[string]any{"MaxHTTPBufferSize": int64(-1)})} {
+			s := NewServer(opts...)
 			v := reflect.ValueOf(s).Elem().FieldByName("maxHTTPBufferSize")
 			require.True(t, v.IsValid())
 			require.Equal(t, int64(1_000_000), v.Int())
@@ -327,11 +332,11 @@ func TestEngineRequestValidation(t *testing.T) {
 		{"websocket checker", "GET", "transport=websocket", 4, 403, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			opts := &Options{}
+			opts := []Option{}
 			if tc.reject {
-				opts.RequestChecker = func(*http.Request) (http.Header, error) { return nil, fmt.Errorf("private reason") }
+				opts = append(opts, WithRequestChecker(func(*http.Request) (http.Header, error) { return nil, fmt.Errorf("private reason") }))
 			}
-			s := NewServer(opts)
+			s := NewServer(opts...)
 			defer func() { _ = s.Close() }()
 			r := httptest.NewRequest(tc.method, "/?EIO=3&"+tc.query, nil)
 			if strings.Contains(tc.name, "websocket") {
@@ -356,10 +361,10 @@ func TestEngineRequestValidation(t *testing.T) {
 
 func TestRequestCheckerOnlyChecksHandshake(t *testing.T) {
 	var calls atomic.Int32
-	opts := &Options{RequestChecker: func(*http.Request) (http.Header, error) {
+	opts := []Option{WithRequestChecker(func(*http.Request) (http.Header, error) {
 		calls.Add(1)
 		return http.Header{"X-Checked": []string{"yes"}}, nil
-	}}
+	})}
 	f := newParityWire(t, opts)
 	reads := parityReader(f.conn)
 	code, b := f.request(t, http.MethodPost, f.poll, "2:4a")
@@ -397,7 +402,7 @@ func TestPollingChunkedMessageLimit(t *testing.T) {
 }
 
 func TestWebsocketHandshakeMessageLimit(t *testing.T) {
-	s := NewServer(parityOptions(map[string]any{"MaxHTTPBufferSize": int64(8)}))
+	s := NewServer(parityOptions(map[string]any{"MaxHTTPBufferSize": int64(8)})...)
 	srv := httptest.NewServer(s)
 	defer srv.Close()
 	defer func() { _ = s.Close() }()

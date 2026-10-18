@@ -122,7 +122,7 @@ func TestHandshakeData(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				seen := make(chan Conn, 2)
 				before := time.Now()
-				s := NewServer(&Options{Engine: shortPingOptions()})
+				s := NewServer(WithEngineOptions(shortPingOptions()...))
 				check := func(c Conn) error {
 					h, r := c.Handshake(), c.Request()
 					if r == nil || h.Secure != secure || h.XDomain != cross || h.Address != r.RemoteAddr || h.Headers.Get("X-Handshake") != "original" || h.URL.Path != "/metadata" || h.Time.Before(before) || h.Time.After(time.Now()) {

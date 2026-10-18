@@ -5,4 +5,4 @@ import (
 	"github.com/sshaplygin/go-socket.io/client"
 )
 
-func main() { socketio.NewServer(nil).OnConnect("/", func(client.Conn) error { return nil }) }
+func main() { socketio.NewServer().OnConnect("/", func(client.Conn) error { return nil }) }

@@ -47,7 +47,7 @@ func writeMessage(conn interface {
 
 For standalone streaming payload codecs, implement `parser.PayloadReader` or
 `parser.PayloadWriter` and construct `NewPayloadDecoder(source)` or
-`NewPayloadEncoder(sink, supportBinary)`. A source lends a complete payload through
+`NewPayloadEncoder(sink, WithBinarySupport(supportBinary))`. A source lends a complete payload through
 `AcquirePayloadReader() (io.Reader, bool, error)`; the bool selects binary framing.
 `ReleasePayloadReader(error) error` receives the decode error, or nil after the last
 packet reader is closed. A sink lends a writer for each packet through
@@ -66,7 +66,7 @@ concurrency, deadlines and pause/resume. Use godoc for the complete streaming co
 | Old import/API | Current import/API |
 | --- | --- |
 | Root `Client`, `NewClient`, `ErrEmptyAddr`, `EmptyAddrErr` | `client.Client`, `client.New`, `client.ErrEmptyAddr` |
-| `client.NewClient(addr, *engineio.Options)` | `client.New(addr, *client.Options)` |
+| `client.NewClient(addr, *engineio.Options)` | `client.New(addr, ...client.Option)` |
 | Root connection type/error aliases | Server types/errors belong to `socketio`; client types/errors belong to `client` |
 | `engineio.Dialer`, `engineio.Opener` | `engineio/client.Dialer`, `engineio/client.Opener` |
 | `session.ReadyState`, `CloseReason`, `CloseError` | Server contracts in `engineio`; client contracts in `engineio/client` |
@@ -74,7 +74,7 @@ concurrency, deadlines and pause/resume. Use godoc for the complete streaming co
 | Public `session.New`/`Session`/`Manager` | Server-owned private session/registry; obtain connections through `engineio.Server.Accept`, inspect them through `Clients`/`Count` |
 | `session.IDGenerator`, `DefaultIDGenerator` | Same names in `engineio` |
 | `session.Pauser` | `engineio/transport.Pauser` |
-| Session hook/limit/request setters | `engineio.Options.Hooks`, `MaxHTTPBufferSize`, `UpgradeTimeout`; `ConnInitor` receives the handshake request and connection |
+| Session hook/limit/request setters | `engineio.WithHooks`, `WithMaxHTTPBufferSize`, `WithUpgradeTimeout`; `WithConnInitor` receives the handshake request and connection |
 | Concrete session `Abort` | `engineio.Abort(conn)`; custom engines receive ordinary `Close` |
 | Concrete session `Shutdown` | Shutdown belongs to `engineio.Server.Close` |
 
@@ -92,31 +92,66 @@ Engine.IO frame types. Socket.IO parser implementations use their own frame type
 convert explicitly to/from `engineio/parser.FrameType` at a transport boundary. The
 library's server and client perform these conversions internally.
 
-`socketio.NewServer` now accepts `*socketio.Options`. Move old Engine.IO settings into
-its `Engine` field. Move the Socket.IO queue size to `WriteBufferSize` and explicitly
-set `CloseTimeout` when the old `PingTimeout` also configured drain duration. Engine.IO
-heartbeat `PingTimeout` is independent of the Socket.IO drain bound. Client queue/drain
-settings belong to `client.Options`; its transport, header, reconnect and logger settings
-also remain there. Nonpositive queue/drain values still mean 64 packets and one minute.
+## Constructor configuration
+
+Default constructors omit optional configuration: `socketio.NewServer()`,
+`engineio.NewServer()` and `client.New(addr)`. Each role exposes its own `Option`
+functions. Options apply in order; the last setting wins. Reusing options creates
+independent instance configuration. Client headers/query and engine cookie/built-in
+transport settings retain their construction-time copies. Callback state and custom
+transports remain application-owned.
+
+| Previous configuration | Current option |
+| --- | --- |
+| `NewServer(*engineio.Options)` or `NewServer(*socketio.Options)` | `socketio.NewServer(...socketio.Option)` |
+| Root `Options.Engine` | `socketio.WithEngineOptions(...engineio.Option)` |
+| Root queue/drain fields | `socketio.WithWriteBufferSize(n)`, `socketio.WithCloseTimeout(d)` |
+| Engine logger also used by Socket.IO | `socketio.WithLogger(log)` configures both layers |
+| `engineio.NewServer(*engineio.Options)` | `engineio.NewServer(...engineio.Option)` |
+| Engine `PingInterval`, `PingTimeout`, `UpgradeTimeout` | `engineio.WithPingInterval(d)`, `WithPingTimeout(d)`, `WithUpgradeTimeout(d)` |
+| Engine `MaxHTTPBufferSize`, `CompressionThreshold` | `engineio.WithMaxHTTPBufferSize(n)`, `WithCompressionThreshold(n)` |
+| Engine `DisableUpgrades`, `DisableHTTPCompression`, `DisableCORS` | `engineio.WithUpgrades(!disabled)`, `WithHTTPCompression(!disabled)`, `WithCORS(!disabled)` |
+| Engine `Cookie`, `DisableCookie` | `engineio.WithCookie(cookie)`, `WithCookieEnabled(!disabled)` |
+| Engine `PerMessageDeflate`, `Transports` | `engineio.WithPerMessageDeflate(enabled)`, `WithTransports(transports...)` |
+| Engine `SessionIDGenerator`, `RequestChecker`, `ConnInitor`, `Hooks`, `Logger` | `engineio.WithSessionIDGenerator(gen)`, `WithRequestChecker(check)`, `WithConnInitor(init)`, `WithHooks(hooks)`, `WithLogger(log)` |
+| `client.New(addr, *client.Options)` | `client.New(addr, ...client.Option)` |
+| Client `Path`, `Query`, `Header`, `Timeout` | `client.WithPath(path)`, `WithQuery(query)`, `WithHeader(header)`, `WithTimeout(timeout)` |
+| Client `WriteBufferSize`, `CloseTimeout`, `Logger` | `client.WithWriteBufferSize(n)`, `WithCloseTimeout(d)`, `WithLogger(log)` |
+| Client `Transports`, `PerMessageDeflate` | `client.WithTransports(transports...)`, `WithPerMessageDeflate(enabled)` |
+| Client `DisableReconnection` | `client.WithReconnection(!disabled)` |
+| Client retry attempts/delay/cap/jitter | `client.WithReconnectionAttempts(n)`, `WithReconnectionDelay(d)`, `WithReconnectionDelayMax(d)`, `WithRandomizationFactor(factor)` |
+| `transport.NewManager(transports)` | `transport.NewManager(transport.WithTransports(transports...))`; `NewManager()` creates an empty registry |
+| `parser.NewPayloadEncoder(writer, supportBinary)` in Engine.IO | `parser.NewPayloadEncoder(writer, parser.WithBinarySupport(supportBinary))`; omitted configuration enables binary payload framing |
+
+The public server/client option structs are removed. Required addresses, codec I/O
+and fake-reader input frames remain positional. Codec constructors without optional
+configuration keep their required reader/writer arguments.
+
+Engine.IO heartbeat timeout and Socket.IO drain duration remain independent. Move any
+old `PingTimeout` used as a drain bound to the Socket.IO role's `WithCloseTimeout`.
+Nonpositive queue/drain values still mean 64 packets and one minute. Other existing
+zero/negative/default semantics are unchanged; each With function documents them.
+Root `WithLogger` configures Socket.IO and its engine. A later
+`WithEngineOptions(engineio.WithLogger(other))` overrides only the engine's sink.
 
 ```go
-server := socketio.NewServer(&socketio.Options{
-    Engine: &engineio.Options{
-        PingInterval: 25 * time.Second,
-        PingTimeout: 20 * time.Second,
-    },
-    WriteBufferSize: 64,
-    CloseTimeout: time.Minute,
-})
+server := socketio.NewServer(
+    socketio.WithEngineOptions(
+        engineio.WithPingInterval(25*time.Second),
+        engineio.WithPingTimeout(20*time.Second),
+    ),
+    socketio.WithWriteBufferSize(64),
+    socketio.WithCloseTimeout(time.Minute),
+)
 server.OnConnect("/", func(c socketio.Conn) error {
     c.Join("lobby")
     return nil
 })
 
-cl, err := client.New("http://127.0.0.1:8000", &client.Options{
-    WriteBufferSize: 64,
-    CloseTimeout: time.Minute,
-})
+cl, err := client.New("http://127.0.0.1:8000",
+    client.WithWriteBufferSize(64),
+    client.WithCloseTimeout(time.Minute),
+)
 if err != nil {
     return err
 }

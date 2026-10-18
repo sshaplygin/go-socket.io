@@ -22,7 +22,7 @@ func reconnectServer(t *testing.T, address string) (string, func()) {
 	t.Helper()
 	listener, err := net.Listen("tcp", address)
 	require.NoError(t, err)
-	srv := socketio.NewServer(nil)
+	srv := socketio.NewServer()
 	for _, ns := range []string{"/", "/chat", "/gone"} {
 		srv.OnConnect(ns, func(socketio.Conn) error { return nil })
 		srv.OnEvent(ns, "echo", func(_ socketio.Conn, value string) string { return value })
@@ -47,16 +47,15 @@ func reconnectServer(t *testing.T, address string) (string, func()) {
 	return listener.Addr().String(), stop
 }
 
-func retryOptions() *client.Options {
-	return &client.Options{Transports: []transport.Transport{websocket.Default}, Timeout: 200 * time.Millisecond,
-		ReconnectionDelay: 10 * time.Millisecond, ReconnectionDelayMax: 20 * time.Millisecond, RandomizationFactor: -1}
+func retryOptions() []client.Option {
+	return []client.Option{client.WithTransports([]transport.Transport{websocket.Default}...), client.WithTimeout(200 * time.Millisecond), client.WithReconnectionDelay(10 * time.Millisecond), client.WithReconnectionDelayMax(20 * time.Millisecond), client.WithRandomizationFactor(-1)}
 }
 
 // Covers C3
 func TestClientReconnect(t *testing.T) {
 	t.Run("restart", func(t *testing.T) {
 		address, stop := reconnectServer(t, "127.0.0.1:0")
-		cl, err := client.New("http://"+address, retryOptions())
+		cl, err := client.New("http://"+address, retryOptions()...)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = cl.Close() })
 		connected, disconnected := make(chan client.Conn, 12), make(chan string, 12)
@@ -115,8 +114,8 @@ func TestClientReconnect(t *testing.T) {
 	t.Run("attempt limit and explicit retry", func(t *testing.T) {
 		address, stop := reconnectServer(t, "127.0.0.1:0")
 		opts := retryOptions()
-		opts.ReconnectionAttempts = 2
-		cl, err := client.New("http://"+address, opts)
+		opts = append(opts, client.WithReconnectionAttempts(2))
+		cl, err := client.New("http://"+address, opts...)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = cl.Close() })
 		ready := make(chan struct{}, 2)
@@ -147,8 +146,8 @@ func TestClientReconnect(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			address, stop := reconnectServer(t, "127.0.0.1:0")
 			opts := retryOptions()
-			opts.DisableReconnection = mode == "disabled"
-			cl, err := client.New("http://"+address, opts)
+			opts = append(opts, client.WithReconnection(mode != "disabled"))
+			cl, err := client.New("http://"+address, opts...)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
 			ready, disconnected := make(chan struct{}, 1), make(chan string, 2)

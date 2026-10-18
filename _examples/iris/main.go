@@ -12,7 +12,7 @@ import (
 func main() {
 	app := iris.New()
 
-	server := socketio.NewServer(nil)
+	server := socketio.NewServer()
 
 	registerChat(server)
 

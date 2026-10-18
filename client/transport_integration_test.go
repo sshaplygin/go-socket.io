@@ -14,7 +14,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio"
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
@@ -23,7 +22,7 @@ import (
 func TestClientWebsocketUpgrade(t *testing.T) {
 	for _, name := range []string{"default", "polling", "websocket"} {
 		t.Run(name, func(t *testing.T) {
-			srv := engineio.NewServer(nil)
+			srv := engineio.NewServer()
 			handshake := make(chan string, 1)
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Query().Get("sid") == "" {
@@ -31,14 +30,14 @@ func TestClientWebsocketUpgrade(t *testing.T) {
 				}
 				srv.ServeHTTP(w, r)
 			}))
-			var opts Options
+			var opts []Option
 			if name == "polling" {
-				opts.Transports = []transport.Transport{polling.Default}
+				opts = append(opts, WithTransports(polling.Default))
 			}
 			if name == "websocket" {
-				opts.Transports = []transport.Transport{websocket.Default}
+				opts = append(opts, WithTransports(websocket.Default))
 			}
-			cl, err := New(ts.URL, &opts)
+			cl, err := New(ts.URL, opts...)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close(); _ = srv.Close(); ts.Close() })
 			ready, echoed := make(chan struct{}, 1), make(chan string, 1)
@@ -113,7 +112,7 @@ func TestClientWebsocketUpgrade(t *testing.T) {
 // A timed-out Dial can still return: its connection must be closed rather than attached.
 // Covers C4
 func TestClientTimeoutClosesLateConnection(t *testing.T) {
-	cl, err := New("http://unused/", &Options{Timeout: 20 * time.Millisecond})
+	cl, err := New("http://unused/", WithTimeout(20*time.Millisecond))
 	require.NoError(t, err)
 	late := newFakeConn(t)
 	release, entered := make(chan struct{}), make(chan struct{})

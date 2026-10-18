@@ -20,7 +20,7 @@ import (
 func TestEngineClientWritable(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
-			engine := engineio.NewServer(&engineio.Options{PingInterval: 10 * time.Second, PingTimeout: 10 * time.Second})
+			engine := engineio.NewServer(engineio.WithPingInterval(10*time.Second), engineio.WithPingTimeout(10*time.Second))
 			defer func() { _ = engine.Close() }()
 			posting, release := make(chan struct{}, 1), make(chan struct{})
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

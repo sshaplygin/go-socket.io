@@ -104,9 +104,9 @@ func (p *compressionPeer) send(t *testing.T, flags byte, data []byte) {
 	_, err := p.Write(append(h, masked...))
 	require.NoError(t, err)
 }
-func compressionServer(t *testing.T, opts *Options) (*Server, *httptest.Server) {
+func compressionServer(t *testing.T, opts []Option) (*Server, *httptest.Server) {
 	t.Helper()
-	s := NewServer(opts)
+	s := NewServer(opts...)
 	ts := httptest.NewServer(s)
 	t.Cleanup(func() { _ = s.Close(); ts.Close() })
 	return s, ts
@@ -129,7 +129,7 @@ func compressionAccept(t *testing.T, s *Server) Conn {
 func TestPerMessageDeflateNegotiated(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		t.Run(strconv.FormatBool(enabled), func(t *testing.T) {
-			s, ts := compressionServer(t, &Options{PerMessageDeflate: enabled})
+			s, ts := compressionServer(t, []Option{WithPerMessageDeflate(enabled)})
 			peer := compressionDial(t, ts.URL)
 			require.Equal(t, enabled, strings.Contains(peer.response.Header.Get("Sec-WebSocket-Extensions"), "permessage-deflate"))
 			flags, _ := peer.frame(t)
@@ -180,7 +180,7 @@ func TestPerMessageDeflateLimit(t *testing.T) {
 	wire := bytes.Clone(compressed.Bytes()[:compressed.Len()-4])
 	require.NoError(t, deflater.Close())
 	require.Less(t, len(wire), 1_000_000)
-	s, ts := compressionServer(t, &Options{PerMessageDeflate: true})
+	s, ts := compressionServer(t, []Option{WithPerMessageDeflate(true)})
 	peer := compressionDial(t, ts.URL)
 	_, _ = peer.frame(t)
 	c := compressionAccept(t, s)
@@ -260,7 +260,7 @@ func TestPollingHTTPCompression(t *testing.T) {
 		})
 	}
 	t.Run("disabled", func(t *testing.T) {
-		f := newParityWire(t, &Options{DisableHTTPCompression: true})
+		f := newParityWire(t, []Option{WithHTTPCompression(!(true))})
 		done := parityWrite(f.conn, strings.Repeat("x", 4096))
 		req, err := http.NewRequest("GET", f.poll, nil)
 		require.NoError(t, err)
@@ -280,15 +280,15 @@ func TestHandshakeCookie(t *testing.T) {
 	expires := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
 	cases := []struct {
 		name string
-		opts *Options
+		opts []Option
 		want *http.Cookie
 	}{
 		{"default", nil, &http.Cookie{Name: "io", Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode}},
-		{"custom", &Options{Cookie: &http.Cookie{Name: "session", Path: "/chat", HttpOnly: true}}, &http.Cookie{Name: "session", Path: "/chat", HttpOnly: true}},
-		{"httpOnly off", &Options{Cookie: &http.Cookie{Path: "/"}}, &http.Cookie{Name: "io", Path: "/"}},
-		{"no path", &Options{Cookie: &http.Cookie{}}, &http.Cookie{Name: "io"}},
-		{"full", &Options{Cookie: &http.Cookie{Name: "custom", Path: "/", Domain: "example.com", Expires: expires, MaxAge: 3600, Secure: true, SameSite: http.SameSiteLaxMode}}, &http.Cookie{Name: "custom", Path: "/", Domain: "example.com", Expires: expires, MaxAge: 3600, Secure: true, SameSite: http.SameSiteLaxMode}},
-		{"off", &Options{DisableCookie: true}, nil},
+		{"custom", []Option{WithCookie(&http.Cookie{Name: "session", Path: "/chat", HttpOnly: true})}, &http.Cookie{Name: "session", Path: "/chat", HttpOnly: true}},
+		{"httpOnly off", []Option{WithCookie(&http.Cookie{Path: "/"})}, &http.Cookie{Name: "io", Path: "/"}},
+		{"no path", []Option{WithCookie(&http.Cookie{})}, &http.Cookie{Name: "io"}},
+		{"full", []Option{WithCookie(&http.Cookie{Name: "custom", Path: "/", Domain: "example.com", Expires: expires, MaxAge: 3600, Secure: true, SameSite: http.SameSiteLaxMode})}, &http.Cookie{Name: "custom", Path: "/", Domain: "example.com", Expires: expires, MaxAge: 3600, Secure: true, SameSite: http.SameSiteLaxMode}},
+		{"off", []Option{WithCookieEnabled(!(true))}, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -342,8 +342,8 @@ func TestHandshakeCookie(t *testing.T) {
 			require.NoError(t, posted.Body.Close())
 			require.Equal(t, "ok", string(body))
 			parityMessage(t, reads, "x")
-			if tc.opts != nil && tc.opts.Cookie != nil {
-				require.Empty(t, tc.opts.Cookie.Value, "caller cookie mutated")
+			if config := resolveOptions(tc.opts...); config.Cookie != nil {
+				require.Empty(t, config.Cookie.Value, "caller cookie mutated")
 			}
 			peer := compressionDial(t, ts.URL)
 			require.Empty(t, peer.response.Cookies())
@@ -390,7 +390,7 @@ func TestPerMessageDeflateLimitKeepsErrorBeforeTransportClose(t *testing.T) {
 			entered, release := make(chan error, 1), make(chan struct{})
 			unblock := sync.OnceFunc(func() { close(release) })
 			defer unblock()
-			s, ts := compressionServer(t, &Options{PerMessageDeflate: true, MaxHTTPBufferSize: 1024, Hooks: &Hooks{Error: func(_ Conn, err error) { entered <- err; <-release }}})
+			s, ts := compressionServer(t, []Option{WithPerMessageDeflate(true), WithMaxHTTPBufferSize(1024), WithHooks(&Hooks{Error: func(_ Conn, err error) { entered <- err; <-release }})})
 			peer := compressionDial(t, ts.URL)
 			_, _ = peer.frame(t)
 			c := compressionAccept(t, s)
@@ -453,7 +453,7 @@ func TestPerMessageDeflateControlPacketLimit(t *testing.T) {
 			wire := bytes.Clone(compressed.Bytes()[:compressed.Len()-4])
 			require.NoError(t, deflater.Close())
 			causes := make(chan error, 2)
-			s, ts := compressionServer(t, &Options{PerMessageDeflate: true, MaxHTTPBufferSize: 1024, Hooks: &Hooks{Error: func(_ Conn, err error) { causes <- err }}})
+			s, ts := compressionServer(t, []Option{WithPerMessageDeflate(true), WithMaxHTTPBufferSize(1024), WithHooks(&Hooks{Error: func(_ Conn, err error) { causes <- err }})})
 			peer := compressionDial(t, ts.URL)
 			_, _ = peer.frame(t)
 			c := compressionAccept(t, s)

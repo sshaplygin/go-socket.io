@@ -18,8 +18,25 @@ type Manager struct {
 	transports map[string]Transport
 }
 
-// NewManager creates a new manager.
-func NewManager(transports []Transport) *Manager {
+// Option configures a transport manager.
+type Option func(*managerOptions)
+
+type managerOptions struct{ transports []Transport }
+
+// WithTransports selects transports in upgrade order. The slice is copied.
+func WithTransports(values ...Transport) Option {
+	return func(config *managerOptions) { config.transports = append(values[:0:0], values...) }
+}
+
+// NewManager creates a manager. The default registry is empty.
+func NewManager(opts ...Option) *Manager {
+	var config managerOptions
+	for _, option := range opts {
+		if option != nil {
+			option(&config)
+		}
+	}
+	transports := config.transports
 	tranMap := make(map[string]Transport)
 	names := make([]string, len(transports))
 	for i, t := range transports {

@@ -17,7 +17,7 @@ func TestClientPackageRoundTrip(t *testing.T) {
 		s.OnEvent("/", "echo", func(_ Conn, value string) string { return value })
 		s.OnDisconnect("/", func(_ Conn, reason string) { disconnected <- reason })
 	})
-	cl, err := client.New(ts.URL, nil)
+	cl, err := client.New(ts.URL)
 	require.NoError(t, err)
 	cl.OnConnect(func(client.Conn) error { return nil })
 	require.NoError(t, cl.Connect())
@@ -35,7 +35,7 @@ func TestRoleSpecificHandlers(t *testing.T) {
 		s.OnEvent("/", "root-handler", func(_ Conn, v string) string { return "root:" + v })
 		s.OnEvent("/", "leaf-handler", func(_ Conn, v string) string { return "leaf:" + v })
 	})
-	cl, err := client.New(ts.URL, nil)
+	cl, err := client.New(ts.URL)
 	require.NoError(t, err)
 	cl.OnConnect(func(client.Conn) error { return nil })
 	cl.OnEvent("root-handler", func(_ client.Conn, v string) string { return "root:" + v })
@@ -53,7 +53,7 @@ func TestRoleSpecificHandlers(t *testing.T) {
 }
 
 func TestClientErrorIdentity(t *testing.T) {
-	_, err := client.New("", nil)
+	_, err := client.New("")
 	require.ErrorIs(t, err, client.ErrEmptyAddr)
 	for _, pair := range [][2]error{{ErrWriteBufferFull, client.ErrWriteBufferFull}, {client.ErrWriteBufferFull, ErrWriteBufferFull}} {
 		wrapped := fmt.Errorf("wrapped: %w", pair[0])
@@ -62,7 +62,7 @@ func TestClientErrorIdentity(t *testing.T) {
 	}
 }
 func TestEventHandlerRejectsClientConn(t *testing.T) {
-	s := NewServer(nil)
+	s := NewServer()
 	t.Cleanup(func() { _ = s.Close() })
 	require.Panics(t, func() { s.OnEvent("/", "wrong-role", func(client.Conn) {}) })
 }

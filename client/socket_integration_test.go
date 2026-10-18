@@ -34,7 +34,7 @@ func TestClientNamespaces(t *testing.T) {
 			srv.OnEvent(namespace, "message", func(c socketio.Conn, value string) { messages <- c.Namespace() + ":" + value })
 		}
 	})
-	cl, err := client.New(ts.URL, nil)
+	cl, err := client.New(ts.URL)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	connected := make(chan client.Conn, 8)
@@ -132,7 +132,7 @@ func TestClientConnectTimeout(t *testing.T) {
 		_, _ = io.Copy(w, response.Body)
 	}))
 	t.Cleanup(proxy.Close)
-	cl, err := client.New(proxy.URL, &client.Options{Timeout: 100 * time.Millisecond, Transports: []transport.Transport{polling.Default}})
+	cl, err := client.New(proxy.URL, client.WithTimeout(100*time.Millisecond), client.WithTransports([]transport.Transport{polling.Default}...))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	cl.OnConnect(func(client.Conn) error { connected <- struct{}{}; return nil })
@@ -151,7 +151,7 @@ func TestClientConnectTimeout(t *testing.T) {
 // Covers C6
 func TestClientOptions(t *testing.T) {
 	metadata := make(chan socketio.Conn, 2)
-	srv := socketio.NewServer(&socketio.Options{Engine: shortPingOptions()})
+	srv := socketio.NewServer(socketio.WithEngineOptions(shortPingOptions()...))
 	srv.OnConnect("/", func(socketio.Conn) error { return nil })
 	srv.OnConnect("/chat", func(c socketio.Conn) error { metadata <- c; return nil })
 	srv.OnConnect("/other", func(c socketio.Conn) error { metadata <- c; return nil })
@@ -162,13 +162,14 @@ func TestClientOptions(t *testing.T) {
 		srv.ServeHTTP(w, r)
 	}))
 	t.Cleanup(func() { _ = srv.Close(); ts.Close() })
-	opts := &client.Options{Path: "/custom/engine", Query: url.Values{"custom": {"engine"}}, Header: http.Header{"X-Client": {"header"}}}
-	cl, err := client.New(ts.URL+"/chat?address=value", opts)
+	query, header := url.Values{"custom": {"engine"}}, http.Header{"X-Client": {"header"}}
+	opts := []client.Option{client.WithPath("/custom/engine"), client.WithQuery(query), client.WithHeader(header)}
+	cl, err := client.New(ts.URL+"/chat?address=value", opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	// Constructors own their options: later caller mutations cannot change requests.
-	opts.Query.Set("custom", "mutated")
-	opts.Header.Set("X-Client", "mutated")
+	query.Set("custom", "mutated")
+	header.Set("X-Client", "mutated")
 	chat := cl.Socket("/chat?namespace=value")
 	ready := make(chan struct{}, 1)
 	chat.OnConnect(func(client.Conn) error { ready <- struct{}{}; return nil })
@@ -217,7 +218,7 @@ func TestClientEmitBuffered(t *testing.T) {
 				srv.OnEvent("/", "number", func(_ socketio.Conn, value int) int { values <- value; return value })
 			})
 			var logs bytes.Buffer
-			cl, err := client.New(ts.URL, &client.Options{WriteBufferSize: size, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+			cl, err := client.New(ts.URL, client.WithWriteBufferSize(size), client.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))))
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
 			cl.Emit("number", 0)
@@ -269,7 +270,7 @@ func TestClientCloseSendsDisconnect(t *testing.T) {
 					srv.OnEvent(nsp, "echo", func(_ socketio.Conn, value string) string { return value })
 				}
 			})
-			cl, err := client.New(ts.URL, nil)
+			cl, err := client.New(ts.URL)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
 			ready := make(chan struct{}, 2)
@@ -299,7 +300,7 @@ func TestClientCloseSendsDisconnect(t *testing.T) {
 }
 
 func TestClientRejectsServerConnHandler(t *testing.T) {
-	c, err := client.New("http://127.0.0.1/", nil)
+	c, err := client.New("http://127.0.0.1/")
 	require.NoError(t, err)
 	require.Panics(t, func() { c.OnEvent("wrong-role", func(socketio.Conn) {}) })
 }

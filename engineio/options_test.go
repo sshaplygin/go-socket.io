@@ -11,7 +11,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
-// TestOptionsLoggerWrapped checks that Options.Logger is passed through
+// TestOptionsLoggerWrapped checks that WithLogger is passed through
 // logger.Wrap: with logger.Level at debug, a debug record is enabled even
 // though the application's handler is at ERROR. A nil Logger falls back to
 // logger.Log.
@@ -21,10 +21,10 @@ func TestOptionsLoggerWrapped(t *testing.T) {
 	t.Cleanup(func() { logger.Level.Set(prev) })
 
 	app := slog.New(slog.NewTextHandler(&bytes.Buffer{}, &slog.HandlerOptions{Level: slog.LevelError}))
-	opts := &Options{Logger: app}
+	opts := resolveOptions(WithLogger(app))
 	require.True(t, opts.getLogger().Enabled(context.Background(), slog.LevelDebug))
 
-	var nilOpts *Options
+	var nilOpts *options
 	require.Same(t, logger.Log, nilOpts.getLogger())
-	require.Same(t, logger.Log, (&Options{}).getLogger())
+	require.Same(t, logger.Log, resolveOptions().getLogger())
 }

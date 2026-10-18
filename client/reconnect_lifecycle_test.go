@@ -17,7 +17,7 @@ import (
 func TestClientReconnectHandlerSerial(t *testing.T) {
 	for _, mode := range []string{"attempt", "error", "failed", "success"} {
 		t.Run(mode, func(t *testing.T) {
-			cl, err := New("http://unused/", &Options{ReconnectionAttempts: 1, ReconnectionDelay: time.Millisecond, RandomizationFactor: -1})
+			cl, err := New("http://unused/", WithReconnectionAttempts(1), WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
 			first, second, third := newFakeConn(t), newFakeConn(t), newFakeConn(t)
@@ -81,7 +81,7 @@ func TestClientReconnectHandlerSerial(t *testing.T) {
 func TestClientReconnectCancellation(t *testing.T) {
 	for _, mode := range []string{"client", "socket", "attempt callback"} {
 		t.Run(mode, func(t *testing.T) {
-			cl, err := New("http://unused/", &Options{Timeout: -1, ReconnectionDelay: time.Millisecond, RandomizationFactor: -1})
+			cl, err := New("http://unused/", WithTimeout(-1), WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
 			first, late := newFakeConn(t), newFakeConn(t)
@@ -149,7 +149,7 @@ func TestClientReconnectCancellation(t *testing.T) {
 
 // Covers C11
 func TestClientVolatileBeforeConnect(t *testing.T) {
-	cl, err := New("http://unused/", nil)
+	cl, err := New("http://unused/")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	fc := newFakeConn(t)
@@ -173,7 +173,7 @@ func TestClientVolatileBeforeConnect(t *testing.T) {
 
 // Covers C10
 func TestClientCloseBeforeNamespaceReplyReleasesRooms(t *testing.T) {
-	cl, err := New("http://unused/", nil)
+	cl, err := New("http://unused/")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	fc := newFakeConn(t)
@@ -187,19 +187,19 @@ func TestClientCloseBeforeNamespaceReplyReleasesRooms(t *testing.T) {
 }
 
 func TestClientBackoff(t *testing.T) {
-	cl, err := New("http://unused", nil)
+	cl, err := New("http://unused")
 	require.NoError(t, err)
 	require.Equal(t, time.Second, cl.options.ReconnectionDelay)
 	require.Equal(t, 5*time.Second, cl.options.ReconnectionDelayMax)
 	require.Equal(t, 0.5, cl.options.RandomizationFactor)
-	opts := Options{ReconnectionDelay: 100 * time.Millisecond, ReconnectionDelayMax: 500 * time.Millisecond, RandomizationFactor: 0.5}
+	opts := []Option{WithReconnectionDelay(100 * time.Millisecond), WithReconnectionDelayMax(500 * time.Millisecond), WithRandomizationFactor(0.5)}
 	// backo2's single random sample controls both magnitude and sign.
-	require.Equal(t, 90*time.Millisecond, reconnectDelay(opts, 1, 0.2))
-	require.Equal(t, 230*time.Millisecond, reconnectDelay(opts, 2, 0.3))
-	require.Equal(t, 500*time.Millisecond, reconnectDelay(opts, 4, 0.9))
-	require.Equal(t, 500*time.Millisecond, reconnectDelay(opts, 10000, 0))
-	opts.RandomizationFactor = -1
+	require.Equal(t, 90*time.Millisecond, reconnectDelay(*resolveOptions(opts...), 1, 0.2))
+	require.Equal(t, 230*time.Millisecond, reconnectDelay(*resolveOptions(opts...), 2, 0.3))
+	require.Equal(t, 500*time.Millisecond, reconnectDelay(*resolveOptions(opts...), 4, 0.9))
+	require.Equal(t, 500*time.Millisecond, reconnectDelay(*resolveOptions(opts...), 10000, 0))
+	opts = append(opts, WithRandomizationFactor(-1))
 	for i, want := range []time.Duration{100, 200, 400, 500} {
-		require.Equal(t, want*time.Millisecond, reconnectDelay(opts, i+1, 0.9))
+		require.Equal(t, want*time.Millisecond, reconnectDelay(*resolveOptions(opts...), i+1, 0.9))
 	}
 }

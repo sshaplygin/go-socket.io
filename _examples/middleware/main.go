@@ -14,7 +14,7 @@ import (
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8000", "HTTP listen address")
 	flag.Parse()
-	server := socketio.NewServer(nil)
+	server := socketio.NewServer()
 	server.OnConnect("/", func(socketio.Conn) error { return nil })
 	server.OnEvent("/", "health", func(socketio.Conn) string { return "pong" })
 	secure := server.Of("/secure")

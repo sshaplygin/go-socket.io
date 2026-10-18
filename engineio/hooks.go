@@ -15,7 +15,7 @@ import (
 // 3.6.2's socket events, except Error, which reports the cause 3.6.2 passes as the
 // description of its close event. A nil field is ignored; a set
 // one is called synchronously on the goroutine of the event. Header values are
-// borrowed for the call: a hook that keeps them copies them. Options.Hooks holds one;
+// borrowed for the call: a hook that keeps them copies them. WithHooks holds one;
 // nil means no observer.
 type Hooks struct {
 	// Connection fires once per session, after its handshake response and before

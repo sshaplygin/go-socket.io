@@ -38,8 +38,8 @@ func TestLifecycleRootNamespace(t *testing.T) { lifecycleRootNamespace(t, nil) }
 
 // lifecycleRootNamespace runs the TestLifecycleRootNamespace scenario on socketio.NewServer(opts)
 // and returns the session's ID.
-func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
-	srv := socketio.NewServer(&socketio.Options{Engine: opts})
+func lifecycleRootNamespace(t *testing.T, opts []engineio.Option) string {
+	srv := socketio.NewServer(socketio.WithEngineOptions(opts...))
 	connected := make(chan socketio.Conn, 1)
 	disconnected := make(chan string, 1)
 	srv.OnConnect("/", func(s socketio.Conn) error {
@@ -57,7 +57,7 @@ func lifecycleRootNamespace(t *testing.T, opts *engineio.Options) string {
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
-	cl, err := client.New(ts.URL, nil)
+	cl, err := client.New(ts.URL)
 	require.NoError(t, err)
 	news := make(chan string, 8)
 	cl.OnConnect(func(client.Conn) error { return nil })
@@ -171,7 +171,7 @@ func (c *rawClient) read() string {
 func TestLifecycleNamespace(t *testing.T) {
 	// The engine.io client sends no CLOSE packet, so the server holds its
 	// last long poll until pingTimeout; keep that short for teardown.
-	srv := socketio.NewServer(&socketio.Options{Engine: shortPingOptions()})
+	srv := socketio.NewServer(socketio.WithEngineOptions(shortPingOptions()...))
 	nspConnected := make(chan string, 1)
 	nspDisconnected := make(chan string, 1)
 	srv.OnConnect("/", func(socketio.Conn) error { return nil })

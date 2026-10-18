@@ -136,7 +136,7 @@ func TestBackpressurePeerCloseReportsOnce(t *testing.T) {
 
 // Covers S18
 func TestServerEngine(t *testing.T) {
-	s := NewServer(nil)
+	s := NewServer()
 	t.Cleanup(func() { _ = s.Close() })
 	require.NotNil(t, s.Engine())
 	require.Same(t, s.engine, s.Engine())
@@ -201,7 +201,7 @@ func newPeer(t *testing.T, side byte, h hooks, nsps ...string) *peer {
 	p.nilErrs, p.discs = make(chan error, 8), make(chan string, 8)
 	var nhs []*namespaceHandler
 
-	p.srv = NewServer(nil)
+	p.srv = NewServer()
 	if h.setup != nil {
 		h.setup(p.srv)
 	}

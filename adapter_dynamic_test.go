@@ -63,7 +63,7 @@ func TestSetAdapter(t *testing.T) {
 
 	failure := errors.New("factory refused")
 	failedCount := 0
-	s := NewServer(nil)
+	s := NewServer()
 	defer func() { _ = s.Close() }()
 	s.SetAdapter(func(string) (Broadcast, error) { failedCount++; return nil, failure })
 	require.Nil(t, s.Of("/failed").Adapter())
@@ -76,7 +76,7 @@ func TestSetAdapter(t *testing.T) {
 
 // Covers N5
 func TestNamespaceAdapter(t *testing.T) {
-	s := NewServer(nil)
+	s := NewServer()
 	defer func() { _ = s.Close() }()
 	first := newBroadcast()
 	s.SetAdapter(func(string) (Broadcast, error) { return first, nil })
@@ -195,7 +195,7 @@ func (b *parentErrorAdapter) SendTo(opts BroadcastOptions, event string, args ..
 }
 
 func TestParentBroadcastError(t *testing.T) {
-	s := NewServer(nil)
+	s := NewServer()
 	defer func() { _ = s.Close() }()
 	failure := errors.New("child refused")
 	var visited []string

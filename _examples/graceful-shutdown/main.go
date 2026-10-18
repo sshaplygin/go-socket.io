@@ -18,7 +18,7 @@ const (
 )
 
 func main() {
-	server := socketio.NewServer(nil)
+	server := socketio.NewServer()
 
 	registerChat(server)
 

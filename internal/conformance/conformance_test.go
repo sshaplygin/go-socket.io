@@ -48,7 +48,7 @@ func runNode(t *testing.T, script string, args ...string) {
 
 func socketServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	s := socketio.NewServer(nil)
+	s := socketio.NewServer()
 	for _, name := range []string{"/", "/chat"} {
 		n := s.Of(name)
 		n.OnConnect(func(socketio.Conn) error { return nil })

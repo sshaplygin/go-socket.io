@@ -12,7 +12,7 @@ import (
 func main() {
 	router := gin.New()
 
-	server := socketio.NewServer(nil)
+	server := socketio.NewServer()
 
 	registerChat(server)
 

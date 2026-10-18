@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	gorilla "github.com/gorilla/websocket"
+	"github.com/stretchr/testify/require"
+
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
-	"github.com/stretchr/testify/require"
 )
 
 // Covers C5
@@ -55,7 +56,7 @@ func TestClientMidFrameFailure(t *testing.T) {
 				_ = peer.NetConn().Close()
 			}))
 			t.Cleanup(ts.Close)
-			cl, err := client.New(ts.URL, &client.Options{Transports: []transport.Transport{websocket.Default}})
+			cl, err := client.New(ts.URL, client.WithTransports([]transport.Transport{websocket.Default}...))
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
 			ready, reasons, failures := make(chan struct{}, 1), make(chan string, 1), make(chan error, 8)

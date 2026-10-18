@@ -161,7 +161,7 @@ All notable changes to this project are documented here. The format follows
   backoff delays and reconnect callbacks. Closed namespaces stay closed on recovery;
   ordinary emits buffer while reconnecting and volatile emits drop before CONNECT.
 - client: expose namespace ID/Connected, On/Once/Off listeners and ping/pong observers.
-  Namespace.Connected is available on server connections too; engineio.Dialer gains
+  Namespace.Connected is available on server connections too; engineio/client.Dialer gains
   optional heartbeat observers.
 
 
@@ -271,9 +271,10 @@ All notable changes to this project are documented here. The format follows
   namespace, `socketio: disconnect` (DEBUG, `sid`, `nsp`, `reason` `namespace disconnect`
   or `connection close`; text sent by the peer is not logged). `Client` logs neither
   (roadmap task 1.L).
-- `engineio.Options.WriteBufferSize` (temporary v1 placement) and `ErrWriteBufferFull`:
+- Socket.IO server/client `Options.WriteBufferSize` and role-specific `ErrWriteBufferFull`:
   each connection queues at most that many outbound packets (default 64). See
-  [`engineio.Options`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/engineio#Options)
+  [`socketio.Options`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Options)
+  and [`client.Options`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/client#Options)
   and [`ErrWriteBufferFull`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#ErrWriteBufferFull)
   (roadmap tasks 1.B and 1I).
 
@@ -289,10 +290,10 @@ All notable changes to this project are documented here. The format follows
   payload and transport-utils import paths are removed. See
   [the v1 migration guide](docs/V1_MIGRATION.md) for the new imports and API.
 
-- v1 source layout is organized by responsibility. Session abort, shutdown and response
-  header observation use direct session methods/hooks instead of private packages with
-  init-time function registration. Existing imports and connection interfaces remain
-  compatible; orderly close, forced close and hook ordering retain their behavior.
+- v1 source layout is organized by responsibility. The private server session owns
+  abort, shutdown and response-header observation, replacing packages with init-time
+  function registration. Orderly close, forced close and hook ordering retain their
+  behavior. Imports and role contracts change; see the migration guide.
 
 - v1 migration: this minor release expands `Conn`, `Namespace`, `Broadcast` and
   `engineio.Conn`, breaking custom implementations and mocks. `Conn` gains
@@ -365,14 +366,13 @@ All notable changes to this project are documented here. The format follows
   Consumers must change upstream-path imports and remove the old `replace`
   directive; README installation instructions use the fork directly. Examples
   now all build against the checked-out fork, including the Docker example.
-- `session.New` takes a trailing `*slog.Logger` parameter (nil accepted).
+- Engine.IO server sessions receive their logger from `engineio.Options.Logger`.
 - `logger.Error` accepts a nil error instead of panicking.
 - Toolchain: `go 1.22` in `go.mod`; `golang.org/x/exp/slog` replaced by `log/slog`;
   `gofrs/uuid` replaced by `google/uuid`; `gorilla/websocket` 1.5.3; `testify` 1.12.1;
   `io/ioutil` replaced by `io` (roadmap stage 1.1).
 - Lint: `.golangci.yml` migrated to the golangci-lint v2 schema with the standard
-  linter set; `EmptyAddrErr` renamed to `ErrEmptyAddr` with the old name kept
-  as a deprecated alias.
+  linter set. Empty client addresses return `client.ErrEmptyAddr`.
 - Build: Makefile targets `test`, `test-race`, `bench`, `lint`, `vuln`, `cover`,
   `examples`; CI split into `lint`, `test` (3 OS × 2 Go) and `examples` jobs on
   current GitHub Actions; Dependabot updates grouped weekly.
@@ -399,10 +399,10 @@ All notable changes to this project are documented here. The format follows
   queued faster than they are written can close a healthy client, polling ones much
   sooner. See [`Namespace.Emit`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Namespace)
   (roadmap task 1.B).
-- `Conn.Close` and `Client.Close` drain: they run `OnDisconnect` and return, the packets
-  queued until then are written in the background, and the engine.io connection closes
-  when they are written or after `engineio.Options.PingTimeout`; `Server.Count` counts the
-  session until then. They closed engine.io at once (`connection.go:66` at `48cf0d2`).
+- Server `Conn.Close` and client `Client.Close` drain: they run `OnDisconnect` and return,
+  the packets queued until then are written in the background, and the engine.io
+  connection closes when they are written or after the role's `Options.CloseTimeout`
+  (one minute if not positive); `Server.Count` counts the session until then. They closed engine.io at once (`connection.go:66` at `48cf0d2`).
   Closes started by the library (fatal read, decode or dispatch error, peer close, ping
   timeout or overflow) discard the queue. Encode errors and rejected namespace connects
   keep the engine connection open, as described above. See

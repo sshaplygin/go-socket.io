@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
-	"fmt"
 	"log"
-	"net"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
 	socketio "github.com/sshaplygin/go-socket.io"
 )
@@ -13,6 +15,14 @@ import (
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8000", "HTTP listen address")
 	flag.Parse()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, *addr); err != nil {
+		log.Print(err)
+	}
+}
+
+func run(ctx context.Context, addr string) error {
 	server := socketio.NewServer()
 	server.OnConnect("/", func(c socketio.Conn) error { return nil })
 	server.OnEvent("/", "sum", func(_ socketio.Conn, a, b int) int { return a + b })
@@ -20,18 +30,8 @@ func main() {
 	server.OnEvent("/", "deferred", func(_ socketio.Conn, value string, ack socketio.AckFunc) {
 		go ack("received: " + value)
 	})
-	go func() {
-		if err := server.Serve(); err != nil {
-			log.Print(err)
-		}
-	}()
-	defer server.Close()
+
 	mux := http.NewServeMux()
 	mux.Handle("/socket.io/", server)
-	listener, err := net.Listen("tcp", *addr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Listening on http://%s\n", listener.Addr())
-	log.Fatal(http.Serve(listener, mux))
+	return serve(ctx, server, &http.Server{Addr: addr, Handler: mux})
 }

@@ -1,27 +1,34 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
 	socketio "github.com/sshaplygin/go-socket.io"
 )
 
 func main() {
+	addr := flag.String("addr", ":8000", "HTTP listen address")
+	flag.Parse()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, *addr); err != nil {
+		log.Print(err)
+	}
+}
+
+func run(ctx context.Context, addr string) error {
 	server := socketio.NewServer()
 
 	registerChat(server)
 
-	go func() {
-		if err := server.Serve(); err != nil {
-			log.Fatalf("socketio listen error: %s\n", err)
-		}
-	}()
-	defer server.Close()
-
-	http.Handle("/socket.io/", server)
-	http.Handle("/", http.FileServer(http.Dir("../asset")))
-
-	log.Println("Serving at localhost:8000...")
-	log.Fatal(http.ListenAndServe(":8000", nil))
+	mux := http.NewServeMux()
+	mux.Handle("/socket.io/", server)
+	mux.Handle("/", http.FileServer(http.Dir("../asset")))
+	return serve(ctx, server, &http.Server{Addr: addr, Handler: mux})
 }

@@ -1,8 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"flag"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/gin-gonic/gin"
 
@@ -10,6 +16,16 @@ import (
 )
 
 func main() {
+	addr := flag.String("addr", ":8080", "HTTP listen address")
+	flag.Parse()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, *addr); err != nil {
+		log.Print(err)
+	}
+}
+
+func run(ctx context.Context, addr string) error {
 	router := gin.New()
 
 	server := socketio.NewServer()
@@ -19,20 +35,14 @@ func main() {
 		Network: "unix",
 	})
 	if err != nil {
-		log.Println("error:", err)
-		return
+		return errors.Join(err, server.Close())
 	}
 
 	registerChat(server)
-
-	go server.Serve()
-	defer server.Close()
 
 	router.GET("/socket.io/*any", gin.WrapH(server))
 	router.POST("/socket.io/*any", gin.WrapH(server))
 	router.StaticFS("/public", http.Dir("../asset"))
 
-	if err := router.Run(); err != nil {
-		log.Fatal("failed run app: ", err)
-	}
+	return serve(ctx, server, &http.Server{Addr: addr, Handler: router})
 }

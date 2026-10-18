@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"log"
 	"net/http"
 	"net/http/pprof"
 	_ "net/http/pprof"
+	"os"
+	"os/signal"
+	"syscall"
 
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/engineio"
@@ -18,6 +23,17 @@ var allowOriginFunc = func(r *http.Request) bool {
 }
 
 func main() {
+	addr := flag.String("addr", ":8000", "HTTP listen address")
+	debugAddr := flag.String("debug-addr", ":8001", "pprof listen address")
+	flag.Parse()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, *addr, *debugAddr); err != nil {
+		log.Print(err)
+	}
+}
+
+func run(ctx context.Context, addr, debugAddr string) error {
 	opts := []engineio.Option{engineio.WithTransports([]transport.Transport{
 		&polling.Transport{
 			CheckOrigin: allowOriginFunc,
@@ -39,26 +55,11 @@ func main() {
 	debugMux.HandleFunc("/pprof/symbol", pprof.Symbol)
 	debugMux.HandleFunc("/pprof/trace", pprof.Trace)
 
-	go func() {
-		log.Println("Serving debug at :8001...")
-
-		if err := http.ListenAndServe(":8001", debugMux); err != nil {
-			log.Fatalf("debug serve error: %s\n", err)
-		}
-	}()
-
-	go func() {
-		log.Println("Serving socketio...")
-
-		if err := server.Serve(); err != nil {
-			log.Fatalf("socketio serve error: %s\n", err)
-		}
-	}()
-	defer server.Close()
-
-	http.Handle("/socket.io/", server)
-	http.Handle("/", http.FileServer(http.Dir("../asset")))
-
-	log.Println("Serving at :8000...")
-	log.Fatal(http.ListenAndServe(":8000", nil))
+	mux := http.NewServeMux()
+	mux.Handle("/socket.io/", server)
+	mux.Handle("/", http.FileServer(http.Dir("../asset")))
+	return serve(ctx, server,
+		&http.Server{Addr: addr, Handler: mux},
+		&http.Server{Addr: debugAddr, Handler: debugMux},
+	)
 }

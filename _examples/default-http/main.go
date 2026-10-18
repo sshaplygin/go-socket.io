@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
-	"fmt"
 	"log"
-	"net"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/engineio"
@@ -22,6 +24,14 @@ var allowOriginFunc = func(r *http.Request) bool {
 func main() {
 	addr := flag.String("addr", ":8000", "HTTP listen address")
 	flag.Parse()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, *addr); err != nil {
+		log.Print(err)
+	}
+}
+
+func run(ctx context.Context, addr string) error {
 	server := socketio.NewServer(socketio.WithEngineOptions(engineio.WithTransports([]transport.Transport{
 		&polling.Transport{
 			CheckOrigin: allowOriginFunc,
@@ -33,20 +43,8 @@ func main() {
 
 	registerChat(server)
 
-	go func() {
-		if err := server.Serve(); err != nil {
-			log.Fatalf("socketio listen error: %s\n", err)
-		}
-	}()
-	defer server.Close()
-
-	http.Handle("/socket.io/", server)
-	http.Handle("/", http.FileServer(http.Dir("../asset")))
-
-	listener, err := net.Listen("tcp", *addr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Listening on http://%s\n", listener.Addr())
-	log.Fatal(http.Serve(listener, nil))
+	mux := http.NewServeMux()
+	mux.Handle("/socket.io/", server)
+	mux.Handle("/", http.FileServer(http.Dir("../asset")))
+	return serve(ctx, server, &http.Server{Addr: addr, Handler: mux})
 }

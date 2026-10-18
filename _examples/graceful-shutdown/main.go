@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -12,48 +14,27 @@ import (
 )
 
 const (
-	port = ":8000"
-
 	gracefulDelay = 3 * time.Second
 )
 
 func main() {
+	addr := flag.String("addr", ":8000", "HTTP listen address")
+	flag.Parse()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, *addr); err != nil {
+		log.Print(err)
+	}
+}
+
+func run(ctx context.Context, addr string) error {
 	server := socketio.NewServer()
 
 	registerChat(server)
 
-	http.Handle("/socket.io/", server)
-	http.Handle("/", http.FileServer(http.Dir("../asset")))
-
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		if err := server.Serve(); err != nil {
-			log.Fatalf("socketio listen error: %s\n", err)
-		}
-	}()
-
-	go func() {
-		if err := http.ListenAndServe(port, nil); err != nil {
-			log.Fatalf("http listen error: %s\n", err)
-		}
-	}()
-
-	log.Printf("server started by %v", port)
-
-	<-done
-
-	//shutdown delay
-	log.Printf("graceful delay: %v\n", gracefulDelay)
-
-	time.Sleep(gracefulDelay)
-
-	log.Println("server stopped")
-
-	if err := server.Close(); err != nil {
-		log.Fatalf("server shutdown failed: %s\n", err)
-	}
-
-	log.Println("server is shutdown")
+	mux := http.NewServeMux()
+	mux.Handle("/socket.io/", server)
+	mux.Handle("/", http.FileServer(http.Dir("../asset")))
+	log.Printf("shutdown delay after signal: %v", gracefulDelay)
+	return serveAfter(ctx, server, gracefulDelay, &http.Server{Addr: addr, Handler: mux})
 }

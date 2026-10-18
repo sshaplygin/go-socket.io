@@ -1,7 +1,13 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/gogf/gf/frame/g"
 	"github.com/gogf/gf/net/ghttp"
@@ -15,6 +21,16 @@ func cors(r *ghttp.Request) {
 }
 
 func main() {
+	addr := flag.String("addr", ":8000", "HTTP listen address")
+	flag.Parse()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, *addr); err != nil {
+		log.Print(err)
+	}
+}
+
+func run(ctx context.Context, addr string) error {
 	s := g.Server()
 
 	server := socketio.NewServer()
@@ -26,13 +42,6 @@ func main() {
 
 	registerChat(server)
 
-	go func() {
-		if err := server.Serve(); err != nil {
-			log.Fatalf("socketio listen error: %s\n", err)
-		}
-	}()
-	defer server.Close()
-
-	s.SetPort(8000)
-	s.Run()
+	// Own the HTTP server: GoFrame Run/Start can terminate the process on failure.
+	return serve(ctx, server, &http.Server{Addr: addr, Handler: s})
 }

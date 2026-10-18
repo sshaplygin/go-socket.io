@@ -579,6 +579,9 @@ this rule. C3b adds a portable source gate for the v1 library and examples, incl
 excludes underscore directories. Verify cleanup when an example's listener or serving
 goroutine fails, alongside the existing default-http race test and both pinned Node
 example runs. Do not replace Fatal with a log that leaves its owning services running.
+For README Go blocks, the source gate may use the test-only pinned dependency
+`github.com/yuin/goldmark v1.4.13` and add it to root `go.mod`/`go.sum` in C3b.
+Parse Markdown structure before inspecting Go ASTs; runtime imports stay unchanged.
 
 The owner's additional request to group files with repeated prefixes requires a
 responsibility inventory, covering session, connection, namespace, packet and payload

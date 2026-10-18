@@ -4,10 +4,12 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/engineio"
 )
 
 type options struct {
+	Adapter         adapter.Factory
 	EngineOptions   []engineio.Option
 	WriteBufferSize int
 	CloseTimeout    time.Duration
@@ -50,4 +52,10 @@ func resolveOptions(opts ...Option) *options {
 		}
 	}
 	return config
+}
+
+// WithAdapter selects a factory for future namespaces. Nil selects memory.
+// Construction happens on namespace registration; Serve reports its errors.
+func WithAdapter(factory adapter.Factory) Option {
+	return func(config *options) { config.Adapter = factory }
 }

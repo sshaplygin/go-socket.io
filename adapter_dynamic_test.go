@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"errors"
+	"io"
 	"net/url"
 	"strings"
 	"sync"
@@ -9,42 +10,45 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sshaplygin/go-socket.io/adapter"
+	redisadapter "github.com/sshaplygin/go-socket.io/adapter/redis"
 )
 
 type observedAdapter struct {
-	*broadcast
+	*adapter.Memory
 	mu           sync.Mutex
 	joined       []string
 	sends, lists int
 }
 
-func (b *observedAdapter) Join(room string, c Conn) {
+func (b *observedAdapter) Join(room string, c adapter.Socket) {
 	b.mu.Lock()
 	b.joined = append(b.joined, room)
 	b.mu.Unlock()
-	b.broadcast.Join(room, c)
+	b.Memory.Join(room, c)
 }
-func (b *observedAdapter) SendTo(opts BroadcastOptions, event string, args ...interface{}) error {
+func (b *observedAdapter) SendTo(opts adapter.Options, event string, args ...interface{}) error {
 	b.mu.Lock()
 	b.sends++
 	b.mu.Unlock()
-	return b.broadcast.SendTo(opts, event, args...)
+	return b.Memory.SendTo(opts, event, args...)
 }
 func (b *observedAdapter) IDs(rooms ...string) []string {
 	b.mu.Lock()
 	b.lists++
 	b.mu.Unlock()
-	return b.broadcast.IDs(rooms...)
+	return b.Memory.IDs(rooms...)
 }
 
 // Covers S5
 func TestSetAdapter(t *testing.T) {
-	b := &observedAdapter{broadcast: newBroadcast()}
+	b := &observedAdapter{Memory: adapter.NewMemory()}
 	var srv *Server
 	var constructions []string
 	ts := newTestServer(t, func(s *Server) {
 		srv = s
-		s.SetAdapter(func(nsp string) (Broadcast, error) { constructions = append(constructions, nsp); return b, nil })
+		s.SetAdapter(func(nsp string) (adapter.Adapter, error) { constructions = append(constructions, nsp); return b, nil })
 		s.OnConnect("/", func(c Conn) error { c.Join("room"); return nil })
 	})
 	c := dialRaw(t, ts.URL)
@@ -65,7 +69,7 @@ func TestSetAdapter(t *testing.T) {
 	failedCount := 0
 	s := NewServer()
 	defer func() { _ = s.Close() }()
-	s.SetAdapter(func(string) (Broadcast, error) { failedCount++; return nil, failure })
+	s.SetAdapter(func(string) (adapter.Adapter, error) { failedCount++; return nil, failure })
 	require.Nil(t, s.Of("/failed").Adapter())
 	require.ErrorIs(t, s.Serve(), failure)
 	// A failed factory is called once; another registration retains its error.
@@ -78,27 +82,34 @@ func TestSetAdapter(t *testing.T) {
 func TestNamespaceAdapter(t *testing.T) {
 	s := NewServer()
 	defer func() { _ = s.Close() }()
-	first := newBroadcast()
-	s.SetAdapter(func(string) (Broadcast, error) { return first, nil })
+	first := adapter.NewMemory()
+	s.SetAdapter(func(string) (adapter.Adapter, error) { return first, nil })
 	n := s.Of("/first")
 	require.Same(t, first, n.Adapter())
 	r := miniredis.RunT(t)
-	ok, err := s.Adapter(&RedisAdapterOptions{Addr: r.Addr()})
-	require.True(t, ok)
-	require.NoError(t, err)
-	require.IsType(t, &redisBroadcast{}, s.Of("/redis").Adapter())
-	last := newBroadcast()
-	s.SetAdapter(func(string) (Broadcast, error) { return last, nil })
+	factory := redisadapter.New(redisadapter.WithAddr(r.Addr()))
+	var installed adapter.Adapter
+	s.SetAdapter(func(name string) (adapter.Adapter, error) {
+		bc, err := factory(name)
+		installed = bc
+		return bc, err
+	})
+	redisNamespace := s.Of("/redis")
+	require.NotNil(t, installed)
+	require.Same(t, installed, redisNamespace.Adapter())
+	require.Implements(t, (*io.Closer)(nil), installed)
+	last := adapter.NewMemory()
+	s.SetAdapter(func(string) (adapter.Adapter, error) { return last, nil })
 	require.Same(t, last, s.Of("/last").Adapter())
 	require.Same(t, first, n.Adapter(), "factories do not replace existing adapters")
 	s.SetAdapter(nil)
-	require.IsType(t, &broadcast{}, s.Of("/memory").Adapter())
+	require.IsType(t, &adapter.Memory{}, s.Of("/memory").Adapter())
 }
 
 // Covers A2
 func TestAdapterJoinRooms(t *testing.T) {
-	b := &observedAdapter{broadcast: newBroadcast()}
-	p := start(t, 'S', hooks{setup: func(s *Server) { s.SetAdapter(func(string) (Broadcast, error) { return b, nil }) }, connect: func(c Conn) error { c.Join("one", "two", "three"); return nil }})
+	b := &observedAdapter{Memory: adapter.NewMemory()}
+	p := start(t, 'S', hooks{setup: func(s *Server) { s.SetAdapter(func(string) (adapter.Adapter, error) { return b, nil }) }, connect: func(c Conn) error { c.Join("one", "two", "three"); return nil }})
 	b.mu.Lock()
 	require.Equal(t, []string{"one", "two", "three", p.nc.ID()}, b.joined)
 	b.mu.Unlock()
@@ -186,11 +197,11 @@ func TestDynamicNamespaces(t *testing.T) {
 }
 
 type parentErrorAdapter struct {
-	*broadcast
-	send func(BroadcastOptions, string, ...interface{}) error
+	*adapter.Memory
+	send func(adapter.Options, string, ...interface{}) error
 }
 
-func (b *parentErrorAdapter) SendTo(opts BroadcastOptions, event string, args ...interface{}) error {
+func (b *parentErrorAdapter) SendTo(opts adapter.Options, event string, args ...interface{}) error {
 	return b.send(opts, event, args...)
 }
 
@@ -201,12 +212,12 @@ func TestParentBroadcastError(t *testing.T) {
 	var visited []string
 	failAt := 2
 	recipients := make(map[string]*redisTestConn)
-	s.SetAdapter(func(name string) (Broadcast, error) {
-		memory := newBroadcast()
+	s.SetAdapter(func(name string) (adapter.Adapter, error) {
+		memory := adapter.NewMemory()
 		target := newRedisTestConn(name)
 		memory.Join("room", target)
 		recipients[name] = target
-		return &parentErrorAdapter{broadcast: memory, send: func(opts BroadcastOptions, event string, args ...interface{}) error {
+		return &parentErrorAdapter{Memory: memory, send: func(opts adapter.Options, event string, args ...interface{}) error {
 			visited = append(visited, name)
 			if len(visited) == failAt {
 				return failure

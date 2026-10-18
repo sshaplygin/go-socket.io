@@ -1,0 +1,22 @@
+package main
+
+import (
+	socketio "github.com/sshaplygin/go-socket.io"
+	"github.com/sshaplygin/go-socket.io/adapter"
+	redisadapter "github.com/sshaplygin/go-socket.io/adapter/redis"
+)
+
+type externalAdapter struct{ *adapter.Memory }
+
+var _ adapter.Adapter = (*externalAdapter)(nil)
+var _ adapter.Socket = socketio.Conn(nil)
+var _ func(...redisadapter.Option) adapter.Factory = redisadapter.New
+
+func main() {
+	server := socketio.NewServer(socketio.WithAdapter(func(string) (adapter.Adapter, error) { return &externalAdapter{adapter.NewMemory()}, nil }))
+	defer server.Close()
+	server.ForEach("/", "room", func(socket adapter.Socket) {
+		socket.EmitWithOptions(adapter.Options{Volatile: true, NoCompress: true}, "news")
+	})
+	server.SetAdapter(redisadapter.New(redisadapter.WithAddr("127.0.0.1:6379")))
+}

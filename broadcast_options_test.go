@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gomodule/redigo/redis"
 	gorilla "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
 // flagTarget records whether an adapter used the public single-socket Emitter.
@@ -23,116 +24,24 @@ type flagTarget struct {
 	volatile int
 }
 
-func (c *flagTarget) Volatile() Emitter { c.volatile++; return flagEmission{target: c} }
-
-type flagEmission struct {
-	Emitter
-	target *flagTarget
-}
-
-func (e flagEmission) Emit(event string, args ...interface{}) error {
-	if e.target.writable {
-		e.target.Emit(event, args...)
+func (c *flagTarget) EmitWithOptions(opts adapter.Options, event string, args ...interface{}) {
+	if opts.Volatile {
+		c.volatile++
+		if !c.writable {
+			return
+		}
 	}
-	return nil
+	c.Emit(event, args...)
 }
 
 func flagSocket(id string, writable bool) *flagTarget {
 	return &flagTarget{redisTestConn: newRedisTestConn(id), writable: writable}
 }
 
-type exceptAdapter struct{ Broadcast }
+type exceptAdapter struct{ adapter.Adapter }
 
-func (exceptAdapter) SendTo(BroadcastOptions, string, ...interface{}) error {
-	return errors.Join(errors.New("adapter refused"), ErrExceptUnsupported)
-}
-
-// Covers A4
-func TestBroadcastSendTo(t *testing.T) {
-	b := newBroadcast()
-	a, c, d := flagSocket("a", true), flagSocket("c", false), flagSocket("d", true)
-	b.Join("one", a)
-	b.Join("two", a)
-	b.Join("two", c)
-	b.Join("two", d)
-	require.NoError(t, b.SendTo(BroadcastOptions{Rooms: []string{"one", "two", "one"}, Except: []string{"d"}, Volatile: true, Local: true}, "news", 7))
-	expectEvent(t, a.redisTestConn, "news [7]")
-	require.Empty(t, a.events)
-	require.Empty(t, c.events)
-	require.Empty(t, d.events)
-	require.Equal(t, 1, a.volatile)
-	require.Equal(t, 1, c.volatile)
-	require.Zero(t, d.volatile)
-	// Delivery releases the adapter lock before invoking application code.
-	a.onEmit = func() { b.LeaveAll(a) }
-	require.NoError(t, b.SendTo(BroadcastOptions{Rooms: []string{"one"}}, "leave"))
-	require.Empty(t, b.Rooms(a))
-	p := start(t, 'S', hooks{})
-	p.nc.(*namespaceConn).broadcast = exceptAdapter{Broadcast: nopBroadcast{}}
-	require.ErrorIs(t, p.nc.Broadcast().Emit("nothing"), ErrExceptUnsupported)
-	require.Empty(t, p.fc.out)
-}
-
-// Covers A5
-func TestBroadcastIDs(t *testing.T) {
-	b := newBroadcast()
-	a, c := newRedisTestConn("a"), newRedisTestConn("c")
-	b.Join("one", a)
-	b.Join("two", a)
-	b.Join("two", c)
-	require.ElementsMatch(t, []string{"a", "c"}, b.IDs())
-	require.ElementsMatch(t, []string{"a", "c"}, b.IDs("one", "two", "one"))
-	require.Empty(t, b.IDs("missing"))
-	ids := b.IDs("one")
-	ids[0] = "changed"
-	require.Equal(t, []string{"a"}, b.IDs("one"))
-}
-
-// Covers A1
-func TestBroadcastRoomsMaps(t *testing.T) {
-	b := newBroadcast()
-	a, c := newRedisTestConn("a"), newRedisTestConn("c")
-	check := func(want []string) {
-		t.Helper()
-		require.ElementsMatch(t, want, b.Rooms(a))
-		for _, room := range want {
-			require.Equal(t, 1, b.Len(room))
-			require.Equal(t, []string{"a"}, b.IDs(room))
-		}
-		b.lock.RLock()
-		defer b.lock.RUnlock()
-		for room, members := range b.rooms {
-			for id := range members {
-				require.Contains(t, b.sids[id], room)
-			}
-		}
-		for id, rooms := range b.sids {
-			for room := range rooms {
-				require.Contains(t, b.rooms[room], id)
-			}
-		}
-	}
-	for _, room := range []string{"one", "two", "three"} {
-		b.Join(room, a)
-	}
-	b.Join("two", a)
-	check([]string{"one", "two", "three"})
-	require.ElementsMatch(t, []string{"one", "two", "three"}, b.AllRooms())
-	b.Leave("two", a)
-	check([]string{"one", "three"})
-	b.Join("other", c)
-	b.LeaveAll(a)
-	check(nil)
-	require.Equal(t, []string{"other"}, b.AllRooms())
-	require.Equal(t, []string{"c"}, b.IDs())
-	b.Clear("other")
-	require.Empty(t, b.sids)
-	require.Empty(t, b.rooms)
-	require.Empty(t, b.IDs())
-	b.Join("last", a)
-	b.Leave("last", a)
-	require.Empty(t, b.sids)
-	require.Empty(t, b.rooms)
+func (exceptAdapter) SendTo(adapter.Options, string, ...interface{}) error {
+	return errors.Join(errors.New("adapter refused"), adapter.ErrExceptUnsupported)
 }
 
 // Covers K11
@@ -145,9 +54,9 @@ func TestConnJoinRooms(t *testing.T) {
 	}
 }
 
-func broadcastPeers(t *testing.T, h hooks) (*broadcast, []*peer) {
+func broadcastPeers(t *testing.T, h hooks) (*adapter.Memory, []*peer) {
 	t.Helper()
-	b := newBroadcast()
+	b := adapter.NewMemory()
 	var peers []*peer
 	for i := 0; i < 3; i++ {
 		p := start(t, 'S', h)
@@ -383,72 +292,6 @@ func TestVolatileEmit(t *testing.T) {
 	require.Equal(t, "42[\"delivered\"]\n", string(packet))
 }
 
-func isolatedRedis(t *testing.T) (*redisBroadcast, *atomic.Int32) {
-	t.Helper()
-	var calls atomic.Int32
-	pool := &redis.Pool{Dial: func() (redis.Conn, error) { calls.Add(1); return nil, errors.New("unexpected redis I/O") }}
-	t.Cleanup(func() { _ = pool.Close() })
-	return &redisBroadcast{nsp: "/", uid: "local", rooms: make(map[string]map[string]Conn), pub: pool}, &calls
-}
-
-// Covers A4
-func TestRedisBroadcastExceptUnsupported(t *testing.T) {
-	b, calls := isolatedRedis(t)
-	c := newRedisTestConn("c")
-	b.Join("r", c)
-	for _, local := range []bool{false, true} {
-		err := b.SendTo(BroadcastOptions{Except: []string{"other"}, Local: local}, "nothing")
-		require.ErrorIs(t, err, ErrExceptUnsupported)
-		require.NotEqual(t, ErrExceptUnsupported, err)
-	}
-	require.Zero(t, calls.Load())
-	require.Empty(t, c.events)
-}
-
-func TestRedisBroadcastDropsUnknownOpts(t *testing.T) {
-	b, calls := isolatedRedis(t)
-	c := newRedisTestConn("c")
-	b.Join("r", c)
-	require.Error(t, b.onMessage("socket.io#/#remote", []byte(`{"opts":["r","news",{"except":["c"]}],"args":[]}`)))
-	require.Empty(t, c.events)
-	require.Zero(t, calls.Load())
-	require.NoError(t, b.onMessage("socket.io#/#remote", []byte(`{"opts":["r","news"],"args":[]}`)))
-	expectEvent(t, c, "news []")
-}
-
-func TestRedisBroadcastDropsUnknownKeys(t *testing.T) {
-	b, _ := isolatedRedis(t)
-	c := newRedisTestConn("c")
-	b.Join("r", c)
-	require.Error(t, b.onMessage("socket.io#/#remote", []byte(`{"opts":["r","news"],"args":[],"except":["c"]}`)))
-	require.Empty(t, c.events)
-}
-
-func TestRedisBroadcastLocalFlag(t *testing.T) {
-	b, calls := isolatedRedis(t)
-	c := newRedisTestConn("c")
-	b.Join("r", c)
-	b.Join("s", c)
-	require.NoError(t, b.SendTo(BroadcastOptions{Rooms: []string{"r", "s"}, Local: true}, "local"))
-	expectEvent(t, c, "local []")
-	require.Empty(t, c.events)
-	require.Zero(t, calls.Load())
-	require.Equal(t, []string{"c"}, b.IDs("r", "s"))
-}
-
-func TestRedisBroadcastVolatileFlag(t *testing.T) {
-	b, calls := isolatedRedis(t)
-	a, c := flagSocket("a", true), flagSocket("c", false)
-	b.Join("r", a)
-	b.Join("r", c)
-	require.NoError(t, b.SendTo(BroadcastOptions{Volatile: true}, "volatile"))
-	expectEvent(t, a.redisTestConn, "volatile []")
-	require.Empty(t, c.events)
-	require.Equal(t, 1, a.volatile)
-	require.Equal(t, 1, c.volatile)
-	require.Equal(t, int32(1), calls.Load())
-}
-
 func TestVolatileDropsQueuedPacket(t *testing.T) {
 	p := start(t, 'S', hooks{})
 	p.fc.hold.Store(true)
@@ -524,4 +367,12 @@ func TestVolatileConcurrentAdmission(t *testing.T) {
 			require.Empty(t, p.errs)
 		})
 	}
+}
+
+// Covers A4
+func TestBroadcastAdapterError(t *testing.T) {
+	p := start(t, 'S', hooks{})
+	p.nc.(*namespaceConn).broadcast = exceptAdapter{Adapter: nopBroadcast{}}
+	require.ErrorIs(t, p.nc.Broadcast().Emit("nothing"), adapter.ErrExceptUnsupported)
+	require.Empty(t, p.fc.out)
 }

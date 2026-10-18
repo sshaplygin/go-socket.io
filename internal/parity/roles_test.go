@@ -18,6 +18,9 @@ func TestRoleConsumerFixtures(t *testing.T) {
 		failure string
 	}{
 		{"positive", ""},
+		{"adapter", ""},
+		{"retired_root_adapter", "undefined: socketio.Broadcast"},
+		{"retired_redis_options", "undefined: socketio.RedisAdapterOptions"},
 		{"wrong_server_callback", "cannot use"},
 		{"wrong_client_callback", "cannot use"},
 		{"wrong_server_option", "cannot use"},

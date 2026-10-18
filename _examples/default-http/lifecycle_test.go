@@ -11,6 +11,7 @@ import (
 	"time"
 
 	socketio "github.com/sshaplygin/go-socket.io"
+	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/client"
 )
 
@@ -72,7 +73,7 @@ func TestServeFailureStopsHTTPAndEngine(t *testing.T) {
 			server := socketio.NewServer()
 			defer server.Close()
 			failure := errors.New("adapter unavailable")
-			server.SetAdapter(func(string) (socketio.Broadcast, error) { return nil, failure })
+			server.SetAdapter(func(string) (adapter.Adapter, error) { return nil, failure })
 			server.Of("/failed")
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()

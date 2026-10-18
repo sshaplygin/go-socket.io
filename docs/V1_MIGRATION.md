@@ -174,3 +174,47 @@ mount the framework's HTTP handler on the owned `http.Server`, including GoFrame
 whose built-in runner can terminate the process. An Engine.IO echo peer error ends
 only that peer and releases its acquired readers/writers. The Go client closes on
 connect/login errors as well as successful completion.
+
+## Adapters and Redis
+
+| Previous root API | Current API |
+| --- | --- |
+| `Broadcast`, `BroadcastOptions`, `EachFunc`, `AdapterFunc` | `adapter.Adapter`, `adapter.Options`, `adapter.EachFunc`, `adapter.Factory` |
+| Root `ErrExceptUnsupported` | `adapter.ErrExceptUnsupported`; error text and `errors.Is` wrapping are preserved |
+| Private memory implementation | `adapter.NewMemory()` |
+| `Server.Adapter(*RedisAdapterOptions)` | `socketio.WithAdapter(redis.New(...redis.Option))` at construction, or `Server.SetAdapter(factory)` for later namespaces |
+| `RedisAdapterOptions.Addr`, `Prefix`, `Network`, `Password` | `redis.WithAddr`, `WithPrefix`, `WithNetwork`, `WithPassword` |
+| Deprecated Redis `Host`, `Port` | `redis.WithHost`, `WithPort`; the default address still takes precedence, so use `WithAddr` |
+| Redis `DB` | `redis.WithDB`; the existing DB0 limitation remains |
+
+`redis.New()` returns a factory without connecting to Redis. The old `Server.Adapter`
+upfront connection probe is removed: namespace registration applies the factory once,
+retains construction errors, and `Server.Serve` reports the first recorded error.
+`SetAdapter` affects future namespaces; existing ones keep their adapter. Nil selects
+memory. Constructor options are ordered, with the last `WithAdapter` winning.
+Shutdown uses optional `io.Closer` and joins completed adapter close errors with the
+engine error. Adapters that own resources should implement it.
+
+```go
+import (
+    socketio "github.com/sshaplygin/go-socket.io"
+    "github.com/sshaplygin/go-socket.io/adapter"
+    redisadapter "github.com/sshaplygin/go-socket.io/adapter/redis"
+)
+
+server := socketio.NewServer(socketio.WithAdapter(redisadapter.New(
+    redisadapter.WithAddr("127.0.0.1:6379"),
+    redisadapter.WithPrefix("socket.io"),
+)))
+server.OnConnect("/", func(c socketio.Conn) error { c.Join("lobby"); return nil })
+server.ForEach("/", "lobby", func(c adapter.Socket) { c.Emit("news", "hello") })
+```
+
+External adapters take `adapter.Socket`, whose methods are `ID`, `Emit` and
+`EmitWithOptions`. The last method applies only `Volatile` and `NoCompress` to that
+socket; the adapter owns room/exclusion/cluster selection. Root `Conn` implements this
+contract; custom sockets and mocks must add the flagged method if they do not embed
+it. `ForEach` callbacks needing server-specific metadata can use a checked type assertion
+to `socketio.Conn`. `adapter.Memory` releases its index lock before invoking sockets or
+callbacks. Redis composes Memory; its legacy JSON format, remote flags, exclusion,
+subscription timing and DB0 limitations remain unchanged.

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	socketio "github.com/sshaplygin/go-socket.io"
+	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
 const chatRoom = "chat"
@@ -59,7 +60,7 @@ func registerChat(server *socketio.Server) {
 	// others sends the event to every connection of the chat room except s: the library has no
 	// broadcast that skips the sender.
 	others := func(s socketio.Conn, event string, payload interface{}) {
-		server.ForEach("/", chatRoom, func(c socketio.Conn) {
+		server.ForEach("/", chatRoom, func(c adapter.Socket) {
 			if c.ID() != s.ID() {
 				c.Emit(event, payload)
 			}

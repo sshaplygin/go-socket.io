@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	socketio "github.com/sshaplygin/go-socket.io"
+	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
@@ -92,7 +93,7 @@ func lifecycleRootNamespace(t *testing.T, opts []engineio.Option) string {
 	}
 
 	seen := 0
-	require.True(t, srv.ForEach("/", "lobby", func(c socketio.Conn) { seen++ }))
+	require.True(t, srv.ForEach("/", "lobby", func(c adapter.Socket) { seen++ }))
 	require.Equal(t, 1, seen)
 
 	require.True(t, srv.LeaveRoom("/", "lobby", sc))
@@ -110,7 +111,7 @@ func lifecycleRootNamespace(t *testing.T, opts []engineio.Option) string {
 	require.False(t, srv.ClearRoom("/missing", "r"))
 	require.False(t, srv.BroadcastToRoom("/missing", "r", "e"))
 	require.False(t, srv.BroadcastToNamespace("/missing", "e"))
-	require.False(t, srv.ForEach("/missing", "r", func(socketio.Conn) {}))
+	require.False(t, srv.ForEach("/missing", "r", func(adapter.Socket) {}))
 	require.Equal(t, -1, srv.RoomLen("/missing", "r"))
 	require.Nil(t, srv.Rooms("/missing"))
 

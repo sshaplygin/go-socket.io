@@ -1,4 +1,4 @@
-package socketio
+package redis
 
 import (
 	"bufio"
@@ -15,6 +15,8 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
 const testRedisReqChannel = "socket.io-request#/"
@@ -28,7 +30,7 @@ func init() {
 // redisTestConn is a Conn that records the events emitted to it. Only ID and
 // Emit are used by the Redis broadcast; the embedded Conn is nil.
 type redisTestConn struct {
-	Conn
+	adapter.Socket
 	id     string
 	events chan string
 	onEmit func()
@@ -47,12 +49,12 @@ func (c *redisTestConn) Emit(event string, v ...interface{}) {
 	c.events <- fmt.Sprintf("%s %v", event, v)
 }
 
-func newTestRedisBroadcast(t *testing.T, s *miniredis.Miniredis) *redisBroadcast {
+func newTestRedisBroadcast(t *testing.T, s *miniredis.Miniredis) *broadcast {
 	t.Helper()
 	before := s.PubSubNumSub(testRedisReqChannel)[testRedisReqChannel]
-	bc, err := newRedisBroadcast("/", &RedisAdapterOptions{Addr: s.Addr(), Prefix: "socket.io", Network: "tcp"})
+	bc, err := newBroadcast("/", &options{Addr: s.Addr(), Prefix: "socket.io", Network: "tcp"})
 	require.NoError(t, err)
-	t.Cleanup(bc.close)
+	t.Cleanup(func() { _ = bc.Close() })
 	waitRedisSubscribers(t, s, testRedisReqChannel, before+1)
 	return bc
 }
@@ -197,12 +199,12 @@ func TestRedisBroadcastRequestsReadRoomsUnderLock(t *testing.T) {
 // A connection may leave its rooms while a message is emitted to it, as a
 // connection that closes itself does; leaving takes the write lock.
 func TestRedisBroadcastEmitWithoutLock(t *testing.T) {
-	cases := map[string]func(a, b *redisBroadcast){
-		"Send":           func(a, _ *redisBroadcast) { a.Send("room", "msg") },
-		"SendAll":        func(a, _ *redisBroadcast) { a.SendAll("msg") },
-		"ForEach":        func(a, _ *redisBroadcast) { a.ForEach("room", func(c Conn) { c.Emit("msg") }) },
-		"remote Send":    func(_, b *redisBroadcast) { b.Send("room", "msg") },
-		"remote SendAll": func(_, b *redisBroadcast) { b.SendAll("msg") },
+	cases := map[string]func(a, b *broadcast){
+		"Send":           func(a, _ *broadcast) { a.Send("room", "msg") },
+		"SendAll":        func(a, _ *broadcast) { a.SendAll("msg") },
+		"ForEach":        func(a, _ *broadcast) { a.ForEach("room", func(c adapter.Socket) { c.Emit("msg") }) },
+		"remote Send":    func(_, b *broadcast) { b.Send("room", "msg") },
+		"remote SendAll": func(_, b *broadcast) { b.SendAll("msg") },
 	}
 	for name, run := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -277,8 +279,8 @@ func TestRedisBroadcastConstructionFailure(t *testing.T) {
 		}
 	}()
 
-	opts := &RedisAdapterOptions{Addr: ln.Addr().String(), Network: "tcp", Prefix: "socket.io", Password: "pw"}
-	_, err = newRedisBroadcast("/", opts)
+	opts := &options{Addr: ln.Addr().String(), Network: "tcp", Prefix: "socket.io", Password: "pw"}
+	_, err = newBroadcast("/", opts)
 	require.Error(t, err)
 	select {
 	case <-firstClosed:
@@ -287,7 +289,7 @@ func TestRedisBroadcastConstructionFailure(t *testing.T) {
 	}
 
 	require.NoError(t, ln.Close())
-	_, err = newRedisBroadcast("/", opts)
+	_, err = newBroadcast("/", opts)
 	require.Error(t, err)
 }
 
@@ -335,7 +337,7 @@ func TestRedisBroadcastResubscribesAfterRestart(t *testing.T) {
 	require.Eventually(t, func() bool { return b.Len("room") == 1 }, 2*time.Second, time.Millisecond)
 
 	// close stops the dispatcher instead of making it subscribe again.
-	a.close()
+	require.NoError(t, a.Close())
 	waitRedisSubscribers(t, s, testRedisReqChannel, 1)
 	time.Sleep(4 * redisReconnectMax)
 	require.Equal(t, 1, s.PubSubNumSub(testRedisReqChannel)[testRedisReqChannel])
@@ -346,7 +348,7 @@ func TestRedisBroadcastCloseConnections(t *testing.T) {
 	s := miniredis.RunT(t)
 	a := newTestRedisBroadcast(t, s)
 	a.SendAll("msg")
-	a.close()
+	require.NoError(t, a.Close())
 	require.Eventually(t, func() bool { return s.CurrentConnectionCount() == 0 }, 2*time.Second, 5*time.Millisecond)
 }
 
@@ -441,4 +443,8 @@ func TestRedisBroadcastMalformedResponses(t *testing.T) {
 	require.Equal(t, []int{3, 2}, []int{lenReq.msgCount, lenReq.connections})
 	require.Equal(t, 3, roomsReq.msgCount)
 	require.Equal(t, map[string]bool{"r": true}, roomsReq.rooms)
+}
+
+func (c *redisTestConn) EmitWithOptions(_ adapter.Options, event string, args ...interface{}) {
+	c.Emit(event, args...)
 }

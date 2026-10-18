@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/engineio"
 )
 
@@ -34,6 +35,7 @@ type Handshake struct {
 
 // Conn is a server-side Socket.IO namespace socket.
 type Conn interface {
+	adapter.Socket
 	// Close closes the connection and returns nil; only the first close, by Close or by the library,
 	// has an effect. For every connected namespace it emits disconnecting while rooms are joined,
 	// writes a DISCONNECT packet, leaves its rooms, and calls OnDisconnect with

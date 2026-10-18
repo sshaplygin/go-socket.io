@@ -17,8 +17,8 @@ type responseObserver struct {
 
 func (w *responseObserver) observe(status int) {
 	w.once.Do(func() {
-		if h := w.session.hooks; h != nil && h.Headers != nil {
-			h.Headers(w.request, w.Header())
+		if w.session.headers != nil {
+			w.session.headers(w.request, w.Header())
 		}
 		if w.request.Method == http.MethodGet && status == http.StatusOK && w.session.Transport() == "polling" {
 			w.flushed = true

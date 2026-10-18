@@ -26,6 +26,7 @@ type Pauser interface {
 
 type Session struct {
 	hooks         *Hooks
+	headers       func(*http.Request, http.Header)
 	closeDone     chan struct{}
 	notified      chan struct{} // the first closer has finished its synchronous Error hook
 	closeErr      error
@@ -360,7 +361,7 @@ func (s *Session) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.upgradeLocker.RUnlock()
 
 	if h, ok := conn.(http.Handler); ok {
-		if s.hooks == nil {
+		if s.hooks == nil && s.headers == nil {
 			h.ServeHTTP(w, r)
 			return
 		}

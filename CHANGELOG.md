@@ -300,7 +300,8 @@ All notable changes to this project are documented here. The format follows
   and `redis.New(...redis.Option)`; construction errors are deferred to namespace
   registration and reported by `Serve`. Root no longer probes Redis at configuration
   time. `ForEach` receives `adapter.Socket`; adapters close through optional
-  `io.Closer`. Old root adapter declarations and Redis configuration API are removed.
+  `io.Closer`, invoked after releasing namespace locks so adapter cleanup can
+  call back into server configuration. Old root adapter declarations and Redis configuration API are removed.
   See [the v1 migration guide](docs/V1_MIGRATION.md).
 
 - Public constructors use targeted functional options: default servers are

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/stretchr/testify/require"
@@ -52,4 +53,44 @@ func TestAdapterNilFactoryError(t *testing.T) {
 	require.ErrorContains(t, srv.Serve(), `broadcast of namespace "/failed": adapter returned nil`)
 	require.Nil(t, srv.Of("/failed").Adapter())
 	require.Equal(t, 1, calls)
+}
+
+// reentrantCloser bounds a blocked callback so a regression fails without
+// leaving the server's shutdown goroutine permanently holding its locks.
+type reentrantCloser struct {
+	*adapter.Memory
+	callback func()
+	done     chan struct{}
+}
+
+func (a *reentrantCloser) Close() error {
+	go func() { a.callback(); close(a.done) }()
+	select {
+	case <-a.done:
+		return nil
+	case <-time.After(2 * time.Second):
+		return errors.New("adapter close callback blocked by server locks")
+	}
+}
+
+func TestAdapterCloseCanReenterServer(t *testing.T) {
+	for _, operation := range []string{"existing namespace", "adapter setter"} {
+		t.Run(operation, func(t *testing.T) {
+			instance := &reentrantCloser{Memory: adapter.NewMemory(), done: make(chan struct{})}
+			srv := NewServer(WithAdapter(func(string) (adapter.Adapter, error) { return instance, nil }))
+			existing := srv.Of("/existing")
+			instance.callback = func() {
+				if operation == "adapter setter" {
+					srv.SetAdapter(nil)
+				}
+				if got := srv.Of("/existing"); got != existing {
+					t.Error("existing namespace identity changed during shutdown")
+				}
+			}
+			t.Cleanup(func() { recv(t, instance.done, "adapter close callback to finish") })
+			require.NoError(t, srv.Close())
+			recv(t, srv.closeDone, "server shutdown to complete")
+			require.Same(t, existing, srv.Of("/existing"))
+		})
+	}
 }

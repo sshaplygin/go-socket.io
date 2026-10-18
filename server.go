@@ -87,12 +87,17 @@ func (s *Server) closeWithTimeout(timeout time.Duration) error {
 				_ = c.Conn.Close()
 			}
 			s.createMu.Lock()
+			var closers []io.Closer
 			s.handlers.Range(func(h *namespaceHandler) {
 				if closer, ok := h.broadcast.(io.Closer); ok {
-					s.closeErr = errors.Join(s.closeErr, closer.Close())
+					closers = append(closers, closer)
 				}
 			})
 			s.createMu.Unlock()
+			// External adapters may call back into namespace or configuration APIs.
+			for _, closer := range closers {
+				s.closeErr = errors.Join(s.closeErr, closer.Close())
+			}
 			close(s.closeDone)
 		}()
 	})

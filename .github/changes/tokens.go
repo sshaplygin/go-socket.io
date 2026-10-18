@@ -22,9 +22,14 @@ var exampleOutput = regexp.MustCompile(`(?i)^//[[:space:]]*(unordered )?output:`
 // generated is the marker that makes linters skip a file.
 var generated = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
 
+// deprecated is a line that opens a Deprecated: paragraph, which staticcheck (SA1019,
+// enabled by checks: all in both .golangci.yml) reads to flag every use of the
+// declaration. It matches a // comment and any line of a /* */ comment.
+var deprecated = regexp.MustCompile(`(?m)^(//|/\*)?[[:space:]]*Deprecated:`)
+
 // tokens returns the token stream of a Go file without the comments that no tool reads.
-// Directives, cgo preambles, linter suppressions, generated-file markers and, in test
-// files, Example output comments are kept.
+// Directives, cgo preambles, linter suppressions, generated-file markers, lines opening a
+// Deprecated: paragraph and, in test files, Example output comments are kept.
 func tokens(src []byte, test bool) ([]lexeme, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "source.go", src, parser.ImportsOnly)
@@ -62,7 +67,7 @@ func tokens(src []byte, test bool) ([]lexeme, error) {
 
 // kept reports whether a comment is read by a tool.
 func kept(text string, test bool) bool {
-	return directive(text) || (test && exampleOutput.MatchString(text))
+	return directive(text) || deprecated.MatchString(text) || (test && exampleOutput.MatchString(text))
 }
 
 func directive(text string) bool {

@@ -126,6 +126,12 @@ func TestClassify(t *testing.T) {
 			"v1": "true", "v1_packages": ". ./engineio ./parser", "gates_v1": "true", "examples_v1": "true",
 			"conformance": "true", "bench_v1": "./parser", "changed": "true",
 		})},
+		{name: "deprecation comment", edit: map[string]string{
+			"parser/parser.go": "package parser\n\n// Parse parses.\n//\n// Deprecated: use Decode.\nfunc Parse(s string) int {\n\treturn len(s)\n}\n",
+		}, want: with(map[string]string{
+			"v1": "true", "v1_packages": ". ./engineio ./parser", "gates_v1": "true", "examples_v1": "true",
+			"conformance": "true", "bench_v1": "./parser", "changed": "true",
+		})},
 		{name: "server root", edit: map[string]string{
 			"server.go": "package m\n\nimport \"example.com/m/engineio\"\n\nfunc Serve() int { return engineio.Open() + 1 }\n",
 		}, want: with(map[string]string{

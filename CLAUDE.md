@@ -174,7 +174,8 @@ the diff reaches something it checks:
   A classifier test fails when a Go file names a Markdown file outside that list.
 - Go comments and formatting run nothing. Comments that a tool reads count as code:
   `//go:` and `//line` directives, build constraints, cgo preambles, `//nolint`, `//lint:`,
-  generated-file markers and Example output comments. Comments of v1 test files with a
+  generated-file markers, a line opening a `Deprecated:` paragraph (staticcheck SA1019)
+  and Example output comments. Comments of v1 test files with a
   `Covers` marker, and of the v2 files that `frozenGoFiles` in `v2/frozen_test.go` names
   (read by `make freeze`; the classifier takes the list from that function), run the gates.
 - A token change in package P tests P and every package whose code or tests import it,

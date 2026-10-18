@@ -12,4 +12,3 @@ engineio/packet/packet.go v2/engineio/packet/packet.go
 engineio/packet/types.go v2/engineio/packet/types.go
 engineio/transport/utils/clock.go v2/engineio/transport/utils/clock.go
 engineio/payload/pauser.go v2/engineio/payload/pauser.go
-engineio/internal/shutdown.go v2/engineio/internal/shutdown.go

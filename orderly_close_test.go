@@ -13,7 +13,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
-	"github.com/sshaplygin/go-socket.io/internal/engineclose"
 	"github.com/sshaplygin/go-socket.io/parser"
 	"github.com/stretchr/testify/require"
 )
@@ -53,7 +52,7 @@ func rootWithOrderlyEngine(t *testing.T) (*conn, *session.Session, *rootOrderlyT
 	require.NoError(t, s.InitSession())
 	c := newConn(s, newNamespaceHandlers(), connLimits{writeBufferSize: 1, drainTimeout: 50 * time.Millisecond}, slog.Default())
 	c.boundary, c.connecting = true, false
-	t.Cleanup(func() { c.stop(); _ = engineclose.Abort(s) })
+	t.Cleanup(func() { c.stop(); _ = s.Abort() })
 	return c, s, tr
 }
 

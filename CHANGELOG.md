@@ -274,6 +274,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- v1 source layout is organized by responsibility. Session abort, shutdown and response
+  header observation use direct session methods/hooks instead of private packages with
+  init-time function registration. Existing imports and connection interfaces remain
+  compatible; orderly close, forced close and hook ordering retain their behavior.
+
 - v1 migration: this minor release expands `Conn`, `Namespace`, `Broadcast` and
   `engineio.Conn`, breaking custom implementations and mocks. `Conn` gains
   `EngineConn`, `Request` and `Handshake`; its embedded `Namespace` gains

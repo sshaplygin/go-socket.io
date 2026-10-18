@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/internal"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
@@ -44,9 +43,8 @@ func (s *Server) installHooks(c *session.Session, request *http.Request, initial
 	if h.Error != nil {
 		sh.Error = func(c *session.Session, err error) { h.Error(c, err) }
 	}
-	c.SetHooks(sh)
 	var once sync.Once
-	internal.ObserveHeaders(c, func(r *http.Request, headers http.Header) {
+	sh.Headers = func(r *http.Request, headers http.Header) {
 		if initial && r == request {
 			once.Do(func() {
 				if h.InitialHeaders != nil {
@@ -57,7 +55,8 @@ func (s *Server) installHooks(c *session.Session, request *http.Request, initial
 		if h.Headers != nil {
 			h.Headers(r, headers)
 		}
-	})
+	}
+	c.SetHooks(sh)
 }
 
 func (s *Server) websocketHeaders(w http.ResponseWriter, r *http.Request, initial bool) http.ResponseWriter {

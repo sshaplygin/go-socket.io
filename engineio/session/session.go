@@ -12,11 +12,9 @@ import (
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/internal"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
-	"github.com/sshaplygin/go-socket.io/internal/engineclose"
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
@@ -28,7 +26,6 @@ type Pauser interface {
 
 type Session struct {
 	hooks         *Hooks
-	headers       func(*http.Request, http.Header)
 	closeDone     chan struct{}
 	notified      chan struct{} // the first closer has finished its synchronous Error hook
 	closeErr      error
@@ -72,17 +69,6 @@ const (
 type closeCause struct {
 	reason string
 	err    error // set for reasonTransportError only
-}
-
-func init() {
-	internal.Shutdown = func(s io.Closer) error { return s.(*Session).closeMode(reasonShutdown, true) }
-	engineclose.AbortSession = func(c io.Closer) (bool, error) {
-		s, ok := c.(*Session)
-		if !ok {
-			return false, nil
-		}
-		return true, s.closeMode(reasonForcedClose, true)
-	}
 }
 
 // New creates a session over conn. log receives errors the session cannot
@@ -172,6 +158,14 @@ func (s *Session) Transport() string {
 func (s *Session) Close() error {
 	return s.close(reasonForcedClose)
 }
+
+// Abort closes the transport immediately, interrupting an orderly Close already
+// waiting for a polling request. It preserves the first close cause.
+func (s *Session) Abort() error { return s.closeMode(reasonForcedClose, true) }
+
+// Shutdown closes the transport immediately for server shutdown. It interrupts
+// an orderly Close and preserves a previously observed close cause.
+func (s *Session) Shutdown() error { return s.closeMode(reasonShutdown, true) }
 
 func (s *Session) close(reason string) error {
 	return s.closeMode(reason, false)
@@ -503,7 +497,7 @@ func (s *Session) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.upgradeLocker.RUnlock()
 
 	if h, ok := conn.(http.Handler); ok {
-		if s.hooks == nil && s.headers == nil {
+		if s.hooks == nil {
 			h.ServeHTTP(w, r)
 			return
 		}

@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/internal"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
@@ -60,7 +59,7 @@ func TestSessionCloseError(t *testing.T) {
 			case ReasonForcedClose:
 				require.NoError(t, s.Close())
 			case ReasonServerShutdown:
-				require.NoError(t, internal.Shutdown(s))
+				require.NoError(t, s.Shutdown())
 			case ReasonPingTimeout:
 				// A real transport deadline, rather than a script exhausting its input.
 				accepted := make(chan *Session, 1)

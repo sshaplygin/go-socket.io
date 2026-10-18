@@ -10,24 +10,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/client"
 )
 
-func TestClientPackageRoundTrip(t *testing.T) {
-	disconnected := make(chan string, 1)
-	ts := newTestServer(t, func(s *Server) {
-		s.OnConnect("/", func(Conn) error { return nil })
-		s.OnEvent("/", "echo", func(_ Conn, value string) string { return value })
-		s.OnDisconnect("/", func(_ Conn, reason string) { disconnected <- reason })
-	})
-	cl, err := client.New(ts.URL)
-	require.NoError(t, err)
-	cl.OnConnect(func(client.Conn) error { return nil })
-	require.NoError(t, cl.Connect())
-	replies := make(chan string, 1)
-	cl.Emit("echo", "wrapper", func(value string) { replies <- value })
-	require.Equal(t, "wrapper", recv(t, replies, "wrapper event ACK"))
-	require.NoError(t, cl.Close())
-	require.NotEmpty(t, recv(t, disconnected, "server OnDisconnect after wrapper Close"))
-}
-
 func TestRoleSpecificHandlers(t *testing.T) {
 	serverConns := make(chan Conn, 1)
 	ts := newTestServer(t, func(s *Server) {

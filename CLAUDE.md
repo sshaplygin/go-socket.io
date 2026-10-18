@@ -95,6 +95,13 @@ packages. Codec and transport import/API migration is documented in
 [docs/V1_MIGRATION.md](docs/V1_MIGRATION.md); test-only `internal/conformance` and
 `internal/parity` own their gates.
 
+Tests live in the package directory of their implementation. Root tests exercise the
+public Socket.IO server; `client` tests exercise the public client, `engineio` tests its
+server/connection entry points, and private tests stay in the matching internal owner.
+Package-local `*_test.go` fixtures support integration without runtime test helpers.
+The accepted test-ownership decision and duplicate mappings live in
+[ROADMAP.md](docs/ROADMAP.md#stage-v1-work-packages).
+
 ## Commands
 
 Each module has its own `Makefile` and `.golangci.yml`. In the repository root (v1):

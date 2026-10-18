@@ -25,8 +25,10 @@ planned and in which order: [docs/ROADMAP.md](docs/ROADMAP.md).
    `master`, not the PR branch.
 6. A bug fix is test first. The PR's first commit adds only the tests that show the bug,
    each under the `// Covers <ID>` marker of its `docs/PARITY.md` row when it has one, and
-   they fail on that commit with an assertion failure or a panic, not a build error; a later
-   commit of the same PR fixes the code and makes them pass. The PR body names that commit
+   they fail on that commit; a later commit of the same PR fixes the code and makes them pass.
+   A failure that counts (red) is an assertion failure, a panic (a test timeout included) or a
+   runtime abort (`fatal error:`, such as a concurrent map write or a stack overflow), never a
+   build or setup failure of the test. The PR body names that commit
    (`red commit: <sha>`) and each test (`fails without the fix: <TestName>`). This is how
    "a test for each fix" (item 3) and "every fix carries a test that fails without it"
    ([CLAUDE.md](CLAUDE.md), *Conventions*) are shown: the PR body and the PR's commit list

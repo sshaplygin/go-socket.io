@@ -2725,14 +2725,12 @@ written first by a docs PR each, as V1-0 wrote the earlier contracts, and that P
 29 to the loop of the `ADD`-row check of *V1-0 contracts*; the entry arms of V1-28 and V1-29
 require the heading. V1-30 writes the PROTOCOL.md heading of D19, which the MV1 DoD greps.
 
-Every `BUG` row of the wave, and of any later bug fix, is closed test first by the rule of
-CONTRIBUTING.md (*Pull requests*, item 6): the PR's first commit adds the named tests under
-their `// Covers <ID>` markers and they fail there; a later commit of the same PR turns them
-green. Red means an assertion failure (`--- FAIL: <TestName>`), a panic (`panic: `, a test
-timeout included) or a runtime abort (`fatal error: `), never a test that does not build
-(`[build failed]`, `[setup failed]` in the output). The helper below checks it, `bash`, with or
-without `set -e`, from the repository root; it runs each test with `-race`, since concurrency
-fixes are verified under the race detector, in scratch worktrees that it removes:
+Every `BUG` row of the wave, and of any later bug fix, is closed test first, by the rule of
+CONTRIBUTING.md (*Pull requests*, item 6), which also says what counts as red. The helper below
+checks it, `bash`, with or without `set -e`, from the repository root. It reads red from the
+`go test` output: `--- FAIL: <TestName> `, `panic: ` or `fatal error: `, and never
+`[build failed]` or `[setup failed]`; it runs each test with `-race`, since concurrency fixes
+are verified under the race detector, in scratch worktrees that it removes:
 
 ```sh
 tdd() (   # tdd <base> <head> <TestName>...: one line per defect; nothing when each test is red on the PR's first commit and green on <head>

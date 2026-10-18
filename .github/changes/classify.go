@@ -293,6 +293,13 @@ func (d *decision) path(status, name string, before, after []byte) {
 	switch {
 	case slices.Contains(parts, "_examples"):
 		same := isGo && sameTokens(before, after, test)
+		// lint-v1 vets every v1 example (make vet: a comment that go vet rejects, such as a
+		// malformed +build line, must fail there and not only in the skipped example build)
+		// and scans every _examples/*/ module with govulncheck (make vuln, whose result
+		// depends on the code that reaches a vulnerable symbol, not only on the module files).
+		if mod == v1 && (isGo || vulnInput(rel)) {
+			d.lint(mod, name)
+		}
 		if same && !copies[path.Base(rel)] {
 			return
 		}
@@ -303,10 +310,6 @@ func (d *decision) path(status, name string, before, after []byte) {
 		// internal/parity scans every non-test Go file of the v1 tree, examples included.
 		if mod == v1 && isGo && !test && !same {
 			m.gates = true
-		}
-		// make vuln of lint-v1 runs govulncheck in every _examples/*/ module.
-		if mod == v1 && vulnInput(rel) {
-			d.lint(mod, name)
 		}
 		d.note("%s: examples (%s)", mod, name)
 		return

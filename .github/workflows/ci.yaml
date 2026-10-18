@@ -71,8 +71,8 @@ jobs:
             cat reasons.txt outputs.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      # A change in _examples/ or _experiments/ starts no lint job, so the format of every
-      # changed Go file is checked here.
+      # Not every path starts a job that runs gofmt (v2/_examples/ starts none), so the
+      # format of every changed Go file is checked here.
       - name: Format of the changed Go files
         if: github.event_name == 'pull_request'
         env:
@@ -201,8 +201,11 @@ jobs:
         run: go mod verify
       - name: Format
         run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
+      # Every Go file a CI job compiles: the three GOOS of the test matrix, the conformance
+      # tag, the examples and the .github tools, so that a change of comments alone, which
+      # runs only this job, cannot fail a skipped job.
       - name: Vet
-        run: go vet ./... ./.github/architecture ./.github/changes
+        run: make vet
       # These two steps run tests. A pull request that changes only Go comments or
       # formatting runs lint-v1 without packages to test (v1_packages is empty) and skips
       # them; Covers markers start gates-v1 instead.
@@ -254,8 +257,9 @@ jobs:
         run: go mod verify
       - name: Format
         run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
+      # The three GOOS of the test matrix, as in lint-v1.
       - name: Vet
-        run: go vet ./...
+        run: make vet
       # The v2 gates of make g2 that lint has always run; skipped, with gates-v2, for a
       # change of comments or formatting outside the frozen files.
       - name: Package graph

@@ -22,10 +22,16 @@ bench:
 	go test -run '^$$' -bench . -benchmem $(PKGS)
 
 .PHONY: lint
-lint:
+lint: vet
 	gofmt -s -l . | tee /dev/stderr | test -z "$$(cat)"
-	go vet ./...
 	golangci-lint run ./...
+
+# go vet under each GOOS of the test matrix, so that a change of comments alone, which
+# runs only the lint job, cannot fail a test job: a file excluded on linux, the GOOS of
+# the lint job, is checked only by its own GOOS.
+.PHONY: vet
+vet:
+	@set -e; for os in linux darwin windows; do echo "==> GOOS=$$os"; GOOS=$$os go vet ./...; done
 
 # The legacy _examples modules are not scanned: they are written against the v1 API, which
 # the v2 root package does not have, and do not build until stage 2.5D migrates them

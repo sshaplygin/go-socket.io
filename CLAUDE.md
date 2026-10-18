@@ -108,7 +108,8 @@ The accepted test-ownership decision and duplicate mappings live in
 Each module has its own `Makefile` and `.golangci.yml`. In the repository root (v1):
 
 ```sh
-make lint        # gofmt, vet and golangci-lint, including the architecture checker
+make lint        # gofmt, make vet and golangci-lint, including the architecture checker and the classifier
+make vet         # go vet under GOOS linux, darwin and windows, with -tags conformance, in every _examples module and engineio/_examples, and of the .github tools
 make architecture-check # allowed runtime imports, role/codec closures and retired paths
 make sync-check  # compare shared v1/v2 files after the module import-path rewrite
 make test        # go test -count=1 ./... (PKGS=<patterns> narrows test, test-race, test-stress and bench)
@@ -129,7 +130,8 @@ make all         # go install ./...
 In `v2/` (`make -C v2 <target>` from the root):
 
 ```sh
-make lint       # gofmt -s check, go vet, golangci-lint (v2 config)
+make lint       # gofmt -s check, make vet, golangci-lint (v2 config)
+make vet        # go vet under GOOS linux, darwin and windows
 make test       # go test -count=1 ./... (PKGS=<patterns> narrows test, test-race and bench)
 make test-race  # the same with -race; what CI runs, with the PKGS the classifier selects
 make bench      # benchmarks only, no tests
@@ -178,7 +180,11 @@ the diff reaches something it checks:
 - A change of Go comments or formatting only (the token stream without comments is
   identical) runs the lint job of the module (`lint-v1` or `lint-v2`) and nothing else that
   tests: golangci-lint and gofmt read comments of every kind (`//nolint` with or without a
-  space, `Deprecated:`, doc rules, directives with a space, generated-file markers);
+  space, `Deprecated:`, doc rules, directives with a space, generated-file markers), and
+  `make vet` of the lint job vets every Go file a test job compiles (the root module under
+  GOOS linux, darwin and windows, for v1 also with `-tags conformance` and the examples), so
+  the comments that `go vet` rejects (a `+build` word before `package`, a comment group
+  after the output group of an `Example`) fail there and not only in a skipped job;
   `lint-v1` skips its test steps (`make architecture-check parity-check cover-check`)
   when no package is selected. Only the comments that the compiler or `go test` read count
   as code: `//go:` directives, `//line`, build constraints (`//go:build`, `// +build`),
@@ -191,14 +197,17 @@ the diff reaches something it checks:
   directly or transitively (`go list -e -test` with GOOS linux, darwin and windows and with
   `-tags conformance`); a change of test files only tests P.
 - `_examples/` and `_experiments/` run the example or experiment job of their module, and
-  the other jobs this bullet names; v1 `_examples/` also runs `conformance`, which runs the examples with Node. A comment or
-  formatting change of an example runs nothing unless the file is a byte-compared copy
-  (`chat.go`, `lifecycle.go`); any change of an experiment runs `experiments-v2`, the only
-  golangci-lint run of those modules. The `go.mod` or `go.sum` of a v1 `_examples/*/` or a
-  v2 `_experiments/*/` module also runs the lint job of its module, whose `make vuln` scans
-  that module with govulncheck. A code change of a v1 example also runs `gates-v1`
-  (`internal/parity` scans every non-test Go file of the tree). A v1 non-test code change
-  also builds the v1 examples and runs `conformance`.
+  the other jobs this bullet names; v1 `_examples/` also runs `conformance`, which runs the examples with Node. Every Go
+  change of a v1 example (`engineio/_examples` included) also runs `lint-v1`, whose
+  `make vet` vets the examples and whose `make vuln` scans every `_examples/*/` module; a
+  comment or formatting change of a v1 example runs only `lint-v1` unless the file is a
+  byte-compared copy (`chat.go`, `lifecycle.go`), and one of a v2 example runs nothing
+  (no job compiles the v2 examples until 2.5D). Any change of an experiment runs
+  `experiments-v2`, the only golangci-lint run of those modules. The `go.mod` or `go.sum`
+  of a v1 `_examples/*/` or a v2 `_experiments/*/` module also runs the lint job of its
+  module, whose `make vuln` scans that module with govulncheck. A code change of a v1
+  example also runs `gates-v1` (`internal/parity` scans every non-test Go file of the
+  tree). A v1 non-test code change also builds the v1 examples and runs `conformance`.
 - A full run of a module is every job of that module with `./...`. It is started by
   `go.mod`, `go.sum`, `go.work` or `go.work.sum` of the module, a file under `testdata/`, a
   build-constraint change, a change that cannot be attributed to a package (a deleted
@@ -218,7 +227,7 @@ matrix always starts and skips its steps, because a skipped matrix job reports o
 under its unexpanded name. v1 jobs, in the root: `conformance` (Node LTS with exact clients
 1.7.4 and 2.5.0, `make conformance examples-node`), `sync-check` (the pairs of
 `.github/sync-manifest`), `gates-v1` (`make gates`), `lint-v1` (tidy diff, mod verify,
-gofmt, vet, `make architecture-check parity-check cover-check` when packages are selected,
+gofmt, `make vet`, `make architecture-check parity-check cover-check` when packages are selected,
 golangci-lint,
 `make vuln` on ubuntu with the newest Go release from go.dev, because `setup-go` lags
 behind it), `test-v1` (race tests of the
@@ -229,7 +238,7 @@ graph fixtures and checker, so conditional production imports obey the same poli
 `GOTOOLCHAIN=local`, so it fails if `go.mod` or a dependency requires a newer Go) and
 `examples-v1` (`make examples`). v2 jobs, with `working-directory: v2`: `gates-v2`
 (`make fixtures`, and `make graph freeze` only when `lint-v2` does not run), `lint-v2` (tidy,
-mod verify, format/vet, `make graph freeze` when `gates_v2` is set, golangci-lint and
+mod verify, gofmt, `make vet`, `make graph freeze` when `gates_v2` is set, golangci-lint and
 `make vuln`), `test-v2`, `min-go-v2`, `examples-v2` (`make examples`, the identical-copy
 check only) and `experiments-v2` (`make experiments`; installs golangci-lint with
 `go install`). One check runs twice when both jobs run: `TestParityCovers`, in

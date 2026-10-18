@@ -45,10 +45,22 @@ bench:
 	go test -run '^$$' -bench . -benchmem $(PKGS)
 
 .PHONY: lint
-lint:
+lint: vet
 	gofmt -s -l . | tee /dev/stderr | test -z "$$(cat)"
-	go vet ./... ./.github/architecture ./.github/changes
 	golangci-lint run ./... ./.github/architecture ./.github/changes
+
+# go vet of every Go file that a CI job compiles, so that a change of comments alone, which
+# runs only the lint job, cannot fail a job that the change skips: the root module under
+# each GOOS of the test matrix (a file excluded on linux, the GOOS of the lint job, is
+# checked only by its own GOOS), the conformance-tagged tests, the example modules and
+# engineio/_examples (vetted again by make examples), and the .github tools.
+.PHONY: vet
+vet:
+	go vet ./.github/architecture ./.github/changes
+	@set -e; for os in linux darwin windows; do echo "==> GOOS=$$os"; GOOS=$$os go vet ./...; done
+	go vet -tags conformance ./...
+	@set -e; for d in $(EXAMPLES); do echo "==> $$d"; (cd $$d && go vet ./...); done
+	go vet ./engineio/_examples
 
 # The final Component boundaries graph is owned by docs/ROADMAP.md.
 .PHONY: architecture-check

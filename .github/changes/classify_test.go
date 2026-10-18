@@ -36,6 +36,7 @@ var fixture = map[string]string{
 	"_examples/app/go.mod":                     "module example.com/app\n\ngo 1.22\n",
 	"_examples/app/main.go":                    "package main\n\n// main runs.\nfunc main() {}\n",
 	"_examples/app/chat.go":                    "package main\n\n// chat is a shared copy.\nfunc chat() {}\n",
+	"engineio/_examples/main.go":               "package main\n\n// main echoes.\nfunc main() {}\n",
 	"Makefile":                                 "test:\n\tgo test ./...\n",
 	"README.md":                                "# m\n",
 	"CHANGELOG.md":                             "# Changelog\n",
@@ -200,18 +201,32 @@ func TestClassify(t *testing.T) {
 		{name: "conformance test", edit: map[string]string{
 			"internal/conformance/conformance_test.go": "//go:build conformance\n\npackage conformance\n\nimport (\n\t\"testing\"\n\n\tm \"example.com/m\"\n)\n\nfunc TestInterop(t *testing.T) { _ = m.Serve() + 1 }\n",
 		}, want: with(map[string]string{"gates_v1": "true", "conformance": "true"})},
+		// A comment that go vet rejects (a +build word before the package clause) in a file
+		// that only a tag or a GOOS compiles: lint runs, and make vet of lint-v1 vets the
+		// file under that tag.
+		{name: "comment in a conformance test", edit: map[string]string{
+			"internal/conformance/conformance_test.go": "//go:build conformance\n\n// Run with -tags conformance, not a +build line.\n\npackage conformance\n\nimport (\n\t\"testing\"\n\n\tm \"example.com/m\"\n)\n\nfunc TestInterop(t *testing.T) { _ = m.Serve() }\n",
+		}, want: lintV1},
 		{name: "Covers marker comment", edit: map[string]string{
 			"internal/parity/parity_test.go": "package parity\n\nimport \"testing\"\n\n// Covers B2\nfunc TestB1(t *testing.T) {}\n",
 		}, want: with(map[string]string{"v1": "true", "gates_v1": "true"})},
+		// Every Go change of a v1 example also runs lint-v1: make vet vets the examples, and
+		// make vuln scans the example modules.
 		{name: "example code", edit: map[string]string{
 			"_examples/app/main.go": "package main\n\n// main runs.\nfunc main() { println() }\n",
-		}, want: with(map[string]string{"examples_v1": "true", "conformance": "true", "gates_v1": "true"})},
+		}, want: with(map[string]string{"v1": "true", "examples_v1": "true", "conformance": "true", "gates_v1": "true"})},
 		{name: "example comment", edit: map[string]string{
 			"_examples/app/main.go": "package main\n\n// main runs the example.\nfunc main() {}\n",
-		}, want: none},
+		}, want: lintV1},
+		{name: "example header comment that go vet rejects", edit: map[string]string{
+			"_examples/app/main.go": "// The example needs no +build line.\n\npackage main\n\n// main runs.\nfunc main() {}\n",
+		}, want: lintV1},
+		{name: "Engine.IO example comment", edit: map[string]string{
+			"engineio/_examples/main.go": "package main\n\n// main echoes packets.\nfunc main() {}\n",
+		}, want: lintV1},
 		{name: "comment in a byte-compared example copy", edit: map[string]string{
 			"_examples/app/chat.go": "package main\n\n// chat is a shared copy, edited.\nfunc chat() {}\n",
-		}, want: with(map[string]string{"examples_v1": "true", "conformance": "true"})},
+		}, want: with(map[string]string{"v1": "true", "examples_v1": "true", "conformance": "true"})},
 		// make vuln of the lint job scans the example and experiment modules.
 		{name: "example module file", edit: map[string]string{
 			"_examples/app/go.mod": "module example.com/app\n\ngo 1.23\n",

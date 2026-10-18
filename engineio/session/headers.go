@@ -1,18 +1,9 @@
 package session
 
 import (
-	"io"
 	"net/http"
 	"sync"
-
-	"github.com/sshaplygin/go-socket.io/engineio/internal"
 )
-
-func init() {
-	internal.ObserveHeaders = func(s io.Closer, f func(*http.Request, http.Header)) {
-		s.(*Session).headers = f
-	}
-}
 
 // responseObserver runs on the first writer's goroutine, after the transport
 // has prepared headers. FlushOut joins that writer before ServeHTTP returns.

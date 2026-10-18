@@ -9,9 +9,7 @@ import (
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/internal"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/internal/engineclose"
 	"github.com/stretchr/testify/require"
 )
 
@@ -63,7 +61,7 @@ func waitClose(t *testing.T, done <-chan struct{}) {
 func TestOrderlyCloseDrainsAcceptedWriter(t *testing.T) {
 	c := newOrderlyConn()
 	s := newTestSession(t, c, "polling")
-	t.Cleanup(func() { _ = engineclose.Abort(s) })
+	t.Cleanup(func() { _ = s.Abort() })
 	require.Equal(t, 30*time.Second, s.closeTimeout)
 	require.NoError(t, s.InitSession())
 	w, err := s.NextWriter(TEXT)
@@ -122,9 +120,9 @@ func TestOrderlyCloseDeadline(t *testing.T) {
 func TestAbortInterruptsOrderlyClose(t *testing.T) {
 	for _, abort := range []struct {
 		name  string
-		close func(io.Closer) error
+		close func(*Session) error
 	}{
-		{"root abort", engineclose.Abort}, {"shutdown", internal.Shutdown},
+		{"root abort", (*Session).Abort}, {"shutdown", (*Session).Shutdown},
 	} {
 		t.Run(abort.name, func(t *testing.T) {
 			c := newOrderlyConn()
@@ -165,7 +163,7 @@ func TestFailedSessionDoesNotDrain(t *testing.T) {
 func TestOrderlyCloseStopsUpgradeProbe(t *testing.T) {
 	c := newOrderlyConn()
 	s := newTestSession(t, c, "polling")
-	t.Cleanup(func() { _ = engineclose.Abort(s) })
+	t.Cleanup(func() { _ = s.Abort() })
 	require.NoError(t, s.InitSession())
 	probe := newClosingConn()
 	s.Upgrade("websocket", probe)
@@ -179,15 +177,15 @@ func TestOrderlyCloseStopsUpgradeProbe(t *testing.T) {
 	waitClose(t, c.entered)
 	require.False(t, s.Upgraded())
 	require.Equal(t, "polling", s.Transport())
-	require.NoError(t, engineclose.Abort(s))
+	require.NoError(t, s.Abort())
 	waitClose(t, s.closeDone)
 }
 
 func TestAbortKeepsErrorBeforeTransportClose(t *testing.T) {
 	for _, abort := range []struct {
 		name  string
-		close func(io.Closer) error
-	}{{"root abort", engineclose.Abort}, {"shutdown", internal.Shutdown}} {
+		close func(*Session) error
+	}{{"root abort", (*Session).Abort}, {"shutdown", (*Session).Shutdown}} {
 		t.Run(abort.name, func(t *testing.T) {
 			c := &scriptConn{}
 			s := newTestSession(t, c, "polling")
@@ -240,7 +238,7 @@ func (c *peerClosingConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, 
 func TestPeerCloseInterruptsOrderlyClose(t *testing.T) {
 	c := &peerClosingConn{orderlyConn: newOrderlyConn(), reading: make(chan struct{}), sendClose: make(chan struct{})}
 	s := newTestSession(t, c, "polling")
-	t.Cleanup(func() { _ = engineclose.Abort(s) })
+	t.Cleanup(func() { _ = s.Abort() })
 	require.NoError(t, s.InitSession())
 	read := make(chan error, 1)
 	go func() { _, _, err := s.NextReader(); read <- err }()
@@ -263,7 +261,7 @@ func TestPeerCloseInterruptsOrderlyClose(t *testing.T) {
 func TestReaderWaitsForOrderlyTransportClose(t *testing.T) {
 	c := newOrderlyConn()
 	s := newTestSession(t, c, "polling")
-	t.Cleanup(func() { _ = engineclose.Abort(s) })
+	t.Cleanup(func() { _ = s.Abort() })
 	require.NoError(t, s.InitSession())
 	require.NoError(t, s.Close())
 	waitClose(t, c.entered)

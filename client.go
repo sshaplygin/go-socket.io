@@ -29,18 +29,12 @@ func NewClient(addr string, opts *engineio.Options) (*Client, error) {
 	return &Client{inner: *c}, nil
 }
 
-func fmtNS(ns string) string {
-	if ns == aliasRootNamespace {
-		return rootNamespace
-	}
-	return ns
-}
-
 func (c *Client) Connect() error { return c.inner.Connect() }
 
 // Close closes the connection as Conn.Close does. The drain deadline is the PingTimeout
 // of the Options passed to NewClient, not the server's value.
-func (c *Client) Close() error                           { return c.inner.Close() }
+func (c *Client) Close() error { return c.inner.Close() }
+
 func (c *Client) Emit(event string, args ...interface{}) { c.inner.Emit(event, args...) }
 
 // OnConnect sets the namespace's connect handler.

@@ -13,7 +13,6 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/sshaplygin/go-socket.io/engineio/internal"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
@@ -79,7 +78,7 @@ func (s *Server) Close() error {
 		}
 		s.lifecycle.Unlock()
 		for _, c := range live {
-			_ = internal.Shutdown(c)
+			_ = c.Shutdown()
 		}
 		s.dropUnaccepted()
 	})
@@ -109,7 +108,7 @@ func (s *Server) dropUnaccepted() {
 }
 
 func (s *Server) drop(c *session.Session) {
-	_ = internal.Shutdown(c)
+	_ = c.Shutdown()
 	s.Remove(c.ID())
 }
 
@@ -282,7 +281,7 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 	s.lifecycle.Lock()
 	if isClosed(s.closed) {
 		s.lifecycle.Unlock()
-		_ = internal.Shutdown(newSession)
+		_ = newSession.Shutdown()
 		return nil, io.EOF
 	}
 	s.sessions.Add(newSession)

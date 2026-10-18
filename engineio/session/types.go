@@ -1,5 +1,29 @@
 package session
 
+import (
+	"github.com/sshaplygin/go-socket.io/engineio/frame"
+)
+
+// FrameType is type of message frame.
+type FrameType frame.Type
+
+const (
+	// TEXT is text type message.
+	TEXT = FrameType(frame.String)
+	// BINARY is binary type message.
+	BINARY = FrameType(frame.Binary)
+)
+
+// ReadyState is the state of a session.
+type ReadyState string
+
+const (
+	StateOpening ReadyState = "opening" // The OPEN packet has not been written.
+	StateOpen    ReadyState = "open"    // The OPEN packet is written; no close has started.
+	StateClosing ReadyState = "closing" // A close has started; the transport is not closed yet.
+	StateClosed  ReadyState = "closed"  // The transport connection is closed.
+)
+
 // CloseReason is why a session closed: the first cause the session observed.
 type CloseReason string
 

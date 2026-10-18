@@ -7,53 +7,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
-// Namespace describes a communication channel that allows you to split the logic of your application
-// over a single shared connection.
-type Namespace interface {
-	// Context of this connection. You can save one context for one
-	// connection, and share it between all handlers. The handlers
-	// are called in one goroutine, so no need to lock context if it
-	// only accessed in one connection.
-	Context() interface{}
-	SetContext(ctx interface{})
-
-	Namespace() string
-	// Connected is true from namespace CONNECT until its socket or connection closes.
-	Connected() bool
-	// Emit sends eventName with arguments v to the client. If the last element of v
-	// is a func, it is not sent but registered as the acknowledgement callback: the
-	// client's ACK arguments are decoded into its parameters and it is called on the
-	// read goroutine of the connection. Emit never blocks: it queues the packet, and Emits
-	// from OnConnect are written once the writer starts. A queue already holding
-	// engineio.Options.WriteBufferSize packets not yet started drops the packet and every
-	// later one and closes the connection (see ErrWriteBufferFull). Once a close started,
-	// Emit drops the packet without a report, except that Close still queues packets until
-	// the OnDisconnect calls it runs have returned (see Conn.Close).
-	Emit(eventName string, v ...interface{})
-
-	// Join joins each room in order, ignoring rooms already joined.
-	Join(rooms ...string)
-	// To broadcasts to a union of rooms except this socket. Client emits return ErrServerOnly.
-	To(rooms ...string) Emitter
-	// Broadcast targets the namespace except this socket. Client emits return ErrServerOnly.
-	Broadcast() Emitter
-	// Volatile starts a single-socket emit that drops when its connection is not writable.
-	Volatile() Emitter
-	// Compress chooses per-packet compression; the default is true.
-	Compress(on bool) Emitter
-	Leave(room string)
-	LeaveAll()
-	Rooms() []string
-	// Send is Emit("message", args...), including a trailing acknowledgement callback.
-	Send(args ...interface{})
-	// Disconnect writes DISCONNECT for this namespace, leaves its rooms and calls
-	// OnDisconnect with the server namespace reason. Other namespaces stay open.
-	// On a client it closes this namespace with reason "io client disconnect".
-	Disconnect()
-	// Use appends event middleware on a server socket; on a client it is a no-op.
-	Use(func(event string, args []interface{}) error)
-}
-
 type namespaceConn struct {
 	*conn
 	broadcast *roomIndex
@@ -223,25 +176,6 @@ func (nc *namespaceConn) Close() error {
 
 func (nc *namespaceConn) Send(args ...interface{}) { nc.Emit("message", args...) }
 
-// Emitter is an immutable pending target and its flags. Each builder returns a new
-// value, so an Emitter can be reused. To or Except converts a single-socket target
-// to a broadcast excluding its sender; Volatile, Local and Compress preserve its target.
-type Emitter interface {
-	To(rooms ...string) Emitter
-	Except(ids ...string) Emitter
-	Volatile() Emitter
-	// Compress chooses per-packet compression; the default is true.
-	Compress(on bool) Emitter
-	Local() Emitter
-	// Emit returns ErrBroadcastAck without sending for a broadcast with a trailing
-	// func, or an adapter error. A dynamic parent may have delivered to earlier
-	// children before a child returns an error. A single-socket emit never fails;
-	// a client broadcast returns ErrServerOnly without sending.
-	Emit(event string, args ...interface{}) error
-	// Send is Emit("message", args...).
-	Send(args ...interface{}) error
-}
-
 // Disconnect sends DISCONNECT for this namespace, leaving the other sockets open.
 func (nc *namespaceConn) Disconnect() {
 	if socket := nc.socket(); socket != nil {
@@ -260,11 +194,16 @@ type emitter struct {
 	noCompress          bool
 }
 
-func (e emitter) To(rooms ...string) Emitter     { e.broadcast = true; return e }
-func (e emitter) Except(ids ...string) Emitter   { e.broadcast = true; return e }
-func (e emitter) Volatile() Emitter              { e.volatile = true; return e }
-func (e emitter) Local() Emitter                 { return e }
+func (e emitter) To(rooms ...string) Emitter { e.broadcast = true; return e }
+
+func (e emitter) Except(ids ...string) Emitter { e.broadcast = true; return e }
+
+func (e emitter) Volatile() Emitter { e.volatile = true; return e }
+
+func (e emitter) Local() Emitter { return e }
+
 func (e emitter) Send(args ...interface{}) error { return e.Emit("message", args...) }
+
 func (e emitter) Emit(event string, args ...interface{}) error {
 	if e.broadcast {
 		return ErrServerOnly
@@ -276,10 +215,64 @@ func (e emitter) Emit(event string, args ...interface{}) error {
 	}
 	return nil
 }
+
 func (nc *namespaceConn) To(rooms ...string) Emitter { return (emitter{socket: nc}).To(rooms...) }
-func (nc *namespaceConn) Broadcast() Emitter         { return (emitter{socket: nc, broadcast: true}) }
-func (nc *namespaceConn) Volatile() Emitter          { return (emitter{socket: nc}).Volatile() }
+
+func (nc *namespaceConn) Broadcast() Emitter { return (emitter{socket: nc, broadcast: true}) }
+
+func (nc *namespaceConn) Volatile() Emitter { return (emitter{socket: nc}).Volatile() }
 
 func (e emitter) Compress(on bool) Emitter { e.noCompress = !on; return e }
 
 func (nc *namespaceConn) Compress(on bool) Emitter { return (emitter{socket: nc}).Compress(on) }
+
+const aliasRootNamespace, rootNamespace = "/", ""
+
+func fmtNS(ns string) string {
+	if ns == aliasRootNamespace {
+		return rootNamespace
+	}
+	return ns
+}
+
+type namespaces struct {
+	namespaces map[string]*namespaceConn
+	mu         sync.RWMutex
+}
+
+func newNamespaces() *namespaces {
+	return &namespaces{
+		namespaces: make(map[string]*namespaceConn),
+	}
+}
+
+func (n *namespaces) Get(ns string) (*namespaceConn, bool) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	namespace, ok := n.namespaces[ns]
+	return namespace, ok
+}
+
+func (n *namespaces) Set(ns string, conn *namespaceConn) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	n.namespaces[ns] = conn
+}
+
+func (n *namespaces) Delete(ns string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	delete(n.namespaces, ns)
+}
+
+func (n *namespaces) Range(fn func(ns string, nc *namespaceConn)) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	for ns, nc := range n.namespaces {
+		fn(ns, nc)
+	}
+}

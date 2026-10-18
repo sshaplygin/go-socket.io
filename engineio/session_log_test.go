@@ -25,7 +25,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
-	"github.com/sshaplygin/go-socket.io/internal/engineclose"
 )
 
 // recorder keeps each record as its message, level and attributes, including
@@ -318,7 +317,7 @@ func TestClientPeerCloseRecords(t *testing.T) {
 			defer func() { _ = cl.Close() }()
 			conn, err := srv.Accept()
 			require.NoError(t, err)
-			require.NoError(t, engineclose.Abort(conn))
+			require.NoError(t, conn.(*session.Session).Abort())
 			require.Error(t, readAll(cl))
 			require.Eventually(t, func() bool { return len(rec.find("engineio: ping failed")) > 0 },
 				5*time.Second, time.Millisecond)

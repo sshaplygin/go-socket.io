@@ -378,7 +378,7 @@ Each subsequent review finding has its own commit. The two commits squash togeth
 merge under the normal PR rule. Allowed paths are root `*.go`, `client/`, `engineio/`,
 `internal/engineclose/` (deletion only), `.github/sync-manifest`, `CLAUDE.md`, root
 `CHANGELOG.md`, this rework section and the current bridge/closure descriptions that it
-supersedes below. `docs/PARITY.md` may update evidence filenames for moves only: no row,
+supersedes below. `docs/PARITY.md` may update evidence source locations for moves only: no row,
 status, marker or plan entry is removed. `_examples/`, other `.github/` files, module
 manifests, `v2/`, `README.md` and unrelated roadmap sections are outside this follow-up.
 
@@ -1898,8 +1898,9 @@ The wait is bounded by the reference polling close timeout of 30 seconds. New wr
 rejected. Root application close drains its queue before starting that engine close and
 retains its existing drain deadline. Root overflow, deadline, read/write failure and
 engine shutdown abort immediately, including an orderly close already in progress,
-through a private `internal/engineclose` bridge; no public interface or v2 change.
-`engineio/internal.Shutdown` and ordinary `Payload.Close` keep their abort behavior.
+through `Session.Abort`; engine shutdown calls `Session.Shutdown` directly (the
+structural rework before MV1 acceptance). Public connection interfaces and v2 stay
+unchanged. Ordinary `Payload.Close` keeps its abort behavior.
 Close preserves the first cause, once-only hooks and the original errors of issued
 readers/writers. Tests cover both polling framings, a pending and a later poll, buffered
 data before CLOSE, no poll, an unclosed writer, concurrent abort/shutdown and upgrade
@@ -5822,10 +5823,9 @@ before. apidiff and `gorelease` report the alias move as incompatible although c
 compile unchanged, so the DoD proves compatibility with a consumer program instead.
 `client` may import any `engineio/...` package (`engineio/session` included), `parser` and
 `logger`, and never the root package, adapters or Redis (a DoD line checks the closure).
-The closure includes the private `internal/engineclose` bridge through `engineio/session`
-(the approved P17 correction in V1-8); `client` does not import that bridge directly;
-only the root and the examples import `client`. It carries its own copy, taken from `$TIP`, of the
-closure the old `Client` reaches (write queue, packet handlers, namespace connection,
+The structural rework removes the private Engine.IO bridges: forced close and shutdown
+are direct session operations. Only the root and the examples import `client`. It carries its own copy, taken from
+`$TIP`, of the closure the old `Client` reaches (write queue, packet handlers, namespace connection,
 handler dispatch, an unexported in-memory broadcast behind `Namespace.Join`, `Leave`,
 `LeaveAll` and `Rooms`), without Redis and server-only code. The only server-path
 logic edit deletes `clientConnectPacketHandler` and `clientDisconnectPacketHandler` (`make
@@ -5909,8 +5909,8 @@ stage commits are titled `<type>(7.<n>): ...`, so later commits are not judged:
 ```sh
 TIP=${TIP:?the master commit recorded in the Stage 7 PR}; MOD=github.com/sshaplygin/go-socket.io; T=$(mktemp -d); BASE=$T/base; R=$PWD; git worktree add -q --detach $BASE $TIP; trap 'git worktree remove --force $BASE; rm -rf $T' EXIT
 make lint test-race
-D=$(go list -deps ./client); test -z "$(echo "$D" | grep -E "redigo|^$MOD(/|$)" | grep -vE "^$MOD/(client|engineio|parser|logger)(/|$)|^$MOD/internal/engineclose$")"   # D is not piped inside test -z: a failing go list (import cycle) must stop the script
-I=$(go list -f '{{join .Imports "\n"}}' ./client); test -z "$(printf '%s\n' "$I" | grep -Fx "$MOD/internal/engineclose")"   # only the engine package reaches its private bridge
+D=$(go list -deps ./client); test -z "$(echo "$D" | grep -E "redigo|^$MOD(/|$)" | grep -vE "^$MOD/(client|engineio|parser|logger)(/|$)")"   # D is not piped inside test -z: a failing go list (import cycle) must stop the script
+test ! -d internal/engineclose; test ! -d engineio/internal   # the structural rework removes both private bridges
 test -n "$(go list -deps . | grep -x "$MOD/client")"; for X in Client NewClient; do test -n "$(go doc . $X | grep -E "^ *Deprecated: use client\.$X\.")"; done   # fails before the stage: no notices
 cl() { awk '/^## Unreleased/{u=1;next} /^## /{u=0} u && /^### /{s=$2} u && s=="'$1'"' CHANGELOG.md; }; test -n "$(cl Added | grep 'go-socket.io/client')"; test -n "$(cl Deprecated | grep NewClient)"
 test "$(go doc -short ./client | sed -E 's/^ +//; s/^(func [A-Za-z]+)\(.*/\1/; s/^((var|type) [A-Za-z]+).*/\1/' | paste -sd, -)" = "var ErrEmptyAddr,var ErrServerOnly,var ErrWriteBufferFull,type AckFunc,type Client,func NewClient,type Conn,type Emitter,type Handshake,type Namespace"

@@ -12,10 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
-	"github.com/sshaplygin/go-socket.io/internal/engineclose"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -40,15 +38,6 @@ func newConnLimits(opts *engineio.Options) connLimits {
 	}
 	return l
 }
-
-// AckFunc acknowledges an incoming event once, including after its handler returns.
-type AckFunc = client.AckFunc
-
-// Handshake describes the original engine handshake and namespace query.
-type Handshake = client.Handshake
-
-// Conn is the shared server and client connection type.
-type Conn = client.Conn
 
 type conn struct {
 	engineio.Conn
@@ -179,7 +168,7 @@ func (c *conn) stopLocked() {
 		if c.drainTimer != nil {
 			c.drainTimer.Stop()
 		}
-		go func() { _ = engineclose.Abort(c.Conn) }() // the emitter of an overflow must not block
+		go func() { _ = abortEngineConn(c.Conn) }() // the emitter of an overflow must not block
 	}
 }
 
@@ -251,7 +240,7 @@ func (c *conn) finishRead() {
 		// An acquired frame reader keeps its own transport error. Closing the
 		// engine preserves the cause that reader recorded; the next reader then
 		// exposes it through CloseError without changing the frame's error.
-		_ = engineclose.Abort(c.Conn)
+		_ = abortEngineConn(c.Conn)
 		_, reader, err := c.Conn.NextReader()
 		if reader != nil {
 			_ = reader.Close()
@@ -643,6 +632,7 @@ func (c *conn) EngineConn() engineio.Conn {
 	}
 	return nil
 }
+
 func (c *conn) Request() *http.Request {
 	if c.boundary {
 		return c.request
@@ -654,4 +644,13 @@ func (c *conn) Request() *http.Request {
 type outboundPayload struct {
 	parser.Payload
 	noCompress bool
+}
+
+// abortEngineConn preserves ordinary Close for custom engine connections. Only
+// built-in server sessions have an orderly polling close that needs interruption.
+func abortEngineConn(c engineio.Conn) error {
+	if s, ok := c.(*session.Session); ok {
+		return s.Abort()
+	}
+	return c.Close()
 }

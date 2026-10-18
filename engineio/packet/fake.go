@@ -7,6 +7,55 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
 )
 
+type fakeOneFrameDiscarder struct{}
+
+func (d fakeOneFrameDiscarder) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+func (d fakeOneFrameDiscarder) Close() error {
+	return nil
+}
+
+type FakeDiscardWriter struct{}
+
+func (w *FakeDiscardWriter) NextWriter(fType frame.Type) (io.WriteCloser, error) {
+	return fakeOneFrameDiscarder{}, nil
+}
+
+type fakeFrame struct {
+	w    *fakeConnWriter
+	typ  frame.Type
+	data *bytes.Buffer
+}
+
+func newFakeFrame(w *fakeConnWriter, fType frame.Type) *fakeFrame {
+	return &fakeFrame{
+		w:    w,
+		typ:  fType,
+		data: bytes.NewBuffer(nil),
+	}
+}
+
+func (w *fakeFrame) Write(p []byte) (int, error) {
+	return w.data.Write(p)
+}
+
+func (w *fakeFrame) Read(p []byte) (int, error) {
+	return w.data.Read(p)
+}
+
+func (w *fakeFrame) Close() error {
+	if w.w == nil {
+		return nil
+	}
+	w.w.Frames = append(w.w.Frames, Frame{
+		FType: w.typ,
+		Data:  w.data.Bytes(),
+	})
+	return nil
+}
+
 type fakeConnReader struct {
 	frames []Frame
 }
@@ -63,4 +112,16 @@ func (r *fakeConstReader) NextReader() (frame.Type, io.ReadCloser, error) {
 		r.r.b = MESSAGE.StringByte()
 	}
 	return ft, io.NopCloser(r.r), nil
+}
+
+type fakeConnWriter struct {
+	Frames []Frame
+}
+
+func NewFakeConnWriter() *fakeConnWriter {
+	return &fakeConnWriter{}
+}
+
+func (w *fakeConnWriter) NextWriter(fType frame.Type) (io.WriteCloser, error) {
+	return newFakeFrame(w, fType), nil
 }

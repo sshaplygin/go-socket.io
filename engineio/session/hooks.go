@@ -1,6 +1,8 @@
 package session
 
 import (
+	"net/http"
+
 	"github.com/sshaplygin/go-socket.io/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/engineio/packet"
 )
@@ -9,6 +11,10 @@ import (
 // wraps each set field of engineio.Options.Hooks into the field of the same name. A nil
 // field is ignored. Plumbing for the engine server, not user API.
 type Hooks struct {
+	// Headers observes a session response after the transport prepares its headers
+	// and before they are written. The engine server installs it before startup;
+	// nil leaves an already installed response observer unchanged.
+	Headers      func(r *http.Request, h http.Header)
 	Packet       func(s *Session, pt packet.Type, ft frame.Type)
 	PacketCreate func(s *Session, pt packet.Type, ft frame.Type)
 	Heartbeat    func(s *Session)
@@ -21,4 +27,9 @@ type Hooks struct {
 
 // SetHooks installs h; the engine server calls it after New and before InitSession,
 // on the goroutine that created the session, so every event of the session is observed.
-func (s *Session) SetHooks(h *Hooks) { s.hooks = h }
+func (s *Session) SetHooks(h *Hooks) {
+	if h != nil && h.Headers != nil {
+		s.headers = h.Headers
+	}
+	s.hooks = h
+}

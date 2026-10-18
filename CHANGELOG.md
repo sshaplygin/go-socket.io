@@ -153,7 +153,7 @@ All notable changes to this project are documented here. The format follows
 
 
 - client: recover engine connections automatically with configurable retry limits,
-  backo2 delays and reconnect callbacks. Closed namespaces stay closed on recovery;
+  backoff delays and reconnect callbacks. Closed namespaces stay closed on recovery;
   ordinary emits buffer while reconnecting and volatile emits drop before CONNECT.
 - client: expose namespace ID/Connected, On/Once/Off listeners and ping/pong observers.
   Namespace.Connected is available on server connections too; engineio.Dialer gains
@@ -274,6 +274,37 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- v1 migration: this minor release expands `Conn`, `Namespace`, `Broadcast` and
+  `engineio.Conn`, breaking custom implementations and mocks. `Conn` gains
+  `EngineConn`, `Request` and `Handshake`; its embedded `Namespace` gains
+  `Send`, `Disconnect`, `Use`, `To`, `Broadcast`, `Volatile`, `Connected` and
+  `Compress`. `Namespace.Join(room string)` changes to `Join(rooms ...string)`:
+  existing single-room calls compile unchanged, but implementations must adopt
+  the variadic signature. `Broadcast` gains `SendTo` and `IDs`;
+  `engineio.Conn` gains `ReadyState`, `Transport` and `Upgraded`. Add these
+  methods to implementations, or embed the corresponding interface in a mock
+  and implement each method the test calls. On a client connection, `EngineConn`
+  and `Request` return nil, `Handshake` returns its zero value, `Use` registers
+  nothing, and the emitters from `To` or `Broadcast` return `ErrServerOnly` from
+  `Emit` and `Send`. Client room methods maintain a local index; they do not join
+  server rooms. `Send`, `Disconnect`, `Connected`, `Volatile` and `Compress`
+  have client behavior. Root connection types remain aliases of the client
+  package's shared interfaces.
+- engineio: the reference `cookie` default now sets an `io` session cookie on
+  every response from the polling transport that opened the session, where no
+  cookie was set before. Defaults are Path=/, HttpOnly and SameSite=Strict;
+  websocket-first connections set none. Configure `Options.Cookie` to change
+  attributes or `DisableCookie` to opt out.
+- engineio: the reference `httpCompression` default now compresses polling
+  responses of at least 1024 encoded bytes with gzip or deflate when accepted
+  by the client. Earlier responses were uncompressed. Set
+  `DisableHTTPCompression` to opt out or `CompressionThreshold` to change the
+  boundary. Websocket permessage-deflate remains opt-in.
+- engineio: CORS defaults now send polling access-control headers and accept
+  cross-origin websocket upgrades. Set `Options.DisableCORS` for the former
+  polling behavior and websocket same-origin checks; explicit transport
+  `CheckOrigin` callbacks still take precedence.
+
 - socketio: middleware and `OnConnect` rejection send an ERROR packet and keep the
   engine connection open. The rejected namespace joins no ID room and receives no
   `OnDisconnect`; packets emitted during the rejected connect are discarded.
@@ -316,10 +347,6 @@ All notable changes to this project are documented here. The format follows
   now all build against the checked-out fork, including the Docker example.
 - `session.New` takes a trailing `*slog.Logger` parameter (nil accepted).
 - `logger.Error` accepts a nil error instead of panicking.
-- Connection-level errors that were printed with `log.Println` are now `slog` Error
-  records carrying the namespace. Messages logged by the Engine.IO session and the
-  socket.io server, client and connection code lose their trailing colons; messages
-  from the parser, the transports and the dialer are unchanged.
 - Toolchain: `go 1.22` in `go.mod`; `golang.org/x/exp/slog` replaced by `log/slog`;
   `gofrs/uuid` replaced by `google/uuid`; `gorilla/websocket` 1.5.3; `testify` 1.12.1;
   `io/ioutil` replaced by `io` (roadmap stage 1.1).
@@ -356,14 +383,13 @@ All notable changes to this project are documented here. The format follows
   queued until then are written in the background, and the engine.io connection closes
   when they are written or after `engineio.Options.PingTimeout`; `Server.Count` counts the
   session until then. They closed engine.io at once (`connection.go:66` at `48cf0d2`).
-  Closes started by the library (read, decode, dispatch or encode error, peer close, ping
-  timeout, overflow, failed connect) discard the queue. See
+  Closes started by the library (fatal read, decode or dispatch error, peer close, ping
+  timeout or overflow) discard the queue. Encode errors and rejected namespace connects
+  keep the engine connection open, as described above. See
   [`Conn`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Conn) (roadmap tasks 1.B
   and 1I).
-- An encode error now closes the connection; it used to leave it open
-  (`server.go:309` at `48cf0d2`).
-- The error that closes a connection is reported to `OnError` before the close's effects
-  run; a failed connect was closed before it was reported (`server.go:249` at `48cf0d2`).
+- Except for queue overflow, an error that closes a connection is reported to
+  `OnError` before the close's effects run.
 - The warning for an invalid `SOCKETIO_LOG_LEVEL` is logged as
   `logger: invalid level ignored` with the value under `value`; it read
   `logger: invalid SOCKETIO_LOG_LEVEL, ignored` (`logger/logger.go:67` at `1151bad`,
@@ -387,18 +413,21 @@ All notable changes to this project are documented here. The format follows
   `logger.Error` at ERROR with free-form messages such as `getOpen store 2:`. They now
   log constant `engineio: ...` messages with an `err` key: DEBUG for failures after a
   close started, session frame failures reported as close reasons, upgrade-probe
-  failures, errors also returned to a caller (including the polling client's stored
+  failures, returned errors other than the dialer's OPEN reader `Close` errors
+  (including the polling client's stored
   request failures and the engine.io client's reader `Close` failures, which its next
   `NextReader` returns), the engine.io client's ping failures that are expected closure
   (its `Close` has started, `io.EOF`, a closed or lost connection, a websocket close
   frame from the peer, or a polling request failure after which the transport closed
   itself) and the websocket "frame not
   closed" reminders, which no longer carry a synthetic `ConnectionNotClosed` error;
-  WARN for failures no caller receives: the engine.io client's other ping failures,
+  WARN for the engine.io client's other ping failures,
   the dialer's and the polling client's reader `Close` failures during the handshake,
   and `engineio: transport dial failed` (with
   `transport`) for a transport attempt whose error `Dial` does not return (the last
-  attempt is DEBUG) (`engineio/session/session.go:56`-`:507`, `engineio/client.go:70`-`:133`,
+  attempt is DEBUG). The dialer's OPEN reader `Close` failures use WARN even
+  when returned by `Dial`; they do not replace an earlier packet or decode error
+  (`engineio/session/session.go:56`-`:507`, `engineio/client.go:70`-`:133`,
   `engineio/dialer.go:23`-`:87`, `engineio/transport/polling/connect.go:38`-`:277`,
   `engineio/packet/encoder.go:40`, `engineio/transport/websocket/wrapper.go:66`, `:131`
   at `1151bad`, roadmap task 1.L).
@@ -424,6 +453,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Known limitations
 
+- Redis broadcast: `Emit` and `Send` from socket-excluding builders, including
+  `Conn.To` and `Conn.Broadcast`, return `ErrExceptUnsupported` before delivery.
+  Socket ID snapshots describe this instance only. `Volatile` and `Compress(false)` are honored locally;
+  the legacy Redis wire format omits these flags, so remote instances use
+  ordinary delivery and default compression. A room union publishes per room
+  and can deliver duplicates across instances. Mixed Go/Node Redis clusters
+  are unsupported; see [protocol deviation D3](docs/PROTOCOL.md#deviation-d3-mixed-gonode-redis-cluster).
+- Redis broadcast: `Server.Adapter` does not honor `RedisAdapterOptions.DB` and
+  uses DB 0. Binary arguments across instances have not been validated.
 - Redis broadcast: handler registration does not wait until Redis has registered the
   namespace's subscription, and a lost subscription is reopened later, so until Redis
   has registered it the namespace on that instance misses other instances' broadcasts

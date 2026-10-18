@@ -159,6 +159,21 @@ Engine.IO, `v2/engineio`:
   the websocket message limit is the transport's default 1 MiB, not the advertised value. The
   polling POST limit and the websocket limit are above.
 
+### Deviation D3: mixed Go/Node Redis cluster
+
+The v1 Redis adapter uses a legacy JSON message format and Go-specific channel
+layout. It does not implement the MessagePack messages and channel protocol of
+`socket.io-redis` 5.4.0, so a mixed Go/Node Redis cluster is unsupported. Go
+instances using the legacy format can communicate with each other; additional
+adapter limitations are listed in the [changelog](../CHANGELOG.md#known-limitations).
+
+### Deviation D4: JSONP unsupported
+
+The v1 Engine.IO transport supports XHR polling and websocket, without JSONP.
+The `j` query parameter is ignored and the response is an ordinary polling
+payload, not a JavaScript callback. A JSONP form POST (`d=`) is rejected with
+HTTP 400. Clients must use XHR polling or websocket.
+
 ## Implemented in `v2/`: Socket.IO protocol v5 wire codec
 
 Package `v2/parser`, stage 2.3P. It converts packets to and from the wire format and has

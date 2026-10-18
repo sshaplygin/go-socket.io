@@ -18,6 +18,8 @@ plan, including Socket.IO protocol v5 support, is in [docs/ROADMAP.md](docs/ROAD
 | v1 (this module, repository root) | v4 | v3 | `socket.io-client` 1.x and 2.x |
 | v2 (in development in [`v2/`](v2/README.md), no runtime yet) | v5 | v4 | `socket.io-client` 3.x and 4.x |
 
+The v1 interoperability checks use `socket.io-client` **1.7.4** and **2.5.0**;
+the reference server is Socket.IO 2.5.0 with Engine.IO 3.6.2.
 Details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Install
@@ -71,6 +73,18 @@ func main() {
 
 Runnable examples for gin, echo, iris, gf, CORS, Redis and graceful shutdown are in
 [_examples/](_examples/README.md). API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io).
+
+## Go client and v1 migration
+
+The Go client is available in
+[`github.com/sshaplygin/go-socket.io/client`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/client);
+see the [client example](_examples/client/main.go). The root `NewClient` is
+deprecated.
+
+Existing v1 applications, custom adapters and mocks should read the
+[Unreleased migration notes](CHANGELOG.md#changed) before upgrading: public
+interfaces gained methods, and heartbeat, namespace identity, disconnect, CORS,
+polling compression and cookie defaults changed.
 
 ## Contributing
 

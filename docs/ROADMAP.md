@@ -2093,8 +2093,8 @@ git worktree remove --force $BASE
 ## Stage V1. Complete v1 (repository-root module), then `v1.5.0`
 
 Owner decisions of 2026-10-10 (D1 to D8), 2026-10-13 (D9 to D14), 2026-10-14 (D15 to D17) and
-2026-10-18 (D18, D19), recorded as given; D9 to D17 are quoted in the owner's two comments on PR #68, which its body
-cites per answer. The stage starts when row R has passed step C
+2026-10-18 (D18, D19), recorded as given; D9 to D17 are quoted in the owner's two comments on PR #68 and D18, D19 in the owner's
+comment on PR #136, which their bodies cite per answer. The stage starts when row R has passed step C
 and ends before the Stage 2 continuation. Paths and `make` targets are those of the repository
 root (the v1 module). [PARITY.md](PARITY.md) owns every matrix row (status, evidence, plan,
 decision tag); this section owns the order, the PR scope and the gates. Stage 7 (the `client`
@@ -2154,7 +2154,8 @@ API-coverage gate (V1-20) reads the `// Covers` markers the per-PR DoD already r
 Go API coverage is a ratchet from a measured baseline, not a target chosen here. Silence is
 not an answer: a decision row is recorded only from a comment of the repository owner on the
 PR that records it, which that PR's body cites as `Owner answer O<n>: <answer> <URL of the
-comment>` (D9 to D17: the two owner comments on #68); no decision is pending.
+comment>` (D9 to D17: the two owner comments on #68; D18, D19: the owner's comment on #136); no
+decision is pending.
 
 **PR sequence.** Commits are titled `<type>(V1.<n>): ...`. A PR whose `Plan` rows include `ADD`
 changes the public API only as recorded by V1-0 (CLAUDE.md: public API goes through the roadmap

@@ -55,6 +55,8 @@ packet reader is closed. A sink lends a writer for each packet through
 `ReleasePayloadWriter(error) error`. An acquisition error does not trigger release;
 a release error takes precedence over the codec error. Close every packet reader/writer
 before requesting another. A decoder retains decode/release failures: later calls
-return that terminal error without reading or releasing the source again. Acquisition
+return that terminal error without reading or releasing the source again. A non-EOF
+body read error releases the source immediately, including a read that returns data
+and an error together; normal packet EOF remains successful. Acquisition
 failures may be retried because they did not acquire a payload. The codecs own framing; polling owns HTTP requests,
 concurrency, deadlines and pause/resume. Use godoc for the complete streaming contract.

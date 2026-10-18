@@ -23,7 +23,9 @@ type PayloadReader interface {
 // PayloadDecoder reads Engine.IO v3 polling payload packets. Close each packet
 // reader before acquiring the next; Close drains unread packet bytes. A decode
 // or release failure is terminal: later reader, read and close calls return the
-// saved error without reusing or releasing the source again. Acquisition failures
+// saved error without reusing or releasing the source again. Non-EOF body read
+// failures release the source immediately, including reads returning data and an
+// error together. EOF ends the current packet. Acquisition failures
 // may be retried because no payload was acquired.
 type PayloadDecoder struct {
 	terminalErr error
@@ -58,10 +60,15 @@ func (d *PayloadDecoder) NextReader() (FrameType, PacketType, io.ReadCloser, err
 	return d.ft, d.pt, d, nil
 }
 
-func (d *PayloadDecoder) Read(p []byte) (int, error) {
+func (d *PayloadDecoder) Read(p []byte) (n int, err error) {
 	if d.terminalErr != nil {
 		return 0, d.terminalErr
 	}
+	defer func() {
+		if err != nil && err != io.EOF {
+			err = d.sendError(err)
+		}
+	}()
 	if d.b64Reader != nil {
 		return d.b64Reader.Read(p)
 	}
@@ -138,6 +145,9 @@ func (d *PayloadDecoder) setNextReader(r byteReader, supportBinary bool) error {
 }
 
 func (d *PayloadDecoder) sendError(err error) error {
+	if d.terminalErr != nil {
+		return d.terminalErr
+	}
 	// A released payload must never be read or released again. Retain terminal
 	// errors so another call cannot silently acquire or reuse a failed source.
 	d.rawReader = nil

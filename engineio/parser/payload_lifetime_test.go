@@ -1,7 +1,9 @@
 package parser_test
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -26,6 +28,7 @@ func (r *failingPayloadReader) Read(b []byte) (int, error) {
 }
 
 type payloadLease struct {
+	binary             bool
 	readers            []io.Reader
 	reader             io.Reader
 	releaseErr         error
@@ -38,9 +41,9 @@ func (s *payloadLease) AcquirePayloadReader() (io.Reader, bool, error) {
 	if len(s.readers) > 0 {
 		r := s.readers[0]
 		s.readers = s.readers[1:]
-		return r, false, nil
+		return r, s.binary, nil
 	}
-	return s.reader, false, nil
+	return s.reader, s.binary, nil
 }
 func (s *payloadLease) ReleasePayloadReader(err error) error {
 	s.releases++
@@ -116,5 +119,78 @@ func TestPayloadDecoderSuccessfulReleaseAllowsNextPayload(t *testing.T) {
 		require.NoError(t, decoder.Close())
 		require.Equal(t, i+1, source.acquires)
 		require.Equal(t, i+1, source.releases)
+	}
+}
+
+// transientBodyFailure permits further reads after one failure. The decoder must
+// stop at that first failure instead of draining the remainder during Close.
+type transientBodyFailure struct {
+	*bytes.Reader
+	cause             error
+	withData          bool
+	failed            bool
+	readsAfterFailure int
+}
+
+func (r *transientBodyFailure) Read(b []byte) (int, error) {
+	if r.failed {
+		r.readsAfterFailure++
+		return r.Reader.Read(b)
+	}
+	r.failed = true
+	if !r.withData {
+		return 0, r.cause
+	}
+	n, err := r.Reader.Read(b[:1])
+	if err != nil {
+		return n, err
+	}
+	return n, r.cause
+}
+
+func TestPayloadDecoderRetainsFirstBodyReadFailure(t *testing.T) {
+	readErr := errors.New("one body read failure")
+	releaseErr := errors.New("release overrides body error")
+	for _, format := range []struct {
+		name   string
+		data   []byte
+		binary bool
+	}{
+		{"text", []byte("4:4abc"), false},
+		{"binary", []byte{1, 4, 0xff, 4, 'a', 'b', 'c'}, true},
+		{"base64", []byte("6:b4YWJj"), false},
+	} {
+		for _, withData := range []bool{false, true} {
+			for _, releaseFailure := range []error{nil, releaseErr} {
+				name := fmt.Sprintf("%s/data=%t/release=%t", format.name, withData, releaseFailure != nil)
+				t.Run(name, func(t *testing.T) {
+					raw := &transientBodyFailure{Reader: bytes.NewReader(format.data), cause: readErr, withData: withData}
+					source := &payloadLease{reader: raw, binary: format.binary, releaseErr: releaseFailure}
+					decoder := parser.NewPayloadDecoder(source)
+					_, _, reader, err := decoder.NextReader()
+					require.NoError(t, err)
+					want := readErr
+					if releaseFailure != nil {
+						want = releaseFailure
+					}
+					_, err = io.ReadAll(reader)
+					require.ErrorIs(t, err, want)
+					require.ErrorIs(t, reader.Close(), want)
+					require.Equal(t, 1, source.releases)
+					require.ErrorIs(t, source.releasedWith, readErr)
+					var one [1]byte
+					n, err := reader.Read(one[:])
+					require.Zero(t, n)
+					require.ErrorIs(t, err, want)
+					_, _, next, err := decoder.NextReader()
+					require.Nil(t, next)
+					require.ErrorIs(t, err, want)
+					require.ErrorIs(t, decoder.Close(), want)
+					require.Equal(t, 1, source.acquires)
+					require.Equal(t, 1, source.releases)
+					require.Zero(t, raw.readsAfterFailure, "decoder must not touch the released source")
+				})
+			}
+		}
 	}
 }

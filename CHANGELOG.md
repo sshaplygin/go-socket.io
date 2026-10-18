@@ -9,6 +9,8 @@ All notable changes to this project are documented here. The format follows
 
 - engineio/parser: a decoding or source-release failure terminates the streaming
   payload decoder, preventing reuse and repeated release of the failed source.
+  Body read errors are retained on their first observation, including a read that
+  returns data together with an error.
 
 - engineio: orderly polling close drains admitted frames before sending CLOSE
   through the pending or next poll, with a 30 second bound. Forced root stops and

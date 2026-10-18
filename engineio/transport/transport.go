@@ -7,18 +7,17 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 // FrameReader reads a frame. It needs be closed before next reading.
 type FrameReader interface {
-	NextReader() (frame.Type, packet.Type, io.ReadCloser, error)
+	NextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error)
 }
 
 // FrameWriter writes a frame. It needs be closed before next writing.
 type FrameWriter interface {
-	NextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, error)
+	NextWriter(ft eioparser.FrameType, pt eioparser.PacketType) (io.WriteCloser, error)
 }
 
 // Conn is a transport connection.

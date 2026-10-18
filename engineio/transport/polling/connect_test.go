@@ -14,9 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 func TestDialOpen(t *testing.T) {
@@ -38,7 +36,7 @@ func testDialOpen(t *testing.T, delayedPOST bool) {
 	should := assert.New(t)
 	must := require.New(t)
 
-	cp := transport.ConnParameters{
+	cp := eioparser.ConnParameters{
 		PingInterval: time.Second,
 		PingTimeout:  time.Minute,
 		SID:          "abcdefg",
@@ -137,7 +135,7 @@ func testDialOpen(t *testing.T, delayedPOST bool) {
 
 	should.Equal(cp.SID, sid)
 
-	w, err := cc.NextWriter(frame.String, packet.MESSAGE)
+	w, err := cc.NextWriter(eioparser.String, eioparser.MESSAGE)
 	must.NoError(err)
 
 	_, err = w.Write([]byte("hello"))
@@ -181,7 +179,7 @@ func TestDialOpenFirstPollAfterOpenResponse(t *testing.T) {
 	should := assert.New(t)
 	must := require.New(t)
 
-	cp := transport.ConnParameters{
+	cp := eioparser.ConnParameters{
 		PingInterval: time.Second,
 		PingTimeout:  time.Minute,
 		SID:          "abcdefg",
@@ -254,8 +252,8 @@ func TestDialOpenFirstPollAfterOpenResponse(t *testing.T) {
 	for _, want := range []string{"first", "second"} {
 		ft, pt, r, err := cc.NextReader()
 		must.NoError(err, "reading %q", want)
-		should.Equal(frame.String, ft)
-		should.Equal(packet.MESSAGE, pt)
+		should.Equal(eioparser.String, ft)
+		should.Equal(eioparser.MESSAGE, pt)
 		b, err := io.ReadAll(r)
 		must.NoError(err)
 		must.NoError(r.Close())

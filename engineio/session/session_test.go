@@ -14,8 +14,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
@@ -58,11 +58,11 @@ type failingConn struct {
 	closeErr    error
 }
 
-func (c failingConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+func (c failingConn) NextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
 	return 0, 0, nil, io.EOF
 }
 
-func (c failingConn) NextWriter(frame.Type, packet.Type) (io.WriteCloser, error) {
+func (c failingConn) NextWriter(eioparser.FrameType, eioparser.PacketType) (io.WriteCloser, error) {
 	return nil, io.EOF
 }
 
@@ -85,7 +85,7 @@ func TestNewReportsCloseErrorToLogger(t *testing.T) {
 	closeErr := errors.New("close failed")
 
 	s, err := New(failingConn{deadlineErr: deadlineErr, closeErr: closeErr},
-		"sid", "polling", transport.ConnParameters{PingTimeout: time.Second}, slog.New(h))
+		"sid", "polling", eioparser.ConnParameters{PingTimeout: time.Second}, slog.New(h))
 
 	require.Nil(t, s)
 	require.ErrorIs(t, err, deadlineErr)
@@ -98,7 +98,7 @@ func TestNewNilLoggerDefaults(t *testing.T) {
 	deadlineErr := errors.New("deadline failed")
 
 	s, err := New(failingConn{deadlineErr: deadlineErr, closeErr: errors.New("close failed")},
-		"sid", "polling", transport.ConnParameters{PingTimeout: time.Second}, nil)
+		"sid", "polling", eioparser.ConnParameters{PingTimeout: time.Second}, nil)
 
 	require.Nil(t, s)
 	require.ErrorIs(t, err, deadlineErr)
@@ -112,7 +112,7 @@ func TestNewNilLoggerDefaults(t *testing.T) {
 // Covers the 1.L Levels rule on the upgrade switch (W); no 1L-T case.
 func TestSwitchTransportAfterCloseRecord(t *testing.T) {
 	h := &recordingHandler{}
-	s, err := New(failingConn{}, "sid", "polling", transport.ConnParameters{PingTimeout: time.Second}, slog.New(h))
+	s, err := New(failingConn{}, "sid", "polling", eioparser.ConnParameters{PingTimeout: time.Second}, slog.New(h))
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 
@@ -174,7 +174,7 @@ func (h *attrHandler) last() map[string]string {
 func TestSessionLogAttributes(t *testing.T) {
 	h := newAttrHandler()
 	s, err := New(failingConn{}, "sid7", "polling",
-		transport.ConnParameters{PingTimeout: time.Second}, slog.New(h))
+		eioparser.ConnParameters{PingTimeout: time.Second}, slog.New(h))
 	require.NoError(t, err)
 
 	s.logger().Error("before upgrade")

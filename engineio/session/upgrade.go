@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
@@ -64,11 +64,11 @@ func (s *Session) upgradingAt(t string, conn transport.Conn, started time.Time) 
 	if err != nil {
 		return
 	}
-	if pt != packet.PING {
+	if pt != eioparser.PING {
 		_ = r.Close()
 		return
 	}
-	w, err := conn.NextWriter(ft, packet.PONG)
+	w, err := conn.NextWriter(ft, eioparser.PONG)
 	if err != nil {
 		_ = r.Close()
 		return
@@ -116,7 +116,7 @@ func (s *Session) upgradingAt(t string, conn transport.Conn, started time.Time) 
 		return
 	}
 	readErr = r.Close()
-	if pt != packet.UPGRADE || readErr != nil {
+	if pt != eioparser.UPGRADE || readErr != nil {
 		return
 	}
 

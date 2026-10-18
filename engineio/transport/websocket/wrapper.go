@@ -9,7 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sshaplygin/go-socket.io/logger"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
@@ -36,7 +36,7 @@ func newWrapper(conn *websocket.Conn) wrapper {
 	}
 }
 
-func (w wrapper) NextReader() (frame.Type, io.ReadCloser, error) {
+func (w wrapper) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 	w.readLocker.Lock()
 	defer w.readLocker.Unlock()
 
@@ -58,9 +58,9 @@ func (w wrapper) NextReader() (frame.Type, io.ReadCloser, error) {
 
 	switch typ {
 	case websocket.TextMessage:
-		return frame.String, newRcWrapper(w.readLocker, r), nil
+		return eioparser.String, newRcWrapper(w.readLocker, r), nil
 	case websocket.BinaryMessage:
-		return frame.Binary, newRcWrapper(w.readLocker, r), nil
+		return eioparser.Binary, newRcWrapper(w.readLocker, r), nil
 	}
 
 	return 0, nil, transport.ErrInvalidFrame
@@ -107,17 +107,17 @@ func (r rcWrapper) Close() error {
 	return err
 }
 
-func (w wrapper) NextWriter(ft frame.Type) (io.WriteCloser, error) {
+func (w wrapper) NextWriter(ft eioparser.FrameType) (io.WriteCloser, error) {
 	return w.nextWriter(ft, true)
 }
 
-func (w wrapper) nextWriter(FType frame.Type, compress bool) (io.WriteCloser, error) {
+func (w wrapper) nextWriter(FType eioparser.FrameType, compress bool) (io.WriteCloser, error) {
 	var t int
 
 	switch FType {
-	case frame.String:
+	case eioparser.String:
 		t = websocket.TextMessage
-	case frame.Binary:
+	case eioparser.Binary:
 		t = websocket.BinaryMessage
 	default:
 		return nil, transport.ErrInvalidFrame

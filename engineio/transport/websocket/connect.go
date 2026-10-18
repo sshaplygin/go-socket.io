@@ -10,8 +10,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
@@ -44,7 +44,7 @@ func newConn(ws *websocket.Conn, url url.URL, header http.Header, settings ...*T
 		remoteHeader: header,
 		ws:           w,
 		closed:       closed,
-		FrameReader:  packet.NewDecoder(w),
+		FrameReader:  eioparser.NewPacketDecoder(w),
 	}
 }
 
@@ -74,13 +74,13 @@ func (c *conn) SetReadLimit(n int64) {
 	c.ws.SetReadLimit(n)
 }
 
-func (c *conn) NextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, error) {
+func (c *conn) NextWriter(ft eioparser.FrameType, pt eioparser.PacketType) (io.WriteCloser, error) {
 	return c.NextWriterCompress(ft, pt, true)
 }
 
 // NextWriterCompress keeps the compression choice for the entire encoded packet.
-func (c *conn) NextWriterCompress(ft frame.Type, pt packet.Type, compress bool) (io.WriteCloser, error) {
-	return packet.NewEncoder(compressFrameWriter{c.ws, compress}).NextWriter(ft, pt)
+func (c *conn) NextWriterCompress(ft eioparser.FrameType, pt eioparser.PacketType, compress bool) (io.WriteCloser, error) {
+	return eioparser.NewPacketEncoder(compressFrameWriter{c.ws, compress}).NextWriter(ft, pt)
 }
 
 type compressFrameWriter struct {
@@ -88,7 +88,7 @@ type compressFrameWriter struct {
 	compress bool
 }
 
-func (w compressFrameWriter) NextWriter(ft frame.Type) (io.WriteCloser, error) {
+func (w compressFrameWriter) NextWriter(ft eioparser.FrameType) (io.WriteCloser, error) {
 	if w.compress {
 		return w.w.NextWriter(ft)
 	}

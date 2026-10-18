@@ -1,14 +1,6 @@
 # Root source and its v2 copy, compared after rewriting the module import path.
 logger/logger.go v2/logger/logger.go
-engineio/frame/frame.go v2/engineio/frame/frame.go
-engineio/transport/transport.go v2/engineio/transport/transport.go
 engineio/transport/manager.go v2/engineio/transport/manager.go
 engineio/transport/errors.go v2/engineio/transport/errors.go
 engineio/session/id_generator.go v2/engineio/session/id_generator.go
 engineio/session/manager.go v2/engineio/session/manager.go
-engineio/packet/decoder.go v2/engineio/packet/decoder.go
-engineio/packet/encoder.go v2/engineio/packet/encoder.go
-engineio/packet/packet.go v2/engineio/packet/packet.go
-engineio/packet/types.go v2/engineio/packet/types.go
-engineio/transport/utils/clock.go v2/engineio/transport/utils/clock.go
-engineio/payload/pauser.go v2/engineio/payload/pauser.go

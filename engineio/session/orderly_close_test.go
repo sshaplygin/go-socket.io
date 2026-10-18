@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,7 +30,7 @@ func (c *orderlyConn) CloseGracefully() error {
 	close(c.entered)
 	select {
 	case <-c.allow:
-		w, err := c.scriptConn.NextWriter(frame.String, packet.CLOSE)
+		w, err := c.scriptConn.NextWriter(eioparser.String, eioparser.CLOSE)
 		if err != nil {
 			return err
 		}
@@ -87,10 +87,10 @@ func TestOrderlyCloseDrainsAcceptedWriter(t *testing.T) {
 	require.Equal(t, int32(1), c.closes.Load())
 	writes := c.written()
 	require.Len(t, writes, 3)
-	require.Equal(t, packet.OPEN, writes[0].pt)
-	require.Equal(t, packet.MESSAGE, writes[1].pt)
+	require.Equal(t, eioparser.OPEN, writes[0].pt)
+	require.Equal(t, eioparser.MESSAGE, writes[1].pt)
 	require.Equal(t, "buffered", writes[1].data)
-	require.Equal(t, packet.CLOSE, writes[2].pt)
+	require.Equal(t, eioparser.CLOSE, writes[2].pt)
 }
 
 func TestOrderlyCloseDeadline(t *testing.T) {
@@ -229,10 +229,10 @@ type peerClosingConn struct {
 	reading, sendClose chan struct{}
 }
 
-func (c *peerClosingConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+func (c *peerClosingConn) NextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
 	close(c.reading)
 	<-c.sendClose
-	return frame.String, packet.CLOSE, io.NopCloser(strings.NewReader("")), nil
+	return eioparser.String, eioparser.CLOSE, io.NopCloser(strings.NewReader("")), nil
 }
 
 func TestPeerCloseInterruptsOrderlyClose(t *testing.T) {

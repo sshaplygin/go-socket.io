@@ -10,8 +10,8 @@ import (
 	"time"
 
 	gorilla "github.com/gorilla/websocket"
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/stretchr/testify/require"
 )
@@ -47,22 +47,22 @@ func TestInflatedLimitIsTerminalOnBothSides(t *testing.T) {
 			}
 			limited.(interface{ SetReadLimit(int64) }).SetReadLimit(1024)
 			require.NoError(t, limited.SetReadDeadline(time.Now().Add(time.Second)))
-			write := func(pt packet.Type, value string) {
+			write := func(pt eioparser.PacketType, value string) {
 				t.Helper()
-				w, err := sender.NextWriter(frame.String, pt)
+				w, err := sender.NextWriter(eioparser.String, pt)
 				require.NoError(t, err)
 				_, err = io.WriteString(w, value)
 				require.NoError(t, err)
 				require.NoError(t, w.Close())
 			}
-			write(packet.NOOP, strings.Repeat("a", 100_000))
+			write(eioparser.NOOP, strings.Repeat("a", 100_000))
 			_, pt, r, err := limited.NextReader()
 			require.NoError(t, err)
-			require.Equal(t, packet.NOOP, pt)
+			require.Equal(t, eioparser.NOOP, pt)
 			_, err = io.Copy(io.Discard, r)
 			require.ErrorIs(t, err, gorilla.ErrReadLimit)
 			require.ErrorIs(t, r.Close(), gorilla.ErrReadLimit)
-			write(packet.MESSAGE, "after-limit")
+			write(eioparser.MESSAGE, "after-limit")
 			_, _, r, err = limited.NextReader()
 			require.ErrorIs(t, err, gorilla.ErrReadLimit)
 			require.Nil(t, r, "no later message may escape the failed websocket")

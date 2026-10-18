@@ -10,8 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 // gatedResponse is a ResponseWriter whose first Write blocks until release is closed;
@@ -52,7 +51,7 @@ func TestServerGetFlushErrorDuringWrite(t *testing.T) {
 	require.NoError(t, conn.SetWriteDeadline(deadline))
 
 	go func() {
-		if nw, err := conn.NextWriter(frame.String, packet.MESSAGE); err == nil {
+		if nw, err := conn.NextWriter(eioparser.String, eioparser.MESSAGE); err == nil {
 			_, _ = nw.Write([]byte("hello"))
 			_ = nw.Close()
 		}

@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"fmt"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -182,7 +183,7 @@ func testHandshakeAfterUpgrade(t *testing.T) {
 	body := get(ts.URL + "/?EIO=3&transport=polling&b64=1&shared=polling&initial=yes")
 	_, open, ok := strings.Cut(body, ":")
 	require.True(t, ok)
-	params, err := transport.ReadConnParameters(strings.NewReader(open[1:]))
+	params, err := eioparser.ReadConnParameters(strings.NewReader(open[1:]))
 	require.NoError(t, err)
 	poll := ts.URL + "/?EIO=3&transport=polling&b64=1&sid=" + params.SID
 	require.Equal(t, "2:40", get(poll))

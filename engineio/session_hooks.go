@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -20,10 +20,10 @@ func (s *Server) installHooks(c *session.Session, request *http.Request, initial
 	}
 	sh := &session.Hooks{}
 	if h.Packet != nil {
-		sh.Packet = func(c *session.Session, pt packet.Type, ft frame.Type) { h.Packet(c, pt, ft) }
+		sh.Packet = func(c *session.Session, pt eioparser.PacketType, ft eioparser.FrameType) { h.Packet(c, pt, ft) }
 	}
 	if h.PacketCreate != nil {
-		sh.PacketCreate = func(c *session.Session, pt packet.Type, ft frame.Type) { h.PacketCreate(c, pt, ft) }
+		sh.PacketCreate = func(c *session.Session, pt eioparser.PacketType, ft eioparser.FrameType) { h.PacketCreate(c, pt, ft) }
 	}
 	if h.Heartbeat != nil {
 		sh.Heartbeat = func(c *session.Session) { h.Heartbeat(c) }

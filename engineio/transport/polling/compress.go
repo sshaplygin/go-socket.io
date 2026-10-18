@@ -9,18 +9,17 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 // NextWriter sends packets with the reference's default compression flag.
-func (c *serverConn) NextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, error) {
+func (c *serverConn) NextWriter(ft eioparser.FrameType, pt eioparser.PacketType) (io.WriteCloser, error) {
 	return c.NextWriterCompress(ft, pt, true)
 }
 
 // NextWriterCompress carries the flag until the payload encoder writes its frame.
-func (c *serverConn) NextWriterCompress(ft frame.Type, pt packet.Type, compress bool) (io.WriteCloser, error) {
-	w, err := c.Payload.NextWriter(ft, pt)
+func (c *serverConn) NextWriterCompress(ft eioparser.FrameType, pt eioparser.PacketType, compress bool) (io.WriteCloser, error) {
+	w, err := c.payload.NextWriter(ft, pt)
 	if err != nil {
 		return nil, err
 	}

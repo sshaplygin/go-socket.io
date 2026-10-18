@@ -1,6 +1,7 @@
 package engineio
 
 import (
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -63,7 +64,7 @@ func corsSession(t *testing.T, opts *Options, origin string, allowed bool) *pari
 	require.True(t, ok)
 	require.True(t, strings.HasPrefix(open, "0"), open)
 	var err error
-	f.params, err = transport.ReadConnParameters(strings.NewReader(open[1:]))
+	f.params, err = eioparser.ReadConnParameters(strings.NewReader(open[1:]))
 	require.NoError(t, err)
 	f.poll = f.http.URL + "/?EIO=3&transport=polling&b64=1&sid=" + f.params.SID
 	accepted := make(chan Conn, 1)

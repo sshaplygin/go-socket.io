@@ -1,17 +1,17 @@
 package session
 
 import (
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 // FrameType is type of message frame.
-type FrameType frame.Type
+type FrameType eioparser.FrameType
 
 const (
 	// TEXT is text type message.
-	TEXT = FrameType(frame.String)
+	TEXT = FrameType(eioparser.String)
 	// BINARY is binary type message.
-	BINARY = FrameType(frame.Binary)
+	BINARY = FrameType(eioparser.Binary)
 )
 
 // ReadyState is the state of a session.

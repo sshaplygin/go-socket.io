@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/parser"
@@ -35,7 +35,7 @@ func (c *rootOrderlyTransport) Close() error                     { c.once.Do(fun
 func (c *rootOrderlyTransport) SetReadDeadline(time.Time) error  { return nil }
 func (c *rootOrderlyTransport) SetWriteDeadline(time.Time) error { return nil }
 func (c *rootOrderlyTransport) RemoteAddr() net.Addr             { return nil }
-func (c *rootOrderlyTransport) NextWriter(frame.Type, packet.Type) (io.WriteCloser, error) {
+func (c *rootOrderlyTransport) NextWriter(eioparser.FrameType, eioparser.PacketType) (io.WriteCloser, error) {
 	return discardFrame{}, nil
 }
 
@@ -47,7 +47,7 @@ func (discardFrame) Close() error                { return nil }
 func rootWithOrderlyEngine(t *testing.T) (*conn, *session.Session, *rootOrderlyTransport) {
 	t.Helper()
 	tr := &rootOrderlyTransport{entered: make(chan struct{}), closed: make(chan struct{})}
-	s, err := session.New(tr, "orderly", "polling", transport.ConnParameters{PingInterval: time.Hour, PingTimeout: time.Hour}, nil)
+	s, err := session.New(tr, "orderly", "polling", eioparser.ConnParameters{PingInterval: time.Hour, PingTimeout: time.Hour}, nil)
 	require.NoError(t, err)
 	require.NoError(t, s.InitSession())
 	c := newConn(s, newNamespaceHandlers(), connLimits{writeBufferSize: 1, drainTimeout: 50 * time.Millisecond}, slog.Default())

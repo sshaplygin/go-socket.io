@@ -8,6 +8,7 @@ import (
 	"compress/zlib"
 	"encoding/binary"
 	"encoding/json"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"io"
 	"net"
 	"net/http"
@@ -22,7 +23,7 @@ import (
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/engineio/session"
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -303,7 +304,7 @@ func TestHandshakeCookie(t *testing.T) {
 			require.NoError(t, response.Body.Close())
 			_, open, ok := strings.Cut(string(data), ":0")
 			require.True(t, ok)
-			var params transport.ConnParameters
+			var params eioparser.ConnParameters
 			require.NoError(t, json.Unmarshal([]byte(open), &params))
 			check := func(resp *http.Response) {
 				t.Helper()
@@ -370,7 +371,7 @@ func compressionPollingWire(t *testing.T, binaryMode bool) *parityWire {
 	require.GreaterOrEqual(t, separator, 0)
 	require.Greater(t, len(data), separator+1)
 	require.Equal(t, byte('0'), data[separator+1])
-	var params transport.ConnParameters
+	var params eioparser.ConnParameters
 	require.NoError(t, json.Unmarshal(data[separator+2:], &params))
 	return &parityWire{srv: s, http: ts, client: cl, poll: ts.URL + "/?EIO=3&transport=polling&sid=" + params.SID, conn: compressionAccept(t, s), params: params}
 }

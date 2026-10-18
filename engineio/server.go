@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"io"
 	"log/slog"
 	"net"
@@ -253,7 +254,7 @@ func (s *Server) Remove(sid string) {
 }
 
 func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport string) (*session.Session, error) {
-	params := transport.ConnParameters{
+	params := eioparser.ConnParameters{
 		PingInterval: s.pingInterval,
 		PingTimeout:  s.pingTimeout,
 		Upgrades:     s.transports.UpgradeFrom(reqTransport),

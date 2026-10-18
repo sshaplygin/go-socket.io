@@ -274,6 +274,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- engineio: shared wire codecs and OPEN parameters now live in `engineio/parser`;
+  polling owns its feed/flush and pause/deadline state. The former frame, packet,
+  payload and transport-utils import paths are removed. See
+  [the v1 migration guide](docs/V1_MIGRATION.md) for the new imports and API.
+
 - v1 source layout is organized by responsibility. Session abort, shutdown and response
   header observation use direct session methods/hooks instead of private packages with
   init-time function registration. Existing imports and connection interfaces remain

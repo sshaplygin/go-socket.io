@@ -24,8 +24,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/session"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
@@ -111,7 +111,7 @@ func (faultyConn) SetReadDeadline(time.Time) error  { return nil }
 func (faultyConn) SetWriteDeadline(time.Time) error { return nil }
 func (faultyConn) Close() error                     { return nil }
 func (faultyConn) RemoteAddr() net.Addr             { return nil }
-func (faultyConn) NextWriter(frame.Type, packet.Type) (io.WriteCloser, error) {
+func (faultyConn) NextWriter(eioparser.FrameType, eioparser.PacketType) (io.WriteCloser, error) {
 	return nil, errors.New("write failed")
 }
 
@@ -163,7 +163,7 @@ func TestRequestRejectedRecords(t *testing.T) {
 		}
 		_, _, r, err := c.NextReader()
 		require.NoError(t, err)
-		params, err := transport.ReadConnParameters(r)
+		params, err := eioparser.ReadConnParameters(r)
 		require.NoError(t, err)
 		return params.SID
 	}

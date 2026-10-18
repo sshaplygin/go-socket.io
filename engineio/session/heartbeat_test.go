@@ -1,6 +1,7 @@
 package session
 
 import (
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +12,6 @@ import (
 	gorilla "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
@@ -28,7 +28,7 @@ func TestPingTimeoutIdleClient(t *testing.T) {
 					done <- err
 					return
 				}
-				s, err := New(c, "heartbeat", "websocket", transport.ConnParameters{
+				s, err := New(c, "heartbeat", "websocket", eioparser.ConnParameters{
 					PingInterval: 100 * time.Millisecond, PingTimeout: 50 * time.Millisecond,
 				}, nil)
 				if err != nil {

@@ -14,23 +14,23 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
 // scriptedPacket is one packet a scriptConn returns from NextReader.
 type scriptedPacket struct {
-	ft   frame.Type
-	pt   packet.Type
+	ft   eioparser.FrameType
+	pt   eioparser.PacketType
 	data string
 	err  error
 }
 
 // writtenPacket is one packet written through a scriptConn.
 type writtenPacket struct {
-	ft   frame.Type
-	pt   packet.Type
+	ft   eioparser.FrameType
+	pt   eioparser.PacketType
 	data string
 }
 
@@ -47,7 +47,7 @@ type scriptConn struct {
 	resumed   int
 }
 
-func (c *scriptConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+func (c *scriptConn) NextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.reads) == 0 {
@@ -61,7 +61,7 @@ func (c *scriptConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error
 	return p.ft, p.pt, io.NopCloser(strings.NewReader(p.data)), nil
 }
 
-func (c *scriptConn) NextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, error) {
+func (c *scriptConn) NextWriter(ft eioparser.FrameType, pt eioparser.PacketType) (io.WriteCloser, error) {
 	if c.writerErr != nil {
 		return nil, c.writerErr
 	}
@@ -96,8 +96,8 @@ func (c *scriptConn) SetWriteDeadline(time.Time) error { return nil }
 
 type scriptWriter struct {
 	c   *scriptConn
-	ft  frame.Type
-	pt  packet.Type
+	ft  eioparser.FrameType
+	pt  eioparser.PacketType
 	buf bytes.Buffer
 }
 
@@ -128,7 +128,7 @@ func (c *pausableConn) Resume() {
 
 func newTestSession(t *testing.T, conn transport.Conn, tr string) *Session {
 	t.Helper()
-	s, err := New(conn, "sid1", tr, transport.ConnParameters{
+	s, err := New(conn, "sid1", tr, eioparser.ConnParameters{
 		PingInterval: time.Second,
 		PingTimeout:  time.Second,
 		Upgrades:     []string{"websocket"},
@@ -151,9 +151,9 @@ func TestSessionAccessors(t *testing.T) {
 
 func TestSessionNextReaderAnswersPingAndSkipsUnknown(t *testing.T) {
 	conn := &scriptConn{reads: []scriptedPacket{
-		{ft: frame.String, pt: packet.PING, data: "probe"},
-		{ft: frame.String, pt: packet.NOOP},
-		{ft: frame.String, pt: packet.MESSAGE, data: "hello"},
+		{ft: eioparser.String, pt: eioparser.PING, data: "probe"},
+		{ft: eioparser.String, pt: eioparser.NOOP},
+		{ft: eioparser.String, pt: eioparser.MESSAGE, data: "hello"},
 	}}
 	s := newTestSession(t, conn, "polling")
 
@@ -165,12 +165,12 @@ func TestSessionNextReaderAnswersPingAndSkipsUnknown(t *testing.T) {
 	require.Equal(t, "hello", string(b))
 	require.NoError(t, r.Close())
 
-	require.Equal(t, []writtenPacket{{ft: frame.String, pt: packet.PONG, data: "probe"}}, conn.written())
+	require.Equal(t, []writtenPacket{{ft: eioparser.String, pt: eioparser.PONG, data: "probe"}}, conn.written())
 	require.False(t, conn.isClosed())
 }
 
 func TestSessionNextReaderClosePacket(t *testing.T) {
-	conn := &scriptConn{reads: []scriptedPacket{{ft: frame.String, pt: packet.CLOSE}}}
+	conn := &scriptConn{reads: []scriptedPacket{{ft: eioparser.String, pt: eioparser.CLOSE}}}
 	s := newTestSession(t, conn, "polling")
 
 	_, _, err := s.NextReader()
@@ -188,7 +188,7 @@ func TestSessionNextReaderErrors(t *testing.T) {
 
 	writeErr := errors.New("write failed")
 	conn = &scriptConn{
-		reads:     []scriptedPacket{{ft: frame.String, pt: packet.PING, data: "x"}},
+		reads:     []scriptedPacket{{ft: eioparser.String, pt: eioparser.PING, data: "x"}},
 		writerErr: writeErr,
 	}
 	s = newTestSession(t, conn, "polling")
@@ -206,7 +206,7 @@ func TestSessionNextWriter(t *testing.T) {
 	_, err = w.Write([]byte{1, 2})
 	require.NoError(t, err)
 	require.NoError(t, w.Close())
-	require.Equal(t, []writtenPacket{{ft: frame.Binary, pt: packet.MESSAGE, data: "\x01\x02"}}, conn.written())
+	require.Equal(t, []writtenPacket{{ft: eioparser.Binary, pt: eioparser.MESSAGE, data: "\x01\x02"}}, conn.written())
 }
 
 func TestSessionInitSession(t *testing.T) {
@@ -215,7 +215,7 @@ func TestSessionInitSession(t *testing.T) {
 	require.NoError(t, s.InitSession())
 	w := conn.written()
 	require.Len(t, w, 1)
-	require.Equal(t, packet.OPEN, w[0].pt)
+	require.Equal(t, eioparser.OPEN, w[0].pt)
 	require.Contains(t, w[0].data, `"sid":"sid1"`)
 	require.Contains(t, w[0].data, `"upgrades":["websocket"]`)
 
@@ -237,13 +237,13 @@ func TestSessionUpgrade(t *testing.T) {
 	s := newTestSession(t, old, "polling")
 
 	next := &scriptConn{reads: []scriptedPacket{
-		{ft: frame.String, pt: packet.PING, data: "probe"},
-		{ft: frame.String, pt: packet.UPGRADE},
+		{ft: eioparser.String, pt: eioparser.PING, data: "probe"},
+		{ft: eioparser.String, pt: eioparser.UPGRADE},
 	}}
 	s.upgrading("websocket", next)
 
 	require.Equal(t, "websocket", s.Transport())
-	require.Equal(t, []writtenPacket{{ft: frame.String, pt: packet.PONG, data: "probe"}}, next.written())
+	require.Equal(t, []writtenPacket{{ft: eioparser.String, pt: eioparser.PONG, data: "probe"}}, next.written())
 	require.True(t, old.isClosed(), "the old connection is closed after a successful upgrade")
 	require.False(t, next.isClosed())
 	require.Equal(t, 1, old.paused)
@@ -257,17 +257,17 @@ func TestSessionUpgradeFailures(t *testing.T) {
 		wantResume int
 	}{
 		"no probe":         {reads: nil, oldPauser: true},
-		"not a ping":       {reads: []scriptedPacket{{ft: frame.String, pt: packet.MESSAGE}}, oldPauser: true},
-		"old not pausable": {reads: []scriptedPacket{{ft: frame.String, pt: packet.PING, data: "probe"}}},
+		"not a ping":       {reads: []scriptedPacket{{ft: eioparser.String, pt: eioparser.MESSAGE}}, oldPauser: true},
+		"old not pausable": {reads: []scriptedPacket{{ft: eioparser.String, pt: eioparser.PING, data: "probe"}}},
 		"no upgrade packet": {
-			reads:      []scriptedPacket{{ft: frame.String, pt: packet.PING, data: "probe"}},
+			reads:      []scriptedPacket{{ft: eioparser.String, pt: eioparser.PING, data: "probe"}},
 			oldPauser:  true,
 			wantResume: 0,
 		},
 		"wrong packet after probe": {
 			reads: []scriptedPacket{
-				{ft: frame.String, pt: packet.PING, data: "probe"},
-				{ft: frame.String, pt: packet.MESSAGE},
+				{ft: eioparser.String, pt: eioparser.PING, data: "probe"},
+				{ft: eioparser.String, pt: eioparser.MESSAGE},
 			},
 			oldPauser:  true,
 			wantResume: 0,
@@ -296,7 +296,7 @@ func TestSessionUpgradeFailures(t *testing.T) {
 func TestSessionUpgradePongWriteFails(t *testing.T) {
 	s := newTestSession(t, &pausableConn{}, "polling")
 	next := &scriptConn{
-		reads:     []scriptedPacket{{ft: frame.String, pt: packet.PING, data: "probe"}},
+		reads:     []scriptedPacket{{ft: eioparser.String, pt: eioparser.PING, data: "probe"}},
 		writerErr: errors.New("no writer"),
 	}
 	s.upgrading("websocket", next)
@@ -304,8 +304,8 @@ func TestSessionUpgradePongWriteFails(t *testing.T) {
 	require.True(t, next.isClosed())
 }
 
-func transportParams(sid string) transport.ConnParameters {
-	return transport.ConnParameters{SID: sid}
+func transportParams(sid string) eioparser.ConnParameters {
+	return eioparser.ConnParameters{SID: sid}
 }
 
 // handlerConn is a scriptConn that also serves HTTP, as the polling
@@ -334,8 +334,8 @@ func TestSessionServeHTTPDelegatesToConn(t *testing.T) {
 func TestSessionUpgradeRunsAsync(t *testing.T) {
 	s := newTestSession(t, &pausableConn{}, "polling")
 	next := &scriptConn{reads: []scriptedPacket{
-		{ft: frame.String, pt: packet.PING, data: "probe"},
-		{ft: frame.String, pt: packet.UPGRADE},
+		{ft: eioparser.String, pt: eioparser.PING, data: "probe"},
+		{ft: eioparser.String, pt: eioparser.UPGRADE},
 	}}
 	s.Upgrade("websocket", next)
 	require.Eventually(t, func() bool { return s.Transport() == "websocket" },
@@ -356,13 +356,13 @@ func newClosingConn() *closingConn {
 	return &closingConn{done: make(chan struct{}), entered: make(chan struct{}, 2)}
 }
 
-func (c *closingConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+func (c *closingConn) NextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
 	c.entered <- struct{}{}
 	<-c.done
 	return 0, 0, nil, io.EOF
 }
 
-func (c *closingConn) NextWriter(frame.Type, packet.Type) (io.WriteCloser, error) {
+func (c *closingConn) NextWriter(eioparser.FrameType, eioparser.PacketType) (io.WriteCloser, error) {
 	c.entered <- struct{}{}
 	<-c.done
 	return nil, io.EOF
@@ -398,7 +398,7 @@ func TestSessionReadSurvivesUpgrade(t *testing.T) {
 	}()
 	<-old.entered
 
-	next := &scriptConn{reads: []scriptedPacket{{ft: frame.String, pt: packet.MESSAGE, data: "after upgrade"}}}
+	next := &scriptConn{reads: []scriptedPacket{{ft: eioparser.String, pt: eioparser.MESSAGE, data: "after upgrade"}}}
 	s.switchTransport("websocket", next)
 	require.NoError(t, old.Close())
 
@@ -435,7 +435,7 @@ func TestSessionWriteSurvivesUpgrade(t *testing.T) {
 	select {
 	case err := <-errs:
 		require.NoError(t, err)
-		require.Equal(t, []writtenPacket{{ft: frame.String, pt: packet.MESSAGE, data: "x"}}, next.written())
+		require.Equal(t, []writtenPacket{{ft: eioparser.String, pt: eioparser.MESSAGE, data: "x"}}, next.written())
 	case <-time.After(5 * time.Second):
 		t.Fatal("NextWriter did not return")
 	}
@@ -454,13 +454,13 @@ func newHeldConn() *heldConn {
 	return &heldConn{release: make(chan struct{}), entered: make(chan struct{}, 2)}
 }
 
-func (c *heldConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+func (c *heldConn) NextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
 	c.entered <- struct{}{}
 	<-c.release
 	return 0, 0, nil, io.EOF
 }
 
-func (c *heldConn) NextWriter(frame.Type, packet.Type) (io.WriteCloser, error) {
+func (c *heldConn) NextWriter(eioparser.FrameType, eioparser.PacketType) (io.WriteCloser, error) {
 	c.entered <- struct{}{}
 	<-c.release
 	return nil, io.EOF
@@ -489,7 +489,7 @@ func TestSessionClosedBeforeUpgradeCompletes(t *testing.T) {
 			<-old.entered
 
 			require.NoError(t, s.Close())
-			next := &scriptConn{reads: []scriptedPacket{{ft: frame.String, pt: packet.MESSAGE, data: "late"}}}
+			next := &scriptConn{reads: []scriptedPacket{{ft: eioparser.String, pt: eioparser.MESSAGE, data: "late"}}}
 			s.switchTransport("websocket", next)
 			close(old.release)
 
@@ -521,8 +521,8 @@ func TestUpgradeTimeoutEndsAtUpgradePacket(t *testing.T) {
 	defer func() { _ = s.Close() }()
 	s.SetLimits(1_000_000, 100*time.Millisecond)
 	next := &scriptConn{reads: []scriptedPacket{
-		{ft: frame.String, pt: packet.PING, data: "probe"},
-		{ft: frame.String, pt: packet.UPGRADE},
+		{ft: eioparser.String, pt: eioparser.PING, data: "probe"},
+		{ft: eioparser.String, pt: eioparser.UPGRADE},
 	}}
 	done := make(chan struct{})
 	go func() { defer close(done); s.upgrading("websocket", next) }()

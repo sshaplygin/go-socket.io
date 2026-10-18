@@ -3,6 +3,7 @@ package engineio
 import (
 	"encoding/json"
 	"fmt"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,7 +16,7 @@ import (
 
 	gorilla "github.com/gorilla/websocket"
 	"github.com/sshaplygin/go-socket.io/engineio/session"
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,7 +39,7 @@ type parityWire struct {
 	client *http.Client
 	poll   string
 	conn   Conn
-	params transport.ConnParameters
+	params eioparser.ConnParameters
 }
 
 func newParityWire(t *testing.T, opts *Options) *parityWire {
@@ -52,7 +53,7 @@ func newParityWire(t *testing.T, opts *Options) *parityWire {
 	require.True(t, ok)
 	require.True(t, strings.HasPrefix(packet, "0"), packet)
 	var err error
-	f.params, err = transport.ReadConnParameters(strings.NewReader(packet[1:]))
+	f.params, err = eioparser.ReadConnParameters(strings.NewReader(packet[1:]))
 	require.NoError(t, err)
 	f.poll = f.http.URL + "/?EIO=3&transport=polling&b64=1&sid=" + f.params.SID
 	accepted := make(chan Conn, 1)

@@ -9,9 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/engineio/payload"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,7 +34,7 @@ func TestPollingCompressionWriteFailure(t *testing.T) {
 			response := failingCompressionResponse{httptest.NewRecorder(), failure}
 			done := make(chan error, 1)
 			go func() {
-				w, err := c.NextWriter(frame.String, packet.MESSAGE)
+				w, err := c.NextWriter(eioparser.String, eioparser.MESSAGE)
 				if err == nil {
 					_, err = io.WriteString(w, strings.Repeat("a", 4096))
 					if closeErr := w.Close(); err == nil {
@@ -45,7 +44,7 @@ func TestPollingCompressionWriteFailure(t *testing.T) {
 				done <- err
 			}()
 			c.ServeHTTP(response, req)
-			var op *payload.OpError
+			var op *OpError
 			require.ErrorAs(t, <-done, &op)
 			require.Same(t, failure, op.Err)
 			require.Empty(t, response.Body.String(), "a failed started response must not receive another HTTP error body")
@@ -62,7 +61,7 @@ func TestPollingCompressionFlagAndNoop(t *testing.T) {
 	require.NoError(t, c.SetWriteDeadline(time.Now().Add(time.Second)))
 	done := make(chan error, 1)
 	go func() {
-		w, err := c.NextWriterCompress(frame.String, packet.MESSAGE, false)
+		w, err := c.NextWriterCompress(eioparser.String, eioparser.MESSAGE, false)
 		if err == nil {
 			_, err = io.WriteString(w, "1:6")
 			if closeErr := w.Close(); err == nil {

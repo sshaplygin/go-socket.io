@@ -34,6 +34,7 @@ Earlier tags use the upstream module path; use `master` until a release with the
 fork's module path is tagged. Existing consumers must update their imports from
 `github.com/googollee/go-socket.io` to `github.com/sshaplygin/go-socket.io` and remove
 the former upstream-path `replace` directive, then run `go mod tidy`.
+Changes to v1 component imports and API: [migration guide](docs/V1_MIGRATION.md).
 
 ## Quick start
 

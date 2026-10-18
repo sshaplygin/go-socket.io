@@ -3,8 +3,7 @@ package session
 import (
 	"net/http"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 // Hooks is the socket-level half of engineio.Hooks over *Session: engineio.NewServer
@@ -15,8 +14,8 @@ type Hooks struct {
 	// and before they are written. The engine server installs it before startup;
 	// nil leaves an already installed response observer unchanged.
 	Headers      func(r *http.Request, h http.Header)
-	Packet       func(s *Session, pt packet.Type, ft frame.Type)
-	PacketCreate func(s *Session, pt packet.Type, ft frame.Type)
+	Packet       func(s *Session, pt eioparser.PacketType, ft eioparser.FrameType)
+	PacketCreate func(s *Session, pt eioparser.PacketType, ft eioparser.FrameType)
 	Heartbeat    func(s *Session)
 	Upgrading    func(s *Session, transport string)
 	Upgrade      func(s *Session, transport string)

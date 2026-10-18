@@ -10,8 +10,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sshaplygin/go-socket.io/engineio/frame"
-	"github.com/sshaplygin/go-socket.io/engineio/packet"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -92,7 +92,7 @@ func (c *stateCloseConn) Close() error {
 	return c.blockingConn.Close()
 }
 
-func (c *stateCloseConn) NextWriter(frame.Type, packet.Type) (io.WriteCloser, error) {
+func (c *stateCloseConn) NextWriter(eioparser.FrameType, eioparser.PacketType) (io.WriteCloser, error) {
 	return stateWriter{io.Discard}, nil
 }
 
@@ -116,7 +116,7 @@ func TestEngineClientState(t *testing.T) {
 			require.Equal(t, StateClosed, c.ReadyState())
 		})
 	}
-	c := &client{conn: &brokenConn{}, close: make(chan struct{}), params: transport.ConnParameters{PingInterval: time.Millisecond}}
+	c := &client{conn: &brokenConn{}, close: make(chan struct{}), params: eioparser.ConnParameters{PingInterval: time.Millisecond}}
 	require.Equal(t, StateOpen, c.ReadyState())
 	c.serve()
 	require.Equal(t, StateClosed, c.ReadyState(), "ping-loop exit closes the client state")

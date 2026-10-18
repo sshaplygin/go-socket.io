@@ -2,6 +2,7 @@ package engineio
 
 import (
 	"fmt"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -121,7 +122,7 @@ func TestConnInitorBeforeAccept(t *testing.T) {
 func TestSessionRequest(t *testing.T) {
 	t.Run("unset", func(t *testing.T) {
 		c := newBlockingConn()
-		s, err := session.New(c, "request", "polling", transport.ConnParameters{PingInterval: time.Second, PingTimeout: time.Second}, nil)
+		s, err := session.New(c, "request", "polling", eioparser.ConnParameters{PingInterval: time.Second, PingTimeout: time.Second}, nil)
 		require.NoError(t, err)
 		defer func() { _ = s.Close() }()
 		require.Nil(t, s.Request())

@@ -2839,6 +2839,15 @@ on the merged `master` (it now also greps the D19 heading), and the owner's Acce
 repeated. Nothing is accepted beyond what those commands compute; the `v1.5.0` tag stays the
 owner's order after that.
 
+Three gates read *MV1 accepted*: the entry of wave 2B (*Execution and parallel work*), the
+entry of Stage V1R below, and the resumption of v2 work on the owner's order after MV1 (*Repository
+layout*, *Execution and parallel work*, *Repository restructure* and its replay table, the MV1
+Acceptance). The
+review and D18 name only `v1.5.0`; whether these three keep the acceptance of #133 or wait for
+the re-acceptance is an open question to the owner on the PR that records wave V1G, recorded
+here as the owner answers. Until then each is read as written: 2B and V1R wait for the
+re-acceptance, and v2 work resumes only on the owner's order.
+
 **Stage V1R. Redis parity (next v1 minor, after MV1).** Scope, from D2: `Except` and
 broadcast-except-sender over Redis (A4), the `volatile` (A4) and `compress` (S21) flags across instances, a room union as one
 message and id lists across instances (S13, S15, A5), the `DB` option (A10), binary arguments across

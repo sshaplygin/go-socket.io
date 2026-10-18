@@ -1,13 +1,6 @@
 package client
 
-import (
-	"errors"
-)
-
-var errUnavailableRootHandler = errors.New("root ('/') doesn't have a namespace handler")
-var errFailedConnectNamespace = errors.New("failed connect to namespace without handler")
-var errHandleDispatch = errors.New("handler dispatch error")
-var errDecodeArgs = errors.New("decode args error")
+import "github.com/sshaplygin/go-socket.io/client/internal/connection"
 
 // ErrWriteBufferFull is reported once, to OnError of the packet's namespace and unordered with
 // OnDisconnect, when an Emit or a packet the library queues (an ACK or CONNECT reply) finds the
@@ -17,23 +10,10 @@ var errDecodeArgs = errors.New("decode args error")
 // reported with a nil Conn. Packets queued faster than they are written can close a healthy client:
 // polling writes one engine.io frame per round trip, and a packet with k binary attachments takes k+1
 // frames.
-var ErrWriteBufferFull = errors.New("write buffer full")
+var ErrWriteBufferFull = connection.ErrWriteBufferFull
 
 // ErrServerOnly means a client connection cannot perform a server broadcast.
-var ErrServerOnly = errors.New("socketio: server-only method on a client connection")
+var ErrServerOnly = connection.ErrServerOnly
 
-type errorMessage struct {
-	namespace string
-	conn      *namespaceConn // nil if namespace has no OnError; see conn.errConn
-	done      chan struct{}  // closed once OnError returned
-
-	err error
-}
-
-func newErrorMessage(namespace string, err error) *errorMessage {
-	return &errorMessage{
-		namespace: namespace,
-		done:      make(chan struct{}),
-		err:       err,
-	}
-}
+// ErrConnectTimeout means the engine connection did not open within WithTimeout.
+var ErrConnectTimeout = connection.ErrConnectTimeout

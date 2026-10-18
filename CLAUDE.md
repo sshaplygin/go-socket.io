@@ -21,7 +21,9 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `internal/namespace/` | canonical server role contracts, namespace handlers/listeners and registration/socket registries |
 | `adapter/` | v1 adapter/socket contracts and local in-memory room index; standard-library dependencies only |
 | `adapter/redis/` | v1 Redis factory/options, publication, requests and reconnect; composes the memory adapter |
-| `client/` | v1 experimental Socket.IO Go client, manager/reconnect, client-owned connection contracts/options |
+| `client/` | v1 experimental Socket.IO Go client construction/options and active role/socket entry points |
+| `client/internal/connection/` | private client manager/generations/reconnect, queues/drain, concrete sockets, ACK/packet dispatch and observers |
+| `client/internal/namespace/` | canonical independent client-role contracts, reflected handlers/listeners, registry and local room index |
 | `parser/` | v1 Socket.IO v4 packet encoder/decoder, binary attachments and independent frame types |
 | `engineio/` | v1 Engine.IO v3 acceptance/server lifecycle, options/hooks and active connection contracts |
 | `engineio/internal/session/` | private server session I/O, registry/IDs, heartbeat, close/upgrade and polling response observation |
@@ -71,8 +73,10 @@ V1 source files are grouped under their owning components:
 | `internal/connection/connection.go`, `io.go`, `queue.go`, `close.go` | concrete transport connection, startup/completion, I/O loops and atomic queue/drain/close lifecycle |
 | `internal/connection/socket.go`, `emitter.go`, `packets.go`, `frames.go`, `errors.go` | concrete namespace sockets, pending emitters, packet/ACK dispatch, frame adaptation and connection errors |
 | `internal/namespace/contracts.go`, `handlers.go`, `registry.go`, `listeners.go` | canonical server role contracts, reflected callbacks, namespace/connected registries and listener snapshots |
-| `client/types.go`, `options.go`, `client.go`, `socket.go`, `state.go`, `reconnect.go` | independent client role/configuration, client API, sockets, generations and reconnection |
-| `client/connection.go`, `connection_serve.go`, `packet_handlers.go`, `event_handler.go`, `namespace.go`, `namespace_handler.go` | client connection/queue, dispatch, concrete namespace sockets and registrations |
+| `client/types.go`, `options.go`, `client.go`, `errors.go` | active client role/socket aliases, public construction/defaults/copies, functional options and error identities |
+| `client/internal/connection/manager.go`, `reconnect.go`, `observers.go` | required resolved manager inputs, connection generations, retries and callback observers |
+| `client/internal/connection/connection.go`, `io.go`, `queue.go`, `close.go`, `socket.go`, `emitter.go`, `packets.go`, `errors.go` | transport I/O, atomic queue/drain/close/ACK lifecycle, concrete sockets and emitters |
+| `client/internal/namespace/contracts.go`, `handlers.go`, `registry.go`, `listeners.go`, `rooms.go` | canonical independent client contracts, reflected callbacks/listeners, synchronized registrations and local rooms |
 | `adapter/adapter.go`, `memory.go` | minimal socket/factory contracts and local room/index/delivery ownership |
 | `adapter/redis/options.go`, `adapter.go`, `codec.go`, `requests.go`, `subscription.go` | Redis configuration/construction, legacy wire format, cluster queries and subscription lifecycle |
 | `engineio/conn.go`, `id.go`, `options.go`, `hooks.go`, `headers.go` | active connection/state/error/ID contract aliases, configuration, public hook adaptation and websocket header observation |
@@ -100,7 +104,7 @@ make sync-check  # compare shared v1/v2 files after the module import-path rewri
 make test        # go test -count=1 ./...
 make test-race   # the same with -race; what CI runs
 make conformance # tagged JS interoperability and raw transport tests; requires Node and the installs below
-make test-stress # race tests of root, parser, engineio/...: -count=5 -shuffle=on -cpu=1,4
+make test-stress # race tests of root, adapters, private server/client owners, parser, engineio/...: -count=5 -shuffle=on -cpu=1,4
 make bench       # benchmarks only, no tests
 make vuln        # govulncheck ./... in the root and in every _examples module
 make cover       # coverage profile + HTML report

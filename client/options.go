@@ -9,6 +9,9 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
+// Default queue budget and orderly drain bound, resolved by New.
+const defaultWriteBufferSize, defaultDrainTimeout = 64, time.Minute
+
 // options holds private client configuration.
 type options struct {
 	// PerMessageDeflate offers websocket compression, with a 1024-byte threshold.

@@ -347,10 +347,6 @@ All notable changes to this project are documented here. The format follows
   now all build against the checked-out fork, including the Docker example.
 - `session.New` takes a trailing `*slog.Logger` parameter (nil accepted).
 - `logger.Error` accepts a nil error instead of panicking.
-- Connection-level errors that were printed with `log.Println` are now `slog` Error
-  records carrying the namespace. Messages logged by the Engine.IO session and the
-  socket.io server, client and connection code lose their trailing colons; messages
-  from the parser, the transports and the dialer are unchanged.
 - Toolchain: `go 1.22` in `go.mod`; `golang.org/x/exp/slog` replaced by `log/slog`;
   `gofrs/uuid` replaced by `google/uuid`; `gorilla/websocket` 1.5.3; `testify` 1.12.1;
   `io/ioutil` replaced by `io` (roadmap stage 1.1).

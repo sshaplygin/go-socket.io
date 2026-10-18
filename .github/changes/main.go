@@ -7,7 +7,8 @@
 //	go run ./.github/changes BASE HEAD
 //	go run ./.github/changes -full
 //
-// The working tree must be the head revision. -full prints the decision of a push or a
+// The working tree must contain HEAD: the head revision or the merge of it into the base
+// branch, as a pull_request checkout gives. -full prints the decision of a push or a
 // scheduled run: every job, every package, every benchmark. Reasons go to stderr.
 package main
 
@@ -87,7 +88,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("changes", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	full := flags.Bool("full", false, "run every job (push and schedule)")
-	dir := flags.String("C", ".", "repository root; its working tree is the head revision")
+	dir := flags.String("C", ".", "repository root; its working tree contains HEAD")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}

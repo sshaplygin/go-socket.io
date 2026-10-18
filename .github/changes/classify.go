@@ -180,8 +180,10 @@ func manifest(dir, rev string) map[string]bool {
 	return result
 }
 
-// classify reads the diff between base and head in the repository dir. The working tree of
-// dir must be the head revision: the package graph is listed from it.
+// classify reads the diff between base and head in the repository dir. The package graph
+// is listed from the working tree of dir, which must contain head: the head revision
+// (benchmarks.yml) or the merge of head into the base branch that a pull_request checkout
+// gives (ci.yaml), where the test jobs run too.
 func classify(dir, base, head string) (*decision, error) {
 	diff, err := git(dir, "diff", "--name-status", "--no-renames", "-z", base, head, "--")
 	if err != nil {

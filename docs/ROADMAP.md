@@ -2574,6 +2574,7 @@ wave 10 11; test -f client/client.go                           # entry of V1E, w
 test -f internal/conformance/differential_test.go              # V1-19 has no row: its file
 wave 15                                                        # entry of V1F, with the next line
 test -f _examples/ack/go.mod -a -f _examples/binary/go.mod -a -f _examples/namespaces/go.mod -a -f _examples/middleware/go.mod   # entry of V1F
+wave 2 3 4 5 6 7 10 11 15 16 17 18                             # entry of V1G (V1-21, V1-22); the order inside it is the entry arms of *Stage V1 work packages*
 ```
 
 Each PR runs the DoD below with `N` set to its number. `bash` and `set -e`, rules as in the

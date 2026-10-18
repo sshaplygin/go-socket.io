@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -461,13 +462,11 @@ func TestFrozenFallback(t *testing.T) {
 
 // TestGateInputsCoverRepository fails when a Go file of the repository names a Markdown
 // file that gateInputs does not list: the job summary would not name the gate that a
-// Markdown-only change to it skips.
+// Markdown-only change to it skips. Paths are compared relative to the repository root.
+// It also fails when no Go file names an entry of gateInputs any more.
 func TestGateInputsCoverRepository(t *testing.T) {
-	known := map[string]bool{}
-	for name := range gateInputs {
-		known[path.Base(name)] = true
-	}
 	root := filepath.Join("..", "..")
+	read := map[string]bool{}
 	err := filepath.WalkDir(root, func(file string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -485,24 +484,126 @@ func TestGateInputsCoverRepository(t *testing.T) {
 		if !strings.HasSuffix(file, ".go") {
 			return nil
 		}
-		parsed, err := parser.ParseFile(token.NewFileSet(), file, nil, parser.SkipObjectResolution)
+		src, err := os.ReadFile(file)
 		if err != nil {
-			return nil // fixtures that must not parse
+			return err
 		}
-		ast.Inspect(parsed, func(n ast.Node) bool {
-			lit, ok := n.(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return true
+		rel, err := filepath.Rel(root, file)
+		if err != nil {
+			return err
+		}
+		for _, name := range markdownNames(filepath.ToSlash(rel), src) {
+			read[name] = true
+			if _, ok := gateInputs[name]; !ok {
+				t.Errorf("%s reads %s, which gateInputs does not list", rel, name)
 			}
-			value, err := strconv.Unquote(lit.Value)
-			if err == nil && strings.HasSuffix(value, ".md") && !known[path.Base(value)] {
-				t.Errorf("%s reads %s, which gateInputs does not list", file, value)
-			}
-			return true
-		})
+		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for name := range gateInputs {
+		if !read[name] {
+			t.Errorf("gateInputs lists %s, which no Go file names", name)
+		}
+	}
+}
+
+// markdownNames returns the repository-relative Markdown paths that the Go file rel names.
+// A path that starts with "./" or "../", the first argument of an os function and a
+// //go:embed pattern are relative to the directory of the file, as go test and the
+// compiler resolve them. Any other path is relative to the repository root: the arguments
+// of a path.Join or filepath.Join call joined (code that joins them to a root directory),
+// and a word of another string literal (fixture writers, messages).
+func markdownNames(rel string, src []byte) []string {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, rel, src, parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		return nil // fixtures that must not parse
+	}
+	dir := path.Dir(rel)
+	var names []string
+	add := func(name string, local bool) {
+		name = strings.Trim(name, "`'\"()[],;:")
+		if !strings.HasSuffix(name, ".md") {
+			return
+		}
+		if local || strings.HasPrefix(name, "./") || strings.HasPrefix(name, "../") {
+			name = path.Join(dir, name)
+		}
+		names = append(names, path.Clean(name))
+	}
+	literal := func(e ast.Expr) (string, bool) {
+		lit, ok := e.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return "", false
+		}
+		value, err := strconv.Unquote(lit.Value)
+		return value, err == nil
+	}
+	handled := map[ast.Expr]bool{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.CallExpr:
+			sel, ok := n.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			pkg, ok := sel.X.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			switch {
+			case sel.Sel.Name == "Join" && (pkg.Name == "path" || pkg.Name == "filepath"):
+				var parts []string
+				for _, arg := range n.Args {
+					if value, ok := literal(arg); ok {
+						parts = append(parts, value)
+						handled[arg] = true
+					}
+				}
+				add(path.Join(parts...), false)
+			case pkg.Name == "os" && len(n.Args) > 0:
+				if value, ok := literal(n.Args[0]); ok {
+					add(value, true)
+					handled[n.Args[0]] = true
+				}
+			}
+		case *ast.BasicLit:
+			if value, ok := literal(n); ok && !handled[n] {
+				for _, word := range strings.Fields(value) {
+					add(word, false)
+				}
+			}
+		}
+		return true
+	})
+	for _, group := range file.Comments {
+		for _, c := range group.List {
+			if pattern, ok := strings.CutPrefix(c.Text, "//go:embed "); ok {
+				for _, word := range strings.Fields(pattern) {
+					add(word, true)
+				}
+			}
+		}
+	}
+	return names
+}
+
+func TestMarkdownNames(t *testing.T) {
+	src := "package p\n\nimport (\n\t\"os\"\n\t\"path/filepath\"\n)\n\n" +
+		"//go:embed notes.md\nvar notes string\n\n" +
+		"func f(root string) {\n" +
+		"\t_, _ = os.ReadFile(\"README.md\")\n" +
+		"\t_, _ = os.ReadFile(\"../docs/API.md\")\n" +
+		"\t_ = filepath.Join(root, \"docs\", \"PARITY.md\")\n" +
+		"\tput(root, \"docs/ROADMAP.md\")\n" +
+		"\tpanic(\"no rows in docs/PARITY.md\")\n" +
+		"}\n"
+	got := markdownNames("v2/p/p.go", []byte(src))
+	want := []string{"v2/p/README.md", "v2/docs/API.md", "docs/PARITY.md", "docs/ROADMAP.md", "docs/PARITY.md", "v2/p/notes.md"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("markdownNames = %q, want %q", got, want)
 	}
 }

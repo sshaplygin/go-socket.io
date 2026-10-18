@@ -12,7 +12,7 @@ All notable changes to this project are documented here. The format follows
   Signal shutdown retains the graceful example's delay; service failures bypass it.
   Engine.IO echo failures close only the affected peer and all acquired I/O. A
   portable source gate covers library/example termination calls and the README,
-  including CRLF, mixed line endings and Markdown backtick/tilde Go fences;
+  including CRLF, mixed line endings and Markdown Go blocks parsed through an AST;
   dot imports cannot hide a terminating API from the gate.
 
 - tests: synchronize the compressed-limit CLOSE assertion with the error hook so

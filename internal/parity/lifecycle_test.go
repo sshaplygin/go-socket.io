@@ -8,9 +8,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/yuin/goldmark"
+	mdast "github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 )
 
 // This gate deliberately reads example modules and underscore directories too.
@@ -73,64 +76,36 @@ func processTermination(root string) ([]string, error) {
 	return failures, nil
 }
 
-var goFenceMarker = regexp.MustCompile("(?i)(`{3,}|~{3,})[\\t ]*(go|golang)([\\t ]|$)")
-
-// readmeGoBlocks handles backtick/tilde fences, longer matching closes, indentation
-// and language info whitespace. Nested list/quote fences are refused rather than skipped.
+// readmeGoBlocks follows Markdown block structure, including nested fences and
+// invalid opener lines that must not hide a later Go block.
 func readmeGoBlocks(readme string) ([]string, error) {
+	source := []byte(strings.ReplaceAll(readme, "\r\n", "\n"))
+	document := goldmark.New().Parser().Parse(text.NewReader(source))
 	var blocks []string
-	var body strings.Builder
-	var fence byte
-	width, goBlock := 0, false
-	for lineNumber, line := range strings.Split(strings.ReplaceAll(readme, "\r\n", "\n"), "\n") {
-		char, count, info := markdownFence(line)
-		if width == 0 {
-			if count == 0 {
-				if goFenceMarker.MatchString(line) {
-					return nil, fmt.Errorf("unsupported README Go fence at line %d", lineNumber+1)
-				}
-				continue
-			}
-			fence, width = char, count
-			fields := strings.Fields(info)
-			goBlock = len(fields) > 0 && (strings.EqualFold(fields[0], "go") || strings.EqualFold(fields[0], "golang"))
-			body.Reset()
-			continue
+	err := mdast.Walk(document, func(node mdast.Node, entering bool) (mdast.WalkStatus, error) {
+		block, ok := node.(*mdast.FencedCodeBlock)
+		if !entering || !ok || block.Info == nil {
+			return mdast.WalkContinue, nil
 		}
-		if char == fence && count >= width && info == "" {
-			if goBlock {
-				blocks = append(blocks, body.String())
-			}
-			width, goBlock = 0, false
-			continue
+		fields := strings.Fields(string(block.Info.Text(source)))
+		if len(fields) == 0 || (!strings.EqualFold(fields[0], "go") && !strings.EqualFold(fields[0], "golang")) {
+			return mdast.WalkContinue, nil
 		}
-		if goBlock {
-			body.WriteString(line)
-			body.WriteByte('\n')
+		var body strings.Builder
+		for i := 0; i < block.Lines().Len(); i++ {
+			line := block.Lines().At(i)
+			body.Write(line.Value(source))
 		}
-	}
-	if goBlock {
-		return nil, fmt.Errorf("unterminated README Go block")
+		blocks = append(blocks, body.String())
+		return mdast.WalkContinue, nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	if len(blocks) == 0 {
 		return nil, fmt.Errorf("README contains no Go quick start")
 	}
 	return blocks, nil
-}
-
-func markdownFence(line string) (char byte, count int, info string) {
-	line = strings.TrimSpace(line)
-	if len(line) < 3 || (line[0] != '`' && line[0] != '~') {
-		return 0, 0, ""
-	}
-	char = line[0]
-	for count < len(line) && line[count] == char {
-		count++
-	}
-	if count < 3 {
-		return 0, 0, ""
-	}
-	return char, count, strings.TrimSpace(line[count:])
 }
 
 func terminatingReferences(name string, source []byte) ([]string, error) {
@@ -247,9 +222,9 @@ func TestProcessTerminationGate(t *testing.T) {
 			name, source string
 			invalid      bool
 		}{
-			{"quote", "> ```go\n> package main\n> ```\n", true},
-			{"list", "- ~~~go\npackage main\n~~~\n", true},
-			{"unterminated", "~~~go\npackage main\n", true},
+			{"quote", "> ```go\n> package main\n> ```\n", false},
+			{"list", "- ~~~go\n  package main\n  ~~~\n", false},
+			{"unterminated", "~~~go\npackage main\n", false},
 			{"wrong close", "~~~go\npackage main\n```\n", true},
 			{"short close", "````go\npackage main\n```\n", true},
 			{"non-Go block", "```text\n~~~go\nos.Exit(1)\n~~~\n```\n", false},
@@ -262,6 +237,17 @@ func TestProcessTerminationGate(t *testing.T) {
 					t.Fatalf("invalid=%v; failures=%v, err=%v", tc.invalid, failures, err)
 				}
 			})
+		}
+	})
+	t.Run("invalid openers cannot hide Go", func(t *testing.T) {
+		for _, opener := range []string{"    ```text"} {
+			root := t.TempDir()
+			put(t, root, "README.md", "```go\npackage main\nfunc main(){}\n```\n\n"+
+				opener+"\n\n~~~go\npackage main\nimport \"os\"\nfunc main(){os.Exit(1)}\n~~~\n")
+			failures, err := processTermination(root)
+			if err != nil || len(failures) != 1 || !strings.Contains(failures[0], "Exit") {
+				t.Fatalf("opener=%q; failures=%v, err=%v", opener, failures, err)
+			}
 		}
 	})
 	t.Run("malformed source", func(t *testing.T) {

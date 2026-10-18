@@ -55,6 +55,7 @@ type change struct {
 type impact struct {
 	full                                      bool // every CI job of the module, `go test ./...`
 	benchFull                                 bool // every benchmark of the module
+	lint                                      bool // the lint job of the module, without packages to test
 	examples, experiments, gates, conformance bool
 	changes                                   []change
 	graph                                     *graph
@@ -290,9 +291,8 @@ func (d *decision) path(status, name string, before, after []byte) {
 		d.note("%s: examples (%s)", mod, name)
 		return
 	case slices.Contains(parts, "_experiments"):
-		if isGo && sameTokens(before, after, test) {
-			return
-		}
+		// Every change, comments and formatting included: make experiments is the only
+		// golangci-lint run of these standalone modules.
 		if mod != v2 {
 			d.fullRun(mod, true, "unexpected experiment path "+name)
 			return
@@ -351,6 +351,10 @@ func (d *decision) goFile(mod, status, name, rel string, before, after []byte) {
 		return
 	}
 	if sameTokens(before, after, test) {
+		// Comments and formatting: golangci-lint and gofmt read every comment, so the lint
+		// job runs and no package is tested.
+		m.lint = true
+		d.note("%s: lint (comments or formatting of %s)", mod, name)
 		// Comments that gates read: Covers markers of the parity gate in v1 tests, and the
 		// comments of the files frozenGoFiles names (TestFrozenContract).
 		if mod == v1 && test && (bytes.Contains(before, []byte("// Covers ")) || bytes.Contains(after, []byte("// Covers "))) {
@@ -408,13 +412,13 @@ func patterns(set map[string]*pkg) []string {
 func (d *decision) result(mod, root string) (result, error) {
 	m := d.mods[mod]
 	r := result{
+		run:         m.full || m.lint,
 		examples:    m.full || m.examples,
 		experiments: m.full || m.experiments,
 		gates:       m.full || m.gates,
 		conformance: m.full || m.conformance,
 	}
 	if m.full {
-		r.run = true
 		r.packages = []string{"./..."}
 	}
 	if m.benchFull {

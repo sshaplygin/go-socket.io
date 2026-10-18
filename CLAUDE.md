@@ -174,20 +174,28 @@ the diff reaches something it checks:
   that breaks a gate only through these files passes and the push to master fails; the
   classifier names the skipped gate in the job summary, and a classifier test fails when a
   Go file names a Markdown file outside that list.
-- Go comments and formatting run nothing. Comments that a tool reads count as code:
-  `//go:` and `//line` directives, a `// go:` comment with a space (staticcheck SA9009),
-  build constraints, cgo preambles, `//nolint`, `//lint:`,
-  generated-file markers, a line opening a `Deprecated:` paragraph (staticcheck SA1019)
-  and, in test files, every comment inside the body of an `Example` function (go test
-  compares its output with all lines of the `Output:` block). Comments of v1 test files with a
-  `Covers` marker, and of the v2 files that `frozenGoFiles` in `v2/frozen_test.go` names
-  (read by `make freeze`; the classifier takes the list from that function), run the gates.
+- A change of Go comments or formatting only (the token stream without comments is
+  identical) runs the lint job of the module (`lint-v1` or `lint-v2`) and nothing else that
+  tests: golangci-lint and gofmt read comments of every kind (`//nolint` with or without a
+  space, `Deprecated:`, doc rules, directives with a space, generated-file markers);
+  `lint-v1` skips its test steps (`make architecture-check parity-check cover-check`)
+  when no package is selected. Only the comments that the compiler or `go test` read count
+  as code: `//go:` directives, `//line`, build constraints (`//go:build`, `// +build`),
+  every comment of a file that imports `"C"` (the cgo preamble) and, in a test file, the
+  whole comment group that starts with `Output:` or `Unordered output:` inside an `Example`
+  function. Comments of v1 test files with a `Covers` marker, and of the v2 files that
+  `frozenGoFiles` in `v2/frozen_test.go` names (read by `make freeze`; the classifier takes
+  the list from that function), also run the gates.
 - A token change in package P tests P and every package whose code or tests import it,
   directly or transitively (`go list -e -test` with GOOS linux, darwin and windows and with
   `-tags conformance`); a change of test files only tests P.
 - `_examples/` and `_experiments/` run only the example or experiment job of their module;
-  v1 `_examples/` also runs `conformance`, which runs the examples with Node. A v1 non-test
-  code change also builds the v1 examples and runs `conformance`.
+  v1 `_examples/` also runs `conformance`, which runs the examples with Node. A comment or
+  formatting change of an example runs nothing unless the file is a byte-compared copy
+  (`chat.go`, `lifecycle.go`); any change of an experiment runs `experiments-v2`, the only
+  golangci-lint run of those modules. A code change of a v1 example also runs `gates-v1`
+  (`internal/parity` scans every non-test Go file of the tree). A v1 non-test code change
+  also builds the v1 examples and runs `conformance`.
 - `go.mod`, `go.sum`, `testdata/`, a build-constraint change, a module `Makefile` or
   `.golangci.yml`, `ci.yaml`, `.github/architecture/`, `.github/coverage/`, the classifier,
   any other file and a change that cannot be attributed to a package (a deleted package)

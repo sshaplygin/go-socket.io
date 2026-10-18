@@ -71,7 +71,8 @@ jobs:
             cat reasons.txt outputs.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      # The lint jobs skip a formatting-only change, so its format is checked here.
+      # A change in _examples/ or _experiments/ starts no lint job, so the format of every
+      # changed Go file is checked here.
       - name: Format of the changed Go files
         if: github.event_name == 'pull_request'
         env:
@@ -195,9 +196,14 @@ jobs:
         run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
       - name: Vet
         run: go vet ./... ./.github/architecture ./.github/changes
+      # These two steps run tests. A pull request that changes only Go comments or
+      # formatting runs lint-v1 without packages to test (v1_packages is empty) and skips
+      # them; Covers markers start gates-v1 instead.
       - name: Component graph and negative fixtures
+        if: needs.changes.outputs.v1_packages != ''
         run: make architecture-check
       - name: Parity markers and API coverage ratchets
+        if: needs.changes.outputs.v1_packages != ''
         run: make parity-check cover-check
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8

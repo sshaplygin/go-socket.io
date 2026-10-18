@@ -190,8 +190,8 @@ the diff reaches something it checks:
 - A token change in package P tests P and every package whose code or tests import it,
   directly or transitively (`go list -e -test` with GOOS linux, darwin and windows and with
   `-tags conformance`); a change of test files only tests P.
-- `_examples/` and `_experiments/` run only the example or experiment job of their module;
-  v1 `_examples/` also runs `conformance`, which runs the examples with Node. A comment or
+- `_examples/` and `_experiments/` run the example or experiment job of their module, and
+  the other jobs this bullet names; v1 `_examples/` also runs `conformance`, which runs the examples with Node. A comment or
   formatting change of an example runs nothing unless the file is a byte-compared copy
   (`chat.go`, `lifecycle.go`); any change of an experiment runs `experiments-v2`, the only
   golangci-lint run of those modules. The `go.mod` or `go.sum` of a v1 `_examples/*/` or a

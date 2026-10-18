@@ -819,7 +819,7 @@ item 3, asks the roadmap to name).
 | E | done | - | `v1-e/` | #101 (V1-19) |
 | F | done | - | `v1-f/` | #107 (V1-13) |
 | G | done | - | `v1-g/` | #109 (V1-15) |
-| H | open | - | `v1-h/` | - |
+| H | done | - | `v1-h/` | #132 (C5) |
 
 DoD of this section, after the helpers of the entry fence, `bash`, `set -e` and `set -f`
 (the paths hold `*`); on a pass it prints nothing and exits 0, and every check that fails

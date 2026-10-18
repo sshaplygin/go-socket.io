@@ -322,7 +322,8 @@ manifest file; H no Go file. A path outside the set is a plan change (CONTRIBUTI
 directory), so the two run at the same time and merge in either order (the DoD below checks
 both), though an entry may still wait for a PR of the other (V1-13 for V1-19 of E); `O`: they may run at the same time but share paths or a Go package, merged in the
 order of the next table; `S`: never at the same time (an entry needs the other's exit, or, for SY, the SYNC arm
-of *Entry*, as the paragraph after the next table derives it from row SY).
+of *Entry*, as the paragraph after the next table derives it from row SY; in wave V1G, A and B
+beside D, per PR: *`S` in wave V1G* below).
 
 | Beside | SY | A | B | C | D | E | F | G | H |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -342,6 +343,16 @@ of *Entry*, as the paragraph after the next table derives it from row SY).
 | C, F | `Makefile`, `.github/workflows/ci.yaml`, `CLAUDE.md` | V1-12 starts after V1-8 and merges after V1-20 (V1C before V1E) |
 | D, E | the Go package `internal/conformance` under tag `conformance`: `goclient_test.go` (V1-10, V1-11) and `differential_test.go` (V1-19), both written against V1-8's helpers, so a top-level name can collide | whichever of V1-10, V1-11 and V1-19 merges after another of them merges with `master` merged in and `make conformance` green on that head (the `conformance` job) |
 | D, F | `CLAUDE.md`; `_examples/` (D only `_examples/client/`) | V1-9 merges before V1-12 (V1D before V1E), and V1-12 merges with that `master` merged in and `make examples` (the `examples-v1` job) green on that head |
+
+**`S` in wave V1G.** A and B have PRs before and after D's in V1G, so there the `S` cells of
+A–D and B–D hold per PR, not per package exit, and the entry arms enforce it: V1-28 starts only
+after A's V1-27 and B's V1-26 have merged, which by the arms of A and B in order is every
+earlier V1G PR of both, and A's V1-30 and B's V1-31 start only after D's V1-29 has merged; so
+no PR of A or B is in flight while one of D is. In the registry, A and B stay `taken` with their
+last merged PR (V1-27, V1-26) while D runs, as B stayed while V1-16 waited for V1-4
+(CONTRIBUTING.md, *Taking and handing back*); D is set `taken` once V1-28's entry passes and
+`done` once V1-29 has merged. No gate reads the `taken` of
+A, B or D as started.
 
 An integrator acts only while its package is `taken`. When the integrating package is `open`
 or `done` (A done before B's V1-16 to V1-18, or A without a taker), the worker's PR integrates

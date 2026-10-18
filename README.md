@@ -42,13 +42,27 @@ Changes to v1 component imports and API: [migration guide](docs/V1_MIGRATION.md)
 package main
 
 import (
+    "context"
+    "errors"
     "log"
     "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
 
     socketio "github.com/sshaplygin/go-socket.io"
 )
 
 func main() {
+    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+    defer stop()
+    if err := run(ctx); err != nil {
+        log.Print(err)
+    }
+}
+
+func run(ctx context.Context) error {
     server := socketio.NewServer()
 
     server.OnConnect("/", func(s socketio.Conn) error {
@@ -64,11 +78,33 @@ func main() {
         log.Println("closed:", reason)
     })
 
-    go func() { log.Fatal(server.Serve()) }()
-    defer server.Close()
-
-    http.Handle("/socket.io/", server)
-    log.Fatal(http.ListenAndServe(":8000", nil))
+    mux := http.NewServeMux()
+    mux.Handle("/socket.io/", server)
+    httpServer := &http.Server{Addr: ":8000", Handler: mux}
+    results := make(chan error, 2)
+    go func() { results <- server.Serve() }()
+    go func() {
+        err := httpServer.ListenAndServe()
+        if errors.Is(err, http.ErrServerClosed) {
+            err = nil
+        }
+        results <- err
+    }()
+    var err error
+    remaining := 2
+    select {
+    case err = <-results:
+        remaining--
+    case <-ctx.Done():
+    }
+    err = errors.Join(err, server.Close())
+    shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    err = errors.Join(err, httpServer.Shutdown(shutdownCtx), httpServer.Close())
+    for ; remaining > 0; remaining-- {
+        err = errors.Join(err, <-results)
+    }
+    return err
 }
 ```
 

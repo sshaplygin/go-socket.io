@@ -65,8 +65,19 @@ go run ./_examples/client -addr http://127.0.0.1:8000 -name gopher   # from the 
 Closing the Go client sends namespace DISCONNECT, so other chat users receive
 `user left` when it leaves.
 
-`make examples` builds and vets every standalone module and checks the shared
-chat files. The executable Node clients check ACKs, binary buffers, namespace
+All server examples accept `-addr` (default `:8000`, except the Unix Redis example
+at `:8080`); pprof also accepts `-debug-addr` (default `:8001`). The examples own their HTTP servers, report service failures back to
+`run`, close Socket.IO, drain active HTTP requests with a five-second shutdown
+bound, and wait for serving goroutines before returning.
+`main` logs returned errors without terminating the process. SIGINT/SIGTERM follows
+the same cleanup; `graceful-shutdown` keeps its three-second signal delay but stops
+immediately on a service failure. GoFrame is mounted as an HTTP handler because
+its built-in runner can terminate the process. Each standalone module carries the
+same private `lifecycle.go`; `make examples` compares these copies.
+
+`make examples` builds and vets every standalone module and the Engine.IO echo
+example (`engineio/_examples`), checks the shared chat/lifecycle files and race-tests
+chat, service-failure cleanup and echo I/O cleanup. The executable Node clients check ACKs, binary buffers, namespace
 authentication, room isolation, event middleware, and chat broadcasts excluding
 the sender. Install either supported client into a temporary prefix and run
 from the repository root:

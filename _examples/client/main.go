@@ -4,8 +4,11 @@
 package main
 
 import (
+	"errors"
 	"flag"
+	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/client"
@@ -16,16 +19,23 @@ func main() {
 	name := flag.String("name", "go-client", "user name")
 	message := flag.String("message", "hello from the Go client", "message to send")
 	flag.Parse()
-
-	cl, err := client.New(*addr)
-	if err != nil {
-		log.Fatal(err)
+	if err := run(*addr, *name, *message); err != nil {
+		log.Print(err)
 	}
+}
+
+func run(addr, name, message string) (err error) {
+	cl, err := client.New(addr)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, cl.Close()) }()
 
 	loggedIn := make(chan struct{})
+	var loginOnce sync.Once
 	cl.OnEvent("login", func(_ client.Conn, data map[string]interface{}) {
 		log.Printf("login: %v", data)
-		close(loggedIn)
+		loginOnce.Do(func() { close(loggedIn) })
 	})
 	for _, event := range []string{"user joined", "user left", "new message", "typing", "stop typing"} {
 		cl.OnEvent(event, func(_ client.Conn, data map[string]interface{}) {
@@ -34,20 +44,18 @@ func main() {
 	}
 
 	if err := cl.Connect(); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	cl.Emit("add user", *name)
+	cl.Emit("add user", name)
 	select {
 	case <-loggedIn:
 	case <-time.After(5 * time.Second):
-		log.Fatal("no login event within 5s")
+		return fmt.Errorf("no login event within 5s")
 	}
 
-	cl.Emit("new message", *message)
+	cl.Emit("new message", message)
 	time.Sleep(time.Second) // listen for other users
 
-	if err := cl.Close(); err != nil {
-		log.Fatal(err)
-	}
+	return nil
 }

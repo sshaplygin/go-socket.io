@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- V1 examples return errors instead of terminating the process, supervise HTTP and
+  Socket.IO serving together, and release listeners/connections before returning.
+  Signal shutdown retains the graceful example's delay; service failures bypass it.
+  Engine.IO echo failures close only the affected peer and all acquired I/O. A
+  portable source gate covers library/example termination calls and the README.
+
 - tests: synchronize the compressed-limit CLOSE assertion with the error hook so
   a Windows TCP reset cannot hide CLOSE 1009 after a pipelined packet.
 

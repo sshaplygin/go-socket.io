@@ -162,3 +162,15 @@ cl.OnConnect(func(c client.Conn) error { return nil })
 remains a registry operation and does not close its transport. Private session state
 is not an application entry point. Configure public server hooks before accepting
 connections, and retain request metadata in `ConnInitor` when needed.
+
+## Example error ownership
+
+Examples return startup/serving errors to `main`, which logs and returns after
+cleanup. They no longer use process-terminating logger calls. Each server example
+owns its HTTP listeners and Socket.IO server, closes both when a service fails or
+the signal context is cancelled, and waits for its serving goroutines. The graceful
+example preserves its signal delay; service errors bypass it. Framework examples
+mount the framework's HTTP handler on the owned `http.Server`, including GoFrame
+whose built-in runner can terminate the process. An Engine.IO echo peer error ends
+only that peer and releases its acquired readers/writers. The Go client closes on
+connect/login errors as well as successful completion.

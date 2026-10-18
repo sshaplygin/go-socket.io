@@ -25,7 +25,7 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `engineio/transport/` | transport contracts, registry and timestamp helper; polling owns HTTP feed/flush, pause and deadline state |
 | `logger/` | v1 package-level `slog` fallback (`logger.Log`) for packages that do not receive per-instance `WithLogger` configuration: parser, transports, `engineio/parser`, client dialer |
 | `internal/conformance/` | interoperability and raw protocol tests behind the `conformance` build tag; Node fixtures under `testdata/node/` |
-| `internal/parity/` | portable PARITY marker and executable-test checks, including tagged tests without running Node |
+| `internal/parity/` | portable PARITY marker and executable-test checks, including tagged tests without running Node; library/example process-termination source gate |
 | `_examples/` | v1 runnable examples, each with its own `go.mod` except the Go client in `_examples/client`, which belongs to the root module; excluded from `./...` of the root build by the `_` prefix |
 | `v2/*.go` (package `socketio`) | v2 API skeleton: typed events, `Server`/`Namespace`/`Socket`, `Adapter`, hooks, options; declarations only, signatures in [docs/API.md](docs/API.md) |
 | `v2/parser/` | Socket.IO v5 wire codec (bounded `Encode`/`Decode`, `Assembler`, binary attachments, `JSON[T]` argument codec), the `Packet`/`Arguments` value types of the v2 API; `testdata/oracle` is the Node check (`README.md` there) |
@@ -98,7 +98,7 @@ make vuln        # govulncheck ./... in the root and in every _examples module
 make cover       # coverage profile + HTML report
 make parity-check # validate DONE rows and Covers markers; PARITY_STRICT=1 also checks open planned rows
 make cover-check # cross-package statement floor and exported API zero-coverage ceiling
-make examples    # build and vet every _examples/*/ module, build the Go client, compare chat.go copies, race-test default-http
+make examples    # build/vet example modules and Engine.IO echo, compare chat/lifecycle copies, race-test cleanup and chat
 make examples-node # run each example client.js on a free port; requires CONFORMANCE_NODE_MODULES
 make all         # go install ./...
 ```

@@ -2,7 +2,14 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"flag"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/kataras/iris/v12"
 
@@ -10,27 +17,28 @@ import (
 )
 
 func main() {
+	addr := flag.String("addr", ":8000", "HTTP listen address")
+	flag.Parse()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, *addr); err != nil {
+		log.Print(err)
+	}
+}
+
+func run(ctx context.Context, addr string) error {
 	app := iris.New()
 
 	server := socketio.NewServer()
 
 	registerChat(server)
 
-	go func() {
-		if err := server.Serve(); err != nil {
-			log.Fatalf("socketio listen error: %s\n", err)
-		}
-	}()
-	defer server.Close()
-
 	app.HandleMany("GET POST", "/socket.io/{any:path}", iris.FromStd(server))
 	app.HandleDir("/", "../asset")
 
-	if err := app.Run(
-		iris.Addr(":8000"),
-		iris.WithoutPathCorrection,
-		iris.WithoutServerError(iris.ErrServerClosed),
-	); err != nil {
-		log.Fatal("failed run app: ", err)
+	app.Configure(iris.WithoutPathCorrection)
+	if err := app.Build(); err != nil {
+		return errors.Join(err, server.Close())
 	}
+	return serve(ctx, server, &http.Server{Addr: addr, Handler: app})
 }

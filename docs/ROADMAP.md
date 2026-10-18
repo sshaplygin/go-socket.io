@@ -734,7 +734,9 @@ Three independent approvals and every executed CI job successful are required to
 all steps; the normal three-iteration limit applies. No implementation delegation.
 
 The graph gate reads production `Imports` from each package object in the JSON stream
-returned by `go list -json ./...`; `GoFiles` contains filenames, not imports. It excludes
+returned by `go list -json ./...`; `GoFiles` contains filenames, not imports. Production
+`Deps` also checks role/codec exclusions through external modules, whose objects are not
+listed by `./...`. It excludes
 `TestImports`/`XTestImports`, checks every allowed direct edge and the transitive role/codec exclusions above, and
 rejects unexpected runtime packages or retired imports. `make architecture-check` runs
 the graph tests and checker from `.github/architecture/`; the v1 lint CI job invokes

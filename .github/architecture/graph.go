@@ -19,6 +19,7 @@ type listedPackage struct {
 	GoFiles    []string
 	CgoFiles   []string
 	Imports    []string
+	Deps       []string
 	Incomplete bool
 	Error      *struct{ Err string }
 	DepsErrors []struct{ Err string }
@@ -79,6 +80,11 @@ func readGraph(r io.Reader) (packageGraph, error) {
 		// Test-only packages have no runtime node. GoFiles contains filenames;
 		// runtime edges come exclusively from Imports, never TestImports/XTestImports.
 		if len(pkg.GoFiles)+len(pkg.CgoFiles) != 0 {
+			// Native production Deps also crosses external modules whose package
+			// objects are absent from go list ./.... Test dependencies stay out.
+			if err := checkDependencyClosure(pkg.ImportPath, pkg.Deps); err != nil {
+				return nil, err
+			}
 			graph[pkg.ImportPath] = pkg.Imports
 		}
 	}
@@ -121,23 +127,30 @@ func validateGraph(graph packageGraph) error {
 
 func checkClosures(graph packageGraph) error {
 	for _, path := range sortedPaths(graph) {
-		relative, _ := relativePath(path)
-		client := relative == "client" || strings.HasPrefix(relative, "client/") || relative == "engineio/client"
-		server := relative == "" || relative == "internal/connection" || relative == "internal/namespace" || relative == "engineio" || relative == "engineio/internal/session"
-		for _, dependency := range closure(graph, path) {
-			local, repository := relativePath(dependency)
-			if client && (dependency == modulePath || local == "engineio" || local == "internal/connection" || local == "internal/namespace" || local == "engineio/internal/session" || local == "adapter" || strings.HasPrefix(local, "adapter/") || strings.Contains(dependency, "redigo")) {
-				return fmt.Errorf("client reaches server/adapter: %s -> %s", path, dependency)
-			}
-			if server && (local == "client" || strings.HasPrefix(local, "client/") || local == "engineio/client" || local == "adapter/redis" || strings.Contains(dependency, "redigo")) {
-				return fmt.Errorf("server reaches client/Redis: %s -> %s", path, dependency)
-			}
-			if repository && relative == "parser" && local != "logger" {
-				return fmt.Errorf("Socket.IO parser reaches another component: %s", dependency)
-			}
-			if repository && strings.HasPrefix(relative, "engineio/parser") && local != "logger" && local != "engineio/parser/internal/packet" && local != "engineio/parser/internal/payload" {
-				return fmt.Errorf("Engine.IO parser reaches another component: %s -> %s", path, dependency)
-			}
+		if err := checkDependencyClosure(path, closure(graph, path)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkDependencyClosure(path string, dependencies []string) error {
+	relative, _ := relativePath(path)
+	client := relative == "client" || strings.HasPrefix(relative, "client/") || relative == "engineio/client"
+	server := relative == "" || relative == "internal/connection" || relative == "internal/namespace" || relative == "engineio" || relative == "engineio/internal/session"
+	for _, dependency := range dependencies {
+		local, repository := relativePath(dependency)
+		if client && (dependency == modulePath || local == "engineio" || local == "internal/connection" || local == "internal/namespace" || local == "engineio/internal/session" || local == "adapter" || strings.HasPrefix(local, "adapter/") || strings.Contains(dependency, "redigo")) {
+			return fmt.Errorf("client reaches server/adapter: %s -> %s", path, dependency)
+		}
+		if server && (local == "client" || strings.HasPrefix(local, "client/") || local == "engineio/client" || local == "adapter/redis" || strings.Contains(dependency, "redigo")) {
+			return fmt.Errorf("server reaches client/Redis: %s -> %s", path, dependency)
+		}
+		if repository && relative == "parser" && local != "logger" {
+			return fmt.Errorf("Socket.IO parser reaches another component: %s", dependency)
+		}
+		if repository && strings.HasPrefix(relative, "engineio/parser") && local != "logger" && local != "engineio/parser/internal/packet" && local != "engineio/parser/internal/payload" {
+			return fmt.Errorf("Engine.IO parser reaches another component: %s -> %s", path, dependency)
 		}
 	}
 	return nil

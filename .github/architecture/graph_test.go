@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -193,7 +194,7 @@ func TestRealGoListRejectsForbiddenProductionImport(t *testing.T) {
 	writeFixture(t, root, "client/client.go", "package client\n")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	if _, err := inspect(ctx, root); err == nil || !strings.Contains(err.Error(), "forbidden production import: "+modulePath+" -> "+fullPath("client")) {
+	if _, err := inspect(ctx, root); err == nil || !strings.Contains(err.Error(), "server reaches client/Redis: "+modulePath+" -> "+fullPath("client")) {
 		t.Fatalf("real go list did not reject the production edge: %v", err)
 	}
 }
@@ -294,5 +295,43 @@ func TestPolicyMatchesRoadmap(t *testing.T) {
 		if !found || !reflect.DeepEqual(expected, actual) {
 			t.Errorf("roadmap/policy imports differ for %s: %v/%v", path, expected, actual)
 		}
+	}
+}
+
+// Native Deps is necessary when the intermediate package belongs to an external
+// module, which go list ./... does not emit as a repository runtime node.
+func TestNativeProductionDependencies(t *testing.T) {
+	for _, tc := range []struct{ from, to string }{
+		{"", "client"}, {"client", "engineio"},
+		{"client/internal/connection", "internal/connection"},
+		{"engineio/parser/internal/payload", "engineio/internal/session"},
+		{"parser", "engineio/transport"},
+	} {
+		var stream bytes.Buffer
+		if err := json.NewEncoder(&stream).Encode(listedPackage{
+			ImportPath: fullPath(tc.from), GoFiles: []string{"component.go"},
+			Imports: []string{"example.org/helper"}, Deps: []string{"example.org/helper", fullPath(tc.to)},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := readGraph(&stream); err == nil || !strings.Contains(err.Error(), fullPath(tc.to)) {
+			t.Fatalf("native forbidden dependency accepted: %v", err)
+		}
+	}
+}
+
+func TestRealGoListRejectsTransitiveExternalImport(t *testing.T) {
+	root, helper := t.TempDir(), t.TempDir()
+	writeFixture(t, root, "go.mod", "module "+modulePath+"\n\ngo 1.22\nrequire example.org/helper v0.0.0\nreplace example.org/helper => "+strconv.Quote(helper)+"\n")
+	for path := range allowedImports {
+		writeFixture(t, root, filepath.Join(path, "component.go"), "package component\n")
+	}
+	writeFixture(t, root, "component.go", "package component\nimport _ \"example.org/helper\"\n")
+	writeFixture(t, helper, "go.mod", "module example.org/helper\n\ngo 1.22\nrequire "+modulePath+" v0.0.0\n")
+	writeFixture(t, helper, "helper.go", "package helper\nimport _ \""+fullPath("client")+"\"\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if _, err := inspect(ctx, root); err == nil || !strings.Contains(err.Error(), "server reaches client/Redis: "+modulePath+" -> "+fullPath("client")) {
+		t.Fatalf("external module concealed transitive client dependency: %v", err)
 	}
 }

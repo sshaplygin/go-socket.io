@@ -13,8 +13,8 @@ func TestUnavailableAdapterRemainsEmpty(t *testing.T) {
 	srv := NewServer(WithAdapter(func(string) (adapter.Adapter, error) { return nil, errors.New("adapter unavailable") }))
 	defer func() { _ = srv.Close() }()
 	handler := srv.createNamespace("/unavailable")
-	require.Error(t, handler.err)
-	bc := handler.broadcast
+	require.Error(t, handler.Err())
+	bc := handler.Adapter()
 	c := newRedisTestConn("unavailable-socket")
 	bc.Join("room", c)
 	bc.Send("room", "event", "payload")
@@ -35,10 +35,4 @@ func TestUnavailableAdapterRemainsEmpty(t *testing.T) {
 	require.Empty(t, bc.Rooms(c))
 	require.Empty(t, bc.AllRooms())
 	require.Empty(t, c.events)
-}
-
-func TestNamespaceErrorMessageKeepsDiagnosticContext(t *testing.T) {
-	cause := errors.New("adapter unavailable")
-	var err error = newErrorMessage("/chat", cause)
-	require.EqualError(t, err, "error in namespace: (/chat) with error: (adapter unavailable)")
 }

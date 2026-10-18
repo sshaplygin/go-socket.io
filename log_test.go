@@ -335,7 +335,7 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			p := newPeer(t, 'S', tc.h, "/a")
 			for _, nsp := range []string{"/", "/a"} {
 				if !tc.keep {
-					p.srv.getNamespace(nsp).onError = nil
+					p.srv.getNamespace(nsp).OnError(nil)
 				}
 			}
 			tc.fault.fakeConn = p.fc
@@ -343,7 +343,7 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			if tc.run != nil {
 				p.nc = recv(t, p.conns, "root OnConnect")
 				tc.run(t, p)
-				recv(t, p.conn().done, "the close") // except with closeErr, where nothing closes
+				recv(t, p.completion(), "the close") // except with closeErr, where nothing closes
 			}
 			var got []map[string]string
 			require.Eventually(t, func() bool { got = loud(rec.since(0), ""); return len(got) >= len(tc.nsps) },
@@ -423,8 +423,8 @@ func TestNamespaceRecords(t *testing.T) {
 			rec := &recordingHandler{}
 			setDefault(t, rec)
 			p := newPeer(t, 'S', tc.h, "/chat", "/b")
-			p.srv.getNamespace("/b").onDisconnect = nil
-			p.srv.getNamespace("/chat").onError = nil
+			p.srv.getNamespace("/b").OnDisconnect(nil)
+			p.srv.getNamespace("/chat").OnError(nil)
 			tc.run(t, p)
 
 			connects := rec.byNsp(t, "socketio: namespace connect", "err", slog.LevelDebug)

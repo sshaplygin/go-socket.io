@@ -2,25 +2,10 @@ package socketio
 
 import (
 	"errors"
-	"fmt"
+	"github.com/sshaplygin/go-socket.io/internal/connection"
 )
 
-// connect errors.
-var (
-	errUnavailableRootHandler = errors.New("root ('/') doesn't have a namespace handler")
-
-	errFailedConnectNamespace = errors.New("failed connect to namespace without handler")
-
-	// errServerClosed is the error of a namespace registered with an Adapter after Server.Close.
-	errServerClosed = errors.New("socketio: server closed")
-)
-
-// common connection dispatch errors.
-var (
-	errHandleDispatch = errors.New("handler dispatch error")
-
-	errDecodeArgs = errors.New("decode args error")
-)
+var errServerClosed = errors.New("socketio: server closed")
 
 // ErrWriteBufferFull is reported once, to OnError of the packet's namespace and unordered with
 // OnDisconnect, when an Emit or a packet the library queues (an ACK or CONNECT reply) finds the
@@ -30,30 +15,8 @@ var (
 // reported with a nil Conn. Packets queued faster than they are written can close a healthy client:
 // polling writes one engine.io frame per round trip, and a packet with k binary attachments takes k+1
 // frames.
-var ErrWriteBufferFull = errors.New("write buffer full")
+var ErrWriteBufferFull = connection.ErrWriteBufferFull
 
 // ErrBroadcastAck means a broadcast has a trailing acknowledgement callback.
 // Only single-socket emits and the legacy broadcast methods support callbacks.
-var ErrBroadcastAck = errors.New("socketio: callbacks are not supported when broadcasting")
-
-var errServerOnly = errors.New("socketio: server-only method on a client connection")
-
-type errorMessage struct {
-	namespace string
-	conn      *namespaceConn // nil if namespace has no OnError; see conn.errConn
-	done      chan struct{}  // closed once OnError returned
-
-	err error
-}
-
-func (e errorMessage) Error() string {
-	return fmt.Sprintf("error in namespace: (%s) with error: (%s)", e.namespace, e.err.Error())
-}
-
-func newErrorMessage(namespace string, err error) *errorMessage {
-	return &errorMessage{
-		namespace: namespace,
-		done:      make(chan struct{}),
-		err:       err,
-	}
-}
+var ErrBroadcastAck = connection.ErrBroadcastAck

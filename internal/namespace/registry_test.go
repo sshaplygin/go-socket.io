@@ -1,4 +1,4 @@
-package socketio
+package namespace
 
 import (
 	"reflect"
@@ -14,7 +14,7 @@ func TestNamespaceHandler(t *testing.T) {
 	should := assert.New(t)
 	must := require.New(t)
 
-	h := newNamespaceHandler()
+	h := NewHandler()
 
 	onConnectCalled := false
 	h.OnConnect(func(c Conn) error {
@@ -36,21 +36,21 @@ func TestNamespaceHandler(t *testing.T) {
 		Type: parser.Connect,
 	}
 
-	_, err := h.dispatch(&namespaceConn{}, header)
+	_, err := h.dispatch(&testConn{}, header)
 	must.NoError(err)
 
 	should.True(onConnectCalled)
 
 	header.Type = parser.Disconnect
 
-	_, err = h.dispatch(&namespaceConn{}, header, []reflect.Value{reflect.ValueOf("disconnect")}...)
+	_, err = h.dispatch(&testConn{}, header, []reflect.Value{reflect.ValueOf("disconnect")}...)
 	must.NoError(err)
 
 	should.Equal("disconnect", disconnectMsg)
 
 	header.Type = parser.Error
 
-	_, err = h.dispatch(&namespaceConn{}, header, []reflect.Value{reflect.ValueOf("failed")}...)
+	_, err = h.dispatch(&testConn{}, header, []reflect.Value{reflect.ValueOf("failed")}...)
 	must.Error(err)
 
 	should.Equal(onError.Error(), "failed")
@@ -60,7 +60,7 @@ func TestNamespaceHandler(t *testing.T) {
 
 	should.Nil(args)
 
-	ret, err := h.dispatchEvent(&namespaceConn{}, "not_exist")
+	ret, err := h.DispatchEvent(&testConn{}, "not_exist")
 	must.NoError(err)
 
 	should.Nil(ret)
@@ -103,7 +103,7 @@ func TestNamespaceHandlerEvent(t *testing.T) {
 			should := assert.New(t)
 			must := require.New(t)
 
-			h := newNamespaceHandler()
+			h := NewHandler()
 			for i, e := range test.events {
 				h.OnEvent(e, test.handlers[i])
 			}
@@ -119,7 +119,7 @@ func TestNamespaceHandlerEvent(t *testing.T) {
 			types := h.getEventTypes(test.event)
 			should.Equal(target, types)
 
-			ret, err := h.dispatchEvent(&namespaceConn{}, test.event, args...)
+			ret, err := h.DispatchEvent(&testConn{}, test.event, args...)
 			must.NoError(err)
 
 			res := make([]interface{}, len(ret))

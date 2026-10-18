@@ -157,7 +157,7 @@ func TestLifecycleDisconnectHandlers(t *testing.T) {
 	c.send("1/other")
 	// A namespace DISCONNECT reports the client reason and keeps the session.
 	c.send("1/chat")
-	require.Equal(t, clientDisconnectMsg, recv(t, reasons, "OnDisconnect(/chat)"))
+	require.Equal(t, "client namespace disconnect", recv(t, reasons, "OnDisconnect(/chat)"))
 	c.send("0/chat")
 	require.Equal(t, "0/chat,", c.read(), "the connection is still usable")
 }

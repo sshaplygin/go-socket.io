@@ -2,7 +2,7 @@ package socketio
 
 import (
 	"errors"
-	"reflect"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -24,21 +24,30 @@ func TestServerOf(t *testing.T) {
 	require.Same(t, s.Of("chat"), s.Of("/chat"))
 	require.Equal(t, "/", s.Of("").Name())
 	require.Equal(t, "/chat", s.Of("chat").Name())
-	f := func(Conn) error { return nil }
-	s.Of("chat").OnConnect(f)
-	require.Equal(t, reflect.ValueOf(f).Pointer(), reflect.ValueOf(s.getNamespace("chat").onConnect).Pointer())
-	g := func(Conn) error { return errors.New("second") }
-	s.OnConnect("chat", g)
-	require.Equal(t, reflect.ValueOf(g).Pointer(), reflect.ValueOf(s.Of("/chat").server.getNamespace("/chat").onConnect).Pointer())
-	s.Of("chat").OnEvent("event", func(Conn, int) {})
-	require.Equal(t, []reflect.Type{reflect.TypeOf(0)}, s.getNamespace("chat").getEventTypes("event"))
-	disconnect := func(Conn, string) {}
-	onError := func(Conn, error) {}
-	s.Of("chat").OnDisconnect(disconnect)
-	s.Of("chat").OnError(onError)
-	require.Equal(t, reflect.ValueOf(disconnect).Pointer(), reflect.ValueOf(s.getNamespace("chat").onDisconnect).Pointer())
-	require.Equal(t, reflect.ValueOf(onError).Pointer(), reflect.ValueOf(s.getNamespace("chat").onError).Pointer())
-
+	s.OnConnect("/", func(Conn) error { return nil })
+	connected, events, disconnected, reported := make(chan string, 2), make(chan int, 2), make(chan string, 2), make(chan error, 2)
+	s.Of("chat").OnConnect(func(Conn) error { connected <- "first"; return nil })
+	s.Of("chat").OnEvent("event", func(_ Conn, n int) { events <- n })
+	s.Of("chat").OnDisconnect(func(_ Conn, reason string) { disconnected <- reason })
+	s.Of("chat").OnError(func(_ Conn, err error) { reported <- err })
+	go func() { _ = s.Serve() }()
+	ts := httptest.NewServer(s)
+	defer ts.Close()
+	c := dialRaw(t, ts.URL)
+	require.Equal(t, "0", c.read())
+	c.send("0/chat,")
+	require.Equal(t, "0/chat,", c.read())
+	require.Equal(t, "first", recv(t, connected, "view OnConnect"))
+	c.send(`2/chat,["event",7]`)
+	require.Equal(t, 7, recv(t, events, "view event registration"))
+	c.send("1/chat,")
+	require.Equal(t, "client namespace disconnect", recv(t, disconnected, "view OnDisconnect"))
+	second := errors.New("second")
+	s.OnConnect("chat", func(Conn) error { connected <- "second"; return second })
+	c.send("0/chat,")
+	require.Equal(t, "4/chat,\"second\"\n", c.read())
+	require.Equal(t, "second", recv(t, connected, "server replaces view OnConnect"))
+	require.ErrorIs(t, recv(t, reported, "view OnError"), second)
 }
 
 // Covers S11
@@ -148,7 +157,7 @@ func TestNamespaceBroadcastAcrossInstances(t *testing.T) {
 	first, second := a.Of("/chat"), b.Of("/chat")
 	waitRedisSubscribers(t, r, "socket.io-request#/chat", 2)
 	remote := newRedisTestConn("remote")
-	b.getNamespace("/chat").broadcast.Join(remote.ID(), remote)
+	b.getNamespace("/chat").Adapter().Join(remote.ID(), remote)
 	// The publishing server has no local socket in this namespace.
 	require.Empty(t, first.Sockets())
 	require.NoError(t, first.Emit("remote-event", 42))
@@ -157,7 +166,7 @@ func TestNamespaceBroadcastAcrossInstances(t *testing.T) {
 	expectEvent(t, remote, "message [hello]")
 	// Once both instances have sockets, the adapter reaches both of them.
 	local := newRedisTestConn("local")
-	a.getNamespace("/chat").broadcast.Join("one", local)
+	a.getNamespace("/chat").Adapter().Join("one", local)
 	require.NoError(t, second.Emit("both"))
 	expectEvent(t, local, "both []")
 	expectEvent(t, remote, "both []")
@@ -412,102 +421,91 @@ func TestNamespaceDisconnectPendingFullBudget(t *testing.T) {
 }
 
 func TestCloseControlsIncludeClaimedNamespaces(t *testing.T) {
-	p := start(t, 'S', hooks{setup: func(s *Server) { s.limits.writeBufferSize = 1 }}, "/a", "/b")
-	a, b := p.join(t, "/a").(*namespaceConn), p.join(t, "/b").(*namespaceConn)
+	entered, resume := make(chan struct{}, 2), make(chan struct{})
+	release := sync.OnceFunc(func() { close(resume) })
+	defer release()
+	p := start(t, 'S', hooks{setup: func(s *Server) { s.limits.writeBufferSize = 1 }, disconnect: func(c Conn) {
+		if c.Namespace() != "/" {
+			entered <- struct{}{}
+			<-resume
+		}
+	}}, "/a", "/b")
+	a, b := p.join(t, "/a"), p.join(t, "/b")
 	p.stall(t, p.nc, 0)
-	root := p.nc.(*namespaceConn)
-	root.outMu.Lock()
-	unlockRoot := sync.OnceFunc(root.outMu.Unlock)
-	defer unlockRoot()
-	var unlocks []func()
-	for _, nc := range []*namespaceConn{a, b} {
-		nc.outMu.Lock()
-		unlock := sync.OnceFunc(nc.outMu.Unlock)
-		unlocks = append(unlocks, unlock)
-		defer unlock()
-		go nc.Disconnect()
+	finished := make(chan struct{}, 2)
+	for _, nc := range []Conn{a, b} {
+		go func(c Conn) { c.Disconnect(); finished <- struct{}{} }(nc)
 	}
-	require.Eventually(t, func() bool {
-		_, a := p.conn().namespaces.Get("/a")
-		_, b := p.conn().namespaces.Get("/b")
-		return !a && !b
-	}, time.Second, time.Millisecond)
-	closed := make(chan error, 1)
-	go func() { closed <- p.nc.Close() }()
-	recv(t, p.conn().closing, "connection close started")
-	for _, unlock := range unlocks {
-		unlock()
-	}
-	recv(t, p.discs, "first claimed namespace disconnected")
-	recv(t, p.discs, "second claimed namespace disconnected")
-	unlockRoot()
-	require.NoError(t, recv(t, closed, "connection Close"))
-	close(p.fc.release)
-	require.Equal(t, ev("first"), recv(t, p.fc.out, "previous application packet"))
-	packets := []string{recv(t, p.fc.out, "DISCONNECT"), recv(t, p.fc.out, "DISCONNECT"), recv(t, p.fc.out, "DISCONNECT")}
-	require.ElementsMatch(t, []string{"1/a,", "1/b,", "1"}, packets)
-}
-
-func TestCloseWaitsForClaimedDisconnectPackets(t *testing.T) {
-	p := start(t, 'S', hooks{
-		setup: func(s *Server) { s.limits.writeBufferSize = 1 },
-		disconnect: func(c Conn) {
-			if c.Namespace() != "/" {
-				c.Emit("late from claimed namespace")
-			}
-		},
-	}, "/a", "/b")
-	a, b := p.join(t, "/a").(*namespaceConn), p.join(t, "/b").(*namespaceConn)
-	p.stall(t, p.nc, 0)
-	var unlocks []func()
-	for _, nc := range []*namespaceConn{a, b} {
-		nc.outMu.Lock()
-		unlock := sync.OnceFunc(nc.outMu.Unlock)
-		unlocks = append(unlocks, unlock)
-		defer unlock()
-		go nc.Disconnect()
-	}
-	require.Eventually(t, func() bool {
-		_, a := p.conn().namespaces.Get("/a")
-		_, b := p.conn().namespaces.Get("/b")
-		return !a && !b
-	}, time.Second, time.Millisecond)
-	// Close returns before either already-claimed Disconnect can enqueue.
+	recv(t, entered, "first claimed disconnect callback")
+	recv(t, entered, "second claimed disconnect callback")
 	require.NoError(t, p.nc.Close())
 	p.nc.Emit("late")
-	for _, unlock := range unlocks {
-		unlock()
-	}
-	for i := 0; i < 3; i++ {
-		recv(t, p.discs, "namespace disconnect")
-	}
+	release()
+	recv(t, finished, "first claimed disconnect completion")
+	recv(t, finished, "second claimed disconnect completion")
 	close(p.fc.release)
 	require.Equal(t, ev("first"), recv(t, p.fc.out, "previous application packet"))
 	packets := []string{recv(t, p.fc.out, "DISCONNECT"), recv(t, p.fc.out, "DISCONNECT"), recv(t, p.fc.out, "DISCONNECT")}
 	require.ElementsMatch(t, []string{"1/a,", "1/b,", "1"}, packets)
 	recv(t, p.fc.closed, "engine closed after controls drain")
+	p.disconnected(t, "/", "/a", "/b")
 	require.Empty(t, p.fc.out, "Emit after Close must be dropped")
+	require.Empty(t, p.errs)
+}
+
+func TestCloseWaitsForClaimedDisconnectPackets(t *testing.T) {
+	entered, resume := make(chan struct{}, 2), make(chan struct{})
+	release := sync.OnceFunc(func() { close(resume) })
+	defer release()
+	p := start(t, 'S', hooks{setup: func(s *Server) { s.limits.writeBufferSize = 1 }, disconnect: func(c Conn) {
+		if c.Namespace() != "/" {
+			entered <- struct{}{}
+			<-resume
+			c.Emit("late from claimed namespace")
+		}
+	}}, "/a", "/b")
+	a, b := p.join(t, "/a"), p.join(t, "/b")
+	p.stall(t, p.nc, 0)
+	finished := make(chan struct{}, 2)
+	for _, nc := range []Conn{a, b} {
+		go func(c Conn) { c.Disconnect(); finished <- struct{}{} }(nc)
+	}
+	recv(t, entered, "first claimed disconnect callback")
+	recv(t, entered, "second claimed disconnect callback")
+	require.NoError(t, p.nc.Close())
+	p.nc.Emit("late")
+	release()
+	recv(t, finished, "first claimed disconnect completion")
+	recv(t, finished, "second claimed disconnect completion")
+	close(p.fc.release)
+	require.Equal(t, ev("first"), recv(t, p.fc.out, "previous application packet"))
+	packets := []string{recv(t, p.fc.out, "DISCONNECT"), recv(t, p.fc.out, "DISCONNECT"), recv(t, p.fc.out, "DISCONNECT")}
+	require.ElementsMatch(t, []string{"1/a,", "1/b,", "1"}, packets)
+	recv(t, p.fc.closed, "engine closed after controls drain")
+	p.disconnected(t, "/", "/a", "/b")
+	require.Empty(t, p.fc.out, "Emit after Close must be dropped")
+	require.Empty(t, p.errs)
 }
 
 func TestCloseDeadlineWithClaimedDisconnect(t *testing.T) {
-	p := start(t, 'S', hooks{}, "/a")
-	a := p.join(t, "/a").(*namespaceConn)
-	p.conn().drainTimeout = 50 * time.Millisecond
+	entered, resume := make(chan struct{}), make(chan struct{})
+	release := sync.OnceFunc(func() { close(resume) })
+	defer release()
+	p := start(t, 'S', hooks{setup: func(s *Server) { s.limits.drainTimeout = 50 * time.Millisecond }, disconnect: func(c Conn) {
+		if c.Namespace() == "/a" {
+			close(entered)
+			<-resume
+		}
+	}}, "/a")
+	a := p.join(t, "/a")
 	p.stall(t, p.nc, 0)
-	a.outMu.Lock()
-	unlock := sync.OnceFunc(a.outMu.Unlock)
-	defer unlock()
-	go a.Disconnect()
-	require.Eventually(t, func() bool {
-		_, exists := p.conn().namespaces.Get("/a")
-		return !exists
-	}, time.Second, time.Millisecond)
+	finished := inBackground(a.Disconnect)
+	recv(t, entered, "claimed disconnect callback")
 	require.NoError(t, p.nc.Close())
-	recv(t, p.fc.closed, "drain deadline while a control is still pending")
-	unlock()
-	for i := 0; i < 2; i++ {
-		recv(t, p.discs, "namespace disconnect")
-	}
+	recv(t, p.fc.closed, "drain deadline during claimed callback")
+	release()
+	recv(t, finished, "claimed disconnect completion")
+	p.disconnected(t, "/", "/a")
 	require.Empty(t, p.errs)
 }
 
@@ -531,7 +529,7 @@ func TestPendingConnectUsesSharedBudget(t *testing.T) {
 	p := start(t, 'S', hooks{connect: func(c Conn) error {
 		if c.Namespace() == "/a" {
 			flood(c, 2)
-			observed <- isDone(c.(*namespaceConn).closing)
+			observed <- !c.Connected()
 		}
 		return nil
 	}}, "/a")

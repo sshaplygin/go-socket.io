@@ -1,39 +1,12 @@
-package socketio
+package connection
 
 import (
 	"errors"
 
-	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
-func (s *Server) serveConn(conn engineio.Conn) {
-	c := newConn(conn, s.handlers, s.limits, s.log.With("sid", conn.ID()))
-	s.activeMu.Lock()
-	if s.closed.Load() {
-		s.activeMu.Unlock()
-		_ = conn.Close()
-		return
-	}
-	s.active[c] = struct{}{}
-	s.activeMu.Unlock()
-	c.boundary = true
-	c.resolveNamespace = s.resolveNamespace
-	if !c.connected(c.connect()) {
-		s.releaseConnection(c)
-		return
-	}
-
-	go c.serveError()
-	go c.serveWrite()
-	go func() {
-		defer s.releaseConnection(c)
-		c.serveRead(connectPacketHandler, disconnectPacketHandler)
-		s.engine.Remove(c.Conn.ID())
-	}()
-}
-
-func (c *conn) serveError() {
+func (c *Connection) serveError() {
 	for {
 		select {
 		case <-c.closing:
@@ -46,8 +19,8 @@ func (c *conn) serveError() {
 			}
 
 			if handler := c.namespace(errMsg.namespace); handler != nil {
-				if handler.onError != nil && errMsg.conn != nil {
-					handler.onError(errMsg.conn, errMsg.err)
+				if onError := handler.ErrorHandler(); onError != nil && errMsg.conn != nil {
+					onError(errMsg.conn, errMsg.err)
 				}
 			}
 			close(errMsg.done)
@@ -56,7 +29,7 @@ func (c *conn) serveError() {
 }
 
 // serveWrite writes until the queue is discarded, or empty after the seal.
-func (c *conn) serveWrite() {
+func (c *Connection) serveWrite() {
 	for {
 		if isDone(c.discard) {
 			return
@@ -108,7 +81,7 @@ func (c *conn) serveWrite() {
 }
 
 // serveRead dispatches packets until a close takes the namespaces.
-func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
+func (c *Connection) serveRead(connect, disconnect func(*Connection, parser.Header) error) {
 	defer c.finishRead()
 
 	var event string

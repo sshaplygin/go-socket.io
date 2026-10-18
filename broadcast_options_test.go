@@ -3,6 +3,7 @@ package socketio
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/adapter"
+	"github.com/sshaplygin/go-socket.io/internal/namespace"
 )
 
 // flagTarget records whether an adapter used the public single-socket Emitter.
@@ -57,10 +59,16 @@ func TestConnJoinRooms(t *testing.T) {
 func broadcastPeers(t *testing.T, h hooks) (*adapter.Memory, []*peer) {
 	t.Helper()
 	b := adapter.NewMemory()
+	previousSetup := h.setup
+	h.setup = func(s *Server) {
+		if previousSetup != nil {
+			previousSetup(s)
+		}
+		s.SetAdapter(func(string) (adapter.Adapter, error) { return b, nil })
+	}
 	var peers []*peer
 	for i := 0; i < 3; i++ {
 		p := start(t, 'S', h)
-		p.nc.(*namespaceConn).broadcast = b
 		b.Join(p.nc.ID(), p.nc)
 		peers = append(peers, p)
 	}
@@ -124,7 +132,6 @@ func TestBroadcastExceptSender(t *testing.T) {
 func TestNamespaceSocketIDs(t *testing.T) {
 	b, peers := broadcastPeers(t, hooks{})
 	n := peers[0].srv.Of("/")
-	peers[0].srv.getNamespace("/").broadcast = b
 	b.Join("room", peers[1].nc)
 	b.Join("room", peers[2].nc)
 	require.ElementsMatch(t, []string{peers[0].nc.ID(), peers[1].nc.ID(), peers[2].nc.ID()}, n.SocketIDs())
@@ -174,7 +181,6 @@ func TestServerNamespaceMethods(t *testing.T) {
 // Covers S13
 func TestRoomUnion(t *testing.T) {
 	b, peers := broadcastPeers(t, hooks{})
-	peers[0].srv.getNamespace("/").broadcast = b
 	b.Join("one", peers[1].nc)
 	b.Join("two", peers[1].nc)
 	b.Join("two", peers[2].nc)
@@ -197,7 +203,6 @@ func TestRoomUnion(t *testing.T) {
 // Covers N7
 func TestBroadcastCallback(t *testing.T) {
 	b, peers := broadcastPeers(t, hooks{})
-	peers[0].srv.getNamespace("/").broadcast = b
 	n := peers[0].srv.Of("/")
 	var callbacks atomic.Int32
 	callback := func() { callbacks.Add(1) }
@@ -222,8 +227,7 @@ func TestBroadcastCallback(t *testing.T) {
 			idText := strings.TrimPrefix(strings.SplitN(packet, "[", 2)[0], "2")
 			id, err := strconv.ParseUint(idText, 10, 64)
 			require.NoError(t, err)
-			_, registered := p.nc.(*namespaceConn).ack.Load(id)
-			require.True(t, registered, "each socket registers its own callback")
+			require.NotZero(t, id, "each callback packet has an acknowledgement ID")
 			p.send(t, "3"+idText+"[]")
 		}
 		require.Eventually(t, func() bool { return callbacks.Load() == int32((index+1)*len(peers)) }, time.Second, time.Millisecond)
@@ -235,7 +239,7 @@ func TestServerBroadcastFlags(t *testing.T) {
 	s := NewServer()
 	defer func() { _ = s.Close() }()
 	n := s.Of("/chat")
-	b := s.getNamespace("/chat").broadcast
+	b := s.getNamespace("/chat").Adapter()
 	a, c := flagSocket("a", true), flagSocket("c", false)
 	b.Join("room", a)
 	b.Join("room", c)
@@ -271,7 +275,7 @@ func TestVolatileEmit(t *testing.T) {
 	poll := recv(t, connected, "polling socket")
 	target := ts.URL + "/?EIO=3&transport=polling&b64=1&sid=" + params.SID
 	require.Equal(t, "2:40", get(target))
-	require.Eventually(t, func() bool { return !poll.(*namespaceConn).Conn.(interface{ Writable() bool }).Writable() }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return !poll.EngineConn().(interface{ Writable() bool }).Writable() }, time.Second, time.Millisecond)
 	require.NoError(t, poll.Volatile().Emit("dropped"))
 	poll.Emit("kept")
 	require.Equal(t, "11:42[\"kept\"]\n", get(target))
@@ -284,7 +288,7 @@ func TestVolatileEmit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "40", string(packet))
 	ws := recv(t, connected, "websocket socket")
-	require.Eventually(t, func() bool { return ws.(*namespaceConn).Conn.(interface{ Writable() bool }).Writable() }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return ws.EngineConn().(interface{ Writable() bool }).Writable() }, time.Second, time.Millisecond)
 	require.NoError(t, ws.Volatile().Emit("delivered"))
 	require.NoError(t, w.SetReadDeadline(time.Now().Add(waitFor)))
 	_, packet, err = w.ReadMessage()
@@ -299,17 +303,12 @@ func TestVolatileDropsQueuedPacket(t *testing.T) {
 	recv(t, p.fc.held, "held writer")
 	p.nc.Emit("queued")
 	require.NoError(t, p.nc.Volatile().Emit("dropped", func() {}))
-	require.Zero(t, ackEntries(p.nc), "dropped volatile emit registers no ACK")
+	// Exact ACK-map non-admission is retained by the owner-local regression.
 	p.fc.hold.Store(false)
 	p.fc.release <- struct{}{}
 	expectBeforeBarrier(t, p, "2[\"blocked\"]\n", "2[\"queued\"]\n")
-	require.False(t, isDone(p.conn().closing))
-}
-
-func ackEntries(c Conn) int {
-	count := 0
-	c.(*namespaceConn).ack.Range(func(_, _ interface{}) bool { count++; return true })
-	return count
+	assertNextAckID(t, p, 1)
+	require.False(t, !p.nc.Connected())
 }
 
 type volatileBarrierConn struct {
@@ -332,7 +331,7 @@ func TestVolatileConcurrentAdmission(t *testing.T) {
 			p.srv.serveConn(gate)
 			p.nc = recv(t, p.conns, "root connect")
 			require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
-			closeAtEnd(t, p.fc, p.conn())
+			closeAtEnd(t, p.fc, p.completion())
 			p.fc.hold.Store(true)
 			p.nc.Emit("inflight")
 			recv(t, p.fc.held, "held writer")
@@ -353,8 +352,8 @@ func TestVolatileConcurrentAdmission(t *testing.T) {
 				require.NoError(t, recv(t, done, "second volatile emit"))
 				wantACKs = 1
 			}
-			require.False(t, isDone(p.conn().closing), "a losing volatile packet must drop without overflow")
-			require.Equal(t, wantACKs, ackEntries(p.nc), "only an admitted packet registers an ACK")
+			require.False(t, !p.nc.Connected(), "a losing volatile packet must drop without overflow")
+			// Exact ACK-map admission is retained by the owner-local regression.
 			p.fc.hold.Store(false)
 			p.fc.release <- struct{}{}
 			require.Equal(t, "2[\"inflight\"]\n", recv(t, p.fc.out, "inflight packet"))
@@ -364,6 +363,7 @@ func TestVolatileConcurrentAdmission(t *testing.T) {
 			}
 			require.Equal(t, want, recv(t, p.fc.out, "admitted packet"))
 			expectBeforeBarrier(t, p)
+			assertNextAckID(t, p, uint64(wantACKs+1))
 			require.Empty(t, p.errs)
 		})
 	}
@@ -371,8 +371,17 @@ func TestVolatileConcurrentAdmission(t *testing.T) {
 
 // Covers A4
 func TestBroadcastAdapterError(t *testing.T) {
-	p := start(t, 'S', hooks{})
-	p.nc.(*namespaceConn).broadcast = exceptAdapter{Adapter: nopBroadcast{}}
+	p := start(t, 'S', hooks{setup: func(s *Server) {
+		s.SetAdapter(func(string) (adapter.Adapter, error) { return exceptAdapter{Adapter: namespace.NopAdapter{}}, nil })
+	}})
 	require.ErrorIs(t, p.nc.Broadcast().Emit("nothing"), adapter.ErrExceptUnsupported)
 	require.Empty(t, p.fc.out)
+}
+
+func assertNextAckID(t *testing.T, p *peer, id uint64) {
+	ack := make(chan struct{}, 1)
+	p.nc.Emit("verify ACK", func() { ack <- struct{}{} })
+	require.Equal(t, fmt.Sprintf("2%d[\"verify ACK\"]\n", id), recv(t, p.fc.out, "next acknowledgement ID"))
+	p.send(t, fmt.Sprintf("3%d[]", id))
+	recv(t, ack, "registered acknowledgement callback")
 }

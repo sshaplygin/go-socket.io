@@ -11,22 +11,23 @@ import (
 
 // connWithOptions returns the connection that a Server (S) or a Client (C) built with opts
 // creates over a fakeConn.
-func connWithOptions(t *testing.T, side byte, opts []Option) *conn {
+func connWithOptions(t *testing.T, side byte, opts []Option) (*Server, Conn, *fakeConn, <-chan error) {
 	t.Helper()
 	fc := newFakeConn(t)
-
 	srv := NewServer(opts...)
 	conns := make(chan Conn, 1)
+	errs := make(chan error, 4)
 	srv.OnConnect("/", func(c Conn) error { conns <- c; return nil })
+	srv.OnError("/", func(_ Conn, err error) { errs <- err })
 	srv.serveConn(fc)
-	c := recv(t, conns, "root OnConnect").(*namespaceConn).conn
-	closeAtEnd(t, fc, c)
-	return c
+	nc := recv(t, conns, "root OnConnect")
+	require.Equal(t, "0", recv(t, fc.out, "root CONNECT"))
+	closeAtEnd(t, fc, serverCompletion(srv, fc.ID()))
+	return srv, nc, fc, errs
 }
 
-// TestOptionsReachConnections checks the queue size and drain deadline each connection
-// stores. Engine.io sessions with a negative CloseTimeout expire at once, and on a live
-// session the write deadline equals CloseTimeout, so the stored values are what is checked.
+// TestOptionsReachConnections checks resolved options and the real Server queue budget.
+// Owner-local tests retain the private queue/deadline storage assertions.
 //
 // Covers 1I-T2 (S).
 // Covers 1I-T3 (S).
@@ -49,9 +50,17 @@ func TestOptionsReachConnections(t *testing.T) {
 	}
 	sides(t, "S", func(t *testing.T, side byte) {
 		for _, tc := range cases {
-			c := connWithOptions(t, side, tc.opts)
-			require.Equal(t, tc.size, cap(c.writeChan), "%s: queue size", tc.name)
-			require.Equal(t, tc.drain, c.drainTimeout, "%s: drain deadline", tc.name)
+			srv, nc, fc, errs := connWithOptions(t, side, tc.opts)
+			require.Equal(t, tc.size, srv.limits.writeBufferSize, "%s: resolved queue size", tc.name)
+			require.Equal(t, tc.drain, srv.limits.drainTimeout, "%s: resolved drain deadline", tc.name)
+			fc.hold.Store(true)
+			nc.Emit("inflight")
+			recv(t, fc.held, "held writer")
+			flood(nc, tc.size)
+			require.False(t, isDone(fc.closed), "%s: queue accepts its configured budget", tc.name)
+			nc.Emit("overflow")
+			require.ErrorIs(t, recv(t, errs, "configured queue overflow"), ErrWriteBufferFull)
+			recv(t, fc.closed, "configured overflow closes engine")
 		}
 	})
 }

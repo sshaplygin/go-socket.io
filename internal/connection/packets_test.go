@@ -1,4 +1,4 @@
-package socketio
+package connection
 
 import (
 	"bytes"
@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	namespaceImpl "github.com/sshaplygin/go-socket.io/internal/namespace"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -48,8 +49,8 @@ func TestAck(t *testing.T) {
 
 	namespace := "/test"
 	var id uint64 = 12
-	c := &conn{
-		handlers:   newNamespaceHandlers(),
+	c := &Connection{
+		handlers:   namespaceImpl.NewRegistry(),
 		namespaces: newNamespaces(),
 		decoder:    parser.NewDecoder(&fakeReader{data: [][]byte{[]byte("3/test,12[{\"result\":\"pass\"}]")}}),
 	}
@@ -60,7 +61,7 @@ func TestAck(t *testing.T) {
 	header := parser.Header{}
 
 	called := false
-	f := newAckFunc(func(t *testStr) {
+	f := namespaceImpl.NewAckFunc(func(t *testStr) {
 		called = true
 		should.Equal("pass", t.Result)
 	})

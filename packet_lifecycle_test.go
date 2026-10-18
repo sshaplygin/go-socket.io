@@ -98,7 +98,7 @@ func TestDisconnectingRooms(t *testing.T) {
 			first, last := recv(t, before, "disconnecting"), recv(t, after, "OnDisconnect")
 			require.Contains(t, first.rooms, "lobby")
 			require.Empty(t, last.rooms)
-			reason := clientDisconnectMsg
+			reason := "client namespace disconnect"
 			if applicationClose {
 				reason = "server namespace disconnect"
 			}

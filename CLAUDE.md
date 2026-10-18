@@ -16,7 +16,9 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 
 | Path | Purpose |
 | --- | --- |
-| `*.go` (root, package `socketio`) | v1 Socket.IO server, namespaces and generic adapter factory; server-owned connection contracts/options |
+| `*.go` (root, package `socketio`) | v1 public Socket.IO Server lifecycle, namespace views, adapter factories, options and active role aliases |
+| `internal/connection/` | private server transport connection, concrete namespace sockets, queue/drain, ACK/packet dispatch and emitters |
+| `internal/namespace/` | canonical server role contracts, namespace handlers/listeners and registration/socket registries |
 | `adapter/` | v1 adapter/socket contracts and local in-memory room index; standard-library dependencies only |
 | `adapter/redis/` | v1 Redis factory/options, publication, requests and reconnect; composes the memory adapter |
 | `client/` | v1 experimental Socket.IO Go client, manager/reconnect, client-owned connection contracts/options |
@@ -56,21 +58,21 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 
 Runtime model of v1: `engineio.Server` accepts HTTP requests and emits `engineio.Conn`
 sessions; `socketio.Server.Serve` takes each session and starts three goroutines
-(read, write, error) in `server.go`. Handlers registered with `OnEvent` are called on
+(read, write, error) through `internal/connection`. Handlers registered with `OnEvent` are called on
 the read goroutine of that connection, so a blocking handler blocks that client only.
 The v2 root package has no runtime yet: every operation that needs one returns
 `ErrNotImplemented`, and stages 2.1 to 2.4 of the roadmap add it.
 
-V1 source files follow the same responsibility names in the root and `client/`:
+V1 source files are grouped under their owning components:
 
 | Files | Responsibility |
 | --- | --- |
-| `types.go`, `options.go` | role-owned Socket.IO contracts, private configuration and public functional With options in root and client |
-| `server.go`, `server_namespace.go` | server lifecycle, namespace configuration and broadcast builders |
-| `client.go`, `socket.go`, `state.go`, `reconnect.go` in `client/` | client API, namespace sockets, connection generations and reconnection |
-| `connection.go`, `connection_serve.go` | connection state/queue and its read/write/error loops |
-| `packet_handlers.go`, `event_handler.go` | packet dispatch and reflected event/ACK handlers |
-| `namespace.go`, `namespace_handler.go` | namespace connections/registry and handlers/handler registry |
+| Root `server.go`, `namespace.go`, `types.go`, `options.go`, `errors.go` | public server lifecycle/active tracking, stable namespace views/factories, active role/error aliases and configuration |
+| `internal/connection/connection.go`, `io.go`, `queue.go`, `close.go` | concrete transport connection, startup/completion, I/O loops and atomic queue/drain/close lifecycle |
+| `internal/connection/socket.go`, `emitter.go`, `packets.go`, `frames.go`, `errors.go` | concrete namespace sockets, pending emitters, packet/ACK dispatch, frame adaptation and connection errors |
+| `internal/namespace/contracts.go`, `handlers.go`, `registry.go`, `listeners.go` | canonical server role contracts, reflected callbacks, namespace/connected registries and listener snapshots |
+| `client/types.go`, `options.go`, `client.go`, `socket.go`, `state.go`, `reconnect.go` | independent client role/configuration, client API, sockets, generations and reconnection |
+| `client/connection.go`, `connection_serve.go`, `packet_handlers.go`, `event_handler.go`, `namespace.go`, `namespace_handler.go` | client connection/queue, dispatch, concrete namespace sockets and registrations |
 | `adapter/adapter.go`, `memory.go` | minimal socket/factory contracts and local room/index/delivery ownership |
 | `adapter/redis/options.go`, `adapter.go`, `codec.go`, `requests.go`, `subscription.go` | Redis configuration/construction, legacy wire format, cluster queries and subscription lifecycle |
 | `engineio/conn.go`, `id.go`, `options.go`, `hooks.go`, `headers.go` | active connection/state/error/ID contract aliases, configuration, public hook adaptation and websocket header observation |

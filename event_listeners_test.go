@@ -128,21 +128,3 @@ func TestOnceAcrossConnections(t *testing.T) {
 	wg.Wait()
 	require.Equal(t, int32(1), called.Load())
 }
-
-func TestOnceSurvivesEarlierListenerFailure(t *testing.T) {
-	h := newNamespaceHandler()
-	attempts, called := 0, 0
-	h.OnEvent("event", func(Conn) {
-		attempts++
-		if attempts == 1 {
-			panic("stop dispatch")
-		}
-	})
-	h.addListener("event", func(Conn) { called++ }, true)
-	_, err := h.dispatchEvent(&namespaceConn{}, "event")
-	require.Error(t, err)
-	require.Zero(t, called)
-	_, err = h.dispatchEvent(&namespaceConn{}, "event")
-	require.NoError(t, err)
-	require.Equal(t, 1, called, "a Once listener is consumed only when it is invoked")
-}

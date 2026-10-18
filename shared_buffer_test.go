@@ -17,7 +17,7 @@ func startRoom(t *testing.T, members int) (*Server, []<-chan string) {
 		fc := newFakeConn(t)
 		p.srv.serveConn(fc)
 		require.Equal(t, "0", recv(t, fc.out, "the CONNECT of a member"))
-		closeAtEnd(t, fc, recv(t, p.conns, "OnConnect of a member").(*namespaceConn).conn)
+		closeAtEnd(t, fc, serverCompletion(p.srv, recv(t, p.conns, "OnConnect of a member").EngineConn().ID()))
 		outs = append(outs, fc.out)
 	}
 	return p.srv, outs

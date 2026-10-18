@@ -18,6 +18,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/engineio"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+	"github.com/sshaplygin/go-socket.io/internal/namespace"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -75,11 +76,11 @@ func (f *fakeConn) Close() error { f.closeOnce.Do(func() { close(f.closed) }); r
 
 // closeAtEnd closes f at cleanup and waits for the serving conn c, so that its "socketio:
 // disconnect" records are logged before the test returns, not into the next test's recorder.
-func closeAtEnd(t *testing.T, f *fakeConn, c *conn) {
+func closeAtEnd(t *testing.T, f *fakeConn, completion <-chan struct{}) {
 	t.Cleanup(func() {
 		_ = f.Close()
 		select {
-		case <-c.done:
+		case <-completion:
 		case <-time.After(waitFor):
 		}
 	})
@@ -123,13 +124,13 @@ func TestBackpressurePeerCloseReportsOnce(t *testing.T) {
 	p.srv.serveConn(f)
 	p.nc = recv(t, p.conns, "root OnConnect")
 	require.Equal(t, "0", recv(t, p.fc.out, "root CONNECT"))
-	closeAtEnd(t, p.fc, p.conn())
+	closeAtEnd(t, p.fc, p.completion())
 	p.stall(t, p.nc, 0)
 	close(p.fc.peerGone)
 	require.ErrorIs(t, recv(t, p.errs, "read error report").err, io.EOF)
 	recv(t, f.entered, "engine Close entered")
 	recv(t, f.writeFailed, "writer observed engine close")
-	recv(t, p.conn().discard, "library close discards queue")
+	require.False(t, p.nc.Connected(), "library close removes namespace membership")
 	require.Empty(t, p.errs, "writer failure during read finalization must not report again")
 	release()
 	p.disconnected(t, "/")
@@ -187,20 +188,21 @@ type hooks struct {
 // peer is a Server's (S) or a Client's (C) connection over a fakeConn. Its
 // handlers record each call (nilErrs: OnError with a nil Conn), then run hooks.
 type peer struct {
-	fc      *fakeConn
-	srv     *Server
-	nc      Conn                         // the root namespace
-	emit    func(string, ...interface{}) // the application's root Emit: Client.Emit on C
-	conns   chan Conn
-	errs    chan nsErr
-	nilErrs chan error
-	discs   chan string
+	fc           *fakeConn
+	srv          *Server
+	rootRejected error
+	nc           Conn                         // the root namespace
+	emit         func(string, ...interface{}) // the application's root Emit: Client.Emit on C
+	conns        chan Conn
+	errs         chan nsErr
+	nilErrs      chan error
+	discs        chan string
 }
 
 func newPeer(t *testing.T, side byte, h hooks, nsps ...string) *peer {
 	p := &peer{fc: newFakeConn(t), conns: make(chan Conn, 8), errs: make(chan nsErr, 128)}
 	p.nilErrs, p.discs = make(chan error, 8), make(chan string, 8)
-	var nhs []*namespaceHandler
+	var nhs []*namespace.Handler
 
 	p.srv = NewServer()
 	if h.setup != nil {
@@ -214,7 +216,11 @@ func newPeer(t *testing.T, side byte, h hooks, nsps ...string) *peer {
 		nh.OnConnect(func(c Conn) error {
 			p.conns <- c
 			if h.connect != nil {
-				return h.connect(c)
+				err := h.connect(c)
+				if c.Namespace() == "/" {
+					p.rootRejected = err
+				}
+				return err
 			}
 			return nil
 		})
@@ -251,13 +257,15 @@ func (p *peer) connect(t *testing.T) *peer {
 	t.Helper()
 	p.srv.serveConn(p.fc)
 	p.nc = recv(t, p.conns, "root OnConnect")
-	if p.conn().rootRejected != nil {
-		data, _ := json.Marshal(p.conn().rootRejected.Error())
-		require.Equal(t, "4"+string(data)+"\n", recv(t, p.fc.out, "root rejection ERROR"))
-	} else if !isDone(p.conn().done) || p.conn().draining {
-		require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
+	if !isDone(p.completion()) || len(p.fc.out) > 0 {
+		if p.rootRejected != nil {
+			data, _ := json.Marshal(p.rootRejected.Error())
+			require.Equal(t, "4"+string(data)+"\n", recv(t, p.fc.out, "root rejection ERROR"))
+		} else {
+			require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
+		}
 	}
-	closeAtEnd(t, p.fc, p.conn())
+	closeAtEnd(t, p.fc, p.completion())
 	p.emit = p.nc.Emit
 	return p
 }
@@ -282,7 +290,31 @@ func (p *peer) send(t *testing.T, frame string) {
 // Close closes the server connection.
 func (p *peer) Close() error { return p.nc.Close() }
 
-func (p *peer) conn() *conn { return p.nc.(*namespaceConn).conn }
+func (p *peer) completion() <-chan struct{} { return serverCompletion(p.srv, p.fc.ID()) }
+
+func serverCompletion(s *Server, id string) <-chan struct{} {
+	done := make(chan struct{})
+	s.activeMu.Lock()
+	for c := range s.active {
+		if c.Conn.ID() == id {
+			s.activeMu.Unlock()
+			go func() { c.Wait(); close(done) }()
+			return done
+		}
+	}
+	s.activeMu.Unlock()
+	close(done)
+	return done
+}
+
+func isDone(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
 
 // sub joins /a and returns its connection, DISCONNECT frame and remaining namespaces.
 func (p *peer) sub(t *testing.T) (Conn, string, []string) {
@@ -302,7 +334,7 @@ func (p *peer) stall(t *testing.T, nc Conn, n int) {
 // disconnected waits for the close to run its OnDisconnect calls and checks them.
 func (p *peer) disconnected(t *testing.T, nsps ...string) {
 	t.Helper()
-	recv(t, p.conn().done, "the close to run OnDisconnect")
+	recv(t, p.completion(), "the close to run OnDisconnect")
 	require.ElementsMatch(t, nsps, drain(p.discs), "OnDisconnect calls")
 }
 
@@ -353,7 +385,7 @@ func TestBackpressureStalledMemberDoesNotBlockRoom(t *testing.T) {
 			healthy := newFakeConn(t)
 			p.srv.serveConn(healthy)
 			require.Equal(t, "0", recv(t, healthy.out, "the healthy member's CONNECT"))
-			closeAtEnd(t, healthy, recv(t, p.conns, "OnConnect of the healthy member").(*namespaceConn).conn)
+			closeAtEnd(t, healthy, serverCompletion(p.srv, recv(t, p.conns, "OnConnect of the healthy member").EngineConn().ID()))
 
 			p.stall(t, p.nc, defaultWriteBufferSize)
 			for i := 0; i < 2; i++ { // the first broadcast overflows the stalled member
@@ -460,8 +492,7 @@ func TestBackpressureCloseStopsDispatch(t *testing.T) {
 // Covers 1B-T6 (S).
 func TestBackpressureDrainDeadline(t *testing.T) {
 	sides(t, "S", func(t *testing.T, side byte) {
-		p := start(t, side, hooks{})
-		p.conn().drainTimeout = 50 * time.Millisecond
+		p := start(t, side, hooks{setup: func(s *Server) { s.limits.drainTimeout = 50 * time.Millisecond }})
 		p.stall(t, p.nc, 1)
 		begin := time.Now()
 		require.NoError(t, p.Close())
@@ -628,17 +659,17 @@ func TestBackpressureReportForDisconnectedNamespace(t *testing.T) {
 // Covers 1B-T18 (S).
 func TestBackpressureOverflowInOnConnect(t *testing.T) {
 	for _, connectErr := range []error{nil, errors.New("refused"), ErrWriteBufferFull} {
-		cc, late := (*conn)(nil), []bool(nil) // late, per report: made after the discard, which precedes OnDisconnect
+		cc, late := Conn(nil), []bool(nil) // late, per report: made after the discard, which precedes OnDisconnect
 		p := newPeer(t, 'S', hooks{
 			connect: func(c Conn) error {
-				cc = c.(*namespaceConn).conn
+				cc = c
 				flood(c, defaultWriteBufferSize+1)
 				return connectErr
 			},
-			onError: func(Conn, error) { late = append(late, isDone(cc.discard)) },
+			onError: func(Conn, error) { late = append(late, isDone(cc.EngineConn().(*fakeConn).closed)) },
 		})
 		p.connect(t)
-		require.True(t, isDone(p.conn().done), "serveConn did not close the connection itself")
+		require.True(t, isDone(p.completion()), "serveConn did not close the connection itself")
 		recv(t, p.fc.closed, "engine.io close of the failed connection")
 		p.disconnected(t, "/")
 		want := []error{ErrWriteBufferFull}
@@ -663,13 +694,13 @@ func TestBackpressureConnectFailureReportsOverflowFromOnError(t *testing.T) {
 		p, kept, discarded := (*peer)(nil), Conn(nil), []bool(nil) // late is dropped after the overflow report
 		p = newPeer(t, 'S', hooks{
 			connect: func(c Conn) error { kept = c; c.Join("r"); flood(c, defaultWriteBufferSize); return refused },
-			onError: func(Conn, error) { discarded = append(discarded, isDone(kept.(*namespaceConn).discard)); late(p, kept) },
+			onError: func(Conn, error) { discarded = append(discarded, isDone(p.fc.closed)); late(p, kept) },
 		})
 		p.connect(t)
 		require.False(t, isDone(p.fc.closed))
 		require.Equal(t, []error{refused}, drain(p.nilErrs), "one rejection report")
 		require.Equal(t, []bool{false}, discarded, "reported before close")
-		p.conn().stop()
+		_ = p.nc.Close()
 		p.disconnected(t)
 		require.Empty(t, drain(p.errs))
 		require.Empty(t, drain(p.fc.out), "a packet was written")

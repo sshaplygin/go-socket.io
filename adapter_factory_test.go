@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
 type closingAdapter struct {

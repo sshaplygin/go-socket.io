@@ -294,6 +294,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- socketio: server transport connections, namespace sockets, queue/drain, ACK and
+  packet dispatch move to `internal/connection`; canonical role contracts and
+  namespace registrations/listeners move to `internal/namespace`. The public
+  server retains lifecycle, adapter factories and stable namespace views, using
+  typed component methods without exposing private queue/lock state. Active
+  public role/error names preserve source signatures and error identities;
+  canonical reflection package paths may change.
+
 - engineio/parser: private packet and payload components own the wire types and
   streaming codecs. Active public types remain aliases and constructors/options
   delegate to their owner; OPEN parameters and frame/packet fakes remain public.

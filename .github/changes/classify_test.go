@@ -47,7 +47,9 @@ var fixture = map[string]string{
 	"v2/go.mod":                                "module example.com/m/v2\n\ngo 1.22\n",
 	"v2/socket.go":                             "package socketio\n\nimport \"example.com/m/v2/engineio\"\n\n// Server is frozen.\ntype Server struct{ c engineio.Conn }\n",
 	"v2/socket_test.go":                        "package socketio\n\nimport \"testing\"\n\nfunc TestServer(t *testing.T) { _ = Server{} }\n",
+	"v2/frozen_test.go":                        frozenFixture,
 	"v2/engineio/conn.go":                      "package engineio\n\n// Conn is a connection.\ntype Conn struct{ ID int }\n",
+	"v2/engineio/options.go":                   "package engineio\n\n// Options are frozen.\ntype Options struct{ N int }\n",
 	"v2/engineio/errors.go":                    "package engineio\n\n// ErrX is shared with v2.\nvar ErrX = 1\n",
 	"v2/parser/parser.go":                      "package parser\n\nfunc Decode() {}\n",
 	"v2/_examples/x/go.mod":                    "module example.com/x\n\ngo 1.22\n",
@@ -56,6 +58,12 @@ var fixture = map[string]string{
 	"v2/_experiments/e/go.mod":                 "module example.com/e\n\ngo 1.22\n",
 	"v2/_experiments/e/e.go":                   "package e\n\nfunc E() {}\n",
 }
+
+// frozenFixture has the shape of frozenGoFiles in v2/frozen_test.go.
+const frozenFixture = "package socketio\n\nimport (\n\t\"path/filepath\"\n\t\"strings\"\n\t\"testing\"\n)\n\n" +
+	"func frozenGoFiles(t *testing.T) []string {\n\troot, _ := filepath.Glob(\"*.go\")\n\tvar files []string\n" +
+	"\tfor _, f := range root {\n\t\tif !strings.HasSuffix(f, \"_test.go\") {\n\t\t\tfiles = append(files, f)\n\t\t}\n\t}\n" +
+	"\treturn append(files, \"engineio/hooks.go\", \"engineio/options.go\", \"parser/value.go\")\n}\n"
 
 // none is the decision of a change no job reads.
 var none = map[string]string{
@@ -194,6 +202,15 @@ func TestClassify(t *testing.T) {
 		{name: "v2 frozen comment", edit: map[string]string{
 			"v2/socket.go": "package socketio\n\nimport \"example.com/m/v2/engineio\"\n\n// Server is frozen: TBD.\ntype Server struct{ c engineio.Conn }\n",
 		}, want: with(map[string]string{"gates_v2": "true"})},
+		{name: "v2 frozen comment outside the root", edit: map[string]string{
+			"v2/engineio/options.go": "package engineio\n\n// Options are frozen. TODO: settle.\ntype Options struct{ N int }\n",
+		}, want: with(map[string]string{"gates_v2": "true"})},
+		{name: "v2 comment outside the frozen files", edit: map[string]string{
+			"v2/engineio/conn.go": "package engineio\n\n// Conn is a connection. TODO: rename.\ntype Conn struct{ ID int }\n",
+		}, want: none},
+		{name: "v2 comment in a root test file", edit: map[string]string{
+			"v2/socket_test.go": "package socketio\n\nimport \"testing\"\n\n// TestServer builds a Server.\nfunc TestServer(t *testing.T) { _ = Server{} }\n",
+		}, want: none},
 		{name: "v2 example copy", edit: map[string]string{"v2/_examples/x/chat.go": "package main\n\nfunc chat() { println() }\n"},
 			want: with(map[string]string{"examples_v2": "true"})},
 		{name: "v2 experiment", edit: map[string]string{"v2/_experiments/e/e.go": "package e\n\nfunc E() { println() }\n"},
@@ -304,6 +321,47 @@ func TestPattern(t *testing.T) {
 		if pattern.MatchString(p) != ok {
 			t.Errorf("pattern(%q) = %t, want %t", p, !ok, ok)
 		}
+	}
+}
+
+// TestFrozenPatternsOfRepository reads frozenGoFiles of the real v2/frozen_test.go: it
+// fails when the function changes shape so that the classifier no longer finds the frozen
+// files, or names a file that does not exist.
+func TestFrozenPatternsOfRepository(t *testing.T) {
+	root := filepath.Join("..", "..")
+	src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(frozenSource)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := frozenPatterns(src)
+	d := &decision{frozen: list}
+	for _, rel := range []string{"server.go", "engineio/hooks.go", "engineio/options.go", "parser/value.go"} {
+		if !d.frozenFile(rel) {
+			t.Errorf("frozenPatterns = %q, does not cover %s", list, rel)
+		}
+	}
+	for _, rel := range []string{"server_test.go", "engineio/conn.go", "parser/parser.go"} {
+		if d.frozenFile(rel) {
+			t.Errorf("frozenPatterns = %q, covers %s", list, rel)
+		}
+	}
+	for _, p := range list {
+		matches, err := filepath.Glob(filepath.Join(root, "v2", filepath.FromSlash(p)))
+		if err != nil || len(matches) == 0 {
+			t.Errorf("frozenGoFiles names %s, which matches no file of v2/", p)
+		}
+	}
+}
+
+func TestFrozenFallback(t *testing.T) {
+	for _, src := range []string{"", "package x\n", "not go"} {
+		if list := frozenPatterns([]byte(src)); list != nil {
+			t.Errorf("frozenPatterns(%q) = %q, want nil", src, list)
+		}
+	}
+	d := &decision{}
+	if !d.frozenFile("engineio/conn.go") || d.frozenFile("x_test.go") {
+		t.Error("without patterns every non-test file must count as frozen")
 	}
 }
 

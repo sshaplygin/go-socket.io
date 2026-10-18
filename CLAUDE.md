@@ -175,7 +175,8 @@ the diff reaches something it checks:
 - Go comments and formatting run nothing. Comments that a tool reads count as code:
   `//go:` and `//line` directives, build constraints, cgo preambles, `//nolint`, `//lint:`,
   generated-file markers and Example output comments. Comments of v1 test files with a
-  `Covers` marker and of the v2 root package (frozen declarations) run the gates.
+  `Covers` marker, and of the v2 files that `frozenGoFiles` in `v2/frozen_test.go` names
+  (read by `make freeze`; the classifier takes the list from that function), run the gates.
 - A token change in package P tests P and every package whose code or tests import it,
   directly or transitively (`go list -e -test` with GOOS linux, darwin and windows and with
   `-tags conformance`); a change of test files only tests P.

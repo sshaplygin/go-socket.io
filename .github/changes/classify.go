@@ -3,11 +3,15 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -54,11 +58,64 @@ type impact struct {
 	graph                                     *graph
 }
 
+// frozenSource is the v2 test file whose function frozenGoFiles lists the files that
+// TestFrozenContract (make freeze, make g2) reads, comments included.
+const frozenSource = "v2/frozen_test.go"
+
+// frozenPatterns returns the string literals ending in .go and not starting with an
+// underscore inside frozenGoFiles of src:
+// path.Match patterns relative to v2/ (the root glob "*.go" and the named files). It
+// returns nil when src does not parse or has no such function.
+func frozenPatterns(src []byte) []string {
+	file, err := parser.ParseFile(token.NewFileSet(), frozenSource, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil
+	}
+	var list []string
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv != nil || fn.Name.Name != "frozenGoFiles" || fn.Body == nil {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			// "_test.go" is the suffix the function filters on, not a file.
+			if value, err := strconv.Unquote(lit.Value); err == nil && strings.HasSuffix(value, ".go") && !strings.HasPrefix(value, "_") {
+				list = append(list, value)
+			}
+			return true
+		})
+	}
+	return list
+}
+
 // decision is the result of the classifier for one diff.
 type decision struct {
 	mods    map[string]*impact
 	sync    bool
 	reasons []string
+	// frozen are the patterns of frozenGoFiles at base and head; when there are none, every
+	// non-test v2 Go file counts as frozen.
+	frozen []string
+}
+
+// frozenFile reports whether TestFrozenContract reads the comments of the v2 file rel.
+func (d *decision) frozenFile(rel string) bool {
+	if strings.HasSuffix(rel, "_test.go") {
+		return false
+	}
+	if len(d.frozen) == 0 {
+		return true
+	}
+	for _, p := range d.frozen {
+		if ok, err := path.Match(p, rel); ok || err != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func newDecision() *decision {
@@ -117,6 +174,14 @@ func classify(dir, base, head string) (*decision, error) {
 	shared := manifest(dir, base)
 	for name := range manifest(dir, head) {
 		shared[name] = true
+	}
+	for _, rev := range []string{base, head} {
+		if src, err := git(dir, "show", rev+":"+frozenSource); err == nil {
+			d.frozen = append(d.frozen, frozenPatterns(src)...)
+		}
+	}
+	if len(d.frozen) == 0 {
+		d.note("v2: no frozenGoFiles in %s, every non-test v2 Go comment runs the gates", frozenSource)
 	}
 	fields := strings.Split(strings.TrimSuffix(string(diff), "\x00"), "\x00")
 	for i := 0; i+1 < len(fields); i += 2 {
@@ -286,13 +351,13 @@ func (d *decision) goFile(mod, status, name, rel string, before, after []byte) {
 	}
 	if sameTokens(before, after, test) {
 		// Comments that gates read: Covers markers of the parity gate in v1 tests, and the
-		// frozen-contract comments of the v2 root package.
+		// comments of the files frozenGoFiles names (TestFrozenContract).
 		if mod == v1 && test && (bytes.Contains(before, []byte("// Covers ")) || bytes.Contains(after, []byte("// Covers "))) {
 			m.gates = true
 			d.note("%s: gates (Covers marker file %s)", mod, name)
-		} else if mod == v2 && dir == "." {
+		} else if mod == v2 && d.frozenFile(rel) {
 			m.gates = true
-			d.note("%s: gates (comment of the frozen root package %s)", mod, name)
+			d.note("%s: gates (comment of the frozen file %s)", mod, name)
 		}
 		return
 	}

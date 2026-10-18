@@ -89,6 +89,10 @@ var fullV1 = map[string]string{
 	"conformance": "true",
 }
 
+var fullV2 = map[string]string{
+	"v2": "true", "v2_packages": "./...", "gates_v2": "true", "examples_v2": "true", "experiments_v2": "true",
+}
+
 func merge(maps ...map[string]string) map[string]string {
 	result := map[string]string{}
 	for _, m := range maps {
@@ -199,6 +203,29 @@ func TestClassify(t *testing.T) {
 			})},
 		{name: "benchmark workflow", edit: map[string]string{".github/workflows/benchmarks.yml": "name: Benchmarks\non: push\n"},
 			want: with(map[string]string{"bench_v1": "./...", "bench_v2": "./...", "changed": "true"})},
+		{name: "classifier", edit: map[string]string{".github/changes/main.go": "package main\n\nfunc main() {}\n"},
+			want: merge(fullV1, fullV2, map[string]string{"bench_v1": "./...", "bench_v2": "./...", "changed": "true", "sync": "true"})},
+		{name: "other file under .github", edit: map[string]string{".github/ISSUE_TEMPLATE/bug.yml": "name: Bug\n"},
+			want: merge(fullV1, fullV2, map[string]string{"bench_v1": "./...", "bench_v2": "./...", "changed": "true", "sync": "true"})},
+		{name: "architecture checker", edit: map[string]string{".github/architecture/arch.go": "package main\n\nfunc main() {}\n"},
+			want: merge(fullV1)},
+		{name: "coverage checker", edit: map[string]string{".github/coverage/cover.go": "package main\n\nfunc main() {}\n"},
+			want: merge(fullV1)},
+		{name: "v1 lint config", edit: map[string]string{".golangci.yml": "version: \"2\"\n"},
+			want: merge(fullV1)},
+		{name: "v2 lint config", edit: map[string]string{"v2/.golangci.yml": "version: \"2\"\n"},
+			want: merge(fullV2)},
+		{name: "v2 Makefile", edit: map[string]string{"v2/Makefile": "test:\n\tgo test ./...\n"},
+			want: merge(fullV2)},
+		{name: "assembly source", edit: map[string]string{"parser/parse_amd64.s": "#include \"textflag.h\"\n"},
+			want: with(map[string]string{
+				"v1": "true", "v1_packages": ". ./engineio ./parser", "gates_v1": "true", "examples_v1": "true",
+				"conformance": "true", "bench_v1": "./parser", "changed": "true",
+			})},
+		{name: "C source", edit: map[string]string{"adapter/native.c": "int answer(void) { return 42; }\n"},
+			want: with(map[string]string{
+				"v1": "true", "v1_packages": "./adapter", "gates_v1": "true", "examples_v1": "true", "conformance": "true",
+			})},
 		{name: "dependabot", edit: map[string]string{".github/dependabot.yml": "version: 2\nupdates: []\n"}, want: none},
 		{name: "v2 package", edit: map[string]string{
 			"v2/engineio/conn.go": "package engineio\n\n// Conn is a connection.\ntype Conn struct{ ID, N int }\n",

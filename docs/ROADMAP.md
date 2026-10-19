@@ -2826,6 +2826,18 @@ only when inspecting the red commit; the current PARITY marker gate still requir
 
 ```sh
 tdd_red() { git log --follow --no-merges --format=%H -G "^func $3[(]" "$1..$2" -- "$4" | tail -n 1; }   # tdd_red <base> <head> <TestName> <file>: follow renames from the current file to the oldest test-adding commit; --reverse cannot be combined with this traversal
+tdd_marker() (   # tdd_marker <red> <historical-file> <head> <current-file> <TestName>
+r=$1 rf=$2 h=$3 f=$4 t=$5
+if git show "$r:$rf" | grep -B4 -E "^func $t[(]" | grep -qE '^// Covers:? [A-Z][0-9]+( |$)'; then return 0; fi
+ids=$(git show "$h:$f" | grep -B4 -E "^func $t[(]" | sed -nE 's@^// Covers ([A-Z][0-9]+)( .*|$)@\1@p'); test -n "$ids" || return 1
+before=$(git show "$r^:docs/PARITY.md") || return 1
+current=$(git show "$h:docs/PARITY.md") || return 1
+for id in $ids; do
+printf '%s\n' "$current" | awk -F' *[|] *' -v id="$id" '$2 == id { found=1 } END { exit !found }' || return 1
+if printf '%s\n' "$before" | awk -F' *[|] *' -v id="$id" '$2 == id { found=1 } END { exit !found }'; then return 1; fi
+done
+)
+
 tdd() (   # tdd <base> <head> <TestName>...: one line per defect; nothing when each test is added by a test-only commit of the PR, red there, and green on <head>
 b=$1 h=$2; shift 2
 run() { w=$(mktemp -d) || return 1; git worktree add -q --detach "$w/wt" "$1" >/dev/null 2>&1 || { echo "no worktree of $1"; rmdir "$w"; return 1; }; (cd "$w/wt" && go test -race -count=1 -timeout 280s -v -run "^$2\$" "./$3" 2>&1) && s=0 || s=$?; git worktree remove --force "$w/wt"; rmdir "$w"; return $s; }   # one test in a scratch worktree of a commit
@@ -2834,7 +2846,7 @@ f=$(git grep -l -E "^func $t[(]" "$h" -- '*_test.go' || :); test -n "$f" -a "$(p
 r=$(tdd_red "$b" "$h" "$t" "$f"); test -n "$r" || { echo "tdd $t: not added to $f by the PR"; continue; }
 rf=$(git grep -l -E "^func $t[(]" "$r" -- '*_test.go' || :); test -n "$rf" -a "$(printf '%s\n' "$rf" | wc -l)" -eq 1 || { echo "tdd $t: not one test file at red commit $r"; continue; }; rf=${rf#"$r":}; rd=$(dirname "$rf")
 test -z "$(git diff --name-only "$r^" "$r" -- '*.go' | grep -v '_test[.]go$')" || echo "tdd $t: red commit $r changes a Go file that is not a test"
-git show "$r:$rf" | grep -B4 -E "^func $t[(]" | grep -qE '^// Covers:? [A-Z][0-9]+( |$)' || echo "tdd $t: no // Covers marker above it at $r"
+tdd_marker "$r" "$rf" "$h" "$f" "$t" || echo "tdd $t: no // Covers marker above it at $r for an already registered row"
 if o=$(run "$r" "$t" "$rd"); then echo "tdd $t: not red at $r (go test passed)"; else case $o in
 *'[build failed]'*|*'[setup failed]'*|'no worktree'*) echo "tdd $t: does not build or run at $r";;   # a red that is a build error is no red
 *) printf '%s\n' "$o" | grep -qE "^(--- FAIL: $t |panic: |fatal error: )" || echo "tdd $t: not red at $r";;   # red: a failing status and, at the start of a line, an assertion failure, a panic (a test timeout included) or a runtime abort

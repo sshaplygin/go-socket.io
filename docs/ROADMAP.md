@@ -2737,6 +2737,19 @@ V6='TestRedisBroadcastDropsUnknownOpts|TestRedisBroadcastDropsUnknownKeys|TestRe
 test "$(go test -race -count=1 -json -run "^($V6)\$" ./adapter/redis | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test' | sort -u | wc -l)" -eq 4   # the decoder guard, the unknown-key guard and the two flags, without a Redis server
 ```
 
+### V1-28 contract
+
+The client bounds received data by default to 1 MiB. `client.WithMaxMessageSize(int64)`
+and `engineio/client.Dialer.MaxMessageSize` select a positive byte limit; nonpositive
+values select the default. Websocket limits include inflated message bytes. Polling
+limits apply to each decoded HTTP response body, framing included. OPEN, subsequent
+messages, reconnects and upgraded websocket candidates use the same bound. Custom
+transports enforce it through `SetReadLimit(int64)`; unsupported custom transports
+remain responsible for their own limits. Limit errors close the affected connection
+and are returned from dialing or reported through the existing error lifecycle.
+Configurations do not mutate global default transports. G9's client regression sends
+an ignored binary packet followed by a valid packet on the same connection.
+
 **Wave V1G (the review of 2026-10-18; rows G1 to G29, T1 to T3, S22; D18, D19).** An
 independent review of the v1 implementation at `3db9751` (`master` after #133), in six
 dimensions, reported 18 findings that a second reviewer checked and could not refute, and

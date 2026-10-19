@@ -15,10 +15,11 @@ This is a maintained fork of `googollee/go-socket.io`.
 | Server | Socket.IO protocol | Engine.IO protocol | JavaScript client |
 | --- | --- | --- | --- |
 | v1 (this module, repository root) | v4 | v3 | `socket.io-client` 1.x and 2.x |
+| v2 (in development in [`v2/`](v2/README.md), no runtime yet) | v5 | v4 | `socket.io-client` 3.x and 4.x |
 
 The v1 interoperability checks use `socket.io-client` **1.7.4** and **2.5.0**;
 the reference server is Socket.IO 2.5.0 with Engine.IO 3.6.2.
-Details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md).
+V1 protocol details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Install
 
@@ -30,92 +31,21 @@ go get github.com/sshaplygin/go-socket.io@v1.5.0
 
 Go 1.22 or later is required.
 
-## Quick start
+## Examples
 
-```go
-package main
-
-import (
-    "context"
-    "errors"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
-
-    socketio "github.com/sshaplygin/go-socket.io"
-)
-
-func main() {
-    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-    defer stop()
-    if err := run(ctx); err != nil {
-        log.Print(err)
-        stop()
-        os.Exit(1)
-    }
-}
-
-func run(ctx context.Context) error {
-    server := socketio.NewServer()
-
-    server.OnConnect("/", func(s socketio.Conn) error {
-        s.Join("lobby")
-        return nil
-    })
-    // Return values are sent back to the client as the acknowledgement.
-    server.OnEvent("/", "msg", func(s socketio.Conn, msg string) string {
-        server.BroadcastToRoom("/", "lobby", "msg", msg)
-        return "ok"
-    })
-    server.OnDisconnect("/", func(s socketio.Conn, reason string) {
-        log.Println("closed:", reason)
-    })
-
-    mux := http.NewServeMux()
-    mux.Handle("/socket.io/", server)
-    httpServer := &http.Server{Addr: ":8000", Handler: mux}
-    results := make(chan error, 2)
-    go func() { results <- server.Serve() }()
-    go func() {
-        err := httpServer.ListenAndServe()
-        if errors.Is(err, http.ErrServerClosed) {
-            err = nil
-        }
-        results <- err
-    }()
-    var err error
-    remaining := 2
-    select {
-    case err = <-results:
-        remaining--
-    case <-ctx.Done():
-    }
-    err = errors.Join(err, server.Close())
-    shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-    defer cancel()
-    err = errors.Join(err, httpServer.Shutdown(shutdownCtx), httpServer.Close())
-    for ; remaining > 0; remaining-- {
-        err = errors.Join(err, <-results)
-    }
-    return err
-}
-```
-
-Runnable examples for gin, echo, iris, gf, CORS, Redis and graceful shutdown are in
-[_examples/](_examples/README.md). API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0).
+Runnable applications and launch instructions are in [_examples/](_examples/README.md).
+Start with the [net/http server](_examples/default-http/) or the
+[Go client](_examples/client/). The directory also includes ACKs, binary events,
+namespaces, middleware, framework integrations, Redis and graceful shutdown.
 
 ## Usage
 
 The Go client is available in
 [`github.com/sshaplygin/go-socket.io/client`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0/client);
-see the [client example](_examples/client/main.go). Server and client use separate
-connection types and constructors.
+server and client use separate connection types and constructors.
 
 Configuration, namespace lifecycle, adapters and typed events: [V1 usage](docs/V1.md).
-For Socket.IO protocol v5, see the independent [v2 module](v2/README.md).
+API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0).
 
 ## Contributing
 

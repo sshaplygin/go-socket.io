@@ -142,8 +142,18 @@ func TestTypedHandlerFailuresKeepConnectionUsable(t *testing.T) {
 				cl.OnError(func(_ client.Conn, err error) { clientErrors <- err })
 				require.NoError(t, descriptor.Handle(srv.Of("/chat"), func(_ context.Context, _ socketio.Conn, value string) (string, error) { return fail(value) }))
 				require.NoError(t, descriptor.HandleClient(cl, func(_ context.Context, _ socketio.Endpoint, value string) (string, error) { return fail(value) }))
-				require.NoError(t, ordinary.Handle(srv.Of("/chat"), func(_ context.Context, _ socketio.Conn, value string) error { _, err := fail(value); return err }))
-				require.NoError(t, ordinary.HandleClient(cl, func(_ context.Context, _ socketio.Endpoint, value string) error { _, err := fail(value); return err }))
+				require.NoError(t, ordinary.Handle(srv.Of("/chat"), func(_ context.Context, _ socketio.Conn, value string) error {
+					if value == "panic" {
+						panic("ordinary panic")
+					}
+					return errors.New("ordinary failure")
+				}))
+				require.NoError(t, ordinary.HandleClient(cl, func(_ context.Context, _ socketio.Endpoint, value string) error {
+					if value == "panic" {
+						panic("ordinary panic")
+					}
+					return errors.New("ordinary failure")
+				}))
 			})
 			for _, to := range []socketio.Endpoint{cl, serverConn} {
 				for _, test := range []struct{ value, code string }{{"remote", "refused"}, {"error", "handler_error"}, {"panic", "handler_panic"}} {

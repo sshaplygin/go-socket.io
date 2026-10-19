@@ -251,3 +251,77 @@ func TestNamespaceCloseWaitsForUnsubscribeAcknowledgements(t *testing.T) {
 		t.Fatalf("closed namespace still counted as %d subscribers", got)
 	}
 }
+
+// Covers B4
+func TestNamespaceCloseConfirmsRemovalAfterSubscriberReplacement(t *testing.T) {
+	s := miniredis.RunT(t)
+	factory := New(WithAddr(s.Addr()))
+	closing, err := factory("/closing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	remaining, err := factory("/remaining")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := closing.(*broadcast)
+	defer func() { _ = owner.Close(); _ = remaining.(*broadcast).Close() }()
+	sent := make(chan struct{})
+	s.Server().SetPreHook(func(_ *server.Peer, command string, args ...string) bool {
+		if command == "UNSUBSCRIBE" && len(args) > 0 && args[0] == owner.reqChannel {
+			close(sent)
+			return true
+		}
+		return false
+	})
+	done := make(chan error, 1)
+	go func() { done <- owner.Close() }()
+	select {
+	case <-sent:
+	case <-time.After(time.Second):
+		t.Fatal("unsubscribe not sent")
+	}
+	owner.subLock.Lock()
+	_ = owner.sub.Close()
+	owner.subLock.Unlock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("replacement did not confirm retired subscription removal")
+	}
+	if got := s.PubSubNumSub(owner.reqChannel)[owner.reqChannel]; got != 0 {
+		t.Fatalf("replacement retained closed namespace: %d", got)
+	}
+	if got := s.PubSubNumSub("socket.io-request#/remaining#")["socket.io-request#/remaining#"]; got != 1 {
+		t.Fatalf("remaining namespace subscriber count %d", got)
+	}
+}
+
+func TestUnsubscribeAcknowledgementsConfirmOneCommandAtATime(t *testing.T) {
+	bc := &broadcast{}
+	sub := &redis.PubSubConn{}
+	first := bc.beginUnsubscribe(sub, "request", "response")
+	second := bc.beginUnsubscribe(sub, "request", "response")
+	bc.acknowledgeUnsubscribe(sub, "request")
+	bc.acknowledgeUnsubscribe(sub, "response")
+	select {
+	case <-first.done:
+	default:
+		t.Fatal("first unsubscribe not confirmed")
+	}
+	select {
+	case <-second.done:
+		t.Fatal("one Redis ACK confirmed two unsubscribe commands")
+	default:
+	}
+	bc.acknowledgeUnsubscribe(sub, "request")
+	bc.acknowledgeUnsubscribe(sub, "response")
+	select {
+	case <-second.done:
+	default:
+		t.Fatal("second unsubscribe not confirmed")
+	}
+}

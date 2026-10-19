@@ -91,6 +91,9 @@ func (bc *broadcast) dispatch() {
 			}
 
 		case redis.Subscription:
+			if m.Kind == "unsubscribe" {
+				bc.acknowledgeUnsubscribe(sub, m.Channel)
+			}
 			bc.subscriptionChanged(m.Channel, m.Kind == "subscribe" || m.Kind == "psubscribe")
 			if m.Count == 0 {
 				return

@@ -124,7 +124,6 @@ func (s *sharedResources) clusterWorkers() chan struct{} {
 func (s *sharedResources) remove(bc *broadcast) error {
 	owner := s.owner
 	owner.subLock.Lock()
-	defer owner.subLock.Unlock()
 	s.mu.Lock()
 	group := s.members[bc.nsp]
 	found := -1
@@ -136,6 +135,7 @@ func (s *sharedResources) remove(bc *broadcast) error {
 	}
 	if found < 0 {
 		s.mu.Unlock()
+		owner.subLock.Unlock()
 		return nil
 	}
 	group = append(group[:found], group[found+1:]...)
@@ -147,17 +147,34 @@ func (s *sharedResources) remove(bc *broadcast) error {
 	empty := len(s.members) == 0
 	s.mu.Unlock()
 	if empty {
-		return owner.closeTransport()
+		err := owner.closeTransport()
+		owner.subLock.Unlock()
+		return err
 	}
-	if len(group) == 0 {
-		owner.subscriptionChanged(bc.reqChannel, false)
-		owner.subscriptionChanged(bc.resChannel, false)
-		sub := owner.sub
-		ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
-		defer cancel()
-		stop := context.AfterFunc(ctx, func() { _ = sub.Close() })
-		defer stop()
-		return sub.Unsubscribe(bc.reqChannel, bc.resChannel)
+	if len(group) > 0 {
+		owner.subLock.Unlock()
+		return nil
 	}
-	return nil
+	owner.subscriptionChanged(bc.reqChannel, false)
+	owner.subscriptionChanged(bc.resChannel, false)
+	sub := owner.sub
+	ack := owner.beginUnsubscribe(sub, bc.reqChannel, bc.resChannel)
+	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+	defer cancel()
+	stop := context.AfterFunc(ctx, func() { _ = sub.Close() })
+	defer stop()
+	err := sub.Unsubscribe(bc.reqChannel, bc.resChannel)
+	owner.subLock.Unlock()
+	defer owner.endUnsubscribe(ack)
+	if err != nil {
+		return err
+	}
+	select {
+	case <-ack.done:
+		return nil
+	case <-owner.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

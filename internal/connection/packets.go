@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sync"
 
+	eventImpl "github.com/sshaplygin/go-socket.io/internal/event"
 	namespaceImpl "github.com/sshaplygin/go-socket.io/internal/namespace"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
@@ -20,6 +21,13 @@ func ackPacketHandler(c *Connection, header parser.Header) error {
 		return nil
 	}
 
+	if raw, exists := nc.ack.Load(header.ID); exists {
+		if pending, typed := raw.(*typedPending); typed {
+			payload, err := eventImpl.DecodeAck(c.decoder, pending.schema)
+			nc.completeTyped(header.ID, pending, payload, err)
+			return nil
+		}
+	}
 	defer nc.ack.Delete(header.ID)
 
 	rawFunc, ok := nc.ack.Load(header.ID)
@@ -80,6 +88,11 @@ func eventPacketHandler(c *Connection, event string, header parser.Header) error
 	}
 
 	snapshot := handler.Listeners(event)
+	if len(snapshot) != 0 {
+		if typed, ok := snapshot[0].TypedHandler(); ok {
+			return typedEventPacketHandler(c, conn, event, header, typed)
+		}
+	}
 	var types []reflect.Type
 	if len(snapshot) != 0 {
 		types = snapshot[0].ArgTypes()
@@ -254,4 +267,33 @@ func decodeCallbackArgs(decoder *parser.Decoder, types []reflect.Type, variadic 
 		return decoder.DecodeArgsVariadic(types)
 	}
 	return decoder.DecodeArgs(types)
+}
+
+func typedEventPacketHandler(c *Connection, nc *namespaceConn, name string, header parser.Header, handler eventImpl.Handler) error {
+	payload, err := handler.Decode(c.decoder)
+	if err == nil {
+		value := payload.Interface()
+		err = nc.runMiddleware(name, []reflect.Value{reflect.ValueOf(&value).Elem()})
+	}
+	var result eventImpl.Payload
+	if err == nil {
+		result, err = handler.Invoke(nc.lifetime, nc, payload)
+	}
+	if handler.WantsAck() && header.NeedAck {
+		header.Type = parser.Ack
+		ackErr := err
+		if errors.Is(err, eventImpl.ErrInvalidPayload) {
+			ackErr = &eventImpl.RemoteError{Code: "invalid_payload", Message: err.Error()}
+		}
+		values := eventImpl.AckArgs(result, ackErr)
+		args := make([]reflect.Value, len(values))
+		for i, value := range values {
+			args[i] = reflect.ValueOf(value)
+		}
+		c.write(header, args...)
+	}
+	if err != nil {
+		c.onError(header.Namespace, err)
+	}
+	return nil
 }

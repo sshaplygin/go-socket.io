@@ -72,6 +72,7 @@ func (c *Connection) startClose() (ncs []*namespaceConn) {
 	close(c.closing)
 	c.namespaces.Range(func(_ string, nc *namespaceConn) { ncs = append(ncs, nc) })
 	for _, nc := range ncs {
+		nc.endTyped()
 		c.namespaces.Delete(fmtNS(nc.namespace))
 	}
 	c.disconnects.Add(len(ncs))
@@ -242,6 +243,9 @@ func (c *Connection) claimNamespace(nsp string, disconnect, control bool, expect
 		return nil, false
 	}
 	c.namespaces.Delete(nsp)
+	if ok {
+		nc.endTyped()
+	}
 	if ok && disconnect {
 		c.retiring[nsp] = nil
 		c.disconnects.Add(1)

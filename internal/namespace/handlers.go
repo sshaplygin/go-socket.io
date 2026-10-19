@@ -191,7 +191,19 @@ func NewAckFunc(f interface{}) *Func {
 }
 
 // SetAdapter installs the resolved adapter and its construction error before registration.
-func (nh *Handler) SetAdapter(b adapter.Adapter, err error) { nh.broadcast, nh.err = b, err }
+func (nh *Handler) SetAdapter(b adapter.Adapter, err error) {
+	nh.broadcast, nh.err = b, err
+	if binding, ok := b.(interface {
+		BindSocketLookup(func(string) adapter.Socket)
+	}); ok && err == nil {
+		binding.BindSocketLookup(func(id string) adapter.Socket {
+			nh.connectedMu.RLock()
+			defer nh.connectedMu.RUnlock()
+			socket, _ := nh.connected[id].(adapter.Socket)
+			return socket
+		})
+	}
+}
 
 func (nh *Handler) Adapter() adapter.Adapter { return nh.broadcast }
 func (nh *Handler) Err() error               { return nh.err }

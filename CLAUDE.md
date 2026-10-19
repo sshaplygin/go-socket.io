@@ -57,6 +57,7 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `v2/_experiments/` | standalone prototypes, each with its own `go.mod`, never imported by the v2 module; built by `make -C v2 experiments` |
 | `docs/` | shared by both modules: protocol notes, roadmap, v1 parity matrix (`PARITY.md`), v2 API signature inventory |
 | `.github/architecture/` | v1 runtime graph gate and negative go-list/privacy/role fixtures; executable policy follows ROADMAP Component boundaries |
+| `.github/changes/` | change classifier of both workflows: which jobs, test packages and benchmark packages a pull request needs |
 | `.github/` | shared: one CI workflow with jobs per module, the benchmark workflow and its tools, Dependabot |
 
 Runtime model of v1: `engineio.Server` accepts HTTP requests and emits `engineio.Conn`
@@ -107,16 +108,18 @@ The accepted test-ownership decision and duplicate mappings live in
 Each module has its own `Makefile` and `.golangci.yml`. In the repository root (v1):
 
 ```sh
-make lint        # gofmt, vet and golangci-lint, including the architecture checker
+make lint        # gofmt, make vet and golangci-lint, including the architecture checker and the classifier
+make vet         # go vet under GOOS linux, darwin and windows, with -tags conformance, in every _examples module and engineio/_examples, and of the .github tools
 make architecture-check # allowed runtime imports, role/codec closures and retired paths
 make sync-check  # compare shared v1/v2 files after the module import-path rewrite
-make test        # go test -count=1 ./...
-make test-race   # the same with -race; what CI runs
+make test        # go test -count=1 ./... (PKGS=<patterns> narrows test, test-race, test-stress and bench)
+make test-race   # the same with -race; what CI runs, with the PKGS the classifier selects
 make conformance # tagged JS interoperability and raw transport tests; requires Node and the installs below
-make test-stress # race tests of root, adapters, private server/client owners, parser, engineio/...: -count=5 -shuffle=on -cpu=1,4
+make test-stress # race tests of root, adapters, private server/client owners, parser, engineio/... (STRESS_PKGS) that are in PKGS: -count=5 -shuffle=on -cpu=1,4
 make bench       # benchmarks only, no tests
 make vuln        # govulncheck ./... in the root and in every _examples module
 make cover       # coverage profile + HTML report
+make gates       # every internal/parity test (Covers markers, process termination, role fixtures): the gate that reads the whole repository
 make parity-check # validate DONE rows and Covers markers; PARITY_STRICT=1 also checks open planned rows
 make cover-check # cross-package statement floor and exported API zero-coverage ceiling
 make examples    # build/vet example modules and Engine.IO echo, compare chat/lifecycle copies, race-test cleanup and chat
@@ -127,14 +130,16 @@ make all         # go install ./...
 In `v2/` (`make -C v2 <target>` from the root):
 
 ```sh
-make lint       # gofmt -s check, go vet, golangci-lint (v2 config)
-make test       # go test -count=1 ./...
-make test-race  # the same with -race; what CI runs
+make lint       # gofmt -s check, make vet, golangci-lint (v2 config)
+make vet        # go vet under GOOS linux, darwin and windows
+make test       # go test -count=1 ./... (PKGS=<patterns> narrows test, test-race and bench)
+make test-race  # the same with -race; what CI runs, with the PKGS the classifier selects
 make bench      # benchmarks only, no tests
 make vuln       # govulncheck ./... in v2/ and in every _experiments module
 make graph      # package graph: no import cycle, the v2 root imports only engineio and parser (docs/API.md)
 make freeze     # G2 check: no unresolved marker in docs/API.md or the frozen declarations, no bare any in an exported frozen declaration
-make g2         # the gate evidence of ROADMAP row 2A: make graph, make freeze and the compile fixtures
+make g2         # the gate evidence of ROADMAP row 2A: make graph, make freeze and make fixtures
+make fixtures   # the compile fixtures and the docs/API.md inventory check
 make cover      # coverage profile + HTML report
 make examples   # check that every _examples/*/chat.go is identical; the legacy examples are not built until 2.5D
 make experiments # check that _experiments stays standalone, then vet, gofmt -s, golangci-lint and race tests in every _experiments/*/ module
@@ -160,31 +165,112 @@ must be absolute; tagged tests pass it unchanged as `NODE_PATH`. Missing Node or
 or relative `CONFORMANCE_NODE_MODULES` fails the scenarios. Listing tests with `-list`
 does not require either.
 
-CI (`.github/workflows/ci.yaml`) runs `sync-check` on every event without a module path
-filter, comparing the pairs in `.github/sync-manifest`, and the required `conformance`
-matrix with Node LTS and exact clients 1.7.4 and 2.5.0. The other jobs run per module. A `changes` job is the path
-filter: on a pull request the v1 jobs run when a file outside `v2/` changed, the v2 jobs
-when a file in `v2/`, `.github/` or `docs/API.md` (read by the v2 tests) changed; push and
-schedule run both. v1 jobs, in the root: `lint-v1` (tidy diff, mod verify, gofmt, vet,
-`make architecture-check parity-check cover-check`,
-golangci-lint, `make vuln` on ubuntu with the newest Go release from go.dev, because
-`setup-go` lags behind it), `test-v1` (race tests on ubuntu, macos and windows with
-`stable` and `oldstable` Go), `stress-v1` (`make test-stress`, pull requests only),
+CI (`.github/workflows/ci.yaml`) starts with the `changes` job: it tests and runs the
+classifier `.github/changes`, prints its decision in the job summary and checks `gofmt -s`
+of the changed Go files. A push to master and the weekly schedule select every job and
+`./...` of both modules; that run is the safety net for anything a pull request skips. On
+a pull request the classifier reads the diff from the merge base, and a job runs only when
+the diff reaches something it checks:
+
+- Markdown runs nothing. Accepted gap: the gates also read Markdown (`README.md`,
+  `docs/PARITY.md` and `docs/ROADMAP.md` for v1, `docs/API.md` for v2), so a pull request
+  that breaks a gate only through these files passes and the push to master fails; the
+  classifier names the skipped gate in the job summary, and a classifier test fails when a
+  Go file names a Markdown file outside that list.
+- A change of Go comments or formatting only (the token stream without comments is
+  identical) runs the lint job of the module (`lint-v1` or `lint-v2`) and nothing else that
+  tests: golangci-lint and gofmt read comments of every kind (`//nolint` with or without a
+  space, `Deprecated:`, doc rules, directives with a space, generated-file markers), and
+  `make vet` of the lint job vets every Go file a test job compiles (the root module under
+  GOOS linux, darwin and windows, for v1 also with `-tags conformance` and the examples), so
+  the comments that `go vet` rejects (a `+build` word before `package`, a comment group
+  after the output group of an `Example`) fail there and not only in a skipped job;
+  `lint-v1` skips its test steps (`make architecture-check parity-check cover-check`)
+  when no package is selected. Only the comments that the compiler or `go test` read count
+  as code: `//go:` directives, `//line`, build constraints (`//go:build`, `// +build`),
+  every comment of a file that imports `"C"` (the cgo preamble) and, in a test file, the
+  whole comment group that starts with `Output:` or `Unordered output:` inside an `Example`
+  function. Comments of v1 test files with a `Covers` marker, and of the v2 files that
+  `frozenGoFiles` in `v2/frozen_test.go` names (read by `make freeze`; the classifier takes
+  the list from that function), also run the gates.
+- A token change in package P tests P and every package whose code or tests import it,
+  directly or transitively (`go list -e -test` with GOOS linux, darwin and windows and with
+  `-tags conformance`); a change of test files only tests P.
+- `_examples/` and `_experiments/` run the example or experiment job of their module, and
+  the other jobs this bullet names; v1 `_examples/` also runs `conformance`, which runs the examples with Node. Every Go
+  change of a v1 example (`engineio/_examples` included) also runs `lint-v1`, whose
+  `make vet` vets the examples and whose `make vuln` scans every `_examples/*/` module; a
+  comment or formatting change of a v1 example runs only `lint-v1` unless the file is a
+  byte-compared copy (`chat.go`, `lifecycle.go`), and one of a v2 example runs nothing
+  (no job compiles the v2 examples until 2.5D). Any change of an experiment runs
+  `experiments-v2`, the only golangci-lint run of those modules. The `go.mod` or `go.sum`
+  of a v1 `_examples/*/` or a v2 `_experiments/*/` module, and a Go code change (not
+  comments or formatting) of an experiment, also run the lint job of its module, whose
+  `make vuln` scans that module with govulncheck (its result depends on the code that
+  reaches a vulnerable symbol, not only on the module files). Accepted gap: the `go.mod`
+  or `go.sum` of a `v2/_examples/*/` module runs only `examples-v2`, and no job scans those
+  modules with govulncheck, on master either (`make -C v2 vuln` covers `v2/` and
+  `_experiments/` only), until 2.5D migrates them. A code change of a v1
+  example also runs `gates-v1` (`internal/parity` scans every non-test Go file of the
+  tree). A v1 non-test code change also builds the v1 examples and runs `conformance`.
+- A full run of a module is every job of that module with `./...`. It is started by
+  `go.mod`, `go.sum`, `go.work` or `go.work.sum` of the module, a file under `testdata/`, a
+  build-constraint change, a change that cannot be attributed to a package (a deleted
+  package), a file or directory no other rule classifies (such as `LICENSE`, or a directory
+  starting with `_` or `.` other than `_examples/` and `_experiments/`), a `v1`
+  `_experiments/` path, and the module's `Makefile` or `.golangci.yml`; for v1 also by
+  `.github/architecture/` and `.github/coverage/`; for both modules by `ci.yaml`, the
+  classifier `.github/changes/` and any other `.github/` file. `.github/dependabot.yml`
+  runs nothing; `benchmarks.yml` and `.github/benchmarks/` run no CI job, only every
+  benchmark of both modules.
+- `sync-check` runs when `.github/sync-manifest`, a file it names, the root `Makefile`,
+  `ci.yaml`, the classifier or any other `.github/` file of the full-run rule changes.
+
+Jobs are skipped with a job-level `if`, never a workflow `paths` filter, so the required
+checks report: a skipped `sync-check` reports success, and the required `conformance`
+matrix always starts and skips its steps, because a skipped matrix job reports one check
+under its unexpanded name. v1 jobs, in the root: `conformance` (Node LTS with exact clients
+1.7.4 and 2.5.0, `make conformance examples-node`), `sync-check` (the pairs of
+`.github/sync-manifest`), `gates-v1` (`make gates`), `lint-v1` (tidy diff, mod verify,
+gofmt, `make vet`, `make architecture-check parity-check cover-check` when packages are selected,
+golangci-lint,
+`make vuln` on ubuntu with the newest Go release from go.dev, because `setup-go` lags
+behind it), `test-v1` (race tests of the
+selected packages on ubuntu, macos and windows with `stable` and `oldstable` Go, plus the
+graph fixtures and checker, so conditional production imports obey the same policy),
+`stress-v1` (`make test-stress` with the selected packages, pull requests only),
 `min-go-v1` (build and race tests on ubuntu with the latest Go 1.22.x and
 `GOTOOLCHAIN=local`, so it fails if `go.mod` or a dependency requires a newer Go) and
-`examples-v1` (`make examples`). Every v1 platform/toolchain test job also runs the graph fixtures
-and checker, so conditional production imports obey the same policy. v2 jobs, with
-`working-directory: v2`: `lint-v2` (tidy, mod verify, format/vet, `make graph freeze`,
-golangci-lint and `make vuln`), `test-v2`, `min-go-v2`, `examples-v2`
-(`make examples`, the identical-copy check only) and `experiments-v2` (`make experiments`;
-installs golangci-lint with `go install`). Dependabot groups Go minor/patch updates of every
+`examples-v1` (`make examples`). v2 jobs, with `working-directory: v2`: `gates-v2`
+(`make fixtures`, and `make graph freeze` only when `lint-v2` does not run), `lint-v2` (tidy,
+mod verify, gofmt, `make vet`, `make graph freeze` when `gates_v2` is set, golangci-lint and
+`make vuln`), `test-v2`, `min-go-v2`, `examples-v2` (`make examples`, the identical-copy
+check only) and `experiments-v2` (`make experiments`; installs golangci-lint with
+`go install`). The gate jobs run only when no test job runs the gate tests: `gates-v1`
+when a gate input changes and no v1 package is selected, because `make cover-check` of
+`lint-v1` (`go test -coverpkg=./... ./...`, without `-race`; the parity tests read files
+and run `go` subprocesses) tests every package of the module, `internal/parity` included,
+whenever one is; `gates-v2` and the `make graph freeze` steps of `lint-v2` when a gate
+input changes and the v2 root package is not selected, because the v2 gates are tests of
+that package, which `test-v2` and `min-go-v2` then run. On a pull request one gate test
+runs twice: `TestParityCovers`, in `make parity-check` of `lint-v1` (the step the V1-20
+record of `docs/ROADMAP.md` names, which reports a parity failure under its own name before
+the coverage run) and again inside `make cover-check`. A full run starts every job, so the
+gate tests then also run in the test matrix. Validate the classifier with
+`go test ./.github/changes`. Dependabot groups Go minor/patch updates of every
 module (`/`, `/v2`, `/_examples/*`, `/v2/_examples/*`, `/v2/_experiments/*`) and Actions
 updates weekly.
 
 Benchmarks (`.github/workflows/benchmarks.yml`) compare the PR base and head on
-one Ubuntu runner with the same stable Go toolchain. Each side runs every benchmark of
-the root module and of `v2/` ten times into one file (the base `v2/` run is skipped when
-the base has no `v2/go.mod`);
+one Ubuntu runner with the same stable Go toolchain. Each side runs, ten times into one
+file, the benchmarks of the packages the classifier selects for the whole PR (merge base to
+head): the packages with Benchmark functions among those a code change reaches, a package
+whose test change declares a benchmark or a declaration its benchmarks reach, and every
+package of a module on a full run of it, except a full run started only by `ci.yaml`, the
+module's `Makefile` or `.golangci.yml`, `.github/architecture/` or `.github/coverage/`;
+`benchmarks.yml` and `.github/benchmarks/` select every package of both modules. The base drops the selected packages that have no benchmark there; when none is
+left, both sides run every benchmark (the base `v2/` run is skipped when the base has no
+`v2/go.mod`);
 pinned `benchstat` reports timing and allocation deltas in the job summary, a
 14-day artifact and one updated PR comment (same-repository PRs except Dependabot).
 Forks and Dependabot retain the summary and artifact. Performance deltas are
@@ -203,13 +289,11 @@ collapsible section. Added/removed benchmarks and changes from a zero baseline
 are marked not comparable. Validate rendering with
 `go test ./.github/benchmarks/report`.
 
-A small detection job runs on every PR update. It compares the previous head on
-pushes, or the merge base on opening/reopening a PR (also the fallback if the
-previous head is unavailable). Ordinary Go comments and formatting, documentation,
-and `_examples/` and `_experiments/` changes (in either module) skip the benchmark job. Go tokens, compiler/build/line
-directives, cgo comments, dependencies (`go.mod`, `go.sum` of either module), native sources, test fixtures and benchmark
-automation changes trigger it. Cgo comments are retained conservatively because
-they can contain C code. Validate the detector with `go test ./.github/benchmarks`.
+A small detection job runs on every PR update. It runs the same classifier on the update:
+from the previous head on pushes, or from the merge base on opening/reopening a PR (also
+the fallback if the previous head is unavailable), and starts the comparison only when the
+update selects a benchmark package. Comments, formatting, Markdown, `_examples/` and
+`_experiments/` therefore skip it, as in CI.
 
 ## Conventions
 

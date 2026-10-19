@@ -1,27 +1,37 @@
 EXAMPLES := $(patsubst %/go.mod,%,$(wildcard _examples/*/go.mod))
 EXPERIMENTS := $(patsubst %/go.mod,%,$(wildcard _experiments/*/go.mod))
 
+# Packages of test, test-race and bench; CI passes the affected packages chosen by
+# .github/changes.
+PKGS ?= ./...
+
 .PHONY: all
 all:
 	go install ./...
 
 .PHONY: test
 test:
-	go test -count=1 ./...
+	go test -count=1 $(PKGS)
 
 .PHONY: test-race
 test-race:
-	go test -race -count=1 ./...
+	go test -race -count=1 $(PKGS)
 
 .PHONY: bench
 bench:
-	go test -run '^$$' -bench . -benchmem ./...
+	go test -run '^$$' -bench . -benchmem $(PKGS)
 
 .PHONY: lint
-lint:
+lint: vet
 	gofmt -s -l . | tee /dev/stderr | test -z "$$(cat)"
-	go vet ./...
 	golangci-lint run ./...
+
+# go vet under each GOOS of the test matrix, so that a change of comments alone, which
+# runs only the lint job, cannot fail a test job: a file excluded on linux, the GOOS of
+# the lint job, is checked only by its own GOOS.
+.PHONY: vet
+vet:
+	@set -e; for os in linux darwin windows; do echo "==> GOOS=$$os"; GOOS=$$os go vet ./...; done
 
 # The legacy _examples modules are not scanned: they are written against the v1 API, which
 # the v2 root package does not have, and do not build until stage 2.5D migrates them
@@ -63,7 +73,11 @@ freeze:
 # The gate evidence of ROADMAP wave 2A: the compile fixtures, the package graph and the
 # frozen-contract check. The inventory check keeps docs/API.md complete.
 .PHONY: g2
-g2: graph freeze
+g2: graph freeze fixtures
+
+# The compile fixtures and the inventory check of g2.
+.PHONY: fixtures
+fixtures:
 	go test -count=1 -run '^(TestCompileContracts|TestInventory.*)$$' .
 
 # First the isolation check (the Stage 1b DoD line "_experiments stays standalone", see

@@ -11,11 +11,86 @@ on:
     - cron: '0 8 * * 1' # Mondays 08:00 UTC
 
 # Two independent modules: v1 at the repository root (github.com/sshaplygin/go-socket.io)
-# and v2 in v2/ (github.com/sshaplygin/go-socket.io/v2). Shared-file drift always runs;
-# the changes job filters the remaining jobs by the modules a pull request touches.
+# and v2 in v2/ (github.com/sshaplygin/go-socket.io/v2). The changes job runs the
+# classifier of .github/changes: on a pull request every other job runs only when the
+# diff reaches something it checks, and the test jobs test only the affected packages;
+# push and schedule run everything. Jobs are skipped with a job-level if, never with
+# workflow-level paths filters, so that the required checks always report.
 jobs:
+  changes:
+    name: Changed packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      v1: ${{ steps.classify.outputs.v1 }}
+      v1_packages: ${{ steps.classify.outputs.v1_packages }}
+      gates_v1: ${{ steps.classify.outputs.gates_v1 }}
+      examples_v1: ${{ steps.classify.outputs.examples_v1 }}
+      conformance: ${{ steps.classify.outputs.conformance }}
+      v2: ${{ steps.classify.outputs.v2 }}
+      v2_packages: ${{ steps.classify.outputs.v2_packages }}
+      gates_v2: ${{ steps.classify.outputs.gates_v2 }}
+      examples_v2: ${{ steps.classify.outputs.examples_v2 }}
+      experiments_v2: ${{ steps.classify.outputs.experiments_v2 }}
+      sync: ${{ steps.classify.outputs.sync }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+          cache-dependency-path: |
+            go.sum
+            v2/go.sum
+      - name: Test the classifier
+        run: go test -count=1 ./.github/changes
+      - name: Classify the change
+        id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          args=(-full)
+          if [[ "$EVENT" == pull_request ]]; then
+            args=("$(git merge-base "$BASE_SHA" "$HEAD_SHA")" "$HEAD_SHA")
+          fi
+          if ! go run ./.github/changes "${args[@]}" >outputs.txt 2>reasons.txt; then
+            cat reasons.txt >&2
+            exit 1
+          fi
+          cat reasons.txt outputs.txt
+          cat outputs.txt >> "$GITHUB_OUTPUT"
+          {
+            echo '### Change classification'
+            echo '```'
+            cat reasons.txt outputs.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      # Not every path starts a job that runs gofmt (v2/_examples/ starts none), so the
+      # format of every changed Go file is checked here.
+      - name: Format of the changed Go files
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git diff --name-only --diff-filter=AMT -z "$(git merge-base "$BASE_SHA" "$HEAD_SHA")" "$HEAD_SHA" -- '*.go' \
+            | xargs -0 -r gofmt -s -l > unformatted.txt
+          cat unformatted.txt
+          test ! -s unformatted.txt
+
   conformance:
     name: Conformance ${{ matrix.client }}
+    needs: changes
+    # A required check. A skipped matrix job reports one check under the unexpanded name,
+    # which never satisfies the required names, so this job always runs and skips its
+    # steps instead.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -24,16 +99,24 @@ jobs:
         client: ['socket.io-client@1.7.4', 'socket.io-client@2.5.0']
     env:
       CONFORMANCE_NODE_MODULES: ${{ github.workspace }}/internal/conformance/testdata/node/node_modules
+      RUN: ${{ needs.changes.outputs.conformance }}
     steps:
+      - name: Skip without a change that reaches the conformance tests or the examples
+        if: env.RUN != 'true'
+        run: echo 'Conformance skipped; see the Changed packages job for the classification.'
       - uses: actions/checkout@v4
+        if: env.RUN == 'true'
       - uses: actions/setup-go@v5
+        if: env.RUN == 'true'
         with:
           go-version: stable
           check-latest: true
       - uses: actions/setup-node@v4
+        if: env.RUN == 'true'
         with:
           node-version: 'lts/*'
       - name: Install the pinned reference client and server in separate prefixes
+        if: env.RUN == 'true'
         env:
           CLIENT: ${{ matrix.client }}
         run: |
@@ -41,12 +124,17 @@ jobs:
           npm install --no-save --prefix internal/conformance/testdata/node/server socket.io@2.5.0
           echo "CONFORMANCE_CLIENT_VERSION=${CLIENT#*@}" >> "$GITHUB_ENV"
       - name: Run tagged interoperability and raw transport tests
+        if: env.RUN == 'true'
         run: make conformance
       - name: Run executable examples with the pinned client
+        if: env.RUN == 'true'
         run: make examples-node
 
   sync-check:
     name: Check shared-file drift
+    needs: changes
+    # A required check; a skipped job reports success.
+    if: needs.changes.outputs.sync == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -54,40 +142,53 @@ jobs:
       - name: Compare shared sources across modules
         run: make sync-check
 
-  changes:
-    name: Changed modules
+  # The component graph reads only the imports of the root module, so it runs in lint-v1
+  # with the packages a code change selects, not here. The classifier sets gates_v1 only
+  # when a gate input changes and no package is selected: when one is, make cover-check of
+  # lint-v1 tests every package of the module, internal/parity included (without -race:
+  # the parity tests read files and run go subprocesses, and a full run tests the package
+  # under -race in test-v1). On push and schedule every job runs.
+  gates-v1:
+    name: Gates v1 (parity)
+    needs: changes
+    if: needs.changes.outputs.gates_v1 == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      v1: ${{ steps.filter.outputs.v1 }}
-      v2: ${{ steps.filter.outputs.v2 }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Path filter per module
-        id: filter
-        env:
-          EVENT: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        # Push and schedule run both modules. A pull request runs v1 for any file outside
-        # v2/, and v2 for v2/, .github/ (workflows, Dependabot, benchmark tools) and
-        # docs/API.md, which the v2 tests read.
-        run: |
-          set -euo pipefail
-          if [[ "$EVENT" != pull_request ]]; then
-            echo v1=true | tee -a "$GITHUB_OUTPUT"
-            echo v2=true | tee -a "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          files=$(git diff --name-only "$(git merge-base "$BASE_SHA" "$HEAD_SHA")" "$HEAD_SHA")
-          v1=false; v2=false
-          if grep -qvE '^v2/' <<<"$files"; then v1=true; fi
-          if grep -qE '^(v2/|\.github/|docs/API\.md$)' <<<"$files"; then v2=true; fi
-          echo "v1=$v1" | tee -a "$GITHUB_OUTPUT"
-          echo "v2=$v2" | tee -a "$GITHUB_OUTPUT"
+          go-version: stable
+          check-latest: true
+      - name: Parity, termination and role gates
+        run: make gates
+
+  # The v2 gates are tests of the v2 root package. The classifier sets gates_v2 only when a
+  # gate input changes and the root package is not selected: when it is, test-v2 and
+  # min-go-v2 run these tests. On push and schedule every job runs.
+  gates-v2:
+    name: Gates v2 (compile fixtures, inventory)
+    needs: changes
+    if: needs.changes.outputs.gates_v2 == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+          cache-dependency-path: v2/go.sum
+      # The other half of make g2 (make graph freeze) runs in lint-v2, which a change that
+      # sets gates_v2 also starts; it runs here only if lint-v2 does not.
+      - name: Package graph and frozen contract
+        if: needs.changes.outputs.v2 != 'true'
+        run: make graph freeze
+      - name: Compile fixtures and API inventory
+        run: make fixtures
 
   lint-v1:
     name: Lint v1
@@ -107,17 +208,28 @@ jobs:
         run: go mod verify
       - name: Format
         run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
+      # Every Go file a CI job compiles: the three GOOS of the test matrix, the conformance
+      # tag, the examples and the .github tools, so that a change of comments alone, which
+      # runs only this job, cannot fail a skipped job.
       - name: Vet
-        run: go vet ./... ./.github/architecture
+        run: make vet
+      # These two steps run tests. A pull request that changes only Go comments or
+      # formatting runs lint-v1 without packages to test (v1_packages is empty) and skips
+      # them; Covers markers start gates-v1 instead. make cover-check tests every package
+      # of the module, internal/parity included, so gates-v1 is not started when packages
+      # are selected; make parity-check runs TestParityCovers alone first, so that a
+      # parity failure is reported under its own name before the coverage run.
       - name: Component graph and negative fixtures
+        if: needs.changes.outputs.v1_packages != ''
         run: make architecture-check
       - name: Parity markers and API coverage ratchets
+        if: needs.changes.outputs.v1_packages != ''
         run: make parity-check cover-check
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
           version: latest
-          args: ./... ./.github/architecture
+          args: ./... ./.github/architecture ./.github/changes
       - name: govulncheck
         # setup-go reads a manifest that can lag behind go.dev, so scan with the newest
         # published release; the go command downloads that toolchain via the module proxy.
@@ -155,11 +267,17 @@ jobs:
         run: go mod verify
       - name: Format
         run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
+      # The three GOOS of the test matrix, as in lint-v1.
       - name: Vet
-        run: go vet ./...
+        run: make vet
+      # The v2 gates of make g2 that lint has always run; skipped, with gates-v2, for a
+      # change of comments or formatting outside the frozen files and for a change that
+      # selects the v2 root package, whose tests test-v2 and min-go-v2 then run.
       - name: Package graph
+        if: needs.changes.outputs.gates_v2 == 'true'
         run: make graph
       - name: Frozen contract
+        if: needs.changes.outputs.gates_v2 == 'true'
         run: make freeze
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
@@ -183,7 +301,7 @@ jobs:
   test-v1:
     name: Test v1 ${{ matrix.os }} Go ${{ matrix.go }}
     needs: changes
-    if: needs.changes.outputs.v1 == 'true'
+    if: needs.changes.outputs.v1_packages != ''
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -191,6 +309,11 @@ jobs:
       matrix:
         go: ['stable', 'oldstable']
         os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      PKGS: ${{ needs.changes.outputs.v1_packages }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -204,12 +327,13 @@ jobs:
       - name: Component graph production imports
         run: go run ./.github/architecture
       - name: Tests with race detector
-        run: go test -race -count=1 ./...
+        # PKGS is the package list of the classifier (validated there), word-split here.
+        run: go test -race -count=1 $PKGS
 
   test-v2:
     name: Test v2 ${{ matrix.os }} Go ${{ matrix.go }}
     needs: changes
-    if: needs.changes.outputs.v2 == 'true'
+    if: needs.changes.outputs.v2_packages != ''
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -217,8 +341,11 @@ jobs:
       matrix:
         go: ['stable', 'oldstable']
         os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      PKGS: ${{ needs.changes.outputs.v2_packages }}
     defaults:
       run:
+        shell: bash
         working-directory: v2
     steps:
       - uses: actions/checkout@v4
@@ -230,30 +357,33 @@ jobs:
       - name: Go version
         run: go version
       - name: Tests with race detector
-        run: go test -race -count=1 ./...
+        run: go test -race -count=1 $PKGS
 
   stress-v1:
     name: Stress v1 (race, repeated, shuffled)
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.v1 == 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.v1_packages != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      PKGS: ${{ needs.changes.outputs.v1_packages }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: stable
           check-latest: true
-      - name: Repeated race tests
-        run: make test-stress
+      - name: Repeated race tests of the affected stress packages
+        run: make test-stress PKGS="$PKGS"
 
   min-go-v1:
     name: Test v1 ubuntu-latest Go 1.22 (GOTOOLCHAIN=local)
     needs: changes
-    if: needs.changes.outputs.v1 == 'true'
+    if: needs.changes.outputs.v1_packages != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
+      PKGS: ${{ needs.changes.outputs.v1_packages }}
       # Never download a newer toolchain: fail if go.mod or a dependency
       # requires a Go version newer than the installed 1.22.
       GOTOOLCHAIN: local
@@ -274,15 +404,16 @@ jobs:
       - name: Component graph production imports
         run: go run ./.github/architecture
       - name: Tests with race detector
-        run: go test -race -count=1 ./...
+        run: go test -race -count=1 $PKGS
 
   min-go-v2:
     name: Test v2 ubuntu-latest Go 1.22 (GOTOOLCHAIN=local)
     needs: changes
-    if: needs.changes.outputs.v2 == 'true'
+    if: needs.changes.outputs.v2_packages != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
+      PKGS: ${{ needs.changes.outputs.v2_packages }}
       # As in min-go-v1, for the v2 module.
       GOTOOLCHAIN: local
     defaults:
@@ -302,12 +433,12 @@ jobs:
       - name: Build
         run: go build ./...
       - name: Tests with race detector
-        run: go test -race -count=1 ./...
+        run: go test -race -count=1 $PKGS
 
   examples-v1:
     name: Build examples v1
     needs: changes
-    if: needs.changes.outputs.v1 == 'true'
+    if: needs.changes.outputs.examples_v1 == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -322,7 +453,7 @@ jobs:
   examples-v2:
     name: Check examples v2
     needs: changes
-    if: needs.changes.outputs.v2 == 'true'
+    if: needs.changes.outputs.examples_v2 == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -343,7 +474,7 @@ jobs:
   experiments-v2:
     name: Experiments v2
     needs: changes
-    if: needs.changes.outputs.v2 == 'true'
+    if: needs.changes.outputs.experiments_v2 == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:

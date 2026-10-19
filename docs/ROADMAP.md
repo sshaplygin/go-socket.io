@@ -1043,6 +1043,8 @@ pure rename, so that `git log --follow` and review of the moves work). Subjects
   `v2/_examples/x/main.go` (not) to `.github/benchmarks/main_test.go`. The report groups by the
   import path, and `.github/benchmarks/report/main_test.go` gets a case that
   `github.com/sshaplygin/go-socket.io/v2/engineio` renders under the heading `v2/engineio`.
+  (Later note: PR #137 replaced the detector with the change classifier `.github/changes`;
+  its tests run with `go test ./.github/changes`.)
 - B5. Docs, one owner each: `Makefile` per module (`make -C v2 test-race`); `v2/CHANGELOG.md` is the
   moved file without its `## v1.5.0 (unreleased, branch v1.x)` section (those entries are in the
   restored root `CHANGELOG.md`); root `README.md` takes the `@master` link form and one link to
@@ -1097,6 +1099,7 @@ go test -race -count=1 ./...
 (cd v2 && go build ./...)
 (cd v2 && go test -race -count=1 ./...)
 go test -count=1 ./.github/benchmarks ./.github/benchmarks/report   # the detector treats v2/ Go changes as relevant, the report groups v2/<pkg>
+# since PR #137 the detector is the classifier: go test -count=1 ./.github/changes ./.github/benchmarks/report
 test -z "$(go list ./... | grep '/v2')"   # the root module sees v1 only
 test -z "$(git ls-files 'v2/*.go' | xargs grep -HnE '"github\.com/sshaplygin/go-socket\.io(/[^"]*)?"' | grep -vE '"github\.com/sshaplygin/go-socket\.io/v2(/[^"]*)?"')"   # v2 imports no root-module package
 test -z "$(git ls-files 'v2/*go.mod' | xargs grep -HnE 'github\.com/sshaplygin/go-socket\.io +v')"   # no v2 go.mod requires the root module
@@ -1985,6 +1988,7 @@ FIRST=$(git log --reverse --format='%H %s' $CUT..HEAD | awk '/ refactor\(1b\./{p
 make lint test-race examples
 go build -o /dev/null ./engineio/_examples   # -o: a bare build of one main package writes the binary `_examples`, which collides with the directory of that name; belongs to the root module; make examples does not build it (it builds ./_examples/client and the example modules)
 go test -count=1 ./.github/benchmarks ./.github/benchmarks/report
+# since PR #137 the detector is the classifier: go test -count=1 ./.github/changes ./.github/benchmarks/report
 go test -run '^$' -bench . -benchtime=1x ./... >/dev/null   # the benchmark job's input still compiles and runs
 # layering
 go list ./engineio/client >/dev/null   # the package exists: go list errors are not read as empty output
@@ -2539,7 +2543,9 @@ test "$(go test -race -count=1 -tags conformance -json -run '^TestDifferential$'
 
 **API coverage gate (V1-20; D17).** Two gates, both `Makefile` targets of the root, run by
 CI on every v1 change as a step of the `lint-v1` job (ubuntu, the newest Go), and listed in
-the CLAUDE.md Commands. `make parity-check` runs `go test -count=1 -run '^TestParityCovers$'
+the CLAUDE.md Commands. (Later note: since PR #137 that step runs on every push and on a pull
+request that selects v1 packages to test, not on a change of Markdown, comments or
+formatting only.) `make parity-check` runs `go test -count=1 -run '^TestParityCovers$'
 ./internal/parity`: a Go test (portable, so it also runs under `make test` and the `test-v1`
 matrix) that reads `docs/PARITY.md` with the row rule of the DoD helper `rows` (`$2` matches
 `^[A-Z][0-9]+$`, `$3` is the plan), walks every `*_test.go` of the root module (directories
@@ -2921,7 +2927,9 @@ that DoD, so Stage 7 stays a behaviour-preserving extraction that can be reviewe
 `<root path> <v2/ path>` per shared file, `#` comments), a `sync-check` job in
 `.github/workflows/ci.yaml` that runs on every push and pull request with no path filter (a
 change on either side can break it), and the `make sync-check` line of the CLAUDE.md
-Commands. The target rewrites `github.com/sshaplygin/go-socket.io/v2` to
+Commands. (Later note: since PR #137 the job runs on every push and schedule, and on a pull
+request only when the change classifier `.github/changes` sets `sync`; CLAUDE.md lists the
+inputs.) The target rewrites `github.com/sshaplygin/go-socket.io/v2` to
 `github.com/sshaplygin/go-socket.io` in each `v2/` copy and compares it with `cmp` to the root
 file. The manifest holds the D14 list as measured at `18af32b`: 13 non-test files, 724 lines
 (`logger/logger.go`; `engineio/frame/frame.go`; `engineio/transport/transport.go`,
@@ -5186,7 +5194,10 @@ check fails on each of those shapes) and `go test -run
 positive fixtures and the negative fixtures with their recorded diagnostics, and checks that
 API.md lists every exported declaration with its declared result types. CI runs `make
 graph` and `make freeze` in the `lint` job and the fixtures in `go test ./...`, so `min-go`
-runs them on Go 1.22 with `GOTOOLCHAIN=local`.
+runs them on Go 1.22 with `GOTOOLCHAIN=local`. (Later note: since PR #137 this holds for a
+push to master; a pull request runs them as tests of the v2 root package, Go 1.22 included,
+when it selects that package, and otherwise in `lint-v2` and `make fixtures` of `gates-v2`
+when the change classifier sets `gates_v2`; see docs/API.md.)
 
 ### 2.1 Engine.IO v4 and gobwas/ws
 

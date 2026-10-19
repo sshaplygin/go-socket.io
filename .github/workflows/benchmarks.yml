@@ -22,6 +22,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       changed: ${{ steps.changes.outputs.changed }}
+      bench_v1: ${{ steps.packages.outputs.bench_v1 }}
+      bench_v2: ${{ steps.packages.outputs.bench_v2 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,11 +33,17 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
-      - name: Test change detection
-        run: go test ./.github/benchmarks
+          cache-dependency-path: |
+            go.sum
+            v2/go.sum
+      - name: Test change classification
+        run: go test ./.github/changes
       - name: Test report rendering
         run: go test ./.github/benchmarks/report
-      - name: Detect code changes
+      # The classifier of .github/changes (as in ci.yaml) decides whether this update changed
+      # anything a benchmark measures: the update since the previous head, or since the
+      # merge base when the PR opens or the previous head is unavailable.
+      - name: Detect benchmark-relevant changes of this update
         id: changes
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -48,21 +56,36 @@ jobs:
               change_base=$BEFORE_SHA
             fi
           fi
-          go run ./.github/benchmarks "$change_base" "$HEAD_SHA" | tee -a "$GITHUB_OUTPUT"
+          go run ./.github/changes "$change_base" "$HEAD_SHA" > update.txt
+          cat update.txt
+          grep '^changed=' update.txt >> "$GITHUB_OUTPUT"
+      # The comparison covers the whole PR, so the packages come from the merge base.
+      - name: Select the benchmark packages of the pull request
+        id: packages
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          go run ./.github/changes "$(git merge-base "$BASE_SHA" "$HEAD_SHA")" "$HEAD_SHA" > pr.txt
+          cat pr.txt
+          grep -E '^bench_v[12]=' pr.txt >> "$GITHUB_OUTPUT"
       - name: Explain skipped benchmarks
         if: steps.changes.outputs.changed == 'false'
-        run: echo 'Benchmarks skipped because this update contains no benchmark-relevant code changes.' >> "$GITHUB_STEP_SUMMARY"
+        run: echo 'Benchmarks skipped because this update changes no package that a benchmark measures.' >> "$GITHUB_STEP_SUMMARY"
 
   compare:
     name: Go benchmarks, base vs PR
     needs: changes
-    if: needs.changes.outputs.changed == 'true'
+    if: needs.changes.outputs.changed == 'true' && (needs.changes.outputs.bench_v1 != '' || needs.changes.outputs.bench_v2 != '')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
       gate: ${{ steps.generate.outputs.gate }}
     env:
       GOTOOLCHAIN: local
+      BENCH_V1: ${{ needs.changes.outputs.bench_v1 }}
+      BENCH_V2: ${{ needs.changes.outputs.bench_v2 }}
     steps:
       - name: Check out base
         uses: actions/checkout@v4
@@ -85,36 +108,87 @@ jobs:
             pr/go.sum
             pr/v2/go.sum
       # Two modules: the v1 module at the root and the v2 module in v2/. Both append to the
-      # same file per side. A base from before the restructure has no v2/go.mod (its v2 code
-      # is at the root), so its v2 step is skipped.
+      # same file per side. Each side benchmarks the packages the classifier selected (a
+      # pattern list, or ./... for every package); the base side drops the selected packages
+      # that have no benchmark there yet. When no selected package has a benchmark in the
+      # base, both sides benchmark every package so that the comparison has a baseline. A
+      # base from before the restructure has no v2/go.mod (its v2 code is at the root), so its
+      # v2 selection is empty.
+      - name: Select the packages of each side
+        id: select
+        run: |
+          set -euo pipefail
+          on_base() {
+            local root=$1 out=() p
+            shift
+            for p in "$@"; do
+              if [[ $p == ./... ]] || grep -qs '^func Benchmark' "$root/$p"/*_test.go; then
+                out+=("$p")
+              fi
+            done
+            echo "${out[*]:-}"
+          }
+          base_v1=$(on_base base $BENCH_V1)
+          base_v2=
+          if [[ -f base/v2/go.mod ]]; then base_v2=$(on_base base/v2 $BENCH_V2); fi
+          head_v1=$BENCH_V1
+          head_v2=$BENCH_V2
+          if [[ -z "$base_v1$base_v2" ]]; then
+            echo 'No selected package has a benchmark in the base: every package runs on both sides.'
+            base_v1=./...
+            head_v1=./...
+            head_v2=./...
+            if [[ -f base/v2/go.mod ]]; then base_v2=./...; fi
+          fi
+          printf '%s\n' "base_v1=$base_v1" "base_v2=$base_v2" "head_v1=$head_v1" "head_v2=$head_v2" | tee -a "$GITHUB_OUTPUT"
       - name: Benchmark base, v1 module
+        if: steps.select.outputs.base_v1 != ''
         working-directory: base
-        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... | tee -a ../base.txt
+        env:
+          PKGS: ${{ steps.select.outputs.base_v1 }}
+        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 $PKGS | tee -a ../base.txt
       - name: Benchmark base, v2 module
-        if: hashFiles('base/v2/go.mod') != ''
+        if: steps.select.outputs.base_v2 != ''
         working-directory: base/v2
-        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... | tee -a ../../base.txt
+        env:
+          PKGS: ${{ steps.select.outputs.base_v2 }}
+        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 $PKGS | tee -a ../../base.txt
       - name: Benchmark PR, v1 module
+        if: steps.select.outputs.head_v1 != ''
         working-directory: pr
-        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... | tee -a ../pr.txt
+        env:
+          PKGS: ${{ steps.select.outputs.head_v1 }}
+        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 $PKGS | tee -a ../pr.txt
       - name: Benchmark PR, v2 module
+        if: steps.select.outputs.head_v2 != ''
         working-directory: pr/v2
-        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... | tee -a ../../pr.txt
+        env:
+          PKGS: ${{ steps.select.outputs.head_v2 }}
+        run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 $PKGS | tee -a ../../pr.txt
       - name: Record completed inputs
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_V1: ${{ steps.select.outputs.base_v1 }}
+          BASE_V2: ${{ steps.select.outputs.base_v2 }}
+          HEAD_V1: ${{ steps.select.outputs.head_v1 }}
+          HEAD_V2: ${{ steps.select.outputs.head_v2 }}
         run: |
           grep -Eq '^Benchmark[^[:space:]]*[[:space:]]+[0-9]+[[:space:]]' base.txt
           grep -Eq '^Benchmark[^[:space:]]*[[:space:]]+[0-9]+[[:space:]]' pr.txt
           toolchain=$(go env GOVERSION)
           goos=$(go env GOOS)
           goarch=$(go env GOARCH)
-          command="go test -mod=readonly -run '^$' -bench . -benchmem -count=10 ./... (in . and in v2)"
           for side in base head; do
             revision=$BASE_SHA
             file=base.txt
-            if [[ "$side" == head ]]; then revision=$HEAD_SHA; file=pr.txt; fi
+            packages="v1: ${BASE_V1:-none}; v2: ${BASE_V2:-none}"
+            if [[ "$side" == head ]]; then
+              revision=$HEAD_SHA
+              file=pr.txt
+              packages="v1: ${HEAD_V1:-none}; v2: ${HEAD_V2:-none}"
+            fi
+            command="go test -mod=readonly -run '^$' -bench . -benchmem -count=10 <packages> ($packages)"
             jq -n --arg revision "$revision" --arg file "$file" \
               --arg toolchain "$toolchain" --arg os "$goos" --arg arch "$goarch" --arg command "$command" \
               '{schema_version:1,revision:$revision,

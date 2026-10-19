@@ -128,3 +128,17 @@ func (nc *namespaceConn) admitTyped(ctx context.Context, name string, payload ev
 }
 
 var _ eventImpl.TypedEndpoint = (*namespaceConn)(nil)
+
+// observeEngineClose only signals cancellation. The dispatcher retains ownership
+// of disconnect callbacks and packet decoding, including while a handler runs.
+func (c *Connection) observeEngineClose() {
+	defer close(c.engineObserverDone)
+	select {
+	case <-c.done:
+		return
+	case <-c.engineDone:
+	}
+	c.mu.Lock()
+	c.namespaces.Range(func(_ string, nc *namespaceConn) { nc.endTyped() })
+	c.mu.Unlock()
+}

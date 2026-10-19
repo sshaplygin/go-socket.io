@@ -290,3 +290,33 @@ func TestEngineCloseCancelsBlockedTypedHandlerAndRequests(t *testing.T) {
 	require.ErrorIs(t, recv(t, done, "request canceled independently").err, eventImpl.ErrSocketClosed)
 	require.Zero(t, ackEntries(p.nc))
 }
+
+// Covers T1
+func TestEngineClosedBeforeAdmissionCancelsEveryLaterNamespace(t *testing.T) {
+	p := newPeer(t, 'S', hooks{}, "/chat")
+	engine := &typedEngineCloseConn{fakeConn: p.fc, stopped: make(chan struct{})}
+	close(engine.stopped)
+	p.serveConn(engine)
+	p.nc = recv(t, p.conns, "root")
+	recv(t, p.fc.out, "CONNECT")
+	closeAtEnd(t, p.fc, p.connection)
+	require.ErrorIs(t, p.nc.(*namespaceConn).lifetime.Err(), context.Canceled)
+	chat := p.join(t, "/chat").(*namespaceConn)
+	require.ErrorIs(t, chat.lifetime.Err(), context.Canceled)
+	require.ErrorIs(t, chat.SendEvent(nil, "closed", eventImpl.ValueOf(1)), eventImpl.ErrSocketClosed)
+}
+
+// Covers T1
+func TestEngineObserverEndsWithSocketConnection(t *testing.T) {
+	p := newPeer(t, 'S', hooks{})
+	engine := &typedEngineCloseConn{fakeConn: p.fc, stopped: make(chan struct{})}
+	p.serveConn(engine)
+	p.nc = recv(t, p.conns, "root")
+	recv(t, p.fc.out, "CONNECT")
+	closeAtEnd(t, p.fc, p.connection)
+	require.NoError(t, p.nc.Close())
+	recv(t, p.connection.done, "socket connection completion")
+	p.connection.Wait()
+	require.True(t, isDone(p.connection.engineObserverDone))
+	require.False(t, isDone(engine.stopped), "observer must not require engine capability signal to end")
+}

@@ -22,14 +22,16 @@ const DefaultWriteBufferSize, DefaultDrainTimeout = 64, time.Minute
 type Connection struct {
 	engineio.Conn
 
-	id               atomic.Uint64
-	request          *http.Request
-	resolveNamespace func(string, url.Values) *namespaceImpl.Handler
-	handlers         *namespaceImpl.Registry
-	namespaces       *namespaces
-	retiring         map[string]*parser.Header
-	reconnectReady   []string
-	readReady        chan struct{}
+	id                 atomic.Uint64
+	request            *http.Request
+	resolveNamespace   func(string, url.Values) *namespaceImpl.Handler
+	handlers           *namespaceImpl.Registry
+	namespaces         *namespaces
+	retiring           map[string]*parser.Header
+	reconnectReady     []string
+	readReady          chan struct{}
+	engineDone         <-chan struct{}
+	engineObserverDone chan struct{}
 
 	encoder *parser.Encoder
 	decoder *parser.Decoder
@@ -87,6 +89,14 @@ func New(engineConn engineio.Conn, handlers *namespaceImpl.Registry, writeBuffer
 	c.reader, c.writer = &frameReader{FrameReader: engineConn}, &queueWriter{c: c}
 	c.decoder, c.encoder = parser.NewDecoder(c.reader), parser.NewEncoder(c.writer)
 	c.drainTimeout, c.connecting = drainTimeout, true
+	if signal, ok := engineConn.(interface{ Done() <-chan struct{} }); ok {
+		c.engineDone = signal.Done()
+		if c.engineDone != nil {
+			c.engineObserverDone = make(chan struct{})
+			go c.observeEngineClose()
+		}
+	}
+
 	return c
 }
 
@@ -111,7 +121,12 @@ func (c *Connection) connect() error {
 	root := newNamespaceConn(c, aliasRootNamespace, rootHandler.Adapter())
 	root.beginConnect()
 	root.SetContext(c.Conn.Context())
+	c.mu.Lock()
+	if isDone(c.engineDone) {
+		root.endTyped()
+	}
 	c.namespaces.Set(rootNamespace, root)
+	c.mu.Unlock()
 	err := rootHandler.Connect(root)
 	root.connectReturned(err)
 	if err != nil {
@@ -269,4 +284,10 @@ func (c *Connection) Start(resolve func(string, url.Values) *namespaceImpl.Handl
 func (c *Connection) Read() { c.serveRead(connectPacketHandler, disconnectPacketHandler) }
 
 // Wait waits for local close and every disconnect claimed before it.
-func (c *Connection) Wait() { <-c.done; c.disconnects.Wait() }
+func (c *Connection) Wait() {
+	<-c.done
+	c.disconnects.Wait()
+	if c.engineObserverDone != nil {
+		<-c.engineObserverDone
+	}
+}

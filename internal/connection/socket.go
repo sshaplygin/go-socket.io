@@ -39,6 +39,9 @@ type namespaceConn struct {
 func newNamespaceConn(conn *Connection, namespace string, broadcast adapter.Adapter, query ...string) *namespaceConn {
 	nc := &namespaceConn{Connection: conn, namespace: namespace, broadcast: broadcast, ackTimeout: 30 * time.Second}
 	nc.lifetime, nc.cancelLifetime = context.WithCancel(context.Background())
+	if isDone(conn.engineDone) {
+		nc.cancelLifetime()
+	}
 	if r := conn.Request(); r != nil {
 		h := namespaceImpl.Handshake{Headers: r.Header.Clone(), Time: time.Now(), Address: r.RemoteAddr, XDomain: r.Header.Get("Origin") != "", Secure: r.TLS != nil, Query: make(url.Values)}
 		if r.URL != nil {

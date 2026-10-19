@@ -219,6 +219,9 @@ func (c *Connection) register(nsp string, nc *namespaceConn) bool {
 	if _, retiring := c.retiring[nsp]; retiring {
 		return false
 	}
+	if isDone(c.engineDone) {
+		nc.endTyped()
+	}
 	c.namespaces.Set(nsp, nc)
 	return true
 }

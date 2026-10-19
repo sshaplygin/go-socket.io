@@ -128,6 +128,14 @@ func (c *Connection) disconnectNamespace(nc *namespaceConn, reason string) {
 	if nh != nil {
 		nh.NotifyDisconnect(nc, reason)
 	}
+	c.mu.Lock()
+	pending := c.retiring[fmtNS(nc.namespace)]
+	delete(c.retiring, fmtNS(nc.namespace))
+	c.mu.Unlock()
+	if pending != nil {
+		_ = connectNamespace(c, *pending)
+	}
+
 }
 
 // finishRead obtains the final engine cause on the read goroutine, after Decode
@@ -168,10 +176,17 @@ func (c *Connection) finishRead() {
 func (c *Connection) register(nsp string, nc *namespaceConn) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !isDone(c.closing) {
-		c.namespaces.Set(nsp, nc)
+	if isDone(c.closing) {
+		return false
 	}
-	return !isDone(c.closing)
+	if _, exists := c.namespaces.Get(nsp); exists {
+		return false
+	}
+	if _, retiring := c.retiring[nsp]; retiring {
+		return false
+	}
+	c.namespaces.Set(nsp, nc)
+	return true
 }
 
 func (c *Connection) claim(nsp string, expected ...*namespaceConn) (*namespaceConn, bool) {
@@ -195,6 +210,7 @@ func (c *Connection) claimNamespace(nsp string, disconnect, control bool, expect
 	}
 	c.namespaces.Delete(nsp)
 	if ok && disconnect {
+		c.retiring[nsp] = nil
 		c.disconnects.Add(1)
 		c.disconnecting++
 	}

@@ -139,6 +139,19 @@ func connectPacketHandler(c *Connection, header parser.Header) error {
 		return nil
 	}
 
+	return connectNamespace(c, header)
+}
+
+func connectNamespace(c *Connection, header parser.Header) error {
+	c.mu.Lock()
+	if _, waiting := c.retiring[header.Namespace]; waiting && !isDone(c.closing) {
+		copy := header
+		c.retiring[header.Namespace] = &copy
+		c.mu.Unlock()
+		return nil
+	}
+	c.mu.Unlock()
+
 	if c.rootRejected != nil || isDone(c.closing) {
 		return nil
 	}

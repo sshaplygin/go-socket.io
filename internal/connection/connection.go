@@ -27,6 +27,7 @@ type Connection struct {
 	resolveNamespace func(string, url.Values) *namespaceImpl.Handler
 	handlers         *namespaceImpl.Registry
 	namespaces       *namespaces
+	retiring         map[string]*parser.Header
 
 	encoder *parser.Encoder
 	decoder *parser.Decoder
@@ -71,6 +72,7 @@ func New(engineConn engineio.Conn, handlers *namespaceImpl.Registry, writeBuffer
 		writeReady:       make(chan struct{}, 1),
 		handlers:         handlers,
 		namespaces:       newNamespaces(),
+		retiring:         make(map[string]*parser.Header),
 		closing:          make(chan struct{}),
 		seal:             make(chan struct{}),
 		discard:          make(chan struct{}),

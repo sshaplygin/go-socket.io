@@ -125,16 +125,9 @@ func redisClusterServer(t *testing.T, addr, prefix string) *httptest.Server {
 	return ts
 }
 
-// Covers A4
-// Covers A5
 // Covers A8
 // Covers A9
-// Covers B3
-// Covers S13
 // Covers S15
-// Covers S21
-// Covers K14
-// Covers B4
 func TestRedisMixedCluster(t *testing.T) {
 	addr := os.Getenv("CONFORMANCE_REDIS_ADDR")
 	require.NotEmpty(t, addr, "CONFORMANCE_REDIS_ADDR must name a real Redis service")

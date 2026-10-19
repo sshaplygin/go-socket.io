@@ -215,6 +215,15 @@ func (nc *namespaceConn) Disconnect() {
 				nc.Connection.write(parser.Header{Type: parser.Disconnect, Namespace: fmtNS(nc.namespace)})
 			}
 			nc.Connection.controlEnqueued()
+			if rejected {
+				nc.reject()
+				nc.Connection.mu.Lock()
+				nc.Connection.disconnecting--
+				nc.Connection.mu.Unlock()
+				nc.Connection.disconnects.Done()
+				nc.Connection.finishRetirement(nc)
+				return
+			}
 			nc.Connection.disconnectNamespace(nc, "server namespace disconnect")
 		}
 		if done != nil && !isDone(done) {

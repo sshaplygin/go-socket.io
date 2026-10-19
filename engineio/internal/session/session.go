@@ -201,21 +201,24 @@ func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 			}
 			// Respond to a ping with a pong.
 			err := func() error {
+				// Release the POST before waiting for a GET to carry its pong.
+				// This also lets an upgrade pause finish an in-flight POST.
+				body, err := io.ReadAll(r)
+				closeErr := r.Close()
+				if err != nil {
+					return err
+				}
+				if closeErr != nil {
+					return closeErr
+				}
 				w, err := s.nextWriter(ft, eioparser.PONG)
 				if err != nil {
 					return err
 				}
-				// echo
-				_, err = io.Copy(w, r)
-				_ = s.fail(err) // preserve the read cause before closing the pong writer
-				// unlocks the wrapped connection's FrameWriter
-				if closeErr := s.fail(w.Close()); closeErr != nil {
-					s.logger().Debug("engineio: close writer failed", "err", closeErr)
-				}
-
-				// unlocks the wrapped connection's FrameReader
-				if closeErr := s.fail(r.Close()); closeErr != nil {
-					s.logger().Debug("engineio: close reader failed", "err", closeErr)
+				_, err = w.Write(body)
+				_ = s.fail(err)
+				if closeErr := w.Close(); err == nil {
+					err = closeErr
 				}
 
 				return err

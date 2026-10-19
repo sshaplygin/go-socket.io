@@ -203,10 +203,25 @@ func (nc *namespaceConn) Disconnect() {
 		return
 	}
 	if claimed, ok := nc.Connection.claimControlDisconnect(fmtNS(nc.namespace), nc); ok && claimed == nc {
-		nc.acceptPending()
-		nc.Connection.write(parser.Header{Type: parser.Disconnect, Namespace: fmtNS(nc.namespace)})
-		nc.Connection.controlEnqueued()
-		nc.Connection.disconnectNamespace(nc, "server namespace disconnect")
+		nc.outMu.Lock()
+		done := nc.connectDone
+		nc.outMu.Unlock()
+		disconnect := func() {
+			nc.outMu.Lock()
+			rejected := nc.connectErr != nil
+			nc.outMu.Unlock()
+			if !rejected {
+				nc.acceptPending()
+				nc.Connection.write(parser.Header{Type: parser.Disconnect, Namespace: fmtNS(nc.namespace)})
+			}
+			nc.Connection.controlEnqueued()
+			nc.Connection.disconnectNamespace(nc, "server namespace disconnect")
+		}
+		if done != nil && !isDone(done) {
+			go func() { <-done; disconnect() }()
+		} else {
+			disconnect()
+		}
 	}
 }
 

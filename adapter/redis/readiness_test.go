@@ -147,3 +147,13 @@ func TestDynamicSubscriptionWriteIsBounded(t *testing.T) {
 type blockedSubscriptionWrite struct{ silentSubscription }
 
 func (c *blockedSubscriptionWrite) Flush() error { <-c.done; return io.EOF }
+
+func TestReadySubscriptionHonoursCanceledContext(t *testing.T) {
+	bc := &broadcast{done: make(chan struct{}), pattern: "p#*", reqChannel: "p-request#/#", resChannel: "p-response#/#"}
+	bc.markReady([]interface{}{bc.reqChannel, bc.resChannel})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := bc.waitReady(ctx); err != context.Canceled {
+		t.Fatalf("canceled readiness returned %v", err)
+	}
+}

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"fmt"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -197,4 +199,54 @@ func TestCanceledBatchKeepsActiveWriterLease(t *testing.T) {
 	}
 	<-written
 	require.Zero(t, w.gate.late.Load())
+}
+
+// Covers G24
+// Covers E9
+func TestPollingBatchSeparatesCompressionPreferences(t *testing.T) {
+	for _, first := range []bool{true, false} {
+		t.Run(fmt.Sprintf("first=%t", first), func(t *testing.T) {
+			req := httptest.NewRequest("GET", "http://localhost/?b64=1", nil)
+			req.Header.Set("Accept-Encoding", "gzip")
+			c := newServerConn(&Transport{Compression: true, CompressionThreshold: 1}, req)
+			defer c.Close()
+			require.NoError(t, c.SetWriteDeadline(time.Now().Add(time.Second)))
+			done := make(chan error, 1)
+			go func() {
+				for _, compress := range []bool{first, !first} {
+					w, e := c.NextWriterCompress(eioparser.String, eioparser.MESSAGE, compress)
+					if e != nil {
+						done <- e
+						return
+					}
+					_, e = io.WriteString(w, strings.Repeat("a", 128))
+					if e == nil {
+						e = w.Close()
+					}
+					if e != nil {
+						done <- e
+						return
+					}
+				}
+				done <- nil
+			}()
+			for _, compress := range []bool{first, !first} {
+				response := httptest.NewRecorder()
+				c.ServeHTTP(response, req)
+				body := response.Body.Bytes()
+				if compress {
+					require.Equal(t, "gzip", response.Header().Get("Content-Encoding"))
+					r, e := gzip.NewReader(bytes.NewReader(body))
+					require.NoError(t, e)
+					body, e = io.ReadAll(r)
+					require.NoError(t, e)
+					require.NoError(t, r.Close())
+				} else {
+					require.Empty(t, response.Header().Get("Content-Encoding"))
+				}
+				require.Equal(t, "129:4"+strings.Repeat("a", 128), string(body))
+			}
+			require.NoError(t, <-done)
+		})
+	}
 }

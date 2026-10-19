@@ -252,3 +252,41 @@ func TestTypedMiddlewareRejectionSuppressesHandlerAndAck(t *testing.T) {
 	require.Empty(t, called)
 	require.Empty(t, p.errs)
 }
+
+type typedEngineCloseConn struct {
+	*fakeConn
+	stopped chan struct{}
+}
+
+func (c *typedEngineCloseConn) Done() <-chan struct{} { return c.stopped }
+
+// Covers T1
+// Covers T3
+func TestEngineCloseCancelsBlockedTypedHandlerAndRequests(t *testing.T) {
+	p := newPeer(t, 'S', hooks{})
+	entered, returned := make(chan struct{}), make(chan struct{})
+	typedRegister(t, p, "wait", false, func(ctx context.Context, _ eventImpl.Endpoint, _ eventImpl.Payload) (eventImpl.Payload, error) {
+		close(entered)
+		<-ctx.Done()
+		close(returned)
+		return eventImpl.Payload{}, ctx.Err()
+	})
+	engine := &typedEngineCloseConn{fakeConn: p.fc, stopped: make(chan struct{})}
+	p.serveConn(engine)
+	p.nc = recv(t, p.conns, "root")
+	require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
+	closeAtEnd(t, p.fc, p.connection)
+	defer p.nc.(*namespaceConn).cancelLifetime()
+	done := make(chan typedResult, 1)
+	go func() {
+		v, err := p.nc.(*namespaceConn).RequestAck(nil, "question", eventImpl.ValueOf(1), eventImpl.SchemaOf[int]())
+		done <- typedResult{v, err}
+	}()
+	recv(t, p.fc.out, "pending request")
+	p.send(t, `2["wait",1]`)
+	recv(t, entered, "handler waiting on lifetime")
+	close(engine.stopped)
+	recv(t, returned, "engine close unblocked typed handler")
+	require.ErrorIs(t, recv(t, done, "request canceled independently").err, eventImpl.ErrSocketClosed)
+	require.Zero(t, ackEntries(p.nc))
+}

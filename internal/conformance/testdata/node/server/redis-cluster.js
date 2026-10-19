@@ -3,6 +3,24 @@ const assert = require('assert');
 const http = require('http');
 const serverIO = require('socket.io');
 const adapter = require('socket.io-redis');
+// Capture the pinned reference's request-prefix limitation without modifying it.
+// Production mixed namespaces therefore exclude '#'; Go-only routing is tested
+// separately. These fake clients perform no Redis I/O.
+function assertReferenceNamespaceBoundary() {
+ const EventEmitter=require('events');
+ const sub=new EventEmitter();
+ sub.psubscribe=(_channel,cb)=>cb(null);sub.subscribe=(_channels,cb)=>cb(null);
+ const pub=new EventEmitter(),responses=[];
+ pub.publish=(channel,message)=>responses.push({channel,message:JSON.parse(message)});
+ const Reference=adapter({key:'reference-boundary',pubClient:pub,subClient:sub});
+ let joined;
+ new Reference({name:'/cluster',server:{encoder:{}},connected:{victim:{join(room,cb){joined=room;cb();}}}});
+ new Reference({name:'/cluster#other',server:{encoder:{}},connected:{}});
+ sub.emit('messageBuffer',Buffer.from('reference-boundary-request#/cluster#other#'),Buffer.from(JSON.stringify({requestid:'boundary',type:3,sid:'victim',room:'wrong-namespace'})));
+ assert.strictEqual(joined,'wrong-namespace','pinned Node request routing uses prefix matching');
+ assert.deepStrictEqual(responses,[{channel:'reference-boundary-response#/cluster#',message:{requestid:'boundary'}}]);
+}
+assertReferenceNamespaceBoundary();
 const path = require('path');
 const clientPath=path.resolve(process.env.NODE_PATH,'socket.io-client');
 const clientIO = require(clientPath);

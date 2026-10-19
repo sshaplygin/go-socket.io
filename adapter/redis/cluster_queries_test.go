@@ -441,3 +441,32 @@ func TestRedisClearReportsPartialFailure(t *testing.T) {
 	require.ErrorIs(t, a.ClearContext(ctx, "room"), context.DeadlineExceeded)
 	require.Equal(t, []string{"z-unsupported"}, a.Memory.IDs("room"), "successful earlier removal is not rolled back")
 }
+
+// Covers A9
+func TestRedisHashNamespaceRequestsRemainExact(t *testing.T) {
+	s := miniredis.RunT(t)
+	factory := New(WithAddr(s.Addr()))
+	baseAdapter, err := factory("/cluster")
+	require.NoError(t, err)
+	childAdapter, err := factory("/cluster#other")
+	require.NoError(t, err)
+	base, child := baseAdapter.(*broadcast), childAdapter.(*broadcast)
+	t.Cleanup(func() { require.NoError(t, base.Close()); require.NoError(t, child.Close()) })
+	baseSocket, childSocket := newClusterTestSocket(base, "base-sid"), newClusterTestSocket(child, "child-sid")
+	baseSocket.Join("initial")
+	childSocket.Join("initial")
+	for _, attempt := range []struct {
+		requester, target *broadcast
+		sid               string
+	}{{child, base, baseSocket.ID()}, {base, child, childSocket.ID()}} {
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+		err := attempt.requester.RemoteJoin(ctx, attempt.sid, "wrong-namespace")
+		cancel()
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Zero(t, attempt.target.Memory.Len("wrong-namespace"))
+	}
+	require.NoError(t, base.RemoteJoin(context.Background(), baseSocket.ID(), "right-base"))
+	require.NoError(t, child.RemoteJoin(context.Background(), childSocket.ID(), "right-child"))
+	require.Equal(t, []string{baseSocket.ID()}, base.Memory.IDs("right-base"))
+	require.Equal(t, []string{childSocket.ID()}, child.Memory.IDs("right-child"))
+}

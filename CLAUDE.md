@@ -84,7 +84,7 @@ V1 source files are grouped under their owning components:
 | `client/internal/namespace/contracts.go`, `handlers.go`, `registry.go`, `listeners.go`, `rooms.go` | canonical independent client contracts, reflected callbacks/listeners, synchronized registrations and local rooms |
 | `internal/event/` | neutral typed payload/schema/handler values, common typed errors and error-first ACK codec; root owns generic descriptors and each role owns dispatch, queue admission and request lifetimes |
 | `adapter/adapter.go`, `memory.go` | minimal socket/factory contracts and local room/index/delivery ownership |
-| `adapter/redis/options.go`, `adapter.go`, `codec.go`, `requests.go`, `subscription.go` | Redis configuration/construction, legacy wire format, cluster queries and subscription lifecycle |
+| `adapter/redis/options.go`, `adapter.go`, `codec.go`, `requests.go`, `subscription.go` | Redis configuration/construction, Node-compatible wire format, cluster queries and subscription lifecycle |
 | `engineio/conn.go`, `id.go`, `options.go`, `hooks.go`, `headers.go` | active connection/state/error/ID contract aliases, configuration, public hook adaptation and websocket header observation |
 | `engineio/internal/session/session.go`, `close.go`, `upgrade.go`, `headers.go`, `hooks.go` | private session I/O, close/upgrade state machines and response observation |
 | `engineio/internal/session/contracts.go`, `registry.go`, `id.go` | canonical server connection/state/error contracts, private registry and ID providers |

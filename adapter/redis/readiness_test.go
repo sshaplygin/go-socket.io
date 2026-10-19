@@ -184,6 +184,9 @@ func TestNamespaceCloseBoundsUnsubscribeWrite(t *testing.T) {
 		t.Fatal("namespace Close hangs in unsubscribe flush")
 	}
 	owner.subLock.Lock()
+	if owner.sub == nil {
+		t.Error("shared subscriber reference lost during member close")
+	}
 	owner.subLock.Unlock()
 	shared.mu.Lock()
 	_, retained := shared.members["/closing"]

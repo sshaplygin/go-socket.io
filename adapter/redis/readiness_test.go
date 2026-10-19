@@ -195,3 +195,59 @@ func TestNamespaceCloseBoundsUnsubscribeWrite(t *testing.T) {
 		t.Fatal("closed namespace remains registered")
 	}
 }
+
+// Covers B4
+func TestNamespaceCloseWaitsForUnsubscribeAcknowledgements(t *testing.T) {
+	s := miniredis.RunT(t)
+	factory := New(WithAddr(s.Addr()))
+	closing, err := factory("/closing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	remaining, err := factory("/remaining")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = closing.(*broadcast).Close(); _ = remaining.(*broadcast).Close() }()
+	entered, release := make(chan struct{}), make(chan struct{})
+	var unblock sync.Once
+	defer unblock.Do(func() { close(release) })
+	s.Server().SetPreHook(func(_ *server.Peer, command string, args ...string) bool {
+		if command == "UNSUBSCRIBE" && len(args) > 0 && args[0] == "socket.io-request#/closing#" {
+			close(entered)
+			<-release
+		}
+		return false
+	})
+	done := make(chan error, 1)
+	go func() { done <- closing.(*broadcast).Close() }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("unsubscribe was not sent")
+	}
+	var returned bool
+	var closeErr error
+	select {
+	case closeErr = <-done:
+		returned = true
+	case <-time.After(20 * time.Millisecond):
+	}
+	unblock.Do(func() { close(release) })
+	if !returned {
+		select {
+		case closeErr = <-done:
+		case <-time.After(time.Second):
+			t.Fatal("Close did not complete after unsubscribe ACK")
+		}
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if returned {
+		t.Fatal("Close returned before Redis processed unsubscribe")
+	}
+	if got := s.PubSubNumSub("socket.io-request#/closing#")["socket.io-request#/closing#"]; got != 0 {
+		t.Fatalf("closed namespace still counted as %d subscribers", got)
+	}
+}

@@ -160,7 +160,7 @@ func (bc *broadcast) SendTo(opts adapter.Options, event string, args ...interfac
 	for _, room := range opts.Rooms {
 		if !seen[room] {
 			seen[room] = true
-			bc.publishMessage(room, event, args...)
+			bc.publishRoomMessage(room, event, args...)
 		}
 	}
 	return nil

@@ -33,7 +33,7 @@ func (bc *broadcast) onMessage(channel string, msg []byte) error {
 	if json.Unmarshal(rawOpts, &opts) != nil || json.Unmarshal(rawArgs, &args) != nil {
 		return errors.New("invalid broadcast message")
 	}
-	if len(opts) != 2 {
+	if len(opts) != 2 && (len(opts) != 3 || opts[2] != true) {
 		logger.Log.Warn("socketio: unsupported redis broadcast message")
 		return errors.New("unsupported broadcast message")
 	}
@@ -48,7 +48,7 @@ func (bc *broadcast) onMessage(channel string, msg []byte) error {
 		return errors.New("invalid event")
 	}
 
-	if room != "" {
+	if room != "" || len(opts) == 3 {
 		bc.Memory.Send(room, event, args...)
 	} else {
 		bc.Memory.SendAll(event, args...)
@@ -77,9 +77,20 @@ func (bc *broadcast) publish(channel string, msg interface{}) {
 }
 
 func (bc *broadcast) publishMessage(room string, event string, args ...interface{}) {
+	bc.publishDelivery(room, event, false, args...)
+}
+
+func (bc *broadcast) publishRoomMessage(room string, event string, args ...interface{}) {
+	bc.publishDelivery(room, event, room == "", args...)
+}
+
+func (bc *broadcast) publishDelivery(room, event string, emptyRoom bool, args ...interface{}) {
 	opts := make([]interface{}, 2)
 	opts[0] = room
 	opts[1] = event
+	if emptyRoom {
+		opts = append(opts, true)
+	}
 
 	bcMessage := map[string][]interface{}{
 		"opts": opts,

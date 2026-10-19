@@ -179,3 +179,17 @@ func TestRedisClusterMalformedResponseAndGoDeduplication(t *testing.T) {
 	a.onResponse([]byte(`{"requestid":"pending","clients":["late"]}`))
 	require.NotContains(t, pending.values, "late")
 }
+
+// Covers A5
+// Covers B4
+func TestRedisClusterOutageRetainsLocalPartialSnapshot(t *testing.T) {
+	s := miniredis.RunT(t)
+	a := newTestRedisBroadcast(t, s)
+	a.Join("local", newRedisTestConn("local"))
+	a.subscriptionChanged("", false)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	ids, err := a.IDsContext(ctx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Equal(t, []string{"local"}, ids)
+}

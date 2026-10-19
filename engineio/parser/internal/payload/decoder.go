@@ -44,7 +44,7 @@ func (d *Decoder) NextReader() (packet.FrameType, packet.PacketType, io.ReadClos
 	if d.terminalErr != nil {
 		return 0, 0, nil, d.terminalErr
 	}
-	if d.rawReader == nil {
+	for d.rawReader == nil {
 		r, supportBinary, err := d.feeder.AcquirePayloadReader()
 		if err != nil {
 			return 0, 0, nil, err
@@ -54,6 +54,14 @@ func (d *Decoder) NextReader() (packet.FrameType, packet.PacketType, io.ReadClos
 			br = bufio.NewReader(r)
 		}
 		if err := d.setNextReader(br, supportBinary); err != nil {
+			if err == io.EOF && supportBinary {
+				// An empty binary POST contains no packets. Release this body
+				// normally and wait for the next POST without poisoning decoding.
+				if err := d.sendError(nil); err != nil {
+					return 0, 0, nil, err
+				}
+				continue
+			}
 			return 0, 0, nil, d.sendError(err)
 		}
 	}

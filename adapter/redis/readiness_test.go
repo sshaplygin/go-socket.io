@@ -119,3 +119,31 @@ func TestDynamicNamespaceWaitsForSubscriptionAcknowledgements(t *testing.T) {
 		t.Fatal("namespace not ready after ACK")
 	}
 }
+
+func TestDynamicSubscriptionWriteIsBounded(t *testing.T) {
+	old := redisDialTimeout
+	redisDialTimeout = 40 * time.Millisecond
+	defer func() { redisDialTimeout = old }()
+	c := &blockedSubscriptionWrite{silentSubscription: silentSubscription{done: make(chan struct{})}}
+	owner := &broadcast{done: make(chan struct{}), pattern: "socket.io#*", sub: &redis.PubSubConn{Conn: c}}
+	shared := &sharedResources{owner: owner, members: make(map[string][]*broadcast)}
+	owner.resources = shared
+	shared.members["/old"] = []*broadcast{owner}
+	owner.subscriptionChanged(owner.pattern, true)
+	result := make(chan error, 1)
+	go func() { _, err := shared.add("/new", &options{Prefix: "socket.io"}); result <- err }()
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("blocked subscription succeeded")
+		}
+	case <-time.After(200 * time.Millisecond):
+		_ = c.Close()
+		<-result
+		t.Fatal("dynamic subscription write exceeded construction deadline")
+	}
+}
+
+type blockedSubscriptionWrite struct{ silentSubscription }
+
+func (c *blockedSubscriptionWrite) Flush() error { <-c.done; return io.EOF }

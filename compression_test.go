@@ -215,7 +215,7 @@ func TestRedisBroadcastCompress(t *testing.T) {
 	require.False(t, flag)
 	require.Contains(t, string(data), "news")
 	flag, data = b.message(t)
-	require.True(t, flag, "legacy Redis publishes without the flag")
+	require.False(t, flag, "Redis preserves the remote compression override")
 	require.Contains(t, string(data), "news")
 	require.NoError(t, local.SendTo(adapter.Options{Rooms: []string{"room"}, Local: true, NoCompress: true}, "only local", value))
 	flag, data = a.message(t)

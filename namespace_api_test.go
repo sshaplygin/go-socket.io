@@ -153,7 +153,7 @@ func TestNamespaceBroadcastAcrossInstances(t *testing.T) {
 	useRedis(t, a, r.Addr())
 	useRedis(t, b, r.Addr())
 	first, second := a.Of("/chat"), b.Of("/chat")
-	waitRedisSubscribers(t, r, "socket.io-request#/chat", 2)
+	waitRedisSubscribers(t, r, "socket.io-request#/chat#", 2)
 	remote := newRedisTestConn("remote")
 	b.getNamespace("/chat").Adapter().Join(remote.ID(), remote)
 	// The publishing server has no local socket in this namespace.

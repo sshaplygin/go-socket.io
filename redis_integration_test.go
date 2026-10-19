@@ -184,8 +184,8 @@ func TestRedisServerCloseStopsBroadcasts(t *testing.T) {
 	require.NoError(t, s.Restart())
 	require.Eventually(t, func() bool {
 		return s.PubSubNumPat() == 1 &&
-			s.PubSubNumSub("socket.io-request#/one")["socket.io-request#/one"] == 1 &&
-			s.PubSubNumSub("socket.io-request#/two")["socket.io-request#/two"] == 1
+			s.PubSubNumSub("socket.io-request#/one#")["socket.io-request#/one#"] == 1 &&
+			s.PubSubNumSub("socket.io-request#/two#")["socket.io-request#/two#"] == 1
 	}, 2*time.Second, 5*time.Millisecond, "shared subscriber restored every namespace after reconnect")
 
 	require.NotPanics(t, func() { require.NoError(t, srv.Close()) })

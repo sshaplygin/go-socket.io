@@ -36,7 +36,30 @@ type Decoder struct {
 
 func NewDecoder(r FrameReader) *Decoder { return &Decoder{r: r} }
 func (d *Decoder) Close() error         { return d.DiscardLast() }
+
+// DiscardLast releases the text frame and consumes attachments of an ignored packet.
 func (d *Decoder) DiscardLast() error {
+	err := d.closeLastFrame()
+	count := d.bufferCount
+	d.bufferCount = 0
+	d.args = nil
+	for i := uint64(0); i < count; i++ {
+		ft, r, nextErr := d.r.NextReader()
+		if nextErr != nil {
+			if err == nil {
+				err = nextErr
+			}
+			return err
+		}
+		_, nextErr = d.readBuffer(ft, r)
+		if err == nil {
+			err = nextErr
+		}
+	}
+	return err
+}
+
+func (d *Decoder) closeLastFrame() error {
 	if d.lastFrame == nil {
 		return nil
 	}
@@ -83,7 +106,7 @@ func (d *Decoder) DecodeHeader(header *Header, event *string) error {
 // A nil types slice decodes every argument into a generic JSON value (binary
 // placeholders become *Buffer); an empty non-nil slice discards the arguments.
 func (d *Decoder) DecodeArgs(types []reflect.Type) ([]reflect.Value, error) {
-	if err := d.DiscardLast(); err != nil {
+	if err := d.closeLastFrame(); err != nil {
 		return nil, err
 	}
 	count := d.bufferCount

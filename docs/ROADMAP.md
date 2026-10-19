@@ -3156,7 +3156,9 @@ its merged-master acceptance pass. Registry ownership remains unchanged.
 Scope: A4, A5, A8, A9, A10, S13, S15, S21, K14, B3 and B4. Implement exclusion,
 room unions with one delivery per socket, cluster IDs/rooms, binary arguments,
 remote flags, database selection, ready subscriptions, bounded cluster requests,
-remote operations and a working two-instance chat. Node reference is pinned to
+remote operations and a working two-instance chat. This means standalone Redis
+Pub/Sub interoperability; Sentinel, Redis Cluster topology and injected Redis clients
+are not added by this stage. Node reference is pinned to
 `socket.io-redis@5.4.0`, `socket.io@2.5.0`; gate clients remain 1.7.4 and 2.5.0.
 Do not import v2. `adapter/redis` may additionally import `parser` for the canonical
 Socket.IO argument/binary codec; the architecture table and executable policy
@@ -3217,9 +3219,17 @@ back. Legacy Clear performs the same bounded work and logs errors.
 Remote operations must support Node-initiated and Go-initiated requests. Socket
 lifecycle uses optional structural capabilities on local adapter sockets (Join,
 Leave, Disconnect and Close), never imports a Socket.IO role. Custom sockets lacking
-a capability cannot be reported as successful. Custom hooks and lifecycle callbacks
+a capability cannot be reported as successful. Add an optional adapter lifecycle
+binding `BindSocketLookup(func(string) adapter.Socket)`; the server binds it to its
+independent connected-socket registry, so LeaveAll does not hide live sockets from
+remote commands. The binding is cleared when that namespace adapter is retired.
+Fallback lookup through memory is allowed for standalone adapter users. Custom hooks
+are per factory: one invocation per shared namespace subscriber, producing one reply,
+even when multiple members share that namespace. Requests/replies are JSON only
+(no binary custom payload, as in the pinned Node adapter). Custom hooks and lifecycle callbacks
 run outside Redis reader and membership locks; bounded work and close cancellation
-prevent an unbounded goroutine backlog. Handler errors do not fabricate success;
+prevent an unbounded goroutine backlog (at most 32 active remote command/hook workers
+per shared factory; overflow drops the request and logs, so callers time out). Handler errors do not fabricate success;
 Node's protocol has no error response, so its callers time out. Applications must
 honor handler context cancellation. Replies are validated before counting; Go may
 add a responder identity which Node ignores, while Node replies have no identity
@@ -3231,7 +3241,9 @@ subscriber. Construction/new namespace readiness waits for Redis subscription AC
 within the dial bound, including cancellation and cleanup on failure. Reconnect
 re-registers current members before declaring ready. Queries during an outage are
 bounded, error visibly and do not report an empty successful cluster; close unblocks
-waiters. WithDB reaches SELECT on both subscriber and every pooled connection.
+waiters. Request context bounds NUMSUB and PUBLISH as well as response waiting;
+cancellation closes the checked-out connection before it can return to the pool.
+WithDB reaches SELECT on both subscriber and every pooled connection.
 No guarantee of recovery for broadcasts lost during a Redis outage is added.
 
 Work sequence and ownership (one integration branch; disjoint implementation files):

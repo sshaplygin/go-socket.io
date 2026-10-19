@@ -3,7 +3,12 @@ const assert = require('assert');
 const http = require('http');
 const serverIO = require('socket.io');
 const adapter = require('socket.io-redis');
-const clientIO = require('socket.io-client');
+const path = require('path');
+const clientPath=path.resolve(process.env.NODE_PATH,'socket.io-client');
+const clientIO = require(clientPath);
+const clientVersion=require(path.join(clientPath,'package.json')).version;
+if(process.env.CONFORMANCE_CLIENT_VERSION)assert.strictEqual(clientVersion,process.env.CONFORMANCE_CLIENT_VERSION);
+console.log('Redis client reference: '+clientVersion);
 const redis = require('redis');
 const [goA,goB,addr,prefix,transport] = process.argv.slice(2);
 const split = addr.lastIndexOf(':');
@@ -79,10 +84,12 @@ const watchdog=setTimeout(()=>{console.error('Redis cluster timeout');process.ex
 (async()=>{
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  const nodeURL='http://127.0.0.1:'+server.address().port;
+ console.log('Redis scenario connecting '+transport);
  const peers=[await connect(goA),await connect(goB),await connect(nodeURL)];
  const isolated=await connect(goB,'/cluster#other');
  const otherPeers=[await connect(goA,'/cluster#other'),isolated,await connect(nodeURL,'/cluster#other')];
  const roots=[await connect(goA,'/'),await connect(goB,'/'),await connect(nodeURL,'/')];
+ console.log('Redis namespace clients connected');
  const compressed=transport==='websocket'?peers.slice(0,2).map(compressedFrames):null;
  await deliveries(roots,[1,1,1],()=>control(goA,{Op:'broadcast',Namespace:'/'}));
  await deliveries(roots,[1,1,1],async()=>io.of('/').emit('broadcast','root-node'));
@@ -120,6 +127,7 @@ const watchdog=setTimeout(()=>{console.error('Redis cluster timeout');process.ex
  io.of('/cluster').emit('binary',{bytes:Buffer.from([0,255,2]),nested:[Buffer.from([3,254])]});
  await until(()=>peers.every(s=>s.binary.length===2),'Node binary');
  for(const s of peers)for(const v of s.binary){assert(Buffer.isBuffer(v.bytes));assert.deepStrictEqual([...v.bytes],[0,255,2]);assert(Buffer.isBuffer(v.nested[0]));assert.deepStrictEqual([...v.nested[0]],[3,254]);}
+ console.log('Redis broadcasts and binary passed');
  const ids=peers.map(s=>s.sid).sort();
  assert.deepStrictEqual((await control(goA,{Op:'ids',Rooms:['r1','r2']})).sort(),ids);
  assert.deepStrictEqual((await callback(io.of('/cluster').adapter,'clients',['r1','r2'])).sort(),ids);
@@ -139,6 +147,7 @@ const watchdog=setTimeout(()=>{console.error('Redis cluster timeout');process.ex
  const nodeCustom=await callback(io.of('/cluster').adapter,'customRequest',{hello:43});
  assert.strictEqual(nodeCustom.length,3);
  assert.strictEqual(nodeCustom.filter(v=>v&&v.go===prefix&&v.data.hello===43).length,2);
+ console.log('Redis queries and custom replies passed');
  const missing=prefix+'-missing-sid';
  const timeoutStart=Date.now();
  const missingResponse=await fetch(goA+'/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({Op:'join',SID:missing,Room:'absent',TimeoutMillis:100})});
@@ -146,6 +155,7 @@ const watchdog=setTimeout(()=>{console.error('Redis cluster timeout');process.ex
  assert(Date.now()-timeoutStart<1500,'caller context must bound unknown-ID wait');
  await assert.rejects(callback(io.of('/cluster').adapter,'remoteLeave',missing,'absent'),/timeout/);
  // Disconnect(false) leaves another namespace on the same engine usable.
+ console.log('Redis unknown-ID bounds passed');
  const goPair=await sharedPair(goB);
  const goMainClosed=onceDisconnect(goPair[0]);
  await callback(io.of('/cluster').adapter,'remoteDisconnect',goPair[0].sid,false);await goMainClosed;

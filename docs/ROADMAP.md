@@ -2963,8 +2963,9 @@ The packages are those of *Stage V1 work packages* (A, B, D), by file ownership;
 registry rows were `done`, and the coordinator reopens them (the note after the registry).
 The current bug-fix change also closes G30 (encoder frame Close errors) and G31
 (decoder frame Close errors), and mirrors G6, G18, G20 and G21 in the client.
-The owner explicitly deferred T1–T3 to a separate change on 2026-10-19; their release
-requirement remains in force. This integration may implement the bug fixes together;
+The owner initially deferred T1–T3, then approved the common implementation in the
+V1-29 contract on 2026-10-19. Their implementation follows the bug-fix commits;
+their release requirement remains in force. This integration may implement the bug fixes together;
 it does not claim that the numbered PRs have merged or modify the package registry.
 
 Each V1G PR writes its own `CHANGELOG.md` entries, since H is `done`. G16 and T1 to T3 are
@@ -3125,7 +3126,9 @@ resumes on the owner's order after MV1, not on the tag.
 after the component follow-up (C5, #132). The review of 2026-10-18 at `3db9751` and D18 reopen
 it: the then-open G1 to G29 and T1 to T3 rows failed the MV1 DoD line
 "no open row" and `PARITY_STRICT=1 make parity-check`. The current bug-fix change
-closes G1–G31; T1–T3 still fail that strict gate. The registry line also fails once the coordinator sets A, B and D back to `open` for the V1G PRs. MV1 is accepted
+closes G1–G31; the subsequent common typed implementation closes T1–T3 with
+Go and pinned Node interoperability tests. Local closure of these rows does not
+constitute acceptance on master. The registry line also fails once the coordinator sets A, B and D back to `open` for the V1G PRs. MV1 is accepted
 again when the rows of wave V1G are closed: V1-21 to V1-31 merged, the MV1 DoD above passing
 on the merged `master` (it now also greps the D19 heading), and the owner's Acceptance
 repeated. Nothing is accepted beyond what those commands compute; the `v1.5.0` tag stays the

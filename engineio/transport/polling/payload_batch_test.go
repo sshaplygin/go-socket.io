@@ -186,8 +186,8 @@ func TestCanceledBatchKeepsActiveWriterLease(t *testing.T) {
 		t.Fatal("cancellation did not close payload")
 	}
 	select {
-	case <-flushed:
-		t.Fatal("flush returned while writer was active")
+	case err := <-flushed:
+		t.Fatalf("flush returned while writer was active: %v", err)
 	default:
 	}
 	release.Do(func() { close(w.gate.release) })

@@ -35,3 +35,41 @@ func TestEngineClientState(t *testing.T) {
 	c.serve()
 	require.Equal(t, StateClosed, c.ReadyState(), "ping-loop exit closes the client state")
 }
+
+type heldCloseTransport struct {
+	brokenConn
+	entered, release chan struct{}
+}
+
+func (c *heldCloseTransport) Close() error {
+	close(c.entered)
+	<-c.release
+	return nil
+}
+
+func TestEngineClientDonePrecedesTransportClose(t *testing.T) {
+	tr := &heldCloseTransport{entered: make(chan struct{}), release: make(chan struct{})}
+	c := &client{conn: tr}
+	signal, ok := interface{}(c).(interface{ Done() <-chan struct{} })
+	require.True(t, ok, "built-in client must expose close-start notification")
+	done := signal.Done()
+	select {
+	case <-done:
+		t.Fatal("client is still open")
+	default:
+	}
+	finished := make(chan error, 1)
+	go func() { finished <- c.Close() }()
+	t.Cleanup(func() { close(tr.release); require.NoError(t, <-finished) })
+	select {
+	case <-tr.entered:
+	case <-time.After(time.Second):
+		t.Fatal("transport close did not start")
+	}
+	select {
+	case <-done:
+	default:
+		t.Fatal("close signal must precede transport close completion")
+	}
+	require.Equal(t, done, signal.Done())
+}

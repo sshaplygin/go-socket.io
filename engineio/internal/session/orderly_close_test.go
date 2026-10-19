@@ -58,6 +58,30 @@ func waitClose(t *testing.T, done <-chan struct{}) {
 	}
 }
 
+func TestSessionDonePrecedesTransportDrain(t *testing.T) {
+	c := newOrderlyConn()
+	s := newTestSession(t, c, "polling")
+	t.Cleanup(func() { _ = s.Abort() })
+	signal, ok := interface{}(s).(interface{ Done() <-chan struct{} })
+	require.True(t, ok, "built-in session must expose close-start notification")
+	done := signal.Done()
+	select {
+	case <-done:
+		t.Fatal("session is still open")
+	default:
+	}
+	require.NoError(t, s.Init())
+	require.NoError(t, s.Close())
+	waitClose(t, done)
+	waitClose(t, c.entered)
+	select {
+	case <-c.done:
+		t.Fatal("transport should still be draining")
+	default:
+	}
+	require.Equal(t, done, signal.Done())
+}
+
 func TestOrderlyCloseDrainsAcceptedWriter(t *testing.T) {
 	c := newOrderlyConn()
 	s := newTestSession(t, c, "polling")

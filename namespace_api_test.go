@@ -14,7 +14,6 @@ import (
 	"time"
 )
 
-// Covers S8
 func TestServerOf(t *testing.T) {
 	s := NewServer()
 	defer func() { _ = s.Close() }()
@@ -48,8 +47,6 @@ func TestServerOf(t *testing.T) {
 	require.ErrorIs(t, recv(t, reported, "view OnError"), second)
 }
 
-// Covers S11
-// Covers N2
 func TestNamespaceMiddleware(t *testing.T) {
 	for _, where := range []string{"middleware", "OnConnect"} {
 		t.Run(where, func(t *testing.T) {
@@ -137,7 +134,6 @@ func TestNamespaceMiddleware(t *testing.T) {
 	})
 }
 
-// Covers S14
 func TestNamespaceSend(t *testing.T) {
 	var s *Server
 	ts := newTestServer(t, func(server *Server) { s = server; s.OnConnect("/", func(Conn) error { return nil }) })
@@ -171,8 +167,6 @@ func TestNamespaceBroadcastAcrossInstances(t *testing.T) {
 	require.Empty(t, local.events)
 }
 
-// Covers S16
-// Covers N4
 func TestNamespaceSockets(t *testing.T) {
 	var s *Server
 	ts := newTestServer(t, func(server *Server) {
@@ -209,7 +203,6 @@ func TestNamespaceSockets(t *testing.T) {
 	require.Len(t, n.Sockets(), 1)
 }
 
-// Covers K15
 func TestConnSend(t *testing.T) {
 	acknowledged := make(chan string, 1)
 	ts := newTestServer(t, func(s *Server) {
@@ -224,7 +217,6 @@ func TestConnSend(t *testing.T) {
 	require.Equal(t, "ok", recv(t, acknowledged, "Send acknowledgement"))
 }
 
-// Covers K20
 func TestConnDisconnect(t *testing.T) {
 	disconnected := make(chan string, 4)
 	chat := make(chan Conn, 2)
@@ -257,7 +249,6 @@ func TestConnDisconnect(t *testing.T) {
 	require.ElementsMatch(t, []string{"root:server namespace disconnect", "chat:server namespace disconnect"}, []string{recv(t, disconnected, "root close"), recv(t, disconnected, "chat close")})
 }
 
-// Covers K25
 func TestEventMiddleware(t *testing.T) {
 	seen := make(chan []interface{}, 8)
 	second := make(chan string, 8)
@@ -306,7 +297,6 @@ func TestEventMiddleware(t *testing.T) {
 	require.Equal(t, "echo", recv(t, second, "second following middleware"))
 }
 
-// Covers K1
 func TestConnIDNamespace(t *testing.T) {
 	connected := make(chan Conn, 2)
 	ts := newTestServer(t, func(s *Server) {
@@ -538,14 +528,12 @@ func TestPendingConnectUsesSharedBudget(t *testing.T) {
 	p.disconnected(t, "/", "/a")
 }
 
-// Covers G17
-func TestRegressionG17RootAlwaysExists(t *testing.T) {
+func TestRootAlwaysExists(t *testing.T) {
 	ts := newTestServer(t, func(*Server) {})
 	c := dialRaw(t, ts.URL)
 	require.Equal(t, "0", c.read())
 }
 
-// Covers S12
 func TestNamespaceBroadcastOnce(t *testing.T) {
 	connected := make(chan Conn, 2)
 	s, url := defectServer(t, func(s *Server) {

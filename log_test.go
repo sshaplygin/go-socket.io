@@ -114,7 +114,6 @@ func (faultyConn) NextWriter(eioparser.FrameType, eioparser.PacketType) (io.Writ
 	return nil, errors.New("write failed")
 }
 
-// Covers 1L-T9 (S).
 func TestRequestRejectedRecords(t *testing.T) {
 	opts := []engineio.Option{engineio.WithTransports([]transport.Transport{polling.Default, websocket.Default, faultyTransport{}}...), engineio.WithRequestChecker(func(r *http.Request) (http.Header, error) {
 		if r.Header.Get("X-Reject") != "" {
@@ -268,7 +267,6 @@ func (w faultWriter) Write(p []byte) (int, error) {
 
 func (w faultWriter) Close() error { return w.c.closeErr }
 
-// Covers 1L-T8 (S).
 func TestUnhandledErrorRecords(t *testing.T) {
 	failed, refused := errors.New("frame failed"), errors.New("refused")
 	boom := map[string]interface{}{"boom": func(Conn) { panic("boom") }, "num": func(Conn, int) {}}
@@ -371,7 +369,6 @@ func TestUnhandledErrorRecords(t *testing.T) {
 	}
 }
 
-// Covers 1L-T10 (S).
 func TestNamespaceRecords(t *testing.T) {
 	refused := errors.New("refused")
 	fail := func(nsp string, n int, err error) hooks { // OnConnect of nsp emits n packets and returns err
@@ -463,7 +460,6 @@ func TestNamespaceRecords(t *testing.T) {
 	}
 }
 
-// Covers 1L-T13 (P, W).
 func TestPingTimeoutRecords(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
@@ -598,8 +594,6 @@ func moduleGoroutines() map[string]bool {
 
 // TestNoBadKeyAttrs runs the TestLifecycleRootNamespace scenario at trace with checking
 // handlers on WithLogger and slog.Default.
-//
-// Covers 1L-T11 (S).
 func TestNoBadKeyAttrs(t *testing.T) {
 	inst, def := newKeyChecker(), newKeyChecker()
 	setDefault(t, def)
@@ -620,9 +614,7 @@ func TestNoBadKeyAttrs(t *testing.T) {
 		return true
 	}, waitFor, 10*time.Millisecond)
 
-	// The Go client's CONNECT to / follows the server's own root connect, so namespace
-	// connect may appear more than once (1L-T10 owns the count). Each record carries
-	// exactly one sid, the session's.
+	// Each lifecycle record carries exactly one sid, the session's.
 	for _, msg := range []string{"engineio: session open", "socketio: namespace connect", "socketio: disconnect"} {
 		_, sids := inst.result(msg)
 		assert.NotEmpty(t, sids, msg)

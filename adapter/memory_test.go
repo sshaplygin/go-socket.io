@@ -64,7 +64,6 @@ func flagSocket(id string, writable bool) *flagTarget {
 	return &flagTarget{recordingSocket: newRecordingSocket(id), writable: writable}
 }
 
-// Covers A4
 func TestBroadcastSendTo(t *testing.T) {
 	b := NewMemory()
 	a, c, d := flagSocket("a", true), flagSocket("c", false), flagSocket("d", true)
@@ -87,7 +86,6 @@ func TestBroadcastSendTo(t *testing.T) {
 
 }
 
-// Covers A5
 func TestBroadcastIDs(t *testing.T) {
 	b := NewMemory()
 	a, c := newRecordingSocket("a"), newRecordingSocket("c")
@@ -102,7 +100,6 @@ func TestBroadcastIDs(t *testing.T) {
 	require.Equal(t, []string{"a"}, b.IDs("one"))
 }
 
-// Covers A1
 func TestBroadcastRoomsMaps(t *testing.T) {
 	b := NewMemory()
 	a, c := newRecordingSocket("a"), newRecordingSocket("c")

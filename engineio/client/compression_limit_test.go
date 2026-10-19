@@ -28,8 +28,6 @@ func (t limitedCompressionTransport) Dial(u *url.URL, h http.Header) (transport.
 	return c, err
 }
 
-// Covers E8
-// Covers C11
 func TestEngineClientCompressedCloseLimit(t *testing.T) {
 	ws := &websocket.Transport{EnableCompression: true, CompressionThreshold: 1}
 	type acceptedConn struct {
@@ -79,8 +77,6 @@ func TestEngineClientCompressedCloseLimit(t *testing.T) {
 	require.ErrorIs(t, closed.Err, gorilla.ErrReadLimit)
 }
 
-// Covers E8
-// Covers C11
 func TestEngineClientCompressedOpenLimit(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

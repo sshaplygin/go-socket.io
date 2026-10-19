@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/adapter"
-	"github.com/sshaplygin/go-socket.io/internal/namespace"
 )
 
 // flagTarget records whether an adapter used the public single-socket Emitter.
@@ -47,7 +46,6 @@ func (exceptAdapter) SendTo(adapter.Options, string, ...interface{}) error {
 	return errors.Join(errors.New("adapter refused"), adapter.ErrExceptUnsupported)
 }
 
-// Covers K11
 func TestConnJoinRooms(t *testing.T) {
 	p := start(t, 'S', hooks{})
 	p.nc.Join("one", "two", "one", "three")
@@ -86,7 +84,6 @@ func expectBeforeBarrier(t *testing.T, p *peer, packets ...string) {
 	require.Equal(t, "2[\"barrier\"]\n", recv(t, p.fc.out, "barrier"))
 }
 
-// Covers K14
 func TestBroadcastExceptSender(t *testing.T) {
 	for _, mode := range []string{"To", "Broadcast", "Volatile.To", "Volatile.Except", "Volatile.Local"} {
 		t.Run(mode, func(t *testing.T) {
@@ -129,7 +126,6 @@ func TestBroadcastExceptSender(t *testing.T) {
 
 }
 
-// Covers S15
 func TestNamespaceSocketIDs(t *testing.T) {
 	b, peers := broadcastPeers(t, hooks{})
 	n := peers[0].srv.Of("/")
@@ -142,7 +138,6 @@ func TestNamespaceSocketIDs(t *testing.T) {
 	require.NotContains(t, n.SocketIDs("room"), "changed")
 }
 
-// Covers N3
 func TestServerNamespaceMethods(t *testing.T) {
 	connected := make(chan Conn, 2)
 	var srv *Server
@@ -179,7 +174,6 @@ func TestServerNamespaceMethods(t *testing.T) {
 	}
 }
 
-// Covers S13
 func TestRoomUnion(t *testing.T) {
 	b, peers := broadcastPeers(t, hooks{})
 	b.Join("one", peers[1].nc)
@@ -201,7 +195,6 @@ func TestRoomUnion(t *testing.T) {
 	expectBeforeBarrier(t, peers[1], "2[\"kept\"]\n")
 }
 
-// Covers N7
 func TestBroadcastCallback(t *testing.T) {
 	b, peers := broadcastPeers(t, hooks{})
 	n := peers[0].srv.Of("/")
@@ -235,7 +228,6 @@ func TestBroadcastCallback(t *testing.T) {
 	}
 }
 
-// Covers S21
 func TestServerBroadcastFlags(t *testing.T) {
 	s := NewServer()
 	defer func() { _ = s.Close() }()
@@ -254,7 +246,6 @@ func TestServerBroadcastFlags(t *testing.T) {
 	expectEvent(t, c.redisTestConn, "local []")
 }
 
-// Covers K16
 func TestVolatileEmit(t *testing.T) {
 	connected := make(chan Conn, 2)
 	// Hold namespace admission so the OPEN response is isolated from CONNECT.
@@ -376,10 +367,9 @@ func TestVolatileConcurrentAdmission(t *testing.T) {
 	}
 }
 
-// Covers A4
 func TestBroadcastAdapterError(t *testing.T) {
 	p := start(t, 'S', hooks{setup: func(s *Server) {
-		s.SetAdapter(func(string) (adapter.Adapter, error) { return exceptAdapter{Adapter: namespace.NopAdapter{}}, nil })
+		s.SetAdapter(func(string) (adapter.Adapter, error) { return exceptAdapter{Adapter: unavailableAdapter{}}, nil })
 	}})
 	require.ErrorIs(t, p.nc.Broadcast().Emit("nothing"), adapter.ErrExceptUnsupported)
 	require.Empty(t, p.fc.out)

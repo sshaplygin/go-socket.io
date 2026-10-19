@@ -62,8 +62,6 @@ func (h *recordingHandler) hasAttr(key, val string) bool {
 // TestServerLoggerOption checks that a server created with
 // engineio.WithLogger reports connection errors through that logger and
 // not through the package-level default.
-//
-// Covers 1L-T12 (S).
 func TestServerLoggerOption(t *testing.T) {
 	custom := newAttrRecorder()
 	fallback := &recordingHandler{}

@@ -4,8 +4,7 @@ A [Socket.IO](https://socket.io) server for Go with namespaces, rooms, acknowled
 broadcast and a Redis adapter for multi-instance deployments. Engine.IO is included as
 the `engineio` sub-package and can be used on its own.
 
-This is a maintained fork of the archived `googollee/go-socket.io`. The modernisation
-plan, including Socket.IO protocol v5 support, is in [docs/ROADMAP.md](docs/ROADMAP.md).
+This is a maintained fork of `googollee/go-socket.io`.
 
 ![Build Status](https://github.com/sshaplygin/go-socket.io/workflows/CI/badge.svg)
 [![GoDoc](https://pkg.go.dev/badge/github.com/sshaplygin/go-socket.io.svg)](https://pkg.go.dev/github.com/sshaplygin/go-socket.io)
@@ -16,7 +15,6 @@ plan, including Socket.IO protocol v5 support, is in [docs/ROADMAP.md](docs/ROAD
 | Server | Socket.IO protocol | Engine.IO protocol | JavaScript client |
 | --- | --- | --- | --- |
 | v1 (this module, repository root) | v4 | v3 | `socket.io-client` 1.x and 2.x |
-| v2 (in development in [`v2/`](v2/README.md), no runtime yet) | v5 | v4 | `socket.io-client` 3.x and 4.x |
 
 The v1 interoperability checks use `socket.io-client` **1.7.4** and **2.5.0**;
 the reference server is Socket.IO 2.5.0 with Engine.IO 3.6.2.
@@ -30,11 +28,7 @@ Install the maintained fork directly:
 go get github.com/sshaplygin/go-socket.io@master
 ```
 
-Earlier tags use the upstream module path; use `master` until a release with the
-fork's module path is tagged. Existing consumers must update their imports from
-`github.com/googollee/go-socket.io` to `github.com/sshaplygin/go-socket.io` and remove
-the former upstream-path `replace` directive, then run `go mod tidy`.
-Changes to v1 component imports and API: [migration guide](docs/V1_MIGRATION.md).
+Go 1.22 or later is required.
 
 ## Quick start
 
@@ -59,6 +53,8 @@ func main() {
     defer stop()
     if err := run(ctx); err != nil {
         log.Print(err)
+        stop()
+        os.Exit(1)
     }
 }
 
@@ -111,20 +107,15 @@ func run(ctx context.Context) error {
 Runnable examples for gin, echo, iris, gf, CORS, Redis and graceful shutdown are in
 [_examples/](_examples/README.md). API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io).
 
-## Go client and v1 migration
+## Usage
 
 The Go client is available in
 [`github.com/sshaplygin/go-socket.io/client`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/client);
 see the [client example](_examples/client/main.go). Server and client use separate
 connection types and constructors.
 
-Existing v1 applications, custom adapters and mocks should read the
-[v1 component migration guide](docs/V1_MIGRATION.md) and
-[Unreleased behavior changes](CHANGELOG.md#changed) before upgrading: public
-interfaces gained methods, and heartbeat, namespace identity, disconnect, CORS,
-polling compression and cookie defaults changed.
-The guide maps public components to their private owners; `make architecture-check`
-enforces these boundaries in CI.
+Configuration, namespace lifecycle, adapters and typed events: [V1 usage](docs/V1.md).
+For Socket.IO protocol v5, see the independent [v2 module](v2/README.md).
 
 ## Contributing
 

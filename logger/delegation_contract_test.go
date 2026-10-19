@@ -43,22 +43,3 @@ func TestFallbackGroupsFollowDefaultHandler(t *testing.T) {
 	require.Equal(t, map[string]interface{}{"transport": "polling", "nsp": "/other"}, next["connection"])
 	require.Empty(t, first.Bytes(), "the old handler must receive no later records")
 }
-
-func TestDeprecatedInfoPreservesRecord(t *testing.T) {
-	setOverride(t, LevelUnset)
-	previous, output, flags := slog.Default(), log.Writer(), log.Flags()
-	t.Cleanup(func() {
-		slog.SetDefault(previous)
-		log.SetOutput(output)
-		log.SetFlags(flags)
-	})
-	var buf bytes.Buffer
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	Info("application message", "sid", "legacy", "attempt", 2)
-	var record map[string]interface{}
-	require.NoError(t, json.Unmarshal(buf.Bytes(), &record))
-	require.Equal(t, "INFO", record["level"])
-	require.Equal(t, "application message", record["msg"])
-	require.Equal(t, "legacy", record["sid"])
-	require.Equal(t, float64(2), record["attempt"])
-}

@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Covers E15
 func TestRandomSessionID(t *testing.T) {
 	g := &DefaultIDGenerator{}
 	ids := make(chan string, 1000)

@@ -3,8 +3,8 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
-This file records the v2 module, `github.com/sshaplygin/go-socket.io/v2`. The v1 module at
-the repository root has its own [CHANGELOG.md](../CHANGELOG.md).
+This file records the v2 module, `github.com/sshaplygin/go-socket.io/v2`. V1 changes
+are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTING.md#pull-requests).
 
 ## Unreleased
 

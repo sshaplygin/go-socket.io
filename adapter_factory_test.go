@@ -94,8 +94,7 @@ func TestAdapterCloseCanReenterServer(t *testing.T) {
 	}
 }
 
-// Covers G5
-func TestRegressionG5SlowFactoryDoesNotBlockOtherNamespace(t *testing.T) {
+func TestSlowFactoryDoesNotBlockOtherNamespace(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	s := NewServer(WithAdapter(func(nsp string) (adapter.Adapter, error) {
 		if nsp == "/slow" {
@@ -126,7 +125,6 @@ type factoryCloseAdapter struct {
 
 func (a *factoryCloseAdapter) Close() error { close(a.closed); return nil }
 
-// Covers G5
 func TestFactoryCreationSharedAndClosedAfterCompletion(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	built := &factoryCloseAdapter{Memory: adapter.NewMemory(), closed: make(chan struct{})}

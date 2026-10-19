@@ -12,8 +12,7 @@ import (
 	"time"
 )
 
-// Covers G27
-func TestReviewG27EmptyBinaryPostKeepsSession(t *testing.T) {
+func TestEmptyBinaryPostKeepsSession(t *testing.T) {
 	s := engineio.NewServer()
 	ts := httptest.NewServer(s)
 	defer ts.Close()

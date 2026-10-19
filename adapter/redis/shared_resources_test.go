@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// Covers G14
 func TestFactorySharesRedisConnectionsAcrossNamespaces(t *testing.T) {
 	s := miniredis.RunT(t)
 	factory := New(WithAddr(s.Addr()))

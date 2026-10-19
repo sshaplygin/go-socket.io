@@ -20,7 +20,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
-// Covers E8
 func TestConformancePerMessageDeflate(t *testing.T) {
 	s := socketio.NewServer(socketio.WithEngineOptions(engineio.WithPerMessageDeflate(true)))
 	s.OnConnect("/", func(socketio.Conn) error { return nil })
@@ -32,7 +31,6 @@ func TestConformancePerMessageDeflate(t *testing.T) {
 	runNode(t, "testdata/node/compression-client.js", ts.URL)
 }
 
-// Covers C11
 func TestConformanceClientPerMessageDeflate(t *testing.T) {
 	node, env := nodeEnvironment(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -60,7 +58,7 @@ func TestConformanceClientPerMessageDeflate(t *testing.T) {
 	type result struct{ Value, Extension string }
 	ack := make(chan result, 1)
 	value := strings.Repeat("compression", 400)
-	require.NoError(t, c.Compress(true).Emit("echo", value, func(r result) { ack <- r }))
+	c.Compress(true).Emit("echo", value, func(r result) { ack <- r })
 	require.Equal(t, value, goClientReceive(t, reply, "4KB compressed event"))
 	got := goClientReceive(t, ack, "4KB compressed ACK")
 	require.Equal(t, value, got.Value)

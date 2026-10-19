@@ -10,16 +10,17 @@ import (
 )
 
 func TestUnavailableAdapterRemainsEmpty(t *testing.T) {
-	srv := NewServer(WithAdapter(func(string) (adapter.Adapter, error) { return nil, errors.New("adapter unavailable") }))
+	unavailable := errors.New("adapter unavailable")
+	srv := NewServer(WithAdapter(func(string) (adapter.Adapter, error) { return nil, unavailable }))
 	defer func() { _ = srv.Close() }()
 	handler := srv.createNamespace("/unavailable")
-	require.Error(t, handler.Err())
+	require.ErrorIs(t, handler.Err(), unavailable)
 	bc := handler.Adapter()
 	c := newRedisTestConn("unavailable-socket")
 	bc.Join("room", c)
 	bc.Send("room", "event", "payload")
 	bc.SendAll("event", "payload")
-	require.NoError(t, bc.SendTo(adapter.Options{Rooms: []string{"room"}, Except: []string{"other"}, Volatile: true, NoCompress: true}, "event", "payload"))
+	require.ErrorIs(t, bc.SendTo(adapter.Options{Rooms: []string{"room"}, Except: []string{"other"}, Volatile: true, NoCompress: true}, "event", "payload"), unavailable)
 	called := false
 	bc.ForEach("room", func(adapter.Socket) { called = true })
 	require.False(t, called, "unavailable adapters cannot visit recipients")
@@ -35,4 +36,19 @@ func TestUnavailableAdapterRemainsEmpty(t *testing.T) {
 	require.Empty(t, bc.Rooms(c))
 	require.Empty(t, bc.AllRooms())
 	require.Empty(t, c.events)
+}
+
+func TestUnavailableNamespaceEmitterReportsConstructionError(t *testing.T) {
+	unavailable := errors.New("adapter unavailable")
+	srv := NewServer(WithAdapter(func(string) (adapter.Adapter, error) { return nil, unavailable }))
+	defer func() { _ = srv.Close() }()
+	ns := srv.Of("/unavailable")
+	require.Nil(t, ns.Adapter(), "a failed adapter is not exposed to consumers")
+	for _, target := range []Emitter{ns.To("room"), ns.Except("other"), ns.Local().Volatile().Compress(false)} {
+		require.ErrorIs(t, target.Emit("event", "payload"), unavailable)
+		require.ErrorIs(t, target.Send("payload"), unavailable)
+		require.ErrorIs(t, target.Emit("event", func() {}), ErrBroadcastAck)
+		require.ErrorIs(t, target.Send(func() {}), ErrBroadcastAck)
+	}
+	require.ErrorIs(t, srv.Serve(), unavailable)
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
-// Covers E22
 func TestServerCloseClosesAcceptedSessions(t *testing.T) {
 	s := NewServer()
 	srv := httptest.NewServer(s)

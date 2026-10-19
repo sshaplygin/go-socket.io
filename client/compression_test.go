@@ -114,7 +114,6 @@ func compressionWireFlags(t *testing.T, wire []byte) []bool {
 	return flags
 }
 
-// Covers C11
 func TestClientCompress(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "off", true: "on"}[enabled], func(t *testing.T) {
@@ -146,7 +145,7 @@ func TestClientCompress(t *testing.T) {
 			value := strings.Repeat("client", 1024)
 			for _, flag := range []bool{false, true} {
 				ack := make(chan string, 1)
-				require.NoError(t, c.Compress(flag).Emit("echo", value, &parser.Buffer{Data: []byte(value)}, func(v string) { ack <- v }))
+				c.Compress(flag).Emit("echo", value, &parser.Buffer{Data: []byte(value)}, func(v string) { ack <- v })
 				require.Equal(t, value, compressionReceive(t, ack))
 			}
 			flags := compressionWireFlags(t, outgoing.bytes())

@@ -15,8 +15,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
-// Covers E1
-// Covers P3
 func TestPingTimeoutIdleClient(t *testing.T) {
 	for _, name := range []string{"ping", "messages", "silent"} {
 		t.Run(name, func(t *testing.T) {

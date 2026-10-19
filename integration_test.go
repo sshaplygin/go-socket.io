@@ -27,12 +27,6 @@ func connWithOptions(t *testing.T, side byte, opts []Option) (*Server, Conn, *fa
 
 // TestOptionsReachConnections checks resolved options and the real Server queue budget.
 // Owner-local tests retain the private queue/deadline storage assertions.
-//
-// Covers 1I-T2 (S).
-// Covers 1I-T3 (S).
-// Covers 1I-T4 (S).
-// Covers 1I-T5 (S).
-// Covers 1I-T6 (S).
 func TestOptionsReachConnections(t *testing.T) {
 	cases := []struct {
 		name  string

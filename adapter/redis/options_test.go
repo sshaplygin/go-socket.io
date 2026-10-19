@@ -40,7 +40,7 @@ func TestFactoryOptionsAndIndependentNamespaces(t *testing.T) {
 		redisadapter.WithNetwork("invalid"), redisadapter.WithNetwork("tcp"),
 		redisadapter.WithPrefix("discarded"), redisadapter.WithPrefix("cluster"),
 		redisadapter.WithPassword("wrong"), redisadapter.WithPassword("secret"),
-		redisadapter.WithHost("unused"), redisadapter.WithPort("0"), redisadapter.WithDB(3))
+		redisadapter.WithDB(3))
 	require.Zero(t, redis.TotalConnectionCount(), "factory construction must not probe Redis")
 	makeAdapter := func(namespace string) adapter.Adapter {
 		t.Helper()

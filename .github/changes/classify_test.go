@@ -34,15 +34,15 @@ var fixture = map[string]string{
 	"adapter/embed.go":                         "package adapter\n\nimport _ \"embed\"\n\n//go:embed adapter.go\nvar source string\n",
 	"native/native.go":                         "package native\n\n/*\n#define ANSWER 42\n*/\nimport \"C\"\n\nfunc Answer() int { return 42 }\n",
 	"internal/conformance/conformance_test.go": "//go:build conformance\n\npackage conformance\n\nimport (\n\t\"testing\"\n\n\tm \"example.com/m\"\n)\n\nfunc TestInterop(t *testing.T) { _ = m.Serve() }\n",
-	"internal/parity/parity_test.go":           "package parity\n\nimport \"testing\"\n\n// Covers B1\nfunc TestB1(t *testing.T) {}\n",
+	"internal/parity/parity_test.go":           "package parity\n\nimport \"testing\"\n\n// Checks the public contract\nfunc TestB1(t *testing.T) {}\n",
 	"_examples/app/go.mod":                     "module example.com/app\n\ngo 1.22\n",
 	"_examples/app/main.go":                    "package main\n\n// main runs.\nfunc main() {}\n",
 	"_examples/app/chat.go":                    "package main\n\n// chat is a shared copy.\nfunc chat() {}\n",
 	"engineio/_examples/main.go":               "package main\n\n// main echoes.\nfunc main() {}\n",
 	"Makefile":                                 "test:\n\tgo test ./...\n",
 	"README.md":                                "# m\n",
-	"CHANGELOG.md":                             "# Changelog\n",
-	"docs/PARITY.md":                           "| B1 | DONE | x |\n",
+	"docs/guide.md":                            "# Guide\n",
+	"docs/ARCHITECTURE.md":                     "| B1 | DONE | x |\n",
 	"docs/API.md":                              "# API\n",
 	"LICENSE":                                  "license\n",
 	".github/sync-manifest":                    "engineio/errors.go v2/engineio/errors.go\n",
@@ -233,9 +233,9 @@ func TestClassify(t *testing.T) {
 		{name: "comment in a conformance test", edit: map[string]string{
 			"internal/conformance/conformance_test.go": "//go:build conformance\n\n// Run with -tags conformance, not a +build line.\n\npackage conformance\n\nimport (\n\t\"testing\"\n\n\tm \"example.com/m\"\n)\n\nfunc TestInterop(t *testing.T) { _ = m.Serve() }\n",
 		}, want: lintV1},
-		{name: "Covers marker comment", edit: map[string]string{
-			"internal/parity/parity_test.go": "package parity\n\nimport \"testing\"\n\n// Covers B2\nfunc TestB1(t *testing.T) {}\n",
-		}, want: with(map[string]string{"v1": "true", "gates_v1": "true"})},
+		{name: "ordinary test comment", edit: map[string]string{
+			"internal/parity/parity_test.go": "package parity\n\nimport \"testing\"\n\n// Checks the public contract from a consumer\nfunc TestB1(t *testing.T) {}\n",
+		}, want: lintV1},
 		// Every Go change of a v1 example also runs lint-v1: make vet vets the examples, and
 		// make vuln scans the example modules.
 		{name: "example code", edit: map[string]string{
@@ -260,12 +260,12 @@ func TestClassify(t *testing.T) {
 		{name: "example module checksums", edit: map[string]string{
 			"_examples/app/go.sum": "example.com/dep v1.0.0 h1:x=\n",
 		}, want: with(map[string]string{"v1": "true", "examples_v1": "true", "conformance": "true"})},
-		{name: "Markdown only", edit: map[string]string{"CHANGELOG.md": "# Changelog\n\n- x\n"}, want: none},
-		{name: "Markdown read by the parity gate", edit: map[string]string{"docs/PARITY.md": "| B1 | DONE | y |\n"},
-			want: none},
+		{name: "Markdown only", edit: map[string]string{"docs/guide.md": "# Guide\n\n- x\n"}, want: none},
+		{name: "Markdown read by the architecture gate", edit: map[string]string{"docs/ARCHITECTURE.md": "# Architecture\n"},
+			want: with(map[string]string{"gates_v1": "true"})},
 		{name: "Markdown read by the v2 gates", edit: map[string]string{"docs/API.md": "# API\n\nmore\n"},
-			want: none},
-		{name: "Markdown read by a gate with a Go comment", edit: map[string]string{
+			want: with(map[string]string{"gates_v2": "true"})},
+		{name: "README and a Go comment", edit: map[string]string{
 			"README.md":        "# m\n\nmore\n",
 			"parser/parser.go": "package parser\n\n// Parse parses a string.\nfunc Parse(s string) int {\n\treturn len(s)\n}\n",
 		}, want: lintV1},
@@ -508,8 +508,8 @@ func TestFrozenFallback(t *testing.T) {
 }
 
 // TestGateInputsCoverRepository fails when a Go file of the repository names a Markdown
-// file that gateInputs does not list: the job summary would not name the gate that a
-// Markdown-only change to it skips. Paths are compared relative to the repository root.
+// file that gateInputs does not list: its changes would skip the consuming gate.
+// Paths are compared relative to the repository root.
 // It also fails when no Go file names an entry of gateInputs any more.
 func TestGateInputsCoverRepository(t *testing.T) {
 	root := filepath.Join("..", "..")
@@ -644,12 +644,12 @@ func TestMarkdownNames(t *testing.T) {
 		"func f(root string) {\n" +
 		"\t_, _ = os.ReadFile(\"README.md\")\n" +
 		"\t_, _ = os.ReadFile(\"../docs/API.md\")\n" +
-		"\t_ = filepath.Join(root, \"docs\", \"PARITY.md\")\n" +
-		"\tput(root, \"docs/ROADMAP.md\")\n" +
-		"\tpanic(\"no rows in docs/PARITY.md\")\n" +
+		"\t_ = filepath.Join(root, \"docs\", \"ARCHITECTURE.md\")\n" +
+		"\tput(root, \"docs/ARCHITECTURE.md\")\n" +
+		"\tpanic(\"no rows in docs/ARCHITECTURE.md\")\n" +
 		"}\n"
 	got := markdownNames("v2/p/p.go", []byte(src))
-	want := []string{"v2/p/README.md", "v2/docs/API.md", "docs/PARITY.md", "docs/ROADMAP.md", "docs/PARITY.md", "v2/p/notes.md"}
+	want := []string{"v2/p/README.md", "v2/docs/API.md", "docs/ARCHITECTURE.md", "docs/ARCHITECTURE.md", "docs/ARCHITECTURE.md", "v2/p/notes.md"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("markdownNames = %q, want %q", got, want)
 	}

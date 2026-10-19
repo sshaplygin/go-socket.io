@@ -51,8 +51,8 @@ func TestForbiddenProductionImports(t *testing.T) {
 	for _, tc := range []struct{ from, to string }{
 		{"", "client"}, {"", "adapter/redis"},
 		{"client", ""}, {"client", "engineio"},
-		{"client/internal/connection", "internal/connection"},
-		{"client/internal/namespace", "internal/namespace"},
+		{"client", "internal/connection"},
+		{"client", "internal/namespace"},
 		{"internal/event", ""}, {"internal/event", "client"},
 		{"internal/event", "internal/connection"}, {"internal/event", "adapter"},
 		{"engineio/client", "engineio/internal/session"},
@@ -71,7 +71,7 @@ func TestForbiddenProductionImports(t *testing.T) {
 			}
 		})
 	}
-	for _, from := range []string{"", "client/internal/connection", "engineio/client"} {
+	for _, from := range []string{"", "client", "engineio/client"} {
 		graph := allowedGraph()
 		graph[fullPath(from)] = append(graph[fullPath(from)], "github.com/gomodule/redigo/redis")
 		if err := validateGraph(graph); err == nil || !strings.Contains(err.Error(), "redigo") {
@@ -98,8 +98,8 @@ func TestTransitiveRoleAndCodecExclusions(t *testing.T) {
 	// Exercise closure rules independently of direct-edge rules, so a future
 	// allowed-edge amendment cannot silently couple roles through a private owner.
 	for _, chain := range [][]string{
-		{"", "internal/connection", "adapter/redis"},
-		{"client", "client/internal/namespace", "engineio"},
+		{"", "logger", "adapter/redis"},
+		{"client", "logger", "engineio"},
 		{"engineio/client", "engineio/parser/internal/packet", ""},
 		{"parser", "logger", "engineio/internal/session"},
 		{"engineio/parser", "engineio/parser/internal/payload", "engineio/transport"},
@@ -118,7 +118,7 @@ func TestTransitiveRoleAndCodecExclusions(t *testing.T) {
 func TestRuntimeInventoryAndCycles(t *testing.T) {
 	t.Run("missing", func(t *testing.T) {
 		graph := allowedGraph()
-		delete(graph, fullPath("client/internal/namespace"))
+		delete(graph, fullPath("client"))
 		if err := validateGraph(graph); err == nil || !strings.Contains(err.Error(), "missing runtime package") {
 			t.Fatalf("missing package accepted: %v", err)
 		}
@@ -211,7 +211,7 @@ func TestRealGoListRejectsForbiddenProductionImport(t *testing.T) {
 	}
 }
 
-func TestFailedListingAndRetiredPaths(t *testing.T) {
+func TestFailedListingAndUnsupportedPaths(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if _, err := inspect(ctx, t.TempDir()); err == nil || !strings.Contains(err.Error(), "go list failed") {
@@ -225,7 +225,7 @@ func TestFailedListingAndRetiredPaths(t *testing.T) {
 	if _, err := inspect(ctx, root); err != nil {
 		t.Fatalf("allowed real fixture failed: %v", err)
 	}
-	for _, retired := range retiredPaths {
+	for _, retired := range unsupportedPaths {
 		t.Run(retired, func(t *testing.T) {
 			path := filepath.Join(root, filepath.FromSlash(retired))
 			if strings.HasSuffix(path, ".go") {
@@ -238,8 +238,8 @@ func TestFailedListingAndRetiredPaths(t *testing.T) {
 					t.Fatal(err)
 				}
 			}()
-			if _, err := inspect(ctx, root); err == nil || !strings.Contains(err.Error(), "retired path remains: "+retired) {
-				t.Fatalf("retired path accepted or wrong diagnostic: %v", err)
+			if _, err := inspect(ctx, root); err == nil || !strings.Contains(err.Error(), "unsupported path remains: "+retired) {
+				t.Fatalf("unsupported path accepted or wrong diagnostic: %v", err)
 			}
 		})
 	}
@@ -253,15 +253,15 @@ func TestFailedListingAndRetiredPaths(t *testing.T) {
 				t.Fatal(err)
 			}
 		}()
-		if _, err := inspect(ctx, root); err == nil || !strings.Contains(err.Error(), "retired path remains: engineio/frame") {
-			t.Fatalf("dangling retired path accepted: %v", err)
+		if _, err := inspect(ctx, root); err == nil || !strings.Contains(err.Error(), "unsupported path remains: engineio/frame") {
+			t.Fatalf("dangling unsupported path accepted: %v", err)
 		}
 	})
 
 }
 
-func TestPolicyMatchesRoadmap(t *testing.T) {
-	text, err := os.ReadFile("../../docs/ROADMAP.md")
+func TestPolicyMatchesDocumentation(t *testing.T) {
+	text, err := os.ReadFile("../../docs/ARCHITECTURE.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,14 +270,14 @@ func TestPolicyMatchesRoadmap(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(documented) != len(allowedImports) {
-		t.Fatalf("roadmap/policy component count differs: %d/%d", len(documented), len(allowedImports))
+		t.Fatalf("documentation/policy component count differs: %d/%d", len(documented), len(allowedImports))
 	}
 	for path, imports := range allowedImports {
 		expected, found := documented[path]
 		actual := append([]string{}, imports...)
 		slices.Sort(actual)
 		if !found || !reflect.DeepEqual(expected, actual) {
-			t.Errorf("roadmap/policy imports differ for %s: %v/%v", path, expected, actual)
+			t.Errorf("documentation/policy imports differ for %s: %v/%v", path, expected, actual)
 		}
 	}
 }
@@ -287,11 +287,11 @@ func TestPolicyMatchesRoadmap(t *testing.T) {
 func TestNativeProductionDependencies(t *testing.T) {
 	for _, tc := range []struct{ from, to string }{
 		{"", "client"}, {"client", "engineio"},
-		{"client/internal/connection", "internal/connection"},
+		{"client", "internal/connection"},
 		{"engineio/parser/internal/payload", "engineio/internal/session"},
 		{"parser", "engineio/transport"},
 		{"", "engineio/session"}, {"logger", "helpers"},
-		{"client/internal/connection", "v2/parser"}, {"engineio/parser", "engineio/packet"},
+		{"client", "v2/parser"}, {"engineio/parser", "engineio/packet"},
 	} {
 		var stream bytes.Buffer
 		if err := json.NewEncoder(&stream).Encode(listedPackage{
@@ -361,7 +361,7 @@ func parsePolicyTable(text string) (map[string][]string, error) {
 }
 
 func TestPolicyTableLineEndings(t *testing.T) {
-	raw, err := os.ReadFile("../../docs/ROADMAP.md")
+	raw, err := os.ReadFile("../../docs/ARCHITECTURE.md")
 	if err != nil {
 		t.Fatal(err)
 	}

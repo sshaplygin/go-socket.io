@@ -23,12 +23,6 @@ import (
 // TestOptionsReachConnections checks the queue size and drain deadline each connection
 // uses. The public constructor resolves defaults; a held real polling writer
 // verifies the resulting queue budget. Exact stored values remain owner-local.
-//
-// Covers 1I-T2 (C).
-// Covers 1I-T3 (C).
-// Covers 1I-T4 (C).
-// Covers 1I-T5 (C).
-// Covers 1I-T6 (C).
 func TestOptionsReachConnections(t *testing.T) {
 	cases := []struct {
 		name  string

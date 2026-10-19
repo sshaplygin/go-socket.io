@@ -123,7 +123,6 @@ func corsWebsocket(t *testing.T, f *parityWire, origin string, upgrade, accepted
 	}
 }
 
-// Covers P8
 func TestCORSDefault(t *testing.T) {
 	for _, kind := range []string{"nil options", "zero options"} {
 		for _, origin := range []string{"", foreignOrigin} {
@@ -140,7 +139,6 @@ func TestCORSDefault(t *testing.T) {
 	}
 }
 
-// Covers S4
 func TestCORSDisabled(t *testing.T) {
 	for _, origin := range []string{"", foreignOrigin} {
 		t.Run("legacy/"+origin, func(t *testing.T) {

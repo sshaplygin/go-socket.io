@@ -24,6 +24,6 @@
 // # Wire format
 //
 // The wire format is that of socket.io-parser 4.2.7 (protocol 5). The deliberate
-// differences from the Node.js parser are listed in docs/PROTOCOL.md of the
+// differences from the Node.js parser are listed in docs/V2_PROTOCOL.md of the
 // repository, which owns them; testdata/oracle checks the codec against Node.
 package parser

@@ -15,7 +15,6 @@ import (
 	"time"
 )
 
-// Covers S10
 func TestUnknownNamespaceKeepsConnection(t *testing.T) {
 	ts := newTestServer(t, func(s *Server) {
 		s.OnConnect("/", func(Conn) error { return nil })
@@ -29,7 +28,6 @@ func TestUnknownNamespaceKeepsConnection(t *testing.T) {
 	require.Equal(t, "37[42]\n", c.read())
 }
 
-// Covers N9
 func TestNamespaceConnectPacket(t *testing.T) {
 	ts := newTestServer(t, func(s *Server) {
 		s.OnConnect("/", func(Conn) error { return nil })
@@ -41,7 +39,6 @@ func TestNamespaceConnectPacket(t *testing.T) {
 	require.Equal(t, "0/chat,", c.read())
 }
 
-// Covers K22
 func TestClientErrorPacket(t *testing.T) {
 	errs := make(chan error, 8)
 	ts := newTestServer(t, func(s *Server) {
@@ -63,7 +60,6 @@ func TestClientErrorPacket(t *testing.T) {
 	require.Equal(t, "37[42]\n", c.read())
 }
 
-// Covers R10
 func TestEncodeErrorKeepsConnection(t *testing.T) {
 	ts := newTestServer(t, func(s *Server) {
 		s.OnConnect("/", func(Conn) error { return nil })
@@ -76,7 +72,6 @@ func TestEncodeErrorKeepsConnection(t *testing.T) {
 	require.Equal(t, "2[\"next\",42]\n", c.read())
 }
 
-// Covers K23
 func TestDisconnectingRooms(t *testing.T) {
 	for _, applicationClose := range []bool{false, true} {
 		t.Run(map[bool]string{false: "client", true: "application"}[applicationClose], func(t *testing.T) {
@@ -111,7 +106,6 @@ func TestDisconnectingRooms(t *testing.T) {
 	}
 }
 
-// Covers K24
 func TestOnDisconnectReason(t *testing.T) {
 	for _, scenario := range []string{"CLOSE", "timeout", "reset", "Conn.Close", "Server.Close", "parse error", "mid-frame reset", "mid-frame timeout"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -171,9 +165,6 @@ func TestOnDisconnectReason(t *testing.T) {
 	}
 }
 
-// Covers G9
-// Covers G19
-// Covers G21
 func TestIgnoredBinaryEventsConsumeTheirAttachments(t *testing.T) {
 	_, url := defectServer(t, func(s *Server) { s.OnEvent("/", "alive", func(Conn) string { return "alive" }) })
 	c := dialRaw(t, url)
@@ -195,7 +186,6 @@ func TestIgnoredBinaryEventsConsumeTheirAttachments(t *testing.T) {
 	}
 }
 
-// Covers B2
 func TestWrongTypeArgumentKeepsConnection(t *testing.T) {
 	for _, kind := range []string{"event", "binary event", "ack"} {
 		t.Run(kind, func(t *testing.T) {

@@ -78,7 +78,7 @@ func TestClientEventAndDisconnect(t *testing.T) {
 	srv.send(`2["num",5]`)
 	require.Equal(t, 5, recv(t, events, "client event"))
 
-	// V1-10 exposes the reference client's server-initiated disconnect reason.
+	// The client reports the server-initiated disconnect reason.
 	srv.send("1")
 	require.Equal(t, "io server disconnect", recv(t, reasons, "client OnDisconnect"))
 }

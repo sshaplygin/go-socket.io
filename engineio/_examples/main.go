@@ -22,6 +22,8 @@ func main() {
 	defer stop()
 	if err := run(ctx); err != nil {
 		log.Print(err)
+		stop()
+		os.Exit(1)
 	}
 }
 

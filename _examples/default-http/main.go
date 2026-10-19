@@ -28,6 +28,8 @@ func main() {
 	defer stop()
 	if err := run(ctx, *addr); err != nil {
 		log.Print(err)
+		stop()
+		os.Exit(1)
 	}
 }
 

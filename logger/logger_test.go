@@ -142,10 +142,6 @@ func TestTraceDisabledNoAlloc(t *testing.T) {
 	require.Zero(t, allocs)
 }
 
-func TestErrorNilSafe(t *testing.T) {
-	require.NotPanics(t, func() { Error("nil error", nil) })
-}
-
 // TestLogFollowsSetDefault checks that the fallback logger writes to the
 // handler installed by a later slog.SetDefault, with level and attributes
 // intact, and that installing Log itself as the default does not recurse.

@@ -8,8 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Covers G13
-func TestReviewG13NamespaceChannelIsolation(t *testing.T) {
+func TestNamespaceChannelIsolation(t *testing.T) {
 	s := miniredis.RunT(t)
 	b := newTestRedisBroadcast(t, s)
 	c := newRedisTestConn("victim")

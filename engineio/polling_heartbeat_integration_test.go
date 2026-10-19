@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-// Covers G10
 func TestPingPostReleasesBeforePongPoll(t *testing.T) {
 	s := engineio.NewServer()
 	ts := httptest.NewServer(s)

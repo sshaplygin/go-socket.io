@@ -68,7 +68,6 @@ func (c *observedLimitConn) Close() error {
 	return e
 }
 
-// Covers G16
 func TestUpgradeCandidateLimitInstalledBeforeProbe(t *testing.T) {
 	const limit = 512
 	release := make(chan struct{})

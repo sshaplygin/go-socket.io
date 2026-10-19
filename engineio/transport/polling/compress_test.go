@@ -21,7 +21,6 @@ type failingCompressionResponse struct {
 
 func (w failingCompressionResponse) Write([]byte) (int, error) { return 0, w.err }
 
-// Covers E9
 func TestPollingCompressionWriteFailure(t *testing.T) {
 	for _, encoding := range []string{"", "gzip", "deflate"} {
 		t.Run(encoding, func(t *testing.T) {
@@ -52,7 +51,6 @@ func TestPollingCompressionWriteFailure(t *testing.T) {
 	}
 }
 
-// Covers E9
 func TestPollingCompressionFlagAndNoop(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://localhost/?b64=1", nil)
 	req.Header.Set("Accept-Encoding", "gzip")

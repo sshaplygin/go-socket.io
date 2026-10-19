@@ -18,8 +18,6 @@ import (
 // sender waits, and refuses a handshake after Close. It checks them
 // before calling Accept, which would also drop a session it receives after
 // Close.
-//
-// Covers 1I-T11 (S).
 func TestServerCloseClosesUnacceptedSessions(t *testing.T) {
 	svr := NewServer()
 	httpSvr := httptest.NewServer(svr)

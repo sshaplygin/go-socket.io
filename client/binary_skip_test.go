@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Covers G9
 func TestClientIgnoredBinaryPacketKeepsConnection(t *testing.T) {
 	for _, packet := range []string{`451-/missing,["ignored",{"_placeholder":true,"num":0}]`, `461-/missing,7[{"_placeholder":true,"num":0}]`} {
 		t.Run(packet[:3], func(t *testing.T) {

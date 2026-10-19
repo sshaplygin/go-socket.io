@@ -93,7 +93,6 @@ func TestPayloadFlushOutWaitsForWriter(t *testing.T) {
 	}
 }
 
-// Covers G11
 func TestCanceledPollFailsTransportBeforeNextWrite(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest("GET", "http://localhost/?transport=polling", nil).WithContext(ctx)

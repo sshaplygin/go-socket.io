@@ -25,7 +25,6 @@ func (r *queuedReader) NextReader() (parser.FrameType, io.ReadCloser, error) {
 	return f.typ, io.NopCloser(strings.NewReader(f.data)), nil
 }
 
-// Covers G9
 func TestDiscardLastConsumesAttachments(t *testing.T) {
 	for _, typ := range []string{"51-/unknown,[\"event\",{\"_placeholder\":true,\"num\":0}]", "61-/unknown,1[{\"_placeholder\":true,\"num\":0}]"} {
 		r := &queuedReader{frames: []queuedFrame{{parser.Text, typ}, {parser.Binary, "payload"}, {parser.Text, `2["next"]`}}}
@@ -60,8 +59,7 @@ type auditReadCloser struct {
 
 func (r auditReadCloser) Close() error { return r.closeErr }
 
-// Covers G31
-func TestV1AuditDecoderMustReturnFrameCloseError(t *testing.T) {
+func TestDecoderMustReturnFrameCloseError(t *testing.T) {
 	want := errors.New("frame release failed")
 	d := parser.NewDecoder(auditReader{closeErr: want})
 	var h parser.Header
@@ -158,7 +156,6 @@ func TestDecodeVariadicArguments(t *testing.T) {
 	}
 }
 
-// Covers G20
 func TestDecodeVariadicRejectsNilTypes(t *testing.T) {
 	for _, types := range [][]reflect.Type{{nil}, {nil, reflect.TypeOf([]int{})}} {
 		d := parser.NewDecoder(&queuedReader{frames: []queuedFrame{{parser.Text, `2["event",1,2]`}}})

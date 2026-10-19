@@ -200,8 +200,6 @@ func TestLifecycleNamespace(t *testing.T) {
 	require.Equal(t, "/chat", recv(t, nspDisconnected, "OnDisconnect(/chat)"))
 }
 
-// Covers G4
-// Covers G18
 func TestRejectedAdmissionDuringCloseDoesNotConnect(t *testing.T) {
 	entered, release := make(chan Conn, 1), make(chan struct{})
 	s := NewServer()
@@ -217,7 +215,6 @@ func TestRejectedAdmissionDuringCloseDoesNotConnect(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
-// Covers G4
 func TestRejectedAdmissionAfterNamespaceDisconnectHasNoLifecycle(t *testing.T) {
 	seen := make(chan string, 4)
 	s, url := defectServer(t, func(s *Server) {
@@ -235,8 +232,7 @@ func TestRejectedAdmissionAfterNamespaceDisconnectHasNoLifecycle(t *testing.T) {
 	require.Empty(t, seen, "a rejected socket never entered the connected lifecycle")
 }
 
-// Covers G4
-func TestRegressionG4CloseDoesNotDisconnectDuringConnect(t *testing.T) {
+func TestCloseDoesNotDisconnectDuringConnect(t *testing.T) {
 	entered := make(chan Conn, 1)
 	release := make(chan struct{})
 	var inConnect atomic.Bool

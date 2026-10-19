@@ -19,7 +19,6 @@ func (c *heldCloseConn) Close() error {
 	return c.scriptConn.Close()
 }
 
-// Covers E20
 func TestSessionReadyState(t *testing.T) {
 	c := &heldCloseConn{entered: make(chan struct{}), release: make(chan struct{})}
 	s := newTestSession(t, c, "polling")

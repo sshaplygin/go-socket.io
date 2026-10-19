@@ -37,7 +37,6 @@ func nodeBinaryPayload(t *testing.T, b []byte) [][]byte {
 	return out
 }
 
-// Covers P16
 func TestPollingBinaryPayloadNonASCII(t *testing.T) {
 	must := require.New(t)
 	should := assert.New(t)

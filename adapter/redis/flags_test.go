@@ -39,7 +39,6 @@ func isolatedRedis(t *testing.T) (*broadcast, *atomic.Int32) {
 	return &broadcast{nsp: "/", uid: "local", key: "socket.io#/#local", Memory: adapter.NewMemory(), pub: pool}, &calls
 }
 
-// Covers A4
 func TestRedisBroadcastExceptSupported(t *testing.T) {
 	b, calls := isolatedRedis(t)
 	c := newRedisTestConn("c")

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sshaplygin/go-socket.io/client/internal/connection"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -15,7 +14,7 @@ import (
 )
 
 // Client multiplexes namespace sockets over one Engine.IO connection.
-type Client struct{ manager *connection.Manager }
+type Client struct{ manager *manager }
 
 // New configures addr (http://host:port[/namespace]) without opening a connection.
 // The address path selects the namespace of the Client's own event methods.
@@ -28,13 +27,7 @@ func New(addr string, opts ...Option) (*Client, error) {
 		return nil, err
 	}
 	address, namespace, config := prepareOptions(u, opts...)
-	return &Client{manager: connection.NewManager(address, namespace, connection.Config{
-		MaxMessageSize: config.MaxMessageSize, Transports: config.Transports, Header: config.Header, Timeout: config.Timeout,
-		WriteBufferSize: config.WriteBufferSize, CloseTimeout: config.CloseTimeout,
-		DisableReconnection: config.DisableReconnection, ReconnectionAttempts: config.ReconnectionAttempts,
-		ReconnectionDelay: config.ReconnectionDelay, ReconnectionDelayMax: config.ReconnectionDelayMax,
-		RandomizationFactor: config.RandomizationFactor,
-	}, loggerFrom(&config), nil)}, nil
+	return &Client{manager: newManager(address, namespace, config, loggerFrom(&config), nil)}, nil
 }
 
 // Connect returns once Engine.IO is open and namespace CONNECT packets are queued.

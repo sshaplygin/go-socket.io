@@ -51,7 +51,6 @@ func retryOptions() []client.Option {
 	return []client.Option{client.WithTransports([]transport.Transport{websocket.Default}...), client.WithTimeout(200 * time.Millisecond), client.WithReconnectionDelay(10 * time.Millisecond), client.WithReconnectionDelayMax(20 * time.Millisecond), client.WithRandomizationFactor(-1)}
 }
 
-// Covers C3
 func TestClientReconnect(t *testing.T) {
 	t.Run("restart", func(t *testing.T) {
 		address, stop := reconnectServer(t, "127.0.0.1:0")
@@ -90,9 +89,11 @@ func TestClientReconnect(t *testing.T) {
 		require.Empty(t, root.ID())
 		require.Equal(t, 1, recv(t, attempts, "first retry"))
 		require.Error(t, recv(t, failures, "failed retry while server down"))
-		// Retained namespace Conns continue to buffer ordinary emits during recovery.
-		ack := make(chan string, 1)
-		initial["/chat"].Emit("echo", "buffered", func(value string) { ack <- value })
+		// The stable Socket buffers during recovery; a retired Conn cannot submit
+		// work for the next connection.
+		ack := make(chan string, 2)
+		initial["/chat"].Emit("echo", "stale", func(value string) { ack <- value })
+		chat.Emit("echo", "buffered", func(value string) { ack <- value })
 		_, stopNew := reconnectServer(t, address)
 		defer stopNew()
 		require.Positive(t, recv(t, recovered, "reconnect"))

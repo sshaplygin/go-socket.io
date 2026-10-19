@@ -16,7 +16,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
-// Covers K16
 func TestEngineClientWritable(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {

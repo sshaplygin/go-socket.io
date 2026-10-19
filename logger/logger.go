@@ -34,10 +34,8 @@
 // Expected closure (EOF, a closed connection, a peer close, a ping timeout and
 // any failure after a close started), errors also returned to a caller or
 // delivered to an OnError handler, and the boundary records (session open and
-// close, namespace connect, disconnect) are DEBUG. LevelTrace is reserved for
-// per-packet and ping/pong lines, guarded by Enabled so that disabled trace
-// logging does not allocate; no v1 call site logs at it yet. Records an
-// application logs through the deprecated Error and Info are its own.
+// close, namespace connect, disconnect) are DEBUG. LevelTrace is available for
+// application records; the library does not emit records at that level.
 //
 // # Messages and keys
 //
@@ -222,20 +220,4 @@ func (h *defaultHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h *defaultHandler) WithGroup(name string) slog.Handler {
 	return h.with(func(n slog.Handler) slog.Handler { return n.WithGroup(name) })
-}
-
-// Error logs msg with err at ERROR through Log. A nil err is logged as such.
-//
-// Deprecated: the library no longer calls Error. Use slog's methods on
-// logger.Log or on the logger passed as engineio.WithLogger instead.
-func Error(msg string, err error) {
-	Log.Error(msg, "err", err)
-}
-
-// Info logs msg with args at INFO through Log.
-//
-// Deprecated: the library no longer calls Info. Use slog's methods on
-// logger.Log or on the logger passed as engineio.WithLogger instead.
-func Info(msg string, args ...interface{}) {
-	Log.Info(msg, args...)
 }

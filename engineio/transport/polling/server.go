@@ -32,7 +32,8 @@ type serverConn struct {
 }
 
 // newServerConn creates the polling connection of a request. JSONP is not supported
-// (ROADMAP Stage V1, D4): the `j` parameter is ignored like any unknown parameter.
+//
+//	the `j` parameter is ignored like any unknown parameter.
 func newServerConn(t *Transport, r *http.Request) *serverConn {
 	supportBinary := r.URL.Query().Get("b64") == ""
 

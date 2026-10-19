@@ -1,5 +1,5 @@
 // Command changes decides which CI jobs a pull request needs. It reads the diff between
-// two revisions, drops Markdown, sends a change of Go comments or formatting only to the
+// two revisions, selects gates for their Markdown inputs, sends a change of Go comments or formatting only to the
 // lint job of its module, maps the other Go changes to packages and their reverse
 // dependencies through `go list -deps -test`, and prints the job inputs as GitHub Actions
 // outputs (vN starts lint-vN, vN_packages the test jobs):

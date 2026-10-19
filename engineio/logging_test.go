@@ -125,13 +125,6 @@ func (f *logFixture) upgrade(t *testing.T, conn Conn) {
 		time.Second, time.Millisecond)
 }
 
-// Covers 1L-T1 (P, W).
-// Covers 1L-T2 (W).
-// Covers 1L-T3 (P, W).
-// Covers 1L-T4 (P, W).
-// Covers 1L-T5 (P).
-// Covers 1L-T6 (P, W).
-// Covers 1L-T7 (P, W).
 func TestSessionCloseRecord(t *testing.T) {
 	cases := []struct {
 		name, sides, reason, transport string // transport, if set, is the one at close

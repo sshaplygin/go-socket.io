@@ -30,9 +30,6 @@ func (c *binaryTarget) EmitWithOptions(opts adapter.Options, name string, args .
 	c.Emit(name, args...)
 }
 
-// Covers A4
-// Covers B3
-// Covers S21
 func TestRedisNodeBroadcastOracle(t *testing.T) {
 	b, _ := isolatedRedis(t)
 	b.nsp = "/chat#nested"
@@ -64,8 +61,6 @@ func TestRedisNodeBroadcastOracle(t *testing.T) {
 	require.True(t, opts.NoCompress)
 }
 
-// Covers A4
-// Covers B3
 func TestRedisPublicationErrorsAndUnsupportedCallbacks(t *testing.T) {
 	b, calls := isolatedRedis(t)
 	target := newRedisTestConn("target")
@@ -78,8 +73,6 @@ func TestRedisPublicationErrorsAndUnsupportedCallbacks(t *testing.T) {
 	require.Error(t, b.SendTo(adapter.Options{}, "publish-error", 1))
 }
 
-// Covers A4
-// Covers S13
 func TestRedisRoomUnionAndExclusionAcrossInstances(t *testing.T) {
 	s := miniredis.RunT(t)
 	a := newTestRedisBroadcast(t, s)
@@ -107,7 +100,6 @@ func (redisCustomJSON) MarshalJSON() ([]byte, error) {
 	return []byte(`{"custom":9007199254740993}`), nil
 }
 
-// Covers B3
 func TestRedisCanonicalJSONAndExactNumbers(t *testing.T) {
 	data, err := encodeBroadcast("peer", "/", "exact", adapter.Options{}, []interface{}{redisJSONPayload{Ignored: "secret", Number: 18446744073709551615, Binary: parser.Buffer{Data: []byte{1, 2}}}, redisCustomJSON{}})
 	require.NoError(t, err)
@@ -137,7 +129,6 @@ func TestRedisMalformedMessageValidation(t *testing.T) {
 	require.NoError(t, b.onMessage("socket.io#/#", valid))
 }
 
-// Covers B3
 func TestRedisEmptyBinaryRemainsAttachment(t *testing.T) {
 	data, err := encodeBroadcast("peer", "/", "empty", adapter.Options{}, []interface{}{parser.Buffer{}})
 	require.NoError(t, err)

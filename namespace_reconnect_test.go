@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"errors"
+	"github.com/sshaplygin/go-socket.io/adapter"
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
@@ -14,8 +15,97 @@ import (
 	"time"
 )
 
-// Covers G3
-func TestRegressionG3OldDisconnectPreservesNewRooms(t *testing.T) {
+type reentrantRoomAdapter struct {
+	*adapter.Memory
+	t         *testing.T
+	onJoin    func(Conn)
+	returned  chan struct{}
+	automatic bool
+}
+
+func (a *reentrantRoomAdapter) Join(room string, socket adapter.Socket) {
+	a.Memory.Join(room, socket)
+	if !a.automatic && room != "trigger" {
+		return
+	}
+	// Bound a regression so the adapter eventually releases its caller and the
+	// blocked callback can finish, rather than hanging the test's cleanup.
+	go func() {
+		defer close(a.returned)
+		a.onJoin(socket.(Conn))
+	}()
+	select {
+	case <-a.returned:
+	case <-time.After(time.Second):
+		a.t.Error("adapter Join callback blocked on its socket")
+	}
+}
+
+func TestAdapterJoinCanReenterSocket(t *testing.T) {
+	for _, automatic := range []bool{false, true} {
+		for _, operation := range []string{"Rooms", "Emit", "Disconnect", "Close"} {
+			t.Run(map[bool]string{false: "explicit", true: "automatic"}[automatic]+"/"+operation, func(t *testing.T) {
+				observed := make(chan []string, 1)
+				closed := make(chan error, 1)
+				b := &reentrantRoomAdapter{Memory: adapter.NewMemory(), t: t, returned: make(chan struct{}), automatic: automatic}
+				b.onJoin = func(c Conn) {
+					if operation != "Rooms" {
+						c.Emit("joined")
+					}
+					switch operation {
+					case "Rooms":
+						observed <- c.Rooms()
+					case "Disconnect":
+						c.Disconnect()
+					case "Close":
+						closed <- c.Close()
+					}
+				}
+				p := newPeer(t, 'S', hooks{
+					setup: func(s *Server) { s.SetAdapter(func(string) (adapter.Adapter, error) { return b, nil }) },
+					disconnect: func(c Conn) {
+						if operation == "Close" {
+							c.Emit("goodbye")
+						}
+					},
+				})
+				p.srv.serveConn(p.fc)
+				p.nc = recv(t, p.conns, "root OnConnect")
+				closeAtEnd(t, p.fc, p.completion())
+				require.Equal(t, "0", recv(t, p.fc.out, "CONNECT before adapter emissions"))
+				if !automatic {
+					p.nc.Join("trigger")
+				}
+				recv(t, b.returned, "adapter callback return")
+				if operation == "Rooms" {
+					want := []string{p.nc.ID()}
+					if !automatic {
+						want = append(want, "trigger")
+					}
+					require.ElementsMatch(t, want, recv(t, observed, "rooms inside adapter"))
+					return
+				}
+				require.Equal(t, ev("joined"), recv(t, p.fc.out, "adapter emission after CONNECT"))
+				if operation == "Emit" {
+					return
+				}
+				if operation == "Close" {
+					require.NoError(t, recv(t, closed, "reentrant Close"))
+					p.disconnected(t, "/")
+				} else {
+					require.Equal(t, "/", recv(t, p.discs, "namespace disconnect callback"))
+				}
+				require.Equal(t, "1", recv(t, p.fc.out, "DISCONNECT after adapter emission"))
+				if operation == "Close" {
+					require.Equal(t, ev("goodbye"), recv(t, p.fc.out, "graceful callback emit"))
+				}
+				require.Empty(t, b.AllRooms(), "retirement removes the joined room")
+			})
+		}
+	}
+}
+
+func TestOldDisconnectPreservesNewRooms(t *testing.T) {
 	connected := make(chan Conn, 2)
 	entered, release := make(chan struct{}, 1), make(chan struct{})
 	releaseOld := sync.OnceFunc(func() { close(release) })
@@ -44,7 +134,39 @@ func TestRegressionG3OldDisconnectPreservesNewRooms(t *testing.T) {
 	require.Equal(t, 1, s.RoomLen("/chat", next.ID()), "old LeaveAll removed newly accepted socket's ID room")
 }
 
-// Covers G3
+func TestRetainedServerConnCannotAffectReplacement(t *testing.T) {
+	connected := make(chan Conn, 2)
+	s, url := defectServer(t, func(s *Server) {
+		s.OnConnect("/chat", func(c Conn) error { connected <- c; return nil })
+	})
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	c.send("0/chat,")
+	require.Equal(t, "0/chat,", c.read())
+	old := recv(t, connected, "old namespace")
+	old.Disconnect()
+	require.Equal(t, "1/chat,", c.read())
+	c.send("0/chat,")
+	require.Equal(t, "0/chat,", c.read())
+	next := recv(t, connected, "replacement namespace")
+	require.Equal(t, old.ID(), next.ID(), "namespace reconnect reuses the wire ID")
+	require.False(t, old.Connected())
+	next.Join("live")
+	old.Leave("live")
+	require.Equal(t, 1, s.RoomLen("/chat", "live"))
+	old.LeaveAll()
+	require.ElementsMatch(t, []string{next.ID(), "live"}, next.Rooms())
+	old.Join("stale")
+	require.Empty(t, old.Rooms())
+	require.Zero(t, s.RoomLen("/chat", "stale"))
+	old.Emit("stale")
+	old.Send("stale")
+	require.NoError(t, old.Compress(false).Emit("stale"))
+	require.NoError(t, old.Volatile().Emit("stale"))
+	next.Emit("barrier")
+	require.Equal(t, "2/chat,[\"barrier\"]\n", c.read(), "retained sockets cannot enqueue for their replacement")
+}
+
 func TestRetiredNamespaceReconnectSerializesAdmission(t *testing.T) {
 	for _, reject := range []bool{false, true} {
 		name := "accepted"

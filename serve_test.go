@@ -25,8 +25,7 @@ func TestServeReturnsNilAfterClose(t *testing.T) {
 	}
 }
 
-// Covers G2
-func TestRegressionG2FailedRootRemovesEngineSession(t *testing.T) {
+func TestFailedRootRemovesEngineSession(t *testing.T) {
 	s := NewServer(WithEngineOptions(shortPingOptions()...), WithWriteBufferSize(1))
 	s.OnConnect("/", func(c Conn) error { c.Emit("one"); c.Emit("two"); return nil })
 	go func() { _ = s.Serve() }()
@@ -42,7 +41,6 @@ func TestRegressionG2FailedRootRemovesEngineSession(t *testing.T) {
 	require.Eventually(t, func() bool { return s.Engine().Count() == 0 }, 300*time.Millisecond, 5*time.Millisecond, "closed failed-root session remains in engine registry")
 }
 
-// Covers G2
 func TestSuccessfulSessionRemovedAfterPeerClose(t *testing.T) {
 	s, url := defectServer(t, func(*Server) {})
 	c := dialRaw(t, url)

@@ -17,7 +17,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
-// Covers C5
 func TestClientWebsocketUpgrade(t *testing.T) {
 	for _, name := range []string{"default", "polling", "websocket"} {
 		t.Run(name, func(t *testing.T) {

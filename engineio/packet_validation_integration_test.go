@@ -10,8 +10,7 @@ import (
 	"time"
 )
 
-// Covers G26
-func TestReviewG26UnknownPacketClosesSession(t *testing.T) {
+func TestUnknownPacketClosesSession(t *testing.T) {
 	s := engineio.NewServer()
 	ts := httptest.NewServer(s)
 	defer ts.Close()

@@ -28,7 +28,7 @@ type Hooks struct {
 	InitialHeaders func(r *http.Request, h http.Header)
 	// Headers fires with every response of a session (each polling response, the
 	// websocket upgrade response once), after InitialHeaders on the handshake, before
-	// the headers are written; V1-15's cookie is in h.
+	// the headers are written; the configured cookie is in h.
 	Headers func(r *http.Request, h http.Header)
 	// ConnectionError fires when ServeHTTP rejects a request, with the engine.io 3.6.2
 	// code and message (0 Transport unknown, 1 Session ID unknown, 2 Bad handshake
@@ -49,7 +49,7 @@ type Hooks struct {
 	// Flush fires when a polling write batch starts, Drain when it has been written.
 	Flush func(c Conn)
 	Drain func(c Conn)
-	// Error fires with the transport error that closes the session (V1-4's cause
+	// Error fires with the transport error that closes the session (the cause
 	// transport error), before the close; a peer close or a ping timeout fires nothing.
 	Error func(c Conn, err error)
 }

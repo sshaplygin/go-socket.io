@@ -3,9 +3,12 @@ package payload
 import (
 	"bufio"
 	"encoding/base64"
+	"errors"
 	"github.com/sshaplygin/go-socket.io/engineio/parser/internal/packet"
 	"io"
 )
+
+var errNoPackets = errors.New("empty payload")
 
 type byteReader interface {
 	ReadByte() (byte, error)
@@ -54,7 +57,7 @@ func (d *Decoder) NextReader() (packet.FrameType, packet.PacketType, io.ReadClos
 			br = bufio.NewReader(r)
 		}
 		if err := d.setNextReader(br, supportBinary); err != nil {
-			if err == io.EOF && supportBinary {
+			if (err == io.EOF && supportBinary) || err == errNoPackets {
 				// An empty binary POST contains no packets. Release this body
 				// normally and wait for the next POST without poisoning decoding.
 				if err := d.sendError(nil); err != nil {
@@ -124,7 +127,7 @@ func (d *Decoder) Close() error {
 	}
 	err := d.setNextReader(d.rawReader, d.supportBinary)
 	if err != nil {
-		if err != io.EOF {
+		if err != io.EOF && err != errNoPackets {
 			return d.sendError(err)
 		}
 		err = d.sendError(nil)
@@ -178,11 +181,16 @@ func (d *Decoder) sendError(err error) error {
 func (d *Decoder) textRead(r byteReader) (packet.FrameType, packet.PacketType, int64, error) {
 	var l int64
 	var err error
+	skipped := false
 	for l == 0 {
 		l, err = readTextLen(r)
 		if err != nil {
+			if skipped && err == io.EOF {
+				return 0, 0, 0, errNoPackets
+			}
 			return 0, 0, 0, err
 		}
+		skipped = true
 	}
 
 	ft := packet.String
@@ -220,7 +228,7 @@ func (d *Decoder) binaryRead(r byteReader) (packet.FrameType, packet.PacketType,
 
 	l, err := readBinaryLen(r)
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, unexpectedEOF(err)
 	}
 
 	if l < 1 {
@@ -228,7 +236,7 @@ func (d *Decoder) binaryRead(r byteReader) (packet.FrameType, packet.PacketType,
 	}
 	b, err = r.ReadByte()
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, unexpectedEOF(err)
 	}
 	pt := packet.ByteToPacketType(b, ft)
 	l--
@@ -238,3 +246,10 @@ func (d *Decoder) binaryRead(r byteReader) (packet.FrameType, packet.PacketType,
 
 // NewDecoder binds a payload source. Each acquired reader is released after its last packet or a decoding failure.
 func NewDecoder(r Reader) *Decoder { return &Decoder{feeder: r} }
+
+func unexpectedEOF(err error) error {
+	if err == io.EOF {
+		return io.ErrUnexpectedEOF
+	}
+	return err
+}

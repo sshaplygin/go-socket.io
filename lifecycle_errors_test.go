@@ -66,7 +66,9 @@ func TestLifecycleNoRootHandler(t *testing.T) {
 	})
 
 	c := dialRaw(t, ts.URL)
-	require.True(t, c.readClosed(), "without a root handler the connection is closed")
+	require.Equal(t, "0", c.read(), "the root namespace exists without a registered handler")
+	c.send("0/chat,")
+	require.Equal(t, "0/chat,", c.read())
 }
 
 func TestLifecycleHandlerPanicReachesOnError(t *testing.T) {

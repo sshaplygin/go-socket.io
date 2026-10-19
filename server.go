@@ -458,6 +458,7 @@ func (s *Server) waitForConnections(timeout time.Duration) error {
 }
 
 func (s *Server) serveConn(conn engineio.Conn) {
+	s.createNamespace(rootNamespace)
 	c := connection.New(conn, s.handlers, s.limits.writeBufferSize, s.limits.drainTimeout, s.log.With("sid", conn.ID()))
 	s.activeMu.Lock()
 	if s.closed.Load() {

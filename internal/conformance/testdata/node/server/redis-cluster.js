@@ -18,7 +18,7 @@ const server=http.createServer();
 const io=serverIO(server);
 io.adapter(adapter({pubClient:pub,subClient:sub,key:prefix,requestsTimeout:1500}));
 const observed=[];
-for(const name of ['/','/cluster','/cluster#other']) {
+for(const name of ['/','/cluster','/cluster#other','/lifecycle']) {
  const ns=io.of(name);
  ns.on('connection',s=>{
   s.on('identity',cb=>cb(s.id));
@@ -31,25 +31,26 @@ for(const name of ['/','/cluster','/cluster#other']) {
   return original.apply(this,arguments);
  };
 }
-const sockets=[];
+const sockets=[],managers=[];
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
+function bounded(promise,label){let timer;return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('timeout: '+label)),4000);})]).finally(()=>clearTimeout(timer));}
 const callback=(obj,method,...args)=>new Promise((resolve,reject)=>obj[method](...args,(err,value)=>err?reject(err):resolve(value)));
-function onceDisconnect(s){return new Promise(resolve=>s.once('disconnect',resolve));}
-function ack(s,name,...args){return new Promise(resolve=>s.emit(name,...args,resolve));}
+function onceDisconnect(s){return bounded(new Promise(resolve=>s.once('disconnect',resolve)),'disconnect '+s.nsp);}
+function ack(s,name,...args){return bounded(new Promise(resolve=>s.emit(name,...args,resolve)),'ACK '+name+' '+s.nsp);}
 async function until(f,what){for(let n=0;n<200;n++){if(await f())return;await delay(20);}throw new Error('timeout: '+what);}
 async function readySocket(s) {
  sockets.push(s);
- await new Promise((resolve,reject)=>{s.once('connect',resolve);s.once('connect_error',reject);});
+ await bounded(new Promise((resolve,reject)=>{s.once('connect',resolve);s.once('connect_error',reject);}), 'connect '+s.io.uri+s.nsp);
  s.events=[];s.on('broadcast',v=>s.events.push(v));s.binary=[];s.on('binary',v=>s.binary.push(v));
- s.sid=await ack(s,'identity');return s;
+ s.sid=await bounded(ack(s,'identity'),'identity '+s.nsp);return s;
 }
 async function connect(url,ns='/cluster') {
- const manager=new clientIO.Manager(url,{transports:[transport],forceNode:true,reconnection:false,autoConnect:false});
- const socket=manager.socket(ns);const ready=readySocket(socket);socket.open();return ready;
+ const manager=new clientIO.Manager(url,{transports:[transport],forceNode:true,perMessageDeflate:true,reconnection:false,autoConnect:false});
+ managers.push(manager);const socket=manager.socket(ns);const ready=readySocket(socket);socket.open();return ready;
 }
 async function sharedPair(url) {
- const manager=new clientIO.Manager(url,{transports:[transport],forceNode:true,reconnection:false,autoConnect:false});
- const main=manager.socket('/cluster'),other=manager.socket('/cluster#other');
+ const manager=new clientIO.Manager(url,{transports:[transport],forceNode:true,perMessageDeflate:true,reconnection:false,autoConnect:false});
+ managers.push(manager);const main=manager.socket('/cluster'),other=manager.socket('/lifecycle');
  const ready=Promise.all([readySocket(main),readySocket(other)]);
  main.open();other.open();return ready;
 }
@@ -87,14 +88,17 @@ const watchdog=setTimeout(()=>{console.error('Redis cluster timeout');process.ex
  console.log('Redis scenario connecting '+transport);
  const peers=[await connect(goA),await connect(goB),await connect(nodeURL)];
  const isolated=await connect(goB,'/cluster#other');
- const otherPeers=[await connect(goA,'/cluster#other'),isolated,await connect(nodeURL,'/cluster#other')];
+ // Pinned Node server parses CONNECT namespace as a URL and strips '#'.
+ // Its Redis adapter still publishes exact '#' packet namespaces; test those
+ // messages against real Go namespace clients without patching the reference.
+ const otherPeers=[await connect(goA,'/cluster#other'),isolated];
  const roots=[await connect(goA,'/'),await connect(goB,'/'),await connect(nodeURL,'/')];
  console.log('Redis namespace clients connected');
  const compressed=transport==='websocket'?peers.slice(0,2).map(compressedFrames):null;
  await deliveries(roots,[1,1,1],()=>control(goA,{Op:'broadcast',Namespace:'/'}));
  await deliveries(roots,[1,1,1],async()=>io.of('/').emit('broadcast','root-node'));
- await deliveries(peers.concat(otherPeers),[0,0,0,1,1,1],()=>control(goA,{Op:'broadcast',Namespace:'/cluster#other'}));
- await deliveries(peers.concat(otherPeers),[0,0,0,1,1,1],async()=>io.of('/cluster#other').emit('broadcast','isolated-node'));
+ await deliveries(peers.concat(otherPeers),[0,0,0,1,1],()=>control(goA,{Op:'broadcast',Namespace:'/cluster#other'}));
+ await deliveries(peers.concat(otherPeers),[0,0,0,1,1],async()=>io.of('/cluster#other').emit('broadcast','isolated-node'));
 
  await until(async()=>{
   const reply=await new Promise((resolve,reject)=>pub.pubsub('NUMSUB',prefix+'-request#/cluster#',(err,v)=>err?reject(err):resolve(v)));
@@ -175,5 +179,5 @@ const watchdog=setTimeout(()=>{console.error('Redis cluster timeout');process.ex
  await control(goA,{Op:'disconnect',SID:peers[2].sid,Close:true});await nodeDisconnected;
  console.log('Redis mixed cluster passed: '+transport);
 })().catch(err=>{console.error(err);process.exitCode=1;}).finally(()=>{
- clearTimeout(watchdog);sockets.forEach(s=>s.close());io.close();pub.quit();sub.quit();server.close();
+ clearTimeout(watchdog);sockets.forEach(s=>s.close());managers.forEach(m=>m.close());io.close();pub.quit();sub.quit();server.close();
 });

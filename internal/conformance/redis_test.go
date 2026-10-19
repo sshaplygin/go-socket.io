@@ -17,8 +17,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/adapter"
 	redisadapter "github.com/sshaplygin/go-socket.io/adapter/redis"
 	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
-	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 	"github.com/sshaplygin/go-socket.io/parser"
 	"github.com/stretchr/testify/require"
 )
@@ -42,8 +40,8 @@ func redisClusterServer(t *testing.T, addr, prefix string) *httptest.Server {
 		}
 		return json.Marshal(map[string]interface{}{"go": prefix, "data": data})
 	}))
-	s := socketio.NewServer(socketio.WithAdapter(factory), socketio.WithEngineOptions(engineio.WithTransports(polling.Default, &websocket.Transport{EnableCompression: true, CompressionThreshold: 1})))
-	for _, name := range []string{"/", "/cluster", "/cluster#other"} {
+	s := socketio.NewServer(socketio.WithAdapter(factory), socketio.WithEngineOptions(engineio.WithPerMessageDeflate(true), engineio.WithCompressionThreshold(1)))
+	for _, name := range []string{"/", "/cluster", "/cluster#other", "/lifecycle"} {
 		n := s.Of(name)
 		n.OnConnect(func(socketio.Conn) error { return nil })
 		n.OnEvent("identity", func(c socketio.Conn) string { return c.ID() })

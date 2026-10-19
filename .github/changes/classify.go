@@ -529,7 +529,9 @@ func (d *decision) result(mod, root string) (result, error) {
 		if err != nil {
 			return r, err
 		}
-		if ok && p.listed && (touchesBench(c.before, reach) || touchesBench(c.after, reach)) {
+		before, beforeErr := parseTestDecls(c.before)
+		hadBenchmark := c.before != nil && (beforeErr != nil || before.bench)
+		if p.listed && (hadBenchmark || ok && (touchesBench(c.before, reach) || touchesBench(c.after, reach))) {
 			bench[p.path] = p
 		}
 	}

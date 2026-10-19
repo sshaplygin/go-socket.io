@@ -11,7 +11,8 @@ import (
 )
 
 // AckFunc acknowledges an incoming event once, possibly from another goroutine
-// after the handler returns. It does nothing unless the peer requested an ACK.
+// after the handler returns. It does nothing unless the peer requested an ACK
+// and the originating namespace connection is still active.
 // A handler with this final parameter owns the ACK; return values are ignored.
 type AckFunc func(args ...interface{})
 

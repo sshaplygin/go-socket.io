@@ -75,7 +75,7 @@ func (s *Server) Close() error {
 		close(s.closed)
 		live := s.live
 		s.live = make(map[string]*sessionImpl.Session)
-		for id := range live {
+		for id := range s.sessions.All() {
 			s.sessions.Remove(id)
 		}
 		s.lifecycle.Unlock()
@@ -254,11 +254,11 @@ func (s *Server) Clients() map[string]Conn {
 	return clients
 }
 
-// Remove session from sessions pool. Experimental API.
+// Remove unregisters a session without closing it. Server.Close still closes
+// the session if its transport remains open.
 func (s *Server) Remove(sid string) {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
-	delete(s.live, sid)
 	s.sessions.Remove(sid)
 }
 
@@ -297,6 +297,14 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 	s.sessions.Add(newSession)
 	s.live[sid] = newSession
 	s.lifecycle.Unlock()
+	go func() {
+		<-newSession.Closed()
+		s.lifecycle.Lock()
+		if s.live[sid] == newSession {
+			delete(s.live, sid)
+		}
+		s.lifecycle.Unlock()
+	}()
 	s.connInitor(r, newSession)
 
 	go func(newSession *sessionImpl.Session) {

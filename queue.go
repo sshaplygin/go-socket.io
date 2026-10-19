@@ -17,6 +17,21 @@ func (c *connection) writeFlags(header parser.Header, reserved, noCompress bool,
 	c.queuePayloadLocked(pkg, reserved)
 }
 
+// writeAck admits a reply only while its originating namespace is current.
+// Encoding runs before the lock because application marshalers may reenter.
+func (nc *namespaceConn) writeAck(header parser.Header, args ...reflect.Value) {
+	header.Type = parser.Ack
+	pkg := preparePayload(header, false, args...)
+	c := nc.connection
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	current, ok := c.namespaces.Get(fmtNS(nc.namespace))
+	if !ok || current != nc || isDone(c.closing) {
+		return
+	}
+	c.queuePayloadLocked(pkg, false)
+}
+
 func preparePayload(header parser.Header, noCompress bool, args ...reflect.Value) outboundPayload {
 	data := make([]interface{}, len(args))
 	for i := range data {

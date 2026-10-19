@@ -200,6 +200,9 @@ func (s *Socket) removeTypedEmission(target *typedEmission) {
 		target.stop()
 	}
 }
+
+// SendEvent is the internal bridge used by socketio.Event.Emit. Applications
+// send typed values through the descriptor rather than calling this method.
 func (s *Socket) SendEvent(ctx context.Context, name string, value event.Payload) error {
 	ctx = event.Context(ctx)
 	if err := ctx.Err(); err != nil {
@@ -212,6 +215,9 @@ func (s *Socket) SendEvent(ctx context.Context, name string, value event.Payload
 	_, err = s.admitTyped(ctx, packet, nil)
 	return err
 }
+
+// RequestAck is the internal bridge used by socketio.AckEvent.EmitWithAck.
+// Applications request typed responses through the descriptor.
 func (s *Socket) RequestAck(ctx context.Context, name string, value event.Payload, schema event.Schema) (event.Payload, error) {
 	ctx = event.Context(ctx)
 	if err := ctx.Err(); err != nil {
@@ -262,23 +268,23 @@ func dispatchTyped(c *conn, nc *namespaceConn, header parser.Header, handler eve
 		var reply event.Payload
 		reply, err = handler.Invoke(nc.handlerContext(), nc, payload)
 		if handler.WantsAck() && header.NeedAck {
-			writeTypedAck(c, header, event.AckArgs(reply, err))
+			writeTypedAck(nc, header, event.AckArgs(reply, err))
 		}
 	} else if handler.WantsAck() && header.NeedAck {
-		writeTypedAck(c, header, event.AckArgs(event.Payload{}, &event.RemoteError{Code: "invalid_payload", Message: err.Error()}))
+		writeTypedAck(nc, header, event.AckArgs(event.Payload{}, &event.RemoteError{Code: "invalid_payload", Message: err.Error()}))
 	}
 	if err != nil {
 		c.onError(header.Namespace, err)
 	}
 	return nil
 }
-func writeTypedAck(c *conn, header parser.Header, args []interface{}) {
+func writeTypedAck(nc *namespaceConn, header parser.Header, args []interface{}) {
 	header.Type = parser.Ack
 	values := make([]reflect.Value, len(args))
 	for i, value := range args {
 		values[i] = reflect.ValueOf(value)
 	}
-	c.write(header, values...)
+	nc.writeAck(header, values...)
 }
 
 func (m *manager) RegisterEvent(name string, handler event.Handler) error {

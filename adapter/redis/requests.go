@@ -136,13 +136,25 @@ func (bc *broadcast) classifyRequestError(caller, wait context.Context, err erro
 	return requestContextError(caller, wait, err)
 }
 func requestContextError(caller, wait context.Context, err error) error {
-	if caller.Err() != nil {
-		return caller.Err()
+	if cause := requestDeadlineError(caller); cause != nil {
+		return cause
 	}
-	if wait.Err() != nil {
+	if requestDeadlineError(wait) != nil {
 		return ErrRequestTimeout
 	}
 	return err
+}
+
+// A socket deadline may fire before the context timer's goroutine runs.
+// Check the deadline itself so that scheduling does not change the API error.
+func requestDeadlineError(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return nil
 }
 func nonNilContext(ctx context.Context) context.Context {
 	if ctx == nil {

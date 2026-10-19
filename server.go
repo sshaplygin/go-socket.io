@@ -118,7 +118,7 @@ func (s *Server) closeWithTimeout(timeout time.Duration) error {
 	return s.waitForConnections(timeout)
 }
 
-// ServeHTTP dispatches the request to the handler whose pattern most closely matches the request URL.
+// ServeHTTP handles Engine.IO handshakes and transport requests.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.engine.ServeHTTP(w, r)
 }
@@ -214,55 +214,53 @@ func (s *Server) broadcastOf(namespace string) adapter.Adapter {
 	return nil
 }
 
-// JoinRoom joins given connection to the room.
+// JoinRoom joins a live connection owned by this server to the room.
 func (s *Server) JoinRoom(namespace string, room string, connection Conn) bool {
-	if !s.ownsSocket(namespace, connection) {
+	nc := s.roomSocket(namespace, connection)
+	if nc == nil {
 		return false
 	}
-	bc := s.broadcastOf(namespace)
-	if bc != nil {
-		bc.Join(room, connection)
-	}
-	return bc != nil
+	defer nc.endRoomOperation()
+	nc.broadcast.Join(room, nc)
+	return true
 }
 
-// LeaveRoom leaves given connection from the room.
+// LeaveRoom removes a live connection owned by this server from the room.
 func (s *Server) LeaveRoom(namespace string, room string, connection Conn) bool {
-	if !s.ownsSocket(namespace, connection) {
+	nc := s.roomSocket(namespace, connection)
+	if nc == nil {
 		return false
 	}
-	bc := s.broadcastOf(namespace)
-	if bc != nil {
-		bc.Leave(room, connection)
-	}
-	return bc != nil
+	defer nc.endRoomOperation()
+	nc.broadcast.Leave(room, nc)
+	return true
 }
 
-// LeaveAllRooms leaves the given connection from all rooms.
+// LeaveAllRooms removes a live connection owned by this server from all rooms.
 func (s *Server) LeaveAllRooms(namespace string, connection Conn) bool {
-	if !s.ownsSocket(namespace, connection) {
+	nc := s.roomSocket(namespace, connection)
+	if nc == nil {
 		return false
 	}
-	bc := s.broadcastOf(namespace)
-	if bc != nil {
-		bc.LeaveAll(connection)
-	}
-	return bc != nil
+	defer nc.endRoomOperation()
+	nc.broadcast.LeaveAll(nc)
+	return true
 }
 
-// ownsSocket checks identity against this server's live namespace registry. In
-// particular it never invokes methods on a caller-supplied nil or foreign socket.
-func (s *Server) ownsSocket(nsp string, conn Conn) bool {
+// roomSocket admits an operation against this server's concrete namespace
+// generation. Retirement waits for the operation before reusing its socket ID.
+func (s *Server) roomSocket(nsp string, conn Conn) *namespaceConn {
+	nc, ok := conn.(*namespaceConn)
 	h := s.getNamespace(nsp)
-	if conn == nil || h == nil {
-		return false
+	if !ok || nc == nil || h == nil || h.Err() != nil {
+		return nil
 	}
 	for _, current := range h.Sockets() {
-		if current == conn && current.Connected() {
-			return true
+		if current == nc && nc.Connected() && nc.beginRoomOperation() {
+			return nc
 		}
 	}
-	return false
+	return nil
 }
 
 // ClearRoom clears the room.
@@ -318,7 +316,8 @@ func (s *Server) Count() int {
 // Engine returns the engine.io server created by NewServer; never nil.
 func (s *Server) Engine() *engineio.Server { return s.engine }
 
-// Remove session from sessions pool. Fixed the sessions map leak(connections, mem).
+// Remove unregisters an Engine.IO session without closing its transport.
+// Server.Close still closes unregistered sessions that remain open.
 func (s *Server) Remove(sid string) {
 	s.engine.Remove(sid)
 }

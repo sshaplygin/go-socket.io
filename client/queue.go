@@ -6,15 +6,19 @@ import (
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
-func (c *conn) write(header parser.Header, args ...reflect.Value) {
-	c.writeFlags(header, false, args...)
-}
-
-func (c *conn) writeFlags(header parser.Header, noCompress bool, args ...reflect.Value) {
+// writeAck admits a reply only while its originating namespace is current.
+// Encoding runs before the lock because application marshalers may reenter.
+func (nc *namespaceConn) writeAck(header parser.Header, args ...reflect.Value) {
+	header.Type = parser.Ack
 	packet, err := preparePayload(header, args)
+	c := nc.conn
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.queuePreparedLocked(header, noCompress, packet, err)
+	current, ok := c.namespaces.Get(fmtNS(nc.namespace))
+	if !ok || current != nc || isDone(c.closing) {
+		return
+	}
+	c.queuePreparedLocked(header, false, packet, err)
 }
 
 func preparePayload(header parser.Header, args []reflect.Value) (*parser.PreparedPacket, error) {

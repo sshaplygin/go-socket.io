@@ -10,7 +10,8 @@ import (
 )
 
 // Endpoint is the shared sending surface of server and client namespace sockets.
-// Typed sends require the optional capability implemented by the built-in sockets.
+// Typed descriptors support the built-in server connections, clients and client
+// namespace sockets. Implementing Emit alone does not support typed sends.
 type Endpoint = event.Endpoint
 
 // ClientRegistration accepts typed handlers on a client or a client namespace.

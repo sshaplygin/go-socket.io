@@ -34,7 +34,9 @@ type Socket interface {
 
 // Factory constructs one namespace adapter per name. The server coordinates
 // callers for the same name while unrelated factories may run concurrently.
-// Construction errors are retained by the namespace and reported by Server.Serve.
+// Construction errors are retained by the namespace. Server.Serve reports errors
+// recorded before it starts. A failed namespace rejects connections and its
+// emitter returns the construction error, including failures after Serve starts.
 type Factory func(namespace string) (Adapter, error)
 
 // ErrExceptUnsupported means the adapter cannot exclude sockets. Nothing is sent.

@@ -55,7 +55,9 @@ func resolveOptions(opts ...Option) *options {
 }
 
 // WithAdapter selects a factory for future namespaces. Nil selects memory.
-// Construction happens on namespace registration; Serve reports its errors.
+// Construction happens on namespace registration. Serve reports errors already
+// recorded when it starts; later failures reject that namespace's connections
+// and are returned by its emitter.
 func WithAdapter(factory adapter.Factory) Option {
 	return func(config *options) { config.Adapter = factory }
 }

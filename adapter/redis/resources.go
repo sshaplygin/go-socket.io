@@ -51,9 +51,15 @@ func (s *sharedResources) add(nsp string, opts *options) (*broadcast, error) {
 	s.members[nsp] = append(s.members[nsp], bc)
 	s.mu.Unlock()
 	var err error
+	stop := func() bool { return true }
 	if !existing && owner.connected() {
-		err = owner.sub.Subscribe(bc.reqChannel, bc.resChannel)
+		sub := owner.sub
+		// Closing the captured generation bounds both command flush and ACK wait.
+		// Redis connections permit Close concurrently with their reader/writer.
+		stop = context.AfterFunc(ctx, func() { _ = sub.Close() })
+		err = sub.Subscribe(bc.reqChannel, bc.resChannel)
 	}
+	defer stop()
 	owner.subLock.Unlock()
 	if err == nil {
 		err = bc.waitReady(ctx)

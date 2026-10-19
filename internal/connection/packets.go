@@ -271,6 +271,7 @@ func decodeCallbackArgs(decoder *parser.Decoder, types []reflect.Type, variadic 
 
 func typedEventPacketHandler(c *Connection, nc *namespaceConn, name string, header parser.Header, handler eventImpl.Handler) error {
 	payload, err := handler.Decode(c.decoder)
+	decodeFailed := err != nil
 	if err == nil {
 		value := payload.Interface()
 		if middlewareErr := nc.runMiddleware(name, []reflect.Value{reflect.ValueOf(&value).Elem()}); middlewareErr != nil {
@@ -285,7 +286,7 @@ func typedEventPacketHandler(c *Connection, nc *namespaceConn, name string, head
 	if handler.WantsAck() && header.NeedAck {
 		header.Type = parser.Ack
 		ackErr := err
-		if errors.Is(err, eventImpl.ErrInvalidPayload) {
+		if decodeFailed {
 			ackErr = &eventImpl.RemoteError{Code: "invalid_payload", Message: err.Error()}
 		}
 		values := eventImpl.AckArgs(result, ackErr)

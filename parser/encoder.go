@@ -358,13 +358,15 @@ func (w *bufferNumberer) numberBuffers(v reflect.Value, index *uint64) (reflect.
 	return n.repl, n.data, nil
 }
 
-func (e *Encoder) writeBuffer(w io.WriteCloser, buffer []byte) error {
+func (e *Encoder) writeBuffer(w io.WriteCloser, buffer []byte) (err error) {
 	defer func() {
 		if closeErr := w.Close(); closeErr != nil {
-			logger.Log.Debug("socketio: close writer failed", "err", closeErr)
+			if err == nil {
+				err = closeErr
+			}
 		}
 	}()
 
-	_, err := w.Write(buffer)
+	_, err = w.Write(buffer)
 	return err
 }

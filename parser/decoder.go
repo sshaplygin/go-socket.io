@@ -83,7 +83,9 @@ func (d *Decoder) DecodeHeader(header *Header, event *string) error {
 // A nil types slice decodes every argument into a generic JSON value (binary
 // placeholders become *Buffer); an empty non-nil slice discards the arguments.
 func (d *Decoder) DecodeArgs(types []reflect.Type) ([]reflect.Value, error) {
-	_ = d.DiscardLast()
+	if err := d.DiscardLast(); err != nil {
+		return nil, err
+	}
 	count := d.bufferCount
 	d.bufferCount = 0
 	buffers := make([]Buffer, count)

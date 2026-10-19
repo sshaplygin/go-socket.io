@@ -14,7 +14,7 @@ var allowedImports = map[string][]string{
 	"client/internal/namespace":        {"parser", "engineio/client", "internal/event"},
 	"internal/event":                   {"parser"},
 	"adapter":                          {},
-	"adapter/redis":                    {"adapter", "logger"},
+	"adapter/redis":                    {"adapter", "logger", "parser"},
 	"parser":                           {"logger"},
 	"engineio":                         {"engineio/internal/session", "engineio/parser", "engineio/transport", "engineio/transport/polling", "engineio/transport/websocket", "logger"},
 	"engineio/internal/session":        {"engineio/parser", "engineio/transport", "engineio/transport/polling", "logger"},

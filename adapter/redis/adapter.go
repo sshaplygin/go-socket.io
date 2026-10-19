@@ -157,32 +157,26 @@ func (bc *broadcast) Rooms(connection adapter.Socket) []string {
 	return rooms
 }
 
-// SendTo excludes nothing on this adapter: Except returns adapter.ErrExceptUnsupported
-// before local delivery or Redis I/O. Room unions dedupe locally and publish one
-// message per room; remote sockets may receive once per room. Local suppresses
-// publishing; Volatile and NoCompress are honoured locally and are not carried
-// to other instances.
+// SendTo publishes one union with exclusion and packet flags. Encoding errors
+// precede delivery; Redis errors may follow local delivery, which is not rolled back.
 func (bc *broadcast) SendTo(opts adapter.Options, event string, args ...interface{}) error {
 	if bc.closed.Load() {
 		return errAdapterClosed
 	}
-	if len(opts.Except) != 0 {
-		return fmt.Errorf("redis broadcast: %w", adapter.ErrExceptUnsupported)
-	}
-	_ = bc.Memory.SendTo(opts, event, args...)
 	if opts.Local {
-		return nil
+		return bc.Memory.SendTo(opts, event, args...)
 	}
-	if len(opts.Rooms) == 0 {
-		bc.publishMessage("", event, args...)
-		return nil
+	data, err := encodeBroadcast(bc.uid, bc.nsp, event, opts, args)
+	if err != nil {
+		return err
 	}
-	seen := make(map[string]bool)
-	for _, room := range opts.Rooms {
-		if !seen[room] {
-			seen[room] = true
-			bc.publishRoomMessage(room, event, args...)
-		}
+	if err = bc.Memory.SendTo(opts, event, args...); err != nil {
+		return err
 	}
-	return nil
+	channel := bc.broadcastChannel()
+	if len(opts.Rooms) == 1 {
+		channel += opts.Rooms[0] + "#"
+	}
+	_, err = bc.do("PUBLISH", channel, data)
+	return err
 }

@@ -58,6 +58,8 @@ func TestTypedEventDescriptor(t *testing.T) {
 }
 
 // Covers T2
+//
+//nolint:staticcheck // Exercise the documented nil-context fallback as well as validation.
 func TestTypedEventSendValidation(t *testing.T) {
 	e := NewEvent[int]("value")
 	target := &typedTestEndpoint{}
@@ -84,6 +86,8 @@ func TestTypedEventSendValidation(t *testing.T) {
 }
 
 // Covers T3
+//
+//nolint:staticcheck // Exercise the documented nil-context fallback.
 func TestTypedAckDescriptor(t *testing.T) {
 	e := NewAckEvent[int, string]("lookup")
 	require.Equal(t, "lookup", e.Name())
@@ -135,6 +139,7 @@ func TestTypedAckWaitBounds(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
+//nolint:staticcheck // Nil contexts are supported; these calls validate other arguments.
 func TestTypedAckValidation(t *testing.T) {
 	e := NewAckEvent[int, int]("value")
 	for _, target := range []Endpoint{nil, (*typedTestEndpoint)(nil), legacyTestEndpoint{}} {

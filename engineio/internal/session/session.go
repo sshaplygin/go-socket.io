@@ -247,7 +247,14 @@ func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 			return eioparser.FrameType(ft), frameReader{r, s}, nil
 
 		default:
-			// Unknown packet type. Close reader and try again.
+			// Known control packets can be ignored here, but an invalid wire
+			// type is a parser failure and must terminate the session.
+			if pt < eioparser.OPEN || pt > eioparser.NOOP {
+				_ = s.fail(fmt.Errorf("invalid Engine.IO packet type %d", pt))
+				_ = r.Close()
+				_ = s.Close()
+				return 0, nil, s.readerCloseError()
+			}
 			if err = s.fail(r.Close()); err != nil {
 				s.logger().Debug("engineio: close reader failed", "err", err)
 				_ = s.Close()

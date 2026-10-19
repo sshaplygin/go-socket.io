@@ -200,6 +200,10 @@ func TestClassify(t *testing.T) {
 		{name: "test that no benchmark reaches", edit: map[string]string{
 			"parser/parser_test.go": "package parser\n\nimport \"testing\"\n\nfunc TestParse(t *testing.T) {\n\tif Parse(\"abc\") != 3 {\n\t\tt.Fatal(\"len\")\n\t}\n}\n",
 		}, want: with(map[string]string{"v1": "true", "v1_packages": "./parser"})},
+		{name: "remove last benchmark", edit: map[string]string{"parser/bench_test.go": deleted},
+			want: with(map[string]string{"v1": "true", "v1_packages": "./parser", "bench_v1": "./parser", "changed": "true"})},
+		{name: "remove benchmark declaration", edit: map[string]string{"parser/bench_test.go": "package parser\n"},
+			want: with(map[string]string{"v1": "true", "v1_packages": "./parser", "bench_v1": "./parser", "changed": "true"})},
 		{name: "helper that a benchmark reaches", edit: map[string]string{
 			"parser/helper_test.go": "package parser\n\nfunc input() string { return \"abcd\" }\n",
 		}, want: with(map[string]string{
@@ -369,6 +373,9 @@ func TestClassify(t *testing.T) {
 			dir := t.TempDir()
 			run := func(args ...string) string {
 				t.Helper()
+				// Temporary repositories must not leave maintenance processes writing
+				// objects after the test starts removing its directory.
+				args = append([]string{"-c", "maintenance.auto=false", "-c", "gc.auto=0"}, args...)
 				out, err := git(dir, args...)
 				if err != nil {
 					t.Fatal(err)

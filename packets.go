@@ -127,7 +127,7 @@ func eventPacketHandler(c *connection, event string, header parser.Header) error
 			for i, value := range values {
 				args[i] = reflect.ValueOf(value)
 			}
-			c.write(reply, args...)
+			conn.writeAck(reply, args...)
 		})
 	})
 	ret, ownsAck, err := handler.DispatchListeners(conn, event, snapshot, ack, args...)
@@ -139,7 +139,7 @@ func eventPacketHandler(c *connection, event string, header parser.Header) error
 
 	if !ownsAck && header.NeedAck && len(snapshot) != 0 {
 		header.Type = parser.Ack
-		c.write(header, ret...)
+		conn.writeAck(header, ret...)
 	}
 
 	return nil
@@ -294,7 +294,7 @@ func typedEventPacketHandler(c *connection, nc *namespaceConn, name string, head
 		for i, value := range values {
 			args[i] = reflect.ValueOf(value)
 		}
-		c.write(header, args...)
+		nc.writeAck(header, args...)
 	}
 	if err != nil {
 		c.onError(header.Namespace, err)

@@ -136,6 +136,9 @@ func (bc *broadcast) boundedDo(ctx context.Context, cmd string, args ...interfac
 		if bc.closed.Load() {
 			return nil, ErrAdapterClosed
 		}
+		if cause := requestDeadlineError(ctx); cause != nil {
+			return nil, cause
+		}
 		return nil, err
 	}
 	stop := context.AfterFunc(dialContext, func() { _ = conn.Close() })

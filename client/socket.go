@@ -541,15 +541,18 @@ func (m *clientState) closeSocket(s *Socket, reason string, closeLast bool, expe
 		}
 	}
 	m.mu.Unlock()
+	var closeErr error
+	// Mark the old engine closing before application callbacks can Connect again.
+	// Its namespace has already been claimed, so Close cannot repeat this callback.
+	if last && closeLast && current != nil {
+		closeErr = current.Close()
+	}
 	if connected && claimed {
 		if f := s.handler.DisconnectHandler(); f != nil {
 			f(nc, reason)
 		}
 	}
-	if last && closeLast && current != nil {
-		return current.Close()
-	}
-	return nil
+	return closeErr
 }
 
 func (m *clientState) closeAll(expected ...*namespaceConn) error {

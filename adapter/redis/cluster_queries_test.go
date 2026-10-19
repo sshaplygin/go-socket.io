@@ -92,7 +92,7 @@ func TestRedisClusterQueriesAndRemoteOperations(t *testing.T) {
 
 func TestRedisClusterRequestTimeoutCancellationAndClose(t *testing.T) {
 	s := miniredis.RunT(t)
-	factory := New(WithAddr(s.Addr()), WithRequestsTimeout(25*time.Millisecond))
+	factory := New(WithAddr(s.Addr()), WithRequestsTimeout(250*time.Millisecond))
 	base, err := factory("/")
 	require.NoError(t, err)
 	a := base.(*broadcast)
@@ -114,16 +114,23 @@ func TestRedisClusterRequestTimeoutCancellationAndClose(t *testing.T) {
 	cancel()
 	_, err = a.IDsContext(ctx)
 	require.ErrorIs(t, err, context.Canceled)
+	// Exercise Close with a separate, ordinary request deadline; the short
+	// timeout cases above must not race the observation of an in-flight request.
+	closing := newTestRedisBroadcast(t, s)
 	done := make(chan error, 1)
-	go func() { _, err := a.CustomRequest(context.Background(), nil); done <- err }()
-	require.Eventually(t, func() bool { a.requestLock.Lock(); defer a.requestLock.Unlock(); return len(a.requests) > 0 }, time.Second, time.Millisecond)
-	require.NoError(t, a.Close())
+	go func() { _, err := closing.CustomRequest(context.Background(), nil); done <- err }()
+	require.Eventually(t, func() bool {
+		closing.requestLock.Lock()
+		defer closing.requestLock.Unlock()
+		return len(closing.requests) > 0
+	}, time.Second, time.Millisecond)
+	require.NoError(t, closing.Close())
 	require.ErrorIs(t, <-done, ErrAdapterClosed)
-	_, err = a.IDsContext(context.Background())
+	_, err = closing.IDsContext(context.Background())
 	require.ErrorIs(t, err, ErrAdapterClosed)
-	a.requestLock.Lock()
-	require.Empty(t, a.requests)
-	a.requestLock.Unlock()
+	closing.requestLock.Lock()
+	require.Empty(t, closing.requests)
+	closing.requestLock.Unlock()
 }
 
 func TestRedisClusterCustomRequestsSharedAndReentrant(t *testing.T) {
@@ -316,15 +323,17 @@ func TestRedisClusterCustomHandlerPanicDoesNotCrash(t *testing.T) {
 		return
 	}
 	s := miniredis.RunT(t)
-	base, err := New(WithAddr(s.Addr()), WithRequestsTimeout(15*time.Millisecond), WithCustomRequestHandler(func(context.Context, json.RawMessage) (json.RawMessage, error) { panic("hook panic") }))("/")
+	invoked := make(chan struct{}, 1)
+	base, err := New(WithAddr(s.Addr()), WithCustomRequestHandler(func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		invoked <- struct{}{}
+		panic("hook panic")
+	}))("/")
 	require.NoError(t, err)
 	a := base.(*broadcast)
 	defer func() { _ = a.Close() }()
 	for i := 0; i < 2; i++ {
-		_, err = a.CustomRequest(context.Background(), nil)
-		require.ErrorIs(t, err, ErrRequestTimeout)
+		canceledCustomRequest(t, a, invoked)
 	}
-	require.Eventually(t, func() bool { return len(a.resources.clusterWorkers()) == 0 }, time.Second, time.Millisecond)
 	_, err = a.IDsContext(context.Background())
 	require.NoError(t, err, "panic must not stop Redis dispatcher")
 }
@@ -337,13 +346,42 @@ func TestRedisCustomHandlerFailureCannotFabricateSuccess(t *testing.T) {
 		},
 	} {
 		s := miniredis.RunT(t)
-		base, err := New(WithAddr(s.Addr()), WithRequestsTimeout(15*time.Millisecond), WithCustomRequestHandler(handler))("/")
+		invoked := make(chan struct{}, 1)
+		base, err := New(WithAddr(s.Addr()), WithCustomRequestHandler(func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+			invoked <- struct{}{}
+			return handler(ctx, raw)
+		}))("/")
 		require.NoError(t, err)
 		a := base.(*broadcast)
 		t.Cleanup(func() { _ = a.Close() })
-		_, err = a.CustomRequest(context.Background(), nil)
-		require.ErrorIs(t, err, ErrRequestTimeout)
-		require.Empty(t, a.resources.clusterWorkers())
+		canceledCustomRequest(t, a, invoked)
+	}
+}
+
+// Wait until the failed callback has run and released its worker before canceling
+// the unanswered request. Request completion alone does not imply worker cleanup.
+func canceledCustomRequest(t *testing.T, a *broadcast, invoked <-chan struct{}) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { _, err := a.CustomRequest(ctx, nil); result <- err }()
+	select {
+	case <-invoked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("custom handler was not invoked")
+	}
+	require.Eventually(t, func() bool { return len(a.resources.clusterWorkers()) == 0 }, time.Second, time.Millisecond)
+	// A successful roundtrip on the same subscription consumes any earlier
+	// custom reply before cancellation can decide the request's result.
+	_, err := a.IDsContext(context.Background())
+	require.NoError(t, err)
+	cancel()
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("request did not cancel")
 	}
 }
 
@@ -416,9 +454,18 @@ func TestRedisClearReportsPartialFailure(t *testing.T) {
 	supported := newClusterTestSocket(a, "a-supported")
 	supported.Join("room")
 	a.Join("room", newRedisTestConn("z-unsupported"))
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	require.ErrorIs(t, a.ClearContext(ctx, "room"), context.DeadlineExceeded)
+	a.BindSocketLookup(func(id string) adapter.Socket {
+		if id == supported.ID() {
+			return supported
+		}
+		// Clear processes the sorted IDs in order. Cancel only after the first
+		// removal completed and the unsupported target is reached.
+		cancel()
+		return nil
+	})
+	require.ErrorIs(t, a.ClearContext(ctx, "room"), context.Canceled)
 	require.Equal(t, []string{"z-unsupported"}, a.Memory.IDs("room"), "successful earlier removal is not rolled back")
 }
 

@@ -109,16 +109,16 @@ jobs:
             pr/v2/go.sum
       # Two modules: the v1 module at the root and the v2 module in v2/. Both append to the
       # same file per side. Each side benchmarks the packages the classifier selected (a
-      # pattern list, or ./... for every package); the base side drops the selected packages
-      # that have no benchmark there yet. When no selected package has a benchmark in the
-      # base, both sides benchmark every package so that the comparison has a baseline. A
+      # pattern list, or ./... for every package). Each side drops packages without
+      # benchmarks. If either side has none of the selected benchmarks, both run every
+      # package so additions and removals still produce a complete comparison. A
       # base from before the restructure has no v2/go.mod (its v2 code is at the root), so its
       # v2 selection is empty.
       - name: Select the packages of each side
         id: select
         run: |
           set -euo pipefail
-          on_base() {
+          with_benchmarks() {
             local root=$1 out=() p
             shift
             for p in "$@"; do
@@ -128,16 +128,17 @@ jobs:
             done
             echo "${out[*]:-}"
           }
-          base_v1=$(on_base base $BENCH_V1)
+          base_v1=$(with_benchmarks base $BENCH_V1)
           base_v2=
-          if [[ -f base/v2/go.mod ]]; then base_v2=$(on_base base/v2 $BENCH_V2); fi
-          head_v1=$BENCH_V1
-          head_v2=$BENCH_V2
-          if [[ -z "$base_v1$base_v2" ]]; then
-            echo 'No selected package has a benchmark in the base: every package runs on both sides.'
+          if [[ -f base/v2/go.mod ]]; then base_v2=$(with_benchmarks base/v2 $BENCH_V2); fi
+          head_v1=$(with_benchmarks pr $BENCH_V1)
+          head_v2=
+          if [[ -f pr/v2/go.mod ]]; then head_v2=$(with_benchmarks pr/v2 $BENCH_V2); fi
+          if [[ -z "$base_v1$base_v2" || -z "$head_v1$head_v2" ]]; then
+            echo 'One side has no selected benchmarks: every package runs on both sides.'
             base_v1=./...
             head_v1=./...
-            head_v2=./...
+            if [[ -f pr/v2/go.mod ]]; then head_v2=./...; fi
             if [[ -f base/v2/go.mod ]]; then base_v2=./...; fi
           fi
           printf '%s\n' "base_v1=$base_v1" "base_v2=$base_v2" "head_v1=$head_v1" "head_v2=$head_v2" | tee -a "$GITHUB_OUTPUT"

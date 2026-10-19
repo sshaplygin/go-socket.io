@@ -14,3 +14,10 @@ func TestRegressionG20VariadicHandlerArguments(t *testing.T) {
 	require.NoError(t, err, "registered argument type is []string, but dispatch cannot call the variadic handler with it")
 	require.True(t, called)
 }
+
+// Covers G20
+func TestListenerVariadicConventionsMustMatch(t *testing.T) {
+	h := NewHandler()
+	h.AddListener("event", func(Conn, ...string) {}, false)
+	require.Panics(t, func() { h.AddListener("event", func(Conn, []string) {}, false) })
+}

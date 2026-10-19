@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"bytes"
 	"io"
 	"testing"
 
@@ -35,3 +36,42 @@ func TestReviewG25ZeroLengthSkipsEmptyPacket(t *testing.T) {
 	defer r.Close()
 	require.Equal(t, MESSAGE, pt, "reference skips the zero-length packet and delivers MESSAGE")
 }
+
+// Covers: G25
+func FuzzMalformedPollingPayload(f *testing.F) {
+	for _, seed := range []string{":4", "5:4x", "18446744073709551618:4x", "0:1:4", "2:4é", "1:b"} {
+		f.Add([]byte(seed), false)
+	}
+	f.Add([]byte{0, 1, 255, 52}, true)
+	f.Fuzz(func(t *testing.T, data []byte, binary bool) {
+		source := &singlePayloadSource{data: data, binary: binary}
+		d := NewPayloadDecoder(source)
+		for i := 0; i <= len(data)+1; i++ {
+			_, _, r, err := d.NextReader()
+			if err != nil {
+				return
+			}
+			_, err = io.Copy(io.Discard, r)
+			closeErr := r.Close()
+			if err != nil || closeErr != nil {
+				return
+			}
+		}
+		t.Fatal("decoder failed to make progress")
+	})
+}
+
+type singlePayloadSource struct {
+	data     []byte
+	binary   bool
+	acquired bool
+}
+
+func (s *singlePayloadSource) AcquirePayloadReader() (io.Reader, bool, error) {
+	if s.acquired {
+		return nil, false, io.EOF
+	}
+	s.acquired = true
+	return bytes.NewReader(s.data), s.binary, nil
+}
+func (*singlePayloadSource) ReleasePayloadReader(err error) error { return err }

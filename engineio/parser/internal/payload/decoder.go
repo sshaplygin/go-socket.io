@@ -74,6 +74,9 @@ func (d *Decoder) Read(p []byte) (n int, err error) {
 		return d.b64Reader.Read(p)
 	}
 	dd, err := d.limitReader.Read(p)
+	if err == io.EOF && d.limitReader.N > 0 {
+		return dd, io.ErrUnexpectedEOF
+	}
 	if d.supportBinary {
 		// a binary payload counts bytes (decodePayloadAsBinary of engine.io-parser 2.2.1)
 		return dd, err
@@ -107,6 +110,9 @@ func (d *Decoder) Close() error {
 	}
 	if _, err := io.Copy(io.Discard, d); err != nil {
 		return d.sendError(err)
+	}
+	if d.limitReader.N > 0 {
+		return d.sendError(io.ErrUnexpectedEOF)
 	}
 	err := d.setNextReader(d.rawReader, d.supportBinary)
 	if err != nil {
@@ -162,9 +168,13 @@ func (d *Decoder) sendError(err error) error {
 }
 
 func (d *Decoder) textRead(r byteReader) (packet.FrameType, packet.PacketType, int64, error) {
-	l, err := readTextLen(r)
-	if err != nil {
-		return 0, 0, 0, err
+	var l int64
+	var err error
+	for l == 0 {
+		l, err = readTextLen(r)
+		if err != nil {
+			return 0, 0, 0, err
+		}
 	}
 
 	ft := packet.String
@@ -175,6 +185,9 @@ func (d *Decoder) textRead(r byteReader) (packet.FrameType, packet.PacketType, i
 	l--
 
 	if b == 'b' {
+		if l < 1 {
+			return 0, 0, 0, errInvalidPayload
+		}
 		ft = packet.Binary
 		b, err = r.ReadByte()
 		if err != nil {
@@ -202,6 +215,9 @@ func (d *Decoder) binaryRead(r byteReader) (packet.FrameType, packet.PacketType,
 		return 0, 0, 0, err
 	}
 
+	if l < 1 {
+		return 0, 0, 0, errInvalidPayload
+	}
 	b, err = r.ReadByte()
 	if err != nil {
 		return 0, 0, 0, err

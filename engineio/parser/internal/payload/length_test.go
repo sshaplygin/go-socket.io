@@ -96,7 +96,7 @@ func TestReadBytesLen(t *testing.T) {
 		ok     bool
 		output int64
 	}{
-		{[]byte{0xff}, true, 0},
+		{[]byte{0xff}, false, 0},
 		{[]byte{0, 0xff}, true, 0},
 		{[]byte{1, 0xff}, true, 1},
 		{[]byte{9, 0xff}, true, 9},
@@ -125,7 +125,7 @@ func TestReadStringLen(t *testing.T) {
 		ok     bool
 		output int64
 	}{
-		{[]byte(":"), true, 0},
+		{[]byte(":"), false, 0},
 		{[]byte("0:"), true, 0},
 		{[]byte("1:"), true, 1},
 		{[]byte("9:"), true, 9},

@@ -137,8 +137,8 @@ Execution order: **1 → 1b → 2A → R → V1 → V1R → 2B … → 3 → 4b 
 Stage 2.0, row R (the restructure) follows it, Stage V1 completes and releases v1 before the
 rest of Stage 2 (owner decision of 2026-10-10), V1R (Redis parity) gates MV1, the PR SYNC
 (shared-file drift check, D14) runs beside V1 and merges before 2B, and Stage 7 is
-executed inside V1 as PR V1-9. Whether V1R precedes the Stage 2 continuation or runs beside it
-(its files are the root module's, the continuation's are under `v2/`) is the owner's order.
+executed inside V1 as PR V1-9. By the 2026-10-19 decision, V1R precedes MV1
+acceptance and the Stage 2 continuation.
 Admin UI remains the last product stage and starts after M5; the final benchmark campaign after M6.
 Branch `v1.x` was cut between stages 1 and 1b (1b step 0) and is frozen (*Repository
 layout*); the restructure below (row R) moves v1 to the repository root and v2 to `v2/`.
@@ -3137,14 +3137,9 @@ on the merged `master` (it now also greps the D19 heading), and the owner's Acce
 repeated. Nothing is accepted beyond what those commands compute; the `v1.5.0` tag stays the
 owner's order after that.
 
-Three gates read *MV1 accepted*: the entry of wave 2B (*Execution and parallel work*), the
-entry of Stage V1R below, and the resumption of v2 work on the owner's order after MV1 (*Repository
-layout*, *Execution and parallel work*, *Repository restructure* and its replay table, the MV1
-Acceptance). The
-review and D18 name only `v1.5.0`; whether these three keep the acceptance of #133 or wait for
-the re-acceptance is an open question to the owner on the PR that records wave V1G, recorded
-here as the owner answers. Until then each is read as written: 2B and V1R wait for the
-re-acceptance, and v2 work resumes only on the owner's order.
+Wave 2B and v2 resumption wait for repeated MV1 acceptance. By the owner's
+2026-10-19 decision, V1R instead enters from #138 and must finish before that
+acceptance; its earlier dependency on accepted MV1 is removed.
 
 **Stage V1R. Redis parity before the first v1 release (2026-10-19).**
 The owner moved all remaining Redis work into `v1.5.0` and explicitly included mixed

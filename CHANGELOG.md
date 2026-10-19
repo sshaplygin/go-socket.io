@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Redis cluster interoperability with `socket.io-redis` 5.4.0: binary broadcasts,
+  exclusions, deduplicated room unions, remote flags, cluster IDs/rooms and remote
+  join/leave/disconnect/custom requests. The optional `redis.Cluster` interface
+  adds context-aware queries and commands with explicit partial-result errors.
+  Two-server chat examples are exercised over TCP and Unix-socket Redis.
+
 - Common `NewEvent[T]` and `NewAckEvent[T, R]` descriptors register typed server
   and Go-client handlers, send one typed payload to a socket or broadcast, and
   await error-first acknowledgements. Typed waits honor cancellation, namespace
@@ -14,6 +20,10 @@ All notable changes to this project are documented here. The format follows
   reflected event APIs remain available; see the v1 migration guide.
 
 ### Fixed
+
+- Redis applies WithDB, waits for subscription acknowledgements, bounds request
+  I/O and callback work, and releases pending operations on close. Chat user counts
+  now use the adapter's cluster snapshot instead of a per-process counter.
 
 - Socket.IO: release completed engine sessions, initialize the root namespace,
   serialize namespace replacement after cleanup, and defer disconnect callbacks
@@ -573,26 +583,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Known limitations
 
-- Redis broadcast: `Emit` and `Send` from socket-excluding builders, including
-  `Conn.To` and `Conn.Broadcast`, return `adapter.ErrExceptUnsupported` before delivery.
-  Socket ID snapshots describe this instance only. `Volatile` and `Compress(false)` are honored locally;
-  the legacy Redis wire format omits these flags, so remote instances use
-  ordinary delivery and default compression. A room union publishes per room
-  and can deliver duplicates across instances. Mixed Go/Node Redis clusters
-  are unsupported; see [protocol deviation D3](docs/PROTOCOL.md#deviation-d3-mixed-gonode-redis-cluster).
-- Redis broadcast: `redis.New` normalizes `WithDB` to DB 0. Binary arguments across instances have not been validated.
-- Redis broadcast: handler registration does not wait until Redis has registered the
-  namespace's subscription, and a lost subscription is reopened later, so until Redis
-  has registered it the namespace on that instance misses other instances' broadcasts
-  and room requests, and room queries on every instance, its own included, leave out
-  its connections (see
-  [`redis.New`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/adapter/redis#New)).
-- Redis broadcast: `Server.RoomLen` and `Server.Rooms` wait the full 5 s and return the
-  answers received by then when the requesting instance has not yet registered its
-  subscription or an instance that Redis counts does not answer (`Rooms` also when Redis
-  cannot report that count), so they can undercount or omit rooms (see
-  [`Server.RoomLen`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Server.RoomLen)
-  and [`Server.Rooms`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io#Server.Rooms)).
+- Redis uses the Node-compatible MessagePack/JSON protocol. Legacy Go JSON peers
+  require a coordinated upgrade or a distinct prefix; see the v1 migration guide.
+- Mixed Go/Node namespaces must be Node-compatible URL paths without `#`.
+  The pinned Node adapter prefix-matches request channels, so names containing
+  `#` can address a different Node namespace; Go-only request routing is exact.
+- Redis Pub/Sub does not replay messages missed during disconnection. Cluster
+  queries are non-atomic snapshots, may return partial results on timeout, and do
+  not guarantee consistent counts during concurrent membership changes. Clear
+  affects the captured members and does not roll back partial work.
+- Redis support targets standalone Redis and `socket.io-redis` 5.4.0. Sentinel,
+  Redis Cluster topology, binary custom requests and broadcast ACK aggregation
+  are not supported. Pub/Sub isolation requires different prefixes, not databases.
 
 ## v1.4.2 and earlier
 

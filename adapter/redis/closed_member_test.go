@@ -24,7 +24,9 @@ func TestClosedSharedMemberCannotDeliverOrPublish(t *testing.T) {
 	local, remote := newRedisTestConn("local"), newRedisTestConn("remote")
 	closed.Join("room", local)
 	peer.Join("room", remote)
-	require.Eventually(t, func() bool { return server.PubSubNumSub("socket.io-request#/closed")["socket.io-request#/closed"] == 2 }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool {
+		return server.PubSubNumSub("socket.io-request#/closed#")["socket.io-request#/closed#"] == 2
+	}, time.Second, time.Millisecond)
 	require.NoError(t, closed.(io.Closer).Close())
 	require.Error(t, closed.SendTo(adapter.Options{}, "forbidden"))
 	// The remote room count acts as a subscriber processing barrier.

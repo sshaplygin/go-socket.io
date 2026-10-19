@@ -49,7 +49,7 @@ func (c *redisTestConn) EmitWithOptions(_ adapter.Options, event string, args ..
 
 func newTestRedisBroadcast(t *testing.T, s *miniredis.Miniredis) adapter.Adapter {
 	t.Helper()
-	const channel = "socket.io-request#/"
+	const channel = "socket.io-request#/#"
 	before := s.PubSubNumSub(channel)[channel]
 	bc, err := redisadapter.New(redisadapter.WithAddr(s.Addr()))("/")
 	require.NoError(t, err)

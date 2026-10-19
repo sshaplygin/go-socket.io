@@ -39,7 +39,7 @@ The other prepared experiments are listed in Stage 2 *Prepared components*.
 | Client packages | Go client as its own package on both lines: v1 gets `client` in the repository-root module inside Stage V1 (2026-10-10 replaces "scheduled last"); the 2026-10-18 component decision removes root wrappers/aliases and uses independent role contracts before MV1 acceptance; v2 keeps `client/` in the v2 module, scheduled last, no separate `go.mod` | 2.3C (v2), V1 and 7 (v1) |
 | Documentation | English; each contract has one owner; other sections refer to it | CLAUDE.md |
 | Layout | Owner decision of 2026-10-10: the repository root is the v1 module (the v1 runtime restored at the root); v2 lives in `v2/` as its own module. Replaces "master root = v2 skeleton, v1 on branch `v1.x`" | Repository layout, Repository restructure |
-| v1 completion | Owner decisions of 2026-10-10: the v1 line is finished and released (`v1.5.0`) before the v2 work continues; in-memory parity, examples and the finished Go client first, Redis parity as the next v1 minor; the matrix is [PARITY.md](PARITY.md) | Stage V1 (D1 to D8) |
+| v1 completion | Owner decisions of 2026-10-10: the v1 line is finished and released (`v1.5.0`) before the v2 work continues; in-memory parity, examples, the finished Go client and Redis parity including mixed Go/Node before the first v1 tag (2026-10-19); the matrix is [PARITY.md](PARITY.md) | Stage V1 (D1 to D8) |
 | Branch `v1.x` | Kept for now; receives no new work after the restructure. Its fate is the owner's later decision: deleting it is outward-facing and is neither done nor scheduled here | Repository layout |
 | Tags | No tag of any module until `master` has full support of the v1 protocol line (Socket.IO v4 / Engine.IO v3) with example implementations; `v1.5.0` is then tagged on `master` on the owner's explicit order, v2 tags after it. Replaces the M4 trigger; "full support" is the Stage V1 scope (MV1) | Repository layout, M4 |
 
@@ -135,10 +135,10 @@ on the owner's order after MV1 and does not wait for the tag.
 
 Execution order: **1 → 1b → 2A → R → V1 → V1R → 2B … → 3 → 4b → 5 → 6**, where 2A is the landed
 Stage 2.0, row R (the restructure) follows it, Stage V1 completes and releases v1 before the
-rest of Stage 2 (owner decision of 2026-10-10), V1R (Redis parity) follows MV1, the PR SYNC
+rest of Stage 2 (owner decision of 2026-10-10), V1R (Redis parity) gates MV1, the PR SYNC
 (shared-file drift check, D14) runs beside V1 and merges before 2B, and Stage 7 is
-executed inside V1 as PR V1-9. Whether V1R precedes the Stage 2 continuation or runs beside it
-(its files are the root module's, the continuation's are under `v2/`) is the owner's order.
+executed inside V1 as PR V1-9. By the 2026-10-19 decision, V1R precedes MV1
+acceptance and the Stage 2 continuation.
 Admin UI remains the last product stage and starts after M5; the final benchmark campaign after M6.
 Branch `v1.x` was cut between stages 1 and 1b (1b step 0) and is frozen (*Repository
 layout*); the restructure below (row R) moves v1 to the repository root and v2 to `v2/`.
@@ -498,7 +498,7 @@ are 12 public runtime packages and eight private component packages (20 total).
 | `client/internal/namespace` | Client-role contracts, handler/listener registry and local room index | `parser`, `engineio/client`, `internal/event` |
 | `internal/event` | V1-29 neutral typed payload/schema/handler bridge, ACK envelope and common typed errors; no role ownership | `parser` |
 | `adapter` | Room/index/broadcast contract and in-memory implementation | no other repository runtime package |
-| `adapter/redis` | Redis adapter extending/composing the memory adapter | `adapter`, `logger` |
+| `adapter/redis` | Redis adapter extending/composing the memory adapter | `adapter`, `logger`, `parser` |
 | `parser` | Socket.IO packet codec, shared by server and client | `logger` |
 | `engineio` | Engine.IO acceptance/server lifecycle, public options/hooks and session coordination | `engineio/internal/session`, `engineio/parser`, `engineio/transport`, its polling/websocket implementations, `logger` |
 | `engineio/internal/session` | Server session I/O, registry/IDs, heartbeat, close/upgrade and polling response observation | `engineio/parser`, `engineio/transport`, `engineio/transport/polling`, `logger` |
@@ -2114,10 +2114,10 @@ package) is executed inside it as PR V1-9.
 | ID | Decision (settled) |
 | --- | --- |
 | D1 | Order: finish and release v1 (the root of `master`) first, with full Socket.IO v4 / Engine.IO v3 support, example implementations and comparable parity with the TS/JS reference (v1: socket.io 2.5.0, engine.io 3.6.2; v2: socket.io 4.x, engine.io 6.x); then continue v2. |
-| D2 | In-memory implementation first. Redis work (Except on the Redis path, the `DB` option, binary arguments across instances, the 5 s `RoomLen`/`Rooms` waits of 1.R, a cluster-correct two-instance chat example) is Stage V1R below, the next v1 minor. `v1.5.0` = memory parity + examples + finished Go client, tagged only on the owner's explicit order. |
-| D3 | A mixed Go/Node Redis cluster (the `socket.io-redis` wire format) is not in v1: a documented deviation (PROTOCOL.md); the v2 `adapter/codec` carries it. |
+| D2 | Updated by the owner on 2026-10-19: Redis parity is required before the first `v1.5.0`, alongside memory parity, examples and the finished Go client. Stage V1R below owns the contract and gates; it no longer waits for MV1. Tagging still requires the owner's explicit order. |
+| D3 | Updated by the owner on 2026-10-19: v1 includes mixed Go/Node Redis clusters, using `socket.io-redis` 5.4.0 with `socket.io` 2.5.0. Stage V1R owns this work; v2 remains independent. |
 | D4 | JSONP is declared unsupported and removed. |
-| D5 | New public API is accepted for v1: `Except` on `Server` (memory half in `v1.5.0`), a connect-rejection reason, per-namespace disconnect with the DISCONNECT packet the server then writes (K20, R9), and the other 2.x features the matrix marks ABSENT or PARTIAL unless the owner marks them out. The checklist is the `Plan` column of PARITY.md. |
+| D5 | New public API is accepted for v1: `Except` on `Server` (memory and Redis in `v1.5.0`), a connect-rejection reason, per-namespace disconnect with the DISCONNECT packet the server then writes (K20, R9), and the other 2.x features the matrix marks ABSENT or PARTIAL unless the owner marks them out. The checklist is the `Plan` column of PARITY.md. |
 | D6 | The Go client is finished before the tag: websocket, several namespaces per `Client`, the close packet, and reconnection (the reference client has it, row C3). The `client` package of Stage 7 moves before the tag. |
 | D7 | Release gate clients: `socket.io-client` 1.7.4 and 2.5.0, in a CI job (1.0 to 1.3 are not guaranteed). |
 | D8 | Fixed as bugs, in the PRs named in PARITY.md: polling binary-mode UTF-16 length (P16, non-ASCII fails); an unknown namespace or rejected CONNECT answers an ERROR packet and keeps the root socket (S10, R8; socket.io 2.5.0 says `Invalid namespace`); `BroadcastToNamespace` duplicates per room (S12); random session id as `base64id` (E15); `Emit(ev, nil)` panic (B1); a wrong-type event argument closes the connection (B2); no payload size limit (E4: the limit is the reference's `maxHttpBufferSize` default, 1e6 bytes, by D1, with an `Options` field to raise it, an `ADD` entry of E4 that V1-0 specifies); no attachment-count cap (R6: a `5999999999999-` header took 19.5 s in one decode); JSONP `j` reflection (P5, closed by D4); `Server.Close` leaves sessions running (S17, E22); Redis `DB` ignored (A10, in V1R). D15 does not reopen any of them; it covers only the defaults they leave open. |
@@ -2212,7 +2212,10 @@ V1-14's `### Changed` entry announces them, and Stage 7 compares `client` with `
 | V1-30 | Wave V1G, A (the rest of the Socket.IO layer): the root namespace exists without a registered `OnConnect` (G17); a client event cannot fire the `disconnecting` listener (G19); variadic handlers are rejected at registration or decoded per argument (G20); no ACK for an event without an ack id (G21); `JoinRoom`/`LeaveRoom` check their `Conn` (G23); reserved event names are not sent (G28); the PROTOCOL.md heading `### Deviation D19: Admin UI not in v1` under *Known deviations from the v3/v4 specs* (D19, row S22); root `*.go`, `internal/connection`, `internal/namespace`, `docs/PROTOCOL.md` |
 | V1-31 | Wave V1G, B (the rest of Engine.IO): negative ping options are rejected or replaced (G22); a polling GET carries every queued packet (G24); the text payload decoder rejects invalid lengths (G25); an unknown packet type closes the session with a parse error (G26); an empty binary POST is no packets (G27); a test for the second-probe guard (G29); `engineio/` without `engineio/client` |
 
-**`Except` with the Redis adapter in `v1.5.0` (rows A4, K14, S21; D2, D10).** Decided here by
+**Historical pre-release Redis contract (rows A4, K14, S21; D2, D10).**
+Superseded for the first release by *Stage V1R* below (owner decision 2026-10-19).
+The following records the already implemented V1-6 baseline, not release acceptance.
+ Decided here by
 the rule of D10: the `Except` options are methods added directly to the exported `Broadcast`
 interface. That is the simplest mechanism consistent with D10: one interface for the server to
 call, the same rule as `Conn` and `Namespace`; `redis_broadcast.go` is in this module and
@@ -3101,7 +3104,7 @@ test -n "$(cl Changed | grep -w PingInterval | grep -w PingTimeout)"; test -n "$
 test -n "$(cl Changed | grep -w OnConnect | grep -w ERROR)"   # V1-5's connect rejection keeps the connection open
 test -n "$(cl Changed | grep -w POST | grep -w UPGRADE)"   # V1-2's upgrade window (P4): a POST before the UPGRADE packet is accepted
 test -n "$(cl Changed | grep -w OnDisconnect | grep -F 'transport close')"; test -n "$(cl Changed | grep -w Close | grep -w DISCONNECT)"   # V1-4's disconnect reasons; V1-5's Conn.Close sends DISCONNECT per namespace
-grep -q '^### Deviation D4: JSONP unsupported' docs/PROTOCOL.md; grep -q '^### Deviation D3: mixed Go/Node Redis cluster' docs/PROTOCOL.md   # the V1-14 headings; master's PROTOCOL.md already mentions JSONP
+grep -q '^### Deviation D4: JSONP unsupported' docs/PROTOCOL.md; grep -q '^### Redis cluster interoperability' docs/PROTOCOL.md   # the V1-14 headings; master's PROTOCOL.md already mentions JSONP
 grep -q '^### Deviation D19: Admin UI not in v1' docs/PROTOCOL.md   # the V1-30 heading (D19, wave V1G)
 for d in ack binary namespaces middleware; do test -f _examples/$d/go.mod; done
 test -f _examples/default-http/client.js; test -f _examples/asset/index-1.7.html; grep -q 'socket.io-client@1.7.4' _examples/asset/index-1.7.html   # D17: the chat's client script and the 1.7 page (V1-12, V1-13)
@@ -3134,29 +3137,147 @@ on the merged `master` (it now also greps the D19 heading), and the owner's Acce
 repeated. Nothing is accepted beyond what those commands compute; the `v1.5.0` tag stays the
 owner's order after that.
 
-Three gates read *MV1 accepted*: the entry of wave 2B (*Execution and parallel work*), the
-entry of Stage V1R below, and the resumption of v2 work on the owner's order after MV1 (*Repository
-layout*, *Execution and parallel work*, *Repository restructure* and its replay table, the MV1
-Acceptance). The
-review and D18 name only `v1.5.0`; whether these three keep the acceptance of #133 or wait for
-the re-acceptance is an open question to the owner on the PR that records wave V1G, recorded
-here as the owner answers. Until then each is read as written: 2B and V1R wait for the
-re-acceptance, and v2 work resumes only on the owner's order.
+Wave 2B and v2 resumption wait for repeated MV1 acceptance. By the owner's
+2026-10-19 decision, V1R instead enters from #138 and must finish before that
+acceptance; its earlier dependency on accepted MV1 is removed.
 
-**Stage V1R. Redis parity (next v1 minor, after MV1).** Scope, from D2: `Except` and
-broadcast-except-sender over Redis (A4), the `volatile` (A4) and `compress` (S21) flags across instances, a room union as one
-message and id lists across instances (S13, S15, A5), the `DB` option (A10), binary arguments across
-instances (B3), the 5 s `RoomLen`/`Rooms` waits (B4, 1.K), and `_examples/redis-adapter` turned
-into a cluster-correct two-instance chat that returns to the identical `chat.go` (`CHAT_SKIP` emptied); the mixed Go/Node cluster stays out (D3, A8, A9).
-New message entries follow the forward rule of *`Except` with the Redis adapter* (every new
-field inside `opts`, an entry only for a non-default value, a marker when the `args` encoding
-changes); the changelog names every broadcast kind whose message carries an entry and which
-`v1.5.0` instances therefore miss during a rolling upgrade: `Except`, `volatile`, `compress`
-false, a room union, an id list and, if B3 adds its marker, binary arguments.
-Entry: MV1 accepted. The PR split is recorded here when the stage starts. DoD: `make lint
-test-race` with the two-instance tests under `-race`; no `REDIS` entry left in the `Plan`
-column (`rows | grep REDIS` prints nothing); the changelog `### Known limitations` of 1.K is
-updated; tag `v1.6.0` when `v1.5.0` is the latest tag, only on the owner's order.
+**Stage V1R. Redis parity before the first v1 release (2026-10-19).**
+The owner moved all remaining Redis work into `v1.5.0` and explicitly included mixed
+Go/Node clusters. This section supersedes earlier deferrals, the historical V1-6
+Redis contract, and the former D3 deviation. Entry is the reviewed v1 implementation
+merged as #138 (`fc1c68d`), not MV1 acceptance. MV1 is reopened until this stage and
+its merged-master acceptance pass. Registry ownership remains unchanged.
+
+Scope: A4, A5, A8, A9, A10, S13, S15, S21, K14, B3 and B4. Implement exclusion,
+room unions with one delivery per socket, cluster IDs/rooms, binary arguments,
+remote flags, database selection, ready subscriptions, bounded cluster requests,
+remote operations and a working two-instance chat. This means standalone Redis
+Pub/Sub interoperability; Sentinel, Redis Cluster topology and injected Redis clients
+are not added by this stage. Node reference is pinned to
+`socket.io-redis@5.4.0`, `socket.io@2.5.0`; gate clients remain 1.7.4 and 2.5.0.
+Do not import v2. `adapter/redis` may additionally import `parser` for the canonical
+Socket.IO argument/binary codec; the architecture table and executable policy
+must agree. A Go-1.22-compatible MessagePack dependency is permitted, pinned in
+root go.mod/go.sum; no new runtime package is required.
+
+Wire and migration contract:
+- Default broadcast wire becomes Node's MessagePack `[uid, packet, opts]`, with
+  exact packet namespace validation, event packet types and binary values. Channel
+  is `prefix#namespace#` plus `room#` only for a single room. Publish a union once.
+  UID belongs to the envelope. Literal namespace equality protects names containing
+  `#` and glob characters on Go receivers; malformed messages are rejected without
+  dispatcher panic. Mixed-peer names must be preserved by Node URL-path parsing
+  and contain no `#`: pinned Node CONNECT strips fragments and its Redis request
+  handler prefix-matches channels. Go cannot prevent that peer from executing a
+  `/cluster#other` request against `/cluster`. This is a reference limitation,
+  not a promise of mixed-peer exact request isolation for those names.
+- Preserve JSON tags/custom JSON marshaling and parser.Buffer through canonical
+  argument preparation; do not encode arbitrary application structs directly with
+  MessagePack defaults. Preserve integer values without an intermediate float64;
+  JavaScript's integer precision limit remains a peer limitation. Validate binary
+  placeholders, envelope fields, packet types and options before delivery.
+- `Except` contains socket IDs; `Local` never publishes; volatile and compression
+  options survive remote delivery. Reject clustered acknowledgement callbacks and
+  encoding failures before any delivery. SendTo returns Redis publication errors;
+  publication is not a transaction with local delivery and offers no replay.
+- Requests use Node's trailing-`#` channels and lowercase JSON: types 0 clients,
+  1 clientRooms, 2 allRooms, 3 remoteJoin, 4 remoteLeave, 5 customRequest and
+  6 remoteDisconnect. Never interpret legacy type 1 Clear as clientRooms.
+- Legacy Go JSON peers are not wire compatible. No automatic dual publication or
+  mixed legacy mode. Upgrade all Go peers together, or use a distinct prefix during
+  migration. Document this breaking pre-release transition before clearing D3.
+  Redis databases do not isolate Pub/Sub; WithPrefix is the cluster isolation key.
+
+Public additions live in `adapter/redis` and do not extend adapter.Adapter or
+Socket.IO Conn interfaces. An exported `Cluster` interface embeds adapter.Adapter
+and is implemented by values returned by the factory; consumers use a type assertion
+on ServerNamespace.Adapter(). It adds:
+
+```go
+IDsContext(context.Context, ...string) ([]string, error)
+AllRoomsContext(context.Context) ([]string, error)
+LenContext(context.Context, string) (int, error)
+ClearContext(context.Context, string) error
+ClientRooms(context.Context, string) ([]string, error)
+RemoteJoin(context.Context, string, string) error
+RemoteLeave(context.Context, string, string) error
+RemoteDisconnect(context.Context, string, bool) error
+CustomRequest(context.Context, json.RawMessage) ([]json.RawMessage, error)
+```
+
+Options: `WithRequestsTimeout(time.Duration)` sets a positive per-factory request
+bound (default five seconds; nonpositive uses default); `WithCustomRequestHandler`
+accepts `func(context.Context, json.RawMessage) (json.RawMessage, error)`, default
+returns JSON null. Add exported ErrRequestTimeout and ErrAdapterClosed. Context
+cancellation returns ctx.Err; adapter close cancels pending requests. Partial
+validated query results accompany timeout errors. Legacy IDs/AllRooms expose those
+partial snapshots and log errors; Len returns -1 on failure. No atomic cluster
+snapshot is promised. ClearContext queries IDs then performs remoteLeave under one
+shared deadline; concurrent joins can survive and completed removals are not rolled
+back. Legacy Clear performs the same bounded work and logs errors.
+
+Remote operations must support Node-initiated and Go-initiated requests. Socket
+lifecycle uses optional structural capabilities on local adapter sockets (Join,
+Leave, Disconnect and Close), never imports a Socket.IO role. Custom sockets lacking
+a capability cannot be reported as successful. Add an optional adapter lifecycle
+binding `BindSocketLookup(func(string) adapter.Socket)`; the server binds it to its
+independent connected-socket registry, so LeaveAll does not hide live sockets from
+remote commands. The binding is cleared when that namespace adapter is retired.
+Fallback lookup through memory is allowed for standalone adapter users. Custom hooks
+are per factory: one invocation per shared namespace subscriber, producing one reply,
+even when multiple members share that namespace. Requests/replies are JSON only
+(no binary custom payload, as in the pinned Node adapter). Custom hooks and lifecycle callbacks
+run outside Redis reader and membership locks; bounded work and close cancellation
+prevent an unbounded goroutine backlog (at most 32 active remote command/hook workers
+per shared factory; overflow drops the request and logs, so callers time out). Handler errors do not fabricate success;
+Node's protocol has no error response, so its callers time out. Applications must
+honor handler context cancellation. Replies are validated before counting; Go may
+add a responder identity which Node ignores, while Node replies have no identity
+and cannot provide stronger duplicate-response guarantees than its wire protocol.
+
+Resource/lifecycle contract: retain one subscriber and publishing pool per factory;
+shared members of one namespace produce one combined response per counted Redis
+subscriber. Construction/new namespace readiness waits for Redis subscription ACKs
+within the dial bound, including cancellation and cleanup on failure. Reconnect
+re-registers current members before declaring ready. Queries during an outage are
+bounded, error visibly and do not report an empty successful cluster; close unblocks
+waiters. Request context bounds NUMSUB and PUBLISH as well as response waiting;
+request commands use dedicated connections, closed on cancellation and never returned
+to the publishing pool; this also works with consumers selecting legacy redigo v2.
+WithDB reaches SELECT on both subscriber and every pooled connection.
+No guarantee of recovery for broadcasts lost during a Redis outage is added.
+
+Work sequence and ownership (one integration branch; disjoint implementation files):
+1. Save this contract and obtain independent QA/Critic/Reviewer approval before code.
+2. Broadcast codec, flags, binary and error propagation; separately request protocol
+   and remote commands; separately subscription readiness and DB/lifecycle. Each bug
+   gets a genuine failing test-only commit before its fix; additive features get
+   executable acceptance tests. Keep tests beside their functionality.
+3. Integrate shared-resource routing, exact namespace isolation and pending request
+   cleanup; run race/stress tests before example and CI acceptance.
+4. Add pinned Node/Redis interoperability fixtures and CI, fix both Redis chat
+   examples to use the canonical chat and empty CHAT_SKIP; update parity evidence,
+   protocol/migration docs, godoc and Unreleased changelog. Close rows only with
+   executable evidence, then obtain three independent final approvals.
+
+Acceptance: ordinary adapter tests use miniredis and need no external service.
+Tagged conformance requires a real Redis service (CI pinned Redis image and health
+check) plus the pinned Node adapter; missing service is a failure when that gate
+runs, never a silent skip. Test two Go servers and a Go/Node pair with clients pinned
+to both versions, polling and websocket: namespace/room isolation for supported mixed-peer names,
+Go-only exact request isolation with `#`, Go broadcast-envelope isolation with `#`
+(including Node-originated broadcasts without Node clients in that namespace),
+and an executable pinned-reference proof of the unsupported Node `#` request case,
+room union dedupe, exclusion, local/volatile/compression flags, nested binary payloads,
+cluster IDs/rooms/counts, Go-to-Node and Node-to-Go remote operations/custom replies,
+startup readiness, reconnect, malformed replies, timeouts and close cancellation.
+Use separate assertions for protocol semantics and transport-level compression.
+Run `make lint architecture-check sync-check test-race`, strict parity and coverage,
+Go 1.22 fixtures, repeated shuffled race tests, full Node conformance/examples and
+root/example govulncheck. The real-Redis gate belongs to both CI conformance client
+jobs and runs on master. No REDIS plan entry or stale known limitation remains for
+implemented scope; no unsupported capability is marked PARITY. MV1 acceptance and
+release commit/tag still follow CONTRIBUTING.md and the owner's explicit order.
 
 **Why Stage 7 moves here.** D6 puts the `client` package before the tag, and the extraction
 (V1-9) must follow the server work because the `Conn` and `Namespace` method sets that V1-5 to
@@ -6668,7 +6789,7 @@ stage. The v1 runtime stays in the repository-root module.
 | M1 | Stage 1 complete and the 1.D link-form commit merged | none |
 | M1b | Stage 1b closed: step 0 done (branch `v1.x` cut) and steps 1–3 merged, with the Stage 1b DoD, `v1.x` gates and Acceptance blocks passing on `master` | none (first commits after the cut commit `$CUT`) |
 | MV1 | Stage V1: PRs V1-0 to V1-31 merged on `master` (V1-21 to V1-31: wave V1G, after the review of 2026-10-18 and D18 reopened it), the MV1 DoD and Acceptance passing; includes the `client` package (Stage 7), the engine layer (D16), the examples and the D17 gates | `v1.5.0` (v1 line complete), on the owner's explicit order after the declaration of *Repository layout* |
-| MV1R | Stage V1R: Redis parity on the v1 line | next v1 minor after `v1.5.0` (`v1.6.0` when that is the latest tag), on the owner's order |
+| MV1R | Stage V1R: Redis parity including mixed Go/Node, required before MV1 | included in first `v1.5.0`; no separate follow-up tag |
 | M2 | 2.0 generic API/lifecycle contract + 2.1 Engine.IO v4 on gobwas/ws + conformance; accepted at the 2B join, which also puts the 2.2 and 2.3P code on `master` unreleased (below) | branch `v2-next` (a snapshot of `master`; v2 paths under `v2/`) |
 | M3 | 2.2 + 2.3 + 2.4 + 2.5 (2.2 and 2.3P are already on `master` at M2 acceptance; the M3 tags release them) | `v2.0.0`, `v2/contrib/otel/v2.0.0`, only after the owner's declaration and `v1.5.0` (*Repository layout*) |
 | M4 | Stage 3: single-server chat | `v2.1.0`; the Stage 3 upstream-chat parity DoD line is no longer the `v1.5.0` trigger (*Repository layout*) |
@@ -6710,7 +6831,7 @@ snapshot/Node interoperability prototype before treating it as a delivery commit
 
 ## Out of scope
 
-EIO=3 in v2; in v1: JSONP, a mixed Go/Node Redis cluster on the `socket.io-redis` wire format and the Admin UI (Stage V1, D3, D4 and D19); connection state recovery; WebTransport; permessage-deflate in v2 (v1 has it: V1-15, D11; a user moving from `v1.5.0` loses it, which `docs/MIGRATION.md` says, 2.5); sharded Redis
+EIO=3 in v2; in v1: JSONP and the Admin UI (Stage V1, D4 and D19); connection state recovery; WebTransport; permessage-deflate in v2 (v1 has it: V1-15, D11; a user moving from `v1.5.0` loses it, which `docs/MIGRATION.md` says, 2.5); sharded Redis
 adapter (Redis 7 sharded pub/sub); Redis Cluster, Ring and replica-routed clients for
 `v2/adapters/redis` (see 4b `adapters/redis`); cluster broadcast-with-ack; NATS JetStream persistence;
 framework-specific integration packages (gin, echo, iris, gf use `http.Handler`); trace

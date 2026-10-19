@@ -17,18 +17,20 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP listen address")
+	redisAddr := flag.String("redis", "/tmp/docker/redis.sock", "Redis address or Unix socket")
+	prefix := flag.String("prefix", "socket.io", "Redis cluster channel prefix")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, *addr); err != nil {
+	if err := run(ctx, *addr, *redisAddr, *prefix); err != nil {
 		log.Print(err)
 	}
 }
 
-func run(ctx context.Context, addr string) error {
+func run(ctx context.Context, addr, redisAddr, prefix string) error {
 	router := gin.New()
 
-	server := socketio.NewServer(socketio.WithAdapter(redisadapter.New(redisadapter.WithAddr("/tmp/docker/redis.sock"), redisadapter.WithNetwork("unix"))))
+	server := socketio.NewServer(socketio.WithAdapter(redisadapter.New(redisadapter.WithAddr(redisAddr), redisadapter.WithPrefix(prefix), redisadapter.WithNetwork("unix"))))
 
 	registerChat(server)
 

@@ -51,9 +51,9 @@ func TestFactoryOptionsAndIndependentNamespaces(t *testing.T) {
 	}
 	first, remote, isolated := makeAdapter("/one"), makeAdapter("/one"), makeAdapter("/two")
 	require.Eventually(t, func() bool {
-		return redis.PubSubNumSub("cluster-request#/one")["cluster-request#/one"] == 1 && redis.PubSubNumSub("cluster-request#/two")["cluster-request#/two"] == 1
+		return redis.PubSubNumSub("cluster-request#/one#")["cluster-request#/one#"] == 1 && redis.PubSubNumSub("cluster-request#/two#")["cluster-request#/two#"] == 1
 	}, time.Second, 5*time.Millisecond)
-	require.Zero(t, selects.Load(), "known DB0 limitation must remain explicit")
+	require.GreaterOrEqual(t, selects.Load(), int32(2), "subscriber and publishing connection select configured database")
 	localSocket := &socket{id: "local", events: make(chan string, 4)}
 	remoteSocket := &socket{id: "remote", events: make(chan string, 4)}
 	isolatedSocket := &socket{id: "isolated", events: make(chan string, 4)}
@@ -75,7 +75,7 @@ func TestFactoryOptionsAndIndependentNamespaces(t *testing.T) {
 	require.Equal(t, 1, isolated.Len("room"))
 	require.Empty(t, isolatedSocket.events, "namespace state and channels must stay independent")
 	first.LeaveAll(localSocket)
-	require.Empty(t, first.IDs())
+	require.Equal(t, []string{"remote"}, first.IDs())
 	require.Equal(t, []string{"remote"}, remote.IDs())
 	require.Equal(t, []string{"isolated"}, isolated.IDs())
 	// Reusing a targeted option cannot retain another factory's prefix or password.
@@ -84,7 +84,7 @@ func TestFactoryOptionsAndIndependentNamespaces(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, independent.(io.Closer).Close()) })
 	require.Eventually(t, func() bool {
-		return plain.PubSubNumSub("socket.io-request#/defaults")["socket.io-request#/defaults"] == 1
+		return plain.PubSubNumSub("socket.io-request#/defaults#")["socket.io-request#/defaults#"] == 1
 	}, time.Second, 5*time.Millisecond)
 }
 

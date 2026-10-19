@@ -19,7 +19,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
-const testRedisReqChannel = "socket.io-request#/"
+const testRedisReqChannel = "socket.io-request#/#"
 
 func init() {
 	redisRequestTimeout = 300 * time.Millisecond
@@ -82,7 +82,7 @@ func TestRedisBroadcastAcrossInstances(t *testing.T) {
 	a := newTestRedisBroadcast(t, s)
 	b := newTestRedisBroadcast(t, s)
 
-	a1, b1, b2 := newRedisTestConn("a1"), newRedisTestConn("b1"), newRedisTestConn("b2")
+	a1, b1, b2 := newRedisTestConn("a1"), newRedisTestConn("b1"), newClusterTestSocket(b, "b2")
 	a.Join("room", a1)
 	b.Join("room", b1)
 	b.Join("other", b2)
@@ -94,7 +94,7 @@ func TestRedisBroadcastAcrossInstances(t *testing.T) {
 	b.SendAll("all", 1)
 	expectEvent(t, a1, "all [1]")
 	expectEvent(t, b1, "all [1]")
-	expectEvent(t, b2, "all [1]")
+	expectEvent(t, b2.redisTestConn, "all [1]")
 
 	require.Equal(t, 2, a.Len("room"))
 	require.Equal(t, 1, a.Len("other"))
@@ -237,7 +237,7 @@ func TestRedisBroadcastRequestTimeout(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		assert.Equal(t, 1, a.Len("room"))
+		assert.Equal(t, -1, a.Len("room"))
 		assert.Equal(t, []string{"room"}, a.AllRooms())
 	}()
 	select {
@@ -303,8 +303,8 @@ func TestRedisBroadcastSkipsMalformedMessages(t *testing.T) {
 	for _, msg := range []string{"not json", "{}", `{"opts":[1,"msg"]}`} {
 		s.Publish("socket.io#/#peer", msg)
 	}
-	s.Publish("socket.io-response#/", "{}")
-	s.Publish("socket.io-response#/", `{"RequestID":1}`)
+	s.Publish("socket.io-response#/#", "{}")
+	s.Publish("socket.io-response#/#", `{"RequestID":1}`)
 
 	b.Send("room", "msg")
 	expectEvent(t, a1, "msg []")
@@ -408,41 +408,23 @@ func TestRedisBroadcastReconnectBackoffWhileDown(t *testing.T) {
 	require.LessOrEqual(t, dials.Load(), int32(12), "the delay must double between failed dials")
 }
 
-// Answers to a pending request with missing, mistyped or mismatched fields
-// count as empty answers instead of stopping the dispatcher.
+// Malformed answers never count toward completion.
 func TestRedisBroadcastMalformedResponses(t *testing.T) {
 	s := miniredis.RunT(t)
 	a := newTestRedisBroadcast(t, s)
-	lenReq := &roomLenRequest{numSub: 3, done: make(chan bool, 1)}
-	roomsReq := &allRoomRequest{numSub: 3, rooms: map[string]bool{}, done: make(chan bool, 1)}
-	a.setRequest("len", lenReq)
-	a.setRequest("rooms", roomsReq)
-
-	for _, msg := range []string{
-		`{"RequestType":"2","RequestID":"rooms"}`,
-		`{"RequestType":"0","RequestID":"len","Connections":"x"}`,
-		`{"RequestType":"2","RequestID":"len","Rooms":["r"]}`,
-		`{"RequestType":"0","RequestID":"len","Connections":2}`,
-		`{"RequestType":"0","RequestID":"rooms","Connections":1}`,
-		`{"RequestType":"2","RequestID":"rooms","Rooms":[1,"r"]}`,
-	} {
-		s.Publish("socket.io-response#/", msg)
+	req := &clusterRequest{kind: clientsRequest, expected: 1, done: make(chan struct{}), values: map[string]bool{}, responders: map[string]bool{}}
+	a.setRequest("id", req)
+	for _, msg := range []string{`{"requestid":"id"}`, `{"requestid":"id","clients":null}`, `{"requestid":"id","clients":[1]}`, `{"RequestID":"id","Clients":["ignored"]}`, `{"requestid":"id","rooms":["ignored"]}`} {
+		a.onResponse([]byte(msg))
 	}
-
-	for _, done := range []chan bool{lenReq.done, roomsReq.done} {
-		select {
-		case <-done:
-		case <-time.After(2 * time.Second):
-			t.Fatal("request not completed")
-		}
+	require.Zero(t, req.received)
+	a.onResponse([]byte(`{"requestid":"id","clients":["valid"]}`))
+	select {
+	case <-req.done:
+	case <-time.After(time.Second):
+		t.Fatal("valid response did not complete")
 	}
-	lenReq.mutex.Lock()
-	defer lenReq.mutex.Unlock()
-	roomsReq.mutex.Lock()
-	defer roomsReq.mutex.Unlock()
-	require.Equal(t, []int{3, 2}, []int{lenReq.msgCount, lenReq.connections})
-	require.Equal(t, 3, roomsReq.msgCount)
-	require.Equal(t, map[string]bool{"r": true}, roomsReq.rooms)
+	require.True(t, req.values["valid"])
 }
 
 func (c *redisTestConn) EmitWithOptions(_ adapter.Options, event string, args ...interface{}) {

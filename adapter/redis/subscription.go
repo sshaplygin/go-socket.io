@@ -23,24 +23,55 @@ var (
 
 // subscribe opens a subscriber connection to the broadcast pattern and the
 // request and response channels, and closes it again if that fails. ctx bounds
-// only the dial.
+// dialing, authentication, selection and all subscription acknowledgements.
 func (bc *broadcast) subscribe(ctx context.Context) (*redis.PubSubConn, error) {
+	channels := []interface{}{bc.reqChannel, bc.resChannel}
+	if bc.resources != nil {
+		channels = bc.resources.channels()
+	}
+	sub, err := bc.subscribeChannels(ctx, channels)
+	if err == nil {
+		bc.markReady(channels)
+	}
+	return sub, err
+}
+func (bc *broadcast) subscribeChannels(ctx context.Context, channels []interface{}) (*redis.PubSubConn, error) {
 	c, err := (*bc.dial.Load())(ctx)
 	if err != nil {
 		return nil, err
 	}
 	sub := &redis.PubSubConn{Conn: c}
+	stop := context.AfterFunc(ctx, func() { _ = sub.Close() })
+	defer stop()
+	pending := map[string]bool{bc.pattern: true}
+	for _, channel := range channels {
+		pending[channel.(string)] = true
+	}
 	if err = sub.PSubscribe(bc.pattern); err == nil {
-		channels := []interface{}{bc.reqChannel, bc.resChannel}
-		if bc.resources != nil {
-			channels = bc.resources.channels()
-		}
 		err = sub.Subscribe(channels...)
+	}
+	for err == nil && len(pending) > 0 {
+		switch m := sub.Receive().(type) {
+		case redis.Subscription:
+			if m.Kind == "subscribe" || m.Kind == "psubscribe" {
+				delete(pending, m.Channel)
+			}
+		case error:
+			err = m
+		}
+	}
+	if ctx.Err() != nil {
+		err = ctx.Err()
 	}
 	if err != nil {
 		_ = sub.Close()
 		return nil, err
 	}
+	if !stop() {
+		_ = sub.Close()
+		return nil, ctx.Err()
+	}
+
 	return sub, nil
 }
 
@@ -60,6 +91,10 @@ func (bc *broadcast) dispatch() {
 			}
 
 		case redis.Subscription:
+			if m.Kind == "unsubscribe" {
+				bc.acknowledgeUnsubscribe(sub, m.Channel)
+			}
+			bc.subscriptionChanged(m.Channel, m.Kind == "subscribe" || m.Kind == "psubscribe")
 			if m.Count == 0 {
 				return
 			}
@@ -67,6 +102,7 @@ func (bc *broadcast) dispatch() {
 			delay = redisReconnectMin
 
 		case error:
+			bc.subscriptionChanged("", false)
 			_ = sub.Close()
 			if sub, delay = bc.resubscribe(delay); sub == nil {
 				return
@@ -88,32 +124,34 @@ func (bc *broadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.D
 		case <-time.After(delay):
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
-		sub, err := bc.subscribe(ctx)
+		channels := []interface{}{bc.reqChannel, bc.resChannel}
+		if bc.resources != nil {
+			channels = bc.resources.channels()
+		}
+		ctx, cancel := context.WithTimeout(bc.transportCtx, redisDialTimeout)
+		sub, err := bc.subscribeChannels(ctx, channels)
 		cancel()
 		if err != nil {
 			continue
 		}
 		bc.subLock.Lock()
-		defer bc.subLock.Unlock()
 		select {
 		case <-bc.done:
+			bc.subLock.Unlock()
 			_ = sub.Close()
 			return nil, 0
 		default:
-			if bc.resources != nil {
-				// Membership may have changed while this connection was dialed.
-				if err = sub.Unsubscribe(); err == nil {
-					err = sub.Subscribe(bc.resources.channels()...)
-				}
-				if err != nil {
-					_ = sub.Close()
-					return bc.sub, min(2*delay, redisReconnectMax)
-				}
-			}
-			bc.sub = sub
-			return sub, min(2*delay, redisReconnectMax)
 		}
+		if bc.resources != nil && !sameChannels(channels, bc.resources.channels()) {
+			bc.subscriptionChanged("", false)
+			bc.subLock.Unlock()
+			_ = sub.Close()
+			continue
+		}
+		bc.sub = sub
+		bc.markReady(channels)
+		bc.subLock.Unlock()
+		return sub, min(2*delay, redisReconnectMax)
 	}
 }
 
@@ -122,6 +160,9 @@ func (bc *broadcast) Close() error {
 	if bc.closed.Swap(true) {
 		return nil
 	}
+	bc.notifyReadiness()
+	bc.finishRequests()
+	bc.BindSocketLookup(nil)
 	if bc.resources != nil {
 		return bc.resources.remove(bc)
 	}
@@ -139,6 +180,10 @@ func (bc *broadcast) closeTransport() error {
 	}
 
 	close(bc.done)
+	if bc.transportCancel != nil {
+		bc.transportCancel()
+	}
+	bc.subscriptionChanged("", false)
 	_ = bc.sub.Close()
 	_ = bc.pub.Close()
 	return nil

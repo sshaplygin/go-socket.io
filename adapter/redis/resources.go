@@ -1,7 +1,7 @@
 package redis
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"github.com/gomodule/redigo/redis"
 	"github.com/google/uuid"
@@ -13,6 +13,7 @@ import (
 // owner.subLock orders subscription writes, reconnects, registration and close.
 // mu only protects the namespace table; dispatch never holds it while delivering.
 type sharedResources struct {
+	workers chan struct{}
 	owner   *broadcast
 	mu      sync.Mutex
 	members map[string][]*broadcast
@@ -30,28 +31,49 @@ func (s *sharedResources) channels() []interface{} {
 }
 
 func (s *sharedResources) add(nsp string, opts *options) (*broadcast, error) {
+	if nsp == "" {
+		nsp = "/"
+	}
 	owner := s.owner
+	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+	defer cancel()
 	owner.subLock.Lock()
-	defer owner.subLock.Unlock()
 	select {
 	case <-owner.done:
+		owner.subLock.Unlock()
 		return nil, fmt.Errorf("redis factory resources closed")
 	default:
 	}
 	s.mu.Lock()
 	existing := len(s.members[nsp]) > 0
-	uid := uuid.NewString()
-	bc := &broadcast{Memory: adapter.NewMemory(), requests: make(map[string]interface{}), done: make(chan struct{}), pub: owner.pub, resources: s, nsp: nsp, uid: uid,
-		key: fmt.Sprintf("%s#%s#%s", opts.Prefix, nsp, uid), reqChannel: fmt.Sprintf("%s-request#%s", opts.Prefix, nsp), resChannel: fmt.Sprintf("%s-response#%s", opts.Prefix, nsp)}
+	bc := &broadcast{Memory: adapter.NewMemory(), requests: make(map[string]interface{}), done: make(chan struct{}), pub: owner.pub, resources: s, nsp: nsp, uid: uuid.NewString(),
+		key: fmt.Sprintf("%s#%s#", opts.Prefix, nsp), reqChannel: fmt.Sprintf("%s-request#%s#", opts.Prefix, nsp), resChannel: fmt.Sprintf("%s-response#%s#", opts.Prefix, nsp)}
+	bc.initCluster(opts)
 	s.members[nsp] = append(s.members[nsp], bc)
 	s.mu.Unlock()
-	if !existing {
-		if err := owner.sub.Subscribe(bc.reqChannel, bc.resChannel); err != nil {
-			s.mu.Lock()
-			delete(s.members, nsp)
-			s.mu.Unlock()
-			return nil, err
-		}
+	var err error
+	stop := func() bool { return true }
+	if !existing && owner.connected() {
+		sub := owner.sub
+		// Closing the captured generation bounds both command flush and ACK wait.
+		// Redis connections permit Close concurrently with their reader/writer.
+		stop = context.AfterFunc(ctx, func() { _ = sub.Close() })
+		err = sub.Subscribe(bc.reqChannel, bc.resChannel)
+	}
+	defer stop()
+	owner.subLock.Unlock()
+	if err == nil {
+		err = bc.waitReady(ctx)
+	}
+	if !stop() && err == nil {
+		err = ctx.Err()
+	}
+	if err == nil {
+		err = ctx.Err()
+	}
+	if err != nil {
+		_ = bc.Close()
+		return nil, err
 	}
 	return bc, nil
 }
@@ -85,43 +107,23 @@ func (s *sharedResources) dispatch(m redis.Message) {
 // Redis counts one subscriber per shared connection. Answer once with the
 // combined local state when a factory has multiple adapters for a namespace.
 func (s *sharedResources) onRequest(group []*broadcast, data []byte) {
-	var req map[string]string
-	if json.Unmarshal(data, &req) != nil {
-		return
+	if len(group) > 0 {
+		group[0].handleClusterRequest(group, data)
 	}
-	bc := group[0]
-	switch req["RequestType"] {
-	case roomLenReqType:
-		count := 0
-		for _, member := range group {
-			count += member.Memory.Len(req["Room"])
-		}
-		bc.publish(bc.resChannel, &roomLenResponse{RequestType: roomLenReqType, RequestID: req["RequestID"], Connections: count})
-	case allRoomReqType:
-		seen := map[string]bool{}
-		rooms := []string{}
-		for _, member := range group {
-			for _, room := range member.Memory.AllRooms() {
-				if !seen[room] {
-					seen[room] = true
-					rooms = append(rooms, room)
-				}
-			}
-		}
-		bc.publish(bc.resChannel, &allRoomResponse{RequestType: allRoomReqType, RequestID: req["RequestID"], Rooms: rooms})
-	case clearRoomReqType:
-		for _, member := range group {
-			if member.uid != req["UUID"] {
-				member.Memory.Clear(req["Room"])
-			}
-		}
+}
+
+func (s *sharedResources) clusterWorkers() chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.workers == nil {
+		s.workers = make(chan struct{}, 32)
 	}
+	return s.workers
 }
 
 func (s *sharedResources) remove(bc *broadcast) error {
 	owner := s.owner
 	owner.subLock.Lock()
-	defer owner.subLock.Unlock()
 	s.mu.Lock()
 	group := s.members[bc.nsp]
 	found := -1
@@ -133,6 +135,7 @@ func (s *sharedResources) remove(bc *broadcast) error {
 	}
 	if found < 0 {
 		s.mu.Unlock()
+		owner.subLock.Unlock()
 		return nil
 	}
 	group = append(group[:found], group[found+1:]...)
@@ -144,10 +147,34 @@ func (s *sharedResources) remove(bc *broadcast) error {
 	empty := len(s.members) == 0
 	s.mu.Unlock()
 	if empty {
-		return owner.closeTransport()
+		err := owner.closeTransport()
+		owner.subLock.Unlock()
+		return err
 	}
-	if len(group) == 0 {
-		return owner.sub.Unsubscribe(bc.reqChannel, bc.resChannel)
+	if len(group) > 0 {
+		owner.subLock.Unlock()
+		return nil
 	}
-	return nil
+	owner.subscriptionChanged(bc.reqChannel, false)
+	owner.subscriptionChanged(bc.resChannel, false)
+	sub := owner.sub
+	ack := owner.beginUnsubscribe(sub, bc.reqChannel, bc.resChannel)
+	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+	defer cancel()
+	stop := context.AfterFunc(ctx, func() { _ = sub.Close() })
+	defer stop()
+	err := sub.Unsubscribe(bc.reqChannel, bc.resChannel)
+	owner.subLock.Unlock()
+	defer owner.endUnsubscribe(ack)
+	if err != nil {
+		return err
+	}
+	select {
+	case <-ack.done:
+		return nil
+	case <-owner.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

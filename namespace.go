@@ -119,8 +119,8 @@ func (n *ServerNamespace) Volatile() Emitter { return n.emitter().Volatile() }
 // Local starts a broadcast restricted to this instance.
 func (n *ServerNamespace) Local() Emitter { return n.emitter().Local() }
 
-// SocketIDs lists socket IDs in any of rooms, or the whole namespace. With the
-// Redis adapter it lists this instance only. The returned slice is a copy.
+// SocketIDs lists socket IDs in any of rooms, or the whole namespace. Redis
+// queries the cluster and may return a partial snapshot on error. The slice is a copy.
 func (n *ServerNamespace) SocketIDs(rooms ...string) []string {
 	if n.parent != nil {
 		return parentBroadcast{namespace: n}.IDs(rooms...)

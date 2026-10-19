@@ -40,17 +40,15 @@ func isolatedRedis(t *testing.T) (*broadcast, *atomic.Int32) {
 }
 
 // Covers A4
-func TestRedisBroadcastExceptUnsupported(t *testing.T) {
+func TestRedisBroadcastExceptSupported(t *testing.T) {
 	b, calls := isolatedRedis(t)
 	c := newRedisTestConn("c")
 	b.Join("r", c)
-	for _, local := range []bool{false, true} {
-		err := b.SendTo(adapter.Options{Except: []string{"other"}, Local: local}, "nothing")
-		require.ErrorIs(t, err, adapter.ErrExceptUnsupported)
-		require.NotEqual(t, adapter.ErrExceptUnsupported, err)
-	}
-	require.Zero(t, calls.Load())
+	require.NoError(t, b.SendTo(adapter.Options{Except: []string{"c"}, Local: true}, "nothing"))
 	require.Empty(t, c.events)
+	require.Zero(t, calls.Load())
+	require.NoError(t, b.SendTo(adapter.Options{Except: []string{"other"}, Local: true}, "selected"))
+	expectEvent(t, c, "selected []")
 }
 
 func TestRedisBroadcastDropsUnknownOpts(t *testing.T) {
@@ -60,7 +58,9 @@ func TestRedisBroadcastDropsUnknownOpts(t *testing.T) {
 	require.Error(t, b.onMessage("socket.io#/#remote", []byte(`{"opts":["r","news",{"except":["c"]}],"args":[]}`)))
 	require.Empty(t, c.events)
 	require.Zero(t, calls.Load())
-	require.NoError(t, b.onMessage("socket.io#/#remote", []byte(`{"opts":["r","news"],"args":[]}`)))
+	data, err := encodeBroadcast("remote", "/", "news", adapter.Options{Rooms: []string{"r"}}, nil)
+	require.NoError(t, err)
+	require.NoError(t, b.onMessage("socket.io#/#r#", data))
 	expectEvent(t, c, "news []")
 }
 
@@ -81,7 +81,7 @@ func TestRedisBroadcastLocalFlag(t *testing.T) {
 	expectEvent(t, c, "local []")
 	require.Empty(t, c.events)
 	require.Zero(t, calls.Load())
-	require.Equal(t, []string{"c"}, b.IDs("r", "s"))
+	require.Equal(t, []string{"c"}, b.Memory.IDs("r", "s"))
 }
 
 func TestRedisBroadcastVolatileFlag(t *testing.T) {
@@ -89,7 +89,7 @@ func TestRedisBroadcastVolatileFlag(t *testing.T) {
 	a, c := flagSocket("a", true), flagSocket("c", false)
 	b.Join("r", a)
 	b.Join("r", c)
-	require.NoError(t, b.SendTo(adapter.Options{Volatile: true}, "volatile"))
+	require.Error(t, b.SendTo(adapter.Options{Volatile: true}, "volatile"), "publication errors are visible after local delivery")
 	expectEvent(t, a.redisTestConn, "volatile []")
 	require.Empty(t, c.events)
 	require.Equal(t, 1, a.volatile)

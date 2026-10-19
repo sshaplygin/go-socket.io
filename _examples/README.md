@@ -93,3 +93,27 @@ The target requires `CONFORMANCE_NODE_MODULES`, starts each example with a
 random local port, and fails on a missing dependency or any client failure.
 Both pinned clients run in CI. `default-http` also accepts `-addr` (default
 `:8000`) when run manually.
+
+### Redis cluster examples
+
+The TCP and Unix-socket Redis examples use the same chat handlers as the other
+examples. Registered-user counts come from the adapter's cluster room snapshot;
+concurrent joins/leaves are not an atomic cluster-wide counter. Both processes
+must use the same Redis address and channel prefix. For example, run these from
+`_examples/redis-adapter` in separate terminals:
+
+```sh
+go run . -addr :8000 -redis 127.0.0.1:6379 -prefix chat-demo
+go run . -addr :8001 -redis 127.0.0.1:6379 -prefix chat-demo
+```
+
+Open `/public/` on each HTTP port. For `_examples/redis-adapter-unix-socket`, pass
+`-redis /path/to/redis.sock` instead. Redis Pub/Sub is shared across database
+numbers; use a distinct prefix to isolate unrelated applications.
+
+The Node example gate also runs clients against two processes for each Redis
+transport. Set `CONFORMANCE_REDIS_ADDR` and `CONFORMANCE_REDIS_SOCKET` to a running
+Redis TCP endpoint and Unix socket before `make examples-node`. CI supplies both.
+The mixed Go/Node adapter gate is `make conformance`, using the same TCP endpoint
+and `socket.io-redis@5.4.0` installed beside `socket.io@2.5.0` in
+`internal/conformance/testdata/node/server`.

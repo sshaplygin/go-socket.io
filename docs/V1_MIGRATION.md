@@ -15,6 +15,7 @@ The Go Socket.IO client does not import either server.
 flowchart TD
   S["socketio: server"] --> A["adapter: memory and contracts"]
   R["adapter/redis"] --> A
+  R --> P
   S --> P["parser: Socket.IO packets"]
   C["client: Socket.IO client"] --> P
   S --> E["engineio: server"]
@@ -220,7 +221,7 @@ connect/login errors as well as successful completion.
 | `Server.Adapter(*RedisAdapterOptions)` | `socketio.WithAdapter(redis.New(...redis.Option))` at construction, or `Server.SetAdapter(factory)` for later namespaces |
 | `RedisAdapterOptions.Addr`, `Prefix`, `Network`, `Password` | `redis.WithAddr`, `WithPrefix`, `WithNetwork`, `WithPassword` |
 | Deprecated Redis `Host`, `Port` | `redis.WithHost`, `WithPort`; the default address still takes precedence, so use `WithAddr` |
-| Redis `DB` | `redis.WithDB`; the existing DB0 limitation remains |
+| Redis `DB` | `redis.WithDB`; SELECT now applies to subscriber and publishing connections |
 
 `redis.New()` returns a factory without connecting to Redis. The old `Server.Adapter`
 upfront connection probe is removed: namespace registration applies the factory once,
@@ -251,8 +252,43 @@ socket; the adapter owns room/exclusion/cluster selection. Root `Conn` implement
 contract; custom sockets and mocks must add the flagged method if they do not embed
 it. `ForEach` callbacks needing server-specific metadata can use a checked type assertion
 to `socketio.Conn`. `adapter.Memory` releases its index lock before invoking sockets or
-callbacks. Redis composes Memory; its legacy JSON format, remote flags, exclusion,
-subscription timing and DB0 limitations remain unchanged.
+callbacks. Redis composes Memory and uses the Node-compatible wire described in
+[the protocol notes](PROTOCOL.md#redis-cluster-interoperability).
+
+The pre-release legacy Go JSON format is not compatible with the new default.
+Stop and upgrade all Go peers together, or deploy the new cluster with a distinct
+`WithPrefix`; there is no automatic mixed legacy mode or dual publication. Node
+peers must use `socket.io-redis@5.4.0` with the same prefix and namespace names
+preserved by Node URL-path parsing, without `#`; see the protocol notes for the
+reference adapter's unsafe prefix matching of `#` request channels. Redis database selection
+does not isolate Pub/Sub channels; use prefixes for independent applications.
+
+`SendTo` now supports exclusion and room-union deduplication across instances,
+transmits volatile/compression flags, and returns encoding/publication failures.
+Local delivery and publication are not transactional. Clustered acknowledgement
+callbacks are rejected before delivery. Factory construction waits for subscription
+acknowledgements; reconnect restores subscriptions, but missed broadcasts are not
+replayed.
+
+For errors and cancellation, assert the adapter to `redis.Cluster` and use its
+context-aware methods. `IDsContext`, `AllRoomsContext` and `LenContext` query the
+cluster; `ClientRooms`, `RemoteJoin`, `RemoteLeave` and `RemoteDisconnect` control
+remote sockets. `CustomRequest` exchanges JSON with the handler set by
+`WithCustomRequestHandler`. `WithRequestsTimeout` defaults to five seconds; caller
+deadlines may shorten it. Query timeouts return validated partial results with
+`redis.ErrRequestTimeout`; caller cancellation returns the context error, and
+adapter closure returns `redis.ErrAdapterClosed`. Legacy IDs/AllRooms log errors and
+return partial results; Len returns -1 on failure. `ClearContext` removes a snapshot
+of room members under one deadline, without rolling back completed removals.
+
+The factory shares one subscriber across its namespace adapters and invokes its
+custom handler once per namespace request. A bounded worker pool executes remote
+callbacks outside the reader; overload or a handler error makes Node callers time
+out because that wire has no error-response field. Handlers must honor cancellation.
+Server-created adapters receive an independent socket lookup, so LeaveAll does not
+hide a live socket from remote commands. Standalone adapter users can optionally
+bind their own lookup with `BindSocketLookup(func(string) adapter.Socket)`; custom
+sockets need the corresponding Join/Leave/Disconnect/Close methods for controls.
 
 ## Private Engine.IO session ownership
 

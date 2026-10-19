@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"sync"
@@ -16,12 +17,24 @@ import (
 
 // broadcast composes the local room index with Redis publication and requests.
 type broadcast struct {
+	clusterOnce    sync.Once
+	requestTimeout time.Duration
+	customHandler  func(context.Context, json.RawMessage) (json.RawMessage, error)
+	clusterContext context.Context
+	cancelCluster  context.CancelFunc
+	remoteWorkers  chan struct{}
+	lookupMu       sync.RWMutex
+	socketLookup   func(string) adapter.Socket
+
 	// pub serves PUBLISH and PUBSUB commands. A redigo connection allows only
 	// one concurrent caller, and these commands come from user goroutines and
 	// the dispatch goroutine, so each command takes its own pooled connection.
-	pub       *redis.Pool
-	resources *sharedResources
-	closed    atomic.Bool // per-adapter state, independent from shared transport lifetime
+	transportCtx    context.Context
+	transportCancel context.CancelFunc
+	readiness       subscriptionState
+	pub             *redis.Pool
+	resources       *sharedResources
+	closed          atomic.Bool // per-adapter state, independent from shared transport lifetime
 	// sub is read by the dispatch goroutine and replaced by it after a
 	// receive error; subLock orders the replacement with close.
 	sub     *redis.PubSubConn
@@ -50,6 +63,9 @@ func newBroadcast(nsp string, opts *options) (*broadcast, error) {
 }
 
 func newBroadcastWithResources(nsp string, opts *options, shared *sharedResources) (*broadcast, error) {
+	if nsp == "" {
+		nsp = "/"
+	}
 	addr := opts.getAddr()
 	var redisOpts []redis.DialOption
 	if len(opts.Password) > 0 {
@@ -102,13 +118,15 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 		requests:   make(map[string]interface{}),
 		done:       make(chan struct{}),
 		pub:        pub,
-		pattern:    fmt.Sprintf("%s#%s#*", opts.Prefix, nsp),
-		key:        fmt.Sprintf("%s#%s#%s", opts.Prefix, nsp, uid),
-		reqChannel: fmt.Sprintf("%s-request#%s", opts.Prefix, nsp),
-		resChannel: fmt.Sprintf("%s-response#%s", opts.Prefix, nsp),
+		pattern:    fmt.Sprintf("%s#*", opts.Prefix),
+		key:        fmt.Sprintf("%s#%s#", opts.Prefix, nsp),
+		reqChannel: fmt.Sprintf("%s-request#%s#", opts.Prefix, nsp),
+		resChannel: fmt.Sprintf("%s-response#%s#", opts.Prefix, nsp),
 		nsp:        nsp,
 		uid:        uid,
 	}
+	rbc.transportCtx, rbc.transportCancel = context.WithCancel(context.Background())
+	rbc.initCluster(opts)
 	rbc.dial.Store(&dial)
 	if shared != nil {
 		rbc.resources = shared
@@ -119,6 +137,7 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 
 	if rbc.sub, err = rbc.subscribe(ctx); err != nil {
 		_ = pub.Close()
+		rbc.transportCancel()
 		return nil, err
 	}
 
@@ -128,11 +147,7 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 }
 
 func (bc *broadcast) Clear(room string) {
-	if bc.closed.Load() {
-		return
-	}
-	bc.Memory.Clear(room)
-	go bc.publishClear(room)
+	bc.logRequestError(bc.ClearContext(context.Background(), room))
 }
 
 // Send emits to a room, registering a trailing callback on each local socket.
@@ -157,32 +172,26 @@ func (bc *broadcast) Rooms(connection adapter.Socket) []string {
 	return rooms
 }
 
-// SendTo excludes nothing on this adapter: Except returns adapter.ErrExceptUnsupported
-// before local delivery or Redis I/O. Room unions dedupe locally and publish one
-// message per room; remote sockets may receive once per room. Local suppresses
-// publishing; Volatile and NoCompress are honoured locally and are not carried
-// to other instances.
+// SendTo publishes one union with exclusion and packet flags. Encoding errors
+// precede delivery; Redis errors may follow local delivery, which is not rolled back.
 func (bc *broadcast) SendTo(opts adapter.Options, event string, args ...interface{}) error {
 	if bc.closed.Load() {
 		return errAdapterClosed
 	}
-	if len(opts.Except) != 0 {
-		return fmt.Errorf("redis broadcast: %w", adapter.ErrExceptUnsupported)
-	}
-	_ = bc.Memory.SendTo(opts, event, args...)
 	if opts.Local {
-		return nil
+		return bc.Memory.SendTo(opts, event, args...)
 	}
-	if len(opts.Rooms) == 0 {
-		bc.publishMessage("", event, args...)
-		return nil
+	data, err := encodeBroadcast(bc.uid, bc.nsp, event, opts, args)
+	if err != nil {
+		return err
 	}
-	seen := make(map[string]bool)
-	for _, room := range opts.Rooms {
-		if !seen[room] {
-			seen[room] = true
-			bc.publishRoomMessage(room, event, args...)
-		}
+	if err = bc.Memory.SendTo(opts, event, args...); err != nil {
+		return err
 	}
-	return nil
+	channel := bc.broadcastChannel()
+	if len(opts.Rooms) == 1 {
+		channel += opts.Rooms[0] + "#"
+	}
+	_, err = bc.do("PUBLISH", channel, data)
+	return err
 }

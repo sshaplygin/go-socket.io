@@ -380,7 +380,7 @@ func TestBackpressureStalledMemberDoesNotBlockRoom(t *testing.T) {
 			}
 			p := start(t, 'S', h)
 			if s != nil { // RoomLen asks the instances subscribed to the root namespace
-				waitRedisSubscribers(t, s, "socket.io-request#", 1)
+				waitRedisSubscribers(t, s, "socket.io-request#/#", 1)
 			}
 			healthy := newFakeConn(t)
 			p.srv.serveConn(healthy)

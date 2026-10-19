@@ -38,3 +38,5 @@ for script in "$root"/_examples/*/client.js; do
   wait "$server_pid" 2>/dev/null || true
   server_pid=
 done
+
+bash "$root/_examples/run-redis-node.sh"

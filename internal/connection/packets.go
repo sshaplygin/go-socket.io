@@ -273,7 +273,10 @@ func typedEventPacketHandler(c *Connection, nc *namespaceConn, name string, head
 	payload, err := handler.Decode(c.decoder)
 	if err == nil {
 		value := payload.Interface()
-		err = nc.runMiddleware(name, []reflect.Value{reflect.ValueOf(&value).Elem()})
+		if middlewareErr := nc.runMiddleware(name, []reflect.Value{reflect.ValueOf(&value).Elem()}); middlewareErr != nil {
+			c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf(middlewareErr.Error()))
+			return nil
+		}
 	}
 	var result eventImpl.Payload
 	if err == nil {

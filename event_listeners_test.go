@@ -73,7 +73,9 @@ func TestEventListeners(t *testing.T) {
 	require.Empty(t, order)
 	n.Off("ordered")
 	c.send(`24["ordered","anything"]`)
-	require.Equal(t, "34[]\n", c.read())
+	n.OnEvent("marker", func(c Conn) { c.Emit("marker") })
+	c.send(`2["marker"]`)
+	require.Equal(t, "2[\"marker\"]\n", c.read())
 	require.Empty(t, order)
 
 	// The listener set is frozen for each event, including changes made by it.
@@ -104,7 +106,8 @@ func TestEventListeners(t *testing.T) {
 	c.send(`27["mixed",1]`)
 	mixed := recv(t, late, "mixed callback")
 	c.send(`28["absent"]`)
-	require.Equal(t, "38[]\n", c.read(), "earlier return value is not an ACK")
+	c.send(`2["marker"]`)
+	require.Equal(t, "2[\"marker\"]\n", c.read(), "earlier return value is not an ACK")
 	mixed("owned")
 	require.Equal(t, "37[\"owned\"]\n", c.read())
 }
@@ -115,6 +118,7 @@ func TestOnceAcrossConnections(t *testing.T) {
 		n := s.Of("/")
 		n.OnConnect(func(Conn) error { return nil })
 		n.Once("once", func(Conn) { called.Add(1) })
+		n.OnEvent("marker", func(c Conn) { c.Emit("marker") })
 	})
 	clients := []*rawClient{dialRaw(t, ts.URL), dialRaw(t, ts.URL)}
 	for _, c := range clients {
@@ -123,7 +127,12 @@ func TestOnceAcrossConnections(t *testing.T) {
 	var wg sync.WaitGroup
 	for _, c := range clients {
 		wg.Add(1)
-		go func(c *rawClient) { defer wg.Done(); c.send(`21["once"]`); require.Equal(t, "31[]\n", c.read()) }(c)
+		go func(c *rawClient) {
+			defer wg.Done()
+			c.send(`2["once"]`)
+			c.send(`2["marker"]`)
+			require.Equal(t, "2[\"marker\"]\n", c.read())
+		}(c)
 	}
 	wg.Wait()
 	require.Equal(t, int32(1), called.Load())

@@ -1,9 +1,9 @@
 package socketio
 
 import (
+	"github.com/sshaplygin/go-socket.io/adapter"
 	"testing"
 	"time"
-	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
 // Covers: G5
@@ -30,4 +30,3 @@ func TestRegressionG5SlowFactoryDoesNotBlockOtherNamespace(t *testing.T) {
 	recv(t, slow, "slow factory finished")
 	recv(t, fast, "fast factory finished")
 }
-

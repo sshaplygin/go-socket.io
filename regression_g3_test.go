@@ -1,9 +1,9 @@
 package socketio
 
 import (
-	"testing"
-"time"
 	"github.com/stretchr/testify/require"
+	"testing"
+	"time"
 )
 
 // Covers: G3
@@ -24,14 +24,14 @@ func TestRegressionG3OldDisconnectPreservesNewRooms(t *testing.T) {
 	recv(t, entered, "old disconnecting callback")
 	require.Equal(t, "1/chat,", c.read())
 	c.send("0/chat,")
- select {
- case <-connected: t.Error("replacement accepted before old cleanup")
- case <-time.After(100*time.Millisecond):
- }
- close(release)
- recv(t, done, "old disconnect completed")
- require.Equal(t, "0/chat,", c.read())
- next := recv(t, connected, "new namespace")
+	select {
+	case <-connected:
+		t.Error("replacement accepted before old cleanup")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	recv(t, done, "old disconnect completed")
+	require.Equal(t, "0/chat,", c.read())
+	next := recv(t, connected, "new namespace")
 	require.Equal(t, 1, s.RoomLen("/chat", next.ID()), "old LeaveAll removed newly accepted socket's ID room")
 }
-

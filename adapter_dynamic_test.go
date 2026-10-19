@@ -165,12 +165,14 @@ func TestDynamicNamespaces(t *testing.T) {
 		require.Equal(t, "2"+name+",[\"inherited\",\""+name+"\"]\n", c.read())
 		require.Equal(t, "3"+name+",5[]\n", c.read())
 		c.send("2" + name + ",6[\"inherited\"]")
-		require.Equal(t, "3"+name+",6[]\n", c.read(), "Once is copied independently into each child")
+		c.send("2" + name + ",7[\"where\"]")
+		require.Equal(t, "3"+name+",7[\""+name+"\"]\n", c.read(), "Once is copied independently into each child")
 	}
 	a.send(`2/team/one,1["where"]`)
 	require.Equal(t, "3/team/one,1[\"/team/one\"]\n", a.read())
 	a.send(`2/team/one,2["later"]`)
-	require.Equal(t, "3/team/one,2[]\n", a.read())
+	a.send(`2/team/one,8["where"]`)
+	require.Equal(t, "3/team/one,8[\"/team/one\"]\n", a.read())
 	b.send(`2/team/two,3["later"]`)
 	require.Equal(t, "3/team/two,3[\"new child\"]\n", b.read())
 	require.NoError(t, parent.To("room").Local().Emit("both"))
@@ -192,8 +194,10 @@ func TestDynamicNamespaces(t *testing.T) {
 	require.Empty(t, queries)
 	a.send("0/rejected,")
 	require.Equal(t, "4/rejected,\"Invalid namespace\"\n", a.read())
+	srv.OnEvent("/", "alive", func(Conn) string { return "alive" })
 	a.send(`21["unhandled"]`)
-	require.Equal(t, "31[]\n", a.read(), "root remains usable")
+	a.send(`22["alive"]`)
+	require.Equal(t, "32[\"alive\"]\n", a.read(), "root remains usable")
 }
 
 type parentErrorAdapter struct {

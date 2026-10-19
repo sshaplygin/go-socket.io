@@ -299,12 +299,11 @@ func TestRedisCloseStopsRacingRegistration(t *testing.T) {
 	srv.SetAdapter(redisadapter.New(redisadapter.WithAddr(delayedProxy(t, s.Addr(), 100*time.Millisecond)), redisadapter.WithPassword("secret")))
 	go srv.OnConnect("/x", func(Conn) error { return nil })
 	require.Eventually(t, func() bool {
-		if srv.createMu.TryLock() {
-			srv.createMu.Unlock()
-			return false
-		}
-		return true
-	}, time.Second, time.Millisecond, "the registration holding the creation mutex")
+		srv.createMu.Lock()
+		building := srv.creating["/x"] != nil
+		srv.createMu.Unlock()
+		return building
+	}, time.Second, time.Millisecond, "namespace factory is building outside the registry lock")
 
 	require.NoError(t, srv.Close())
 	require.NotNil(t, srv.getNamespace("/x"), "Close returned before the registration finished")

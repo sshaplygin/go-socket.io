@@ -53,6 +53,10 @@ type Session struct {
 	deadline atomic.Int64               // UnixNano of the liveness deadline of conn
 }
 
+// Done closes when session shutdown starts, before an orderly transport drain.
+// Upper-layer owners can cancel their work without waiting for their reader.
+func (s *Session) Done() <-chan struct{} { return s.stopWrites }
+
 // New creates a session over conn. log receives errors the session cannot
 // return to a caller, with sid and transport attributes added; the transport
 // attribute follows upgrades. nil means logger.Log.

@@ -48,6 +48,12 @@ type client struct {
 	onPong         func(time.Duration)
 }
 
+// Done closes when shutdown starts, before the transport finishes closing.
+func (c *client) Done() <-chan struct{} {
+	c.initialize()
+	return c.close
+}
+
 func (c *client) initialize() {
 	c.initOnce.Do(func() {
 		c.writeGate = make(chan struct{}, 1)

@@ -12,6 +12,14 @@ import (
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
+// batchOffer proposes another packet for an existing response. A different
+// compression preference declines it while keeping NextWriter pending for the
+// next GET; no frame has been acquired or encoded at that point.
+type batchOffer struct {
+	writer   *flushWriter
+	accepted chan bool
+}
+
 type readArg struct {
 	r             io.Reader
 	supportBinary bool
@@ -32,25 +40,28 @@ type payload struct {
 	readDeadline atomic.Value
 	decoder      *eioparser.PayloadDecoder
 
-	writerChan    chan io.Writer
-	answerPoll    chan struct{}
-	flushing      int32
-	writeError    chan error
-	writeDeadline atomic.Value
-	encoder       *eioparser.PayloadEncoder
-	batch         bool // server GETs coalesce complete packets; client POSTs keep their lease
+	writerChan      chan io.Writer
+	batchWriterChan chan batchOffer
+	compress        atomic.Bool
+	answerPoll      chan struct{}
+	flushing        int32
+	writeError      chan error
+	writeDeadline   atomic.Value
+	encoder         *eioparser.PayloadEncoder
+	batch           bool // server GETs coalesce complete packets; client POSTs keep their lease
 }
 
 // newPayload returns a new payload.
 func newPayload(supportBinary bool) *payload {
 	ret := &payload{
-		close:      make(chan struct{}),
-		pauser:     newPauser(),
-		readerChan: make(chan readArg),
-		readError:  make(chan error),
-		writerChan: make(chan io.Writer),
-		answerPoll: make(chan struct{}),
-		writeError: make(chan error),
+		close:           make(chan struct{}),
+		pauser:          newPauser(),
+		readerChan:      make(chan readArg),
+		readError:       make(chan error),
+		writerChan:      make(chan io.Writer),
+		batchWriterChan: make(chan batchOffer),
+		answerPoll:      make(chan struct{}),
+		writeError:      make(chan error),
 	}
 	ret.readDeadline.Store(time.Time{})
 	ret.decoder = eioparser.NewPayloadDecoder(ret)
@@ -63,10 +74,11 @@ func newPayload(supportBinary bool) *payload {
 // for a Write in progress and fails every later one with errDetached, so once FlushOut
 // has returned nothing is written to, or still running against, the caller's writer.
 type flushWriter struct {
-	mu    sync.Mutex
-	w     io.Writer
-	gone  bool
-	bytes int
+	mu       sync.Mutex
+	w        io.Writer
+	gone     bool
+	bytes    int
+	compress bool
 }
 
 func (f *flushWriter) Write(b []byte) (int, error) {
@@ -251,6 +263,7 @@ func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
 			if idle <= 0 {
 				return nil
 			}
+			offer := batchOffer{writer: fw, accepted: make(chan bool, 1)}
 			timer := time.NewTimer(idle)
 			select {
 			case <-ctx.Done():
@@ -264,8 +277,18 @@ func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
 				return nil
 			case <-timer.C:
 				return nil
-			case p.writerChan <- fw:
+			case p.batchWriterChan <- offer:
 				timer.Stop()
+				select {
+				case <-ctx.Done():
+					return p.cancelPoll(ctx)
+				case <-p.close:
+					return p.load()
+				case accepted := <-offer.accepted:
+					if !accepted {
+						return nil
+					}
+				}
 			}
 		}
 	}
@@ -476,7 +499,16 @@ func (p *payload) AcquirePayloadWriter() (io.Writer, error) {
 		case <-after:
 			continue
 		case w := <-p.writerChan:
+			if fw, ok := w.(*flushWriter); ok {
+				fw.compress = p.compress.Load()
+			}
 			return w, nil
+		case offer := <-p.batchWriterChan:
+			accepted := offer.writer.compress == p.compress.Load()
+			offer.accepted <- accepted
+			if accepted {
+				return offer.writer, nil
+			}
 		}
 	}
 }

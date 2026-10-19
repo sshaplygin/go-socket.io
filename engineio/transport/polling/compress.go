@@ -19,22 +19,9 @@ func (c *serverConn) NextWriter(ft eioparser.FrameType, pt eioparser.PacketType)
 
 // NextWriterCompress carries the flag until the payload encoder writes its frame.
 func (c *serverConn) NextWriterCompress(ft eioparser.FrameType, pt eioparser.PacketType, compress bool) (io.WriteCloser, error) {
-	w, err := c.payload.NextWriter(ft, pt)
-	if err != nil {
-		return nil, err
-	}
-	return flaggedWriter{WriteCloser: w, conn: c, compress: compress}, nil
-}
-
-type flaggedWriter struct {
-	io.WriteCloser
-	conn     *serverConn
-	compress bool
-}
-
-func (w flaggedWriter) Close() error {
-	w.conn.noCompress.Store(!w.compress)
-	return w.WriteCloser.Close()
+	c.noCompress.Store(!compress)
+	c.payload.compress.Store(compress)
+	return c.payload.NextWriter(ft, pt)
 }
 
 // SetSessionID installs a private cookie before the handshake response.

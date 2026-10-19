@@ -12,6 +12,7 @@ import (
 	"time"
 )
 
+// Covers G3
 func TestRetiredNamespaceReconnectSerializesAdmission(t *testing.T) {
 	for _, reject := range []bool{false, true} {
 		name := "accepted"

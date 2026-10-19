@@ -210,7 +210,7 @@ func (c *Connection) errConn(nsp string) (nc *namespaceConn) {
 // onError reports err of the packet being read (see report); a failure of the frame
 // reader that the decoder returned is expected closure.
 func (c *Connection) onError(namespace string, err error) {
-	c.report(namespace, err, c.reader.failed)
+	c.report(namespace, err, c.reader.failure())
 }
 
 // report delivers err to OnError of namespace and waits for it, unless a close started.

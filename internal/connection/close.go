@@ -176,7 +176,7 @@ func (c *Connection) disconnectNamespace(nc *namespaceConn, reason string) {
 func (c *Connection) finishRead() {
 	reason := "forced close"
 	var closed *engineio.CloseError
-	failed := c.reader.failed
+	failed := c.reader.failure()
 	if failed != nil && !errors.As(failed, &closed) {
 		// Dispatch has ended and its error was already reported. Start the
 		// close before the engine shuts down, so the writer cannot report that

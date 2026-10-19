@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"io"
+	"sync"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
@@ -41,27 +42,42 @@ type frameReader struct {
 	FrameReader interface {
 		NextReader() (eioparser.FrameType, io.ReadCloser, error)
 	}
-	failed error
+	failed    error
+	failureMu sync.Mutex
 }
 
 func (r *frameReader) NextReader() (parser.FrameType, io.ReadCloser, error) {
 	ft, fr, err := r.FrameReader.NextReader()
-	if r.failed = err; err != nil {
+	r.failureMu.Lock()
+	r.failed = err
+	r.failureMu.Unlock()
+	if err != nil {
 		return parser.FrameType(ft), fr, err
 	}
-	return parser.FrameType(ft), frameIO{r: fr, c: fr, failed: &r.failed}, nil
+	return parser.FrameType(ft), frameIO{r: fr, c: fr, failed: &r.failed, failedMu: &r.failureMu}, nil
 }
 
 // frameIO is a frame reader or writer that records its first failure in *failed; io.EOF
 // from Read ends the frame. It returns the errors unchanged.
 type frameIO struct {
-	r      io.Reader
-	w      io.Writer
-	c      io.Closer
-	failed *error
+	r        io.Reader
+	w        io.Writer
+	c        io.Closer
+	failed   *error
+	failedMu *sync.Mutex
+}
+
+func (r *frameReader) failure() error {
+	r.failureMu.Lock()
+	defer r.failureMu.Unlock()
+	return r.failed
 }
 
 func (f frameIO) mark(err error) error {
+	if f.failedMu != nil {
+		f.failedMu.Lock()
+		defer f.failedMu.Unlock()
+	}
 	*f.failed = cmp.Or(*f.failed, err)
 	return err
 }

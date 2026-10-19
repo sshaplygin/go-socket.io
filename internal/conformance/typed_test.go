@@ -20,7 +20,9 @@ type typedNodePayload struct {
 	Nested map[string]parser.Buffer
 }
 
-// Covers: T1, T2, T3
+// Covers T1
+// Covers T2
+// Covers T3
 func TestTypedNodeAcknowledgements(t *testing.T) {
 	for _, transport := range []string{"polling", "websocket"} {
 		t.Run(transport, func(t *testing.T) {

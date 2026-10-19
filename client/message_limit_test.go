@@ -25,7 +25,7 @@ func TestClientMessageLimitOption(t *testing.T) {
 				})
 				c, err := client.New(ts.URL, client.WithTransports(tr), client.WithReconnection(false), client.WithMaxMessageSize(1), client.WithMaxMessageSize(limit))
 				require.NoError(t, err)
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				replies := make(chan string, 1)
 				failures := make(chan error, 8)
 				c.OnEvent("reply", func(_ client.Conn, s string) { replies <- s })

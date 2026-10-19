@@ -23,7 +23,7 @@ func TestClientIgnoredBinaryPacketKeepsConnection(t *testing.T) {
 				if err != nil {
 					return
 				}
-				defer ws.Close()
+				defer func() { _ = ws.Close() }()
 				for _, frame := range []string{`0{"sid":"skip","upgrades":[],"pingInterval":25000,"pingTimeout":20000}`, "40", packet} {
 					if ws.WriteMessage(gorilla.TextMessage, []byte(frame)) != nil {
 						return
@@ -41,7 +41,7 @@ func TestClientIgnoredBinaryPacketKeepsConnection(t *testing.T) {
 			defer close(stop)
 			c, err := client.New(ts.URL, client.WithReconnection(false), client.WithTransports([]transport.Transport{websocket.Default}...))
 			require.NoError(t, err)
-			defer c.Close()
+			defer func() { _ = c.Close() }()
 			alive := make(chan struct{}, 1)
 			failures := make(chan error, 4)
 			c.OnEvent("alive", func(client.Conn) { alive <- struct{}{} })

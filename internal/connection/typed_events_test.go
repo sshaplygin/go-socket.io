@@ -159,3 +159,71 @@ func TestTypedPreparationRunsOutsideQueueLocks(t *testing.T) {
 	require.Contains(t, recv(t, p.fc.out, "reentrant emit"), "reentrant")
 	require.Contains(t, recv(t, p.fc.out, "prepared emit"), "prepared")
 }
+
+// Covers T2
+// Covers T3
+func TestTypedAdmissionFailureRetainsWinnerAndNoAckEntry(t *testing.T) {
+	p := start(t, 'S', hooks{})
+	nc := p.nc.(*namespaceConn)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, ackContextError(ctx, ctx, eventImpl.ErrSocketClosed), eventImpl.ErrSocketClosed)
+	remote := &eventImpl.RemoteError{Code: "won", Message: "reply"}
+	require.Same(t, remote, ackContextError(ctx, ctx, remote))
+	_, err := nc.RequestAck(nil, "bad", eventImpl.ValueOf(make(chan int)), eventImpl.SchemaOf[int]())
+	require.Error(t, err)
+	require.Zero(t, ackEntries(nc))
+	require.Zero(t, nc.id.Load())
+	p.fc.hold.Store(true)
+	nc.Emit("inflight")
+	recv(t, p.fc.held, "blocked writer")
+	for i := 0; i < defaultWriteBufferSize; i++ {
+		nc.Emit("queued")
+	}
+	_, err = nc.RequestAck(nil, "full", eventImpl.ValueOf(1), eventImpl.SchemaOf[int]())
+	require.ErrorIs(t, err, ErrWriteBufferFull)
+	require.Zero(t, ackEntries(nc))
+	require.Zero(t, nc.id.Load())
+}
+
+// Covers T1
+// Covers T3
+func TestTypedLifetimeEndsBeforeNamespaceDisconnectCallback(t *testing.T) {
+	var observed context.Context
+	callback := make(chan error, 1)
+	p := start(t, 'S', hooks{disconnect: func(Conn) { callback <- observed.Err() }})
+	observed = p.nc.(*namespaceConn).lifetime
+	p.nc.Disconnect()
+	require.ErrorIs(t, recv(t, callback, "canceled before callback"), context.Canceled)
+}
+
+// Covers T3
+func TestTypedAckCancellationCompletionRaceRemovesEveryPendingEntry(t *testing.T) {
+	for i := 0; i < 25; i++ {
+		p := start(t, 'S', hooks{})
+		nc := p.nc.(*namespaceConn)
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan typedResult, 1)
+		go func() {
+			value, err := nc.RequestAck(ctx, "race", eventImpl.ValueOf(1), eventImpl.SchemaOf[int]())
+			done <- typedResult{value, err}
+		}()
+		require.Equal(t, "21[\"race\",1]\n", recv(t, p.fc.out, "request"))
+		gate := make(chan struct{})
+		sent := make(chan struct{})
+		go func() { <-gate; cancel() }()
+		go func() { <-gate; p.fc.reads <- `31[null,2]`; close(sent) }()
+		close(gate)
+		result := recv(t, done, "race completion")
+		recv(t, sent, "ACK consumed")
+		if result.err != nil {
+			require.ErrorIs(t, result.err, context.Canceled)
+		} else {
+			value, err := eventImpl.Value[int](result.payload)
+			require.NoError(t, err)
+			require.Equal(t, 2, value)
+		}
+		require.Zero(t, ackEntries(nc))
+		cancel()
+	}
+}

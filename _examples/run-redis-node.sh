@@ -6,7 +6,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 scratch=$(mktemp -d)
 pids=()
 cleanup() {
-  for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; done
+  for pid in ${pids[@]+"${pids[@]}"}; do kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; done
   rm -rf "$scratch"
 }
 trap cleanup EXIT
@@ -31,6 +31,6 @@ for example in redis-adapter redis-adapter-unix-socket; do
     urls+=("$url")
   done
   if ! node "$root/_examples/default-http/client.js" "${urls[0]}" "${urls[1]}"; then cat "$scratch/0.log" "$scratch/1.log" >&2; exit 1; fi
-  for pid in "${pids[@]}"; do kill "$pid"; wait "$pid" 2>/dev/null || true; done
+  for pid in ${pids[@]+"${pids[@]}"}; do kill "$pid"; wait "$pid" 2>/dev/null || true; done
   pids=()
 done

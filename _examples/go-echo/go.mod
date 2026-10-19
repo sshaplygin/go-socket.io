@@ -8,8 +8,6 @@ require (
 )
 
 require (
-	github.com/gomodule/redigo v1.8.9 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/labstack/gommon v0.3.0 // indirect
 	github.com/mattn/go-colorable v0.1.2 // indirect

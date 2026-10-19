@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"reflect"
+	"strconv"
 
 	"github.com/sshaplygin/go-socket.io/logger"
 )
@@ -35,6 +36,7 @@ func (e *Encoder) Encode(h Header, args ...interface{}) (err error) {
 // PreparedPacket owns an encoded packet and its binary attachments. Its contents
 // are immutable and may be written to multiple connections concurrently.
 type PreparedPacket struct {
+	payload []byte
 	text    []byte
 	buffers [][]byte
 }
@@ -47,10 +49,38 @@ func Prepare(h Header, args ...interface{}) (*PreparedPacket, error) {
 		return nil, err
 	}
 	packet := &PreparedPacket{text: data.Bytes(), buffers: make([][]byte, len(buffers))}
+	packet.payload = packet.text[len(preparedHeader(h, len(buffers))):]
 	for i, b := range buffers {
 		packet.buffers[i] = bytes.Clone(b)
 	}
 	return packet, nil
+}
+
+// WithHeader returns the same immutable payload with a new packet header. It
+// allows a queue to allocate an acknowledgement ID only after admission.
+func (p *PreparedPacket) WithHeader(h Header) *PreparedPacket {
+	text := preparedHeader(h, len(p.buffers))
+	text = append(text, p.payload...)
+	return &PreparedPacket{text: text, payload: p.payload, buffers: p.buffers}
+}
+
+func preparedHeader(h Header, attachments int) []byte {
+	if attachments > 0 && (h.Type == Event || h.Type == Ack) {
+		h.Type += 3
+	}
+	text := []byte{byte(h.Type + '0')}
+	if h.Type == binaryAck || h.Type == binaryEvent {
+		text = strconv.AppendInt(text, int64(attachments), 10)
+		text = append(text, '-')
+	}
+	if h.Namespace != "" {
+		text = append(text, h.Namespace...)
+		text = append(text, ',')
+	}
+	if h.NeedAck {
+		text = strconv.AppendUint(text, h.ID, 10)
+	}
+	return text
 }
 
 // EncodePrepared writes a snapshot previously returned by Prepare.

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/internal/event"
 	"github.com/stretchr/testify/require"
 )
@@ -211,4 +212,67 @@ func TestTypedClientMalformedAckRemainsUsable(t *testing.T) {
 	}
 	require.NoError(t, p.cl.SendEvent(context.Background(), "still alive", event.ValueOf(1)))
 	require.Equal(t, ev("still alive", 1), recv(t, p.fc.out, "healthy transport"))
+}
+
+type closeNotifyingEngine struct {
+	*fakeConn
+	closing chan struct{}
+}
+
+func (c *closeNotifyingEngine) Done() <-chan struct{} { return c.closing }
+
+// Covers T2, T3.
+func TestTypedClientEngineCloseCancelsBlockedHandlerAndRequest(t *testing.T) {
+	p := newPeer(t, 'C', hooks{})
+	engine := &closeNotifyingEngine{fakeConn: p.fc, closing: make(chan struct{})}
+	p.cl.dial = func(string) (engineclient.Conn, error) { return engine, nil }
+	entered := make(chan context.Context, 1)
+	escaped := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	require.NoError(t, p.cl.RegisterEvent("hold", event.NewHandler(event.SchemaOf[int](), false, func(ctx context.Context, _ event.Endpoint, _ event.Payload) (event.Payload, error) {
+		entered <- ctx
+		select {
+		case <-ctx.Done():
+		case <-release:
+		}
+		close(escaped)
+		return event.Payload{}, nil
+	})))
+	p.connect(t)
+	result := make(chan error, 1)
+	go func() {
+		_, err := p.cl.RequestAck(context.Background(), "pending", event.ValueOf(1), event.SchemaOf[int]())
+		result <- err
+	}()
+	recv(t, p.fc.out, "pending ACK admitted")
+	p.send(t, `2["hold",1]`)
+	ctx := recv(t, entered, "blocked typed handler")
+	close(engine.closing)
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("engine closure did not cancel the blocked handler independently of dispatch")
+	}
+	recv(t, escaped, "handler released by engine closure")
+	require.ErrorIs(t, recv(t, result, "pending request cancelled by engine closure"), event.ErrSocketClosed)
+	require.NoError(t, p.fc.Close())
+}
+
+// Covers T2, T3.
+func TestTypedClientLateNamespaceHasEndedEngineLifetime(t *testing.T) {
+	p := newPeer(t, 'C', hooks{})
+	engine := &closeNotifyingEngine{fakeConn: p.fc, closing: make(chan struct{})}
+	p.cl.dial = func(string) (engineclient.Conn, error) { return engine, nil }
+	p.connect(t)
+	close(engine.closing)
+	// The signal is already closed when another namespace CONNECT arrives.
+	s := p.cl.Socket("/late")
+	connected := make(chan Conn, 1)
+	s.OnConnect(func(c Conn) error { connected <- c; return nil })
+	recv(t, p.fc.out, "late namespace CONNECT")
+	p.send(t, "0/late,")
+	nc := recv(t, connected, "late namespace handler").(*namespaceConn)
+	require.ErrorIs(t, nc.handlerContext().Err(), context.Canceled)
+	require.ErrorIs(t, nc.SendEvent(context.Background(), "after close", event.ValueOf(1)), event.ErrSocketClosed)
 }

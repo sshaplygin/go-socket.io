@@ -10,6 +10,7 @@ import (
 
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/client"
+	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -31,7 +32,12 @@ func typedReceive[T any](t *testing.T, ch <-chan T) T {
 
 func typedPair(t *testing.T, tr transport.Transport, configure func(*socketio.Server, *client.Client)) (*socketio.Server, *client.Client, socketio.Conn, client.Conn) {
 	t.Helper()
-	srv := socketio.NewServer()
+	return typedPairOptions(t, tr, configure)
+}
+
+func typedPairOptions(t *testing.T, tr transport.Transport, configure func(*socketio.Server, *client.Client), options ...engineio.Option) (*socketio.Server, *client.Client, socketio.Conn, client.Conn) {
+	t.Helper()
+	srv := socketio.NewServer(socketio.WithEngineOptions(options...))
 	serverReady := make(chan socketio.Conn, 1)
 	srv.OnConnect("/chat", func(c socketio.Conn) error { serverReady <- c; return nil })
 	httpServer := httptest.NewServer(srv)
@@ -263,4 +269,44 @@ func TestTypedAndLegacyRegistrationReplacement(t *testing.T) {
 	require.Equal(t, 1, typedReceive(t, serverValues))
 	require.NoError(t, descriptor.Emit(context.Background(), serverConn, 2))
 	require.Equal(t, 2, typedReceive(t, clientValues))
+}
+
+func TestTypedEngineCloseUnblocksLifetimeWait(t *testing.T) {
+	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
+		for _, side := range []string{"server", "client"} {
+			t.Run(tr.Name()+"/"+side, func(t *testing.T) {
+				descriptor := socketio.NewEvent[bool]("typed-lifetime-wait")
+				entered := make(chan struct{}, 1)
+				stopped := make(chan error, 1)
+				release := make(chan struct{})
+				defer close(release)
+				wait := func(ctx context.Context) {
+					entered <- struct{}{}
+					select {
+					case <-ctx.Done():
+						stopped <- ctx.Err()
+					case <-release:
+						stopped <- nil
+					}
+				}
+				_, cl, serverConn, _ := typedPairOptions(t, tr, func(srv *socketio.Server, cl *client.Client) {
+					if side == "server" {
+						require.NoError(t, descriptor.Handle(srv.Of("/chat"), func(ctx context.Context, _ socketio.Conn, _ bool) error { wait(ctx); return nil }))
+					} else {
+						require.NoError(t, descriptor.HandleClient(cl, func(ctx context.Context, _ socketio.Endpoint, _ bool) error { wait(ctx); return nil }))
+					}
+				}, engineio.WithPingInterval(20*time.Millisecond), engineio.WithPingTimeout(time.Second))
+				var to socketio.Endpoint = cl
+				if side == "client" {
+					to = serverConn
+				}
+				require.NoError(t, descriptor.Emit(context.Background(), to, true))
+				typedReceive(t, entered)
+				// Close only the engine. The dispatcher is inside wait, so its usual read
+				// failure cleanup cannot cancel the handler context on its own.
+				require.NoError(t, serverConn.EngineConn().Close())
+				require.ErrorIs(t, typedReceive(t, stopped), context.Canceled)
+			})
+		}
+	}
 }

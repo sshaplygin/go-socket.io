@@ -206,6 +206,9 @@ func (s *Server) broadcastOf(namespace string) adapter.Adapter {
 
 // JoinRoom joins given connection to the room.
 func (s *Server) JoinRoom(namespace string, room string, connection Conn) bool {
+	if !s.ownsSocket(namespace, connection) {
+		return false
+	}
 	bc := s.broadcastOf(namespace)
 	if bc != nil {
 		bc.Join(room, connection)
@@ -215,6 +218,9 @@ func (s *Server) JoinRoom(namespace string, room string, connection Conn) bool {
 
 // LeaveRoom leaves given connection from the room.
 func (s *Server) LeaveRoom(namespace string, room string, connection Conn) bool {
+	if !s.ownsSocket(namespace, connection) {
+		return false
+	}
 	bc := s.broadcastOf(namespace)
 	if bc != nil {
 		bc.Leave(room, connection)
@@ -224,11 +230,25 @@ func (s *Server) LeaveRoom(namespace string, room string, connection Conn) bool 
 
 // LeaveAllRooms leaves the given connection from all rooms.
 func (s *Server) LeaveAllRooms(namespace string, connection Conn) bool {
+	if !s.ownsSocket(namespace, connection) {
+		return false
+	}
 	bc := s.broadcastOf(namespace)
 	if bc != nil {
 		bc.LeaveAll(connection)
 	}
 	return bc != nil
+}
+
+// ownsSocket checks identity against this server's live namespace registry. In
+// particular it never invokes methods on a caller-supplied nil or foreign socket.
+func (s *Server) ownsSocket(nsp string, conn Conn) bool {
+ h := s.getNamespace(nsp)
+ if conn == nil || h == nil { return false }
+ for _, current := range h.Sockets() {
+  if current == conn && current.Connected() { return true }
+ }
+ return false
 }
 
 // ClearRoom clears the room.

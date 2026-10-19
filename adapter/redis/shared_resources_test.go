@@ -70,3 +70,23 @@ func TestSharedFactoryPreservesNamespaceAndRoomDelivery(t *testing.T) {
 	require.NoError(t, all[0].Close())
 	require.Equal(t, 2, all[1].Len("ordinary"), "closing the initial namespace must preserve the shared dispatcher")
 }
+
+func TestSharedFactoryReconnectsRemainingNamespaces(t *testing.T) {
+	s := miniredis.RunT(t)
+	factory := New(WithAddr(s.Addr()))
+	first, err := factory("/closed")
+	require.NoError(t, err)
+	active, err := factory("/active")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = first.(io.Closer).Close(); _ = active.(io.Closer).Close() })
+	c := newRedisTestConn("active")
+	active.Join("room", c)
+	require.Eventually(t, func() bool { return s.PubSubNumSub("socket.io-request#/active")["socket.io-request#/active"] == 1 }, time.Second, time.Millisecond)
+	require.NoError(t, first.(io.Closer).Close())
+	s.Close()
+	require.NoError(t, s.Restart())
+	require.Eventually(t, func() bool { return s.PubSubNumSub("socket.io-request#/active")["socket.io-request#/active"] == 1 }, 2*time.Second, time.Millisecond)
+	require.Equal(t, 0, s.PubSubNumSub("socket.io-request#/closed")["socket.io-request#/closed"])
+	require.Eventually(t, func() bool { return active.Len("room") == 1 }, 2*time.Second, time.Millisecond)
+	require.Equal(t, []string{"room"}, active.AllRooms())
+}

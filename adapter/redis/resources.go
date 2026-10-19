@@ -33,6 +33,11 @@ func (s *sharedResources) add(nsp string, opts *options) (*broadcast, error) {
 	owner := s.owner
 	owner.subLock.Lock()
 	defer owner.subLock.Unlock()
+	select {
+	case <-owner.done:
+		return nil, fmt.Errorf("redis factory resources closed")
+	default:
+	}
 	s.mu.Lock()
 	existing := len(s.members[nsp]) > 0
 	uid := uuid.NewString()

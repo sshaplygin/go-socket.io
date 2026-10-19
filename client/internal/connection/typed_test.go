@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sshaplygin/go-socket.io/internal/event"
 	"github.com/stretchr/testify/require"
@@ -128,4 +129,86 @@ func TestTypedClientHandlerFailureAcknowledgesAndReports(t *testing.T) {
 			require.Error(t, recv(t, p.errs, "local handler error").err)
 		})
 	}
+}
+
+// Covers T2, T3.
+func TestTypedClientLifetimeEndsBeforeDisconnect(t *testing.T) {
+	entered := make(chan context.Context, 1)
+	released := make(chan struct{})
+	callback := make(chan error, 1)
+	p := start(t, 'C', hooks{disconnect: func(c Conn) { callback <- c.(*namespaceConn).handlerContext().Err() }})
+	require.NoError(t, p.cl.RegisterEvent("hold", event.NewHandler(event.SchemaOf[int](), false, func(ctx context.Context, _ event.Endpoint, _ event.Payload) (event.Payload, error) {
+		entered <- ctx
+		<-ctx.Done()
+		close(released)
+		return event.Payload{}, nil
+	})))
+	p.nc.SetContext("application context is independent")
+	p.send(t, `2["hold",1]`)
+	ctx := recv(t, entered, "handler entry")
+	require.NoError(t, p.Close())
+	recv(t, released, "handler cancellation")
+	require.ErrorIs(t, recv(t, callback, "disconnect callback context"), context.Canceled)
+	require.ErrorIs(t, ctx.Err(), context.Canceled)
+}
+
+// Covers T2, T3.
+func TestTypedClientPreconnectRequestBudgetRelease(t *testing.T) {
+	p := newPeer(t, 'C', hooks{})
+	s := p.cl.Socket("/")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { _, err := s.RequestAck(ctx, "cancelled", event.ValueOf(1), event.SchemaOf[int]()); done <- err }()
+	require.Eventually(t, func() bool { p.cl.state.mu.Lock(); defer p.cl.state.mu.Unlock(); return p.cl.state.buffered == 1 }, waitFor, time.Millisecond)
+	cancel()
+	require.ErrorIs(t, recv(t, done, "preconnect request cancellation"), context.Canceled)
+	p.cl.state.mu.Lock()
+	require.Zero(t, p.cl.state.buffered)
+	require.Empty(t, s.buffer)
+	p.cl.state.mu.Unlock()
+	for i := 0; i < defaultWriteBufferSize; i++ {
+		require.NoError(t, s.SendEvent(context.Background(), "queued", event.ValueOf(i)))
+	}
+	require.ErrorIs(t, s.SendEvent(context.Background(), "overflow", event.ValueOf(1)), ErrWriteBufferFull)
+	go func() {
+		_, err := s.RequestAck(context.Background(), "overflow", event.ValueOf(1), event.SchemaOf[int]())
+		done <- err
+	}()
+	require.ErrorIs(t, recv(t, done, "preconnect overflow"), ErrWriteBufferFull)
+	require.NoError(t, s.Close())
+	p.cl.state.mu.Lock()
+	require.Zero(t, p.cl.state.buffered)
+	require.Empty(t, s.buffer)
+	p.cl.state.mu.Unlock()
+}
+
+// Covers T2, T3.
+func TestTypedClientPreconnectCloseCompletesRequest(t *testing.T) {
+	p := newPeer(t, 'C', hooks{})
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.cl.RequestAck(context.Background(), "pending", event.ValueOf(1), event.SchemaOf[int]())
+		done <- err
+	}()
+	require.Eventually(t, func() bool { p.cl.state.mu.Lock(); defer p.cl.state.mu.Unlock(); return p.cl.state.buffered == 1 }, waitFor, time.Millisecond)
+	require.NoError(t, p.cl.Socket("/").Close())
+	require.ErrorIs(t, recv(t, done, "preconnect close"), event.ErrSocketClosed)
+}
+
+// Covers T2, T3.
+func TestTypedClientMalformedAckRemainsUsable(t *testing.T) {
+	p := start(t, 'C', hooks{})
+	for _, body := range []string{`[42]`, `[null]`, `[null,1,2]`, `[{"message":"missing code"}]`, `[null,"wrong"]`} {
+		done := make(chan error, 1)
+		go func() {
+			_, err := p.cl.RequestAck(context.Background(), "ask", event.ValueOf(7), event.SchemaOf[int]())
+			done <- err
+		}()
+		frame := strings.TrimSpace(recv(t, p.fc.out, "request"))
+		id := strings.TrimSuffix(strings.TrimPrefix(frame, "2"), `["ask",7]`)
+		p.send(t, "3"+id+body)
+		require.ErrorIs(t, recv(t, done, "invalid acknowledgement"), event.ErrInvalidAck)
+	}
+	require.NoError(t, p.cl.SendEvent(context.Background(), "still alive", event.ValueOf(1)))
+	require.Equal(t, ev("still alive", 1), recv(t, p.fc.out, "healthy transport"))
 }

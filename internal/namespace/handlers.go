@@ -69,7 +69,12 @@ func (nh *Handler) OnError(f func(Conn, error)) {
 	nh.onError = f
 }
 
-func (nh *Handler) Connect(c Conn) error {
+func (nh *Handler) Connect(c Conn) (err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			err = fmt.Errorf("connect callback panic: %v", value)
+		}
+	}()
 	nh.eventsLock.RLock()
 	middleware := append([]func(Conn) error(nil), nh.middleware...)
 	onConnect := nh.onConnect
@@ -204,6 +209,9 @@ func (nh *Handler) NotifyDisconnect(c Conn, reason string) {
 }
 
 func (nh *Handler) Use(f func(Conn) error) {
+	if f == nil {
+		return
+	}
 	nh.eventsLock.Lock()
 	nh.middleware = append(nh.middleware, f)
 	nh.eventsLock.Unlock()

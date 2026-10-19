@@ -25,7 +25,7 @@ func TestCanceledPollFailsTransportBeforeNextWrite(t *testing.T) {
 		t.Fatal("canceled poll retained handler")
 	}
 	_, err := c.NextWriter(eioparser.String, eioparser.MESSAGE)
-	require.ErrorIs(t, err, context.Canceled)
+	require.EqualError(t, err, "write: context canceled")
 	_, _, _, err = c.NextReader()
-	require.ErrorIs(t, err, context.Canceled)
+	require.EqualError(t, err, "write: context canceled")
 }

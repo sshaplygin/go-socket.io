@@ -144,7 +144,7 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			out = &responseWriter{w: w, conn: c, encoding: acceptedEncoding(r.Header.Get("Accept-Encoding"))}
 		}
 		pw := &progressWriter{w: out, started: func() { c.setPollWaiting(false) }}
-		if err := c.payload.FlushOut(pw); err != nil {
+		if err := c.payload.flushOut(r.Context(), pw); err != nil {
 			if pw.wrote {
 				logger.Log.Debug("engineio: poll response failed after it was started", "err", err)
 				return

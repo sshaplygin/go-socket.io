@@ -1,6 +1,7 @@
 package polling
 
 import (
+	"context"
 	"errors"
 	"io"
 	"math"
@@ -155,7 +156,19 @@ func (p *payload) FeedIn(r io.Reader, supportBinary bool) error {
 // If NextWriter has timeout, it returns ErrTimeout.
 // If write error while FlushOut, it returns write error.
 func (p *payload) FlushOut(w io.Writer) error {
+	return p.flushOut(context.Background(), w)
+}
+
+func (p *payload) cancelPoll(ctx context.Context) error {
+	err := p.Store("write", ctx.Err())
+	_ = p.Close()
+	return err
+}
+
+func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
 	select {
+	case <-ctx.Done():
+		return p.cancelPoll(ctx)
 	case <-p.close:
 		return p.load()
 	default:
@@ -183,6 +196,8 @@ func (p *payload) FlushOut(w io.Writer) error {
 			return p.Store("write", errTimeout)
 		}
 		select {
+		case <-ctx.Done():
+			return p.cancelPoll(ctx)
 		case <-p.close:
 			return p.load()
 
@@ -207,6 +222,8 @@ func (p *payload) FlushOut(w io.Writer) error {
 			return p.Store("write", errTimeout)
 		}
 		select {
+		case <-ctx.Done():
+			return p.cancelPoll(ctx)
 		case <-p.close:
 			return p.load()
 		case <-after:

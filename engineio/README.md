@@ -6,4 +6,4 @@ Socket.IO server runs on it.
 
 - Install and supported clients: [README.md](../README.md)
 - Implemented protocol and deviations: [docs/PROTOCOL.md](../docs/PROTOCOL.md)
-- API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/engineio)
+- API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0/engineio)

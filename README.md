@@ -7,7 +7,7 @@ the `engineio` sub-package and can be used on its own.
 This is a maintained fork of `googollee/go-socket.io`.
 
 ![Build Status](https://github.com/sshaplygin/go-socket.io/workflows/CI/badge.svg)
-[![GoDoc](https://pkg.go.dev/badge/github.com/sshaplygin/go-socket.io.svg)](https://pkg.go.dev/github.com/sshaplygin/go-socket.io)
+[![GoDoc](https://pkg.go.dev/badge/github.com/sshaplygin/go-socket.io.svg)](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
 ## Compatibility
@@ -25,7 +25,7 @@ Details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 Install the maintained fork directly:
 
 ```sh
-go get github.com/sshaplygin/go-socket.io@master
+go get github.com/sshaplygin/go-socket.io@v1.5.0
 ```
 
 Go 1.22 or later is required.
@@ -105,12 +105,12 @@ func run(ctx context.Context) error {
 ```
 
 Runnable examples for gin, echo, iris, gf, CORS, Redis and graceful shutdown are in
-[_examples/](_examples/README.md). API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io).
+[_examples/](_examples/README.md). API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0).
 
 ## Usage
 
 The Go client is available in
-[`github.com/sshaplygin/go-socket.io/client`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io/client);
+[`github.com/sshaplygin/go-socket.io/client`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0/client);
 see the [client example](_examples/client/main.go). Server and client use separate
 connection types and constructors.
 

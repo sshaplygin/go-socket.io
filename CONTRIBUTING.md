@@ -50,7 +50,8 @@ Before tagging v1:
    for the root and Engine.IO packages. Verify the module can be consumed under
    the fork's path. Create the tag on this verified release commit.
 
-The repository currently documents installation from `@master`: upstream tags
-use a different module path. Do not advertise a release tag before it exists.
+Installation examples must use a published fork version: upstream tags use a
+different module path. Prepare versioned links in the release PR and publish the
+tag with the release commit.
 V1 needs no changelog preparation. For v2, its release commit also dates the
 `Unreleased` section in `v2/CHANGELOG.md`.

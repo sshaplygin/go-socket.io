@@ -1,0 +1,93 @@
+package socketio
+
+import (
+	"errors"
+	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	"github.com/sshaplygin/go-socket.io/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
+	"github.com/stretchr/testify/require"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestRetiredNamespaceReconnectSerializesAdmission(t *testing.T) {
+	for _, reject := range []bool{false, true} {
+		name := "accepted"
+		if reject {
+			name = "rejected"
+		}
+		t.Run(name, func(t *testing.T) {
+			connected := make(chan Conn, 1)
+			disconnecting, admitting := make(chan struct{}), make(chan struct{})
+			releaseOld, releaseNew := make(chan struct{}), make(chan struct{})
+			finishOld := sync.OnceFunc(func() { close(releaseOld) })
+			finishNew := sync.OnceFunc(func() { close(releaseNew) })
+			defer finishOld()
+			defer finishNew()
+			var admissions atomic.Int32
+			events := make(chan struct{}, 2)
+			_, url := defectServer(t, func(s *Server) {
+				s.OnEvent("/", "barrier", func(Conn) string { return "barrier" })
+				s.OnConnect("/chat", func(c Conn) error {
+					if admissions.Add(1) == 1 {
+						connected <- c
+						return nil
+					}
+					close(admitting)
+					<-releaseNew
+					if reject {
+						return errors.New("replacement rejected")
+					}
+					return nil
+				})
+				s.Of("/chat").On("disconnecting", func(Conn, string) {
+					if admissions.Load() == 1 {
+						close(disconnecting)
+						<-releaseOld
+					}
+				})
+				s.OnEvent("/chat", "probe", func(Conn) string { events <- struct{}{}; return "probe" })
+			})
+			wire, err := (&engineclient.Dialer{Transports: []transport.Transport{websocket.Default}}).Dial(url, nil)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = wire.Close() })
+			c := &rawClient{t: t, conn: wire}
+			require.Equal(t, "0", c.read())
+			c.send("0/chat,")
+			require.Equal(t, "0/chat,", c.read())
+			old := recv(t, connected, "initial namespace")
+			done := make(chan struct{})
+			go func() { old.Disconnect(); close(done) }()
+			recv(t, disconnecting, "old cleanup entered")
+			require.Equal(t, "1/chat,", c.read())
+			c.send("0/chat,")
+			c.send(`27["barrier"]`)
+			require.Equal(t, "37[\"barrier\"]\n", c.read(), "old cleanup must not block the reader")
+			finishOld()
+			recv(t, admitting, "replacement admission")
+			c.send(`2/chat,8["probe"]`)
+			c.send(`29["barrier"]`)
+			select {
+			case <-events:
+				t.Error("event ran while replacement OnConnect was blocked")
+			case <-time.After(100 * time.Millisecond):
+			}
+			finishNew()
+			recv(t, done, "old disconnect returned")
+			if reject {
+				require.Equal(t, "4/chat,\"replacement rejected\"\n", c.read())
+			} else {
+				require.Equal(t, "0/chat,", c.read())
+				require.Equal(t, "3/chat,8[\"probe\"]\n", c.read())
+			}
+			require.Equal(t, "39[\"barrier\"]\n", c.read())
+			if reject {
+				require.Empty(t, events, "rejected namespace must never dispatch the waiting event")
+			} else {
+				recv(t, events, "event after admission")
+			}
+		})
+	}
+}

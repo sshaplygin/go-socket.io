@@ -32,7 +32,7 @@ func TestClientRejectsOversizedOpen(t *testing.T) {
 				w.Header().Set("Content-Type", "text/plain; charset=UTF-8")
 				_, _ = fmt.Fprintf(w, "%d:%s", len(packet), packet)
 			}))
-			defer func() { _ = ts.Close() }()
+			defer ts.Close()
 			c, err := (&Dialer{Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
 			if c != nil {
 				_ = c.Close()

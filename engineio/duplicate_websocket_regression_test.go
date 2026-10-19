@@ -16,7 +16,7 @@ func TestDuplicateWebsocketSessionRequestReturns(t *testing.T) {
 	s := engineio.NewServer()
 	defer func() { _ = s.Close() }()
 	ts := httptest.NewServer(s)
-	defer func() { _ = ts.Close() }()
+	defer ts.Close()
 	defer func() { _ = s.Close() }()
 	accepted := make(chan engineio.Conn, 1)
 	go func() {

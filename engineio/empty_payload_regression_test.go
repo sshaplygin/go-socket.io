@@ -17,7 +17,7 @@ import (
 func TestReviewG27EmptyBinaryPostKeepsSession(t *testing.T) {
 	s := engineio.NewServer()
 	ts := httptest.NewServer(s)
-	defer func() { _ = ts.Close() }()
+	defer ts.Close()
 	defer func() { _ = s.Close() }()
 	done := make(chan string, 1)
 	go func() {

@@ -59,7 +59,7 @@ func TestClientConfiguredOpenLimitBoundary(t *testing.T) {
 					}
 					_, _ = io.WriteString(w, wire)
 				}))
-				defer func() { _ = ts.Close() }()
+				defer ts.Close()
 				c, e := (&Dialer{MaxMessageSize: 512, Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
 				if c != nil {
 					defer func() { _ = c.Close() }()
@@ -111,7 +111,7 @@ func TestClientConfiguredLimitAppliesToLaterMessages(t *testing.T) {
 					_, _ = io.WriteString(w, "1:1")
 				}
 			}))
-			defer func() { _ = ts.Close() }()
+			defer ts.Close()
 			c, e := (&Dialer{MaxMessageSize: 512, Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
 			require.NoError(t, e)
 			defer func() { _ = c.Close() }()

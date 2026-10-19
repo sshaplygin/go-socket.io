@@ -71,3 +71,22 @@ func TestInactiveMarkerCannotBorrowActiveTest(t *testing.T) {
 		t.Fatal("inactive marked declaration borrowed an active test's name")
 	}
 }
+
+func TestParityGateRejectsMalformedAuditMarkers(t *testing.T) {
+	for _, marker := range []string{
+		"// Covers B1, B2.",
+		"// Covers B1.",
+		"// Covers: B1",
+		"// Covers\tB1",
+	} {
+		t.Run(marker, func(t *testing.T) {
+			root := t.TempDir()
+			put(t, root, "docs/PARITY.md", "| B1 | DEV | D1 | fixture |\n")
+			put(t, root, "sample_test.go", "package sample\n"+marker+"\nfunc TestKnown(){}\n")
+			err := checkParity(root, false, testInventory{tests: map[testRef]bool{{".", "TestKnown"}: true}, files: map[testRef]bool{{".", "sample_test.go"}: true}})
+			if err == nil || !strings.Contains(err.Error(), "malformed Covers marker") {
+				t.Fatalf("expected malformed marker rejection, got %v", err)
+			}
+		})
+	}
+}

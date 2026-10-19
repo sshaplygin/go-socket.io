@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -124,7 +125,7 @@ func TestTypedHandlerFailuresKeepConnectionUsable(t *testing.T) {
 		t.Run(tr.Name(), func(t *testing.T) {
 			descriptor := socketio.NewAckEvent[string, string]("typed-errors")
 			ordinary := socketio.NewEvent[string]("typed-failure")
-			serverErrors, clientErrors := make(chan error, 4), make(chan error, 4)
+			serverErrors, clientErrors := make(chan error, 16), make(chan error, 16)
 			fail := func(value string) (string, error) {
 				switch value {
 				case "remote":
@@ -159,25 +160,23 @@ func TestTypedHandlerFailuresKeepConnectionUsable(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, "alive", value)
 			}
-			// ACK failures need not be reported locally; ordinary handler failures must be.
-			require.NoError(t, ordinary.Emit(context.Background(), cl, "error"))
-			require.Eventually(t, func() bool {
-				for len(serverErrors) > 0 {
-					if err := <-serverErrors; err != nil {
-						return true
-					}
+			// Identify ordinary failures independently from optional local ACK reports.
+			for _, target := range []struct {
+				to      socketio.Endpoint
+				reports chan error
+			}{{cl, serverErrors}, {serverConn, clientErrors}} {
+				for _, test := range []struct{ value, message string }{{"error", "ordinary failure"}, {"panic", "ordinary panic"}} {
+					require.NoError(t, ordinary.Emit(context.Background(), target.to, test.value))
+					require.Eventually(t, func() bool {
+						for len(target.reports) > 0 {
+							if err := <-target.reports; strings.Contains(err.Error(), test.message) {
+								return true
+							}
+						}
+						return false
+					}, time.Second, time.Millisecond)
 				}
-				return false
-			}, time.Second, time.Millisecond)
-			require.NoError(t, ordinary.Emit(context.Background(), serverConn, "error"))
-			require.Eventually(t, func() bool {
-				for len(clientErrors) > 0 {
-					if err := <-clientErrors; err != nil {
-						return true
-					}
-				}
-				return false
-			}, time.Second, time.Millisecond)
+			}
 			require.True(t, serverConn.Connected())
 			require.True(t, clientConn.Connected())
 		})

@@ -25,6 +25,7 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `client/internal/connection/` | private client manager/generations/reconnect, queues/drain, concrete sockets, ACK/packet dispatch and observers |
 | `client/internal/namespace/` | canonical independent client-role contracts, reflected handlers/listeners, registry and local room index |
 | `parser/` | v1 Socket.IO v4 packet encoder/decoder, binary attachments and independent frame types |
+| `internal/event/` | v1 common typed-event schema/handler bridge and error-first ACK codec; imports parser and neither Socket.IO role |
 | `engineio/` | v1 Engine.IO v3 acceptance/server lifecycle, options/hooks and active connection contracts |
 | `engineio/internal/session/` | private server session I/O, registry/IDs, heartbeat, close/upgrade and polling response observation |
 | `engineio/client/` | independent v1 Engine.IO client, dialer, heartbeat/upgrade and client connection state/errors |
@@ -81,6 +82,7 @@ V1 source files are grouped under their owning components:
 | `client/internal/connection/manager.go`, `reconnect.go`, `observers.go` | required resolved manager inputs, connection generations, retries and callback observers |
 | `client/internal/connection/connection.go`, `io.go`, `queue.go`, `close.go`, `socket.go`, `emitter.go`, `packets.go`, `errors.go` | transport I/O, atomic queue/drain/close/ACK lifecycle, concrete sockets and emitters |
 | `client/internal/namespace/contracts.go`, `handlers.go`, `registry.go`, `listeners.go`, `rooms.go` | canonical independent client contracts, reflected callbacks/listeners, synchronized registrations and local rooms |
+| `internal/event/` | neutral typed payload/schema/handler values, common typed errors and error-first ACK codec; root owns generic descriptors and each role owns dispatch, queue admission and request lifetimes |
 | `adapter/adapter.go`, `memory.go` | minimal socket/factory contracts and local room/index/delivery ownership |
 | `adapter/redis/options.go`, `adapter.go`, `codec.go`, `requests.go`, `subscription.go` | Redis configuration/construction, legacy wire format, cluster queries and subscription lifecycle |
 | `engineio/conn.go`, `id.go`, `options.go`, `hooks.go`, `headers.go` | active connection/state/error/ID contract aliases, configuration, public hook adaptation and websocket header observation |

@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- Common `NewEvent[T]` and `NewAckEvent[T, R]` descriptors register typed server
+  and Go-client handlers, send one typed payload to a socket or broadcast, and
+  await error-first acknowledgements. Typed waits honor cancellation, namespace
+  disconnect and a 30-second bound, including pre-connect buffering. Existing
+  reflected event APIs remain available; see the v1 migration guide.
+
 ### Fixed
 
 - Socket.IO: release completed engine sessions, initialize the root namespace,

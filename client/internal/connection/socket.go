@@ -1,28 +1,34 @@
 package connection
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"sync"
 
 	"github.com/sshaplygin/go-socket.io/client/internal/namespace"
+	"github.com/sshaplygin/go-socket.io/internal/event"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 type namespaceConn struct {
 	*conn
-	broadcast *namespace.RoomIndex
-	namespace string
-	context   interface{}
-	ack       sync.Map
-	outMu     sync.Mutex
+	broadcast      *namespace.RoomIndex
+	namespace      string
+	context        interface{}
+	ack            sync.Map
+	outMu          sync.Mutex
+	lifetime       context.Context
+	cancelLifetime context.CancelFunc
+	typedAcks      map[uint64]*typedRequest
 }
 
 func newNamespaceConn(conn *conn, namespace string, broadcast *namespace.RoomIndex) *namespaceConn {
 	if namespace == rootNamespace {
 		namespace = aliasRootNamespace
 	}
-	return &namespaceConn{conn: conn, namespace: namespace, broadcast: broadcast}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &namespaceConn{conn: conn, namespace: namespace, broadcast: broadcast, lifetime: ctx, cancelLifetime: cancel}
 }
 
 // Handshake returns zero metadata on a client connection.
@@ -239,6 +245,7 @@ func (n *namespaces) Range(fn func(ns string, nc *namespaceConn)) {
 }
 
 type bufferedEvent struct {
+	typed      *typedEmission
 	prepared   *parser.PreparedPacket
 	encodeErr  error
 	ack        *namespace.Func
@@ -437,8 +444,19 @@ func (m *clientState) namespaceConnected(current *conn, namespace string, nc *na
 	buffer := s.buffer
 	s.buffer = nil
 	m.buffered -= len(buffer)
-	for _, event := range buffer {
-		nc.queuePreparedEvent(false, event)
+	for _, record := range buffer {
+		if record.typed == nil {
+			nc.queuePreparedEvent(false, record)
+			continue
+		}
+		emission := record.typed
+		if emission.stop != nil {
+			emission.stop()
+		}
+		err := nc.admitTyped(emission.ctx, record.prepared, emission.request)
+		if err != nil && emission.request != nil {
+			emission.request.complete(event.Payload{}, err)
+		}
 	}
 	m.mu.Unlock()
 	return m.deliverConnect(current, s)
@@ -492,6 +510,7 @@ func (m *clientState) closeSocket(s *Socket, reason string, closeLast bool, expe
 		m.mu.Unlock()
 		return nil
 	}
+	s.cancelBufferedTypedLocked()
 	current, nc, connected := m.conn, s.nc, s.connected
 	s.active, s.connected, s.connectPending = false, false, false
 	s.nc = nil

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/sshaplygin/go-socket.io/client/internal/namespace"
+	"github.com/sshaplygin/go-socket.io/internal/event"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -19,6 +20,19 @@ func ackPacketHandler(c *conn, header parser.Header) error {
 		return nil
 	}
 
+	c.mu.Lock()
+	typed := nc.typedAcks[header.ID]
+	c.mu.Unlock()
+	if typed != nil {
+		if typed.finished.Load() {
+			_ = c.decoder.DiscardLast()
+			return nil
+		}
+		value, err := event.DecodeAck(c.decoder, typed.schema)
+		typed.complete(value, err)
+		typed.remove()
+		return nil
+	}
 	defer nc.ack.Delete(header.ID)
 
 	rawFunc, ok := nc.ack.Load(header.ID)
@@ -75,7 +89,10 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 		return nil
 	}
 
-	snapshot := handler.Listeners(event)
+	snapshot, typed, hasTyped := handler.EventSnapshot(event)
+	if hasTyped {
+		return dispatchTyped(c, conn, header, typed)
+	}
 	var types []reflect.Type
 	if len(snapshot) != 0 {
 		types = snapshot[0].ArgTypes()
@@ -166,6 +183,7 @@ func clientConnectPacketHandler(c *conn, header parser.Header) error {
 		conn.Join(conn.ID())
 	}
 	if err := c.owner.namespaceConnected(c, header.Namespace, conn); err != nil {
+		conn.endTyped()
 		c.onError(header.Namespace, err)
 		return errHandleDispatch
 	}

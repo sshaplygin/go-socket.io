@@ -2,6 +2,7 @@ package namespace
 
 import (
 	"fmt"
+	"github.com/sshaplygin/go-socket.io/internal/event"
 	"reflect"
 	"sync"
 )
@@ -9,6 +10,7 @@ import (
 type Handler struct {
 	broadcast    *RoomIndex
 	events       map[string][]*Listener
+	typed        map[string]event.Handler
 	eventsLock   sync.RWMutex
 	onConnect    func(Conn) error
 	onDisconnect func(Conn, string)

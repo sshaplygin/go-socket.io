@@ -269,10 +269,7 @@ func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, 
 			if !v.CanInterface() {
 				return reflect.Value{}, nil, errUnsupportedBuffer
 			}
-			if !v.CanAddr() {
-				return reflect.Value{}, nil, errFailedBufferAddress
-			}
-			src := v.Addr().Interface().(*Buffer)
+			src := v.Interface().(Buffer)
 			numbered := Buffer{num: *index, isBinary: true, Data: src.Data}
 			*index++
 			return reflect.ValueOf(numbered), [][]byte{src.Data}, nil

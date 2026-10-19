@@ -81,21 +81,17 @@ func getOptions(opts *options) *options {
 // Option configures a Redis namespace factory. Options apply in order.
 type Option func(*options)
 
-// New returns a namespace factory. It performs no I/O until applied to a namespace.
-// Namespaces share one subscriber and a publishing pool per factory. Initial
-// construction dials publishing and subscriber connections within ten seconds.
-// Subscription commands are sent before construction returns, but remote delivery
-// starts only once Redis has registered them. Lost subscriptions reconnect with
-// bounded backoff. Server.Serve reports the first namespace construction error.
-// The legacy adapter currently always uses database zero, including with WithDB.
+// New returns a lazy namespace factory interoperable with socket.io-redis 5.4.0.
+// Namespaces share one subscriber and publishing pool. Construction waits for
+// subscription acknowledgements within ten seconds; lost subscriptions reconnect
+// with bounded backoff. WithDB selects the Redis database, but Pub/Sub isolation
+// requires distinct prefixes.
 //
-// Len and AllRooms ask the Redis subscribers for their local count or rooms. They
-// wait until all counted subscribers answer, or five seconds, then return the
-// partial sum or union. Len returns -1 on command errors; AllRooms returns an
-// empty list on publish failure. A missing subscription may cause the full wait
-// and omit this instance's own data. A subscriber that registers between the count
-// and publish can answer without being counted, completing the request early.
-// Neither query provides an atomic cluster snapshot.
+// Values implement Cluster for bounded context/error query and control methods.
+// Legacy IDs and AllRooms return partial snapshots and log errors; Len returns -1
+// on failure. Clear performs bounded, acknowledged remote leaves. Queries are not
+// atomic snapshots, and Clear does not roll back partial effects.
+
 func New(opts ...Option) adapter.Factory {
 	config := new(options)
 	for _, option := range opts {
@@ -149,7 +145,8 @@ func WithHost(value string) Option { return func(config *options) { config.Host 
 // Deprecated: use WithAddr.
 func WithPort(value string) Option { return func(config *options) { config.Port = value } }
 
-// WithDB retains the database setting. The current adapter normalizes it to DB0.
+// WithDB selects the database on subscriber, pooled and request connections.
+// Redis Pub/Sub channels are shared across databases; use WithPrefix for isolation.
 func WithDB(value int) Option { return func(config *options) { config.DB = value } }
 
 // WithRequestsTimeout bounds each cluster request, including Redis commands.

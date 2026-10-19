@@ -79,30 +79,31 @@ func (bc *broadcast) request(ctx context.Context, req wireRequest, seed []string
 	if bc.closed.Load() {
 		return nil, ErrAdapterClosed
 	}
+	pending := &clusterRequest{kind: *req.Type, expected: 1, done: make(chan struct{}), values: map[string]bool{}, responders: map[string]bool{}}
+	for _, v := range seed {
+		pending.values[v] = true
+	}
 	if err := wait.Err(); err != nil {
-		return nil, bc.classifyRequestError(ctx, wait, err)
+		return pending, bc.classifyRequestError(ctx, wait, err)
 	}
 	if err := bc.waitReady(wait); err != nil {
-		return nil, bc.classifyRequestError(ctx, wait, err)
+		return pending, bc.classifyRequestError(ctx, wait, err)
 	}
 	expected := 1
 	if *req.Type == clientsRequest || *req.Type == allRoomsRequest || *req.Type == customRequest {
 		reply, err := bc.boundedDo(wait, "PUBSUB", "NUMSUB", bc.reqChannel)
 		if err != nil {
-			return nil, bc.classifyRequestError(ctx, wait, err)
+			return pending, bc.classifyRequestError(ctx, wait, err)
 		}
 		expected, err = parseSubscriberCount(reply, bc.reqChannel)
 		if err != nil {
-			return nil, err
+			return pending, err
 		}
 		if expected < 1 {
-			return nil, fmt.Errorf("redis: namespace subscription unavailable")
+			return pending, fmt.Errorf("redis: namespace subscription unavailable")
 		}
 	}
-	pending := &clusterRequest{kind: *req.Type, expected: expected, done: make(chan struct{}), values: map[string]bool{}, responders: map[string]bool{}}
-	for _, v := range seed {
-		pending.values[v] = true
-	}
+	pending.expected = expected
 	req.ID = uuid.NewString()
 	encoded, err := json.Marshal(req)
 	if err != nil {

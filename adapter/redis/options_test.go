@@ -75,7 +75,7 @@ func TestFactoryOptionsAndIndependentNamespaces(t *testing.T) {
 	require.Equal(t, 1, isolated.Len("room"))
 	require.Empty(t, isolatedSocket.events, "namespace state and channels must stay independent")
 	first.LeaveAll(localSocket)
-	require.Empty(t, first.IDs())
+	require.Equal(t, []string{"remote"}, first.IDs())
 	require.Equal(t, []string{"remote"}, remote.IDs())
 	require.Equal(t, []string{"isolated"}, isolated.IDs())
 	// Reusing a targeted option cannot retain another factory's prefix or password.

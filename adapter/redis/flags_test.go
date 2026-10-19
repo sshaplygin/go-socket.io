@@ -81,7 +81,7 @@ func TestRedisBroadcastLocalFlag(t *testing.T) {
 	expectEvent(t, c, "local []")
 	require.Empty(t, c.events)
 	require.Zero(t, calls.Load())
-	require.Equal(t, []string{"c"}, b.IDs("r", "s"))
+	require.Equal(t, []string{"c"}, b.Memory.IDs("r", "s"))
 }
 
 func TestRedisBroadcastVolatileFlag(t *testing.T) {

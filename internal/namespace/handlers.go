@@ -125,7 +125,11 @@ func (h *Func) Call(args []reflect.Value) (ret []reflect.Value, err error) {
 		}
 	}()
 
-	ret = h.f.Call(args)
+	if h.f.Type().IsVariadic() && len(args) == h.f.Type().NumIn() && args[len(args)-1].IsValid() && args[len(args)-1].Type() == h.f.Type().In(len(args)-1) {
+		ret = h.f.CallSlice(args)
+	} else {
+		ret = h.f.Call(args)
+	}
 
 	return
 }
@@ -229,3 +233,6 @@ func (nh *Handler) Sockets() []Conn {
 
 // ArgTypes returns the parameter types used by the connection decoder.
 func (h *Func) ArgTypes() []reflect.Type { return h.argTypes }
+
+// Variadic reports whether the final payload type consumes remaining arguments.
+func (h *Func) Variadic() bool { return h.f.Type().IsVariadic() }

@@ -148,3 +148,5 @@ func getDispatchMessage(args ...reflect.Value) string {
 }
 
 func (l *Listener) ArgTypes() []reflect.Type { return l.handler.argTypes }
+
+func (l *Listener) Variadic() bool { return l.handler.Variadic() }

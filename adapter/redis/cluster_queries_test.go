@@ -1,7 +1,13 @@
 package redis
 
 import (
+	"context"
+	"encoding/json"
+	redigo "github.com/gomodule/redigo/redis"
+	"github.com/sshaplygin/go-socket.io/adapter"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
@@ -16,4 +22,160 @@ func TestRedisClusterIDsIncludesRemoteRooms(t *testing.T) {
 	b.Join("two", newRedisTestConn("b"))
 	b.Join("one", newRedisTestConn("c"))
 	require.ElementsMatch(t, []string{"a", "b", "c"}, a.IDs("one", "two"))
+}
+
+type clusterTestSocket struct {
+	*redisTestConn
+	owner        *broadcast
+	disconnected chan bool
+}
+
+func newClusterTestSocket(owner *broadcast, id string) *clusterTestSocket {
+	return &clusterTestSocket{redisTestConn: newRedisTestConn(id), owner: owner, disconnected: make(chan bool, 2)}
+}
+func (s *clusterTestSocket) Join(rooms ...string) {
+	for _, room := range rooms {
+		s.owner.Memory.Join(room, s)
+	}
+}
+func (s *clusterTestSocket) Leave(room string) { s.owner.Memory.Leave(room, s) }
+func (s *clusterTestSocket) Disconnect()       { s.owner.Memory.LeaveAll(s); s.disconnected <- false }
+func (s *clusterTestSocket) Close() error {
+	s.owner.Memory.LeaveAll(s)
+	s.disconnected <- true
+	return nil
+}
+
+// Covers A5
+// Covers S13
+// Covers A9
+func TestRedisClusterQueriesAndRemoteOperations(t *testing.T) {
+	s := miniredis.RunT(t)
+	a, b := newTestRedisBroadcast(t, s), newTestRedisBroadcast(t, s)
+	socket := newClusterTestSocket(b, "remote")
+	socket.Join("initial")
+	b.BindSocketLookup(func(id string) adapter.Socket {
+		if id == socket.ID() {
+			return socket
+		}
+		return nil
+	})
+	ctx := context.Background()
+	require.NoError(t, a.RemoteJoin(ctx, "remote", "joined"))
+	ids, err := a.IDsContext(ctx, "joined")
+	require.NoError(t, err)
+	require.Equal(t, []string{"remote"}, ids)
+	count, err := a.LenContext(ctx, "joined")
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+	rooms, err := a.AllRoomsContext(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"initial", "joined"}, rooms)
+	rooms, err = a.ClientRooms(ctx, "remote")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"initial", "joined"}, rooms)
+	require.NoError(t, a.ClearContext(ctx, "joined"))
+	require.Zero(t, b.Memory.Len("joined"))
+	require.NoError(t, a.RemoteLeave(ctx, "remote", "initial"))
+	require.Empty(t, socket.owner.Memory.AllRooms())
+	// Live registry lookup still works after LeaveAll removed every index entry.
+	require.NoError(t, a.RemoteJoin(ctx, "remote", "again"))
+	for _, closeEngine := range []bool{false, true} {
+		require.NoError(t, a.RemoteDisconnect(ctx, "remote", closeEngine))
+		require.Equal(t, closeEngine, <-socket.disconnected)
+	}
+	b.BindSocketLookup(nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, a.RemoteJoin(ctx, "missing", "room"), context.DeadlineExceeded)
+}
+
+// Covers A9
+// Covers B4
+func TestRedisClusterRequestTimeoutCancellationAndClose(t *testing.T) {
+	s := miniredis.RunT(t)
+	factory := New(WithAddr(s.Addr()), WithRequestsTimeout(25*time.Millisecond))
+	base, err := factory("/")
+	require.NoError(t, err)
+	a := base.(*broadcast)
+	t.Cleanup(func() { _ = a.Close() })
+	silent, err := redigo.Dial("tcp", s.Addr())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = silent.Close() })
+	require.NoError(t, redigo.PubSubConn{Conn: silent}.Subscribe(a.reqChannel))
+	waitRedisSubscribers(t, s, a.reqChannel, 2)
+	a.Join("local", newRedisTestConn("local"))
+	ids, err := a.IDsContext(context.Background())
+	require.ErrorIs(t, err, ErrRequestTimeout)
+	require.Equal(t, []string{"local"}, ids)
+	require.Equal(t, -1, a.Len("local"))
+	rooms, err := a.AllRoomsContext(context.Background())
+	require.ErrorIs(t, err, ErrRequestTimeout)
+	require.Equal(t, []string{"local"}, rooms)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = a.IDsContext(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	done := make(chan error, 1)
+	go func() { _, err := a.CustomRequest(context.Background(), nil); done <- err }()
+	require.Eventually(t, func() bool { a.requestLock.Lock(); defer a.requestLock.Unlock(); return len(a.requests) > 0 }, time.Second, time.Millisecond)
+	require.NoError(t, a.Close())
+	require.ErrorIs(t, <-done, ErrAdapterClosed)
+	_, err = a.IDsContext(context.Background())
+	require.ErrorIs(t, err, ErrAdapterClosed)
+	a.requestLock.Lock()
+	require.Empty(t, a.requests)
+	a.requestLock.Unlock()
+}
+
+// Covers A9
+func TestRedisClusterCustomRequestsSharedAndReentrant(t *testing.T) {
+	s := miniredis.RunT(t)
+	var calls atomic.Int32
+	factory := New(WithAddr(s.Addr()), WithRequestsTimeout(time.Second), WithCustomRequestHandler(func(ctx context.Context, data json.RawMessage) (json.RawMessage, error) {
+		calls.Add(1)
+		return data, nil
+	}))
+	first, err := factory("/")
+	require.NoError(t, err)
+	second, err := factory("/")
+	require.NoError(t, err)
+	a, b := first.(*broadcast), second.(*broadcast)
+	t.Cleanup(func() { _ = a.Close(); _ = b.Close() })
+	a.Join("one", newRedisTestConn("a"))
+	b.Join("two", newRedisTestConn("b"))
+	ids, err := a.IDsContext(context.Background())
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"a", "b"}, ids)
+	replies, err := a.CustomRequest(context.Background(), json.RawMessage(`{"integer":9007199254740993}`))
+	require.NoError(t, err)
+	require.Equal(t, []json.RawMessage{json.RawMessage(`{"integer":9007199254740993}`)}, replies)
+	require.EqualValues(t, 1, calls.Load())
+	_, err = a.CustomRequest(context.Background(), json.RawMessage(`broken`))
+	require.Error(t, err)
+	defaults, err := New(WithAddr(s.Addr()), WithRequestsTimeout(-1), WithCustomRequestHandler(nil))("/default")
+	require.NoError(t, err)
+	defer func() { _ = defaults.(*broadcast).Close() }()
+	replies, err = defaults.(Cluster).CustomRequest(context.Background(), nil)
+	require.NoError(t, err)
+	require.Equal(t, []json.RawMessage{json.RawMessage("null")}, replies)
+}
+
+// Covers A9
+func TestRedisClusterMalformedResponseAndGoDeduplication(t *testing.T) {
+	s := miniredis.RunT(t)
+	a := newTestRedisBroadcast(t, s)
+	pending := &clusterRequest{kind: clientsRequest, expected: 2, done: make(chan struct{}), values: map[string]bool{}, responders: map[string]bool{}}
+	a.setRequest("pending", pending)
+	for _, raw := range []string{`{"requestid":"pending","clients":null}`, `{"requestid":"pending","clients":[1]}`, `{"requestid":"pending","rooms":[]}`, `{"requestid":"pending","clients":[],"responder":1}`} {
+		a.onResponse([]byte(raw))
+	}
+	require.Zero(t, pending.received)
+	a.onResponse([]byte(`{"requestid":"pending","clients":["a"],"responder":"one"}`))
+	a.onResponse([]byte(`{"requestid":"pending","clients":["a"],"responder":"one"}`))
+	require.Equal(t, 1, pending.received)
+	a.onResponse([]byte(`{"requestid":"pending","clients":["b"]}`))
+	require.Equal(t, 2, pending.received)
+	a.onResponse([]byte(`{"requestid":"pending","clients":["late"]}`))
+	require.NotContains(t, pending.values, "late")
 }

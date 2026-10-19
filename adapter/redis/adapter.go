@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"sync"
@@ -16,6 +17,15 @@ import (
 
 // broadcast composes the local room index with Redis publication and requests.
 type broadcast struct {
+	clusterOnce    sync.Once
+	requestTimeout time.Duration
+	customHandler  func(context.Context, json.RawMessage) (json.RawMessage, error)
+	clusterContext context.Context
+	cancelCluster  context.CancelFunc
+	remoteWorkers  chan struct{}
+	lookupMu       sync.RWMutex
+	socketLookup   func(string) adapter.Socket
+
 	// pub serves PUBLISH and PUBSUB commands. A redigo connection allows only
 	// one concurrent caller, and these commands come from user goroutines and
 	// the dispatch goroutine, so each command takes its own pooled connection.
@@ -116,6 +126,7 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 		uid:        uid,
 	}
 	rbc.transportCtx, rbc.transportCancel = context.WithCancel(context.Background())
+	rbc.initCluster(opts)
 	rbc.dial.Store(&dial)
 	if shared != nil {
 		rbc.resources = shared
@@ -136,11 +147,7 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 }
 
 func (bc *broadcast) Clear(room string) {
-	if bc.closed.Load() {
-		return
-	}
-	bc.Memory.Clear(room)
-	go bc.publishClear(room)
+	bc.logRequestError(bc.ClearContext(context.Background(), room))
 }
 
 // Send emits to a room, registering a trailing callback on each local socket.

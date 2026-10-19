@@ -158,6 +158,8 @@ func (bc *broadcast) Close() error {
 		return nil
 	}
 	bc.notifyReadiness()
+	bc.finishRequests()
+	bc.BindSocketLookup(nil)
 	if bc.resources != nil {
 		return bc.resources.remove(bc)
 	}

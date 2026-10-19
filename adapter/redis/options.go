@@ -2,14 +2,20 @@
 package redis
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
 // options is private Redis configuration.
 type options struct {
+	RequestsTimeout      time.Duration
+	CustomRequestHandler func(context.Context, json.RawMessage) (json.RawMessage, error)
+
 	// deprecated. Usage Addr options
 	Host string
 	// deprecated. Usage Addr options
@@ -42,6 +48,8 @@ func getOptions(opts *options) *options {
 
 	if opts != nil {
 		options.DB = opts.DB
+		options.RequestsTimeout = opts.RequestsTimeout
+		options.CustomRequestHandler = opts.CustomRequestHandler
 		if opts.Host != "" {
 			options.Host = opts.Host
 		}
@@ -143,3 +151,15 @@ func WithPort(value string) Option { return func(config *options) { config.Port 
 
 // WithDB retains the database setting. The current adapter normalizes it to DB0.
 func WithDB(value int) Option { return func(config *options) { config.DB = value } }
+
+// WithRequestsTimeout bounds each cluster request, including Redis commands.
+// Nonpositive values select the default five seconds.
+func WithRequestsTimeout(value time.Duration) Option {
+	return func(config *options) { config.RequestsTimeout = value }
+}
+
+// WithCustomRequestHandler answers one JSON-only custom request per shared
+// namespace subscriber. A nil handler returns JSON null. Handlers must honor ctx.
+func WithCustomRequestHandler(handler func(context.Context, json.RawMessage) (json.RawMessage, error)) Option {
+	return func(config *options) { config.CustomRequestHandler = handler }
+}

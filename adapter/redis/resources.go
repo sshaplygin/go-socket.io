@@ -2,7 +2,6 @@ package redis
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"github.com/gomodule/redigo/redis"
 	"github.com/google/uuid"
@@ -14,6 +13,7 @@ import (
 // owner.subLock orders subscription writes, reconnects, registration and close.
 // mu only protects the namespace table; dispatch never holds it while delivering.
 type sharedResources struct {
+	workers chan struct{}
 	owner   *broadcast
 	mu      sync.Mutex
 	members map[string][]*broadcast
@@ -48,6 +48,7 @@ func (s *sharedResources) add(nsp string, opts *options) (*broadcast, error) {
 	existing := len(s.members[nsp]) > 0
 	bc := &broadcast{Memory: adapter.NewMemory(), requests: make(map[string]interface{}), done: make(chan struct{}), pub: owner.pub, resources: s, nsp: nsp, uid: uuid.NewString(),
 		key: fmt.Sprintf("%s#%s#", opts.Prefix, nsp), reqChannel: fmt.Sprintf("%s-request#%s#", opts.Prefix, nsp), resChannel: fmt.Sprintf("%s-response#%s#", opts.Prefix, nsp)}
+	bc.initCluster(opts)
 	s.members[nsp] = append(s.members[nsp], bc)
 	s.mu.Unlock()
 	var err error
@@ -100,37 +101,18 @@ func (s *sharedResources) dispatch(m redis.Message) {
 // Redis counts one subscriber per shared connection. Answer once with the
 // combined local state when a factory has multiple adapters for a namespace.
 func (s *sharedResources) onRequest(group []*broadcast, data []byte) {
-	var req map[string]string
-	if json.Unmarshal(data, &req) != nil {
-		return
+	if len(group) > 0 {
+		group[0].handleClusterRequest(group, data)
 	}
-	bc := group[0]
-	switch req["RequestType"] {
-	case roomLenReqType:
-		count := 0
-		for _, member := range group {
-			count += member.Memory.Len(req["Room"])
-		}
-		bc.publish(bc.resChannel, &roomLenResponse{RequestType: roomLenReqType, RequestID: req["RequestID"], Connections: count})
-	case allRoomReqType:
-		seen := map[string]bool{}
-		rooms := []string{}
-		for _, member := range group {
-			for _, room := range member.Memory.AllRooms() {
-				if !seen[room] {
-					seen[room] = true
-					rooms = append(rooms, room)
-				}
-			}
-		}
-		bc.publish(bc.resChannel, &allRoomResponse{RequestType: allRoomReqType, RequestID: req["RequestID"], Rooms: rooms})
-	case clearRoomReqType:
-		for _, member := range group {
-			if member.uid != req["UUID"] {
-				member.Memory.Clear(req["Room"])
-			}
-		}
+}
+
+func (s *sharedResources) clusterWorkers() chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.workers == nil {
+		s.workers = make(chan struct{}, 32)
 	}
+	return s.workers
 }
 
 func (s *sharedResources) remove(bc *broadcast) error {

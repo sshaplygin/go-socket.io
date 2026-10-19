@@ -25,24 +25,46 @@ func NewEncoder(w FrameWriter) *Encoder {
 }
 
 func (e *Encoder) Encode(h Header, args ...interface{}) (err error) {
-	// Finish reflection and JSON encoding before acquiring a transport writer.
-	// A failed encode must not put a partial packet on the wire.
-	var data bytes.Buffer
-	buffers, err := e.writePacket(bufferCloser{&data}, h, args)
+	packet, err := Prepare(h, args...)
 	if err != nil {
-		logger.Log.Debug("socketio: write packet failed", "err", err)
 		return err
 	}
+	return e.EncodePrepared(packet)
+}
+
+// PreparedPacket owns an encoded packet and its binary attachments. Its contents
+// are immutable and may be written to multiple connections concurrently.
+type PreparedPacket struct {
+	text    []byte
+	buffers [][]byte
+}
+
+// Prepare snapshots the JSON payload and binary attachments before queueing a packet.
+func Prepare(h Header, args ...interface{}) (*PreparedPacket, error) {
+	var data bytes.Buffer
+	buffers, err := new(Encoder).writePacket(bufferCloser{&data}, h, args)
+	if err != nil {
+		return nil, err
+	}
+	packet := &PreparedPacket{text: data.Bytes(), buffers: make([][]byte, len(buffers))}
+	for i, b := range buffers {
+		packet.buffers[i] = bytes.Clone(b)
+	}
+	return packet, nil
+}
+
+// EncodePrepared writes a snapshot previously returned by Prepare.
+func (e *Encoder) EncodePrepared(packet *PreparedPacket) (err error) {
 	w, err := e.w.NextWriter(Text)
 	if err != nil {
 		logger.Log.Debug("socketio: next writer failed", "err", err)
 		return err
 	}
-	if err = e.writeBuffer(w, data.Bytes()); err != nil {
+	if err = e.writeBuffer(w, packet.text); err != nil {
 		return err
 	}
 
-	for _, b := range buffers {
+	for _, b := range packet.buffers {
 		w, err = e.w.NextWriter(Binary)
 		if err != nil {
 			logger.Log.Debug("socketio: next writer failed", "err", err)

@@ -3237,7 +3237,8 @@ within the dial bound, including cancellation and cleanup on failure. Reconnect
 re-registers current members before declaring ready. Queries during an outage are
 bounded, error visibly and do not report an empty successful cluster; close unblocks
 waiters. Request context bounds NUMSUB and PUBLISH as well as response waiting;
-cancellation closes the checked-out connection before it can return to the pool.
+request commands use dedicated connections, closed on cancellation and never returned
+to the publishing pool; this also works with consumers selecting legacy redigo v2.
 WithDB reaches SELECT on both subscriber and every pooled connection.
 No guarantee of recovery for broadcasts lost during a Redis outage is added.
 

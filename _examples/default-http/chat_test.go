@@ -7,6 +7,7 @@ import (
 	"time"
 
 	socketio "github.com/sshaplygin/go-socket.io"
+	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
 )
@@ -22,10 +23,10 @@ type chatClient struct {
 }
 
 // newChatServer serves the chat the way main does, without the page.
-func newChatServer(t *testing.T) (*socketio.Server, *httptest.Server) {
+func newChatServer(t *testing.T, opts ...socketio.Option) (*socketio.Server, *httptest.Server) {
 	t.Helper()
 	// Keep heartbeat tests and transport teardown bounded.
-	server := socketio.NewServer(socketio.WithEngineOptions(engineio.WithPingInterval(200*time.Millisecond), engineio.WithPingTimeout(2*time.Second)), socketio.WithCloseTimeout(2*time.Second))
+	server := socketio.NewServer(append([]socketio.Option{socketio.WithEngineOptions(engineio.WithPingInterval(200*time.Millisecond), engineio.WithPingTimeout(2*time.Second)), socketio.WithCloseTimeout(2 * time.Second)}, opts...)...)
 	registerChat(server)
 	done := make(chan struct{})
 	go func() {
@@ -221,4 +222,19 @@ func TestChatNumUsersConcurrent(t *testing.T) {
 	again := connectChat(t, ts.URL)
 	again.Emit("add user", "again")
 	again.expect(t, "login", "numUsers", 1.0)
+}
+
+func TestChatCountsAcrossServers(t *testing.T) {
+	shared := adapter.NewMemory()
+	factory := func(string) (adapter.Adapter, error) { return shared, nil }
+	_, first := newChatServer(t, socketio.WithAdapter(factory))
+	_, second := newChatServer(t, socketio.WithAdapter(factory))
+	alice := connectChat(t, first.URL)
+	bob := connectChat(t, second.URL)
+	alice.Emit("add user", "alice")
+	alice.expect(t, "login", "numUsers", 1.0)
+	bob.Emit("add user", "bob")
+	if count := bob.login(t); count != 2 {
+		t.Fatalf("cluster user count = %v, want 2", count)
+	}
 }

@@ -3,8 +3,10 @@ package socketio
 import (
 	"errors"
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
+	"github.com/sshaplygin/go-socket.io/parser"
 	"github.com/stretchr/testify/require"
 	"sync"
 	"sync/atomic"
@@ -49,7 +51,7 @@ func TestRetiredNamespaceReconnectSerializesAdmission(t *testing.T) {
 						<-releaseOld
 					}
 				})
-				s.OnEvent("/chat", "probe", func(Conn) string { events <- struct{}{}; return "probe" })
+				s.OnEvent("/chat", "probe", func(_ Conn, value *parser.Buffer) string { events <- struct{}{}; return string(value.Data) })
 			})
 			wire, err := (&engineclient.Dialer{Transports: []transport.Transport{websocket.Default}}).Dial(url, nil)
 			require.NoError(t, err)
@@ -68,7 +70,12 @@ func TestRetiredNamespaceReconnectSerializesAdmission(t *testing.T) {
 			require.Equal(t, "37[\"barrier\"]\n", c.read(), "old cleanup must not block the reader")
 			finishOld()
 			recv(t, admitting, "replacement admission")
-			c.send(`2/chat,8["probe"]`)
+			c.send(`51-/chat,8["probe",{"_placeholder":true,"num":0}]`)
+			attachment, err := c.conn.NextWriter(eioparser.Binary)
+			require.NoError(t, err)
+			_, err = attachment.Write([]byte("probe"))
+			require.NoError(t, err)
+			require.NoError(t, attachment.Close())
 			c.send(`29["barrier"]`)
 			select {
 			case <-events:

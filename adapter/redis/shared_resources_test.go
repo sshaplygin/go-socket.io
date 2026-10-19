@@ -25,7 +25,11 @@ func TestFactorySharesRedisConnectionsAcrossNamespaces(t *testing.T) {
 			_ = n.Close()
 		}
 	})
-	require.LessOrEqual(t, s.CurrentConnectionCount(), 2, "namespace count must not allocate a connection pair per namespace")
+	// TCP dial can return before miniredis accepts the publishing connection.
+	// Wait for both shared connections before checking that closing one namespace
+	// retains them; the exact count also detects per-namespace allocation.
+	require.Eventually(t, func() bool { return s.CurrentConnectionCount() == 2 }, time.Second, time.Millisecond,
+		"namespace count must not allocate a connection pair per namespace")
 	require.NoError(t, namespaces[0].Close())
 	require.Equal(t, 2, s.CurrentConnectionCount(), "other namespaces still own the shared connections")
 	for _, n := range namespaces {

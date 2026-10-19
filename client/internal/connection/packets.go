@@ -116,7 +116,7 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 		return errHandleDispatch
 	}
 
-	if !ownsAck && (len(ret) > 0 || header.NeedAck) {
+	if !ownsAck && header.NeedAck && len(snapshot) != 0 {
 		header.Type = parser.Ack
 		c.write(header, ret...)
 	}

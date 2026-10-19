@@ -2621,7 +2621,7 @@ command does not trigger `set -e`, so predecessors are never chained with `&&`.
 ```sh
 done_pr() { test -z "$(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("(^|; )(BUG|ADD|CHG|TEST) " pr "( |;|$)")')" || return 1; test -z "$(covers $1)"; }
 wave() { for n in "$@"; do done_pr V1-$n || { echo "open: V1-$n" >&2; exit 1; }; done; }
-for n in 2 4 5 6 7 10 11 15 16 17 18; do grep -q "^### V1-$n contract" docs/ROADMAP.md || { echo "V1A: no contract V1-$n" >&2; exit 1; }; done
+for n in 2 4 5 6 7 10 11 15 16 17 18 28; do grep -q "^### V1-$n contract" docs/ROADMAP.md || { echo "V1A: no contract V1-$n" >&2; exit 1; }; done
 wave 1 2                                                       # entry of V1B
 wave 3 4 5 6 7 16 17 18                                        # entry of V1C
 wave 8; grep -q '^  conformance:' .github/workflows/ci.yaml    # entry of V1D, with the next line
@@ -2639,7 +2639,7 @@ Stage 1b DoD; the awk reads the pipe-delimited rows of PARITY.md (`$2` is the ID
 ```sh
 rows() { awk -F' *[|] *' '$2 ~ /^[A-Z][0-9]+$/' docs/PARITY.md; }
 test "$(go list -m)" = github.com/sshaplygin/go-socket.io; test -f v2/go.mod   # entry: the restructure has merged
-test "$(rows | wc -l)" -eq 170   # 133 audit rows, B1 to B4, S22 (D19), G1 to G29 (the review of 2026-10-18) and T1 to T3 (D18): none lost, none added silently
+test "$(rows | wc -l)" -eq 172   # 133 audit rows, B1 to B4, S22 (D19), G1 to G31 (review and frame-release follow-up) and T1 to T3 (D18): none lost, none added silently
 test -z "$(rows | awk -F' *[|] *' '{n=split($3,e,/; */); for(i=1;i<=n;i++) if (e[i] !~ /^(-|DEV|REDIS|(DONE|DROP|BUG|ADD|CHG|TEST) V1-[0-9]+)$/) print $2}')"   # every entry of every plan is well formed; no decision is pending, so no other kind exists
 N=${N:?the PR, e.g. V1-4}
 make lint test-race
@@ -2750,7 +2750,7 @@ and are returned from dialing or reported through the existing error lifecycle.
 Configurations do not mutate global default transports. G9's client regression sends
 an ignored binary packet followed by a valid packet on the same connection.
 
-**Wave V1G (the review of 2026-10-18; rows G1 to G29, T1 to T3, S22; D18, D19).** An
+**Wave V1G (the review of 2026-10-18 and follow-up; rows G1 to G31, T1 to T3, S22; D18, D19).** An
 independent review of the v1 implementation at `3db9751` (`master` after #133), in six
 dimensions, reported 18 findings that a second reviewer checked and could not refute, and
 further items it did not check twice; [PARITY.md](PARITY.md#findings-of-the-review-of-2026-10-18)
@@ -2766,8 +2766,8 @@ and the rest:
 | V1-21 | B | G1 | high |
 | V1-22 | A | G2 | medium |
 | V1-23 | A | G3, G4, G5 | medium (races) |
-| V1-24 | A | G6, G7, G8, G12 | medium (panics) |
-| V1-25 | A | G9 (the decoder fix), G18 | medium |
+| V1-24 | A | G6, G7, G8, G12, G30 | medium (panics) |
+| V1-25 | A | G9 (the decoder fix), G18, G31 | medium |
 | V1-26 | B | G10, G11 | low (engine races) |
 | V1-27 | A | G13, G14, G15 | medium (Redis adapter) |
 | V1-28 | D | G9 (the client test), G16 | medium (client) |
@@ -2777,10 +2777,16 @@ and the rest:
 
 The packages are those of *Stage V1 work packages* (A, B, D), by file ownership; their
 registry rows were `done`, and the coordinator reopens them (the note after the registry).
+The current bug-fix change also closes G30 (encoder frame Close errors) and G31
+(decoder frame Close errors), and mirrors G6, G18, G20 and G21 in the client.
+The owner explicitly deferred T1–T3 to a separate change on 2026-10-19; their release
+requirement remains in force. This integration may implement the bug fixes together;
+it does not claim that the numbered PRs have merged or modify the package registry.
+
 Each V1G PR writes its own `CHANGELOG.md` entries, since H is `done`. G16 and T1 to T3 are
-`ADD` rows: no signature is decided here. `### V1-28 contract` and `### V1-29 contract` are
-written first by a docs PR each, as V1-0 wrote the earlier contracts, and that PR adds 28 or
-29 to the loop of the `ADD`-row check of *V1-0 contracts*; the entry arms of V1-28 and V1-29
+`ADD` rows: the G16 signature is defined by `### V1-28 contract` above; T1–T3 still
+require a separate `### V1-29 contract` before implementation. The ADD contract check
+includes 28 and must add 29 when that contract is written; the entry arms of V1-28 and V1-29
 require the heading. V1-30 writes the PROTOCOL.md heading of D19, which the MV1 DoD greps.
 
 Every `BUG` row of the wave, and of any later bug fix, is closed test first, by the rule of
@@ -2896,9 +2902,9 @@ resumes on the owner's order after MV1, not on the tag.
 
 **MV1 reopened (2026-10-18).** MV1 was accepted by #133, which set H `done` in the registry
 after the component follow-up (C5, #132). The review of 2026-10-18 at `3db9751` and D18 reopen
-it: rows G1 to G29 and T1 to T3 are open `BUG`, `ADD` and `TEST` rows, so the MV1 DoD line
-"no open row" and `PARITY_STRICT=1 make parity-check` fail again, and so does its registry
-line once the coordinator sets A, B and D back to `open` for the V1G PRs. MV1 is accepted
+it: the then-open G1 to G29 and T1 to T3 rows failed the MV1 DoD line
+"no open row" and `PARITY_STRICT=1 make parity-check`. The current bug-fix change
+closes G1–G31; T1–T3 still fail that strict gate. The registry line also fails once the coordinator sets A, B and D back to `open` for the V1G PRs. MV1 is accepted
 again when the rows of wave V1G are closed: V1-21 to V1-31 merged, the MV1 DoD above passing
 on the merged `master` (it now also greps the D19 heading), and the owner's Acceptance
 repeated. Nothing is accepted beyond what those commands compute; the `v1.5.0` tag stays the

@@ -324,3 +324,12 @@ observers and concrete namespace sockets together. Queue admission and ACK
 registration remain atomic; namespace disconnects, drain bounds, late dial cleanup,
 listener order and callbacks keep their existing behavior. There is no retired
 constructor/import facade or production accessor for private test state.
+
+### Incoming client limits
+
+`client.WithMaxMessageSize(bytes)` configures received messages; the last option wins.
+The low-level equivalent is `engineio/client.Dialer.MaxMessageSize`. Zero and negative
+values select the 1 MiB default. See [protocol limits](PROTOCOL.md#implemented-engineio-protocol-v3-in-the-v1-module)
+for the transport boundaries. Custom transports can implement `SetReadLimit(int64)`;
+otherwise their implementation must enforce the limit itself. Existing applications
+receiving larger messages must set an explicit larger limit before connecting.

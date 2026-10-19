@@ -150,6 +150,9 @@ func (c *conn) register(nsp string, nc *namespaceConn) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !isDone(c.closing) {
+		if isDone(c.engineDone()) {
+			nc.cancelTypedLocked()
+		}
 		c.namespaces.Set(nsp, nc)
 	}
 	return !isDone(c.closing)

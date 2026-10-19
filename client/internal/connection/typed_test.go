@@ -276,3 +276,18 @@ func TestTypedClientLateNamespaceHasEndedEngineLifetime(t *testing.T) {
 	require.ErrorIs(t, nc.handlerContext().Err(), context.Canceled)
 	require.ErrorIs(t, nc.SendEvent(context.Background(), "after close", event.ValueOf(1)), event.ErrSocketClosed)
 }
+
+// Covers T3.
+func TestTypedClientEngineObserverEndsWithSocketConnection(t *testing.T) {
+	p := newPeer(t, 'C', hooks{})
+	engine := &closeNotifyingEngine{fakeConn: p.fc, closing: make(chan struct{})}
+	c := newConn(engine, p.cl.handlers, p.cl.limits, p.cl.log)
+	finished := inBackground(c.observeEngineClose)
+	close(c.done)
+	recv(t, finished, "observer exit while engine remains open")
+	select {
+	case <-engine.closing:
+		t.Fatal("observer must not close the engine")
+	default:
+	}
+}

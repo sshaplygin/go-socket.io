@@ -173,6 +173,7 @@ func (m *clientState) open(c *Manager, retry *reconnectRun, number int) (result 
 	// can observe EOF and decide whether this connection needs recovery.
 	finishAttempt()
 	start := func() {
+		go current.observeEngineClose()
 		go current.serveError()
 		go current.serveWrite()
 		go current.serveRead(clientConnectPacketHandler, clientDisconnectPacketHandler)

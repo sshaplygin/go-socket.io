@@ -96,7 +96,7 @@ func (nc *namespaceConn) admitTyped(ctx context.Context, packet *parser.Prepared
 		return err
 	}
 	current, exists := c.namespaces.Get(fmtNS(nc.namespace))
-	if !exists || current != nc || isDone(c.closing) || nc.handlerContext().Err() != nil {
+	if !exists || current != nc || isDone(c.closing) || isDone(c.engineDone()) || nc.handlerContext().Err() != nil {
 		return event.ErrSocketClosed
 	}
 	if request != nil && request.finished.Load() {
@@ -289,4 +289,22 @@ func (m *Manager) SendEvent(ctx context.Context, name string, value event.Payloa
 }
 func (m *Manager) RequestAck(ctx context.Context, name string, value event.Payload, schema event.Schema) (event.Payload, error) {
 	return m.Socket(m.namespace).RequestAck(ctx, name, value, schema)
+}
+
+// engineDone is an optional capability of built-in engines. Custom transports
+// keep the existing read/write failure lifecycle without another frame reader.
+func (c *conn) engineDone() <-chan struct{} { return c.engineClose }
+
+func (c *conn) observeEngineClose() {
+	done := c.engineDone()
+	if done == nil {
+		return
+	}
+	select {
+	case <-done:
+		c.mu.Lock()
+		c.namespaces.Range(func(_ string, nc *namespaceConn) { nc.cancelTypedLocked() })
+		c.mu.Unlock()
+	case <-c.done:
+	}
 }

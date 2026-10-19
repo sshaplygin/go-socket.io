@@ -16,7 +16,7 @@ func TestReviewG26UnknownPacketClosesSession(t *testing.T) {
 	s := engineio.NewServer()
 	ts := httptest.NewServer(s)
 	defer ts.Close()
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	result := make(chan error, 1)
 	go func() {
 		c, err := s.Accept()
@@ -31,7 +31,7 @@ func TestReviewG26UnknownPacketClosesSession(t *testing.T) {
 	}()
 	ws, _, err := gorilla.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/?EIO=3&transport=websocket", nil)
 	require.NoError(t, err)
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 	_, _, err = ws.ReadMessage()
 	require.NoError(t, err)
 	require.NoError(t, ws.WriteMessage(gorilla.TextMessage, []byte("9")))

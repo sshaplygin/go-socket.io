@@ -16,7 +16,7 @@ func TestPingPostReleasesBeforePongPoll(t *testing.T) {
 	s := engineio.NewServer()
 	ts := httptest.NewServer(s)
 	defer ts.Close()
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	go func() {
 		c, e := s.Accept()
 		if e == nil {
@@ -27,7 +27,7 @@ func TestPingPostReleasesBeforePongPoll(t *testing.T) {
 	require.NoError(t, err)
 	_, err = io.Copy(io.Discard, resp.Body)
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	var sid string
 	for id := range s.Clients() {
 		sid = id
@@ -38,7 +38,7 @@ func TestPingPostReleasesBeforePongPoll(t *testing.T) {
 	resp, err = client.Post(url, "text/plain;charset=UTF-8", strings.NewReader("6:2probe"))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	resp, err = client.Get(url)
 	require.NoError(t, err)
 	defer resp.Body.Close()

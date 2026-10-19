@@ -80,7 +80,7 @@ func TestUpgradeCandidateLimitInstalledBeforeProbe(t *testing.T) {
 			if e != nil {
 				return
 			}
-			defer ws.Close()
+			defer func() { _ = ws.Close() }()
 			_, body, e := ws.ReadMessage()
 			if e != nil {
 				return
@@ -109,7 +109,7 @@ func TestUpgradeCandidateLimitInstalledBeforeProbe(t *testing.T) {
 	candidate := observedLimitTransport{Transport: websocket.Default, opened: make(chan *observedLimitConn, 1)}
 	c, e := (&Dialer{MaxMessageSize: limit, Upgrade: true, UpgradeTimeout: time.Second, Transports: []transport.Transport{polling.Default, candidate}}).Dial(ts.URL, nil)
 	require.NoError(t, e)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	var probe *observedLimitConn
 	select {
 	case probe = <-candidate.opened:

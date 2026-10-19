@@ -226,6 +226,7 @@ func TestLifecycleServersKeepOffDefaultLogger(t *testing.T) {
 type faultConn struct {
 	*fakeConn
 	readErr, writeErr, closeErr error
+	readCloseErr                error
 	armed                       *atomic.Bool
 }
 
@@ -235,7 +236,7 @@ func (c faultConn) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 		return ft, struct {
 			io.Reader
 			io.Closer
-		}{r, faultWriter{c}}, err
+		}{r, faultReaderCloser{c}}, err
 	}
 	return eioparser.String, io.NopCloser(io.MultiReader(strings.NewReader("2"), iotest.ErrReader(c.readErr))), nil
 }
@@ -245,6 +246,15 @@ func (c faultConn) NextWriter(ft eioparser.FrameType) (io.WriteCloser, error) {
 		return c.fakeConn.NextWriter(ft)
 	}
 	return faultWriter{c}, nil
+}
+
+type faultReaderCloser struct{ c faultConn }
+
+func (r faultReaderCloser) Close() error {
+	if r.c.readCloseErr != nil {
+		return r.c.readCloseErr
+	}
+	return r.c.closeErr
 }
 
 type faultWriter struct{ c faultConn }
@@ -321,7 +331,7 @@ func TestUnhandledErrorRecords(t *testing.T) {
 		{name: "frame Write fails after connect", fault: faultConn{writeErr: failed, armed: armed},
 			run: func(t *testing.T, p *peer) { armed.Store(true); p.nc.Emit("x") }},
 		{name: "frame Close fails", fault: faultConn{closeErr: failed}},
-		{name: "frame Close fails before event dispatch", fault: faultConn{closeErr: failed}, h: hooks{events: map[string]interface{}{"boom": func(Conn) { t.Error("event ran after frame close failed") }}},
+		{name: "frame Close fails before event dispatch", fault: faultConn{readCloseErr: failed}, h: hooks{events: map[string]interface{}{"boom": func(Conn) { t.Error("event ran after frame close failed") }}},
 			run: func(t *testing.T, p *peer) { p.send(t, ev("boom")) }},
 		{name: "frame Close fails, then OnConnect fails", fault: faultConn{closeErr: failed}, nsps: []string{"/"},
 			h: hooks{connect: func(Conn) error { return refused }}},

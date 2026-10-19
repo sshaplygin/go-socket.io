@@ -2,6 +2,7 @@ package connection
 
 import (
 	"context"
+	"errors"
 	"reflect"
 
 	eventImpl "github.com/sshaplygin/go-socket.io/internal/event"
@@ -67,6 +68,9 @@ func (nc *namespaceConn) RequestAck(ctx context.Context, name string, payload ev
 }
 
 func ackContextError(caller, wait context.Context, err error) error {
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
 	if caller.Err() != nil {
 		return caller.Err()
 	}

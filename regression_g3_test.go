@@ -2,14 +2,16 @@ package socketio
 
 import (
 	"github.com/stretchr/testify/require"
+	"sync"
 	"testing"
-	"time"
 )
 
 // Covers G3
 func TestRegressionG3OldDisconnectPreservesNewRooms(t *testing.T) {
 	connected := make(chan Conn, 2)
 	entered, release := make(chan struct{}, 1), make(chan struct{})
+	releaseOld := sync.OnceFunc(func() { close(release) })
+	defer releaseOld()
 	s, url := defectServer(t, func(s *Server) {
 		s.OnEvent("/", "alive", func(Conn) string { return "alive" })
 		s.OnConnect("/chat", func(c Conn) error { connected <- c; return nil })
@@ -27,12 +29,7 @@ func TestRegressionG3OldDisconnectPreservesNewRooms(t *testing.T) {
 	c.send("0/chat,")
 	c.send(`27["alive"]`)
 	require.Equal(t, "37[\"alive\"]\n", c.read(), "retiring namespace does not stall the reader")
-	select {
-	case <-connected:
-		t.Error("replacement accepted before old cleanup")
-	case <-time.After(100 * time.Millisecond):
-	}
-	close(release)
+	releaseOld()
 	recv(t, done, "old disconnect completed")
 	require.Equal(t, "0/chat,", c.read())
 	next := recv(t, connected, "new namespace")

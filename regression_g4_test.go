@@ -2,18 +2,19 @@ package socketio
 
 import (
 	"github.com/stretchr/testify/require"
+	"sync/atomic"
 	"testing"
-	"time"
 )
 
 // Covers G4
 func TestRegressionG4CloseDoesNotDisconnectDuringConnect(t *testing.T) {
 	entered := make(chan Conn, 1)
 	release := make(chan struct{})
-	disconnected := make(chan struct{}, 1)
+	var inConnect atomic.Bool
+	disconnected := make(chan bool, 1)
 	_, url := defectServer(t, func(s *Server) {
-		s.OnConnect("/chat", func(c Conn) error { entered <- c; <-release; return nil })
-		s.OnDisconnect("/chat", func(Conn, string) { disconnected <- struct{}{} })
+		s.OnConnect("/chat", func(c Conn) error { inConnect.Store(true); entered <- c; <-release; inConnect.Store(false); return nil })
+		s.OnDisconnect("/chat", func(Conn, string) { disconnected <- inConnect.Load() })
 	})
 	c := dialRaw(t, url)
 	require.Equal(t, "0", c.read())
@@ -21,11 +22,7 @@ func TestRegressionG4CloseDoesNotDisconnectDuringConnect(t *testing.T) {
 	nc := recv(t, entered, "OnConnect entered")
 	done := make(chan struct{})
 	go func() { _ = nc.Close(); close(done) }()
-	select {
-	case <-disconnected:
-		t.Error("OnDisconnect ran before OnConnect returned")
-	case <-time.After(100 * time.Millisecond):
-	}
+	recv(t, done, "Close returned without waiting on admission")
 	close(release)
-	recv(t, done, "Close finished")
+	require.False(t, recv(t, disconnected, "deferred OnDisconnect"), "OnDisconnect ran before OnConnect returned")
 }

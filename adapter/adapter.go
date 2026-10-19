@@ -32,7 +32,8 @@ type Socket interface {
 	EmitWithOptions(opts Options, event string, args ...interface{})
 }
 
-// Factory constructs a namespace adapter once under the server's creation lock.
+// Factory constructs one namespace adapter per name. The server coordinates
+// callers for the same name while unrelated factories may run concurrently.
 // Construction errors are retained by the namespace and reported by Server.Serve.
 type Factory func(namespace string) (Adapter, error)
 

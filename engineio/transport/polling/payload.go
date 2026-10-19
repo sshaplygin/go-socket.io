@@ -1,6 +1,7 @@
 package polling
 
 import (
+	"context"
 	"errors"
 	"io"
 	"math"
@@ -10,6 +11,14 @@ import (
 
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
+
+// batchOffer proposes another packet for an existing response. A different
+// compression preference declines it while keeping NextWriter pending for the
+// next GET; no frame has been acquired or encoded at that point.
+type batchOffer struct {
+	writer   *flushWriter
+	accepted chan bool
+}
 
 type readArg struct {
 	r             io.Reader
@@ -31,24 +40,28 @@ type payload struct {
 	readDeadline atomic.Value
 	decoder      *eioparser.PayloadDecoder
 
-	writerChan    chan io.Writer
-	answerPoll    chan struct{}
-	flushing      int32
-	writeError    chan error
-	writeDeadline atomic.Value
-	encoder       *eioparser.PayloadEncoder
+	writerChan      chan io.Writer
+	batchWriterChan chan batchOffer
+	compress        atomic.Bool
+	answerPoll      chan struct{}
+	flushing        int32
+	writeError      chan error
+	writeDeadline   atomic.Value
+	encoder         *eioparser.PayloadEncoder
+	batch           bool // server GETs coalesce complete packets; client POSTs keep their lease
 }
 
 // newPayload returns a new payload.
 func newPayload(supportBinary bool) *payload {
 	ret := &payload{
-		close:      make(chan struct{}),
-		pauser:     newPauser(),
-		readerChan: make(chan readArg),
-		readError:  make(chan error),
-		writerChan: make(chan io.Writer),
-		answerPoll: make(chan struct{}),
-		writeError: make(chan error),
+		close:           make(chan struct{}),
+		pauser:          newPauser(),
+		readerChan:      make(chan readArg),
+		readError:       make(chan error),
+		writerChan:      make(chan io.Writer),
+		batchWriterChan: make(chan batchOffer),
+		answerPoll:      make(chan struct{}),
+		writeError:      make(chan error),
 	}
 	ret.readDeadline.Store(time.Time{})
 	ret.decoder = eioparser.NewPayloadDecoder(ret)
@@ -61,9 +74,11 @@ func newPayload(supportBinary bool) *payload {
 // for a Write in progress and fails every later one with errDetached, so once FlushOut
 // has returned nothing is written to, or still running against, the caller's writer.
 type flushWriter struct {
-	mu   sync.Mutex
-	w    io.Writer
-	gone bool
+	mu       sync.Mutex
+	w        io.Writer
+	gone     bool
+	bytes    int
+	compress bool
 }
 
 func (f *flushWriter) Write(b []byte) (int, error) {
@@ -72,8 +87,12 @@ func (f *flushWriter) Write(b []byte) (int, error) {
 	if f.gone {
 		return 0, errDetached
 	}
-	return f.w.Write(b)
+	n, err := f.w.Write(b)
+	f.bytes += n
+	return n, err
 }
+
+func (f *flushWriter) size() int { f.mu.Lock(); defer f.mu.Unlock(); return f.bytes }
 
 func (f *flushWriter) detach() {
 	f.mu.Lock()
@@ -155,7 +174,19 @@ func (p *payload) FeedIn(r io.Reader, supportBinary bool) error {
 // If NextWriter has timeout, it returns ErrTimeout.
 // If write error while FlushOut, it returns write error.
 func (p *payload) FlushOut(w io.Writer) error {
+	return p.flushOut(context.Background(), w)
+}
+
+func (p *payload) cancelPoll(ctx context.Context) error {
+	err := p.Store("write", ctx.Err())
+	_ = p.Close()
+	return err
+}
+
+func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
 	select {
+	case <-ctx.Done():
+		return p.cancelPoll(ctx)
 	case <-p.close:
 		return p.load()
 	default:
@@ -177,12 +208,16 @@ func (p *payload) FlushOut(w io.Writer) error {
 	fw := &flushWriter{w: w}
 	defer fw.detach()
 
+	packets := 0
+	var batchEnd time.Time
 	for {
 		after, ok := p.writeTimeout()
 		if !ok {
 			return p.Store("write", errTimeout)
 		}
 		select {
+		case <-ctx.Done():
+			return p.cancelPoll(ctx)
 		case <-p.close:
 			return p.load()
 
@@ -207,12 +242,54 @@ func (p *payload) FlushOut(w io.Writer) error {
 			return p.Store("write", errTimeout)
 		}
 		select {
+		case <-ctx.Done():
+			return p.cancelPoll(ctx)
 		case <-p.close:
 			return p.load()
 		case <-after:
 			// it may changed during wait, need check again
 		case err := <-p.writeError:
-			return p.Store("write", err)
+			if err != nil || !p.batch {
+				return p.Store("write", err)
+			}
+			packets++
+			if batchEnd.IsZero() {
+				batchEnd = time.Now().Add(5 * time.Millisecond)
+			}
+			if packets >= 64 || fw.size() >= 256*1024 {
+				return nil
+			}
+			idle := min(time.Millisecond, time.Until(batchEnd))
+			if idle <= 0 {
+				return nil
+			}
+			offer := batchOffer{writer: fw, accepted: make(chan bool, 1)}
+			timer := time.NewTimer(idle)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return p.cancelPoll(ctx)
+			case <-p.close:
+				timer.Stop()
+				return p.load()
+			case <-p.pauser.PausingTrigger():
+				timer.Stop()
+				return nil
+			case <-timer.C:
+				return nil
+			case p.batchWriterChan <- offer:
+				timer.Stop()
+				select {
+				case <-ctx.Done():
+					return p.cancelPoll(ctx)
+				case <-p.close:
+					return p.load()
+				case accepted := <-offer.accepted:
+					if !accepted {
+						return nil
+					}
+				}
+			}
 		}
 	}
 }
@@ -422,7 +499,16 @@ func (p *payload) AcquirePayloadWriter() (io.Writer, error) {
 		case <-after:
 			continue
 		case w := <-p.writerChan:
+			if fw, ok := w.(*flushWriter); ok {
+				fw.compress = p.compress.Load()
+			}
 			return w, nil
+		case offer := <-p.batchWriterChan:
+			accepted := offer.writer.compress == p.compress.Load()
+			offer.accepted <- accepted
+			if accepted {
+				return offer.writer, nil
+			}
 		}
 	}
 }

@@ -207,6 +207,7 @@ func TestPollingGracefulClose(t *testing.T) {
 				c, err := s.Accept()
 				require.NoError(t, err)
 				polled := make(chan response, 1)
+				closeReceived := false
 				if mode == "buffered writer" {
 					go func() { polled <- request(http.MethodGet, poll, nil) }()
 					w, err := c.NextWriter(eioparser.String)
@@ -219,7 +220,13 @@ func TestPollingGracefulClose(t *testing.T) {
 					r := receive(t, polled)
 					require.NoError(t, r.err)
 					require.Equal(t, http.StatusOK, r.status)
-					require.Equal(t, []string{"4buffered"}, pollPackets(t, r.body, binary))
+					packets := pollPackets(t, r.body, binary)
+					require.NotEmpty(t, packets)
+					require.Equal(t, "4buffered", packets[0])
+					if len(packets) > 1 {
+						require.Equal(t, []string{"4buffered", "1"}, packets)
+						closeReceived = true
+					}
 				} else if mode == "pending poll" {
 					go func() { polled <- request(http.MethodGet, poll, nil) }()
 					require.Eventually(t, func() bool { return c.(interface{ Writable() bool }).Writable() }, time.Second, time.Millisecond)
@@ -227,15 +234,17 @@ func TestPollingGracefulClose(t *testing.T) {
 				require.NoError(t, c.Close())
 				_, err = c.NextWriter(eioparser.String)
 				require.Error(t, err)
-				if mode != "pending poll" {
+				if !closeReceived && mode != "pending poll" {
 					require.Equal(t, engineio.StateClosing, c.ReadyState())
 					require.Contains(t, s.Clients(), c.ID(), "closing SID remains routable")
 					go func() { polled <- request(http.MethodGet, poll, nil) }()
 				}
-				r := receive(t, polled)
-				require.NoError(t, r.err)
-				require.Equal(t, http.StatusOK, r.status, "%s", r.body)
-				require.Equal(t, []string{"1"}, pollPackets(t, r.body, binary))
+				if !closeReceived {
+					r := receive(t, polled)
+					require.NoError(t, r.err)
+					require.Equal(t, http.StatusOK, r.status, "%s", r.body)
+					require.Equal(t, []string{"1"}, pollPackets(t, r.body, binary))
+				}
 				require.Eventually(t, func() bool { return c.ReadyState() == engineio.StateClosed }, time.Second, time.Millisecond)
 			})
 		}

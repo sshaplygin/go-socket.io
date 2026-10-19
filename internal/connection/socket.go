@@ -1,6 +1,8 @@
 package connection
 
 import (
+	"context"
+	"fmt"
 	"net/url"
 	"reflect"
 	"sync"
@@ -19,16 +21,27 @@ type namespaceConn struct {
 	handshake namespaceImpl.Handshake
 	context   interface{}
 
-	ack        sync.Map
-	outMu      sync.Mutex
-	connecting bool
-	rejected   bool
-	pending    []pendingPacket
-	middleware []func(string, []interface{}) error
+	lifetime        context.Context
+	cancelLifetime  context.CancelFunc
+	ackTimeout      time.Duration
+	ack             sync.Map
+	outMu           sync.Mutex
+	connecting      bool
+	connectDone     chan struct{}
+	connectErr      error
+	disconnectEmits bool
+	localDispatch   bool
+	rejected        bool
+	pending         []outboundPayload
+	middleware      []func(string, []interface{}) error
 }
 
 func newNamespaceConn(conn *Connection, namespace string, broadcast adapter.Adapter, query ...string) *namespaceConn {
-	nc := &namespaceConn{Connection: conn, namespace: namespace, broadcast: broadcast}
+	nc := &namespaceConn{Connection: conn, namespace: namespace, broadcast: broadcast, ackTimeout: 30 * time.Second}
+	nc.lifetime, nc.cancelLifetime = context.WithCancel(context.Background())
+	if isDone(conn.engineDone) {
+		nc.cancelLifetime()
+	}
 	if r := conn.Request(); r != nil {
 		h := namespaceImpl.Handshake{Headers: r.Header.Clone(), Time: time.Now(), Address: r.RemoteAddr, XDomain: r.Header.Get("Origin") != "", Secure: r.TLS != nil, Query: make(url.Values)}
 		if r.URL != nil {
@@ -88,6 +101,10 @@ func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{})
 }
 
 func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, v ...interface{}) {
+	if reservedEvent(eventName) {
+		nc.emitLocal(eventName, v...)
+		return
+	}
 	header := parser.Header{
 		Type: parser.Event,
 	}
@@ -114,9 +131,14 @@ func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, 
 		args[i] = reflect.ValueOf(v[i-1])
 	}
 
+	pkg := preparePayload(header, noCompress, args...)
 	if !volatile {
 		nc.registerAck(&header, ack)
-		nc.sendFlags(header, noCompress, args...)
+		pkg.Header = header
+		if pkg.prepared != nil {
+			pkg.prepared = pkg.prepared.WithHeader(header)
+		}
+		nc.sendPayload(pkg)
 		return
 	}
 	// The transport callback runs outside queue locks; admission rechecks the
@@ -135,11 +157,15 @@ func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, 
 		return
 	}
 	nc.registerAck(&header, ack)
+	pkg.Header = header
+	if pkg.prepared != nil {
+		pkg.prepared = pkg.prepared.WithHeader(header)
+	}
 	if nc.connecting {
 		c.pendingWrites++
-		nc.pending = append(nc.pending, pendingPacket{header: header, args: args, noCompress: noCompress})
+		nc.pending = append(nc.pending, pkg)
 	} else {
-		c.queueFlagsLocked(header, false, noCompress, args...)
+		c.queuePayloadLocked(pkg, false)
 	}
 }
 
@@ -185,14 +211,41 @@ func (nc *namespaceConn) Disconnect() {
 		return
 	}
 	if claimed, ok := nc.Connection.claimControlDisconnect(fmtNS(nc.namespace), nc); ok && claimed == nc {
-		nc.acceptPending()
-		nc.Connection.write(parser.Header{Type: parser.Disconnect, Namespace: fmtNS(nc.namespace)})
-		nc.Connection.controlEnqueued()
-		nc.Connection.disconnectNamespace(nc, "server namespace disconnect")
+		nc.outMu.Lock()
+		done := nc.connectDone
+		nc.outMu.Unlock()
+		disconnect := func() {
+			nc.outMu.Lock()
+			rejected := nc.connectErr != nil
+			nc.outMu.Unlock()
+			if !rejected {
+				nc.acceptPending()
+				nc.Connection.write(parser.Header{Type: parser.Disconnect, Namespace: fmtNS(nc.namespace)})
+			}
+			nc.Connection.controlEnqueued()
+			if rejected {
+				nc.reject()
+				nc.Connection.mu.Lock()
+				nc.Connection.disconnecting--
+				nc.Connection.mu.Unlock()
+				nc.Connection.disconnects.Done()
+				nc.Connection.finishRetirement(nc)
+				return
+			}
+			nc.Connection.disconnectNamespace(nc, "server namespace disconnect")
+		}
+		if done != nil && !isDone(done) {
+			go func() { <-done; disconnect() }()
+		} else {
+			disconnect()
+		}
 	}
 }
 
 func (nc *namespaceConn) Use(f func(string, []interface{}) error) {
+	if f == nil {
+		return
+	}
 	if !nc.Connection.boundary {
 		return
 	}
@@ -201,7 +254,12 @@ func (nc *namespaceConn) Use(f func(string, []interface{}) error) {
 	nc.outMu.Unlock()
 }
 
-func (nc *namespaceConn) runMiddleware(event string, args []reflect.Value) error {
+func (nc *namespaceConn) runMiddleware(event string, args []reflect.Value) (err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			err = fmt.Errorf("event middleware panic: %v", value)
+		}
+	}()
 	nc.outMu.Lock()
 	chain := append([]func(string, []interface{}) error(nil), nc.middleware...)
 	nc.outMu.Unlock()
@@ -220,20 +278,17 @@ func (nc *namespaceConn) runMiddleware(event string, args []reflect.Value) error
 	return nil
 }
 
-type pendingPacket struct {
-	header     parser.Header
-	args       []reflect.Value
-	noCompress bool
-}
-
 func (nc *namespaceConn) beginConnect() {
 	nc.outMu.Lock()
 	nc.connecting = true
+	nc.connectDone = make(chan struct{})
 	nc.outMu.Unlock()
 }
 
-func (nc *namespaceConn) sendFlags(header parser.Header, noCompress bool, args ...reflect.Value) {
+func (nc *namespaceConn) sendPayload(pkg outboundPayload) {
+	header := pkg.Header
 	nc.outMu.Lock()
+	pkg.lifecycle = nc.disconnectEmits
 	if nc.rejected {
 		nc.outMu.Unlock()
 		return
@@ -242,7 +297,7 @@ func (nc *namespaceConn) sendFlags(header parser.Header, noCompress bool, args .
 		nc.Connection.mu.Lock()
 		if (!isDone(nc.Connection.closing) || nc.Connection.draining && !nc.Connection.appSealed && !isDone(nc.Connection.discard)) && nc.Connection.pendingWrites+len(nc.Connection.writeChan)+nc.Connection.drainQueued < cap(nc.Connection.writeChan) {
 			nc.Connection.pendingWrites++
-			nc.pending = append(nc.pending, pendingPacket{header: header, args: args, noCompress: noCompress})
+			nc.pending = append(nc.pending, pkg)
 		} else {
 			nc.Connection.overflowWrite(header)
 		}
@@ -251,7 +306,9 @@ func (nc *namespaceConn) sendFlags(header parser.Header, noCompress bool, args .
 		return
 	}
 	nc.outMu.Unlock()
-	nc.Connection.writeFlags(header, false, noCompress, args...)
+	nc.Connection.mu.Lock()
+	nc.Connection.queuePayloadLocked(pkg, false)
+	nc.Connection.mu.Unlock()
 }
 
 func (nc *namespaceConn) acceptPending() {
@@ -269,11 +326,16 @@ func (nc *namespaceConn) acceptPending() {
 	}
 	nc.Connection.write(parser.Header{Type: parser.Connect, Namespace: fmtNS(nc.namespace)})
 	for _, p := range pending {
-		nc.Connection.writeFlags(p.header, true, p.noCompress, p.args...)
+		nc.Connection.mu.Lock()
+		nc.Connection.queuePayloadLocked(p, true)
+		nc.Connection.mu.Unlock()
 	}
 }
 
 func (nc *namespaceConn) reject() {
+	nc.Connection.mu.Lock()
+	nc.endTyped()
+	nc.Connection.mu.Unlock()
 	nc.outMu.Lock()
 	nc.rejected = true
 	nc.connecting = false
@@ -362,4 +424,43 @@ const (
 // EmitWithOptions applies per-socket delivery flags; selection belongs to adapters.
 func (nc *namespaceConn) EmitWithOptions(opts adapter.Options, event string, args ...interface{}) {
 	nc.emitFlags(opts.Volatile, opts.NoCompress, event, args...)
+}
+
+// connectReturned releases deferred lifecycle work after application admission ends.
+func (nc *namespaceConn) connectReturned(err error) {
+	nc.outMu.Lock()
+	nc.connectErr = err
+	close(nc.connectDone)
+	nc.outMu.Unlock()
+}
+
+// Reserved emits notify local listeners without changing the socket lifecycle.
+func (nc *namespaceConn) emitLocal(event string, args ...interface{}) {
+	nc.outMu.Lock()
+	if nc.localDispatch {
+		nc.outMu.Unlock()
+		return
+	}
+	nc.localDispatch = true
+	nc.outMu.Unlock()
+	defer func() { nc.outMu.Lock(); nc.localDispatch = false; nc.outMu.Unlock() }()
+	handler := nc.Connection.namespace(fmtNS(nc.namespace))
+	if handler == nil {
+		return
+	}
+	values := make([]reflect.Value, len(args))
+	for i, arg := range args {
+		if arg == nil {
+			values[i] = reflect.Zero(reflect.TypeOf((*interface{})(nil)).Elem())
+		} else {
+			values[i] = reflect.ValueOf(arg)
+		}
+	}
+	if _, err := handler.DispatchEvent(nc, event, values...); err != nil {
+		if onError := handler.ErrorHandler(); onError != nil {
+			onError(nc, err)
+		} else {
+			nc.Connection.unhandled(nc.namespace, err)
+		}
+	}
 }

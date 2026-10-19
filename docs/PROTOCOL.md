@@ -90,7 +90,10 @@ Package `engineio` of the v1 module at the repository root.
   Otherwise the payload is binary: per packet a `0` (string) or `1` (binary) byte, the
   length as one byte per decimal digit, `0xff`, then the packet, the length counting
   bytes (UTF-8 for a string packet), as engine.io-parser 2.x. Sessions are looked up
-  by `sid`; an unknown `sid` is HTTP 400.
+  by `sid`; an unknown `sid` is HTTP 400. Server GET responses coalesce complete
+  packets for up to 1 ms idle or 5 ms total, at most 64 packets or 256 KiB checked
+  between packets. A single packet can exceed that batching byte budget. A change
+  in compression preference starts the next response; cancellation fails the transport.
 - WebSocket: one packet per message; a binary message starts with the packet type byte.
   The optional permessage-deflate extension is off by default, with a 1024-byte
   encoded-packet threshold when enabled. The Go client offers it when configured,
@@ -99,7 +102,8 @@ Package `engineio` of the v1 module at the repository root.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
   to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
   threshold and only for a packet whose compression flag is true. The threshold is
-  configurable; responses below it remain uncompressed.
+  configurable; responses below it remain uncompressed. A batch shares one compression
+  stream and contains only packets with the same compression preference.
 - The polling transport that opens a session sets its session cookie on every
   response (default io, Path=/, HttpOnly, SameSite=Strict). The cookie's attributes
   and name are configurable, and it can be disabled. A websocket-first handshake
@@ -108,6 +112,12 @@ Package `engineio` of the v1 module at the repository root.
   body is answered HTTP 413 (plain text) and closes the session; a longer websocket
   message closes the connection with close code 1009. With permessage-deflate, the
   same limit applies to inflated bytes; rejection does not buffer the full message.
+- The Go client limits incoming websocket messages (inflated bytes) and whole decoded
+  polling response bodies, OPEN included, to 1 MiB by default. The configurable
+  limit also applies to reconnects and candidate upgrade transports before probe I/O.
+- Duplicate websocket requests carrying a live websocket session ID receive HTTP
+  400/code 3. This immediate rejection is Go-specific; the Node reference does not
+  use that response for this case.
 - Upgrade polling → websocket: the client's `2probe` over the websocket is answered
   `3probe`. Until the client's `UPGRADE` (`5`), POSTs are accepted and their packets
   delivered, and a pending poll is answered with data or, at a 100 ms check, a NOOP;
@@ -146,7 +156,7 @@ Socket.IO v4 code: its `v2/parser` holds the v5 codec of the next section.
 - Binary attachments are replaced by `{"_placeholder":true,"num":N}` and sent as
   following binary frames; on the Go side they map to `parser.Buffer`.
 - Event handlers return values become the ACK payload; an ACK packet is sent when the
-  handler returns values or the client requested an ack. Emitting with a trailing
+  client requested an ack and a listener handled the event. Emitting with a trailing
   function argument registers an ack callback.
 - Namespace query strings (`0/nsp?x=1`) are parsed into `Header.Query` and merged into
   `Handshake().Query` of that socket.
@@ -164,7 +174,9 @@ Engine.IO, `v2/engineio`:
 The v1 Redis adapter uses a legacy JSON message format and Go-specific channel
 layout. It does not implement the MessagePack messages and channel protocol of
 `socket.io-redis` 5.4.0, so a mixed Go/Node Redis cluster is unsupported. Go
-instances using the legacy format can communicate with each other; additional
+instances using the legacy format can communicate with each other. Explicit empty-room
+broadcasts use an extended options field; older Go peers reject those packets instead
+of delivering them to the whole namespace. Upgrade all peers for empty-room delivery; additional
 adapter limitations are listed in the [changelog](../CHANGELOG.md#known-limitations).
 
 ### Deviation D4: JSONP unsupported
@@ -173,6 +185,12 @@ The v1 Engine.IO transport supports XHR polling and websocket, without JSONP.
 The `j` query parameter is ignored and the response is an ordinary polling
 payload, not a JavaScript callback. A JSONP form POST (`d=`) is rejected with
 HTTP 400. Clients must use XHR polling or websocket.
+
+### Deviation D19: Admin UI not in v1
+
+The official `@socket.io/admin-ui` requires Socket.IO protocol v5 over Engine.IO v4.
+The v1 module implements Socket.IO v4 over Engine.IO v3 and cannot host it. The
+planned integration belongs to v2 Stage 5 (`v2/contrib/admin`).
 
 ## Implemented in `v2/`: Socket.IO protocol v5 wire codec
 

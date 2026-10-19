@@ -1,11 +1,10 @@
 package socketio
 
 import (
+	"github.com/stretchr/testify/require"
 	"sync"
 	"sync/atomic"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 // Covers K26
@@ -73,7 +72,9 @@ func TestEventListeners(t *testing.T) {
 	require.Empty(t, order)
 	n.Off("ordered")
 	c.send(`24["ordered","anything"]`)
-	require.Equal(t, "34[]\n", c.read())
+	n.OnEvent("marker", func(c Conn) { c.Emit("marker") })
+	c.send(`2["marker"]`)
+	require.Equal(t, "2[\"marker\"]\n", c.read())
 	require.Empty(t, order)
 
 	// The listener set is frozen for each event, including changes made by it.
@@ -104,7 +105,8 @@ func TestEventListeners(t *testing.T) {
 	c.send(`27["mixed",1]`)
 	mixed := recv(t, late, "mixed callback")
 	c.send(`28["absent"]`)
-	require.Equal(t, "38[]\n", c.read(), "earlier return value is not an ACK")
+	c.send(`2["marker"]`)
+	require.Equal(t, "2[\"marker\"]\n", c.read(), "earlier return value is not an ACK")
 	mixed("owned")
 	require.Equal(t, "37[\"owned\"]\n", c.read())
 }
@@ -115,6 +117,7 @@ func TestOnceAcrossConnections(t *testing.T) {
 		n := s.Of("/")
 		n.OnConnect(func(Conn) error { return nil })
 		n.Once("once", func(Conn) { called.Add(1) })
+		n.OnEvent("marker", func(c Conn) { c.Emit("marker") })
 	})
 	clients := []*rawClient{dialRaw(t, ts.URL), dialRaw(t, ts.URL)}
 	for _, c := range clients {
@@ -123,8 +126,91 @@ func TestOnceAcrossConnections(t *testing.T) {
 	var wg sync.WaitGroup
 	for _, c := range clients {
 		wg.Add(1)
-		go func(c *rawClient) { defer wg.Done(); c.send(`21["once"]`); require.Equal(t, "31[]\n", c.read()) }(c)
+		go func(c *rawClient) {
+			defer wg.Done()
+			c.send(`2["once"]`)
+			c.send(`2["marker"]`)
+			require.Equal(t, "2[\"marker\"]\n", c.read())
+		}(c)
 	}
 	wg.Wait()
 	require.Equal(t, int32(1), called.Load())
+}
+
+// Covers G20
+func TestVariadicPayloadAndAckCallbacks(t *testing.T) {
+	acked := make(chan []string, 1)
+	_, url := defectServer(t, func(s *Server) {
+		s.OnEvent("/", "sum", func(_ Conn, prefix string, values ...int) string {
+			require.Equal(t, []int{1, 2, 3}, values)
+			return prefix
+		})
+		s.OnEvent("/", "ask", func(c Conn) { c.Emit("question", func(values ...string) { acked <- values }) })
+	})
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	c.send(`21["sum","result",1,2,3]`)
+	require.Equal(t, "31[\"result\"]\n", c.read())
+	c.send(`2["ask"]`)
+	require.Equal(t, "21[\"question\"]\n", c.read())
+	c.send(`31["a","b"]`)
+	require.Equal(t, []string{"a", "b"}, recv(t, acked, "variadic ACK"))
+}
+
+// Covers G28
+func TestReservedEmitCallsLocalListenersOnce(t *testing.T) {
+	seen := make(chan string, 4)
+	_, url := defectServer(t, func(s *Server) {
+		s.Of("/").On("disconnecting", func(c Conn, reason string) { seen <- reason; c.Emit("disconnecting", "recursive") })
+		s.OnEvent("/", "trigger", func(c Conn) { c.Emit("disconnecting", "local"); c.Emit("marker", c.Connected()) })
+	})
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	c.send(`2["trigger"]`)
+	require.Equal(t, "2[\"marker\",true]\n", c.read())
+	require.Equal(t, "local", recv(t, seen, "local reserved listener"))
+	require.Empty(t, seen)
+}
+
+// Covers G19
+func TestRegressionG19PeerCannotDispatchLifecycle(t *testing.T) {
+	seen := make(chan string, 4)
+	_, url := defectServer(t, func(s *Server) {
+		s.Of("/").On("disconnecting", func(_ Conn, reason string) { seen <- reason })
+		s.OnEvent("/", "barrier", func(c Conn) { c.Emit("barrier") })
+	})
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	c.send(`2["disconnecting","forged"]`)
+	c.send(`2["barrier"]`)
+	require.Equal(t, "2[\"barrier\"]\n", c.read())
+	select {
+	case reason := <-seen:
+		t.Errorf("peer dispatched lifecycle while still connected: %q", reason)
+	default:
+	}
+}
+
+// Covers G21
+func TestRegressionG21NoUnrequestedAck(t *testing.T) {
+	_, url := defectServer(t, func(s *Server) {
+		s.OnEvent("/", "value", func(Conn) string { return "answer" })
+		s.OnEvent("/", "barrier", func(c Conn) { c.Emit("barrier") })
+	})
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	c.send(`2["value"]`)
+	c.send(`2["barrier"]`)
+	require.Equal(t, "2[\"barrier\"]\n", c.read(), "event without id must not generate ACK")
+}
+
+// Covers G28
+func TestRegressionG28ReservedEmitStaysLocal(t *testing.T) {
+	_, url := defectServer(t, func(s *Server) {
+		s.OnEvent("/", "trigger", func(c Conn) { c.Emit("disconnect", "forged"); c.Emit("barrier") })
+	})
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	c.send(`2["trigger"]`)
+	require.Equal(t, "2[\"barrier\"]\n", c.read())
 }

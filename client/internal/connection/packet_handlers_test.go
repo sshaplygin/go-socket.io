@@ -2,14 +2,12 @@ package connection
 
 import (
 	"bytes"
-	"io"
-	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	clientnamespace "github.com/sshaplygin/go-socket.io/client/internal/namespace"
 	"github.com/sshaplygin/go-socket.io/parser"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"io"
+	"testing"
 )
 
 type testStr struct {
@@ -77,4 +75,48 @@ func TestAck(t *testing.T) {
 	err = ackPacketHandler(c, header)
 	must.NoError(err)
 	must.True(called)
+}
+
+// Covers G21
+func TestClientAutomaticAcknowledgementRequiresRequestAndListener(t *testing.T) {
+	p := start(t, 'C', hooks{events: map[string]interface{}{
+		"value":   func(Conn) string { return "value" },
+		"barrier": func(Conn) string { return "barrier" },
+	}})
+	p.send(t, `2["value"]`)
+	p.send(t, `27["unknown"]`)
+	p.send(t, `299["barrier"]`)
+	require.Equal(t, "399[\"barrier\"]\n", recv(t, p.fc.out, "only requested handled ACK"))
+	p.cl.Socket("/").Once("once", func(Conn) string { return "once" })
+	p.send(t, `28["once"]`)
+	require.Equal(t, "38[\"once\"]\n", recv(t, p.fc.out, "once ACK"))
+	p.send(t, `28["once"]`)
+	p.send(t, `299["barrier"]`)
+	require.Equal(t, "399[\"barrier\"]\n", recv(t, p.fc.out, "consumed once listener must not ACK"))
+}
+
+// Covers G20
+func TestClientVariadicEventsAndAcknowledgements(t *testing.T) {
+	p := start(t, 'C', hooks{events: map[string]interface{}{"sum": func(_ Conn, values ...int) int {
+		total := 0
+		for _, value := range values {
+			total += value
+		}
+		return total
+	}}})
+	p.send(t, `27["sum",1,2]`)
+	require.Equal(t, "37[3]\n", recv(t, p.fc.out, "variadic event ACK"))
+	p.send(t, `28["sum"]`)
+	require.Equal(t, "38[0]\n", recv(t, p.fc.out, "zero variadic event ACK"))
+	called := make(chan int, 1)
+	p.nc.Emit("question", func(values ...int) {
+		total := 0
+		for _, value := range values {
+			total += value
+		}
+		called <- total
+	})
+	require.Equal(t, "21[\"question\"]\n", recv(t, p.fc.out, "variadic ACK request"))
+	p.send(t, `31[3,4]`)
+	require.Equal(t, 7, recv(t, called, "variadic ACK result"))
 }

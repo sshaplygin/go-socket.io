@@ -19,6 +19,7 @@ import (
 )
 
 type clientConn struct {
+	readLimit atomic.Int64
 	*payload
 
 	httpClient   *http.Client
@@ -32,6 +33,16 @@ type clientConn struct {
 	pausing      bool
 	pauseEpoch   uint64
 	changed      chan struct{}
+}
+
+// SetReadLimit bounds each response body, including OPEN, before decoding.
+func (c *clientConn) SetReadLimit(n int64) { c.readLimit.Store(n) }
+
+func (c *clientConn) responseBody(resp *http.Response) io.ReadCloser {
+	if n := c.readLimit.Load(); n > 0 {
+		return http.MaxBytesReader(nil, resp.Body, n)
+	}
+	return resp.Body
 }
 
 func (c *clientConn) Open() (eioparser.ConnParameters, error) {
@@ -264,7 +275,7 @@ func (c *clientConn) getOpen() {
 
 	c.remoteHeader.Store(resp.Header)
 
-	if err = c.payload.FeedIn(resp.Body, isSupportBinary); err != nil {
+	if err = c.payload.FeedIn(c.responseBody(resp), isSupportBinary); err != nil {
 		logger.Log.Debug("engineio: get payload failed", "err", err)
 
 		return
@@ -340,7 +351,7 @@ func (c *clientConn) poll(req *http.Request) bool {
 		return false
 	}
 
-	if err = c.payload.FeedIn(resp.Body, isSupportBinary); err != nil {
+	if err = c.payload.FeedIn(c.responseBody(resp), isSupportBinary); err != nil {
 		discardBody(resp.Body)
 
 		return false

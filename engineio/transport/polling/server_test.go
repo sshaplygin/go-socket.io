@@ -42,6 +42,7 @@ func TestServerIgnoresJSONPParameter(t *testing.T) {
 	httpSvr := httptest.NewServer(http.HandlerFunc(handler))
 	defer httpSvr.Close()
 
+	nextResponse := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(1)
 
@@ -62,6 +63,7 @@ func TestServerIgnoresJSONPParameter(t *testing.T) {
 		err = w.Close()
 		require.NoError(t, err)
 
+		<-nextResponse
 		w, err = sc.NextWriter(eioparser.String, eioparser.MESSAGE)
 		require.NoError(t, err)
 
@@ -87,6 +89,7 @@ func TestServerIgnoresJSONPParameter(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, "10:b4aGVsbG8=", string(bs))
+		close(nextResponse)
 	}
 	{
 		u := httpSvr.URL + "?b64=1&j=jsonp_f2"

@@ -22,6 +22,7 @@ func TestParityGateRejectsInvalidEvidence(t *testing.T) {
 		{name: "strict open row", plan: "ADD V1-10; REDIS", source: "package sample", strict: true, want: "B1 has no Covers"},
 		{name: "open row", plan: "ADD V1-10; REDIS", source: "package sample"},
 		{name: "valid tagged marker", plan: "DONE V1-1; REDIS", source: "//go:build conformance\n\npackage sample\n// Covers B1\nfunc TestKnown(){}", listed: map[testRef]bool{{".", "TestKnown"}: true}},
+		{name: "ordinary Covers prose", plan: "DEV", source: "package sample\n// Covers cancellation and cleanup.\nfunc TestKnown(){}"},
 		{name: "free form marker", plan: "DEV", source: "package sample\n// Covers 1B-T1 (S,C).\nfunc TestKnown(){}"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -69,5 +70,24 @@ func TestInactiveMarkerCannotBorrowActiveTest(t *testing.T) {
 	}
 	if err := checkParity(root, false, listed); err == nil {
 		t.Fatal("inactive marked declaration borrowed an active test's name")
+	}
+}
+
+func TestParityGateRejectsMalformedAuditMarkers(t *testing.T) {
+	for _, marker := range []string{
+		"// Covers B1, B2.",
+		"// Covers B1.",
+		"// Covers: B1",
+		"// Covers\tB1",
+	} {
+		t.Run(marker, func(t *testing.T) {
+			root := t.TempDir()
+			put(t, root, "docs/PARITY.md", "| B1 | DEV | D1 | fixture |\n")
+			put(t, root, "sample_test.go", "package sample\n"+marker+"\nfunc TestKnown(){}\n")
+			err := checkParity(root, false, testInventory{tests: map[testRef]bool{{".", "TestKnown"}: true}, files: map[testRef]bool{{".", "sample_test.go"}: true}})
+			if err == nil || !strings.Contains(err.Error(), "malformed Covers marker") {
+				t.Fatalf("expected malformed marker rejection, got %v", err)
+			}
+		})
 	}
 }

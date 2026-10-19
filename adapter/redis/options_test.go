@@ -51,7 +51,7 @@ func TestFactoryOptionsAndIndependentNamespaces(t *testing.T) {
 	}
 	first, remote, isolated := makeAdapter("/one"), makeAdapter("/one"), makeAdapter("/two")
 	require.Eventually(t, func() bool {
-		return redis.PubSubNumSub("cluster-request#/one")["cluster-request#/one"] == 2 && redis.PubSubNumSub("cluster-request#/two")["cluster-request#/two"] == 1
+		return redis.PubSubNumSub("cluster-request#/one")["cluster-request#/one"] == 1 && redis.PubSubNumSub("cluster-request#/two")["cluster-request#/two"] == 1
 	}, time.Second, 5*time.Millisecond)
 	require.Zero(t, selects.Load(), "known DB0 limitation must remain explicit")
 	localSocket := &socket{id: "local", events: make(chan string, 4)}

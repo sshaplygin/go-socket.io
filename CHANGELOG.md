@@ -5,7 +5,34 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- Common `NewEvent[T]` and `NewAckEvent[T, R]` descriptors register typed server
+  and Go-client handlers, send one typed payload to a socket or broadcast, and
+  await error-first acknowledgements. Typed waits honor cancellation, namespace
+  disconnect and a 30-second bound, including pre-connect buffering. Existing
+  reflected event APIs remain available; see the v1 migration guide.
+
 ### Fixed
+
+- Socket.IO: release completed engine sessions, initialize the root namespace,
+  serialize namespace replacement after cleanup, and defer disconnect callbacks
+  until admission finishes. Slow adapter factories no longer hold the server lock.
+- Server and client emits snapshot JSON and binary data before queueing. Encoding
+  rejects cycles and foreign Buffer types safely, supports Buffer values, and
+  propagates frame flush/release failures. Ignored binary packets drain attachments.
+- Connect and middleware panics report errors; variadic event/ACK callbacks work
+  with flattened arguments. Automatic ACKs require a requested ID and a listener.
+  Reserved server events stay local, and legacy room operations validate sockets.
+- Redis factories share transport resources across namespaces, preserve opaque
+  namespace isolation, and distinguish empty-room broadcasts from namespace sends.
+- Engine.IO releases PING POSTs before waiting for a poll, detects canceled GETs,
+  batches polling responses with bounded waits and preserved compression flags,
+  rejects malformed payloads and unknown packets, accepts empty binary POSTs,
+  defaults negative heartbeat durations, and rejects duplicate websocket requests.
+- Go clients bound incoming data before decoding, including OPEN and upgrade probes.
+  The default is 1 MiB; use `client.WithMaxMessageSize` or the low-level dialer's
+  `MaxMessageSize` for larger messages.
 
 - V1 examples return errors instead of terminating the process, supervise HTTP and
   Socket.IO serving together, and release listeners/connections before returning.

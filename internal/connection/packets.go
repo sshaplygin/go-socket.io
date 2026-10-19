@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sync"
 
+	eventImpl "github.com/sshaplygin/go-socket.io/internal/event"
 	namespaceImpl "github.com/sshaplygin/go-socket.io/internal/namespace"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
@@ -20,6 +21,13 @@ func ackPacketHandler(c *Connection, header parser.Header) error {
 		return nil
 	}
 
+	if raw, exists := nc.ack.Load(header.ID); exists {
+		if pending, typed := raw.(*typedPending); typed {
+			payload, err := eventImpl.DecodeAck(c.decoder, pending.schema)
+			nc.completeTyped(header.ID, pending, payload, err)
+			return nil
+		}
+	}
 	defer nc.ack.Delete(header.ID)
 
 	rawFunc, ok := nc.ack.Load(header.ID)
@@ -40,7 +48,7 @@ func ackPacketHandler(c *Connection, header parser.Header) error {
 	if types == nil {
 		types = []reflect.Type{}
 	}
-	args, err := c.decoder.DecodeArgs(types)
+	args, err := decodeCallbackArgs(c.decoder, types, handler.Variadic())
 	if err != nil {
 		c.log.Debug("socketio: ack decode failed", nspAttr(header.Namespace), "err", err)
 		c.onError(header.Namespace, err)
@@ -63,6 +71,9 @@ func ackPacketHandler(c *Connection, header parser.Header) error {
 }
 
 func eventPacketHandler(c *Connection, event string, header parser.Header) error {
+	if reservedEvent(event) {
+		return c.decoder.DiscardLast()
+	}
 	conn, ok := c.namespaces.Get(header.Namespace)
 	if !ok {
 		_ = c.decoder.DiscardLast()
@@ -77,6 +88,11 @@ func eventPacketHandler(c *Connection, event string, header parser.Header) error
 	}
 
 	snapshot := handler.Listeners(event)
+	if len(snapshot) != 0 {
+		if typed, ok := snapshot[0].TypedHandler(); ok {
+			return typedEventPacketHandler(c, conn, event, header, typed)
+		}
+	}
 	var types []reflect.Type
 	if len(snapshot) != 0 {
 		types = snapshot[0].ArgTypes()
@@ -84,7 +100,7 @@ func eventPacketHandler(c *Connection, event string, header parser.Header) error
 			types = []reflect.Type{}
 		}
 	}
-	args, err := c.decoder.DecodeArgs(types)
+	args, err := decodeCallbackArgs(c.decoder, types, len(snapshot) > 0 && snapshot[0].Variadic())
 	if err != nil {
 		c.onError(header.Namespace, err)
 		c.log.Debug("socketio: event decode failed", nspAttr(header.Namespace), "event", event, "err", err)
@@ -121,7 +137,7 @@ func eventPacketHandler(c *Connection, event string, header parser.Header) error
 		return errHandleDispatch
 	}
 
-	if !ownsAck && (len(ret) > 0 || header.NeedAck) {
+	if !ownsAck && header.NeedAck && len(snapshot) != 0 {
 		header.Type = parser.Ack
 		c.write(header, ret...)
 	}
@@ -135,6 +151,19 @@ func connectPacketHandler(c *Connection, header parser.Header) error {
 		c.log.Debug("socketio: connect discard failed", nspAttr(header.Namespace), "err", err)
 		return nil
 	}
+
+	return connectNamespace(c, header)
+}
+
+func connectNamespace(c *Connection, header parser.Header) error {
+	c.mu.Lock()
+	if _, waiting := c.retiring[header.Namespace]; waiting && !isDone(c.closing) {
+		copy := header
+		c.retiring[header.Namespace] = &copy
+		c.mu.Unlock()
+		return nil
+	}
+	c.mu.Unlock()
 
 	if c.rootRejected != nil || isDone(c.closing) {
 		return nil
@@ -173,6 +202,7 @@ func connectPacketHandler(c *Connection, header parser.Header) error {
 		return nil
 	}
 	err := handler.Connect(nc)
+	nc.connectReturned(err)
 	c.connectRecord(header.Namespace, err)
 	if err != nil {
 		if isDone(c.closing) {
@@ -221,5 +251,53 @@ func errorPacketHandler(c *Connection, header parser.Header) error {
 		message = string(encoded)
 	}
 	c.onError(header.Namespace, errors.New(message))
+	return nil
+}
+
+func reservedEvent(event string) bool {
+	switch event {
+	case "connect", "disconnect", "disconnecting", "error":
+		return true
+	}
+	return false
+}
+
+func decodeCallbackArgs(decoder *parser.Decoder, types []reflect.Type, variadic bool) ([]reflect.Value, error) {
+	if variadic {
+		return decoder.DecodeArgsVariadic(types)
+	}
+	return decoder.DecodeArgs(types)
+}
+
+func typedEventPacketHandler(c *Connection, nc *namespaceConn, name string, header parser.Header, handler eventImpl.Handler) error {
+	payload, err := handler.Decode(c.decoder)
+	decodeFailed := err != nil
+	if err == nil {
+		value := payload.Interface()
+		if middlewareErr := nc.runMiddleware(name, []reflect.Value{reflect.ValueOf(&value).Elem()}); middlewareErr != nil {
+			c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf(middlewareErr.Error()))
+			return nil
+		}
+	}
+	var result eventImpl.Payload
+	if err == nil {
+		result, err = handler.Invoke(nc.lifetime, nc, payload)
+	}
+	if handler.WantsAck() && header.NeedAck {
+		header.Type = parser.Ack
+		ackErr := err
+		if decodeFailed {
+			ackErr = &eventImpl.RemoteError{Code: "invalid_payload", Message: err.Error()}
+		}
+		values := eventImpl.AckArgs(result, ackErr)
+		args := make([]reflect.Value, len(values))
+		for i, value := range values {
+			args[i] = reflect.ValueOf(value)
+		}
+		c.write(header, args...)
+	}
+	if err != nil {
+		c.onError(header.Namespace, err)
+	}
 	return nil
 }

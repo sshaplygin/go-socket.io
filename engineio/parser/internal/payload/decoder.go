@@ -3,9 +3,12 @@ package payload
 import (
 	"bufio"
 	"encoding/base64"
+	"errors"
 	"github.com/sshaplygin/go-socket.io/engineio/parser/internal/packet"
 	"io"
 )
+
+var errNoPackets = errors.New("empty payload")
 
 type byteReader interface {
 	ReadByte() (byte, error)
@@ -44,7 +47,7 @@ func (d *Decoder) NextReader() (packet.FrameType, packet.PacketType, io.ReadClos
 	if d.terminalErr != nil {
 		return 0, 0, nil, d.terminalErr
 	}
-	if d.rawReader == nil {
+	for d.rawReader == nil {
 		r, supportBinary, err := d.feeder.AcquirePayloadReader()
 		if err != nil {
 			return 0, 0, nil, err
@@ -54,6 +57,14 @@ func (d *Decoder) NextReader() (packet.FrameType, packet.PacketType, io.ReadClos
 			br = bufio.NewReader(r)
 		}
 		if err := d.setNextReader(br, supportBinary); err != nil {
+			if (err == io.EOF && supportBinary) || err == errNoPackets {
+				// An empty binary POST contains no packets. Release this body
+				// normally and wait for the next POST without poisoning decoding.
+				if err := d.sendError(nil); err != nil {
+					return 0, 0, nil, err
+				}
+				continue
+			}
 			return 0, 0, nil, d.sendError(err)
 		}
 	}
@@ -74,6 +85,9 @@ func (d *Decoder) Read(p []byte) (n int, err error) {
 		return d.b64Reader.Read(p)
 	}
 	dd, err := d.limitReader.Read(p)
+	if err == io.EOF && d.limitReader.N > 0 {
+		return dd, io.ErrUnexpectedEOF
+	}
 	if d.supportBinary {
 		// a binary payload counts bytes (decodePayloadAsBinary of engine.io-parser 2.2.1)
 		return dd, err
@@ -108,9 +122,12 @@ func (d *Decoder) Close() error {
 	if _, err := io.Copy(io.Discard, d); err != nil {
 		return d.sendError(err)
 	}
+	if d.limitReader.N > 0 {
+		return d.sendError(io.ErrUnexpectedEOF)
+	}
 	err := d.setNextReader(d.rawReader, d.supportBinary)
 	if err != nil {
-		if err != io.EOF {
+		if err != io.EOF && err != errNoPackets {
 			return d.sendError(err)
 		}
 		err = d.sendError(nil)
@@ -162,9 +179,18 @@ func (d *Decoder) sendError(err error) error {
 }
 
 func (d *Decoder) textRead(r byteReader) (packet.FrameType, packet.PacketType, int64, error) {
-	l, err := readTextLen(r)
-	if err != nil {
-		return 0, 0, 0, err
+	var l int64
+	var err error
+	skipped := false
+	for l == 0 {
+		l, err = readTextLen(r)
+		if err != nil {
+			if skipped && err == io.EOF {
+				return 0, 0, 0, errNoPackets
+			}
+			return 0, 0, 0, err
+		}
+		skipped = true
 	}
 
 	ft := packet.String
@@ -175,6 +201,9 @@ func (d *Decoder) textRead(r byteReader) (packet.FrameType, packet.PacketType, i
 	l--
 
 	if b == 'b' {
+		if l < 1 {
+			return 0, 0, 0, errInvalidPayload
+		}
 		ft = packet.Binary
 		b, err = r.ReadByte()
 		if err != nil {
@@ -199,12 +228,15 @@ func (d *Decoder) binaryRead(r byteReader) (packet.FrameType, packet.PacketType,
 
 	l, err := readBinaryLen(r)
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, unexpectedEOF(err)
 	}
 
+	if l < 1 {
+		return 0, 0, 0, errInvalidPayload
+	}
 	b, err = r.ReadByte()
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, unexpectedEOF(err)
 	}
 	pt := packet.ByteToPacketType(b, ft)
 	l--
@@ -214,3 +246,10 @@ func (d *Decoder) binaryRead(r byteReader) (packet.FrameType, packet.PacketType,
 
 // NewDecoder binds a payload source. Each acquired reader is released after its last packet or a decoding failure.
 func NewDecoder(r Reader) *Decoder { return &Decoder{feeder: r} }
+
+func unexpectedEOF(err error) error {
+	if err == io.EOF {
+		return io.ErrUnexpectedEOF
+	}
+	return err
+}

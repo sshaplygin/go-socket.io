@@ -32,9 +32,9 @@ func serverNamespaceName(name string) string {
 // root; a name without a leading slash gets one.
 func (s *Server) Of(name string) *ServerNamespace {
 	name = serverNamespaceName(name)
+	s.createNamespace(name)
 	s.createMu.Lock()
 	defer s.createMu.Unlock()
-	s.createNamespaceLocked(name, nil)
 	return s.views[name]
 }
 

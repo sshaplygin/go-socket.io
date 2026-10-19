@@ -53,6 +53,10 @@ type Session struct {
 	deadline atomic.Int64               // UnixNano of the liveness deadline of conn
 }
 
+// Done closes when session shutdown starts, before an orderly transport drain.
+// Upper-layer owners can cancel their work without waiting for their reader.
+func (s *Session) Done() <-chan struct{} { return s.stopWrites }
+
 // New creates a session over conn. log receives errors the session cannot
 // return to a caller, with sid and transport attributes added; the transport
 // attribute follows upgrades. nil means logger.Log.
@@ -201,21 +205,24 @@ func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 			}
 			// Respond to a ping with a pong.
 			err := func() error {
+				// Release the POST before waiting for a GET to carry its pong.
+				// This also lets an upgrade pause finish an in-flight POST.
+				body, err := io.ReadAll(r)
+				closeErr := r.Close()
+				if err != nil {
+					return err
+				}
+				if closeErr != nil {
+					return closeErr
+				}
 				w, err := s.nextWriter(ft, eioparser.PONG)
 				if err != nil {
 					return err
 				}
-				// echo
-				_, err = io.Copy(w, r)
-				_ = s.fail(err) // preserve the read cause before closing the pong writer
-				// unlocks the wrapped connection's FrameWriter
-				if closeErr := s.fail(w.Close()); closeErr != nil {
-					s.logger().Debug("engineio: close writer failed", "err", closeErr)
-				}
-
-				// unlocks the wrapped connection's FrameReader
-				if closeErr := s.fail(r.Close()); closeErr != nil {
-					s.logger().Debug("engineio: close reader failed", "err", closeErr)
+				_, err = w.Write(body)
+				_ = s.fail(err)
+				if closeErr := w.Close(); err == nil {
+					err = closeErr
 				}
 
 				return err
@@ -247,7 +254,17 @@ func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 			return eioparser.FrameType(ft), frameReader{r, s}, nil
 
 		default:
-			// Unknown packet type. Close reader and try again.
+			// Known control packets can be ignored here, but an invalid wire
+			// type is a parser failure and must terminate the session.
+			if pt < eioparser.OPEN || pt > eioparser.NOOP {
+				// Drain through the bounded reader before recording the parse
+				// error so an inflated-size failure keeps its transport cause.
+				if s.fail(r.Close()) == nil {
+					_ = s.fail(fmt.Errorf("invalid Engine.IO packet type %d", pt))
+				}
+				_ = s.Close()
+				return 0, nil, s.readerCloseError()
+			}
 			if err = s.fail(r.Close()); err != nil {
 				s.logger().Debug("engineio: close reader failed", "err", err)
 				_ = s.Close()

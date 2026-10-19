@@ -25,6 +25,7 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `client/internal/connection/` | private client manager/generations/reconnect, queues/drain, concrete sockets, ACK/packet dispatch and observers |
 | `client/internal/namespace/` | canonical independent client-role contracts, reflected handlers/listeners, registry and local room index |
 | `parser/` | v1 Socket.IO v4 packet encoder/decoder, binary attachments and independent frame types |
+| `internal/event/` | v1 common typed-event schema/handler bridge and error-first ACK codec; imports parser and neither Socket.IO role |
 | `engineio/` | v1 Engine.IO v3 acceptance/server lifecycle, options/hooks and active connection contracts |
 | `engineio/internal/session/` | private server session I/O, registry/IDs, heartbeat, close/upgrade and polling response observation |
 | `engineio/client/` | independent v1 Engine.IO client, dialer, heartbeat/upgrade and client connection state/errors |
@@ -61,9 +62,11 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `.github/` | shared: one CI workflow with jobs per module, the benchmark workflow and its tools, Dependabot |
 
 Runtime model of v1: `engineio.Server` accepts HTTP requests and emits `engineio.Conn`
-sessions; `socketio.Server.Serve` takes each session and starts three goroutines
-(read, write, error) through `internal/connection`. Handlers registered with `OnEvent` are called on
-the read goroutine of that connection, so a blocking handler blocks that client only.
+sessions; `socketio.Server.Serve` takes each session and starts read-dispatch, write
+and error goroutines through `internal/connection`. A header I/O worker lets the read
+dispatcher receive deferred namespace admissions while waiting for network input; it
+reads one header and waits until the dispatcher has consumed that packet. Handlers
+registered with `OnEvent` run on the dispatcher, so a blocking handler blocks that client only.
 The v2 root package has no runtime yet: every operation that needs one returns
 `ErrNotImplemented`, and stages 2.1 to 2.4 of the roadmap add it.
 
@@ -79,6 +82,7 @@ V1 source files are grouped under their owning components:
 | `client/internal/connection/manager.go`, `reconnect.go`, `observers.go` | required resolved manager inputs, connection generations, retries and callback observers |
 | `client/internal/connection/connection.go`, `io.go`, `queue.go`, `close.go`, `socket.go`, `emitter.go`, `packets.go`, `errors.go` | transport I/O, atomic queue/drain/close/ACK lifecycle, concrete sockets and emitters |
 | `client/internal/namespace/contracts.go`, `handlers.go`, `registry.go`, `listeners.go`, `rooms.go` | canonical independent client contracts, reflected callbacks/listeners, synchronized registrations and local rooms |
+| `internal/event/` | neutral typed payload/schema/handler values, common typed errors and error-first ACK codec; root owns generic descriptors and each role owns dispatch, queue admission and request lifetimes |
 | `adapter/adapter.go`, `memory.go` | minimal socket/factory contracts and local room/index/delivery ownership |
 | `adapter/redis/options.go`, `adapter.go`, `codec.go`, `requests.go`, `subscription.go` | Redis configuration/construction, legacy wire format, cluster queries and subscription lifecycle |
 | `engineio/conn.go`, `id.go`, `options.go`, `hooks.go`, `headers.go` | active connection/state/error/ID contract aliases, configuration, public hook adaptation and websocket header observation |

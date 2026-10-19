@@ -31,6 +31,7 @@ func (c *conn) startClose() (ncs []*namespaceConn) {
 	close(c.closing)
 	c.namespaces.Range(func(_ string, nc *namespaceConn) { ncs = append(ncs, nc) })
 	for _, nc := range ncs {
+		nc.cancelTypedLocked()
 		c.namespaces.Delete(fmtNS(nc.namespace))
 	}
 	c.disconnects.Add(len(ncs))
@@ -149,6 +150,9 @@ func (c *conn) register(nsp string, nc *namespaceConn) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !isDone(c.closing) {
+		if isDone(c.engineDone()) {
+			nc.cancelTypedLocked()
+		}
 		c.namespaces.Set(nsp, nc)
 	}
 	return !isDone(c.closing)
@@ -162,6 +166,9 @@ func (c *conn) claim(nsp string, expected ...*namespaceConn) (*namespaceConn, bo
 		return nil, false
 	}
 	c.namespaces.Delete(nsp)
+	if ok {
+		nc.cancelTypedLocked()
+	}
 	return nc, ok
 }
 

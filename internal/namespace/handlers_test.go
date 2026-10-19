@@ -2,11 +2,10 @@ package namespace
 
 import (
 	"fmt"
-	"reflect"
-	"testing"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"reflect"
+	"testing"
 )
 
 func TestNewEventFunc(t *testing.T) {
@@ -119,4 +118,35 @@ func TestHandlerCall(t *testing.T) {
 			should.Equal(test.rets, rets)
 		})
 	}
+}
+
+// Covers G18
+func TestRegressionG18ConnectPanicIsContained(t *testing.T) {
+	h := NewHandler()
+	h.OnConnect(func(Conn) error { panic("application panic") })
+	require.NotPanics(t, func() { require.Error(t, h.Connect(nil)) })
+}
+
+func TestConnectMiddlewarePanicAndNil(t *testing.T) {
+	h := NewHandler()
+	h.Use(nil)
+	require.NoError(t, h.Connect(nil))
+	h.Use(func(Conn) error { panic("middleware panic") })
+	require.ErrorContains(t, h.Connect(nil), "middleware panic")
+}
+
+// Covers G20
+func TestRegressionG20VariadicHandlerArguments(t *testing.T) {
+	called := false
+	h := NewEventFunc(func(_ Conn, args ...string) { called = true })
+	_, err := h.Call([]reflect.Value{reflect.Zero(reflect.TypeOf((*Conn)(nil)).Elem()), reflect.ValueOf([]string{"a", "b"})})
+	require.NoError(t, err, "registered argument type is []string, but dispatch cannot call the variadic handler with it")
+	require.True(t, called)
+}
+
+// Covers G20
+func TestListenerVariadicConventionsMustMatch(t *testing.T) {
+	h := NewHandler()
+	h.AddListener("event", func(Conn, ...string) {}, false)
+	require.Panics(t, func() { h.AddListener("event", func(Conn, []string) {}, false) })
 }

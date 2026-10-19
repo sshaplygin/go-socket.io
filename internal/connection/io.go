@@ -53,18 +53,9 @@ func (c *Connection) serveWrite() {
 		}
 		c.writer.failed = nil
 		c.writer.noCompress = pkg.noCompress
-		var err error
-		switch pkg.Header.Type {
-		case parser.Connect, parser.Disconnect:
-			err = c.encoder.Encode(pkg.Header)
-		case parser.Error:
-			if len(pkg.Data) > 0 {
-				err = c.encoder.Encode(pkg.Header, pkg.Data[0])
-			} else {
-				err = c.encoder.Encode(pkg.Header)
-			}
-		default:
-			err = c.encoder.Encode(pkg.Header, pkg.Data)
+		err := pkg.err
+		if err == nil {
+			err = c.encoder.EncodePrepared(pkg.prepared)
 		}
 		if err != nil {
 			c.report(pkg.Header.Namespace, err, c.writer.failed)
@@ -82,18 +73,64 @@ func (c *Connection) serveWrite() {
 
 // serveRead dispatches packets until a close takes the namespaces.
 func (c *Connection) serveRead(connect, disconnect func(*Connection, parser.Header) error) {
-	defer c.finishRead()
-
-	var event string
-
+	type packetHeader struct {
+		header parser.Header
+		event  string
+		err    error
+	}
+	headers := make(chan packetHeader)
+	consumed, stop, workerDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	// Header I/O may wait indefinitely. Keep admission tasks on the dispatcher
+	// while its worker reads only one header, then waits for argument dispatch.
+	go func() {
+		defer close(workerDone)
+		for {
+			var next packetHeader
+			next.err = c.decoder.DecodeHeader(&next.header, &next.event)
+			select {
+			case headers <- next:
+			case <-stop:
+				return
+			}
+			if next.err != nil {
+				return
+			}
+			select {
+			case <-consumed:
+			case <-stop:
+				return
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		// Interrupt a worker blocked in transport I/O before reading its final
+		// failure state and running disconnect callbacks.
+		c.stop()
+		<-workerDone
+		c.finishRead()
+	}()
 	for {
-		var header parser.Header
-
-		if err := c.decoder.DecodeHeader(&header, &event); err != nil {
-			c.log.Debug("socketio: header decode failed", "err", err)
-			c.onError(rootNamespace, err)
+		if err := c.runReconnects(); err != nil {
 			return
 		}
+		var next packetHeader
+		select {
+		case <-c.readReady:
+			continue
+		case next = <-headers:
+		}
+		if next.err != nil {
+			c.log.Debug("socketio: header decode failed", "err", next.err)
+			c.onError(rootNamespace, next.err)
+			return
+		}
+		// A ready replacement takes priority over the header already read. Its
+		// OnConnect must finish before any event for that replacement is dispatched.
+		if err := c.runReconnects(); err != nil {
+			return
+		}
+		header, event := next.header, next.event
 
 		if header.Namespace == aliasRootNamespace {
 			header.Namespace = rootNamespace
@@ -117,6 +154,11 @@ func (c *Connection) serveRead(connect, disconnect func(*Connection, parser.Head
 		if err != nil && !closed {
 			c.log.Debug("socketio: read stopped", "err", err)
 
+			return
+		}
+		select {
+		case consumed <- struct{}{}:
+		case <-stop:
 			return
 		}
 	}

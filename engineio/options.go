@@ -91,14 +91,14 @@ func (c *options) getConnInitor() ConnInitorFunc {
 }
 
 func (c *options) getPingTimeout() time.Duration {
-	if c != nil && c.PingTimeout != 0 {
+	if c != nil && c.PingTimeout > 0 {
 		return c.PingTimeout
 	}
 	return 20 * time.Second
 }
 
 func (c *options) getPingInterval() time.Duration {
-	if c != nil && c.PingInterval != 0 {
+	if c != nil && c.PingInterval > 0 {
 		return c.PingInterval
 	}
 	return 25 * time.Second

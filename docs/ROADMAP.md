@@ -485,16 +485,18 @@ allowed direct repository runtime dependencies; their transitive closure must al
 every row and the role/codec exclusions below. Standard library and existing external
 dependencies are omitted. Test imports do not define runtime edges. Internal paths are
 implementation owners of the public component immediately above them, not new public
-components. There are 12 public runtime packages and seven private component packages.
+components. V1-29 adds the owner-approved `internal/event` leaf described below: there
+are 12 public runtime packages and eight private component packages (20 total).
 
 | Package | Responsibility | May import |
 | --- | --- | --- |
-| root `socketio` | Server lifecycle, adapter factories, dynamic namespace coordination, public namespace views and options | `internal/connection`, `internal/namespace`, `adapter`, `engineio`, `logger` |
-| `internal/connection` | Server transport connection, per-connection namespace sockets, queues/drain, packet dispatch and emitters | `internal/namespace`, `adapter`, `parser`, `engineio`, `engineio/parser`, `logger` |
-| `internal/namespace` | Server-role contracts, namespace handler/connected-socket registries, middleware and listener reflection | `adapter`, `parser`, `engineio` |
-| `client` | Client construction/options and public client/socket entry points | `client/internal/connection`, `client/internal/namespace`, `engineio/client`, `engineio/transport`, its polling/websocket implementations, `logger` |
-| `client/internal/connection` | Client manager/generations/reconnect, connection queues, concrete namespace sockets and emitters | `client/internal/namespace`, `parser`, `engineio/client`, `engineio/parser`, `engineio/transport`, its polling/websocket implementations, `logger` |
-| `client/internal/namespace` | Client-role contracts, handler/listener registry and local room index | `parser`, `engineio/client` |
+| root `socketio` | Server lifecycle, adapter factories, dynamic namespace coordination, public namespace views and options | `internal/connection`, `internal/namespace`, `adapter`, `engineio`, `logger`, `internal/event` |
+| `internal/connection` | Server transport connection, per-connection namespace sockets, queues/drain, packet dispatch and emitters | `internal/namespace`, `adapter`, `parser`, `engineio`, `engineio/parser`, `logger`, `internal/event` |
+| `internal/namespace` | Server-role contracts, namespace handler/connected-socket registries, middleware and listener reflection | `adapter`, `parser`, `engineio`, `internal/event` |
+| `client` | Client construction/options and public client/socket entry points | `client/internal/connection`, `client/internal/namespace`, `engineio/client`, `engineio/transport`, its polling/websocket implementations, `logger`, `internal/event` |
+| `client/internal/connection` | Client manager/generations/reconnect, connection queues, concrete namespace sockets and emitters | `client/internal/namespace`, `parser`, `engineio/client`, `engineio/parser`, `engineio/transport`, its polling/websocket implementations, `logger`, `internal/event` |
+| `client/internal/namespace` | Client-role contracts, handler/listener registry and local room index | `parser`, `engineio/client`, `internal/event` |
+| `internal/event` | V1-29 neutral typed payload/schema/handler bridge, ACK envelope and common typed errors; no role ownership | `parser` |
 | `adapter` | Room/index/broadcast contract and in-memory implementation | no other repository runtime package |
 | `adapter/redis` | Redis adapter extending/composing the memory adapter | `adapter`, `logger` |
 | `parser` | Socket.IO packet codec, shared by server and client | `logger` |
@@ -515,7 +517,10 @@ Delete the retired production packages `engineio/frame`, `engineio/packet`,
 `engineio/payload`, `engineio/session` and `engineio/transport/utils` after moving their
 responsibilities to the owners above. Fold transport header helpers into `transport`.
 No replacement generic helper, shared-connection or init-registration bridge package is
-introduced. Keep test-only `internal/conformance` and `internal/parity` and existing tooling.
+introduced, except the narrowly scoped V1-29 `internal/event` leaf approved by the owner
+on 2026-10-19. Its seven additional allowed direct edges are the six Socket.IO role
+packages above to `internal/event`, and `internal/event` to `parser`; no server/client
+cross-import or v1/v2 dependency is authorized. Keep test-only `internal/conformance` and `internal/parity` and existing tooling.
 
 API and ownership changes:
 
@@ -622,7 +627,9 @@ follows merged C4 and precedes all internal extraction. The public components st
 follow the diagram. Internal exports are for typed implementation boundaries; do not
 expose private mutexes, queues or channels as production API to keep tests compiling.
 No new generic `wire`, shared-role, helper-registration or test-access runtime package
-is authorized. Packet types belong to the packet codec, so payload can depend on it.
+is authorized, except the V1-29 `internal/event` leaf specified in the component table
+and contract below. It shares typed event mechanics only, never sockets, managers,
+registries, Engine.IO contracts or lifecycle ownership. Packet types belong to the packet codec, so payload can depend on it.
 
 | Current production group | Concrete owner after extraction | Boundary and files retained by its public component |
 | --- | --- | --- |
@@ -2621,7 +2628,7 @@ command does not trigger `set -e`, so predecessors are never chained with `&&`.
 ```sh
 done_pr() { test -z "$(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("(^|; )(BUG|ADD|CHG|TEST) " pr "( |;|$)")')" || return 1; test -z "$(covers $1)"; }
 wave() { for n in "$@"; do done_pr V1-$n || { echo "open: V1-$n" >&2; exit 1; }; done; }
-for n in 2 4 5 6 7 10 11 15 16 17 18; do grep -q "^### V1-$n contract" docs/ROADMAP.md || { echo "V1A: no contract V1-$n" >&2; exit 1; }; done
+for n in 2 4 5 6 7 10 11 15 16 17 18 28 29; do grep -q "^### V1-$n contract" docs/ROADMAP.md || { echo "V1A: no contract V1-$n" >&2; exit 1; }; done
 wave 1 2                                                       # entry of V1B
 wave 3 4 5 6 7 16 17 18                                        # entry of V1C
 wave 8; grep -q '^  conformance:' .github/workflows/ci.yaml    # entry of V1D, with the next line
@@ -2639,7 +2646,7 @@ Stage 1b DoD; the awk reads the pipe-delimited rows of PARITY.md (`$2` is the ID
 ```sh
 rows() { awk -F' *[|] *' '$2 ~ /^[A-Z][0-9]+$/' docs/PARITY.md; }
 test "$(go list -m)" = github.com/sshaplygin/go-socket.io; test -f v2/go.mod   # entry: the restructure has merged
-test "$(rows | wc -l)" -eq 170   # 133 audit rows, B1 to B4, S22 (D19), G1 to G29 (the review of 2026-10-18) and T1 to T3 (D18): none lost, none added silently
+test "$(rows | wc -l)" -eq 172   # 133 audit rows, B1 to B4, S22 (D19), G1 to G31 (review and frame-release follow-up) and T1 to T3 (D18): none lost, none added silently
 test -z "$(rows | awk -F' *[|] *' '{n=split($3,e,/; */); for(i=1;i<=n;i++) if (e[i] !~ /^(-|DEV|REDIS|(DONE|DROP|BUG|ADD|CHG|TEST) V1-[0-9]+)$/) print $2}')"   # every entry of every plan is well formed; no decision is pending, so no other kind exists
 N=${N:?the PR, e.g. V1-4}
 make lint test-race
@@ -2737,7 +2744,197 @@ V6='TestRedisBroadcastDropsUnknownOpts|TestRedisBroadcastDropsUnknownKeys|TestRe
 test "$(go test -race -count=1 -json -run "^($V6)\$" ./adapter/redis | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test' | sort -u | wc -l)" -eq 4   # the decoder guard, the unknown-key guard and the two flags, without a Redis server
 ```
 
-**Wave V1G (the review of 2026-10-18; rows G1 to G29, T1 to T3, S22; D18, D19).** An
+### V1G parser contract
+
+The G6/G20/G30/G31 fixes add reusable packet preparation and variadic decoding
+within the existing public parser package. These support the existing reflected
+API; they do not implement the deferred typed event API T1–T3.
+
+- `Prepare(Header, ...interface{}) (*PreparedPacket, error)` validates and encodes
+  an immutable JSON/binary snapshot before queue locks are acquired. Cycles and
+  unsupported values return errors without opening a transport frame.
+- `PreparedPacket` has no exported mutable fields. `(*PreparedPacket).WithHeader(Header)
+  *PreparedPacket` binds the final namespace/ACK header without re-running user
+  marshaling or changing the source snapshot; its binary attachment count is retained.
+- `(*Encoder).EncodePrepared(*PreparedPacket) error` writes the prepared frames and
+  propagates frame Close failures; a prior write error takes precedence.
+- `(*Decoder).DecodeArgsVariadic([]reflect.Type) ([]reflect.Value, error)` decodes the
+  fixed arguments followed by flattened variadic elements as individual returned
+  values, suitable for `reflect.Value.Call`.
+
+Acceptance: immutable map and attachment snapshots, reentrant user marshaling
+outside queue/manager locks, late volatile ACK admission, zero/many variadic
+arguments, frame-release error precedence, and exported API coverage remain tested.
+The contract is recorded with this follow-up; the supporting API commits preceded
+this documentation, so the historical contract-first ordering was not met.
+
+### V1-28 contract
+
+The client bounds received data by default to 1 MiB. `client.WithMaxMessageSize(int64)`
+and `engineio/client.Dialer.MaxMessageSize` select a positive byte limit; nonpositive
+values select the default. Websocket limits include inflated message bytes. Polling
+limits apply to each decoded HTTP response body, framing included. OPEN, subsequent
+messages, reconnects and upgraded websocket candidates use the same bound. Custom
+transports enforce it through `SetReadLimit(int64)`; unsupported custom transports
+remain responsible for their own limits. Limit errors close the affected connection
+and are returned from dialing or reported through the existing error lifecycle.
+Configurations do not mutate global default transports. G9's client regression sends
+an ignored binary packet followed by a valid packet on the same connection.
+
+### V1-29 contract
+
+The owner approved one common typed descriptor implementation for server and Go
+client on 2026-10-19. It is additive over the current dispatcher; the two roles and
+the two modules remain independent. The root package owns these signatures:
+
+```go
+type Endpoint = event.Endpoint
+type ClientRegistration = event.ClientRegistration
+type EventHandler = event.Handler
+type RemoteError = event.RemoteError
+
+func NewEvent[T any](name string) Event[T]
+func (e Event[T]) Name() string
+func (e Event[T]) Handle(nsp *ServerNamespace, h func(context.Context, Conn, T) error) error
+func (e Event[T]) HandleClient(c ClientRegistration, h func(context.Context, Endpoint, T) error) error
+func (e Event[T]) Emit(ctx context.Context, to Endpoint, v T) error
+func (e Event[T]) EmitTo(ctx context.Context, to Emitter, v T) error
+
+func NewAckEvent[T, R any](name string) AckEvent[T, R]
+func (e AckEvent[T, R]) Name() string
+func (e AckEvent[T, R]) Handle(nsp *ServerNamespace, h func(context.Context, Conn, T) (R, error)) error
+func (e AckEvent[T, R]) HandleClient(c ClientRegistration, h func(context.Context, Endpoint, T) (R, error)) error
+func (e AckEvent[T, R]) EmitWithAck(ctx context.Context, to Endpoint, v T) (R, error)
+```
+
+`event` in this contract denotes the private `internal/event` package. Its shared
+seams have this shape; `Payload`, `Schema` and `Handler` have private representation:
+
+```go
+type Endpoint interface { Emit(string, ...interface{}) }
+type ClientRegistration interface { RegisterEvent(string, Handler) error }
+type TypedEndpoint interface {
+    SendEvent(context.Context, string, Payload) error
+    RequestAck(context.Context, string, Payload, Schema) (Payload, error)
+}
+type RemoteError struct { Code string `json:"code"`; Message string `json:"message"` }
+func (*RemoteError) Error() string
+```
+
+`Endpoint` uses the existing common Emit signature, so existing server/client
+`Conn` interfaces are not extended. Descriptors assert `TypedEndpoint` at runtime;
+unsupported custom endpoints return `ErrUnsupportedEndpoint`. Both concrete role
+sockets implement the capability. The client also implements registration and
+sending on `*Client` (its selected namespace) and stable `*Socket`. No root import
+of `client`, client import of root, or exported reflected descriptor parameter is
+introduced. Only the four non-generic aliases above are needed publicly; generic
+aliases are not used, preserving Go 1.22. Internal constructors/helpers may use
+reflection, but opaque aliased types expose no reflected fields or methods.
+
+`Handler` retains the exact payload schema, ACK ownership and invocation closure.
+The owning role dispatcher decodes using that schema and invokes it with its own
+concrete socket. The server wrapper supplies the exact server `Conn`; client
+callbacks receive the shared endpoint backed by the actual client-role socket.
+A dedicated typed registration/dispatch branch is permitted; a neutral callback
+must never be passed to legacy validation requiring an exact role `Conn` argument.
+Shared decoding and ACK helpers belong to `internal/event`; helper names and
+private layout are implementation choices, not additional public contracts.
+
+**Payload, registration and errors.** Ordinary `T` and `R`, including slices and
+structs, each occupy exactly one positional argument. `Args2` and a new `Binary`
+helper are outside V1-29; existing nested `parser.Buffer` values retain their
+attachment behavior. Decode directly to declared types, preserving int64/uint64
+precision and binary values; do not round-trip through generic float64 JSON maps.
+Strict unary decoding can use `DecodeArgsVariadic` and require exactly one result.
+Single-endpoint sends prepare an immutable snapshot before queue/manager locks,
+return encoding/admission errors synchronously, and send no partial packet.
+`EmitTo` retains the existing Emitter's adapter errors and partial-delivery rules;
+v1 adds no v2 BroadcastResult/count API or broadcast ACK support.
+
+Descriptors retain their supplied names; Handle/HandleClient/Emit/EmitTo/
+EmitWithAck reject empty names and `connect`, `disconnect`, `disconnecting`,
+`error` with `ErrInvalidEventName`. Nil handlers or targets return errors, not
+panics. Typed registration atomically rejects an existing typed or legacy listener
+with `ErrDuplicateEvent`. Legacy OnEvent keeps its replace semantics, including
+replacing a typed registration; Off removes either registration. Legacy additional
+listeners cannot silently coexist with a typed schema: reject incompatible
+registration using the existing registration error/panic convention.
+
+Root aliases common typed sentinels from `internal/event`: `ErrInvalidEventName`,
+`ErrDuplicateEvent`, `ErrUnsupportedEndpoint`, `ErrInvalidPayload`, `ErrInvalidAck`,
+`ErrAckTimeout`, `ErrSocketClosed`. Existing role `ErrWriteBufferFull` identities and
+legacy reporting remain supported; checked sends return that role's error.
+Decode/arity errors wrap `ErrInvalidPayload`; malformed ACKs wrap `ErrInvalidAck`.
+Application errors from ordinary typed handlers are reported through OnError
+without closing an otherwise healthy connection. Panics are recovered and reported.
+
+**ACKs and contexts.** AckEvent success is exactly `[null, result]`; failure is
+exactly `[{"code":"...","message":"..."}]`, with a nonempty string code and string
+message. A returned `*RemoteError` preserves these fields; other handler errors use
+`handler_error`, and recovered panics use `handler_panic`. ACK handlers respond only
+when the incoming packet requested an ACK, at most once; ordinary Event handlers
+never produce an automatic return ACK. The receiver validates the entire envelope
+and decodes success directly as R, including nested binary attachments. A failure
+returns `*RemoteError`; malformed/type-mismatched envelopes complete the waiter with
+`ErrInvalidAck`, rather than silently deleting a callback. Late, duplicate and
+canceled ACKs are ignored after consuming their complete attachments.
+
+EmitWithAck waits at most 30 seconds, including any pre-connect buffering; an
+earlier caller cancellation/deadline returns `ctx.Err()`, while the internal bound
+returns `ErrAckTimeout`. A nil context is treated as context.Background. The timer
+is not the client's connection timeout. ACK completion, cancellation, admission
+failure and disconnect compete to remove one pending entry exactly once; clean up
+timers, cancellation hooks and buffered result channels on every terminal path.
+Allocate/install an ACK ID atomically with checked queue admission, never on a
+dropped send. Never invoke application code while queue, ACK or manager locks
+are held. A send canceled before admission queues nothing.
+
+Stable client Socket/Client requests may wait in the existing bounded pre-connect
+buffer. Cancellation removes/skips unsent requests and releases their buffer
+budget; canceled requests never flush. Requests admitted to a namespace generation
+fail on its disconnect with ErrSocketClosed and never replay across reconnect;
+new requests buffered during recovery may bind to the next generation. Explicit
+Socket.Close/Client.Close also terminate pre-connect requests. A retained concrete
+client Conn is generation-bound and must not forward typed requests to a later
+socket generation.
+
+Handler contexts are private namespace-generation lifetime contexts, independent
+of application Conn.Context storage and the handshake HTTP request. Cancel them
+and pending ACKs before disconnect callbacks; rejected admission and engine close
+also terminate them. The concrete built-in Engine.IO server session and client
+provide an optional `Done() <-chan struct{}` capability, closed when engine close
+starts. This reuses each engine's existing close signal without extending either
+public Conn interface. A Socket.IO connection observes that signal independently
+of the dispatcher and cancels its namespace contexts and pending requests even
+when a typed callback waits for cancellation. The observer ends with the Socket.IO
+connection; it does not poll ReadyState or invoke application callbacks. Custom
+engines without this capability are canceled when their read/write failure is
+observed or Socket.IO close is requested. A remote close still requires the engine
+to observe the peer or its heartbeat timeout; no concurrent frame reader is added.
+Preserve the existing serialized dispatcher: synchronous
+EmitWithAck inside a callback on that same connection cannot receive its ACK while
+blocked. Callers must start such waits outside that callback, for example in a
+goroutine. No asynchronous callback execution redesign is part of V1-29.
+
+**Scope and acceptance.** Implementation may edit root/client typed API files,
+both Socket.IO role internals, the new internal/event leaf and their tests, plus
+architecture policy/negative fixtures and owning documentation/check inventories.
+Engine.IO changes are limited to exposing the optional close signal on its two
+concrete implementations and verifying its timing. No v2 runtime change, registry
+update, PR merge, tag or version bump is included. Update the exact graph gate for 20 packages and the seven edges above;
+add 29 to the ADD-contract heading check before implementation.
+Acceptance includes compile-positive typed server/client/ACK/broadcast examples,
+compile-negative wrong payload/result/handler examples, duplicate and reserved-name
+checks, exact integer and nested binary round trips over polling and websocket,
+error-first and malformed ACKs, timeout/cancellation/disconnect races, cancellation
+while buffered, generation isolation, duplicate/late ACK draining, reentrant
+marshaling, legacy/typed replacement, and an engine close unblocking a typed
+handler waiting on its lifetime context on both roles. Run race tests, lint, architecture/privacy
+fixtures, API coverage and Node interoperability; T1–T3 close only with executable
+Covers tests and those gates green. The strict parity/release gate remains separate
+from authorization to create a release tag.
+
+**Wave V1G (the review of 2026-10-18 and follow-up; rows G1 to G31, T1 to T3, S22; D18, D19).** An
 independent review of the v1 implementation at `3db9751` (`master` after #133), in six
 dimensions, reported 18 findings that a second reviewer checked and could not refute, and
 further items it did not check twice; [PARITY.md](PARITY.md#findings-of-the-review-of-2026-10-18)
@@ -2753,8 +2950,8 @@ and the rest:
 | V1-21 | B | G1 | high |
 | V1-22 | A | G2 | medium |
 | V1-23 | A | G3, G4, G5 | medium (races) |
-| V1-24 | A | G6, G7, G8, G12 | medium (panics) |
-| V1-25 | A | G9 (the decoder fix), G18 | medium |
+| V1-24 | A | G6, G7, G8, G12, G30 | medium (panics) |
+| V1-25 | A | G9 (the decoder fix), G18, G31 | medium |
 | V1-26 | B | G10, G11 | low (engine races) |
 | V1-27 | A | G13, G14, G15 | medium (Redis adapter) |
 | V1-28 | D | G9 (the client test), G16 | medium (client) |
@@ -2764,10 +2961,16 @@ and the rest:
 
 The packages are those of *Stage V1 work packages* (A, B, D), by file ownership; their
 registry rows were `done`, and the coordinator reopens them (the note after the registry).
+The current bug-fix change also closes G30 (encoder frame Close errors) and G31
+(decoder frame Close errors), and mirrors G6, G18, G20 and G21 in the client.
+The owner initially deferred T1–T3, then approved the common implementation in the
+V1-29 contract on 2026-10-19. Their implementation follows the bug-fix commits;
+their release requirement remains in force. This integration may implement the bug fixes together;
+it does not claim that the numbered PRs have merged or modify the package registry.
+
 Each V1G PR writes its own `CHANGELOG.md` entries, since H is `done`. G16 and T1 to T3 are
-`ADD` rows: no signature is decided here. `### V1-28 contract` and `### V1-29 contract` are
-written first by a docs PR each, as V1-0 wrote the earlier contracts, and that PR adds 28 or
-29 to the loop of the `ADD`-row check of *V1-0 contracts*; the entry arms of V1-28 and V1-29
+`ADD` rows: their signatures are defined by `### V1-28 contract` and
+`### V1-29 contract` above. The ADD contract check includes 28 and 29; the entry arms of V1-28 and V1-29
 require the heading. V1-30 writes the PROTOCOL.md heading of D19, which the MV1 DoD greps.
 
 Every `BUG` row of the wave, and of any later bug fix, is closed test first, by the rule of
@@ -2776,19 +2979,57 @@ checks it, `bash`, with or without `set -e`, from the repository root. It reads 
 failing `go test` status together with a line that starts with `--- FAIL: <TestName> `,
 `panic: ` or `fatal error: `, and never from `[build failed]` or `[setup failed]`; it runs
 each test with `-race`, since concurrency fixes are verified under the race detector, in
-scratch worktrees that it removes:
+scratch worktrees that it removes. The evidence lookup follows file renames and runs
+red at its historical package path. It accepts the historical `// Covers: ID` spelling
+only when inspecting the red commit; the current PARITY marker gate still requires
+`// Covers ID`.
 
 ```sh
-tdd_red() { git log --reverse --no-merges --format=%H -G "^func $3[(]" "$1..$2" -- "$4" | head -n 1; }   # tdd_red <base> <head> <TestName> <file>: the commit of the PR that adds the test to its file (its red commit)
+tdd_red() (   # tdd_red <base> <head> <TestName> <current-file>: unique global introduction, independent of later file regrouping
+b=$1 h=$2 t=$3 f=$4 pattern="^func $3[(]"
+git merge-base --is-ancestor "$b" "$h" || return 1
+git grep -q -E "$pattern" "$h" -- "$f" || return 1
+matches=$(git grep -n -E "$pattern" "$h" -- '*_test.go' || :)
+test -n "$matches" -a "$(printf '%s\n' "$matches" | wc -l)" -eq 1 || return 1
+test -z "$(git grep -n -E "$pattern" "$b" -- '*_test.go' || :)" || return 1
+first=
+for c in $(git log --reverse --no-merges --format=%H -G "$pattern" "$b..$h" -- '*_test.go'); do
+matches=$(git grep -n -E "$pattern" "$c" -- '*_test.go' || :)
+prior=$(git grep -n -E "$pattern" "$c^" -- '*_test.go' || :)
+for snapshot in "$matches" "$prior"; do
+test -z "$snapshot" -o "$(printf '%s\n' "$snapshot" | wc -l)" -eq 1 || return 1
+done
+if test -n "$matches" -a -z "$prior"; then
+test -z "$first" || return 1
+first=$c
+fi
+done
+test -n "$first" || return 1
+printf '%s\n' "$first"
+)
+
+tdd_marker() (   # tdd_marker <red> <historical-file> <head> <current-file> <TestName>
+r=$1 rf=$2 h=$3 f=$4 t=$5
+if git show "$r:$rf" | grep -B4 -E "^func $t[(]" | grep -qE '^// Covers:? [A-Z][0-9]+( |$)'; then return 0; fi
+ids=$(git show "$h:$f" | grep -B4 -E "^func $t[(]" | sed -nE 's@^// Covers ([A-Z][0-9]+)( .*|$)@\1@p'); test -n "$ids" || return 1
+before=$(git show "$r^:docs/PARITY.md") || return 1
+current=$(git show "$h:docs/PARITY.md") || return 1
+for id in $ids; do
+printf '%s\n' "$current" | awk -F' *[|] *' -v id="$id" '$2 == id { found=1 } END { exit !found }' || return 1
+if printf '%s\n' "$before" | awk -F' *[|] *' -v id="$id" '$2 == id { found=1 } END { exit !found }'; then return 1; fi
+done
+)
+
 tdd() (   # tdd <base> <head> <TestName>...: one line per defect; nothing when each test is added by a test-only commit of the PR, red there, and green on <head>
 b=$1 h=$2; shift 2
 run() { w=$(mktemp -d) || return 1; git worktree add -q --detach "$w/wt" "$1" >/dev/null 2>&1 || { echo "no worktree of $1"; rmdir "$w"; return 1; }; (cd "$w/wt" && go test -race -count=1 -timeout 280s -v -run "^$2\$" "./$3" 2>&1) && s=0 || s=$?; git worktree remove --force "$w/wt"; rmdir "$w"; return $s; }   # one test in a scratch worktree of a commit
 for t in "$@"; do
 f=$(git grep -l -E "^func $t[(]" "$h" -- '*_test.go' || :); test -n "$f" -a "$(printf '%s\n' "$f" | wc -l)" -eq 1 || { echo "tdd $t: not one test file at $h"; continue; }; f=${f#"$h":}; d=$(dirname "$f")
-r=$(tdd_red "$b" "$h" "$t" "$f"); test -n "$r" || { echo "tdd $t: not added to $f by the PR"; continue; }
+r=$(tdd_red "$b" "$h" "$t" "$f") || { echo "tdd $t: no unique new global test introduction in $b..$h"; continue; }
+rf=$(git grep -l -E "^func $t[(]" "$r" -- '*_test.go' || :); test -n "$rf" -a "$(printf '%s\n' "$rf" | wc -l)" -eq 1 || { echo "tdd $t: not one test file at red commit $r"; continue; }; rf=${rf#"$r":}; rd=$(dirname "$rf")
 test -z "$(git diff --name-only "$r^" "$r" -- '*.go' | grep -v '_test[.]go$')" || echo "tdd $t: red commit $r changes a Go file that is not a test"
-git show "$r:$f" | grep -B4 -E "^func $t[(]" | grep -qE '^// Covers [A-Z][0-9]+( |$)' || echo "tdd $t: no // Covers marker above it at $r"
-if o=$(run "$r" "$t" "$d"); then echo "tdd $t: not red at $r (go test passed)"; else case $o in
+tdd_marker "$r" "$rf" "$h" "$f" "$t" || echo "tdd $t: no // Covers marker above it at $r for an already registered row"
+if o=$(run "$r" "$t" "$rd"); then echo "tdd $t: not red at $r (go test passed)"; else case $o in
 *'[build failed]'*|*'[setup failed]'*|'no worktree'*) echo "tdd $t: does not build or run at $r";;   # a red that is a build error is no red
 *) printf '%s\n' "$o" | grep -qE "^(--- FAIL: $t |panic: |fatal error: )" || echo "tdd $t: not red at $r";;   # red: a failing status and, at the start of a line, an assertion failure, a panic (a test timeout included) or a runtime abort
 esac; fi
@@ -2826,7 +3067,7 @@ test`; a red that does not compile prints `does not build or run`; a passing tes
 `panic: ` prints `not red`:
 
 ```sh
-eval "$(awk '/^tdd_red[(][)] [{]/ {p=1} p; p && /^[)]$/ {exit}' docs/ROADMAP.md)"   # the two helpers of the fence above
+eval "$(awk '/^tdd_red[(][)] / {p=1} p && /^```$/ {exit} p' docs/ROADMAP.md)"   # every helper through the closing fence, including multiline function bodies
 S=$(mktemp -d); git init -q -b master "$S/r"; cd "$S/r"; git config user.name t; git config user.email t@t
 add() { printf 'package tdd\n\nfunc Add(a, b int) int { return a %s b }\n' "$1" >add.go; }   # the code: `-` is the bug, `+` the fix
 tst() { printf 'package tdd\n\nimport "testing"\n\n// Covers G1\nfunc TestAdd(t *testing.T) {\n\tif %s(1, 2) != 3 {\n\t\tt.Fatal("1+2")\n\t}\n}\n' "$1" >add_test.go; }   # the test, of Add or of an undefined function
@@ -2883,9 +3124,11 @@ resumes on the owner's order after MV1, not on the tag.
 
 **MV1 reopened (2026-10-18).** MV1 was accepted by #133, which set H `done` in the registry
 after the component follow-up (C5, #132). The review of 2026-10-18 at `3db9751` and D18 reopen
-it: rows G1 to G29 and T1 to T3 are open `BUG`, `ADD` and `TEST` rows, so the MV1 DoD line
-"no open row" and `PARITY_STRICT=1 make parity-check` fail again, and so does its registry
-line once the coordinator sets A, B and D back to `open` for the V1G PRs. MV1 is accepted
+it: the then-open G1 to G29 and T1 to T3 rows failed the MV1 DoD line
+"no open row" and `PARITY_STRICT=1 make parity-check`. The current bug-fix change
+closes G1–G31; the subsequent common typed implementation closes T1–T3 with
+Go and pinned Node interoperability tests. Local closure of these rows does not
+constitute acceptance on master. The registry line also fails once the coordinator sets A, B and D back to `open` for the V1G PRs. MV1 is accepted
 again when the rows of wave V1G are closed: V1-21 to V1-31 merged, the MV1 DoD above passing
 on the merged `master` (it now also greps the D19 heading), and the owner's Acceptance
 repeated. Nothing is accepted beyond what those commands compute; the `v1.5.0` tag stays the

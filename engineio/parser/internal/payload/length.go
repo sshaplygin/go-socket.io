@@ -3,6 +3,7 @@ package payload
 import (
 	"bytes"
 	"errors"
+	"math"
 )
 
 var errInvalidPayload = errors.New("invalid payload")
@@ -59,17 +60,25 @@ func writeTextLen(l int64, w *bytes.Buffer) error {
 
 func readBinaryLen(r byteReader) (int64, error) {
 	ret := int64(0)
+	digits := 0
 	for {
 		b, err := r.ReadByte()
 		if err != nil {
 			return 0, err
 		}
 		if b == 0xff {
+			if digits == 0 {
+				return 0, errInvalidPayload
+			}
 			break
 		}
 		if b > 9 {
 			return 0, errInvalidPayload
 		}
+		if ret > (math.MaxInt64-int64(b))/10 {
+			return 0, errInvalidPayload
+		}
+		digits++
 		ret = ret*10 + int64(b)
 	}
 	return ret, nil
@@ -77,17 +86,25 @@ func readBinaryLen(r byteReader) (int64, error) {
 
 func readTextLen(r byteReader) (int64, error) {
 	ret := int64(0)
+	digits := 0
 	for {
 		b, err := r.ReadByte()
 		if err != nil {
 			return 0, err
 		}
 		if b == ':' {
+			if digits == 0 {
+				return 0, errInvalidPayload
+			}
 			break
 		}
 		if b < '0' || b > '9' {
 			return 0, errInvalidPayload
 		}
+		if ret > (math.MaxInt64-int64(b-'0'))/10 {
+			return 0, errInvalidPayload
+		}
+		digits++
 		ret = ret*10 + int64(b-'0')
 	}
 	return ret, nil

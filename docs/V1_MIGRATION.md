@@ -324,3 +324,94 @@ observers and concrete namespace sockets together. Queue admission and ACK
 registration remain atomic; namespace disconnects, drain bounds, late dial cleanup,
 listener order and callbacks keep their existing behavior. There is no retired
 constructor/import facade or production accessor for private test state.
+
+### Incoming client limits
+
+`client.WithMaxMessageSize(bytes)` configures received messages; the last option wins.
+The low-level equivalent is `engineio/client.Dialer.MaxMessageSize`. Zero and negative
+values select the 1 MiB default. See [protocol limits](PROTOCOL.md#implemented-engineio-protocol-v3-in-the-v1-module)
+for the transport boundaries. Custom transports can implement `SetReadLimit(int64)`;
+otherwise their implementation must enforce the limit itself. Existing applications
+receiving larger messages must set an explicit larger limit before connecting.
+
+## Common typed events
+
+The root package now provides `NewEvent[T]` and `NewAckEvent[T, R]`. Declare a
+single descriptor and use it with both the server and the independent Go client:
+
+```go
+type Notice struct {
+    ID int64
+    Content string
+    File parser.Buffer
+}
+
+notice := socketio.NewEvent[Notice]("notice")
+err := notice.Handle(server.Of("/chat"),
+    func(ctx context.Context, conn socketio.Conn, value Notice) error {
+        // ctx lasts until this namespace generation ends.
+        return nil
+    })
+err = notice.HandleClient(client.Socket("/chat"),
+    func(ctx context.Context, peer socketio.Endpoint, value Notice) error {
+        return nil
+    })
+err = notice.Emit(ctx, serverConn, value)
+err = notice.Emit(ctx, client.Socket("/chat"), value)
+err = notice.EmitTo(ctx, server.Of("/chat").To("room"), value)
+```
+
+Check each returned error in application code. The example uses imports `context`,
+root `socketio`, and `github.com/sshaplygin/go-socket.io/parser`; `server`, `client`,
+`serverConn`, `ctx` and `value` are application-owned instances. `HandleClient`
+accepts either a `*client.Client` for its selected namespace or a `*client.Socket`.
+Its endpoint is the actual client connection of that namespace generation.
+The server callback continues to receive the exact server `socketio.Conn` role.
+
+`T` is exactly one positional argument, even when it is a slice or struct. Nested
+`parser.Buffer` fields use binary attachments. Declared integer types retain their
+full precision in Go-to-Go traffic. A JavaScript application remains subject to
+JavaScript's numeric precision. The v1 typed API uses existing `parser.Buffer`;
+it adds neither the v2 `Args2` nor `Binary` helper types.
+
+For a result, register and send with an acknowledged descriptor:
+
+```go
+lookup := socketio.NewAckEvent[int64, Notice]("lookup")
+err := lookup.Handle(server.Of("/chat"),
+    func(ctx context.Context, conn socketio.Conn, id int64) (Notice, error) {
+        return Notice{ID: id}, nil
+    })
+wait, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+result, err := lookup.EmitWithAck(wait, client.Socket("/chat"), 42)
+```
+
+The ACK convention is `[null, result]` for success and
+`[{"code":"...","message":"..."}]` for failure. Ordinary handler errors become
+`handler_error`; recovered panics become `handler_panic`. Return
+`*socketio.RemoteError` to choose a code and message, and use `errors.As` to inspect
+one received from a peer. Raw or JavaScript handlers exchanging typed ACKs must
+implement that envelope. Malformed responses return `ErrInvalidAck`.
+
+A wait ends on caller cancellation/deadline, namespace disconnect
+(`ErrSocketClosed`), or the internal 30-second limit (`ErrAckTimeout`). The limit
+includes pre-connect buffering. Canceled buffered requests do not later flush;
+admitted requests belong to one generation and are never replayed on reconnect.
+Stable client sockets can buffer new requests during recovery. Retained concrete
+client Conns remain bound to their original generation for typed sends.
+
+Incoming handler contexts are canceled before disconnect callbacks and are
+independent of application `Conn.Context()` storage and the handshake request.
+Callbacks remain serialized per connection. Start `EmitWithAck` waits outside a
+callback on that same connection, for example in a goroutine; blocking that callback
+also blocks receipt of its ACK.
+
+Typed registration rejects an existing typed or legacy listener with
+`ErrDuplicateEvent`. Existing `OnEvent` still replaces the registration, and `Off`
+removes either form. Empty names and reserved lifecycle names return
+`ErrInvalidEventName`. Both legacy role `Conn` interfaces remain unchanged.
+Custom endpoints need typed send support; implementing only legacy `Emit` returns
+`ErrUnsupportedEndpoint`. Successful sends mean local admission, and broadcasts
+retain existing adapter error and partial-delivery behavior; they do not count
+remote delivery or support broadcast ACKs.

@@ -1,28 +1,34 @@
 package connection
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"sync"
 
 	"github.com/sshaplygin/go-socket.io/client/internal/namespace"
+	"github.com/sshaplygin/go-socket.io/internal/event"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 type namespaceConn struct {
 	*conn
-	broadcast *namespace.RoomIndex
-	namespace string
-	context   interface{}
-	ack       sync.Map
-	outMu     sync.Mutex
+	broadcast      *namespace.RoomIndex
+	namespace      string
+	context        interface{}
+	ack            sync.Map
+	outMu          sync.Mutex
+	lifetime       context.Context
+	cancelLifetime context.CancelFunc
+	typedAcks      map[uint64]*typedRequest
 }
 
 func newNamespaceConn(conn *conn, namespace string, broadcast *namespace.RoomIndex) *namespaceConn {
 	if namespace == rootNamespace {
 		namespace = aliasRootNamespace
 	}
-	return &namespaceConn{conn: conn, namespace: namespace, broadcast: broadcast}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &namespaceConn{conn: conn, namespace: namespace, broadcast: broadcast, lifetime: ctx, cancelLifetime: cancel}
 }
 
 // Handshake returns zero metadata on a client connection.
@@ -88,51 +94,48 @@ func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, 
 }
 
 func (nc *namespaceConn) queueEventFlags(volatile, noCompress bool, eventName string, v ...interface{}) {
-	header := parser.Header{
-		Type: parser.Event,
-	}
+	prepared := prepareEvent(nc.namespace, noCompress, eventName, v)
+	nc.queuePreparedEvent(volatile, prepared)
+}
 
-	if nc.namespace != aliasRootNamespace {
-		header.Namespace = nc.namespace
-	}
-
+func prepareEvent(nsp string, noCompress bool, event string, args []interface{}) bufferedEvent {
+	header := parser.Header{Type: parser.Event, Namespace: fmtNS(nsp)}
 	var ack *namespace.Func
-	if l := len(v); l > 0 {
-		last := v[l-1]
-		lastV := reflect.TypeOf(last)
-
-		if lastV != nil && lastV.Kind() == reflect.Func {
-			ack = namespace.NewAckFunc(last)
-			v = v[:l-1]
+	if l := len(args); l > 0 {
+		if typ := reflect.TypeOf(args[l-1]); typ != nil && typ.Kind() == reflect.Func {
+			ack = namespace.NewAckFunc(args[l-1])
+			args = args[:l-1]
 		}
 	}
+	data := make([]interface{}, len(args)+1)
+	data[0] = event
+	copy(data[1:], args)
+	packet, err := parser.Prepare(header, data)
+	return bufferedEvent{prepared: packet, encodeErr: err, ack: ack, noCompress: noCompress}
+}
 
-	args := make([]reflect.Value, len(v)+1)
-	args[0] = reflect.ValueOf(eventName)
-
-	for i := 1; i < len(args); i++ {
-		args[i] = reflect.ValueOf(v[i-1])
-	}
-
-	if !volatile {
-		nc.registerAck(&header, ack)
-		nc.conn.writeFlags(header, noCompress, args...)
-		return
-	}
-	// The transport callback runs outside queue locks; admission rechecks the
-	// queue atomically afterwards so a concurrent normal/volatile emit cannot
-	// turn this best-effort packet into an overflow or retain a dropped ACK.
+func (nc *namespaceConn) queuePreparedEvent(volatile bool, event bufferedEvent) {
 	nc.outMu.Lock()
 	defer nc.outMu.Unlock()
-	nc.conn.mu.Lock()
-	defer nc.conn.mu.Unlock()
 	c := nc.conn
-	if len(c.writeChan) != 0 || len(c.controls) != 0 ||
-		isDone(c.closing) && (!c.draining || c.appSealed || isDone(c.discard)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	header := parser.Header{Type: parser.Event, Namespace: fmtNS(nc.namespace)}
+	if isDone(c.closing) && (!c.draining || c.appSealed || isDone(c.discard)) {
 		return
 	}
-	nc.registerAck(&header, ack)
-	c.queueFlagsLocked(header, noCompress, args...)
+	if volatile && (len(c.writeChan) != 0 || len(c.controls) != 0 || cap(c.writeChan) == 0) {
+		return
+	}
+	if len(c.writeChan) >= cap(c.writeChan) {
+		c.overflowWrite(header)
+		return
+	}
+	if event.encodeErr == nil {
+		nc.registerAck(&header, event.ack)
+		event.prepared = event.prepared.WithHeader(header)
+	}
+	c.queuePreparedLocked(header, event.noCompress, event.prepared, event.encodeErr)
 }
 
 func (nc *namespaceConn) registerAck(header *parser.Header, ack *namespace.Func) {
@@ -242,8 +245,10 @@ func (n *namespaces) Range(fn func(ns string, nc *namespaceConn)) {
 }
 
 type bufferedEvent struct {
-	event      string
-	args       []interface{}
+	typed      *typedEmission
+	prepared   *parser.PreparedPacket
+	encodeErr  error
+	ack        *namespace.Func
 	noCompress bool
 }
 
@@ -343,18 +348,19 @@ func (s *Socket) emitFlags(volatile, noCompress bool, event string, args ...inte
 		s.emitVolatileFlags(noCompress, event, args...)
 		return
 	}
+	prepared := prepareEvent(s.namespace, noCompress, event, args)
 	m := s.state
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s.connected && s.nc != nil {
-		s.nc.emitFlags(volatile, noCompress, event, args...)
+		s.nc.queuePreparedEvent(false, prepared)
 		return
 	}
 	if m.buffered >= m.client.limits.writeBufferSize {
 		m.client.log.Warn("socketio: emit buffer full", nspAttr(s.namespace), "event", event)
 		return
 	}
-	s.buffer = append(s.buffer, bufferedEvent{event: event, args: append([]interface{}(nil), args...), noCompress: noCompress})
+	s.buffer = append(s.buffer, prepared)
 	m.buffered++
 }
 
@@ -368,10 +374,11 @@ func (s *Socket) emitVolatileFlags(noCompress bool, event string, args ...interf
 	if !connected || nc == nil || !nc.writable() {
 		return
 	}
+	prepared := prepareEvent(s.namespace, noCompress, event, args)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s.connected && s.nc == nc {
-		nc.queueEventFlags(true, noCompress, event, args...)
+		nc.queuePreparedEvent(true, prepared)
 	}
 }
 
@@ -437,8 +444,19 @@ func (m *clientState) namespaceConnected(current *conn, namespace string, nc *na
 	buffer := s.buffer
 	s.buffer = nil
 	m.buffered -= len(buffer)
-	for _, event := range buffer {
-		nc.emitFlags(false, event.noCompress, event.event, event.args...)
+	for _, record := range buffer {
+		if record.typed == nil {
+			nc.queuePreparedEvent(false, record)
+			continue
+		}
+		emission := record.typed
+		if emission.stop != nil {
+			emission.stop()
+		}
+		err := nc.admitTyped(emission.ctx, record.prepared, emission.request)
+		if err != nil && emission.request != nil {
+			emission.request.complete(event.Payload{}, err)
+		}
 	}
 	m.mu.Unlock()
 	return m.deliverConnect(current, s)
@@ -492,6 +510,7 @@ func (m *clientState) closeSocket(s *Socket, reason string, closeLast bool, expe
 		m.mu.Unlock()
 		return nil
 	}
+	s.cancelBufferedTypedLocked()
 	current, nc, connected := m.conn, s.nc, s.connected
 	s.active, s.connected, s.connectPending = false, false, false
 	s.nc = nil

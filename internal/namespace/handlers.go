@@ -69,7 +69,12 @@ func (nh *Handler) OnError(f func(Conn, error)) {
 	nh.onError = f
 }
 
-func (nh *Handler) Connect(c Conn) error {
+func (nh *Handler) Connect(c Conn) (err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			err = fmt.Errorf("connect callback panic: %v", value)
+		}
+	}()
 	nh.eventsLock.RLock()
 	middleware := append([]func(Conn) error(nil), nh.middleware...)
 	onConnect := nh.onConnect
@@ -120,7 +125,11 @@ func (h *Func) Call(args []reflect.Value) (ret []reflect.Value, err error) {
 		}
 	}()
 
-	ret = h.f.Call(args)
+	if h.f.Type().IsVariadic() && len(args) == h.f.Type().NumIn() && args[len(args)-1].IsValid() && args[len(args)-1].Type() == h.f.Type().In(len(args)-1) {
+		ret = h.f.CallSlice(args)
+	} else {
+		ret = h.f.Call(args)
+	}
 
 	return
 }
@@ -191,10 +200,24 @@ func (nh *Handler) Err() error               { return nh.err }
 func (nh *Handler) ErrorHandler() func(Conn, error) {
 	nh.eventsLock.RLock()
 	defer nh.eventsLock.RUnlock()
-	return nh.onError
+	callback := nh.onError
+	if callback == nil {
+		return nil
+	}
+	return func(c Conn, err error) {
+		defer func() { _ = recover() }()
+		callback(c, err)
+	}
 }
 
 func (nh *Handler) NotifyDisconnect(c Conn, reason string) {
+	defer func() {
+		if value := recover(); value != nil {
+			if callback := nh.ErrorHandler(); callback != nil {
+				callback(c, fmt.Errorf("disconnect callback panic: %v", value))
+			}
+		}
+	}()
 	nh.eventsLock.RLock()
 	callback := nh.onDisconnect
 	nh.eventsLock.RUnlock()
@@ -204,6 +227,9 @@ func (nh *Handler) NotifyDisconnect(c Conn, reason string) {
 }
 
 func (nh *Handler) Use(f func(Conn) error) {
+	if f == nil {
+		return
+	}
 	nh.eventsLock.Lock()
 	nh.middleware = append(nh.middleware, f)
 	nh.eventsLock.Unlock()
@@ -221,3 +247,6 @@ func (nh *Handler) Sockets() []Conn {
 
 // ArgTypes returns the parameter types used by the connection decoder.
 func (h *Func) ArgTypes() []reflect.Type { return h.argTypes }
+
+// Variadic reports whether the final payload type consumes remaining arguments.
+func (h *Func) Variadic() bool { return h.f.Type().IsVariadic() }

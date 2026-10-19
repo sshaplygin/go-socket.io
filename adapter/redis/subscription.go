@@ -31,7 +31,11 @@ func (bc *broadcast) subscribe(ctx context.Context) (*redis.PubSubConn, error) {
 	}
 	sub := &redis.PubSubConn{Conn: c}
 	if err = sub.PSubscribe(bc.pattern); err == nil {
-		err = sub.Subscribe(bc.reqChannel, bc.resChannel)
+		channels := []interface{}{bc.reqChannel, bc.resChannel}
+		if bc.resources != nil {
+			channels = bc.resources.channels()
+		}
+		err = sub.Subscribe(channels...)
 	}
 	if err != nil {
 		_ = sub.Close()
@@ -49,13 +53,10 @@ func (bc *broadcast) dispatch() {
 	for {
 		switch m := sub.Receive().(type) {
 		case redis.Message:
-			switch m.Channel {
-			case bc.reqChannel:
-				bc.onRequest(m.Data)
-			case bc.resChannel:
-				bc.onResponse(m.Data)
-			default:
-				_ = bc.onMessage(m.Channel, m.Data)
+			if bc.resources != nil {
+				bc.resources.dispatch(m)
+			} else {
+				bc.handleMessage(m)
 			}
 
 		case redis.Subscription:
@@ -87,11 +88,12 @@ func (bc *broadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.D
 		case <-time.After(delay):
 		}
 
-		sub, err := bc.subscribe(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+		sub, err := bc.subscribe(ctx)
+		cancel()
 		if err != nil {
 			continue
 		}
-
 		bc.subLock.Lock()
 		defer bc.subLock.Unlock()
 		select {
@@ -99,16 +101,37 @@ func (bc *broadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.D
 			_ = sub.Close()
 			return nil, 0
 		default:
+			if bc.resources != nil {
+				// Membership may have changed while this connection was dialed.
+				if err = sub.Unsubscribe(); err == nil {
+					err = sub.Subscribe(bc.resources.channels()...)
+				}
+				if err != nil {
+					_ = sub.Close()
+					return bc.sub, min(2*delay, redisReconnectMax)
+				}
+			}
 			bc.sub = sub
 			return sub, min(2*delay, redisReconnectMax)
 		}
 	}
 }
 
-// Close stops the dispatch goroutine and closes the connections.
+// Close stops this adapter. Shared transports remain open for other adapters.
 func (bc *broadcast) Close() error {
+	if bc.closed.Swap(true) {
+		return nil
+	}
+	if bc.resources != nil {
+		return bc.resources.remove(bc)
+	}
 	bc.subLock.Lock()
 	defer bc.subLock.Unlock()
+	return bc.closeTransport()
+}
+
+// closeTransport requires subLock.
+func (bc *broadcast) closeTransport() error {
 	select {
 	case <-bc.done:
 		return nil
@@ -119,4 +142,18 @@ func (bc *broadcast) Close() error {
 	_ = bc.sub.Close()
 	_ = bc.pub.Close()
 	return nil
+}
+
+func (bc *broadcast) handleMessage(m redis.Message) {
+	if bc.closed.Load() {
+		return
+	}
+	switch m.Channel {
+	case bc.reqChannel:
+		bc.onRequest(m.Data)
+	case bc.resChannel:
+		bc.onResponse(m.Data)
+	default:
+		_ = bc.onMessage(m.Channel, m.Data)
+	}
 }

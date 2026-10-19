@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 
+	typed "github.com/sshaplygin/go-socket.io/internal/event"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -17,6 +18,7 @@ func (nh *Handler) OnEvent(event string, f interface{}) {
 	listener := &Listener{handler: NewEventFunc(f)}
 	nh.eventsLock.Lock()
 	defer nh.eventsLock.Unlock()
+	delete(nh.typed, event)
 	nh.events[event] = []*Listener{listener}
 }
 
@@ -24,8 +26,11 @@ func (nh *Handler) AddListener(event string, f interface{}, once bool) func() {
 	listener := &Listener{handler: NewEventFunc(f), once: once}
 	nh.eventsLock.Lock()
 	defer nh.eventsLock.Unlock()
+	if _, exists := nh.typed[event]; exists {
+		panic("typed and legacy event listeners cannot coexist")
+	}
 	current := nh.events[event]
-	if len(current) > 0 && !reflect.DeepEqual(current[0].handler.argTypes, listener.handler.argTypes) {
+	if len(current) > 0 && (!reflect.DeepEqual(current[0].handler.argTypes, listener.handler.argTypes) || current[0].handler.Variadic() != listener.handler.Variadic()) {
 		panic("event listeners must have identical argument types")
 	}
 	nh.events[event] = append(current, listener)
@@ -56,6 +61,7 @@ func (nh *Handler) Off(event string) {
 	nh.eventsLock.Lock()
 	defer nh.eventsLock.Unlock()
 	delete(nh.events, event)
+	delete(nh.typed, event)
 }
 
 func (nh *Handler) Listeners(event string) []*Listener {
@@ -140,3 +146,34 @@ func getDispatchMessage(args ...reflect.Value) string {
 }
 
 func (l *Listener) ArgTypes() []reflect.Type { return l.handler.argTypes }
+
+func (l *Listener) Variadic() bool { return l.handler.Variadic() }
+
+// RegisterEvent atomically reserves one typed schema against legacy listeners.
+func (nh *Handler) RegisterEvent(name string, handler typed.Handler) error {
+	if err := typed.ValidateName(name); err != nil {
+		return err
+	}
+	if !handler.Valid() {
+		return typed.ErrInvalidPayload
+	}
+	nh.eventsLock.Lock()
+	defer nh.eventsLock.Unlock()
+	if len(nh.events[name]) != 0 {
+		return typed.ErrDuplicateEvent
+	}
+	if _, exists := nh.typed[name]; exists {
+		return typed.ErrDuplicateEvent
+	}
+	if nh.typed == nil {
+		nh.typed = make(map[string]typed.Handler)
+	}
+	nh.typed[name] = handler
+	return nil
+}
+func (nh *Handler) EventSnapshot(name string) ([]*Listener, typed.Handler, bool) {
+	nh.eventsLock.RLock()
+	defer nh.eventsLock.RUnlock()
+	handler, exists := nh.typed[name]
+	return append([]*Listener(nil), nh.events[name]...), handler, exists
+}

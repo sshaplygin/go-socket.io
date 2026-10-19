@@ -19,7 +19,9 @@ type broadcast struct {
 	// pub serves PUBLISH and PUBSUB commands. A redigo connection allows only
 	// one concurrent caller, and these commands come from user goroutines and
 	// the dispatch goroutine, so each command takes its own pooled connection.
-	pub *redis.Pool
+	pub       *redis.Pool
+	resources *sharedResources
+	closed    atomic.Bool // per-adapter state, independent from shared transport lifetime
 	// sub is read by the dispatch goroutine and replaced by it after a
 	// receive error; subLock orders the replacement with close.
 	sub     *redis.PubSubConn
@@ -44,6 +46,10 @@ type broadcast struct {
 }
 
 func newBroadcast(nsp string, opts *options) (*broadcast, error) {
+	return newBroadcastWithResources(nsp, opts, nil)
+}
+
+func newBroadcastWithResources(nsp string, opts *options, shared *sharedResources) (*broadcast, error) {
 	addr := opts.getAddr()
 	var redisOpts []redis.DialOption
 	if len(opts.Password) > 0 {
@@ -104,6 +110,12 @@ func newBroadcast(nsp string, opts *options) (*broadcast, error) {
 		uid:        uid,
 	}
 	rbc.dial.Store(&dial)
+	if shared != nil {
+		rbc.resources = shared
+		rbc.pattern = fmt.Sprintf("%s#*", opts.Prefix)
+		shared.owner = rbc
+		shared.members[nsp] = []*broadcast{rbc}
+	}
 
 	if rbc.sub, err = rbc.subscribe(ctx); err != nil {
 		_ = pub.Close()
@@ -115,7 +127,13 @@ func newBroadcast(nsp string, opts *options) (*broadcast, error) {
 	return rbc, nil
 }
 
-func (bc *broadcast) Clear(room string) { bc.Memory.Clear(room); go bc.publishClear(room) }
+func (bc *broadcast) Clear(room string) {
+	if bc.closed.Load() {
+		return
+	}
+	bc.Memory.Clear(room)
+	go bc.publishClear(room)
+}
 
 // Send emits to a room, registering a trailing callback on each local socket.
 func (bc *broadcast) Send(room, event string, args ...interface{}) {
@@ -145,6 +163,9 @@ func (bc *broadcast) Rooms(connection adapter.Socket) []string {
 // publishing; Volatile and NoCompress are honoured locally and are not carried
 // to other instances.
 func (bc *broadcast) SendTo(opts adapter.Options, event string, args ...interface{}) error {
+	if bc.closed.Load() {
+		return errAdapterClosed
+	}
 	if len(opts.Except) != 0 {
 		return fmt.Errorf("redis broadcast: %w", adapter.ErrExceptUnsupported)
 	}
@@ -160,7 +181,7 @@ func (bc *broadcast) SendTo(opts adapter.Options, event string, args ...interfac
 	for _, room := range opts.Rooms {
 		if !seen[room] {
 			seen[room] = true
-			bc.publishMessage(room, event, args...)
+			bc.publishRoomMessage(room, event, args...)
 		}
 	}
 	return nil

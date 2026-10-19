@@ -12,7 +12,7 @@ func (nh *Handler) CopyRegistrations(child *Handler) {
 	for event, listeners := range nh.events {
 		copied := make([]*Listener, 0, len(listeners))
 		for _, listener := range listeners {
-			copied = append(copied, &Listener{handler: listener.handler, once: listener.once})
+			copied = append(copied, &Listener{handler: listener.handler, typed: listener.typed, once: listener.once})
 		}
 		child.events[event] = copied
 	}

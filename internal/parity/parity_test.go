@@ -20,6 +20,7 @@ import (
 )
 
 var rowID = regexp.MustCompile(`^[A-Z][0-9]+$`)
+var auditMarker = regexp.MustCompile(`^//[ \t]*Covers:?[ \t]+[A-Z][0-9]+`)
 var markerID = regexp.MustCompile(`^// Covers ([A-Z][0-9]+)( |$)`)
 
 type testRef struct{ dir, name string }
@@ -198,6 +199,9 @@ func checkParity(root string, strict bool, listed testInventory) error {
 				}
 				match := markerID.FindStringSubmatch(comment.Text)
 				if match == nil {
+					if auditMarker.MatchString(comment.Text) {
+						problems = append(problems, fmt.Sprintf("malformed Covers marker %q in %s:%d", comment.Text, path, position.Line))
+					}
 					continue
 				}
 				id := match[1]

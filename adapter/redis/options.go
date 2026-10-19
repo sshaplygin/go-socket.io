@@ -3,6 +3,7 @@ package redis
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/sshaplygin/go-socket.io/adapter"
 )
@@ -72,7 +73,8 @@ func getOptions(opts *options) *options {
 type Option func(*options)
 
 // New returns a namespace factory. It performs no I/O until applied to a namespace.
-// Each namespace dials publishing and subscriber connections within ten seconds.
+// Namespaces share one subscriber and a publishing pool per factory. Initial
+// construction dials publishing and subscriber connections within ten seconds.
 // Subscription commands are sent before construction returns, but remote delivery
 // starts only once Redis has registered them. Lost subscriptions reconnect with
 // bounded backoff. Server.Serve reports the first namespace construction error.
@@ -93,11 +95,27 @@ func New(opts ...Option) adapter.Factory {
 		}
 	}
 	resolved := getOptions(config)
+	var creation sync.Mutex
+	var resources *sharedResources
 	return func(namespace string) (adapter.Adapter, error) {
-		instance, err := newBroadcast(namespace, resolved)
+		creation.Lock()
+		defer creation.Unlock()
+		if resources != nil {
+			select {
+			case <-resources.owner.done:
+				resources = nil
+			default:
+			}
+		}
+		if resources != nil {
+			return resources.add(namespace, resolved)
+		}
+		shared := &sharedResources{members: make(map[string][]*broadcast)}
+		instance, err := newBroadcastWithResources(namespace, resolved, shared)
 		if err != nil {
 			return nil, err
 		}
+		resources = shared
 		return instance, nil
 	}
 }

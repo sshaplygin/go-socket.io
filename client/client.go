@@ -29,7 +29,7 @@ func New(addr string, opts ...Option) (*Client, error) {
 	}
 	address, namespace, config := prepareOptions(u, opts...)
 	return &Client{manager: connection.NewManager(address, namespace, connection.Config{
-		Transports: config.Transports, Header: config.Header, Timeout: config.Timeout,
+		MaxMessageSize: config.MaxMessageSize, Transports: config.Transports, Header: config.Header, Timeout: config.Timeout,
 		WriteBufferSize: config.WriteBufferSize, CloseTimeout: config.CloseTimeout,
 		DisableReconnection: config.DisableReconnection, ReconnectionAttempts: config.ReconnectionAttempts,
 		ReconnectionDelay: config.ReconnectionDelay, ReconnectionDelayMax: config.ReconnectionDelayMax,

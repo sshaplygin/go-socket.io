@@ -53,6 +53,8 @@ func TestForbiddenProductionImports(t *testing.T) {
 		{"client", ""}, {"client", "engineio"},
 		{"client/internal/connection", "internal/connection"},
 		{"client/internal/namespace", "internal/namespace"},
+		{"internal/event", ""}, {"internal/event", "client"},
+		{"internal/event", "internal/connection"}, {"internal/event", "adapter"},
 		{"engineio/client", "engineio/internal/session"},
 		{"parser", "engineio/parser"},
 		{"engineio/parser/internal/packet", "engineio/internal/session"},

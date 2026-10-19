@@ -26,7 +26,7 @@ func reconnectServer(t *testing.T, address string) (string, func()) {
 	for _, ns := range []string{"/", "/chat", "/gone"} {
 		srv.OnConnect(ns, func(socketio.Conn) error { return nil })
 		srv.OnEvent(ns, "echo", func(_ socketio.Conn, value string) string { return value })
-		srv.OnEvent(ns, "disconnect", func(c socketio.Conn) { c.Disconnect() })
+		srv.OnEvent(ns, "request-disconnect", func(c socketio.Conn) { c.Disconnect() })
 	}
 	httpServer := &http.Server{Handler: srv, ReadHeaderTimeout: time.Second}
 	done := make(chan struct{})
@@ -78,7 +78,7 @@ func TestClientReconnect(t *testing.T) {
 			c := recv(t, connected, "initial namespace")
 			initial[c.Namespace()] = c
 		}
-		gone.Emit("disconnect")
+		gone.Emit("request-disconnect")
 		require.Equal(t, "/gone:io server disconnect", recv(t, disconnected, "server namespace disconnect"))
 		stop()
 		for i := 0; i < 2; i++ {
@@ -161,7 +161,7 @@ func TestClientReconnect(t *testing.T) {
 			case "disabled":
 				stop()
 			case "server disconnect":
-				cl.Emit("disconnect")
+				cl.Emit("request-disconnect")
 			case "client close":
 				require.NoError(t, cl.Close())
 			case "last socket close":

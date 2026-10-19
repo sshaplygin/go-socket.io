@@ -2,6 +2,7 @@ package namespace
 
 import (
 	"errors"
+	eventImpl "github.com/sshaplygin/go-socket.io/internal/event"
 	"reflect"
 
 	"github.com/sshaplygin/go-socket.io/parser"
@@ -9,6 +10,7 @@ import (
 
 type Listener struct {
 	handler *Func
+	typed   *eventImpl.Handler
 	once    bool
 	fired   bool // protected by eventsLock; snapshots share this claim
 }
@@ -25,7 +27,7 @@ func (nh *Handler) AddListener(event string, f interface{}, once bool) func() {
 	nh.eventsLock.Lock()
 	defer nh.eventsLock.Unlock()
 	current := nh.events[event]
-	if len(current) > 0 && !reflect.DeepEqual(current[0].handler.argTypes, listener.handler.argTypes) {
+	if len(current) > 0 && (current[0].typed != nil || !reflect.DeepEqual(current[0].handler.argTypes, listener.handler.argTypes) || current[0].handler.Variadic() != listener.handler.Variadic()) {
 		panic("event listeners must have identical argument types")
 	}
 	nh.events[event] = append(current, listener)
@@ -67,7 +69,7 @@ func (nh *Handler) Listeners(event string) []*Listener {
 func (nh *Handler) getEventTypes(event string) []reflect.Type {
 	listeners := nh.Listeners(event)
 	if len(listeners) != 0 {
-		return listeners[0].handler.argTypes
+		return listeners[0].ArgTypes()
 	}
 	return nil
 }
@@ -147,4 +149,35 @@ func getDispatchMessage(args ...reflect.Value) string {
 	return msg
 }
 
-func (l *Listener) ArgTypes() []reflect.Type { return l.handler.argTypes }
+func (l *Listener) ArgTypes() []reflect.Type {
+	if l.handler == nil {
+		return nil
+	}
+	return l.handler.argTypes
+}
+
+func (l *Listener) Variadic() bool { return l.handler != nil && l.handler.Variadic() }
+
+// RegisterEvent installs a typed handler only if the event has no registration.
+func (nh *Handler) RegisterEvent(name string, handler eventImpl.Handler) error {
+	if err := eventImpl.ValidateName(name); err != nil {
+		return err
+	}
+	if !handler.Valid() {
+		return eventImpl.ErrInvalidPayload
+	}
+	nh.eventsLock.Lock()
+	defer nh.eventsLock.Unlock()
+	if len(nh.events[name]) != 0 {
+		return eventImpl.ErrDuplicateEvent
+	}
+	nh.events[name] = []*Listener{{typed: &handler}}
+	return nil
+}
+
+func (l *Listener) TypedHandler() (eventImpl.Handler, bool) {
+	if l.typed == nil {
+		return eventImpl.Handler{}, false
+	}
+	return *l.typed, true
+}

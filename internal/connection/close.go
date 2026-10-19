@@ -21,12 +21,34 @@ func (c *Connection) Close() error {
 	}
 	c.draining, c.drainTimer = true, time.AfterFunc(c.drainTimeout, c.stop)
 	c.mu.Unlock()
-	c.disconnect(ncs)
+	c.disconnectGraceful(ncs)
 	c.mu.Lock()
 	c.appSealed = true
 	c.sealIfReady()
 	c.mu.Unlock()
 	return nil
+}
+
+// disconnectGraceful defers a namespace's callbacks while its admission callback
+// runs. Close remains callable from that callback and the seal waits for controls.
+func (c *Connection) disconnectGraceful(ncs []*namespaceConn) {
+	for _, nc := range ncs {
+		nc.outMu.Lock()
+		done := nc.connectDone
+		nc.outMu.Unlock()
+		if done != nil && !isDone(done) {
+			c.mu.Lock()
+			c.controlPending++
+			c.mu.Unlock()
+			go func() {
+				<-done
+				c.disconnect([]*namespaceConn{nc})
+				c.controlEnqueued()
+			}()
+		} else {
+			c.disconnect([]*namespaceConn{nc})
+		}
+	}
 }
 
 // sealIfReady lets the writer finish once application writes are sealed and
@@ -50,6 +72,7 @@ func (c *Connection) startClose() (ncs []*namespaceConn) {
 	close(c.closing)
 	c.namespaces.Range(func(_ string, nc *namespaceConn) { ncs = append(ncs, nc) })
 	for _, nc := range ncs {
+		nc.endTyped()
 		c.namespaces.Delete(fmtNS(nc.namespace))
 	}
 	c.disconnects.Add(len(ncs))
@@ -91,11 +114,28 @@ func (c *Connection) disconnect(ncs []*namespaceConn) {
 	reason := c.disconnectReason
 	c.mu.Unlock()
 	for _, nc := range ncs {
+		nc.outMu.Lock()
+		rejected := nc.connectErr != nil
+		nc.outMu.Unlock()
+		if c.boundary && c.draining && rejected {
+			nc.reject()
+			c.mu.Lock()
+			c.disconnecting--
+			c.mu.Unlock()
+			c.disconnects.Done()
+			continue
+		}
 		if c.boundary && c.draining {
 			nc.acceptPending()
 			c.write(parser.Header{Type: parser.Disconnect, Namespace: fmtNS(nc.namespace)})
 		}
+		nc.outMu.Lock()
+		nc.disconnectEmits = true
+		nc.outMu.Unlock()
 		c.disconnectNamespace(nc, reason)
+		nc.outMu.Lock()
+		nc.disconnectEmits = false
+		nc.outMu.Unlock()
 		if c.boundary {
 			c.log.Debug("socketio: disconnect", nspAttr(nc.namespace), "reason", "connection close")
 		}
@@ -128,6 +168,8 @@ func (c *Connection) disconnectNamespace(nc *namespaceConn, reason string) {
 	if nh != nil {
 		nh.NotifyDisconnect(nc, reason)
 	}
+	c.finishRetirement(nc)
+
 }
 
 // finishRead obtains the final engine cause on the read goroutine, after Decode
@@ -135,7 +177,7 @@ func (c *Connection) disconnectNamespace(nc *namespaceConn, reason string) {
 func (c *Connection) finishRead() {
 	reason := "forced close"
 	var closed *engineio.CloseError
-	failed := c.reader.failed
+	failed := c.reader.failure()
 	if failed != nil && !errors.As(failed, &closed) {
 		// Dispatch has ended and its error was already reported. Start the
 		// close before the engine shuts down, so the writer cannot report that
@@ -168,10 +210,20 @@ func (c *Connection) finishRead() {
 func (c *Connection) register(nsp string, nc *namespaceConn) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !isDone(c.closing) {
-		c.namespaces.Set(nsp, nc)
+	if isDone(c.closing) {
+		return false
 	}
-	return !isDone(c.closing)
+	if _, exists := c.namespaces.Get(nsp); exists {
+		return false
+	}
+	if _, retiring := c.retiring[nsp]; retiring {
+		return false
+	}
+	if isDone(c.engineDone) {
+		nc.endTyped()
+	}
+	c.namespaces.Set(nsp, nc)
+	return true
 }
 
 func (c *Connection) claim(nsp string, expected ...*namespaceConn) (*namespaceConn, bool) {
@@ -194,7 +246,11 @@ func (c *Connection) claimNamespace(nsp string, disconnect, control bool, expect
 		return nil, false
 	}
 	c.namespaces.Delete(nsp)
+	if ok {
+		nc.endTyped()
+	}
 	if ok && disconnect {
+		c.retiring[nsp] = nil
 		c.disconnects.Add(1)
 		c.disconnecting++
 	}
@@ -205,3 +261,42 @@ func (c *Connection) claimNamespace(nsp string, disconnect, control bool, expect
 }
 
 func (f frameIO) Close() error { return f.mark(f.c.Close()) }
+
+// finishRetirement schedules replacement admission on the reader after the old
+// socket has left its rooms. The retiring entry remains until that task is taken,
+// so another CONNECT cannot admit a replacement on a different path meanwhile.
+func (c *Connection) finishRetirement(nc *namespaceConn) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	nsp := fmtNS(nc.namespace)
+	if c.retiring[nsp] == nil || isDone(c.closing) {
+		delete(c.retiring, nsp)
+		return
+	}
+	c.reconnectReady = append(c.reconnectReady, nsp)
+	select {
+	case c.readReady <- struct{}{}:
+	default:
+	}
+}
+
+func (c *Connection) runReconnects() error {
+	for {
+		c.mu.Lock()
+		if len(c.reconnectReady) == 0 {
+			c.mu.Unlock()
+			return nil
+		}
+		nsp := c.reconnectReady[0]
+		c.reconnectReady[0] = ""
+		c.reconnectReady = c.reconnectReady[1:]
+		header := c.retiring[nsp]
+		delete(c.retiring, nsp)
+		c.mu.Unlock()
+		if header != nil {
+			if err := connectNamespace(c, *header); err != nil {
+				return err
+			}
+		}
+	}
+}

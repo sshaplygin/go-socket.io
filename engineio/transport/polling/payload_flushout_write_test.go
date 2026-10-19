@@ -1,16 +1,16 @@
 package polling
 
 import (
+	"context"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"io"
+	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
 // gatedWriter blocks its first Write until release is closed and counts the writes
@@ -91,4 +91,25 @@ func TestPayloadFlushOutWaitsForWriter(t *testing.T) {
 			assert.Zero(t, w.late.Load(), "writes reached w after FlushOut returned")
 		})
 	}
+}
+
+// Covers G11
+func TestCanceledPollFailsTransportBeforeNextWrite(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest("GET", "http://localhost/?transport=polling", nil).WithContext(ctx)
+	c := newServerConn(Default, req)
+	defer func() { _ = c.Close() }()
+	done := make(chan struct{})
+	go func() { defer close(done); c.ServeHTTP(httptest.NewRecorder(), req) }()
+	require.Eventually(t, c.Writable, time.Second, time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("canceled poll retained handler")
+	}
+	_, err := c.NextWriter(eioparser.String, eioparser.MESSAGE)
+	require.EqualError(t, err, "write: context canceled")
+	_, _, _, err = c.NextReader()
+	require.EqualError(t, err, "write: context canceled")
 }

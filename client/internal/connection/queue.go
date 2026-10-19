@@ -11,25 +11,40 @@ func (c *conn) write(header parser.Header, args ...reflect.Value) {
 }
 
 func (c *conn) writeFlags(header parser.Header, noCompress bool, args ...reflect.Value) {
+	packet, err := preparePayload(header, args)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.queueFlagsLocked(header, noCompress, args...)
+	c.queuePreparedLocked(header, noCompress, packet, err)
 }
 
-// queueFlagsLocked admits a packet with the queue budget and close state locked.
-func (c *conn) queueFlagsLocked(header parser.Header, noCompress bool, args ...reflect.Value) {
+func preparePayload(header parser.Header, args []reflect.Value) (*parser.PreparedPacket, error) {
 	data := make([]interface{}, len(args))
 	for i := range data {
 		if args[i].IsValid() {
 			data[i] = args[i].Interface()
 		}
 	}
+	switch header.Type {
+	case parser.Connect, parser.Disconnect:
+		return parser.Prepare(header)
+	case parser.Error:
+		if len(data) > 0 {
+			return parser.Prepare(header, data[0])
+		}
+		return parser.Prepare(header)
+	default:
+		return parser.Prepare(header, data)
+	}
+}
+
+// queuePreparedLocked admits a frozen packet with queue and close state locked.
+func (c *conn) queuePreparedLocked(header parser.Header, noCompress bool, packet *parser.PreparedPacket, encodeErr error) {
 	if isDone(c.closing) && (!c.draining || c.appSealed || isDone(c.discard)) {
 		return
 	}
 	if len(c.writeChan) < cap(c.writeChan) {
 		c.enqueued++
-		c.writeChan <- queuedPayload{payload: outboundPayload{Payload: parser.Payload{Header: header, Data: data}, noCompress: noCompress}, sequence: c.enqueued}
+		c.writeChan <- queuedPayload{payload: outboundPayload{Payload: parser.Payload{Header: header}, noCompress: noCompress, prepared: packet, encodeErr: encodeErr}, sequence: c.enqueued}
 		c.notifyWrite()
 	} else if !isDone(c.closing) {
 		c.overflowWrite(header)
@@ -123,4 +138,6 @@ func (c *conn) runReadTasks() {
 type outboundPayload struct {
 	parser.Payload
 	noCompress bool
+	prepared   *parser.PreparedPacket
+	encodeErr  error
 }

@@ -19,22 +19,9 @@ func (c *serverConn) NextWriter(ft eioparser.FrameType, pt eioparser.PacketType)
 
 // NextWriterCompress carries the flag until the payload encoder writes its frame.
 func (c *serverConn) NextWriterCompress(ft eioparser.FrameType, pt eioparser.PacketType, compress bool) (io.WriteCloser, error) {
-	w, err := c.payload.NextWriter(ft, pt)
-	if err != nil {
-		return nil, err
-	}
-	return flaggedWriter{WriteCloser: w, conn: c, compress: compress}, nil
-}
-
-type flaggedWriter struct {
-	io.WriteCloser
-	conn     *serverConn
-	compress bool
-}
-
-func (w flaggedWriter) Close() error {
-	w.conn.noCompress.Store(!w.compress)
-	return w.WriteCloser.Close()
+	c.noCompress.Store(!compress)
+	c.payload.compress.Store(compress)
+	return c.payload.NextWriter(ft, pt)
 }
 
 // SetSessionID installs a private cookie before the handshake response.
@@ -46,56 +33,65 @@ func (c *serverConn) SetSessionID(id string) {
 	}
 }
 
-// The payload encoder writes one length/type header and one body per response;
-// an empty frame (and NOOP) consists of the header alone. Keep only that short
-// header until the body length is known. Network errors still reach the payload
-// writer synchronously, before FlushOut reports completion.
+// responseWriter chooses the HTTP encoding from the first complete packet and
+// keeps one compression stream for the entire batch. Packet writes flush that
+// stream so network failures still reach the active packet writer synchronously.
 type responseWriter struct {
-	w        http.ResponseWriter
-	conn     *serverConn
-	encoding string
-	prefix   []byte
+	w          http.ResponseWriter
+	conn       *serverConn
+	encoding   string
+	prefix     []byte
+	out        io.Writer
+	compressor interface {
+		io.WriteCloser
+		Flush() error
+	}
 }
 
 func (w *responseWriter) Write(p []byte) (int, error) {
-	if w.prefix == nil && !completeHeader(p) {
-		w.prefix = bytes.Clone(p)
-		return len(p), nil
-	}
-	compress := !w.conn.noCompress.Load()
-	if w.prefix == nil && (bytes.Equal(p, []byte("1:6")) || bytes.Equal(p, []byte{0, 1, 255, '6'})) {
-		compress = true // transport-generated NOOP has the default flag
-	}
-	threshold := w.conn.transport.CompressionThreshold
-	if threshold <= 0 {
-		threshold = 1024
-	}
-	var out io.Writer = w.w
-	var closer io.Closer
-	if compress && len(w.prefix)+len(p) >= threshold && w.encoding != "" {
-		w.w.Header().Set("Content-Encoding", w.encoding)
-		w.w.Header().Del("Content-Length")
-		if w.encoding == "gzip" {
-			out = gzip.NewWriter(w.w)
-		} else {
-			out = zlib.NewWriter(w.w)
+	if w.out == nil {
+		if w.prefix == nil && !completeHeader(p) {
+			w.prefix = bytes.Clone(p)
+			return len(p), nil
 		}
-		closer = out.(io.Closer)
-	}
-	var err error
-	if len(w.prefix) != 0 {
-		_, err = out.Write(w.prefix)
-	}
-	var n int
-	if err == nil {
-		n, err = out.Write(p)
-	}
-	if closer != nil {
-		if closeErr := closer.Close(); err == nil {
-			err = closeErr
+		compress := !w.conn.noCompress.Load()
+		if w.prefix == nil && (bytes.Equal(p, []byte("1:6")) || bytes.Equal(p, []byte{0, 1, 255, '6'})) {
+			compress = true
 		}
+		threshold := w.conn.transport.CompressionThreshold
+		if threshold <= 0 {
+			threshold = 1024
+		}
+		w.out = w.w
+		if compress && len(w.prefix)+len(p) >= threshold && w.encoding != "" {
+			w.w.Header().Set("Content-Encoding", w.encoding)
+			w.w.Header().Del("Content-Length")
+			if w.encoding == "gzip" {
+				w.compressor = gzip.NewWriter(w.w)
+			} else {
+				w.compressor = zlib.NewWriter(w.w)
+			}
+			w.out = w.compressor
+		}
+		if len(w.prefix) != 0 {
+			if _, err := w.out.Write(w.prefix); err != nil {
+				return 0, err
+			}
+			w.prefix = nil
+		}
+	}
+	n, err := w.out.Write(p)
+	if err == nil && w.compressor != nil {
+		err = w.compressor.Flush()
 	}
 	return n, err
+}
+
+func (w *responseWriter) Close() error {
+	if w.compressor != nil {
+		return w.compressor.Close()
+	}
+	return nil
 }
 
 func completeHeader(p []byte) bool {

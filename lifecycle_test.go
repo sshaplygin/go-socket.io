@@ -1,19 +1,19 @@
 package socketio
 
 import (
-	"io"
-	"net/http/httptest"
-	"testing"
-	"time"
-
-	"github.com/stretchr/testify/require"
-
+	"errors"
 	"github.com/sshaplygin/go-socket.io/adapter"
 	client "github.com/sshaplygin/go-socket.io/client"
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
+	"github.com/stretchr/testify/require"
+	"io"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+	"time"
 )
 
 const waitFor = 5 * time.Second
@@ -198,4 +198,60 @@ func TestLifecycleNamespace(t *testing.T) {
 
 	c.send("1/chat")
 	require.Equal(t, "/chat", recv(t, nspDisconnected, "OnDisconnect(/chat)"))
+}
+
+// Covers G4
+// Covers G18
+func TestRejectedAdmissionDuringCloseDoesNotConnect(t *testing.T) {
+	entered, release := make(chan Conn, 1), make(chan struct{})
+	s := NewServer()
+	fc := newFakeConn(t)
+	s.OnConnect("/", func(c Conn) error { entered <- c; <-release; return errors.New("reject") })
+	done := make(chan struct{})
+	go func() { s.serveConn(fc); close(done) }()
+	c := recv(t, entered, "admission")
+	require.NoError(t, c.Close())
+	close(release)
+	recv(t, done, "startup completed")
+	require.Empty(t, drain(fc.out), "rejected admission must not send CONNECT or DISCONNECT")
+	require.NoError(t, s.Close())
+}
+
+// Covers G4
+func TestRejectedAdmissionAfterNamespaceDisconnectHasNoLifecycle(t *testing.T) {
+	seen := make(chan string, 4)
+	s, url := defectServer(t, func(s *Server) {
+		s.OnConnect("/chat", func(c Conn) error { c.Disconnect(); return errors.New("rejected") })
+		s.Of("/chat").On("disconnecting", func(Conn, string) { seen <- "disconnecting" })
+		s.OnDisconnect("/chat", func(Conn, string) { seen <- "disconnect" })
+		s.OnEvent("/", "barrier", func(c Conn) { c.Emit("barrier") })
+	})
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	c.send("0/chat,")
+	require.Equal(t, "4/chat,\"rejected\"\n", c.read())
+	// Close waits for every claimed disconnect, including the rejected one.
+	require.NoError(t, s.Close())
+	require.Empty(t, seen, "a rejected socket never entered the connected lifecycle")
+}
+
+// Covers G4
+func TestRegressionG4CloseDoesNotDisconnectDuringConnect(t *testing.T) {
+	entered := make(chan Conn, 1)
+	release := make(chan struct{})
+	var inConnect atomic.Bool
+	disconnected := make(chan bool, 1)
+	_, url := defectServer(t, func(s *Server) {
+		s.OnConnect("/chat", func(c Conn) error { inConnect.Store(true); entered <- c; <-release; inConnect.Store(false); return nil })
+		s.OnDisconnect("/chat", func(Conn, string) { disconnected <- inConnect.Load() })
+	})
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	c.send("0/chat,")
+	nc := recv(t, entered, "OnConnect entered")
+	done := make(chan struct{})
+	go func() { _ = nc.Close(); close(done) }()
+	recv(t, done, "Close returned without waiting on admission")
+	close(release)
+	require.False(t, recv(t, disconnected, "deferred OnDisconnect"), "OnDisconnect ran before OnConnect returned")
 }

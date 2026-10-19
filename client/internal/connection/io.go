@@ -127,18 +127,13 @@ func (c *conn) serveWrite() {
 		}
 		c.writer.failed = nil
 		c.writer.noCompress = pkg.noCompress
-		var err error
-		switch pkg.Header.Type {
-		case parser.Connect, parser.Disconnect:
-			err = c.encoder.Encode(pkg.Header)
-		case parser.Error:
-			if len(pkg.Data) > 0 {
-				err = c.encoder.Encode(pkg.Header, pkg.Data[0])
+		err := pkg.encodeErr
+		if err == nil {
+			if pkg.prepared != nil {
+				err = c.encoder.EncodePrepared(pkg.prepared)
 			} else {
 				err = c.encoder.Encode(pkg.Header)
 			}
-		default:
-			err = c.encoder.Encode(pkg.Header, pkg.Data)
 		}
 		if err != nil {
 			c.report(pkg.Header.Namespace, err, c.writer.failed)

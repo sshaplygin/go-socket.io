@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/sshaplygin/go-socket.io/client/internal/namespace"
+	"github.com/sshaplygin/go-socket.io/internal/event"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -19,6 +20,19 @@ func ackPacketHandler(c *conn, header parser.Header) error {
 		return nil
 	}
 
+	c.mu.Lock()
+	typed := nc.typedAcks[header.ID]
+	c.mu.Unlock()
+	if typed != nil {
+		if typed.finished.Load() {
+			_ = c.decoder.DiscardLast()
+			return nil
+		}
+		value, err := event.DecodeAck(c.decoder, typed.schema)
+		typed.complete(value, err)
+		typed.remove()
+		return nil
+	}
 	defer nc.ack.Delete(header.ID)
 
 	rawFunc, ok := nc.ack.Load(header.ID)
@@ -39,7 +53,7 @@ func ackPacketHandler(c *conn, header parser.Header) error {
 	if types == nil {
 		types = []reflect.Type{}
 	}
-	args, err := c.decoder.DecodeArgs(types)
+	args, err := decodeCallbackArgs(c.decoder, types, handler.Variadic())
 	if err != nil {
 		c.log.Debug("socketio: ack decode failed", nspAttr(header.Namespace), "err", err)
 		c.onError(header.Namespace, err)
@@ -75,7 +89,10 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 		return nil
 	}
 
-	snapshot := handler.Listeners(event)
+	snapshot, typed, hasTyped := handler.EventSnapshot(event)
+	if hasTyped {
+		return dispatchTyped(c, conn, header, typed)
+	}
 	var types []reflect.Type
 	if len(snapshot) != 0 {
 		types = snapshot[0].ArgTypes()
@@ -83,7 +100,7 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 			types = []reflect.Type{}
 		}
 	}
-	args, err := c.decoder.DecodeArgs(types)
+	args, err := decodeCallbackArgs(c.decoder, types, len(snapshot) > 0 && snapshot[0].Variadic())
 	if err != nil {
 		c.onError(header.Namespace, err)
 		c.log.Debug("socketio: event decode failed", nspAttr(header.Namespace), "event", event, "err", err)
@@ -116,7 +133,7 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 		return errHandleDispatch
 	}
 
-	if !ownsAck && (len(ret) > 0 || header.NeedAck) {
+	if !ownsAck && header.NeedAck && len(snapshot) != 0 {
 		header.Type = parser.Ack
 		c.write(header, ret...)
 	}
@@ -166,6 +183,7 @@ func clientConnectPacketHandler(c *conn, header parser.Header) error {
 		conn.Join(conn.ID())
 	}
 	if err := c.owner.namespaceConnected(c, header.Namespace, conn); err != nil {
+		conn.endTyped()
 		c.onError(header.Namespace, err)
 		return errHandleDispatch
 	}
@@ -179,4 +197,11 @@ func clientDisconnectPacketHandler(c *conn, header parser.Header) error {
 		return errDecodeArgs
 	}
 	return c.owner.namespaceDisconnected(c, header.Namespace)
+}
+
+func decodeCallbackArgs(decoder *parser.Decoder, types []reflect.Type, variadic bool) ([]reflect.Value, error) {
+	if variadic {
+		return decoder.DecodeArgsVariadic(types)
+	}
+	return decoder.DecodeArgs(types)
 }

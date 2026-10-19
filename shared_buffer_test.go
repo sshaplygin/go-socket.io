@@ -1,11 +1,9 @@
 package socketio
 
 import (
-	"testing"
-
-	"github.com/stretchr/testify/require"
-
 	"github.com/sshaplygin/go-socket.io/parser"
+	"github.com/stretchr/testify/require"
+	"testing"
 )
 
 // startRoom serves `members` connections in room "r" and returns the frames each receives.
@@ -50,4 +48,52 @@ func TestBroadcastSharedArgs(t *testing.T) {
 		}
 	}
 	require.Equal(t, mk(), args, "the broadcast wrote to its arguments")
+}
+
+// Covers G6
+func TestEmitSnapshotsBinaryAndNestedPayload(t *testing.T) {
+	_, c, fc, _ := connWithOptions(t, 'S', nil)
+	fc.hold.Store(true)
+	c.Emit("barrier")
+	recv(t, fc.held, "held writer")
+	payload := map[string]interface{}{"items": []interface{}{map[string]string{"value": "before"}}}
+	c.Emit("nested", payload)
+	payload["items"].([]interface{})[0].(map[string]string)["value"] = "after"
+	// Binary payload preparation also owns bytes when pending behind another frame.
+	binary := parser.Buffer{Data: []byte("before")}
+	c.Emit("binary", binary)
+	copy(binary.Data, "after!")
+	fc.hold.Store(false)
+	close(fc.release)
+	recv(t, fc.out, "barrier")
+	require.Contains(t, recv(t, fc.out, "nested"), `"before"`)
+	require.Contains(t, recv(t, fc.out, "binary header"), `_placeholder`)
+	require.Equal(t, "before", recv(t, fc.out, "binary attachment"))
+}
+
+// Covers G6
+func TestRegressionG6EmitSnapshotsMap(t *testing.T) {
+	_, c, fc, _ := connWithOptions(t, 'S', nil)
+	fc.hold.Store(true)
+	c.Emit("barrier")
+	recv(t, fc.held, "writer blocked on previous packet")
+	value := map[string]string{"value": "before"}
+	c.Emit("snapshot", value)
+	value["value"] = "after"
+	fc.hold.Store(false)
+	close(fc.release)
+	recv(t, fc.out, "barrier packet")
+	require.Contains(t, recv(t, fc.out, "snapshot packet"), `"value":"before"`)
+}
+
+// Covers B1
+func TestEmitNil(t *testing.T) {
+	_, url := defectServer(t, func(s *Server) {
+		s.OnEvent("/", "get-nil", func(c Conn) { c.Emit("nil", nil); c.Emit("pair", nil, "tail") })
+	})
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	c.send(`2["get-nil"]`)
+	require.Equal(t, "2[\"nil\",null]\n", c.read())
+	require.Equal(t, "2[\"pair\",null,\"tail\"]\n", c.read())
 }

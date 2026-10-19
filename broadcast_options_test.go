@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -256,7 +257,12 @@ func TestServerBroadcastFlags(t *testing.T) {
 // Covers K16
 func TestVolatileEmit(t *testing.T) {
 	connected := make(chan Conn, 2)
-	ts := newTestServer(t, func(s *Server) { s.OnConnect("/", func(c Conn) error { connected <- c; return nil }) })
+	// Hold namespace admission so the OPEN response is isolated from CONNECT.
+	// Polling otherwise correctly batches both packets into the initial response.
+	admitted := make(chan struct{})
+	release := sync.OnceFunc(func() { close(admitted) })
+	defer release()
+	ts := newTestServer(t, func(s *Server) { s.OnConnect("/", func(c Conn) error { connected <- c; <-admitted; return nil }) })
 	get := func(target string) string {
 		t.Helper()
 		response, err := http.Get(target)
@@ -273,6 +279,7 @@ func TestVolatileEmit(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(body[strings.Index(body, "{"):]), &params))
 	poll := recv(t, connected, "polling socket")
+	release()
 	target := ts.URL + "/?EIO=3&transport=polling&b64=1&sid=" + params.SID
 	require.Equal(t, "2:40", get(target))
 	require.Eventually(t, func() bool { return !poll.EngineConn().(interface{ Writable() bool }).Writable() }, time.Second, time.Millisecond)

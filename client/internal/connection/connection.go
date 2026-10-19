@@ -21,6 +21,8 @@ type connLimits struct {
 type conn struct {
 	engineclient.Conn
 
+	engineClose <-chan struct{}
+
 	id         atomic.Uint64
 	handlers   *namespace.Registry
 	namespaces *namespaces
@@ -74,6 +76,9 @@ func newConn(engineConn engineclient.Conn, handlers *namespace.Registry, limits 
 		readStopped:      make(chan struct{}),
 		writeStopped:     make(chan struct{}),
 		errorStopped:     make(chan struct{}),
+	}
+	if engine, ok := engineConn.(interface{ Done() <-chan struct{} }); ok {
+		c.engineClose = engine.Done()
 	}
 	c.reader, c.writer = &frameReader{FrameReader: engineConn}, &queueWriter{c: c}
 	c.decoder, c.encoder = parser.NewDecoder(c.reader), parser.NewEncoder(c.writer)

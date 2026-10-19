@@ -26,25 +26,32 @@ type Opener interface {
 }
 
 type client struct {
-	conn          transport.Conn
-	params        eioparser.ConnParameters
-	transport     string
-	context       interface{}
-	close         chan struct{}
-	closeOnce     sync.Once
-	writers       atomic.Int64
-	mu            sync.RWMutex
-	initOnce      sync.Once
-	writeGate     chan struct{}
-	upgraded      bool
-	upgrading     bool
-	probe         transport.Conn
-	cause         *CloseError
-	readDeadline  time.Time
-	writeDeadline time.Time
-	lastPing      time.Time
-	onPing        func()
-	onPong        func(time.Duration)
+	maxMessageSize int64
+	conn           transport.Conn
+	params         eioparser.ConnParameters
+	transport      string
+	context        interface{}
+	close          chan struct{}
+	closeOnce      sync.Once
+	writers        atomic.Int64
+	mu             sync.RWMutex
+	initOnce       sync.Once
+	writeGate      chan struct{}
+	upgraded       bool
+	upgrading      bool
+	probe          transport.Conn
+	cause          *CloseError
+	readDeadline   time.Time
+	writeDeadline  time.Time
+	lastPing       time.Time
+	onPing         func()
+	onPong         func(time.Duration)
+}
+
+// Done closes when shutdown starts, before the transport finishes closing.
+func (c *client) Done() <-chan struct{} {
+	c.initialize()
+	return c.close
 }
 
 func (c *client) initialize() {
@@ -573,6 +580,9 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 			return dial.err
 		}
 		probe = dial.conn
+		if limited, ok := probe.(interface{ SetReadLimit(int64) }); ok {
+			limited.SetReadLimit(c.maxMessageSize)
+		}
 	}
 	c.mu.Lock()
 	select {

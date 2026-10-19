@@ -139,7 +139,11 @@ func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 		s, rec := miniredis.RunT(t), &recordingHandler{}
 		setDefault(t, rec)
 		p := start(t, 'S', hooks{setup: func(srv *Server) { serveWithRedis(t, srv, s.Addr()) }})
+		addr := s.Addr()
 		s.Close()
+		// A new factory must dial instead of reusing the root namespace's
+		// shared subscriber, whose buffered SUBSCRIBE may still succeed.
+		p.srv.SetAdapter(redisadapter.New(redisadapter.WithAddr(addr)))
 		errs, rooms := make(chan error, 4), make(chan []string, 4)
 		p.srv.OnConnect("/a", func(Conn) error { t.Error("OnConnect of a failed namespace"); return nil })
 		p.srv.OnDisconnect("/a", func(Conn, string) { t.Error("OnDisconnect of a failed namespace") })
@@ -178,7 +182,11 @@ func TestRedisServerCloseStopsBroadcasts(t *testing.T) {
 	s.Close()
 	srv.OnConnect("/three", func(Conn) error { return nil })
 	require.NoError(t, s.Restart())
-	require.Eventually(t, func() bool { return s.PubSubNumPat() == 2 }, 2*time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return s.PubSubNumPat() == 1 &&
+			s.PubSubNumSub("socket.io-request#/one")["socket.io-request#/one"] == 1 &&
+			s.PubSubNumSub("socket.io-request#/two")["socket.io-request#/two"] == 1
+	}, 2*time.Second, 5*time.Millisecond, "shared subscriber restored every namespace after reconnect")
 
 	require.NotPanics(t, func() { require.NoError(t, srv.Close()) })
 	require.Eventually(t, func() bool {

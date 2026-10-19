@@ -12,7 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Covers T1, T2, T3.
+// Covers T1
+// Covers T2
+// Covers T3
 func TestTypedClientDispatchAndRegistration(t *testing.T) {
 	p := start(t, 'C', hooks{})
 	s := p.cl.Socket("/")
@@ -45,7 +47,8 @@ func TestTypedClientDispatchAndRegistration(t *testing.T) {
 	require.Equal(t, 99, recv(t, calls, "legacy replacement"))
 }
 
-// Covers T2, T3.
+// Covers T2
+// Covers T3
 func TestTypedClientRequestAckAndCancellation(t *testing.T) {
 	p := start(t, 'C', hooks{})
 	endpoint := p.nc.(event.TypedEndpoint)
@@ -90,7 +93,8 @@ func TestTypedClientRequestAckAndCancellation(t *testing.T) {
 	require.ErrorIs(t, endpoint.SendEvent(context.Background(), "ask", event.ValueOf(1)), event.ErrSocketClosed)
 }
 
-// Covers T2, T3.
+// Covers T2
+// Covers T3
 func TestTypedClientPreconnectCancellationAndClose(t *testing.T) {
 	p := newPeer(t, 'C', hooks{})
 	s := p.cl.Socket("/")
@@ -109,7 +113,8 @@ func TestTypedClientPreconnectCancellationAndClose(t *testing.T) {
 	require.ErrorIs(t, s.SendEvent(ctx, "expired", event.ValueOf(1)), context.Canceled)
 }
 
-// Covers T1, T3.
+// Covers T1
+// Covers T3
 func TestTypedClientHandlerFailureAcknowledgesAndReports(t *testing.T) {
 	for _, panics := range []bool{false, true} {
 		t.Run(map[bool]string{false: "error", true: "panic"}[panics], func(t *testing.T) {
@@ -132,7 +137,8 @@ func TestTypedClientHandlerFailureAcknowledgesAndReports(t *testing.T) {
 	}
 }
 
-// Covers T2, T3.
+// Covers T2
+// Covers T3
 func TestTypedClientLifetimeEndsBeforeDisconnect(t *testing.T) {
 	entered := make(chan context.Context, 1)
 	released := make(chan struct{})
@@ -153,7 +159,8 @@ func TestTypedClientLifetimeEndsBeforeDisconnect(t *testing.T) {
 	require.ErrorIs(t, ctx.Err(), context.Canceled)
 }
 
-// Covers T2, T3.
+// Covers T2
+// Covers T3
 func TestTypedClientPreconnectRequestBudgetRelease(t *testing.T) {
 	p := newPeer(t, 'C', hooks{})
 	s := p.cl.Socket("/")
@@ -183,7 +190,8 @@ func TestTypedClientPreconnectRequestBudgetRelease(t *testing.T) {
 	p.cl.state.mu.Unlock()
 }
 
-// Covers T2, T3.
+// Covers T2
+// Covers T3
 func TestTypedClientPreconnectCloseCompletesRequest(t *testing.T) {
 	p := newPeer(t, 'C', hooks{})
 	done := make(chan error, 1)
@@ -196,7 +204,8 @@ func TestTypedClientPreconnectCloseCompletesRequest(t *testing.T) {
 	require.ErrorIs(t, recv(t, done, "preconnect close"), event.ErrSocketClosed)
 }
 
-// Covers T2, T3.
+// Covers T2
+// Covers T3
 func TestTypedClientMalformedAckRemainsUsable(t *testing.T) {
 	p := start(t, 'C', hooks{})
 	for _, body := range []string{`[42]`, `[null]`, `[null,1,2]`, `[{"message":"missing code"}]`, `[null,"wrong"]`} {
@@ -221,7 +230,8 @@ type closeNotifyingEngine struct {
 
 func (c *closeNotifyingEngine) Done() <-chan struct{} { return c.closing }
 
-// Covers T2, T3.
+// Covers T2
+// Covers T3
 func TestTypedClientEngineCloseCancelsBlockedHandlerAndRequest(t *testing.T) {
 	p := newPeer(t, 'C', hooks{})
 	engine := &closeNotifyingEngine{fakeConn: p.fc, closing: make(chan struct{})}
@@ -259,7 +269,8 @@ func TestTypedClientEngineCloseCancelsBlockedHandlerAndRequest(t *testing.T) {
 	require.NoError(t, p.fc.Close())
 }
 
-// Covers T2, T3.
+// Covers T2
+// Covers T3
 func TestTypedClientLateNamespaceHasEndedEngineLifetime(t *testing.T) {
 	p := newPeer(t, 'C', hooks{})
 	engine := &closeNotifyingEngine{fakeConn: p.fc, closing: make(chan struct{})}
@@ -277,7 +288,7 @@ func TestTypedClientLateNamespaceHasEndedEngineLifetime(t *testing.T) {
 	require.ErrorIs(t, nc.SendEvent(context.Background(), "after close", event.ValueOf(1)), event.ErrSocketClosed)
 }
 
-// Covers T3.
+// Covers T3
 func TestTypedClientEngineObserverEndsWithSocketConnection(t *testing.T) {
 	p := newPeer(t, 'C', hooks{})
 	engine := &closeNotifyingEngine{fakeConn: p.fc, closing: make(chan struct{})}

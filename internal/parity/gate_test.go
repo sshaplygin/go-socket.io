@@ -22,6 +22,7 @@ func TestParityGateRejectsInvalidEvidence(t *testing.T) {
 		{name: "strict open row", plan: "ADD V1-10; REDIS", source: "package sample", strict: true, want: "B1 has no Covers"},
 		{name: "open row", plan: "ADD V1-10; REDIS", source: "package sample"},
 		{name: "valid tagged marker", plan: "DONE V1-1; REDIS", source: "//go:build conformance\n\npackage sample\n// Covers B1\nfunc TestKnown(){}", listed: map[testRef]bool{{".", "TestKnown"}: true}},
+		{name: "ordinary Covers prose", plan: "DEV", source: "package sample\n// Covers cancellation and cleanup.\nfunc TestKnown(){}"},
 		{name: "free form marker", plan: "DEV", source: "package sample\n// Covers 1B-T1 (S,C).\nfunc TestKnown(){}"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -3,8 +3,13 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"github.com/alicebob/miniredis/v2/server"
 	redigo "github.com/gomodule/redigo/redis"
 	"github.com/sshaplygin/go-socket.io/adapter"
+	"os"
+	"os/exec"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -192,4 +197,168 @@ func TestRedisClusterOutageRetainsLocalPartialSnapshot(t *testing.T) {
 	ids, err := a.IDsContext(ctx)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Equal(t, []string{"local"}, ids)
+}
+
+// Covers A9
+func TestRedisCustomHookIsReentrantAndWorkersAreBounded(t *testing.T) {
+	s := miniredis.RunT(t)
+	var a *broadcast
+	factory := New(WithAddr(s.Addr()), WithCustomRequestHandler(func(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
+		ids, err := a.IDsContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(ids)
+	}))
+	base, err := factory("/")
+	require.NoError(t, err)
+	a = base.(*broadcast)
+	t.Cleanup(func() { _ = a.Close() })
+	a.Join("room", newRedisTestConn("id"))
+	replies, err := a.CustomRequest(context.Background(), nil)
+	require.NoError(t, err)
+	require.Equal(t, []json.RawMessage{json.RawMessage(`["id"]`)}, replies)
+	entered, ended := make(chan struct{}, 32), make(chan struct{}, 32)
+	blockedFactory := New(WithAddr(s.Addr()), WithRequestsTimeout(time.Second), WithCustomRequestHandler(func(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
+		entered <- struct{}{}
+		<-ctx.Done()
+		ended <- struct{}{}
+		return nil, ctx.Err()
+	}))
+	blockedBase, err := blockedFactory("/blocked")
+	require.NoError(t, err)
+	blocked := blockedBase.(*broadcast)
+	t.Cleanup(func() { _ = blocked.Close() })
+	for i := 0; i < 33; i++ {
+		raw := fmt.Sprintf(`{"type":5,"requestid":"%d","data":null}`, i)
+		blocked.onRequest([]byte(raw))
+	}
+	for i := 0; i < 32; i++ {
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			t.Fatal("worker did not start")
+		}
+	}
+	require.Len(t, blocked.resources.clusterWorkers(), 32)
+	require.NoError(t, blocked.Close())
+	for i := 0; i < 32; i++ {
+		select {
+		case <-ended:
+		case <-time.After(time.Second):
+			t.Fatal("close did not cancel custom worker")
+		}
+	}
+	require.Eventually(t, func() bool { return len(blocked.resources.clusterWorkers()) == 0 }, time.Second, time.Millisecond)
+}
+
+// Covers B4
+func TestRedisClusterCommandCancellationClosesRawConnection(t *testing.T) {
+	for _, closeAdapter := range []bool{false, true} {
+		t.Run(fmt.Sprint(closeAdapter), func(t *testing.T) {
+			s := miniredis.RunT(t)
+			a := newTestRedisBroadcast(t, s)
+			seen := make(chan struct{})
+			var once sync.Once
+			s.Server().SetPreHook(func(_ *server.Peer, command string, _ ...string) bool {
+				if command == "PUBSUB" {
+					once.Do(func() { close(seen) })
+					return true
+				}
+				return false
+			})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { _, err := a.IDsContext(ctx); done <- err }()
+			select {
+			case <-seen:
+			case <-time.After(time.Second):
+				t.Fatal("NUMSUB not issued")
+			}
+			if closeAdapter {
+				require.NoError(t, a.Close())
+			} else {
+				cancel()
+			}
+			select {
+			case err := <-done:
+				if closeAdapter {
+					require.ErrorIs(t, err, ErrAdapterClosed)
+				} else {
+					require.ErrorIs(t, err, context.Canceled)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("command did not terminate")
+			}
+			want := 2
+			if closeAdapter {
+				want = 0
+			}
+			require.Eventually(t, func() bool { return s.CurrentConnectionCount() == want }, time.Second, time.Millisecond)
+		})
+	}
+}
+
+// Covers A9
+func TestRedisUnknownSocketAndMissingLifecycleCapabilityNeverSucceed(t *testing.T) {
+	s := miniredis.RunT(t)
+	a := newTestRedisBroadcast(t, s)
+	a.Join("room", newRedisTestConn("unsupported"))
+	for _, call := range []func(context.Context) error{
+		func(ctx context.Context) error { return a.RemoteJoin(ctx, "unsupported", "new") },
+		func(ctx context.Context) error { return a.RemoteLeave(ctx, "unsupported", "room") },
+		func(ctx context.Context) error { return a.RemoteDisconnect(ctx, "unsupported", false) },
+		func(ctx context.Context) error { return a.RemoteDisconnect(ctx, "unsupported", true) },
+		func(ctx context.Context) error { _, err := a.ClientRooms(ctx, "missing"); return err },
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+		err := call(ctx)
+		cancel()
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	}
+	require.Equal(t, 1, a.Memory.Len("room"))
+}
+
+// Covers A9
+func TestRedisClusterCustomHandlerPanicDoesNotCrash(t *testing.T) {
+	const child = "SOCKETIO_REDIS_PANIC_CHILD"
+	if os.Getenv(child) != "1" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestRedisClusterCustomHandlerPanicDoesNotCrash$", "-test.v")
+		cmd.Env = append(os.Environ(), child+"=1")
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "child failed: %s", output)
+		return
+	}
+	s := miniredis.RunT(t)
+	base, err := New(WithAddr(s.Addr()), WithRequestsTimeout(15*time.Millisecond), WithCustomRequestHandler(func(context.Context, json.RawMessage) (json.RawMessage, error) { panic("hook panic") }))("/")
+	require.NoError(t, err)
+	a := base.(*broadcast)
+	defer func() { _ = a.Close() }()
+	for i := 0; i < 2; i++ {
+		_, err = a.CustomRequest(context.Background(), nil)
+		require.ErrorIs(t, err, ErrRequestTimeout)
+	}
+	require.Eventually(t, func() bool { return len(a.resources.clusterWorkers()) == 0 }, time.Second, time.Millisecond)
+	_, err = a.IDsContext(context.Background())
+	require.NoError(t, err, "panic must not stop Redis dispatcher")
+}
+
+// Covers A9
+func TestRedisCustomHandlerFailureCannotFabricateSuccess(t *testing.T) {
+	for _, handler := range []func(context.Context, json.RawMessage) (json.RawMessage, error){
+		func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, fmt.Errorf("rejected") },
+		func(context.Context, json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage("invalid"), nil
+		},
+	} {
+		s := miniredis.RunT(t)
+		base, err := New(WithAddr(s.Addr()), WithRequestsTimeout(15*time.Millisecond), WithCustomRequestHandler(handler))("/")
+		require.NoError(t, err)
+		a := base.(*broadcast)
+		t.Cleanup(func() { _ = a.Close() })
+		_, err = a.CustomRequest(context.Background(), nil)
+		require.ErrorIs(t, err, ErrRequestTimeout)
+		require.Empty(t, a.resources.clusterWorkers())
+	}
 }

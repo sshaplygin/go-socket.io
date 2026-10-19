@@ -39,10 +39,11 @@ async function readySocket(s) {
  s.sid=await ack(s,'identity');return s;
 }
 async function connect(url,ns='/cluster') {
- return readySocket(clientIO(url+ns,{transports:[transport],forceNew:true,reconnection:false}));
+ const manager=new clientIO.Manager(url,{transports:[transport],forceNode:true,reconnection:false,autoConnect:false});
+ const socket=manager.socket(ns);const ready=readySocket(socket);socket.open();return ready;
 }
 async function sharedPair(url) {
- const manager=new clientIO.Manager(url,{transports:[transport],reconnection:false,autoConnect:false});
+ const manager=new clientIO.Manager(url,{transports:[transport],forceNode:true,reconnection:false,autoConnect:false});
  const main=manager.socket('/cluster'),other=manager.socket('/cluster#other');
  const ready=Promise.all([readySocket(main),readySocket(other)]);
  main.open();other.open();return ready;

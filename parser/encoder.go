@@ -265,7 +265,7 @@ func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, 
 		return c, b, err
 
 	case reflect.Struct:
-		if v.Type().Name() == bufferTypeName {
+		if v.Type() == reflect.TypeOf(Buffer{}) {
 			if !v.CanInterface() {
 				return reflect.Value{}, nil, errUnsupportedBuffer
 			}

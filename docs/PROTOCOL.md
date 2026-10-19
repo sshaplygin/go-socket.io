@@ -169,15 +169,21 @@ Engine.IO, `v2/engineio`:
   the websocket message limit is the transport's default 1 MiB, not the advertised value. The
   polling POST limit and the websocket limit are above.
 
-### Deviation D3: mixed Go/Node Redis cluster
+### Redis cluster interoperability
 
-The v1 Redis adapter uses a legacy JSON message format and Go-specific channel
-layout. It does not implement the MessagePack messages and channel protocol of
-`socket.io-redis` 5.4.0, so a mixed Go/Node Redis cluster is unsupported. Go
-instances using the legacy format can communicate with each other. Explicit empty-room
-broadcasts use an extended options field; older Go peers reject those packets instead
-of delivering them to the whole namespace. Upgrade all peers for empty-room delivery; additional
-adapter limitations are listed in the [changelog](../CHANGELOG.md#known-limitations).
+The v1 Redis adapter speaks the broadcast and request protocol of
+`socket.io-redis` 5.4.0 with `socket.io` 2.5.0: MessagePack event envelopes with
+binary values, room unions, socket exclusions and delivery flags; JSON cluster
+queries and remote join/leave/disconnect/custom requests. Go and Node instances
+can share a standalone Redis Pub/Sub cluster. Namespace identity is checked from
+the packet, independently of channel separators. Custom request payloads are JSON,
+not binary, matching the reference adapter.
+
+Redis Pub/Sub provides no replay during disconnection. Queries are bounded,
+non-atomic snapshots; context-aware operations report timeouts and partial results.
+The legacy Go JSON adapter wire format is incompatible with this protocol; see the
+[v1 migration guide](V1_MIGRATION.md#adapters-and-redis) before upgrading a cluster.
+JSONP and Admin UI remain separate deviations below.
 
 ### Deviation D4: JSONP unsupported
 

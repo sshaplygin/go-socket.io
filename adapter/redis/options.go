@@ -1,4 +1,4 @@
-// Package redis provides a namespace adapter using the legacy Go Redis wire format.
+// Package redis provides a namespace adapter compatible with socket.io-redis 5.4.0.
 package redis
 
 import (

@@ -25,7 +25,7 @@ func (nh *Handler) AddListener(event string, f interface{}, once bool) func() {
 	nh.eventsLock.Lock()
 	defer nh.eventsLock.Unlock()
 	current := nh.events[event]
-	if len(current) > 0 && !reflect.DeepEqual(current[0].handler.argTypes, listener.handler.argTypes) {
+	if len(current) > 0 && (!reflect.DeepEqual(current[0].handler.argTypes, listener.handler.argTypes) || current[0].handler.Variadic() != listener.handler.Variadic()) {
 		panic("event listeners must have identical argument types")
 	}
 	nh.events[event] = append(current, listener)
@@ -140,3 +140,5 @@ func getDispatchMessage(args ...reflect.Value) string {
 }
 
 func (l *Listener) ArgTypes() []reflect.Type { return l.handler.argTypes }
+
+func (l *Listener) Variadic() bool { return l.handler.Variadic() }

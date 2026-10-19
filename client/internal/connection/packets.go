@@ -39,7 +39,7 @@ func ackPacketHandler(c *conn, header parser.Header) error {
 	if types == nil {
 		types = []reflect.Type{}
 	}
-	args, err := c.decoder.DecodeArgs(types)
+	args, err := decodeCallbackArgs(c.decoder, types, handler.Variadic())
 	if err != nil {
 		c.log.Debug("socketio: ack decode failed", nspAttr(header.Namespace), "err", err)
 		c.onError(header.Namespace, err)
@@ -83,7 +83,7 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 			types = []reflect.Type{}
 		}
 	}
-	args, err := c.decoder.DecodeArgs(types)
+	args, err := decodeCallbackArgs(c.decoder, types, len(snapshot) > 0 && snapshot[0].Variadic())
 	if err != nil {
 		c.onError(header.Namespace, err)
 		c.log.Debug("socketio: event decode failed", nspAttr(header.Namespace), "event", event, "err", err)
@@ -179,4 +179,11 @@ func clientDisconnectPacketHandler(c *conn, header parser.Header) error {
 		return errDecodeArgs
 	}
 	return c.owner.namespaceDisconnected(c, header.Namespace)
+}
+
+func decodeCallbackArgs(decoder *parser.Decoder, types []reflect.Type, variadic bool) ([]reflect.Value, error) {
+	if variadic {
+		return decoder.DecodeArgsVariadic(types)
+	}
+	return decoder.DecodeArgs(types)
 }

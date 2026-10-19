@@ -22,8 +22,8 @@ function event(socket, name) {
 function ack(socket, name, ...args) {
   return new Promise(resolve => socket.emit(name, ...args, (...values) => resolve(values)));
 }
-async function connect(transport) {
-  const socket = io(base, {autoConnect: false, forceNew: true, forceNode: true,
+async function connect(transport, url = base) {
+  const socket = io(url, {autoConnect: false, forceNew: true, forceNode: true,
     transports: [transport], reconnection: false, timeout: 5000});
   sockets.push(socket);
   socket.on('connect_error', finish);
@@ -39,7 +39,7 @@ async function connect(transport) {
   assert.deepStrictEqual(await ack(alice, 'add user', 'alice'), []);
   assert.strictEqual((await login)[0].numUsers, 1);
   const joined = event(alice, 'user joined');
-  const bob = await connect('websocket');
+  const bob = await connect('websocket', process.argv[3] || base);
   login = event(bob, 'login');
   await ack(bob, 'add user', 'bob');
   assert.strictEqual((await login)[0].numUsers, 2);

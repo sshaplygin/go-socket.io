@@ -96,6 +96,8 @@ jobs:
     services:
       redis:
         image: redis:7.4.2-alpine
+        volumes:
+          - /tmp/socketio-redis:/socketio-redis
         ports:
           - 6379:6379
         options: >-
@@ -110,6 +112,7 @@ jobs:
     env:
       CONFORMANCE_NODE_MODULES: ${{ github.workspace }}/internal/conformance/testdata/node/node_modules
       CONFORMANCE_REDIS_ADDR: 127.0.0.1:6379
+      CONFORMANCE_REDIS_SOCKET: /tmp/socketio-redis/redis.sock
       RUN: ${{ needs.changes.outputs.conformance }}
     steps:
       - name: Skip without a change that reaches the conformance tests or the examples
@@ -134,6 +137,15 @@ jobs:
           npm install --no-save --prefix internal/conformance/testdata/node "$CLIENT"
           npm install --no-save --prefix internal/conformance/testdata/node/server socket.io@2.5.0 socket.io-redis@5.4.0
           echo "CONFORMANCE_CLIENT_VERSION=${CLIENT#*@}" >> "$GITHUB_ENV"
+      - name: Start isolated Unix-socket Redis for the example gate
+        if: env.RUN == 'true'
+        run: |
+          docker exec ${{ job.services.redis.id }} redis-server --port 0 --unixsocket /socketio-redis/redis.sock --unixsocketperm 777 --daemonize yes --save '' --appendonly no
+          for attempt in $(seq 1 50); do
+            test ! -S "$CONFORMANCE_REDIS_SOCKET" || exit 0
+            sleep 0.1
+          done
+          exit 1
       - name: Run tagged interoperability and raw transport tests
         if: env.RUN == 'true'
         run: make conformance

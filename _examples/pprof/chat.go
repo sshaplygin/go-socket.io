@@ -2,7 +2,7 @@
 // https://github.com/socketio/socket.io/blob/7a70f63499e2be66b072543db8ebf928b6923633/examples/chat/index.js
 // (MIT license, see asset/LICENSE-socket.io-chat), to this library.
 //
-// This file is byte-identical in non-Redis chat examples; "make examples" checks those copies.
+// This file is byte-identical in all chat examples; "make examples" checks those copies.
 package main
 
 import (
@@ -13,6 +13,7 @@ import (
 )
 
 const chatRoom = "chat"
+const chatUsersRoom = "chat-users"
 
 // chatUser is the connection context. Its fields are guarded by the mutex of registerChat.
 type chatUser struct {
@@ -42,8 +43,7 @@ type messagePayload struct {
 // registerChat registers the chat handlers on namespace "/".
 func registerChat(server *socketio.Server) {
 	var (
-		mu       sync.Mutex // guards numUsers and every chatUser
-		numUsers int
+		mu sync.Mutex // guards each local chatUser
 	)
 
 	userOf := func(s socketio.Conn) *chatUser {
@@ -72,7 +72,8 @@ func registerChat(server *socketio.Server) {
 			return
 		}
 		u.name, u.added = &name, true
-		numUsers++
+		s.Join(chatUsersRoom)
+		numUsers := server.RoomLen("/", chatUsersRoom)
 
 		s.Emit("login", countPayload{NumUsers: numUsers})
 		_ = s.To(chatRoom).Emit("user joined", countPayload{Username: &name, NumUsers: numUsers})
@@ -108,7 +109,8 @@ func registerChat(server *socketio.Server) {
 			return
 		}
 		u.added = false
-		numUsers--
+		s.Leave(chatUsersRoom)
+		numUsers := server.RoomLen("/", chatUsersRoom)
 
 		_ = s.To(chatRoom).Emit("user left", countPayload{Username: u.name, NumUsers: numUsers})
 	})

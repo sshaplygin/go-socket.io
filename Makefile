@@ -1,5 +1,5 @@
 EXAMPLES := $(patsubst %/go.mod,%,$(wildcard _examples/*/go.mod))
-CHAT_SKIP := _examples/redis-adapter _examples/redis-adapter-unix-socket
+CHAT_SKIP :=
 CHAT_COPIES := $(filter-out $(CHAT_SKIP),$(patsubst %/chat.go,%,$(wildcard _examples/*/chat.go)))
 LIFECYCLE_COPIES := $(wildcard _examples/*/lifecycle.go)
 

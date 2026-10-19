@@ -2,7 +2,7 @@
 // https://github.com/socketio/socket.io/blob/7a70f63499e2be66b072543db8ebf928b6923633/examples/chat/index.js
 // (MIT license, see asset/LICENSE-socket.io-chat), to this library.
 //
-// This file is byte-identical in every example module; "make examples" fails when a copy differs.
+// This file is byte-identical in all chat examples; "make examples" checks those copies.
 package main
 
 import (
@@ -10,10 +10,10 @@ import (
 	"sync"
 
 	socketio "github.com/sshaplygin/go-socket.io"
-	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
 const chatRoom = "chat"
+const chatUsersRoom = "chat-users"
 
 // chatUser is the connection context. Its fields are guarded by the mutex of registerChat.
 type chatUser struct {
@@ -41,13 +41,9 @@ type messagePayload struct {
 }
 
 // registerChat registers the chat handlers on namespace "/".
-//
-// Server.ForEach reaches only the connections of this instance, so with the Redis adapter users
-// on different instances do not see each other's events and each instance counts its own users.
 func registerChat(server *socketio.Server) {
 	var (
-		mu       sync.Mutex // guards numUsers and every chatUser
-		numUsers int
+		mu sync.Mutex // guards each local chatUser
 	)
 
 	userOf := func(s socketio.Conn) *chatUser {
@@ -57,18 +53,8 @@ func registerChat(server *socketio.Server) {
 		return &chatUser{}
 	}
 
-	// others sends the event to every connection of the chat room except s: the library has no
-	// broadcast that skips the sender.
-	others := func(s socketio.Conn, event string, payload interface{}) {
-		server.ForEach("/", chatRoom, func(c adapter.Socket) {
-			if c.ID() != s.ID() {
-				c.Emit(event, payload)
-			}
-		})
-	}
-
 	server.OnConnect("/", func(s socketio.Conn) error {
-		// A Go client session runs OnConnect for "/" twice; keep the user of the first run.
+		// Keep the per-socket chat state in the connection context.
 		if _, ok := s.Context().(*chatUser); !ok {
 			s.SetContext(&chatUser{})
 		}
@@ -86,31 +72,32 @@ func registerChat(server *socketio.Server) {
 			return
 		}
 		u.name, u.added = &name, true
-		numUsers++
+		s.Join(chatUsersRoom)
+		numUsers := server.RoomLen("/", chatUsersRoom)
 
 		s.Emit("login", countPayload{NumUsers: numUsers})
-		others(s, "user joined", countPayload{Username: &name, NumUsers: numUsers})
+		_ = s.To(chatRoom).Emit("user joined", countPayload{Username: &name, NumUsers: numUsers})
 	})
 
 	server.OnEvent("/", "new message", func(s socketio.Conn, message string) {
 		mu.Lock()
 		defer mu.Unlock()
 
-		others(s, "new message", messagePayload{Username: userOf(s).name, Message: message})
+		_ = s.To(chatRoom).Emit("new message", messagePayload{Username: userOf(s).name, Message: message})
 	})
 
 	server.OnEvent("/", "typing", func(s socketio.Conn) {
 		mu.Lock()
 		defer mu.Unlock()
 
-		others(s, "typing", userPayload{Username: userOf(s).name})
+		_ = s.To(chatRoom).Emit("typing", userPayload{Username: userOf(s).name})
 	})
 
 	server.OnEvent("/", "stop typing", func(s socketio.Conn) {
 		mu.Lock()
 		defer mu.Unlock()
 
-		others(s, "stop typing", userPayload{Username: userOf(s).name})
+		_ = s.To(chatRoom).Emit("stop typing", userPayload{Username: userOf(s).name})
 	})
 
 	server.OnDisconnect("/", func(s socketio.Conn, reason string) {
@@ -122,9 +109,10 @@ func registerChat(server *socketio.Server) {
 			return
 		}
 		u.added = false
-		numUsers--
+		s.Leave(chatUsersRoom)
+		numUsers := server.RoomLen("/", chatUsersRoom)
 
-		others(s, "user left", countPayload{Username: u.name, NumUsers: numUsers})
+		_ = s.To(chatRoom).Emit("user left", countPayload{Username: u.name, NumUsers: numUsers})
 	})
 
 	server.OnError("/", func(s socketio.Conn, err error) {

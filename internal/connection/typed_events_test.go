@@ -227,3 +227,28 @@ func TestTypedAckCancellationCompletionRaceRemovesEveryPendingEntry(t *testing.T
 		cancel()
 	}
 }
+
+// Covers K25
+// Covers T1
+// Covers T3
+func TestTypedMiddlewareRejectionSuppressesHandlerAndAck(t *testing.T) {
+	p := start(t, 'S', hooks{events: map[string]interface{}{"barrier": func(c Conn) { c.Emit("barrier") }}})
+	called := make(chan struct{}, 1)
+	typedRegister(t, p, "rejected", true, func(context.Context, eventImpl.Endpoint, eventImpl.Payload) (eventImpl.Payload, error) {
+		called <- struct{}{}
+		return eventImpl.ValueOf(1), nil
+	})
+	p.nc.Use(func(name string, args []interface{}) error {
+		if name == "rejected" {
+			require.Equal(t, []interface{}{int64(1)}, args)
+			return errors.New("middleware rejected")
+		}
+		return nil
+	})
+	p.send(t, `21["rejected",1]`)
+	require.Equal(t, "4\"middleware rejected\"\n", recv(t, p.fc.out, "middleware ERROR"))
+	p.send(t, `2["barrier"]`)
+	require.Equal(t, "2[\"barrier\"]\n", recv(t, p.fc.out, "no rejected ACK"))
+	require.Empty(t, called)
+	require.Empty(t, p.errs)
+}

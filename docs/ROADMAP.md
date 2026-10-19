@@ -485,16 +485,18 @@ allowed direct repository runtime dependencies; their transitive closure must al
 every row and the role/codec exclusions below. Standard library and existing external
 dependencies are omitted. Test imports do not define runtime edges. Internal paths are
 implementation owners of the public component immediately above them, not new public
-components. There are 12 public runtime packages and seven private component packages.
+components. V1-29 adds the owner-approved `internal/event` leaf described below: there
+are 12 public runtime packages and eight private component packages (20 total).
 
 | Package | Responsibility | May import |
 | --- | --- | --- |
-| root `socketio` | Server lifecycle, adapter factories, dynamic namespace coordination, public namespace views and options | `internal/connection`, `internal/namespace`, `adapter`, `engineio`, `logger` |
-| `internal/connection` | Server transport connection, per-connection namespace sockets, queues/drain, packet dispatch and emitters | `internal/namespace`, `adapter`, `parser`, `engineio`, `engineio/parser`, `logger` |
-| `internal/namespace` | Server-role contracts, namespace handler/connected-socket registries, middleware and listener reflection | `adapter`, `parser`, `engineio` |
-| `client` | Client construction/options and public client/socket entry points | `client/internal/connection`, `client/internal/namespace`, `engineio/client`, `engineio/transport`, its polling/websocket implementations, `logger` |
-| `client/internal/connection` | Client manager/generations/reconnect, connection queues, concrete namespace sockets and emitters | `client/internal/namespace`, `parser`, `engineio/client`, `engineio/parser`, `engineio/transport`, its polling/websocket implementations, `logger` |
-| `client/internal/namespace` | Client-role contracts, handler/listener registry and local room index | `parser`, `engineio/client` |
+| root `socketio` | Server lifecycle, adapter factories, dynamic namespace coordination, public namespace views and options | `internal/connection`, `internal/namespace`, `adapter`, `engineio`, `logger`, `internal/event` |
+| `internal/connection` | Server transport connection, per-connection namespace sockets, queues/drain, packet dispatch and emitters | `internal/namespace`, `adapter`, `parser`, `engineio`, `engineio/parser`, `logger`, `internal/event` |
+| `internal/namespace` | Server-role contracts, namespace handler/connected-socket registries, middleware and listener reflection | `adapter`, `parser`, `engineio`, `internal/event` |
+| `client` | Client construction/options and public client/socket entry points | `client/internal/connection`, `client/internal/namespace`, `engineio/client`, `engineio/transport`, its polling/websocket implementations, `logger`, `internal/event` |
+| `client/internal/connection` | Client manager/generations/reconnect, connection queues, concrete namespace sockets and emitters | `client/internal/namespace`, `parser`, `engineio/client`, `engineio/parser`, `engineio/transport`, its polling/websocket implementations, `logger`, `internal/event` |
+| `client/internal/namespace` | Client-role contracts, handler/listener registry and local room index | `parser`, `engineio/client`, `internal/event` |
+| `internal/event` | V1-29 neutral typed payload/schema/handler bridge, ACK envelope and common typed errors; no role ownership | `parser` |
 | `adapter` | Room/index/broadcast contract and in-memory implementation | no other repository runtime package |
 | `adapter/redis` | Redis adapter extending/composing the memory adapter | `adapter`, `logger` |
 | `parser` | Socket.IO packet codec, shared by server and client | `logger` |
@@ -515,7 +517,10 @@ Delete the retired production packages `engineio/frame`, `engineio/packet`,
 `engineio/payload`, `engineio/session` and `engineio/transport/utils` after moving their
 responsibilities to the owners above. Fold transport header helpers into `transport`.
 No replacement generic helper, shared-connection or init-registration bridge package is
-introduced. Keep test-only `internal/conformance` and `internal/parity` and existing tooling.
+introduced, except the narrowly scoped V1-29 `internal/event` leaf approved by the owner
+on 2026-10-19. Its seven additional allowed direct edges are the six Socket.IO role
+packages above to `internal/event`, and `internal/event` to `parser`; no server/client
+cross-import or v1/v2 dependency is authorized. Keep test-only `internal/conformance` and `internal/parity` and existing tooling.
 
 API and ownership changes:
 
@@ -622,7 +627,9 @@ follows merged C4 and precedes all internal extraction. The public components st
 follow the diagram. Internal exports are for typed implementation boundaries; do not
 expose private mutexes, queues or channels as production API to keep tests compiling.
 No new generic `wire`, shared-role, helper-registration or test-access runtime package
-is authorized. Packet types belong to the packet codec, so payload can depend on it.
+is authorized, except the V1-29 `internal/event` leaf specified in the component table
+and contract below. It shares typed event mechanics only, never sockets, managers,
+registries, Engine.IO contracts or lifecycle ownership. Packet types belong to the packet codec, so payload can depend on it.
 
 | Current production group | Concrete owner after extraction | Boundary and files retained by its public component |
 | --- | --- | --- |
@@ -2621,7 +2628,7 @@ command does not trigger `set -e`, so predecessors are never chained with `&&`.
 ```sh
 done_pr() { test -z "$(rows | awk -F' *[|] *' -v pr="$1" '$3 ~ ("(^|; )(BUG|ADD|CHG|TEST) " pr "( |;|$)")')" || return 1; test -z "$(covers $1)"; }
 wave() { for n in "$@"; do done_pr V1-$n || { echo "open: V1-$n" >&2; exit 1; }; done; }
-for n in 2 4 5 6 7 10 11 15 16 17 18 28; do grep -q "^### V1-$n contract" docs/ROADMAP.md || { echo "V1A: no contract V1-$n" >&2; exit 1; }; done
+for n in 2 4 5 6 7 10 11 15 16 17 18 28 29; do grep -q "^### V1-$n contract" docs/ROADMAP.md || { echo "V1A: no contract V1-$n" >&2; exit 1; }; done
 wave 1 2                                                       # entry of V1B
 wave 3 4 5 6 7 16 17 18                                        # entry of V1C
 wave 8; grep -q '^  conformance:' .github/workflows/ci.yaml    # entry of V1D, with the next line
@@ -2774,6 +2781,147 @@ and are returned from dialing or reported through the existing error lifecycle.
 Configurations do not mutate global default transports. G9's client regression sends
 an ignored binary packet followed by a valid packet on the same connection.
 
+### V1-29 contract
+
+The owner approved one common typed descriptor implementation for server and Go
+client on 2026-10-19. It is additive over the current dispatcher; the two roles and
+the two modules remain independent. The root package owns these signatures:
+
+```go
+type Endpoint = event.Endpoint
+type ClientRegistration = event.ClientRegistration
+type EventHandler = event.Handler
+type RemoteError = event.RemoteError
+
+func NewEvent[T any](name string) Event[T]
+func (e Event[T]) Name() string
+func (e Event[T]) Handle(nsp *ServerNamespace, h func(context.Context, Conn, T) error) error
+func (e Event[T]) HandleClient(c ClientRegistration, h func(context.Context, Endpoint, T) error) error
+func (e Event[T]) Emit(ctx context.Context, to Endpoint, v T) error
+func (e Event[T]) EmitTo(ctx context.Context, to Emitter, v T) error
+
+func NewAckEvent[T, R any](name string) AckEvent[T, R]
+func (e AckEvent[T, R]) Name() string
+func (e AckEvent[T, R]) Handle(nsp *ServerNamespace, h func(context.Context, Conn, T) (R, error)) error
+func (e AckEvent[T, R]) HandleClient(c ClientRegistration, h func(context.Context, Endpoint, T) (R, error)) error
+func (e AckEvent[T, R]) EmitWithAck(ctx context.Context, to Endpoint, v T) (R, error)
+```
+
+`event` in this contract denotes the private `internal/event` package. Its shared
+seams have this shape; `Payload`, `Schema` and `Handler` have private representation:
+
+```go
+type Endpoint interface { Emit(string, ...interface{}) }
+type ClientRegistration interface { RegisterEvent(string, Handler) error }
+type TypedEndpoint interface {
+    SendEvent(context.Context, string, Payload) error
+    RequestAck(context.Context, string, Payload, Schema) (Payload, error)
+}
+type RemoteError struct { Code string `json:"code"`; Message string `json:"message"` }
+func (*RemoteError) Error() string
+```
+
+`Endpoint` uses the existing common Emit signature, so existing server/client
+`Conn` interfaces are not extended. Descriptors assert `TypedEndpoint` at runtime;
+unsupported custom endpoints return `ErrUnsupportedEndpoint`. Both concrete role
+sockets implement the capability. The client also implements registration and
+sending on `*Client` (its selected namespace) and stable `*Socket`. No root import
+of `client`, client import of root, or exported reflected descriptor parameter is
+introduced. Only the four non-generic aliases above are needed publicly; generic
+aliases are not used, preserving Go 1.22. Internal constructors/helpers may use
+reflection, but opaque aliased types expose no reflected fields or methods.
+
+`Handler` retains the exact payload schema, ACK ownership and invocation closure.
+The owning role dispatcher decodes using that schema and invokes it with its own
+concrete socket. The server wrapper supplies the exact server `Conn`; client
+callbacks receive the shared endpoint backed by the actual client-role socket.
+A dedicated typed registration/dispatch branch is permitted; a neutral callback
+must never be passed to legacy validation requiring an exact role `Conn` argument.
+Shared decoding and ACK helpers belong to `internal/event`; helper names and
+private layout are implementation choices, not additional public contracts.
+
+**Payload, registration and errors.** Ordinary `T` and `R`, including slices and
+structs, each occupy exactly one positional argument. `Args2` and a new `Binary`
+helper are outside V1-29; existing nested `parser.Buffer` values retain their
+attachment behavior. Decode directly to declared types, preserving int64/uint64
+precision and binary values; do not round-trip through generic float64 JSON maps.
+Strict unary decoding can use `DecodeArgsVariadic` and require exactly one result.
+Single-endpoint sends prepare an immutable snapshot before queue/manager locks,
+return encoding/admission errors synchronously, and send no partial packet.
+`EmitTo` retains the existing Emitter's adapter errors and partial-delivery rules;
+v1 adds no v2 BroadcastResult/count API or broadcast ACK support.
+
+Descriptors retain their supplied names; Handle/HandleClient/Emit/EmitTo/
+EmitWithAck reject empty names and `connect`, `disconnect`, `disconnecting`,
+`error` with `ErrInvalidEventName`. Nil handlers or targets return errors, not
+panics. Typed registration atomically rejects an existing typed or legacy listener
+with `ErrDuplicateEvent`. Legacy OnEvent keeps its replace semantics, including
+replacing a typed registration; Off removes either registration. Legacy additional
+listeners cannot silently coexist with a typed schema: reject incompatible
+registration using the existing registration error/panic convention.
+
+Root aliases common typed sentinels from `internal/event`: `ErrInvalidEventName`,
+`ErrDuplicateEvent`, `ErrUnsupportedEndpoint`, `ErrInvalidPayload`, `ErrInvalidAck`,
+`ErrAckTimeout`, `ErrSocketClosed`. Existing role `ErrWriteBufferFull` identities and
+legacy reporting remain supported; checked sends return that role's error.
+Decode/arity errors wrap `ErrInvalidPayload`; malformed ACKs wrap `ErrInvalidAck`.
+Application errors from ordinary typed handlers are reported through OnError
+without closing an otherwise healthy connection. Panics are recovered and reported.
+
+**ACKs and contexts.** AckEvent success is exactly `[null, result]`; failure is
+exactly `[{"code":"...","message":"..."}]`, with a nonempty string code and string
+message. A returned `*RemoteError` preserves these fields; other handler errors use
+`handler_error`, and recovered panics use `handler_panic`. ACK handlers respond only
+when the incoming packet requested an ACK, at most once; ordinary Event handlers
+never produce an automatic return ACK. The receiver validates the entire envelope
+and decodes success directly as R, including nested binary attachments. A failure
+returns `*RemoteError`; malformed/type-mismatched envelopes complete the waiter with
+`ErrInvalidAck`, rather than silently deleting a callback. Late, duplicate and
+canceled ACKs are ignored after consuming their complete attachments.
+
+EmitWithAck waits at most 30 seconds, including any pre-connect buffering; an
+earlier caller cancellation/deadline returns `ctx.Err()`, while the internal bound
+returns `ErrAckTimeout`. A nil context is treated as context.Background. The timer
+is not the client's connection timeout. ACK completion, cancellation, admission
+failure and disconnect compete to remove one pending entry exactly once; clean up
+timers, cancellation hooks and buffered result channels on every terminal path.
+Allocate/install an ACK ID atomically with checked queue admission, never on a
+dropped send. Never invoke application code while queue, ACK or manager locks
+are held. A send canceled before admission queues nothing.
+
+Stable client Socket/Client requests may wait in the existing bounded pre-connect
+buffer. Cancellation removes/skips unsent requests and releases their buffer
+budget; canceled requests never flush. Requests admitted to a namespace generation
+fail on its disconnect with ErrSocketClosed and never replay across reconnect;
+new requests buffered during recovery may bind to the next generation. Explicit
+Socket.Close/Client.Close also terminate pre-connect requests. A retained concrete
+client Conn is generation-bound and must not forward typed requests to a later
+socket generation.
+
+Handler contexts are private namespace-generation lifetime contexts, independent
+of application Conn.Context storage and the handshake HTTP request. Cancel them
+and pending ACKs before disconnect callbacks; rejected admission and engine close
+also terminate them. Preserve the existing serialized dispatcher: synchronous
+EmitWithAck inside a callback on that same connection cannot receive its ACK while
+blocked. Callers must start such waits outside that callback, for example in a
+goroutine. No asynchronous callback execution redesign is part of V1-29.
+
+**Scope and acceptance.** Implementation may edit root/client typed API files,
+both Socket.IO role internals, the new internal/event leaf and their tests, plus
+architecture policy/negative fixtures and owning documentation/check inventories.
+No Engine.IO or v2 runtime change, registry update, PR merge, tag or version bump
+is included. Update the exact graph gate for 20 packages and the seven edges above;
+add 29 to the ADD-contract heading check before implementation.
+Acceptance includes compile-positive typed server/client/ACK/broadcast examples,
+compile-negative wrong payload/result/handler examples, duplicate and reserved-name
+checks, exact integer and nested binary round trips over polling and websocket,
+error-first and malformed ACKs, timeout/cancellation/disconnect races, cancellation
+while buffered, generation isolation, duplicate/late ACK draining, reentrant
+marshaling, and legacy/typed replacement. Run race tests, lint, architecture/privacy
+fixtures, API coverage and Node interoperability; T1–T3 close only with executable
+Covers tests and those gates green. The strict parity/release gate remains separate
+from authorization to create a release tag.
+
 **Wave V1G (the review of 2026-10-18 and follow-up; rows G1 to G31, T1 to T3, S22; D18, D19).** An
 independent review of the v1 implementation at `3db9751` (`master` after #133), in six
 dimensions, reported 18 findings that a second reviewer checked and could not refute, and
@@ -2808,9 +2956,8 @@ requirement remains in force. This integration may implement the bug fixes toget
 it does not claim that the numbered PRs have merged or modify the package registry.
 
 Each V1G PR writes its own `CHANGELOG.md` entries, since H is `done`. G16 and T1 to T3 are
-`ADD` rows: the G16 signature is defined by `### V1-28 contract` above; T1–T3 still
-require a separate `### V1-29 contract` before implementation. The ADD contract check
-includes 28 and must add 29 when that contract is written; the entry arms of V1-28 and V1-29
+`ADD` rows: their signatures are defined by `### V1-28 contract` and
+`### V1-29 contract` above. The ADD contract check includes 28 and 29; the entry arms of V1-28 and V1-29
 require the heading. V1-30 writes the PROTOCOL.md heading of D19, which the MV1 DoD greps.
 
 Every `BUG` row of the wave, and of any later bug fix, is closed test first, by the rule of

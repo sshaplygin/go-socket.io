@@ -200,7 +200,7 @@ func TestTypedHandlerContextsEndBeforeDisconnectCallbacks(t *testing.T) {
 			serverContexts, clientContexts := make(chan context.Context, 1), make(chan context.Context, 1)
 			serverCanceled, clientCanceled := make(chan bool, 1), make(chan bool, 1)
 			var serverContext, clientContext context.Context
-			_, cl, serverConn, _ := typedPair(t, tr, func(srv *socketio.Server, cl *client.Client) {
+			_, cl, serverConn, clientConn := typedPair(t, tr, func(srv *socketio.Server, cl *client.Client) {
 				require.NoError(t, descriptor.Handle(srv.Of("/chat"), func(ctx context.Context, _ socketio.Conn, _ bool) error {
 					serverContext = ctx
 					serverContexts <- ctx
@@ -214,6 +214,8 @@ func TestTypedHandlerContextsEndBeforeDisconnectCallbacks(t *testing.T) {
 				srv.OnDisconnect("/chat", func(socketio.Conn, string) { serverCanceled <- serverContext != nil && serverContext.Err() != nil })
 				cl.OnDisconnect(func(client.Conn, string) { clientCanceled <- clientContext != nil && clientContext.Err() != nil })
 			})
+			serverConn.SetContext("server application context")
+			clientConn.SetContext("client application context")
 			require.NoError(t, descriptor.Emit(context.Background(), cl, true))
 			sc := typedReceive(t, serverContexts)
 			require.NoError(t, descriptor.Emit(context.Background(), serverConn, true))
@@ -225,6 +227,8 @@ func TestTypedHandlerContextsEndBeforeDisconnectCallbacks(t *testing.T) {
 			require.True(t, typedReceive(t, serverCanceled))
 			require.ErrorIs(t, sc.Err(), context.Canceled)
 			require.ErrorIs(t, cc.Err(), context.Canceled)
+			require.Equal(t, "server application context", serverConn.Context())
+			require.Equal(t, "client application context", clientConn.Context())
 		})
 	}
 }

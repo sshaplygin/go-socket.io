@@ -34,4 +34,3 @@ func TestReviewG22NegativeHeartbeatNotAdvertised(t *testing.T) {
 		})
 	}
 }
-

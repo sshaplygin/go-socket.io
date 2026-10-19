@@ -2901,7 +2901,17 @@ socket generation.
 Handler contexts are private namespace-generation lifetime contexts, independent
 of application Conn.Context storage and the handshake HTTP request. Cancel them
 and pending ACKs before disconnect callbacks; rejected admission and engine close
-also terminate them. Preserve the existing serialized dispatcher: synchronous
+also terminate them. The concrete built-in Engine.IO server session and client
+provide an optional `Done() <-chan struct{}` capability, closed when engine close
+starts. This reuses each engine's existing close signal without extending either
+public Conn interface. A Socket.IO connection observes that signal independently
+of the dispatcher and cancels its namespace contexts and pending requests even
+when a typed callback waits for cancellation. The observer ends with the Socket.IO
+connection; it does not poll ReadyState or invoke application callbacks. Custom
+engines without this capability are canceled when their read/write failure is
+observed or Socket.IO close is requested. A remote close still requires the engine
+to observe the peer or its heartbeat timeout; no concurrent frame reader is added.
+Preserve the existing serialized dispatcher: synchronous
 EmitWithAck inside a callback on that same connection cannot receive its ACK while
 blocked. Callers must start such waits outside that callback, for example in a
 goroutine. No asynchronous callback execution redesign is part of V1-29.
@@ -2909,15 +2919,17 @@ goroutine. No asynchronous callback execution redesign is part of V1-29.
 **Scope and acceptance.** Implementation may edit root/client typed API files,
 both Socket.IO role internals, the new internal/event leaf and their tests, plus
 architecture policy/negative fixtures and owning documentation/check inventories.
-No Engine.IO or v2 runtime change, registry update, PR merge, tag or version bump
-is included. Update the exact graph gate for 20 packages and the seven edges above;
+Engine.IO changes are limited to exposing the optional close signal on its two
+concrete implementations and verifying its timing. No v2 runtime change, registry
+update, PR merge, tag or version bump is included. Update the exact graph gate for 20 packages and the seven edges above;
 add 29 to the ADD-contract heading check before implementation.
 Acceptance includes compile-positive typed server/client/ACK/broadcast examples,
 compile-negative wrong payload/result/handler examples, duplicate and reserved-name
 checks, exact integer and nested binary round trips over polling and websocket,
 error-first and malformed ACKs, timeout/cancellation/disconnect races, cancellation
 while buffered, generation isolation, duplicate/late ACK draining, reentrant
-marshaling, and legacy/typed replacement. Run race tests, lint, architecture/privacy
+marshaling, legacy/typed replacement, and an engine close unblocking a typed
+handler waiting on its lifetime context on both roles. Run race tests, lint, architecture/privacy
 fixtures, API coverage and Node interoperability; T1–T3 close only with executable
 Covers tests and those gates green. The strict parity/release gate remains separate
 from authorization to create a release tag.

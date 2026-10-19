@@ -194,22 +194,6 @@ func (bc *broadcast) do(cmd string, args ...interface{}) (interface{}, error) {
 	return c.Do(cmd, args...)
 }
 
-func (bc *broadcast) publish(channel string, msg interface{}) {
-	resJSON, err := json.Marshal(msg)
-	if err != nil {
-		return
-	}
-
-	_, err = bc.do("PUBLISH", channel, resJSON)
-	if err != nil {
-		return
-	}
-}
-
-// captureFrames obtains the canonical JSON representation and attachment bytes.
-type captureFrames struct{ frames []*bytes.Buffer }
-type captureWriter struct{ *bytes.Buffer }
-
 func (captureWriter) Close() error { return nil }
 func (c *captureFrames) NextWriter(parser.FrameType) (io.WriteCloser, error) {
 	b := new(bytes.Buffer)

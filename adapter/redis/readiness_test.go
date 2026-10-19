@@ -12,6 +12,7 @@ import (
 	"time"
 )
 
+// Covers A10
 func TestDatabaseOptionPreserved(t *testing.T) {
 	if got := getOptions(&options{DB: 3}).DB; got != 3 {
 		t.Fatalf("database = %d, want 3", got)
@@ -19,6 +20,7 @@ func TestDatabaseOptionPreserved(t *testing.T) {
 }
 
 // A successful command write does not mean Redis registered the subscription.
+// Covers B4
 func TestSubscribeWaitsForAcknowledgements(t *testing.T) {
 	c := &silentSubscription{done: make(chan struct{})}
 	bc := &broadcast{pattern: "socket.io#*", reqChannel: "socket.io-request#/#", resChannel: "socket.io-response#/#"}
@@ -70,6 +72,7 @@ func TestCloseCancelsSubscriberReconnect(t *testing.T) {
 	}
 }
 
+// Covers B4
 func TestDynamicNamespaceWaitsForSubscriptionAcknowledgements(t *testing.T) {
 	s := miniredis.RunT(t)
 	factory := New(WithAddr(s.Addr()))

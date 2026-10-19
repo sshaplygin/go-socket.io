@@ -48,7 +48,7 @@ func TestClientConfiguredOpenLimitBoundary(t *testing.T) {
 						if e != nil {
 							return
 						}
-						defer ws.Close()
+						defer func() { _ = ws.Close() }()
 						_ = ws.WriteMessage(gorilla.TextMessage, []byte(packet))
 						return
 					}
@@ -59,10 +59,10 @@ func TestClientConfiguredOpenLimitBoundary(t *testing.T) {
 					}
 					_, _ = io.WriteString(w, wire)
 				}))
-				defer ts.Close()
+				defer func() { _ = ts.Close() }()
 				c, e := (&Dialer{MaxMessageSize: 512, Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
 				if c != nil {
-					defer c.Close()
+					defer func() { _ = c.Close() }()
 				}
 				if size == 512 {
 					require.NoError(t, e)
@@ -89,7 +89,7 @@ func TestClientConfiguredLimitAppliesToLaterMessages(t *testing.T) {
 					if e != nil {
 						return
 					}
-					defer ws.Close()
+					defer func() { _ = ws.Close() }()
 					for _, p := range []string{boundaryOpen, exactPacket, largePacket} {
 						if ws.WriteMessage(gorilla.TextMessage, []byte(p)) != nil {
 							return
@@ -111,10 +111,10 @@ func TestClientConfiguredLimitAppliesToLaterMessages(t *testing.T) {
 					_, _ = io.WriteString(w, "1:1")
 				}
 			}))
-			defer ts.Close()
+			defer func() { _ = ts.Close() }()
 			c, e := (&Dialer{MaxMessageSize: 512, Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
 			require.NoError(t, e)
-			defer c.Close()
+			defer func() { _ = c.Close() }()
 			_, r, e := c.NextReader()
 			require.NoError(t, e)
 			body, e := io.ReadAll(r)

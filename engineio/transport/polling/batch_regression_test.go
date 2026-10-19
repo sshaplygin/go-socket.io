@@ -23,7 +23,7 @@ func TestPollingBatchesOrderedPacketsInOneResponse(t *testing.T) {
 			req := httptest.NewRequest("GET", "http://localhost/?b64=1", nil)
 			req.Header.Set("Accept-Encoding", encoding)
 			c := newServerConn(&Transport{Compression: true, CompressionThreshold: 1}, req)
-			defer c.Close()
+			defer func() { _ = c.Close() }()
 			require.NoError(t, c.SetWriteDeadline(time.Now().Add(time.Second)))
 			done := make(chan error, 1)
 			go func() {
@@ -66,7 +66,7 @@ func TestPollingBatchContainsBinaryAndCloseInOrder(t *testing.T) {
 		t.Run(query, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "http://localhost/"+query, nil)
 			c := newServerConn(Default, req)
-			defer c.Close()
+			defer func() { _ = c.Close() }()
 			require.NoError(t, c.SetWriteDeadline(time.Now().Add(time.Second)))
 			done := make(chan error, 1)
 			go func() {
@@ -103,7 +103,7 @@ func TestPollingBatchContainsBinaryAndCloseInOrder(t *testing.T) {
 func TestPollingBatchHasFinitePacketBudget(t *testing.T) {
 	req := httptest.NewRequest("GET", "http://localhost/?b64=1", nil)
 	c := newServerConn(Default, req)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
@@ -152,7 +152,7 @@ func (w *secondPacketGate) Write(p []byte) (int, error) {
 func TestCanceledBatchKeepsActiveWriterLease(t *testing.T) {
 	p := newPayload(false)
 	p.batch = true
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	w := &secondPacketGate{gate: gatedWriter{started: make(chan struct{}), release: make(chan struct{})}}
@@ -209,7 +209,7 @@ func TestPollingBatchSeparatesCompressionPreferences(t *testing.T) {
 			req := httptest.NewRequest("GET", "http://localhost/?b64=1", nil)
 			req.Header.Set("Accept-Encoding", "gzip")
 			c := newServerConn(&Transport{Compression: true, CompressionThreshold: 1}, req)
-			defer c.Close()
+			defer func() { _ = c.Close() }()
 			require.NoError(t, c.SetWriteDeadline(time.Now().Add(time.Second)))
 			done := make(chan error, 1)
 			go func() {

@@ -33,7 +33,7 @@ func TestReviewG25ZeroLengthSkipsEmptyPacket(t *testing.T) {
 	d := NewPayloadDecoder(f)
 	_, pt, r, err := d.NextReader()
 	require.NoError(t, err)
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	require.Equal(t, MESSAGE, pt, "reference skips the zero-length packet and delivers MESSAGE")
 }
 

@@ -17,8 +17,8 @@ import (
 func TestReviewG27EmptyBinaryPostKeepsSession(t *testing.T) {
 	s := engineio.NewServer()
 	ts := httptest.NewServer(s)
-	defer ts.Close()
-	defer s.Close()
+	defer func() { _ = ts.Close() }()
+	defer func() { _ = s.Close() }()
 	done := make(chan string, 1)
 	go func() {
 		c, err := s.Accept()
@@ -49,12 +49,12 @@ func TestReviewG27EmptyBinaryPostKeepsSession(t *testing.T) {
 	require.NotEmpty(t, sid)
 	resp, err = http.Post(ts.URL+"/?EIO=3&transport=polling&sid="+sid, "application/octet-stream", strings.NewReader(""))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "reference treats empty binary payload as no packets")
 	require.NoError(t, resp.Body.Close())
 	resp, err = http.Post(ts.URL+"/?EIO=3&transport=polling&sid="+sid, "application/octet-stream", bytes.NewReader([]byte{0, 2, 255, '4', 'x'}))
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	select {
 	case body := <-done:

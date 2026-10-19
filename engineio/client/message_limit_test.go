@@ -25,14 +25,14 @@ func TestClientRejectsOversizedOpen(t *testing.T) {
 					if err != nil {
 						return
 					}
-					defer ws.Close()
+					defer func() { _ = ws.Close() }()
 					_ = ws.WriteMessage(gorilla.TextMessage, []byte(packet))
 					return
 				}
 				w.Header().Set("Content-Type", "text/plain; charset=UTF-8")
 				_, _ = fmt.Fprintf(w, "%d:%s", len(packet), packet)
 			}))
-			defer ts.Close()
+			defer func() { _ = ts.Close() }()
 			c, err := (&Dialer{Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
 			if c != nil {
 				_ = c.Close()

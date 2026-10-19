@@ -11,7 +11,7 @@ import (
 type auditWriter struct{ closeErr error }
 
 func (w auditWriter) NextWriter(parser.FrameType) (io.WriteCloser, error) {
-	return auditWriteCloser{closeErr: w.closeErr}, nil
+	return auditWriteCloser(w), nil
 }
 
 type auditWriteCloser struct{ closeErr error }

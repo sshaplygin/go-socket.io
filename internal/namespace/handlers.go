@@ -200,10 +200,24 @@ func (nh *Handler) Err() error               { return nh.err }
 func (nh *Handler) ErrorHandler() func(Conn, error) {
 	nh.eventsLock.RLock()
 	defer nh.eventsLock.RUnlock()
-	return nh.onError
+	callback := nh.onError
+	if callback == nil {
+		return nil
+	}
+	return func(c Conn, err error) {
+		defer func() { _ = recover() }()
+		callback(c, err)
+	}
 }
 
 func (nh *Handler) NotifyDisconnect(c Conn, reason string) {
+	defer func() {
+		if value := recover(); value != nil {
+			if callback := nh.ErrorHandler(); callback != nil {
+				callback(c, fmt.Errorf("disconnect callback panic: %v", value))
+			}
+		}
+	}()
 	nh.eventsLock.RLock()
 	callback := nh.onDisconnect
 	nh.eventsLock.RUnlock()

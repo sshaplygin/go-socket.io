@@ -46,7 +46,7 @@ func (c *Connection) queuePayloadLocked(pkg outboundPayload, reserved bool) {
 	}
 	control := header.Type == parser.Connect || header.Type == parser.Disconnect
 	switch {
-	case isDone(c.closing) && (!c.draining || isDone(c.seal) || isDone(c.discard) || c.appSealed && !control && !reserved):
+	case isDone(c.closing) && (!c.draining || isDone(c.seal) || isDone(c.discard) || c.appSealed && !control && !reserved && !pkg.lifecycle):
 	case c.boundary || c.draining:
 		// Server lifecycle packets share ordering with application packets but
 		// do not consume the application budget reserved by pending Emits.
@@ -141,4 +141,5 @@ type outboundPayload struct {
 	prepared   *parser.PreparedPacket
 	err        error
 	noCompress bool
+	lifecycle  bool
 }

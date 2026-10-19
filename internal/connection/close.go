@@ -128,7 +128,13 @@ func (c *Connection) disconnect(ncs []*namespaceConn) {
 			nc.acceptPending()
 			c.write(parser.Header{Type: parser.Disconnect, Namespace: fmtNS(nc.namespace)})
 		}
+		nc.outMu.Lock()
+		nc.disconnectEmits = true
+		nc.outMu.Unlock()
 		c.disconnectNamespace(nc, reason)
+		nc.outMu.Lock()
+		nc.disconnectEmits = false
+		nc.outMu.Unlock()
 		if c.boundary {
 			c.log.Debug("socketio: disconnect", nspAttr(nc.namespace), "reason", "connection close")
 		}

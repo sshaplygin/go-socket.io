@@ -1,6 +1,7 @@
 package connection
 
 import (
+	"fmt"
 	"net/url"
 	"reflect"
 	"sync"
@@ -19,14 +20,16 @@ type namespaceConn struct {
 	handshake namespaceImpl.Handshake
 	context   interface{}
 
-	ack         sync.Map
-	outMu       sync.Mutex
-	connecting  bool
-	connectDone chan struct{}
-	connectErr  error
-	rejected    bool
-	pending     []outboundPayload
-	middleware  []func(string, []interface{}) error
+	ack             sync.Map
+	outMu           sync.Mutex
+	connecting      bool
+	connectDone     chan struct{}
+	connectErr      error
+	disconnectEmits bool
+	localDispatch   bool
+	rejected        bool
+	pending         []outboundPayload
+	middleware      []func(string, []interface{}) error
 }
 
 func newNamespaceConn(conn *Connection, namespace string, broadcast adapter.Adapter, query ...string) *namespaceConn {
@@ -91,6 +94,7 @@ func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{})
 
 func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, v ...interface{}) {
 	if reservedEvent(eventName) {
+		nc.emitLocal(eventName, v...)
 		return
 	}
 	header := parser.Header{
@@ -200,6 +204,9 @@ func (nc *namespaceConn) Disconnect() {
 }
 
 func (nc *namespaceConn) Use(f func(string, []interface{}) error) {
+	if f == nil {
+		return
+	}
 	if !nc.Connection.boundary {
 		return
 	}
@@ -208,7 +215,12 @@ func (nc *namespaceConn) Use(f func(string, []interface{}) error) {
 	nc.outMu.Unlock()
 }
 
-func (nc *namespaceConn) runMiddleware(event string, args []reflect.Value) error {
+func (nc *namespaceConn) runMiddleware(event string, args []reflect.Value) (err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			err = fmt.Errorf("event middleware panic: %v", value)
+		}
+	}()
 	nc.outMu.Lock()
 	chain := append([]func(string, []interface{}) error(nil), nc.middleware...)
 	nc.outMu.Unlock()
@@ -237,6 +249,7 @@ func (nc *namespaceConn) beginConnect() {
 func (nc *namespaceConn) sendPayload(pkg outboundPayload) {
 	header := pkg.Header
 	nc.outMu.Lock()
+	pkg.lifecycle = nc.disconnectEmits
 	if nc.rejected {
 		nc.outMu.Unlock()
 		return
@@ -377,4 +390,35 @@ func (nc *namespaceConn) connectReturned(err error) {
 	nc.connectErr = err
 	close(nc.connectDone)
 	nc.outMu.Unlock()
+}
+
+// Reserved emits notify local listeners without changing the socket lifecycle.
+func (nc *namespaceConn) emitLocal(event string, args ...interface{}) {
+	nc.outMu.Lock()
+	if nc.localDispatch {
+		nc.outMu.Unlock()
+		return
+	}
+	nc.localDispatch = true
+	nc.outMu.Unlock()
+	defer func() { nc.outMu.Lock(); nc.localDispatch = false; nc.outMu.Unlock() }()
+	handler := nc.Connection.namespace(fmtNS(nc.namespace))
+	if handler == nil {
+		return
+	}
+	values := make([]reflect.Value, len(args))
+	for i, arg := range args {
+		if arg == nil {
+			values[i] = reflect.Zero(reflect.TypeOf((*interface{})(nil)).Elem())
+		} else {
+			values[i] = reflect.ValueOf(arg)
+		}
+	}
+	if _, err := handler.DispatchEvent(nc, event, values...); err != nil {
+		if onError := handler.ErrorHandler(); onError != nil {
+			onError(nc, err)
+		} else {
+			nc.Connection.unhandled(nc.namespace, err)
+		}
+	}
 }

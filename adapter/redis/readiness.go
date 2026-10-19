@@ -65,3 +65,42 @@ func (bc *broadcast) waitReady(ctx context.Context) error {
 		}
 	}
 }
+
+func (bc *broadcast) notifyReadiness() {
+	s := &bc.transport().readiness
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.changed != nil {
+		close(s.changed)
+	}
+	s.changed = make(chan struct{})
+}
+func (bc *broadcast) connected() bool {
+	owner := bc.transport()
+	s := &owner.readiness
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.channels[owner.pattern]
+}
+func sameChannels(a, b []interface{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[interface{}]bool, len(a))
+	for _, v := range a {
+		set[v] = true
+	}
+	for _, v := range b {
+		if !set[v] {
+			return false
+		}
+	}
+	return true
+}
+
+func (bc *broadcast) markReady(channels []interface{}) {
+	bc.subscriptionChanged(bc.pattern, true)
+	for _, channel := range channels {
+		bc.subscriptionChanged(channel.(string), true)
+	}
+}

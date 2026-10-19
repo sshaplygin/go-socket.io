@@ -19,10 +19,12 @@ type broadcast struct {
 	// pub serves PUBLISH and PUBSUB commands. A redigo connection allows only
 	// one concurrent caller, and these commands come from user goroutines and
 	// the dispatch goroutine, so each command takes its own pooled connection.
-	readiness subscriptionState
-	pub       *redis.Pool
-	resources *sharedResources
-	closed    atomic.Bool // per-adapter state, independent from shared transport lifetime
+	transportCtx    context.Context
+	transportCancel context.CancelFunc
+	readiness       subscriptionState
+	pub             *redis.Pool
+	resources       *sharedResources
+	closed          atomic.Bool // per-adapter state, independent from shared transport lifetime
 	// sub is read by the dispatch goroutine and replaced by it after a
 	// receive error; subLock orders the replacement with close.
 	sub     *redis.PubSubConn
@@ -106,13 +108,14 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 		requests:   make(map[string]interface{}),
 		done:       make(chan struct{}),
 		pub:        pub,
-		pattern:    fmt.Sprintf("%s#%s#*", opts.Prefix, nsp),
+		pattern:    fmt.Sprintf("%s#*", opts.Prefix),
 		key:        fmt.Sprintf("%s#%s#", opts.Prefix, nsp),
 		reqChannel: fmt.Sprintf("%s-request#%s#", opts.Prefix, nsp),
 		resChannel: fmt.Sprintf("%s-response#%s#", opts.Prefix, nsp),
 		nsp:        nsp,
 		uid:        uid,
 	}
+	rbc.transportCtx, rbc.transportCancel = context.WithCancel(context.Background())
 	rbc.dial.Store(&dial)
 	if shared != nil {
 		rbc.resources = shared
@@ -123,6 +126,7 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 
 	if rbc.sub, err = rbc.subscribe(ctx); err != nil {
 		_ = pub.Close()
+		rbc.transportCancel()
 		return nil, err
 	}
 

@@ -51,7 +51,7 @@ func (s *sharedResources) add(nsp string, opts *options) (*broadcast, error) {
 	s.members[nsp] = append(s.members[nsp], bc)
 	s.mu.Unlock()
 	var err error
-	if !existing {
+	if !existing && owner.connected() {
 		err = owner.sub.Subscribe(bc.reqChannel, bc.resChannel)
 	}
 	owner.subLock.Unlock()

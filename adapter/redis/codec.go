@@ -9,16 +9,12 @@ import (
 )
 
 func (bc *broadcast) onMessage(channel string, msg []byte) error {
-	channelParts := strings.Split(channel, "#")
-	if len(channelParts) < 3 {
-		return errors.New("invalid broadcast channel")
-	}
-	nsp := channelParts[len(channelParts)-2]
-	if bc.nsp != nsp {
+	// Only the final delimiter separates the opaque namespace from the UID.
+	prefix := strings.TrimSuffix(bc.key, bc.uid)
+	uid, ok := strings.CutPrefix(channel, prefix)
+	if !ok || uid == "" || strings.Contains(uid, "#") {
 		return nil
 	}
-
-	uid := channelParts[len(channelParts)-1]
 	if bc.uid == uid {
 		return nil
 	}

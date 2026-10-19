@@ -71,6 +71,27 @@ func typedValue() typedPayload {
 	return typedPayload{Signed: 9007199254740993, Unsigned: 18446744073709551615, Binary: parser.Buffer{Data: []byte("binary")}, Nested: map[string]parser.Buffer{"nested": {Data: []byte{0, 1, 255}}}}
 }
 
+// Covers T3
+func TestTypedApplicationPayloadErrorIsNotDecodeFailure(t *testing.T) {
+	descriptor := socketio.NewAckEvent[int, int]("application-payload-error")
+	_, cl, serverConn, _ := typedPair(t, websocket.Default, func(srv *socketio.Server, cl *client.Client) {
+		require.NoError(t, descriptor.Handle(srv.Of("/chat"), func(context.Context, socketio.Conn, int) (int, error) {
+			return 0, socketio.ErrInvalidPayload
+		}))
+		require.NoError(t, descriptor.HandleClient(cl, func(context.Context, socketio.Endpoint, int) (int, error) {
+			return 0, socketio.ErrInvalidPayload
+		}))
+	})
+	for _, to := range []socketio.Endpoint{cl, serverConn} {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_, err := descriptor.EmitWithAck(ctx, to, 42)
+		cancel()
+		var remote *socketio.RemoteError
+		require.ErrorAs(t, err, &remote)
+		require.Equal(t, "handler_error", remote.Code)
+	}
+}
+
 // Covers T1
 // Covers T2
 func TestTypedEventAcrossServerClientAndBroadcast(t *testing.T) {

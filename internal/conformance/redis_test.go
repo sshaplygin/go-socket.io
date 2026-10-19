@@ -16,6 +16,9 @@ import (
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/adapter"
 	redisadapter "github.com/sshaplygin/go-socket.io/adapter/redis"
+	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 	"github.com/sshaplygin/go-socket.io/parser"
 	"github.com/stretchr/testify/require"
 )
@@ -33,8 +36,14 @@ type redisClusterCommands interface {
 
 func redisClusterServer(t *testing.T, addr, prefix string) *httptest.Server {
 	t.Helper()
-	s := socketio.NewServer(socketio.WithAdapter(redisadapter.New(redisadapter.WithAddr(addr), redisadapter.WithPrefix(prefix))))
-	for _, name := range []string{"/cluster", "/cluster#other"} {
+	factory := redisadapter.New(redisadapter.WithAddr(addr), redisadapter.WithPrefix(prefix), redisadapter.WithRequestsTimeout(1500*time.Millisecond), redisadapter.WithCustomRequestHandler(func(ctx context.Context, data json.RawMessage) (json.RawMessage, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]interface{}{"go": prefix, "data": data})
+	}))
+	s := socketio.NewServer(socketio.WithAdapter(factory), socketio.WithEngineOptions(engineio.WithTransports(polling.Default, &websocket.Transport{EnableCompression: true, CompressionThreshold: 1})))
+	for _, name := range []string{"/", "/cluster", "/cluster#other"} {
 		n := s.Of(name)
 		n.OnConnect(func(socketio.Conn) error { return nil })
 		n.OnEvent("identity", func(c socketio.Conn) string { return c.ID() })
@@ -45,17 +54,18 @@ func redisClusterServer(t *testing.T, addr, prefix string) *httptest.Server {
 	mux.Handle("/socket.io/", s)
 	mux.HandleFunc("/control", func(w http.ResponseWriter, r *http.Request) {
 		var q struct {
-			Op         string
-			Namespace  string
-			Rooms      []string
-			Except     []string
-			Local      bool
-			Volatile   bool
-			NoCompress bool
-			SID        string
-			Room       string
-			Close      bool
-			Data       json.RawMessage
+			Op            string
+			Namespace     string
+			Rooms         []string
+			Except        []string
+			Local         bool
+			Volatile      bool
+			NoCompress    bool
+			SID           string
+			Room          string
+			Close         bool
+			TimeoutMillis int
+			Data          json.RawMessage
 		}
 		if err := json.NewDecoder(r.Body).Decode(&q); err != nil {
 			http.Error(w, err.Error(), 400)
@@ -65,7 +75,11 @@ func redisClusterServer(t *testing.T, addr, prefix string) *httptest.Server {
 			q.Namespace = "/cluster"
 		}
 		a := s.Of(q.Namespace).Adapter()
-		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		timeout := 3 * time.Second
+		if q.TimeoutMillis > 0 {
+			timeout = time.Duration(q.TimeoutMillis) * time.Millisecond
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 		var result interface{}
 		var err error
@@ -120,6 +134,9 @@ func redisClusterServer(t *testing.T, addr, prefix string) *httptest.Server {
 // Covers B3
 // Covers S13
 // Covers S15
+// Covers S21
+// Covers K14
+// Covers B4
 func TestRedisMixedCluster(t *testing.T) {
 	addr := os.Getenv("CONFORMANCE_REDIS_ADDR")
 	require.NotEmpty(t, addr, "CONFORMANCE_REDIS_ADDR must name a real Redis service")

@@ -2752,8 +2752,8 @@ API; they do not implement the deferred typed event API T1–T3.
 - `(*Encoder).EncodePrepared(*PreparedPacket) error` writes the prepared frames and
   propagates frame Close failures; a prior write error takes precedence.
 - `(*Decoder).DecodeArgsVariadic([]reflect.Type) ([]reflect.Value, error)` decodes the
-  fixed arguments followed by flattened variadic elements into the final declared
-  slice. Callers invoke variadic callbacks with `reflect.Value.CallSlice`.
+  fixed arguments followed by flattened variadic elements as individual returned
+  values, suitable for `reflect.Value.Call`.
 
 Acceptance: immutable map and attachment snapshots, reentrant user marshaling
 outside queue/manager locks, late volatile ACK admission, zero/many variadic

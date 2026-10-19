@@ -61,9 +61,11 @@ work. Layout decisions, tag forms and the path convention of the roadmap:
 | `.github/` | shared: one CI workflow with jobs per module, the benchmark workflow and its tools, Dependabot |
 
 Runtime model of v1: `engineio.Server` accepts HTTP requests and emits `engineio.Conn`
-sessions; `socketio.Server.Serve` takes each session and starts three goroutines
-(read, write, error) through `internal/connection`. Handlers registered with `OnEvent` are called on
-the read goroutine of that connection, so a blocking handler blocks that client only.
+sessions; `socketio.Server.Serve` takes each session and starts read-dispatch, write
+and error goroutines through `internal/connection`. A header I/O worker lets the read
+dispatcher receive deferred namespace admissions while waiting for network input; it
+reads one header and waits until the dispatcher has consumed that packet. Handlers
+registered with `OnEvent` run on the dispatcher, so a blocking handler blocks that client only.
 The v2 root package has no runtime yet: every operation that needs one returns
 `ErrNotImplemented`, and stages 2.1 to 2.4 of the roadmap add it.
 

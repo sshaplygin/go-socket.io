@@ -63,6 +63,9 @@ func ackPacketHandler(c *Connection, header parser.Header) error {
 }
 
 func eventPacketHandler(c *Connection, event string, header parser.Header) error {
+	if reservedEvent(event) {
+		return c.decoder.DiscardLast()
+	}
 	conn, ok := c.namespaces.Get(header.Namespace)
 	if !ok {
 		_ = c.decoder.DiscardLast()
@@ -222,4 +225,12 @@ func errorPacketHandler(c *Connection, header parser.Header) error {
 	}
 	c.onError(header.Namespace, errors.New(message))
 	return nil
+}
+
+func reservedEvent(event string) bool {
+	switch event {
+	case "connect", "disconnect", "disconnecting", "error":
+		return true
+	}
+	return false
 }

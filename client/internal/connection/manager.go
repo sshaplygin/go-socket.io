@@ -264,7 +264,7 @@ func (c *Manager) engineDial() (engineclient.Conn, error) {
 	if c.dial != nil {
 		return c.dial(c.url)
 	}
-	d := engineclient.Dialer{Transports: c.options.Transports, Upgrade: true, OnPing: c.ping, OnPong: c.pong}
+	d := engineclient.Dialer{MaxMessageSize: c.options.MaxMessageSize, Transports: c.options.Transports, Upgrade: true, OnPing: c.ping, OnPong: c.pong}
 	return d.Dial(c.url, c.options.Header)
 }
 
@@ -278,6 +278,7 @@ func socketConnectHeader(s *Socket) parser.Header {
 
 // Config contains required, already resolved per-instance manager inputs.
 type Config struct {
+	MaxMessageSize       int64
 	Transports           []transport.Transport
 	Header               http.Header
 	Timeout              time.Duration

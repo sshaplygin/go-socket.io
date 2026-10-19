@@ -53,7 +53,7 @@ func TestEngineClientCompressedCloseLimit(t *testing.T) {
 		accepted <- acceptedConn{c, err}
 	}))
 	defer ts.Close()
-	dialer := Dialer{Transports: []transport.Transport{limitedCompressionTransport{ws}}}
+	dialer := Dialer{MaxMessageSize: 1024, Transports: []transport.Transport{limitedCompressionTransport{ws}}}
 	c, err := dialer.Dial(ts.URL, nil)
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
@@ -117,7 +117,7 @@ func TestEngineClientCompressedOpenLimit(t *testing.T) {
 				accepted <- serverResult{c, err}
 			}))
 			defer ts.Close()
-			dialer := Dialer{Transports: []transport.Transport{limitedCompressionTransport{ws}}}
+			dialer := Dialer{MaxMessageSize: 1024, Transports: []transport.Transport{limitedCompressionTransport{ws}}}
 			c, err := dialer.Dial(ts.URL, nil)
 			if c != nil {
 				defer func() { _ = c.Close() }()

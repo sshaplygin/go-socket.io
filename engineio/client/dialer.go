@@ -17,6 +17,10 @@ import (
 // Dialer configures Engine.IO client dialing and optional transport upgrades.
 type Dialer struct {
 	Transports []transport.Transport
+	// MaxMessageSize bounds received websocket messages and polling HTTP bodies,
+	// including OPEN and upgraded transports. Nonpositive values mean 1 MiB.
+	// Custom transports must implement SetReadLimit(int64) to enforce this limit.
+	MaxMessageSize int64
 	// Upgrade opens the first transport and probes advertised later transports
 	// asynchronously. False preserves last-first fallback without probing.
 	Upgrade bool
@@ -43,6 +47,10 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 	query.Set("EIO", "3")
 	u.RawQuery = query.Encode()
 
+	limit := d.MaxMessageSize
+	if limit <= 0 {
+		limit = 1 << 20
+	}
 	var conn transport.Conn
 	transports := append([]transport.Transport(nil), d.Transports...)
 	if len(transports) == 0 {
@@ -72,6 +80,10 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 			dialFailed(i, t.Name(), err)
 
 			continue
+		}
+
+		if limited, ok := conn.(interface{ SetReadLimit(int64) }); ok {
+			limited.SetReadLimit(limit)
 		}
 
 		var params eioparser.ConnParameters
@@ -120,12 +132,13 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 		}
 
 		ret := &client{
-			conn:      conn,
-			params:    params,
-			transport: t.Name(),
-			close:     make(chan struct{}),
-			onPing:    d.OnPing,
-			onPong:    d.OnPong,
+			conn:           conn,
+			maxMessageSize: limit,
+			params:         params,
+			transport:      t.Name(),
+			close:          make(chan struct{}),
+			onPing:         d.OnPing,
+			onPong:         d.OnPong,
 		}
 		started := time.Now()
 		ret.initialize()

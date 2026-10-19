@@ -14,6 +14,7 @@ const defaultWriteBufferSize, defaultDrainTimeout = 64, time.Minute
 
 // options holds private client configuration.
 type options struct {
+	MaxMessageSize int64
 	// PerMessageDeflate offers websocket compression, with a 1024-byte threshold.
 	PerMessageDeflate bool
 	// Transports are tried in upgrade order. Nil means polling then websocket.
@@ -123,4 +124,12 @@ func resolveOptions(opts ...Option) *options {
 		}
 	}
 	return config
+}
+
+// WithMaxMessageSize bounds each received websocket message or polling response
+// body, including OPEN and reconnects. Nonpositive values mean 1 MiB. Built-in
+// transports enforce the limit after decompression; custom transports must
+// implement SetReadLimit(int64).
+func WithMaxMessageSize(bytes int64) Option {
+	return func(config *options) { config.MaxMessageSize = bytes }
 }

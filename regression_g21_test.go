@@ -1,11 +1,11 @@
 package socketio
 
 import (
-	"testing"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
-// Covers: G21
+// Covers G21
 func TestRegressionG21NoUnrequestedAck(t *testing.T) {
 	_, url := defectServer(t, func(s *Server) {
 		s.OnEvent("/", "value", func(Conn) string { return "answer" })
@@ -17,4 +17,3 @@ func TestRegressionG21NoUnrequestedAck(t *testing.T) {
 	c.send(`2["barrier"]`)
 	require.Equal(t, "2[\"barrier\"]\n", c.read(), "event without id must not generate ACK")
 }
-

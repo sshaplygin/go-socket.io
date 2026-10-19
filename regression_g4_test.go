@@ -1,12 +1,12 @@
 package socketio
 
 import (
+	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
-	"github.com/stretchr/testify/require"
 )
 
-// Covers: G4
+// Covers G4
 func TestRegressionG4CloseDoesNotDisconnectDuringConnect(t *testing.T) {
 	entered := make(chan Conn, 1)
 	release := make(chan struct{})
@@ -29,4 +29,3 @@ func TestRegressionG4CloseDoesNotDisconnectDuringConnect(t *testing.T) {
 	close(release)
 	recv(t, done, "Close finished")
 }
-

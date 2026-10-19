@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Covers: G17
+// Covers G17
 func TestRegressionG17RootAlwaysExists(t *testing.T) {
 	ts := newTestServer(t, func(*Server) {})
 	c := dialRaw(t, ts.URL)

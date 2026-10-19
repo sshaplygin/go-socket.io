@@ -1,11 +1,11 @@
 package socketio
 
 import (
-	"testing"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
-// Covers: G19
+// Covers G19
 func TestRegressionG19PeerCannotDispatchLifecycle(t *testing.T) {
 	seen := make(chan string, 4)
 	_, url := defectServer(t, func(s *Server) {
@@ -23,4 +23,3 @@ func TestRegressionG19PeerCannotDispatchLifecycle(t *testing.T) {
 	default:
 	}
 }
-

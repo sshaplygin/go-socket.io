@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Covers: G5
+// Covers G5
 func TestRegressionG5SlowFactoryDoesNotBlockOtherNamespace(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	s := NewServer(WithAdapter(func(nsp string) (adapter.Adapter, error) {

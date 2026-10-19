@@ -1,11 +1,11 @@
 package socketio
 
 import (
-	"testing"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
-// Covers: G6
+// Covers G6
 func TestRegressionG6EmitSnapshotsMap(t *testing.T) {
 	_, c, fc, _ := connWithOptions(t, 'S', nil)
 	fc.hold.Store(true)
@@ -19,4 +19,3 @@ func TestRegressionG6EmitSnapshotsMap(t *testing.T) {
 	recv(t, fc.out, "barrier packet")
 	require.Contains(t, recv(t, fc.out, "snapshot packet"), `"value":"before"`)
 }
-

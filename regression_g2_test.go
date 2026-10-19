@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Covers: G2
+// Covers G2
 func TestRegressionG2FailedRootRemovesEngineSession(t *testing.T) {
 	s := NewServer(WithEngineOptions(shortPingOptions()...), WithWriteBufferSize(1))
 	s.OnConnect("/", func(c Conn) error { c.Emit("one"); c.Emit("two"); return nil })

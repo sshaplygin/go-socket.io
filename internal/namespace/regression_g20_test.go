@@ -1,12 +1,12 @@
 package namespace
 
 import (
-	"testing"
-	"reflect"
 	"github.com/stretchr/testify/require"
+	"reflect"
+	"testing"
 )
 
-// Covers: G20
+// Covers G20
 func TestRegressionG20VariadicHandlerArguments(t *testing.T) {
 	called := false
 	h := NewEventFunc(func(_ Conn, args ...string) { called = true })

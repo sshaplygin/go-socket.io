@@ -1,11 +1,11 @@
 package socketio
 
 import (
-	"testing"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
-// Covers: G28
+// Covers G28
 func TestRegressionG28ReservedEmitStaysLocal(t *testing.T) {
 	_, url := defectServer(t, func(s *Server) {
 		s.OnEvent("/", "trigger", func(c Conn) { c.Emit("disconnect", "forged"); c.Emit("barrier") })

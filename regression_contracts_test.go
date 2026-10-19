@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// Covers: G20
+// Covers G20
 func TestVariadicPayloadAndAckCallbacks(t *testing.T) {
 	acked := make(chan []string, 1)
 	_, url := defectServer(t, func(s *Server) {
@@ -28,7 +28,9 @@ func TestVariadicPayloadAndAckCallbacks(t *testing.T) {
 	require.Equal(t, []string{"a", "b"}, recv(t, acked, "variadic ACK"))
 }
 
-// Covers: G9, G19, G21
+// Covers G9
+// Covers G19
+// Covers G21
 func TestIgnoredBinaryEventsConsumeTheirAttachments(t *testing.T) {
 	_, url := defectServer(t, func(s *Server) { s.OnEvent("/", "alive", func(Conn) string { return "alive" }) })
 	c := dialRaw(t, url)
@@ -50,7 +52,7 @@ func TestIgnoredBinaryEventsConsumeTheirAttachments(t *testing.T) {
 	}
 }
 
-// Covers: G28
+// Covers G28
 func TestReservedEmitCallsLocalListenersOnce(t *testing.T) {
 	seen := make(chan string, 4)
 	_, url := defectServer(t, func(s *Server) {
@@ -65,7 +67,7 @@ func TestReservedEmitCallsLocalListenersOnce(t *testing.T) {
 	require.Empty(t, seen)
 }
 
-// Covers: G6
+// Covers G6
 func TestEmitSnapshotsBinaryAndNestedPayload(t *testing.T) {
 	_, c, fc, _ := connWithOptions(t, 'S', nil)
 	fc.hold.Store(true)
@@ -86,7 +88,8 @@ func TestEmitSnapshotsBinaryAndNestedPayload(t *testing.T) {
 	require.Equal(t, "before", recv(t, fc.out, "binary attachment"))
 }
 
-// Covers: G4, G18
+// Covers G4
+// Covers G18
 func TestRejectedAdmissionDuringCloseDoesNotConnect(t *testing.T) {
 	entered, release := make(chan Conn, 1), make(chan struct{})
 	s := NewServer()
@@ -100,4 +103,24 @@ func TestRejectedAdmissionDuringCloseDoesNotConnect(t *testing.T) {
 	recv(t, done, "startup completed")
 	require.Empty(t, drain(fc.out), "rejected admission must not send CONNECT or DISCONNECT")
 	require.NoError(t, s.Close())
+}
+
+// Covers G23
+func TestRoomMethodsRejectForeignAndDisconnectedSockets(t *testing.T) {
+	connected := make(chan Conn, 2)
+	s, url := defectServer(t, func(s *Server) { s.OnConnect("/chat", func(c Conn) error { connected <- c; return nil }) })
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	c.send("0/chat,")
+	require.Equal(t, "0/chat,", c.read())
+	chat := recv(t, connected, "chat socket")
+	require.False(t, s.JoinRoom("/", "foreign", chat))
+	require.False(t, s.LeaveRoom("/", "foreign", chat))
+	require.False(t, s.LeaveAllRooms("/", chat))
+	require.True(t, s.JoinRoom("/chat", "room", chat))
+	chat.Disconnect()
+	require.Equal(t, "1/chat,", c.read())
+	require.False(t, s.JoinRoom("/chat", "room", chat))
+	require.False(t, s.LeaveRoom("/chat", "room", chat))
+	require.False(t, s.LeaveAllRooms("/chat", nil))
 }

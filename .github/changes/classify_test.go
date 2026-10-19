@@ -31,6 +31,8 @@ var fixture = map[string]string{
 	"adapter/adapter.go":                       "package adapter\n\nfunc Broadcast() int { return 1 }\n",
 	"adapter/adapter_test.go":                  "package adapter\n\nimport \"testing\"\n\nfunc TestBroadcast(t *testing.T) { _ = Broadcast() }\n",
 	"adapter/example_test.go":                  "package adapter\n\nimport \"fmt\"\n\nfunc Example() {\n\tfmt.Println(\"hello\")\n\t// Output:\n\t// hello\n}\n",
+	"adapter/embed.go":                         "package adapter\n\nimport _ \"embed\"\n\n//go:embed adapter.go\nvar source string\n",
+	"native/native.go":                         "package native\n\n/*\n#define ANSWER 42\n*/\nimport \"C\"\n\nfunc Answer() int { return 42 }\n",
 	"internal/conformance/conformance_test.go": "//go:build conformance\n\npackage conformance\n\nimport (\n\t\"testing\"\n\n\tm \"example.com/m\"\n)\n\nfunc TestInterop(t *testing.T) { _ = m.Serve() }\n",
 	"internal/parity/parity_test.go":           "package parity\n\nimport \"testing\"\n\n// Covers B1\nfunc TestB1(t *testing.T) {}\n",
 	"_examples/app/go.mod":                     "module example.com/app\n\ngo 1.22\n",
@@ -172,6 +174,21 @@ func TestClassify(t *testing.T) {
 		}, want: with(map[string]string{
 			"v1": "true", "v1_packages": "./adapter", "examples_v1": "true", "conformance": "true",
 		})},
+		{name: "block line directive", edit: map[string]string{
+			"adapter/adapter.go": "package adapter\n\n/*line broadcast.go:10*/\nfunc Broadcast() int { return 1 }\n",
+		}, want: with(map[string]string{
+			"v1": "true", "v1_packages": "./adapter", "examples_v1": "true", "conformance": "true",
+		})},
+		{name: "embed pattern", edit: map[string]string{
+			"adapter/embed.go": "package adapter\n\nimport _ \"embed\"\n\n//go:embed *.go\nvar source string\n",
+		}, want: with(map[string]string{
+			"v1": "true", "v1_packages": "./adapter", "examples_v1": "true", "conformance": "true",
+		})},
+		{name: "cgo preamble comment", edit: map[string]string{
+			"native/native.go": "package native\n\n/*\n#define ANSWER 43\n*/\nimport \"C\"\n\nfunc Answer() int { return 42 }\n",
+		}, want: with(map[string]string{
+			"v1": "true", "v1_packages": "./native", "examples_v1": "true", "conformance": "true",
+		})},
 		{name: "legacy build constraint", edit: map[string]string{
 			"adapter/adapter.go": "// +build linux\n\npackage adapter\n\nfunc Broadcast() int { return 1 }\n",
 		}, want: merge(fullV1, map[string]string{"bench_v1": "./...", "changed": "true"})},
@@ -199,6 +216,13 @@ func TestClassify(t *testing.T) {
 		}, want: lintV1},
 		{name: "comment of an example body outside its output", edit: map[string]string{
 			"adapter/example_test.go": "package adapter\n\nimport \"fmt\"\n\nfunc Example() {\n\t// Print a greeting.\n\tfmt.Println(\"hello\")\n\t// Output:\n\t// hello\n}\n",
+		}, want: lintV1},
+		// go test reads only the last comment group of the body, so this group makes the
+		// example lose its expected output. It is a change of comments only on purpose: go
+		// vet rejects it ("output comment block must be the last comment block"), and make
+		// vet of lint-v1 reports it.
+		{name: "comment group after the output of an example", edit: map[string]string{
+			"adapter/example_test.go": "package adapter\n\nimport \"fmt\"\n\nfunc Example() {\n\tfmt.Println(\"hello\")\n\t// Output:\n\t// hello\n\n\t// Printed once.\n}\n",
 		}, want: lintV1},
 		{name: "conformance test", edit: map[string]string{
 			"internal/conformance/conformance_test.go": "//go:build conformance\n\npackage conformance\n\nimport (\n\t\"testing\"\n\n\tm \"example.com/m\"\n)\n\nfunc TestInterop(t *testing.T) { _ = m.Serve() + 1 }\n",
@@ -256,7 +280,7 @@ func TestClassify(t *testing.T) {
 			want: merge(fullV1, map[string]string{"bench_v1": "./...", "changed": "true"})},
 		{name: "Makefile", edit: map[string]string{"Makefile": "test:\n\tgo test -count=1 ./...\n"},
 			want: merge(fullV1, map[string]string{"sync": "true"})},
-		{name: "deleted package", edit: map[string]string{"adapter/adapter.go": deleted, "adapter/adapter_test.go": deleted, "adapter/example_test.go": deleted},
+		{name: "deleted package", edit: map[string]string{"adapter/adapter.go": deleted, "adapter/adapter_test.go": deleted, "adapter/example_test.go": deleted, "adapter/embed.go": deleted},
 			want: merge(fullV1, map[string]string{"bench_v1": "./...", "changed": "true"})},
 		{name: "deleted file of a package", edit: map[string]string{"engineio/errors.go": deleted, "v2/engineio/errors.go": deleted, ".github/sync-manifest": "\n"},
 			want: with(map[string]string{

@@ -84,8 +84,11 @@ func (s spans) contains(offset int) bool {
 
 // exampleOutputs returns the byte ranges of the comment groups that start with an output
 // marker inside the bodies of the top-level functions whose name starts with Example. go
-// test compares the last such group of a body; every one is kept, so that moving the marker
-// between groups also counts.
+// test (go/doc) reads only the last comment group of a body, and only when it starts with
+// the marker; every marker group is kept, so that moving the marker between groups also
+// counts. A comment group added after the output group is therefore a change of comments
+// only: it makes go vet fail ("output comment block must be the last comment block"), and
+// make vet of the lint job reports it.
 func exampleOutputs(fset *token.FileSet, file *ast.File) spans {
 	var result spans
 	for _, decl := range file.Decls {

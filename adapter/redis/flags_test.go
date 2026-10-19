@@ -36,7 +36,7 @@ func isolatedRedis(t *testing.T) (*broadcast, *atomic.Int32) {
 	var calls atomic.Int32
 	pool := &redis.Pool{Dial: func() (redis.Conn, error) { calls.Add(1); return nil, errors.New("unexpected redis I/O") }}
 	t.Cleanup(func() { _ = pool.Close() })
-	return &broadcast{nsp: "/", uid: "local", Memory: adapter.NewMemory(), pub: pool}, &calls
+	return &broadcast{nsp: "/", uid: "local", key: "socket.io#/#local", Memory: adapter.NewMemory(), pub: pool}, &calls
 }
 
 // Covers A4

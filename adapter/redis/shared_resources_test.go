@@ -3,6 +3,7 @@ package redis
 import (
 	"fmt"
 	"github.com/alicebob/miniredis/v2"
+	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/stretchr/testify/require"
 	"io"
 	"testing"
@@ -31,4 +32,41 @@ func TestFactorySharesRedisConnectionsAcrossNamespaces(t *testing.T) {
 		require.NoError(t, n.Close())
 	}
 	require.Eventually(t, func() bool { return s.CurrentConnectionCount() == 0 }, time.Second, time.Millisecond)
+}
+
+func TestSharedFactoryPreservesNamespaceAndRoomDelivery(t *testing.T) {
+	s := miniredis.RunT(t)
+	factories := []func(string) (adapter.Adapter, error){New(WithAddr(s.Addr())), New(WithAddr(s.Addr()))}
+	var all []*broadcast
+	for _, factory := range factories {
+		for _, namespace := range []string{"/room#/room", "/room", "/room[*]"} {
+			a, err := factory(namespace)
+			require.NoError(t, err)
+			bc := a.(*broadcast)
+			all = append(all, bc)
+			t.Cleanup(func() { _ = bc.Close() })
+			require.Eventually(t, func() bool { return s.PubSubNumSub(bc.reqChannel)[bc.reqChannel] > 0 }, time.Second, time.Millisecond)
+		}
+	}
+	for _, bc := range all {
+		require.Eventually(t, func() bool { return s.PubSubNumSub(bc.reqChannel)[bc.reqChannel] == 2 }, time.Second, time.Millisecond)
+	}
+	targets := make([]*redisTestConn, len(all))
+	for i, bc := range all {
+		targets[i] = newRedisTestConn(fmt.Sprint(i))
+		bc.Join("", targets[i])
+		bc.Join("ordinary", targets[i])
+	}
+	all[0].SendAll("hash")
+	expectEvent(t, targets[0], "hash []")
+	expectEvent(t, targets[3], "hash []")
+	require.Equal(t, 2, all[0].Len("ordinary")) // request/reply barrier
+	for _, i := range []int{1, 2, 4, 5} {
+		require.Empty(t, targets[i].events)
+	}
+	all[2].Send("", "empty")
+	expectEvent(t, targets[2], "empty []")
+	expectEvent(t, targets[5], "empty []")
+	require.NoError(t, all[0].Close())
+	require.Equal(t, 2, all[1].Len("ordinary"), "closing the initial namespace must preserve the shared dispatcher")
 }

@@ -19,7 +19,8 @@ type broadcast struct {
 	// pub serves PUBLISH and PUBSUB commands. A redigo connection allows only
 	// one concurrent caller, and these commands come from user goroutines and
 	// the dispatch goroutine, so each command takes its own pooled connection.
-	pub *redis.Pool
+	pub       *redis.Pool
+	resources *sharedResources
 	// sub is read by the dispatch goroutine and replaced by it after a
 	// receive error; subLock orders the replacement with close.
 	sub     *redis.PubSubConn
@@ -44,6 +45,10 @@ type broadcast struct {
 }
 
 func newBroadcast(nsp string, opts *options) (*broadcast, error) {
+	return newBroadcastWithResources(nsp, opts, nil)
+}
+
+func newBroadcastWithResources(nsp string, opts *options, shared *sharedResources) (*broadcast, error) {
 	addr := opts.getAddr()
 	var redisOpts []redis.DialOption
 	if len(opts.Password) > 0 {
@@ -104,6 +109,12 @@ func newBroadcast(nsp string, opts *options) (*broadcast, error) {
 		uid:        uid,
 	}
 	rbc.dial.Store(&dial)
+	if shared != nil {
+		rbc.resources = shared
+		rbc.pattern = fmt.Sprintf("%s#*", opts.Prefix)
+		shared.owner = rbc
+		shared.members[nsp] = []*broadcast{rbc}
+	}
 
 	if rbc.sub, err = rbc.subscribe(ctx); err != nil {
 		_ = pub.Close()

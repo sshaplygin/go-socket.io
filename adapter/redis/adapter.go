@@ -19,6 +19,7 @@ type broadcast struct {
 	// pub serves PUBLISH and PUBSUB commands. A redigo connection allows only
 	// one concurrent caller, and these commands come from user goroutines and
 	// the dispatch goroutine, so each command takes its own pooled connection.
+	readiness subscriptionState
 	pub       *redis.Pool
 	resources *sharedResources
 	closed    atomic.Bool // per-adapter state, independent from shared transport lifetime
@@ -50,6 +51,9 @@ func newBroadcast(nsp string, opts *options) (*broadcast, error) {
 }
 
 func newBroadcastWithResources(nsp string, opts *options, shared *sharedResources) (*broadcast, error) {
+	if nsp == "" {
+		nsp = "/"
+	}
 	addr := opts.getAddr()
 	var redisOpts []redis.DialOption
 	if len(opts.Password) > 0 {
@@ -103,9 +107,9 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 		done:       make(chan struct{}),
 		pub:        pub,
 		pattern:    fmt.Sprintf("%s#%s#*", opts.Prefix, nsp),
-		key:        fmt.Sprintf("%s#%s#%s", opts.Prefix, nsp, uid),
-		reqChannel: fmt.Sprintf("%s-request#%s", opts.Prefix, nsp),
-		resChannel: fmt.Sprintf("%s-response#%s", opts.Prefix, nsp),
+		key:        fmt.Sprintf("%s#%s#", opts.Prefix, nsp),
+		reqChannel: fmt.Sprintf("%s-request#%s#", opts.Prefix, nsp),
+		resChannel: fmt.Sprintf("%s-response#%s#", opts.Prefix, nsp),
 		nsp:        nsp,
 		uid:        uid,
 	}

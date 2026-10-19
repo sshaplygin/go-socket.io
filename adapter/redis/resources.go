@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/gomodule/redigo/redis"
@@ -30,28 +31,36 @@ func (s *sharedResources) channels() []interface{} {
 }
 
 func (s *sharedResources) add(nsp string, opts *options) (*broadcast, error) {
+	if nsp == "" {
+		nsp = "/"
+	}
 	owner := s.owner
+	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+	defer cancel()
 	owner.subLock.Lock()
-	defer owner.subLock.Unlock()
 	select {
 	case <-owner.done:
+		owner.subLock.Unlock()
 		return nil, fmt.Errorf("redis factory resources closed")
 	default:
 	}
 	s.mu.Lock()
 	existing := len(s.members[nsp]) > 0
-	uid := uuid.NewString()
-	bc := &broadcast{Memory: adapter.NewMemory(), requests: make(map[string]interface{}), done: make(chan struct{}), pub: owner.pub, resources: s, nsp: nsp, uid: uid,
-		key: fmt.Sprintf("%s#%s#%s", opts.Prefix, nsp, uid), reqChannel: fmt.Sprintf("%s-request#%s", opts.Prefix, nsp), resChannel: fmt.Sprintf("%s-response#%s", opts.Prefix, nsp)}
+	bc := &broadcast{Memory: adapter.NewMemory(), requests: make(map[string]interface{}), done: make(chan struct{}), pub: owner.pub, resources: s, nsp: nsp, uid: uuid.NewString(),
+		key: fmt.Sprintf("%s#%s#", opts.Prefix, nsp), reqChannel: fmt.Sprintf("%s-request#%s#", opts.Prefix, nsp), resChannel: fmt.Sprintf("%s-response#%s#", opts.Prefix, nsp)}
 	s.members[nsp] = append(s.members[nsp], bc)
 	s.mu.Unlock()
+	var err error
 	if !existing {
-		if err := owner.sub.Subscribe(bc.reqChannel, bc.resChannel); err != nil {
-			s.mu.Lock()
-			delete(s.members, nsp)
-			s.mu.Unlock()
-			return nil, err
-		}
+		err = owner.sub.Subscribe(bc.reqChannel, bc.resChannel)
+	}
+	owner.subLock.Unlock()
+	if err == nil {
+		err = bc.waitReady(ctx)
+	}
+	if err != nil {
+		_ = bc.Close()
+		return nil, err
 	}
 	return bc, nil
 }
@@ -147,6 +156,8 @@ func (s *sharedResources) remove(bc *broadcast) error {
 		return owner.closeTransport()
 	}
 	if len(group) == 0 {
+		owner.subscriptionChanged(bc.reqChannel, false)
+		owner.subscriptionChanged(bc.resChannel, false)
 		return owner.sub.Unsubscribe(bc.reqChannel, bc.resChannel)
 	}
 	return nil

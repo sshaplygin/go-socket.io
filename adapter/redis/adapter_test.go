@@ -19,7 +19,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
-const testRedisReqChannel = "socket.io-request#/"
+const testRedisReqChannel = "socket.io-request#/#"
 
 func init() {
 	redisRequestTimeout = 300 * time.Millisecond
@@ -303,8 +303,8 @@ func TestRedisBroadcastSkipsMalformedMessages(t *testing.T) {
 	for _, msg := range []string{"not json", "{}", `{"opts":[1,"msg"]}`} {
 		s.Publish("socket.io#/#peer", msg)
 	}
-	s.Publish("socket.io-response#/", "{}")
-	s.Publish("socket.io-response#/", `{"RequestID":1}`)
+	s.Publish("socket.io-response#/#", "{}")
+	s.Publish("socket.io-response#/#", `{"RequestID":1}`)
 
 	b.Send("room", "msg")
 	expectEvent(t, a1, "msg []")
@@ -426,7 +426,7 @@ func TestRedisBroadcastMalformedResponses(t *testing.T) {
 		`{"RequestType":"0","RequestID":"rooms","Connections":1}`,
 		`{"RequestType":"2","RequestID":"rooms","Rooms":[1,"r"]}`,
 	} {
-		s.Publish("socket.io-response#/", msg)
+		s.Publish("socket.io-response#/#", msg)
 	}
 
 	for _, done := range []chan bool{lenReq.done, roomsReq.done} {

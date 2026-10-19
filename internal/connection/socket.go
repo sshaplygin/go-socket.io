@@ -123,9 +123,13 @@ func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, 
 		args[i] = reflect.ValueOf(v[i-1])
 	}
 
-	nc.registerAck(&header, ack)
 	pkg := preparePayload(header, noCompress, args...)
 	if !volatile {
+		nc.registerAck(&header, ack)
+		pkg.Header = header
+		if pkg.prepared != nil {
+			pkg.prepared = pkg.prepared.WithHeader(header)
+		}
 		nc.sendPayload(pkg)
 		return
 	}
@@ -133,7 +137,6 @@ func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, 
 	// queue atomically afterwards so a concurrent normal/volatile emit cannot
 	// turn this best-effort packet into an overflow or retain a dropped ACK.
 	if c, ok := nc.Conn.(interface{ Writable() bool }); ok && !c.Writable() {
-		nc.ack.Delete(header.ID)
 		return
 	}
 	nc.outMu.Lock()
@@ -143,8 +146,12 @@ func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, 
 	c := nc.Connection
 	if nc.rejected || c.pendingWrites+len(c.writeChan)+len(c.drainQueue) != 0 ||
 		isDone(c.closing) && (!c.draining || c.appSealed || isDone(c.discard)) {
-		nc.ack.Delete(header.ID)
 		return
+	}
+	nc.registerAck(&header, ack)
+	pkg.Header = header
+	if pkg.prepared != nil {
+		pkg.prepared = pkg.prepared.WithHeader(header)
 	}
 	if nc.connecting {
 		c.pendingWrites++

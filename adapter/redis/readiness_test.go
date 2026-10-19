@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gomodule/redigo/redis"
 	"io"
 	"sync"
@@ -43,3 +44,26 @@ func (c *silentSubscription) Do(string, ...interface{}) (interface{}, error) { r
 func (c *silentSubscription) Send(string, ...interface{}) error              { return nil }
 func (c *silentSubscription) Flush() error                                   { return nil }
 func (c *silentSubscription) Receive() (interface{}, error)                  { <-c.done; return nil, io.EOF }
+
+func TestCloseCancelsSubscriberReconnect(t *testing.T) {
+	s := miniredis.RunT(t)
+	bc := newTestRedisBroadcast(t, s)
+	entered := make(chan struct{})
+	dial := func(ctx context.Context) (redis.Conn, error) { close(entered); <-ctx.Done(); return nil, ctx.Err() }
+	bc.dial.Store(&dial)
+	bc.subLock.Lock()
+	_ = bc.sub.Close()
+	bc.subLock.Unlock()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("reconnect did not start")
+	}
+	closed := make(chan struct{})
+	go func() { _ = bc.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Close waits for reconnect dial instead of canceling it")
+	}
+}

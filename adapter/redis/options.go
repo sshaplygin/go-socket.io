@@ -41,6 +41,7 @@ func getOptions(opts *options) *options {
 	options := defaultOptions()
 
 	if opts != nil {
+		options.DB = opts.DB
 		if opts.Host != "" {
 			options.Host = opts.Host
 		}

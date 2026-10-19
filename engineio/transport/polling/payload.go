@@ -38,6 +38,7 @@ type payload struct {
 	writeError    chan error
 	writeDeadline atomic.Value
 	encoder       *eioparser.PayloadEncoder
+	batch         bool // server GETs coalesce complete packets; client POSTs keep their lease
 }
 
 // newPayload returns a new payload.
@@ -62,9 +63,10 @@ func newPayload(supportBinary bool) *payload {
 // for a Write in progress and fails every later one with errDetached, so once FlushOut
 // has returned nothing is written to, or still running against, the caller's writer.
 type flushWriter struct {
-	mu   sync.Mutex
-	w    io.Writer
-	gone bool
+	mu    sync.Mutex
+	w     io.Writer
+	gone  bool
+	bytes int
 }
 
 func (f *flushWriter) Write(b []byte) (int, error) {
@@ -73,8 +75,12 @@ func (f *flushWriter) Write(b []byte) (int, error) {
 	if f.gone {
 		return 0, errDetached
 	}
-	return f.w.Write(b)
+	n, err := f.w.Write(b)
+	f.bytes += n
+	return n, err
 }
+
+func (f *flushWriter) size() int { f.mu.Lock(); defer f.mu.Unlock(); return f.bytes }
 
 func (f *flushWriter) detach() {
 	f.mu.Lock()
@@ -190,6 +196,8 @@ func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
 	fw := &flushWriter{w: w}
 	defer fw.detach()
 
+	packets := 0
+	var batchEnd time.Time
 	for {
 		after, ok := p.writeTimeout()
 		if !ok {
@@ -229,7 +237,36 @@ func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
 		case <-after:
 			// it may changed during wait, need check again
 		case err := <-p.writeError:
-			return p.Store("write", err)
+			if err != nil || !p.batch {
+				return p.Store("write", err)
+			}
+			packets++
+			if batchEnd.IsZero() {
+				batchEnd = time.Now().Add(5 * time.Millisecond)
+			}
+			if packets >= 64 || fw.size() >= 256*1024 {
+				return nil
+			}
+			idle := min(time.Millisecond, time.Until(batchEnd))
+			if idle <= 0 {
+				return nil
+			}
+			timer := time.NewTimer(idle)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return p.cancelPoll(ctx)
+			case <-p.close:
+				timer.Stop()
+				return p.load()
+			case <-p.pauser.PausingTrigger():
+				timer.Stop()
+				return nil
+			case <-timer.C:
+				return nil
+			case p.writerChan <- fw:
+				timer.Stop()
+			}
 		}
 	}
 }

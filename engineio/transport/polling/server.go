@@ -36,8 +36,10 @@ type serverConn struct {
 func newServerConn(t *Transport, r *http.Request) *serverConn {
 	supportBinary := r.URL.Query().Get("b64") == ""
 
+	p := newPayload(supportBinary)
+	p.batch = true
 	return &serverConn{
-		payload:       newPayload(supportBinary),
+		payload:       p,
 		transport:     t,
 		supportBinary: supportBinary,
 		remoteHeader:  r.Header,
@@ -141,7 +143,14 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var out io.Writer = w
 		if c.transport.Compression {
 			w.Header().Add("Vary", "Accept-Encoding")
-			out = &responseWriter{w: w, conn: c, encoding: acceptedEncoding(r.Header.Get("Accept-Encoding"))}
+			compressed := &responseWriter{w: w, conn: c, encoding: acceptedEncoding(r.Header.Get("Accept-Encoding"))}
+			defer func() {
+				if err := compressed.Close(); err != nil {
+					_ = c.payload.Store("write", err)
+					_ = c.Close()
+				}
+			}()
+			out = compressed
 		}
 		pw := &progressWriter{w: out, started: func() { c.setPollWaiting(false) }}
 		if err := c.payload.flushOut(r.Context(), pw); err != nil {

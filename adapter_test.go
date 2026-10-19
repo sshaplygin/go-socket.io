@@ -2,15 +2,13 @@ package socketio
 
 import (
 	"fmt"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/sshaplygin/go-socket.io/adapter"
+	redisadapter "github.com/sshaplygin/go-socket.io/adapter/redis"
+	"github.com/stretchr/testify/require"
 	"io"
 	"testing"
 	"time"
-
-	"github.com/alicebob/miniredis/v2"
-	"github.com/stretchr/testify/require"
-
-	"github.com/sshaplygin/go-socket.io/adapter"
-	redisadapter "github.com/sshaplygin/go-socket.io/adapter/redis"
 )
 
 // redisTestConn is a Conn that records the events emitted to it. Only ID and
@@ -44,9 +42,11 @@ func expectEvent(t *testing.T, c *redisTestConn, want string) {
 		t.Fatalf("%s: %q not delivered", c.id, want)
 	}
 }
+
 func (c *redisTestConn) EmitWithOptions(_ adapter.Options, event string, args ...interface{}) {
 	c.Emit(event, args...)
 }
+
 func newTestRedisBroadcast(t *testing.T, s *miniredis.Miniredis) adapter.Adapter {
 	t.Helper()
 	const channel = "socket.io-request#/"
@@ -61,4 +61,32 @@ func newTestRedisBroadcast(t *testing.T, s *miniredis.Miniredis) adapter.Adapter
 func waitRedisSubscribers(t *testing.T, s *miniredis.Miniredis, channel string, n int) {
 	t.Helper()
 	require.Eventually(t, func() bool { return s.PubSubNumSub(channel)[channel] == n }, 2*time.Second, 5*time.Millisecond)
+}
+
+// Covers G23
+func TestRoomMethodsRejectForeignAndDisconnectedSockets(t *testing.T) {
+	connected := make(chan Conn, 2)
+	s, url := defectServer(t, func(s *Server) { s.OnConnect("/chat", func(c Conn) error { connected <- c; return nil }) })
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	c.send("0/chat,")
+	require.Equal(t, "0/chat,", c.read())
+	chat := recv(t, connected, "chat socket")
+	require.False(t, s.JoinRoom("/", "foreign", chat))
+	require.False(t, s.LeaveRoom("/", "foreign", chat))
+	require.False(t, s.LeaveAllRooms("/", chat))
+	require.True(t, s.JoinRoom("/chat", "room", chat))
+	chat.Disconnect()
+	require.Equal(t, "1/chat,", c.read())
+	require.False(t, s.JoinRoom("/chat", "room", chat))
+	require.False(t, s.LeaveRoom("/chat", "room", chat))
+	require.False(t, s.LeaveAllRooms("/chat", nil))
+}
+
+// Covers G23
+func TestRegressionG23NilRoomConnection(t *testing.T) {
+	s := NewServer()
+	defer func() { _ = s.Close() }()
+	s.Of("/")
+	require.NotPanics(t, func() { require.False(t, s.JoinRoom("/", "room", nil)) })
 }

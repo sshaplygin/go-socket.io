@@ -1,12 +1,11 @@
 package socketio
 
 import (
+	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/stretchr/testify/require"
+	"net/http/httptest"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/require"
-
-	"github.com/sshaplygin/go-socket.io/engineio"
 )
 
 // connWithOptions returns the connection that a Server (S) or a Client (C) built with opts
@@ -63,4 +62,15 @@ func TestOptionsReachConnections(t *testing.T) {
 			recv(t, fc.closed, "configured overflow closes engine")
 		}
 	})
+}
+
+func defectServer(t *testing.T, configure func(*Server)) (*Server, string) {
+	t.Helper()
+	s := NewServer(WithEngineOptions(shortPingOptions()...))
+	s.OnConnect("/", func(Conn) error { return nil })
+	configure(s)
+	go func() { _ = s.Serve() }()
+	ts := httptest.NewServer(s)
+	t.Cleanup(func() { _ = s.Close(); ts.Close() })
+	return s, ts.URL
 }

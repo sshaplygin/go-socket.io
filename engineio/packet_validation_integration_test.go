@@ -1,14 +1,13 @@
 package engineio_test
 
 import (
+	gorilla "github.com/gorilla/websocket"
+	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/stretchr/testify/require"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
-
-	gorilla "github.com/gorilla/websocket"
-	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/stretchr/testify/require"
 )
 
 // Covers G26

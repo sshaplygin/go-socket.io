@@ -1,15 +1,18 @@
 package socketio
 
 import (
+	"encoding/json"
+	"errors"
+	gorilla "github.com/gorilla/websocket"
+	"github.com/sshaplygin/go-socket.io/engineio"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+	"github.com/stretchr/testify/require"
+	"io"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
-
-	gorilla "github.com/gorilla/websocket"
-	"github.com/stretchr/testify/require"
-
-	"github.com/sshaplygin/go-socket.io/engineio"
 )
 
 // Covers S10
@@ -164,6 +167,78 @@ func TestOnDisconnectReason(t *testing.T) {
 
 			}
 			require.Equal(t, want, recv(t, disconnected, "OnDisconnect reason"))
+		})
+	}
+}
+
+// Covers G9
+// Covers G19
+// Covers G21
+func TestIgnoredBinaryEventsConsumeTheirAttachments(t *testing.T) {
+	_, url := defectServer(t, func(s *Server) { s.OnEvent("/", "alive", func(Conn) string { return "alive" }) })
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	for _, packet := range []string{
+		`51-/missing,["unknown",{"_placeholder":true,"num":0}]`,
+		`51-["unknown",{"_placeholder":true,"num":0}]`,
+		`61-99[{"_placeholder":true,"num":0}]`,
+		`51-["disconnecting",{"_placeholder":true,"num":0}]`,
+	} {
+		c.send(packet)
+		w, err := c.conn.NextWriter(eioparser.Binary)
+		require.NoError(t, err)
+		_, err = w.Write([]byte("attachment"))
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+		c.send(`27["alive"]`)
+		require.Equal(t, "37[\"alive\"]\n", c.read())
+	}
+}
+
+// Covers B2
+func TestWrongTypeArgumentKeepsConnection(t *testing.T) {
+	for _, kind := range []string{"event", "binary event", "ack"} {
+		t.Run(kind, func(t *testing.T) {
+			_, url := defectServer(t, func(s *Server) {
+				s.OnEvent("/", "typed", func(_ Conn, n int) int { return n + 1 })
+				s.OnEvent("/", "request-ack", func(c Conn) { c.Emit("ask", func(int) { t.Error("invalid ack reached callback") }) })
+				s.OnError("/", func(c Conn, err error) {
+					var closed *engineio.CloseError
+					if errors.Is(err, io.EOF) || errors.As(err, &closed) {
+						return
+					}
+					var typed *json.UnmarshalTypeError
+					if !errors.As(err, &typed) {
+						t.Errorf("unexpected error: %v", err)
+						return
+					}
+					c.Emit("bad-type")
+				})
+			})
+			c := dialRaw(t, url)
+			require.Equal(t, "0", c.read())
+			switch kind {
+			case "event":
+				c.send(`2["typed","bad"]`)
+			case "binary event":
+				c.send(`51-["typed",{"_placeholder":true,"num":0}]`)
+				w, err := c.conn.NextWriter(eioparser.Binary)
+				require.NoError(t, err)
+				_, err = io.WriteString(w, "bytes")
+				require.NoError(t, err)
+				require.NoError(t, w.Close())
+			case "ack":
+				c.send(`2["request-ack"]`)
+				pkt := c.read()
+				idx := strings.IndexByte(pkt, '[')
+				require.Greater(t, idx, 1)
+				id, err := strconv.ParseUint(pkt[1:idx], 10, 64)
+				require.NoError(t, err)
+				c.send("3" + strconv.FormatUint(id, 10) + `["bad"]`)
+			}
+			require.Equal(t, "2[\"bad-type\"]\n", c.read())
+			c.send(`27["typed",41]`)
+			require.Equal(t, "37[42]\n", c.read(), "a valid packet following a type mismatch must still be handled")
 		})
 	}
 }

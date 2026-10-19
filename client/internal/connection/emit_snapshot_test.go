@@ -48,6 +48,7 @@ func (v clientReentrantJSON) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal("snapshot")
 }
+
 func TestClientSnapshotMarshalerRunsOutsideManagerLocks(t *testing.T) {
 	p := start(t, 'C', hooks{})
 	timedOut := false

@@ -2,15 +2,14 @@ package engineio_test
 
 import (
 	"bytes"
+	"github.com/sshaplygin/go-socket.io/engineio"
+	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/stretchr/testify/require"
 )
 
 // Covers G27

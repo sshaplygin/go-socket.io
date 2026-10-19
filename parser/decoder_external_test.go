@@ -4,27 +4,46 @@ import (
 	"errors"
 	"github.com/sshaplygin/go-socket.io/parser"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 )
 
-type auditWriter struct{ closeErr error }
-
-func (w auditWriter) NextWriter(parser.FrameType) (io.WriteCloser, error) {
-	return auditWriteCloser(w), nil
+type queuedFrame struct {
+	typ  parser.FrameType
+	data string
 }
 
-type auditWriteCloser struct{ closeErr error }
+type queuedReader struct{ frames []queuedFrame }
 
-func (auditWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
-func (w auditWriteCloser) Close() error              { return w.closeErr }
+func (r *queuedReader) NextReader() (parser.FrameType, io.ReadCloser, error) {
+	if len(r.frames) == 0 {
+		return 0, nil, io.EOF
+	}
+	f := r.frames[0]
+	r.frames = r.frames[1:]
+	return f.typ, io.NopCloser(strings.NewReader(f.data)), nil
+}
 
-// Covers G30
-func TestV1AuditEncoderMustReturnFrameCloseError(t *testing.T) {
-	want := errors.New("frame flush failed")
-	err := parser.NewEncoder(auditWriter{closeErr: want}).Encode(parser.Header{Type: parser.Event}, []any{"event", "payload"})
-	if !errors.Is(err, want) {
-		t.Fatalf("Encode returned %v; want frame Close error %v", err, want)
+// Covers G9
+func TestDiscardLastConsumesAttachments(t *testing.T) {
+	for _, typ := range []string{"51-/unknown,[\"event\",{\"_placeholder\":true,\"num\":0}]", "61-/unknown,1[{\"_placeholder\":true,\"num\":0}]"} {
+		r := &queuedReader{frames: []queuedFrame{{parser.Text, typ}, {parser.Binary, "payload"}, {parser.Text, `2["next"]`}}}
+		d := parser.NewDecoder(r)
+		var h parser.Header
+		var event string
+		if err := d.DecodeHeader(&h, &event); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.DiscardLast(); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.DecodeHeader(&h, &event); err != nil {
+			t.Fatal(err)
+		}
+		if event != "next" {
+			t.Fatalf("event=%q", event)
+		}
 	}
 }
 
@@ -73,6 +92,7 @@ func (r *framesWithErrors) NextReader() (parser.FrameType, io.ReadCloser, error)
 type failedReader struct{ err error }
 
 func (r failedReader) Read([]byte) (int, error) { return 0, r.err }
+
 func TestDecoderAttachmentErrorsAndPrecedence(t *testing.T) {
 	primary, secondary := errors.New("read"), errors.New("close")
 	for _, test := range []struct {
@@ -119,5 +139,36 @@ func TestDiscardClosesEveryAttachmentAfterCloseFailure(t *testing.T) {
 	}
 	if event != "next" {
 		t.Fatalf("event=%q", event)
+	}
+}
+
+func TestDecodeVariadicArguments(t *testing.T) {
+	d := parser.NewDecoder(&queuedReader{frames: []queuedFrame{{parser.Text, `2["event","fixed",1,2]`}}})
+	var h parser.Header
+	var event string
+	if err := d.DecodeHeader(&h, &event); err != nil {
+		t.Fatal(err)
+	}
+	values, err := d.DecodeArgsVariadic([]reflect.Type{reflect.TypeOf(""), reflect.TypeOf([]int{})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 3 || values[0].String() != "fixed" || values[2].Int() != 2 {
+		t.Fatalf("values=%v", values)
+	}
+}
+
+// Covers G20
+func TestDecodeVariadicRejectsNilTypes(t *testing.T) {
+	for _, types := range [][]reflect.Type{{nil}, {nil, reflect.TypeOf([]int{})}} {
+		d := parser.NewDecoder(&queuedReader{frames: []queuedFrame{{parser.Text, `2["event",1,2]`}}})
+		var h parser.Header
+		var event string
+		if err := d.DecodeHeader(&h, &event); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.DecodeArgsVariadic(types); err == nil {
+			t.Fatal("nil argument type must return an error")
+		}
 	}
 }

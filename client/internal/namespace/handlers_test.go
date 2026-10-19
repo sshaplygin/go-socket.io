@@ -1,12 +1,12 @@
 package namespace
 
 import (
+	"errors"
 	"fmt"
-	"reflect"
-	"testing"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"reflect"
+	"testing"
 )
 
 func TestNewEventFunc(t *testing.T) {
@@ -119,4 +119,14 @@ func TestHandlerCall(t *testing.T) {
 			should.Equal(test.rets, rets)
 		})
 	}
+}
+
+// Covers G18
+func TestClientConnectCallbackPanicReturnsError(t *testing.T) {
+	want := errors.New("connect panic")
+	handler := NewHandler("/")
+	handler.OnConnect(func(Conn) error { panic(want) })
+	var got error
+	require.NotPanics(t, func() { got = handler.ConnectHandler()(nil) })
+	require.ErrorIs(t, got, want)
 }

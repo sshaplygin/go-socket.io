@@ -2,18 +2,16 @@ package socketio
 
 import (
 	"errors"
+	"github.com/alicebob/miniredis/v2"
+	gorilla "github.com/gorilla/websocket"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+	"github.com/sshaplygin/go-socket.io/parser"
+	"github.com/stretchr/testify/require"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/alicebob/miniredis/v2"
-	gorilla "github.com/gorilla/websocket"
-	"github.com/stretchr/testify/require"
-
-	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
-	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 // Covers S8
@@ -538,4 +536,30 @@ func TestPendingConnectUsesSharedBudget(t *testing.T) {
 	require.True(t, recv(t, observed, "overflow inside pending connect"))
 	p.overflowReported(t, "/a")
 	p.disconnected(t, "/", "/a")
+}
+
+// Covers G17
+func TestRegressionG17RootAlwaysExists(t *testing.T) {
+	ts := newTestServer(t, func(*Server) {})
+	c := dialRaw(t, ts.URL)
+	require.Equal(t, "0", c.read())
+}
+
+// Covers S12
+func TestNamespaceBroadcastOnce(t *testing.T) {
+	connected := make(chan Conn, 2)
+	s, url := defectServer(t, func(s *Server) {
+		s.OnConnect("/", func(c Conn) error { c.Join("one"); c.Join("two"); connected <- c; return nil })
+	})
+	a, b := dialRaw(t, url), dialRaw(t, url)
+	require.Equal(t, "0", a.read())
+	require.Equal(t, "0", b.read())
+	ca, cb := recv(t, connected, "first connection"), recv(t, connected, "second connection")
+	require.True(t, s.BroadcastToNamespace("/", "news", "once"))
+	ca.Emit("after")
+	cb.Emit("after")
+	for _, c := range []*rawClient{a, b} {
+		require.Equal(t, "2[\"news\",\"once\"]\n", c.read())
+		require.Equal(t, "2[\"after\"]\n", c.read(), "a broadcast must not be repeated for each room")
+	}
 }

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"github.com/sshaplygin/go-socket.io/parser"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -43,30 +42,16 @@ func TestPreparedPacketFreezesJSONAndBinary(t *testing.T) {
 	}
 }
 
-func TestDecodeVariadicArguments(t *testing.T) {
-	d := parser.NewDecoder(&queuedReader{frames: []queuedFrame{{parser.Text, `2["event","fixed",1,2]`}}})
-	var h parser.Header
-	var event string
-	if err := d.DecodeHeader(&h, &event); err != nil {
-		t.Fatal(err)
-	}
-	values, err := d.DecodeArgsVariadic([]reflect.Type{reflect.TypeOf(""), reflect.TypeOf([]int{})})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(values) != 3 || values[0].String() != "fixed" || values[2].Int() != 2 {
-		t.Fatalf("values=%v", values)
-	}
-}
-
 type failingWriteFrame struct{ primary, closeErr error }
 
 func (w failingWriteFrame) Write([]byte) (int, error) { return 0, w.primary }
-func (w failingWriteFrame) Close() error              { return w.closeErr }
+
+func (w failingWriteFrame) Close() error { return w.closeErr }
 
 type failingFrameWriter struct{ frame failingWriteFrame }
 
 func (w failingFrameWriter) NextWriter(parser.FrameType) (io.WriteCloser, error) { return w.frame, nil }
+
 func TestEncoderPreservesWriteErrorOverCloseError(t *testing.T) {
 	primary := errors.New("write")
 	secondary := errors.New("close")
@@ -89,19 +74,4 @@ func FuzzDecoderDiscardPacket(f *testing.F) {
 		}
 		_ = d.Close()
 	})
-}
-
-// Covers G20
-func TestDecodeVariadicRejectsNilTypes(t *testing.T) {
-	for _, types := range [][]reflect.Type{{nil}, {nil, reflect.TypeOf([]int{})}} {
-		d := parser.NewDecoder(&queuedReader{frames: []queuedFrame{{parser.Text, `2["event",1,2]`}}})
-		var h parser.Header
-		var event string
-		if err := d.DecodeHeader(&h, &event); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := d.DecodeArgsVariadic(types); err == nil {
-			t.Fatal("nil argument type must return an error")
-		}
-	}
 }

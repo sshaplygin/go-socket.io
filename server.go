@@ -150,7 +150,7 @@ func (s *Server) OnError(namespace string, f func(Conn, error)) {
 // OnEvent sets the handler f for event in namespace.
 //
 // f must be a func whose first parameter is Conn; the remaining parameters are
-// decoded from the event arguments. If f returns values, or the client asked for an
+// decoded from the event arguments. If the client asked for an
 // acknowledgement, the return values are sent back as the ACK payload. A final
 // AckFunc parameter takes ownership of the ACK and suppresses automatic returns;
 // it may be called later, once, from another goroutine. OnEvent replaces every

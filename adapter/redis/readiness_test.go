@@ -160,3 +160,35 @@ func TestReadySubscriptionHonoursCanceledContext(t *testing.T) {
 		t.Fatalf("canceled readiness returned %v", err)
 	}
 }
+
+func TestNamespaceCloseBoundsUnsubscribeWrite(t *testing.T) {
+	old := redisDialTimeout
+	redisDialTimeout = 40 * time.Millisecond
+	defer func() { redisDialTimeout = old }()
+	c := &blockedSubscriptionWrite{silentSubscription: silentSubscription{done: make(chan struct{})}}
+	owner := &broadcast{done: make(chan struct{}), pattern: "socket.io#*", sub: &redis.PubSubConn{Conn: c}}
+	member := &broadcast{nsp: "/closing", reqChannel: "socket.io-request#/closing#", resChannel: "socket.io-response#/closing#"}
+	shared := &sharedResources{owner: owner, members: map[string][]*broadcast{"/remaining": {owner}, "/closing": {member}}}
+	owner.resources = shared
+	member.resources = shared
+	done := make(chan error, 1)
+	go func() { done <- member.Close() }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("blocked unsubscribe unexpectedly succeeded")
+		}
+	case <-time.After(200 * time.Millisecond):
+		_ = c.Close()
+		<-done
+		t.Fatal("namespace Close hangs in unsubscribe flush")
+	}
+	owner.subLock.Lock()
+	owner.subLock.Unlock()
+	shared.mu.Lock()
+	_, retained := shared.members["/closing"]
+	shared.mu.Unlock()
+	if retained {
+		t.Fatal("closed namespace remains registered")
+	}
+}

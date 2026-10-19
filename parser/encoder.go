@@ -167,11 +167,11 @@ func (e *Encoder) attachBuffer(v reflect.Value, index *uint64) ([][]byte, error)
 // numbering is the state of numberBuffers for the value v: the data found so far and repl, the
 // private copy of v that numbered children are stored into.
 type numbering struct {
-	e     *Encoder
-	index *uint64
-	v     reflect.Value
-	repl  reflect.Value
-	data  [][]byte
+	walker *bufferNumberer
+	index  *uint64
+	v      reflect.Value
+	repl   reflect.Value
+	data   [][]byte
 }
 
 // own makes repl on first use.
@@ -199,7 +199,7 @@ func (n *numbering) own() (reflect.Value, error) {
 
 // child numbers the element c at i (or key) of a slice, array or map and stores it into repl.
 func (n *numbering) child(c reflect.Value, i int, key reflect.Value) error {
-	c, b, err := n.e.numberBuffers(c, n.index)
+	c, b, err := n.walker.numberBuffers(c, n.index)
 	n.data = append(n.data, b...)
 	if err != nil || !c.IsValid() {
 		return err
@@ -229,7 +229,10 @@ func (n *numbering) fields(s reflect.Value, path []int) error {
 				continue
 			}
 		}
-		c, b, err := n.e.numberBuffers(f, n.index)
+		if s.Type().Field(i).Tag.Get("json") == "-" {
+			continue
+		}
+		c, b, err := n.walker.numberBuffers(f, n.index)
 		n.data = append(n.data, b...)
 		if err != nil {
 			return err
@@ -249,14 +252,50 @@ func (n *numbering) fields(s reflect.Value, path []int) error {
 // is a numbered copy. Values given to Emit or Broadcast are shared between connections: the
 // containers that hold a Buffer are copied, never changed. The Value is invalid if v has none.
 func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, [][]byte, error) {
-	n := numbering{e: e, index: index, v: v}
+	return (&bufferNumberer{active: make(map[bufferVisit]bool)}).numberBuffers(v, index)
+}
+
+type bufferVisit struct {
+	typ    reflect.Type
+	ptr    uintptr
+	length int
+}
+
+type bufferNumberer struct {
+	active map[bufferVisit]bool
+	depth  int
+}
+
+func (w *bufferNumberer) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, [][]byte, error) {
+	if !v.IsValid() {
+		return reflect.Value{}, nil, nil
+	}
+	w.depth++
+	defer func() { w.depth-- }()
+	if w.depth > 1000 {
+		return reflect.Value{}, nil, &json.UnsupportedValueError{Value: v, Str: "value exceeds maximum nesting depth"}
+	}
+	if v.Kind() == reflect.Pointer || v.Kind() == reflect.Map || v.Kind() == reflect.Slice {
+		if !v.IsNil() {
+			visit := bufferVisit{typ: v.Type(), ptr: v.Pointer()}
+			if v.Kind() == reflect.Slice {
+				visit.length = v.Len()
+			}
+			if w.active[visit] {
+				return reflect.Value{}, nil, &json.UnsupportedValueError{Value: v, Str: "encountered a cycle"}
+			}
+			w.active[visit] = true
+			defer delete(w.active, visit)
+		}
+	}
+	n := numbering{walker: w, index: index, v: v}
 	var err error
 	switch v.Kind() {
 	case reflect.Pointer, reflect.Interface:
 		if v.IsNil() {
 			return reflect.Value{}, nil, nil
 		}
-		c, b, err := e.numberBuffers(v.Elem(), index)
+		c, b, err := w.numberBuffers(v.Elem(), index)
 		if err == nil && c.IsValid() && v.Kind() == reflect.Pointer {
 			p := reflect.New(c.Type())
 			p.Elem().Set(c)

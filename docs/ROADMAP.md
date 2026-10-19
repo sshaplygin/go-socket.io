@@ -2825,7 +2825,29 @@ only when inspecting the red commit; the current PARITY marker gate still requir
 `// Covers ID`.
 
 ```sh
-tdd_red() { git log --follow --no-merges --format=%H -G "^func $3[(]" "$1..$2" -- "$4" | tail -n 1; }   # tdd_red <base> <head> <TestName> <file>: follow renames from the current file to the oldest test-adding commit; --reverse cannot be combined with this traversal
+tdd_red() (   # tdd_red <base> <head> <TestName> <current-file>: unique global introduction, independent of later file regrouping
+b=$1 h=$2 t=$3 f=$4 pattern="^func $3[(]"
+git merge-base --is-ancestor "$b" "$h" || return 1
+git grep -q -E "$pattern" "$h" -- "$f" || return 1
+matches=$(git grep -n -E "$pattern" "$h" -- '*_test.go' || :)
+test -n "$matches" -a "$(printf '%s\n' "$matches" | wc -l)" -eq 1 || return 1
+test -z "$(git grep -n -E "$pattern" "$b" -- '*_test.go' || :)" || return 1
+first=
+for c in $(git log --reverse --no-merges --format=%H -G "$pattern" "$b..$h" -- '*_test.go'); do
+matches=$(git grep -n -E "$pattern" "$c" -- '*_test.go' || :)
+prior=$(git grep -n -E "$pattern" "$c^" -- '*_test.go' || :)
+for snapshot in "$matches" "$prior"; do
+test -z "$snapshot" -o "$(printf '%s\n' "$snapshot" | wc -l)" -eq 1 || return 1
+done
+if test -n "$matches" -a -z "$prior"; then
+test -z "$first" || return 1
+first=$c
+fi
+done
+test -n "$first" || return 1
+printf '%s\n' "$first"
+)
+
 tdd_marker() (   # tdd_marker <red> <historical-file> <head> <current-file> <TestName>
 r=$1 rf=$2 h=$3 f=$4 t=$5
 if git show "$r:$rf" | grep -B4 -E "^func $t[(]" | grep -qE '^// Covers:? [A-Z][0-9]+( |$)'; then return 0; fi
@@ -2843,7 +2865,7 @@ b=$1 h=$2; shift 2
 run() { w=$(mktemp -d) || return 1; git worktree add -q --detach "$w/wt" "$1" >/dev/null 2>&1 || { echo "no worktree of $1"; rmdir "$w"; return 1; }; (cd "$w/wt" && go test -race -count=1 -timeout 280s -v -run "^$2\$" "./$3" 2>&1) && s=0 || s=$?; git worktree remove --force "$w/wt"; rmdir "$w"; return $s; }   # one test in a scratch worktree of a commit
 for t in "$@"; do
 f=$(git grep -l -E "^func $t[(]" "$h" -- '*_test.go' || :); test -n "$f" -a "$(printf '%s\n' "$f" | wc -l)" -eq 1 || { echo "tdd $t: not one test file at $h"; continue; }; f=${f#"$h":}; d=$(dirname "$f")
-r=$(tdd_red "$b" "$h" "$t" "$f"); test -n "$r" || { echo "tdd $t: not added to $f by the PR"; continue; }
+r=$(tdd_red "$b" "$h" "$t" "$f") || { echo "tdd $t: no unique new global test introduction in $b..$h"; continue; }
 rf=$(git grep -l -E "^func $t[(]" "$r" -- '*_test.go' || :); test -n "$rf" -a "$(printf '%s\n' "$rf" | wc -l)" -eq 1 || { echo "tdd $t: not one test file at red commit $r"; continue; }; rf=${rf#"$r":}; rd=$(dirname "$rf")
 test -z "$(git diff --name-only "$r^" "$r" -- '*.go' | grep -v '_test[.]go$')" || echo "tdd $t: red commit $r changes a Go file that is not a test"
 tdd_marker "$r" "$rf" "$h" "$f" "$t" || echo "tdd $t: no // Covers marker above it at $r for an already registered row"
@@ -2885,7 +2907,7 @@ test`; a red that does not compile prints `does not build or run`; a passing tes
 `panic: ` prints `not red`:
 
 ```sh
-eval "$(awk '/^tdd_red[(][)] [{]/ {p=1} p; p && /^[)]$/ {exit}' docs/ROADMAP.md)"   # the two helpers of the fence above
+eval "$(awk '/^tdd_red[(][)] / {p=1} p && /^```$/ {exit} p' docs/ROADMAP.md)"   # every helper through the closing fence, including multiline function bodies
 S=$(mktemp -d); git init -q -b master "$S/r"; cd "$S/r"; git config user.name t; git config user.email t@t
 add() { printf 'package tdd\n\nfunc Add(a, b int) int { return a %s b }\n' "$1" >add.go; }   # the code: `-` is the bug, `+` the fix
 tst() { printf 'package tdd\n\nimport "testing"\n\n// Covers G1\nfunc TestAdd(t *testing.T) {\n\tif %s(1, 2) != 3 {\n\t\tt.Fatal("1+2")\n\t}\n}\n' "$1" >add_test.go; }   # the test, of Add or of an undefined function

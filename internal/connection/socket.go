@@ -23,7 +23,7 @@ type namespaceConn struct {
 	outMu      sync.Mutex
 	connecting bool
 	rejected   bool
-	pending    []pendingPacket
+	pending    []outboundPayload
 	middleware []func(string, []interface{}) error
 }
 
@@ -117,15 +117,17 @@ func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, 
 		args[i] = reflect.ValueOf(v[i-1])
 	}
 
+	nc.registerAck(&header, ack)
+	pkg := preparePayload(header, noCompress, args...)
 	if !volatile {
-		nc.registerAck(&header, ack)
-		nc.sendFlags(header, noCompress, args...)
+		nc.sendPayload(pkg)
 		return
 	}
 	// The transport callback runs outside queue locks; admission rechecks the
 	// queue atomically afterwards so a concurrent normal/volatile emit cannot
 	// turn this best-effort packet into an overflow or retain a dropped ACK.
 	if c, ok := nc.Conn.(interface{ Writable() bool }); ok && !c.Writable() {
+		nc.ack.Delete(header.ID)
 		return
 	}
 	nc.outMu.Lock()
@@ -135,14 +137,14 @@ func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, 
 	c := nc.Connection
 	if nc.rejected || c.pendingWrites+len(c.writeChan)+len(c.drainQueue) != 0 ||
 		isDone(c.closing) && (!c.draining || c.appSealed || isDone(c.discard)) {
+		nc.ack.Delete(header.ID)
 		return
 	}
-	nc.registerAck(&header, ack)
 	if nc.connecting {
 		c.pendingWrites++
-		nc.pending = append(nc.pending, pendingPacket{header: header, args: args, noCompress: noCompress})
+		nc.pending = append(nc.pending, pkg)
 	} else {
-		c.queueFlagsLocked(header, false, noCompress, args...)
+		c.queuePayloadLocked(pkg, false)
 	}
 }
 
@@ -223,19 +225,14 @@ func (nc *namespaceConn) runMiddleware(event string, args []reflect.Value) error
 	return nil
 }
 
-type pendingPacket struct {
-	header     parser.Header
-	args       []reflect.Value
-	noCompress bool
-}
-
 func (nc *namespaceConn) beginConnect() {
 	nc.outMu.Lock()
 	nc.connecting = true
 	nc.outMu.Unlock()
 }
 
-func (nc *namespaceConn) sendFlags(header parser.Header, noCompress bool, args ...reflect.Value) {
+func (nc *namespaceConn) sendPayload(pkg outboundPayload) {
+	header := pkg.Header
 	nc.outMu.Lock()
 	if nc.rejected {
 		nc.outMu.Unlock()
@@ -245,7 +242,7 @@ func (nc *namespaceConn) sendFlags(header parser.Header, noCompress bool, args .
 		nc.Connection.mu.Lock()
 		if (!isDone(nc.Connection.closing) || nc.Connection.draining && !nc.Connection.appSealed && !isDone(nc.Connection.discard)) && nc.Connection.pendingWrites+len(nc.Connection.writeChan)+nc.Connection.drainQueued < cap(nc.Connection.writeChan) {
 			nc.Connection.pendingWrites++
-			nc.pending = append(nc.pending, pendingPacket{header: header, args: args, noCompress: noCompress})
+			nc.pending = append(nc.pending, pkg)
 		} else {
 			nc.Connection.overflowWrite(header)
 		}
@@ -254,7 +251,9 @@ func (nc *namespaceConn) sendFlags(header parser.Header, noCompress bool, args .
 		return
 	}
 	nc.outMu.Unlock()
-	nc.Connection.writeFlags(header, false, noCompress, args...)
+	nc.Connection.mu.Lock()
+	nc.Connection.queuePayloadLocked(pkg, false)
+	nc.Connection.mu.Unlock()
 }
 
 func (nc *namespaceConn) acceptPending() {
@@ -272,7 +271,9 @@ func (nc *namespaceConn) acceptPending() {
 	}
 	nc.Connection.write(parser.Header{Type: parser.Connect, Namespace: fmtNS(nc.namespace)})
 	for _, p := range pending {
-		nc.Connection.writeFlags(p.header, true, p.noCompress, p.args...)
+		nc.Connection.mu.Lock()
+		nc.Connection.queuePayloadLocked(p, true)
+		nc.Connection.mu.Unlock()
 	}
 }
 

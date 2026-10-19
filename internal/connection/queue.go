@@ -11,22 +11,35 @@ func (c *Connection) write(header parser.Header, args ...reflect.Value) {
 }
 
 func (c *Connection) writeFlags(header parser.Header, reserved, noCompress bool, args ...reflect.Value) {
+	pkg := preparePayload(header, noCompress, args...)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.queueFlagsLocked(header, reserved, noCompress, args...)
+	c.queuePayloadLocked(pkg, reserved)
 }
 
-// queueFlagsLocked admits a packet with the queue budget and close state locked.
-func (c *Connection) queueFlagsLocked(header parser.Header, reserved, noCompress bool, args ...reflect.Value) {
+func preparePayload(header parser.Header, noCompress bool, args ...reflect.Value) outboundPayload {
 	data := make([]interface{}, len(args))
-
 	for i := range data {
 		if args[i].IsValid() {
 			data[i] = args[i].Interface()
 		}
 	}
+	var packet *parser.PreparedPacket
+	var err error
+	switch header.Type {
+	case parser.Connect, parser.Disconnect:
+		packet, err = parser.Prepare(header)
+	case parser.Error:
+		packet, err = parser.Prepare(header, data...)
+	default:
+		packet, err = parser.Prepare(header, data)
+	}
+	return outboundPayload{Header: header, prepared: packet, err: err, noCompress: noCompress}
+}
 
-	pkg := outboundPayload{Payload: parser.Payload{Header: header, Data: data}, noCompress: noCompress}
+// queuePayloadLocked admits an immutable packet under the queue budget lock.
+func (c *Connection) queuePayloadLocked(pkg outboundPayload, reserved bool) {
+	header := pkg.Header
 
 	if reserved {
 		c.pendingWrites--
@@ -124,6 +137,8 @@ func (c *Connection) nextQueued() (outboundPayload, bool) {
 
 // outboundPayload keeps transport flags out of the shared parser codec.
 type outboundPayload struct {
-	parser.Payload
+	Header     parser.Header
+	prepared   *parser.PreparedPacket
+	err        error
 	noCompress bool
 }

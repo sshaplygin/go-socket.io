@@ -2737,6 +2737,30 @@ V6='TestRedisBroadcastDropsUnknownOpts|TestRedisBroadcastDropsUnknownKeys|TestRe
 test "$(go test -race -count=1 -json -run "^($V6)\$" ./adapter/redis | jq -r 'select(.Action=="pass" and .Test!=null and (.Test|contains("/")|not))|.Test' | sort -u | wc -l)" -eq 4   # the decoder guard, the unknown-key guard and the two flags, without a Redis server
 ```
 
+### V1G parser contract
+
+The G6/G20/G30/G31 fixes add reusable packet preparation and variadic decoding
+within the existing public parser package. These support the existing reflected
+API; they do not implement the deferred typed event API T1–T3.
+
+- `Prepare(Header, ...interface{}) (*PreparedPacket, error)` validates and encodes
+  an immutable JSON/binary snapshot before queue locks are acquired. Cycles and
+  unsupported values return errors without opening a transport frame.
+- `PreparedPacket` has no exported mutable fields. `(*PreparedPacket).WithHeader(Header)
+  *PreparedPacket` binds the final namespace/ACK header without re-running user
+  marshaling or changing the source snapshot; its binary attachment count is retained.
+- `(*Encoder).EncodePrepared(*PreparedPacket) error` writes the prepared frames and
+  propagates frame Close failures; a prior write error takes precedence.
+- `(*Decoder).DecodeArgsVariadic([]reflect.Type) ([]reflect.Value, error)` decodes the
+  fixed arguments followed by flattened variadic elements into the final declared
+  slice. Callers invoke variadic callbacks with `reflect.Value.CallSlice`.
+
+Acceptance: immutable map and attachment snapshots, reentrant user marshaling
+outside queue/manager locks, late volatile ACK admission, zero/many variadic
+arguments, frame-release error precedence, and exported API coverage remain tested.
+The contract is recorded with this follow-up; the supporting API commits preceded
+this documentation, so the historical contract-first ordering was not met.
+
 ### V1-28 contract
 
 The client bounds received data by default to 1 MiB. `client.WithMaxMessageSize(int64)`

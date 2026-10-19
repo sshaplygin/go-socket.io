@@ -25,3 +25,13 @@ func TestRegressionG2FailedRootRemovesEngineSession(t *testing.T) {
 	}
 	require.Eventually(t, func() bool { return s.Engine().Count() == 0 }, 300*time.Millisecond, 5*time.Millisecond, "closed failed-root session remains in engine registry")
 }
+
+// Covers G2
+func TestSuccessfulSessionRemovedAfterPeerClose(t *testing.T) {
+	s, url := defectServer(t, func(*Server) {})
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	require.Equal(t, 1, s.Engine().Count())
+	require.NoError(t, c.conn.Close())
+	require.Eventually(t, func() bool { return s.Engine().Count() == 0 }, time.Second, time.Millisecond)
+}

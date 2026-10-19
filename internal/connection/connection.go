@@ -109,7 +109,9 @@ func (c *Connection) connect() error {
 	root.beginConnect()
 	root.SetContext(c.Conn.Context())
 	c.namespaces.Set(rootNamespace, root)
-	if err := rootHandler.Connect(root); err != nil {
+	err := rootHandler.Connect(root)
+	root.connectReturned(err)
+	if err != nil {
 		if isDone(c.closing) {
 			return err
 		}

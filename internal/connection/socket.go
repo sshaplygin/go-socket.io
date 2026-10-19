@@ -19,12 +19,14 @@ type namespaceConn struct {
 	handshake namespaceImpl.Handshake
 	context   interface{}
 
-	ack        sync.Map
-	outMu      sync.Mutex
-	connecting bool
-	rejected   bool
-	pending    []outboundPayload
-	middleware []func(string, []interface{}) error
+	ack         sync.Map
+	outMu       sync.Mutex
+	connecting  bool
+	connectDone chan struct{}
+	connectErr  error
+	rejected    bool
+	pending     []outboundPayload
+	middleware  []func(string, []interface{}) error
 }
 
 func newNamespaceConn(conn *Connection, namespace string, broadcast adapter.Adapter, query ...string) *namespaceConn {
@@ -228,6 +230,7 @@ func (nc *namespaceConn) runMiddleware(event string, args []reflect.Value) error
 func (nc *namespaceConn) beginConnect() {
 	nc.outMu.Lock()
 	nc.connecting = true
+	nc.connectDone = make(chan struct{})
 	nc.outMu.Unlock()
 }
 
@@ -366,4 +369,12 @@ const (
 // EmitWithOptions applies per-socket delivery flags; selection belongs to adapters.
 func (nc *namespaceConn) EmitWithOptions(opts adapter.Options, event string, args ...interface{}) {
 	nc.emitFlags(opts.Volatile, opts.NoCompress, event, args...)
+}
+
+// connectReturned releases deferred lifecycle work after application admission ends.
+func (nc *namespaceConn) connectReturned(err error) {
+	nc.outMu.Lock()
+	nc.connectErr = err
+	close(nc.connectDone)
+	nc.outMu.Unlock()
 }

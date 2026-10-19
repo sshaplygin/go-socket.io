@@ -21,12 +21,34 @@ func (c *Connection) Close() error {
 	}
 	c.draining, c.drainTimer = true, time.AfterFunc(c.drainTimeout, c.stop)
 	c.mu.Unlock()
-	c.disconnect(ncs)
+	c.disconnectGraceful(ncs)
 	c.mu.Lock()
 	c.appSealed = true
 	c.sealIfReady()
 	c.mu.Unlock()
 	return nil
+}
+
+// disconnectGraceful defers a namespace's callbacks while its admission callback
+// runs. Close remains callable from that callback and the seal waits for controls.
+func (c *Connection) disconnectGraceful(ncs []*namespaceConn) {
+	for _, nc := range ncs {
+		nc.outMu.Lock()
+		done := nc.connectDone
+		nc.outMu.Unlock()
+		if done != nil && !isDone(done) {
+			c.mu.Lock()
+			c.controlPending++
+			c.mu.Unlock()
+			go func() {
+				<-done
+				c.disconnect([]*namespaceConn{nc})
+				c.controlEnqueued()
+			}()
+		} else {
+			c.disconnect([]*namespaceConn{nc})
+		}
+	}
 }
 
 // sealIfReady lets the writer finish once application writes are sealed and
@@ -91,6 +113,17 @@ func (c *Connection) disconnect(ncs []*namespaceConn) {
 	reason := c.disconnectReason
 	c.mu.Unlock()
 	for _, nc := range ncs {
+		nc.outMu.Lock()
+		rejected := nc.connectErr != nil
+		nc.outMu.Unlock()
+		if c.boundary && c.draining && rejected {
+			nc.reject()
+			c.mu.Lock()
+			c.disconnecting--
+			c.mu.Unlock()
+			c.disconnects.Done()
+			continue
+		}
 		if c.boundary && c.draining {
 			nc.acceptPending()
 			c.write(parser.Header{Type: parser.Disconnect, Namespace: fmtNS(nc.namespace)})

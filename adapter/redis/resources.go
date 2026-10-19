@@ -152,7 +152,12 @@ func (s *sharedResources) remove(bc *broadcast) error {
 	if len(group) == 0 {
 		owner.subscriptionChanged(bc.reqChannel, false)
 		owner.subscriptionChanged(bc.resChannel, false)
-		return owner.sub.Unsubscribe(bc.reqChannel, bc.resChannel)
+		sub := owner.sub
+		ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+		defer cancel()
+		stop := context.AfterFunc(ctx, func() { _ = sub.Close() })
+		defer stop()
+		return sub.Unsubscribe(bc.reqChannel, bc.resChannel)
 	}
 	return nil
 }

@@ -207,7 +207,10 @@ the diff reaches something it checks:
   of a v1 `_examples/*/` or a v2 `_experiments/*/` module, and a Go code change (not
   comments or formatting) of an experiment, also run the lint job of its module, whose
   `make vuln` scans that module with govulncheck (its result depends on the code that
-  reaches a vulnerable symbol, not only on the module files). A code change of a v1
+  reaches a vulnerable symbol, not only on the module files). Accepted gap: the `go.mod`
+  or `go.sum` of a `v2/_examples/*/` module runs only `examples-v2`, and no job scans those
+  modules with govulncheck, on master either (`make -C v2 vuln` covers `v2/` and
+  `_experiments/` only), until 2.5D migrates them. A code change of a v1
   example also runs `gates-v1` (`internal/parity` scans every non-test Go file of the
   tree). A v1 non-test code change also builds the v1 examples and runs `conformance`.
 - A full run of a module is every job of that module with `./...`. It is started by

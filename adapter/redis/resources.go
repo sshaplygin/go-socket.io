@@ -2,11 +2,14 @@ package redis
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
+
 	"github.com/gomodule/redigo/redis"
 	"github.com/google/uuid"
+
 	"github.com/sshaplygin/go-socket.io/adapter"
-	"sync"
 )
 
 // sharedResources owns one subscription loop and publishing pool for a factory.
@@ -167,7 +170,9 @@ func (s *sharedResources) remove(bc *broadcast) error {
 	owner.subLock.Unlock()
 	defer owner.endUnsubscribe(ack)
 	if err != nil {
-		return err
+		// The subscriber can fail between readiness and this write. Its
+		// replacement excludes the removed member and confirms the unsubscribe.
+		_ = sub.Close()
 	}
 	select {
 	case <-ack.done:
@@ -175,6 +180,6 @@ func (s *sharedResources) remove(bc *broadcast) error {
 	case <-owner.done:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return errors.Join(ctx.Err(), err)
 	}
 }

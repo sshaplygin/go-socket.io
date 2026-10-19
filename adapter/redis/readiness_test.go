@@ -2,14 +2,17 @@ package redis
 
 import (
 	"context"
-	"github.com/alicebob/miniredis/v2"
-	"github.com/alicebob/miniredis/v2/server"
-	"github.com/gomodule/redigo/redis"
-	"github.com/sshaplygin/go-socket.io/adapter"
 	"io"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/alicebob/miniredis/v2/server"
+	"github.com/gomodule/redigo/redis"
+	"github.com/stretchr/testify/require"
+
+	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
 func TestDatabaseOptionPreserved(t *testing.T) {
@@ -172,9 +175,8 @@ func TestNamespaceCloseBoundsUnsubscribeWrite(t *testing.T) {
 	go func() { done <- member.Close() }()
 	select {
 	case err := <-done:
-		if err == nil {
-			t.Fatal("blocked unsubscribe unexpectedly succeeded")
-		}
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.ErrorIs(t, err, io.EOF)
 	case <-time.After(200 * time.Millisecond):
 		_ = c.Close()
 		err := <-done
@@ -293,6 +295,52 @@ func TestNamespaceCloseConfirmsRemovalAfterSubscriberReplacement(t *testing.T) {
 	if got := s.PubSubNumSub("socket.io-request#/remaining#")["socket.io-request#/remaining#"]; got != 1 {
 		t.Fatalf("remaining namespace subscriber count %d", got)
 	}
+}
+
+type failedUnsubscribeConn struct{ redis.Conn }
+
+func (c *failedUnsubscribeConn) Send(command string, args ...interface{}) error {
+	if command == "UNSUBSCRIBE" {
+		return io.ErrClosedPipe
+	}
+	return c.Conn.Send(command, args...)
+}
+
+func TestNamespaceCloseRecoversFromUnsubscribeWriteFailure(t *testing.T) {
+	s := miniredis.RunT(t)
+	factory := New(WithAddr(s.Addr()))
+	closing, err := factory("/closing")
+	require.NoError(t, err)
+	remaining, err := factory("/remaining")
+	require.NoError(t, err)
+	owner := closing.(*broadcast)
+	t.Cleanup(func() { _ = owner.Close(); _ = remaining.(*broadcast).Close() })
+
+	dial := *owner.dial.Load()
+	failUnsubscribe := func(ctx context.Context) (redis.Conn, error) {
+		conn, err := dial(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &failedUnsubscribeConn{Conn: conn}, nil
+	}
+	owner.dial.Store(&failUnsubscribe)
+	owner.subLock.Lock()
+	previous := owner.sub
+	_ = previous.Close()
+	owner.subLock.Unlock()
+	require.Eventually(t, func() bool {
+		owner.subLock.Lock()
+		defer owner.subLock.Unlock()
+		return owner.sub != previous
+	}, 2*time.Second, time.Millisecond, "subscriber did not reconnect")
+
+	// A failed write must close that transport and await a replacement which
+	// subscribes only the remaining namespace before reporting success.
+	require.NoError(t, owner.Close())
+	require.Zero(t, s.PubSubNumSub(owner.reqChannel)[owner.reqChannel])
+	channel := "socket.io-request#/remaining#"
+	require.Equal(t, 1, s.PubSubNumSub(channel)[channel])
 }
 
 func TestUnsubscribeAcknowledgementsConfirmOneCommandAtATime(t *testing.T) {

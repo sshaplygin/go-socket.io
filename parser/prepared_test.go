@@ -90,3 +90,18 @@ func FuzzDecoderDiscardPacket(f *testing.F) {
 		_ = d.Close()
 	})
 }
+
+// Covers G20
+func TestDecodeVariadicRejectsNilTypes(t *testing.T) {
+	for _, types := range [][]reflect.Type{{nil}, {nil, reflect.TypeOf([]int{})}} {
+		d := parser.NewDecoder(&queuedReader{frames: []queuedFrame{{parser.Text, `2["event",1,2]`}}})
+		var h parser.Header
+		var event string
+		if err := d.DecodeHeader(&h, &event); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.DecodeArgsVariadic(types); err == nil {
+			t.Fatal("nil argument type must return an error")
+		}
+	}
+}

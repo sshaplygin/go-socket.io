@@ -14,7 +14,7 @@ func TestCanceledPollFailsTransportBeforeNextWrite(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest("GET", "http://localhost/?transport=polling", nil).WithContext(ctx)
 	c := newServerConn(Default, req)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	done := make(chan struct{})
 	go func() { defer close(done); c.ServeHTTP(httptest.NewRecorder(), req) }()
 	require.Eventually(t, c.Writable, time.Second, time.Millisecond)

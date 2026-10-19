@@ -8,7 +8,7 @@ import (
 // Covers G23
 func TestRegressionG23NilRoomConnection(t *testing.T) {
 	s := NewServer()
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	s.Of("/")
 	require.NotPanics(t, func() { require.False(t, s.JoinRoom("/", "room", nil)) })
 }

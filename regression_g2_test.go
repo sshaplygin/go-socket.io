@@ -18,7 +18,7 @@ func TestRegressionG2FailedRootRemovesEngineSession(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close(); ts.Close() })
 	ws, _, err := gorilla.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/?EIO=3&transport=websocket", nil)
 	require.NoError(t, err)
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 	require.NoError(t, ws.SetReadDeadline(time.Now().Add(time.Second)))
 	for err == nil {
 		_, _, err = ws.ReadMessage()

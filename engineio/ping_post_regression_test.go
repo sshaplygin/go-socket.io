@@ -41,7 +41,7 @@ func TestPingPostReleasesBeforePongPoll(t *testing.T) {
 	_ = resp.Body.Close()
 	resp, err = client.Get(url)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	require.Equal(t, "6:3probe", string(body))

@@ -18,7 +18,7 @@ func TestRegressionG5SlowFactoryDoesNotBlockOtherNamespace(t *testing.T) {
 		}
 		return adapter.NewMemory(), nil
 	}))
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	slow, fast := make(chan struct{}), make(chan struct{})
 	go func() { s.Of("/slow"); close(slow) }()
 	recv(t, entered, "slow factory started")

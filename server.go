@@ -25,6 +25,7 @@ type Server struct {
 
 	handlers *namespace.Registry
 	views    map[string]*ServerNamespace
+	creating map[string]chan struct{}
 
 	adapter    adapter.Factory
 	parentsMu  sync.RWMutex
@@ -51,6 +52,7 @@ func NewServer(opts ...Option) *Server {
 	return &Server{
 		handlers:      namespace.NewRegistry(),
 		views:         make(map[string]*ServerNamespace),
+		creating:      make(map[string]chan struct{}),
 		adapter:       config.Adapter,
 		active:        make(map[*connection.Connection]struct{}),
 		activeChanged: make(chan struct{}),
@@ -89,6 +91,15 @@ func (s *Server) closeWithTimeout(timeout time.Duration) error {
 			s.activeMu.Unlock()
 			for _, c := range active {
 				_ = c.Conn.Close()
+			}
+			s.createMu.Lock()
+			building := make([]chan struct{}, 0, len(s.creating))
+			for _, ready := range s.creating {
+				building = append(building, ready)
+			}
+			s.createMu.Unlock()
+			for _, ready := range building {
+				<-ready
 			}
 			s.createMu.Lock()
 			var closers []io.Closer
@@ -243,12 +254,16 @@ func (s *Server) LeaveAllRooms(namespace string, connection Conn) bool {
 // ownsSocket checks identity against this server's live namespace registry. In
 // particular it never invokes methods on a caller-supplied nil or foreign socket.
 func (s *Server) ownsSocket(nsp string, conn Conn) bool {
- h := s.getNamespace(nsp)
- if conn == nil || h == nil { return false }
- for _, current := range h.Sockets() {
-  if current == conn && current.Connected() { return true }
- }
- return false
+	h := s.getNamespace(nsp)
+	if conn == nil || h == nil {
+		return false
+	}
+	for _, current := range h.Sockets() {
+		if current == conn && current.Connected() {
+			return true
+		}
+	}
+	return false
 }
 
 // ClearRoom clears the room.
@@ -318,27 +333,33 @@ func (s *Server) ForEach(namespace string, room string, f adapter.EachFunc) bool
 	return bc != nil
 }
 
-// createNamespace returns the handler of nsp, creating it if needed. Under createMu it
-// rechecks, builds, records the first construction error and only then stores the
-// handler, so one namespace never builds two broadcasts and dispatch, which reads
-// s.handlers, never waits for factory construction.
+// createNamespace serializes creation per name while factories run without the
+// server registry lock. Waiters share the completed handler and adapter.
 func (s *Server) createNamespace(nsp string) *namespace.Handler {
-	s.createMu.Lock()
-	defer s.createMu.Unlock()
-	return s.createNamespaceLocked(serverNamespaceName(nsp), nil)
+	return s.createNamespaceWithParent(serverNamespaceName(nsp), nil)
 }
 
-func (s *Server) createNamespaceLocked(nsp string, parent *namespace.Handler) *namespace.Handler {
+func (s *Server) createNamespaceWithParent(nsp string, parent *namespace.Handler) *namespace.Handler {
+	s.createMu.Lock()
 	if handler, ok := s.handlers.Get(nsp); ok {
+		s.createMu.Unlock()
 		return handler
 	}
-	var handler *namespace.Handler
-	if s.closed.Load() && s.adapter != nil {
-		handler = namespace.NewHandler()
+	if ready := s.creating[nsp]; ready != nil {
+		s.createMu.Unlock()
+		<-ready
+		handler, _ := s.handlers.Get(nsp)
+		return handler
+	}
+	ready := make(chan struct{})
+	s.creating[nsp] = ready
+	factory, closed := s.adapter, s.closed.Load()
+	s.createMu.Unlock()
+	handler := namespace.NewHandler()
+	if closed && factory != nil {
 		handler.SetAdapter(namespace.NopAdapter{}, errServerClosed)
-	} else if s.adapter != nil {
-		handler = namespace.NewHandler()
-		bc, err := s.adapter(nsp)
+	} else if factory != nil {
+		bc, err := factory(nsp)
 		if err == nil && bc == nil {
 			err = errors.New("adapter returned nil")
 		}
@@ -347,17 +368,19 @@ func (s *Server) createNamespaceLocked(nsp string, parent *namespace.Handler) *n
 		} else {
 			handler.SetAdapter(bc, nil)
 		}
-	} else {
-		handler = namespace.NewHandler()
-	}
-	if err := handler.Err(); err != nil && !s.closed.Load() && s.adapterErr.Load() == nil {
-		s.adapterErr.Store(&err)
 	}
 	if parent != nil {
 		parent.CopyRegistrations(handler)
 	}
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+	if err := handler.Err(); err != nil && !s.closed.Load() && s.adapterErr.Load() == nil {
+		s.adapterErr.Store(&err)
+	}
 	s.views[nsp] = &ServerNamespace{server: s, name: nsp}
 	s.handlers.Set(nsp, handler)
+	delete(s.creating, nsp)
+	close(ready)
 	return handler
 }
 
@@ -377,16 +400,13 @@ func (s *Server) resolveNamespace(name string, query url.Values) *namespace.Hand
 		if parent.match == nil || !parent.match(name, cloneQuery(query)) {
 			continue
 		}
+		h := s.createNamespaceWithParent(name, parent.registration)
 		s.createMu.Lock()
-		if h, ok := s.handlers.Get(name); ok {
-			s.createMu.Unlock()
-			return h
-		}
-		h := s.createNamespaceLocked(name, parent.registration)
-		parent.mu.Lock()
-		parent.children[name] = s.views[name]
-		parent.mu.Unlock()
+		view := s.views[name]
 		s.createMu.Unlock()
+		parent.mu.Lock()
+		parent.children[name] = view
+		parent.mu.Unlock()
 		return h
 	}
 	return nil

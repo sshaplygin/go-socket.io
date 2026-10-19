@@ -139,8 +139,8 @@ func TestDynamicSubscriptionWriteIsBounded(t *testing.T) {
 	case <-c.done:
 	case <-time.After(2 * time.Second):
 		_ = c.Close()
-		<-result
-		t.Fatal("construction deadline did not close the blocked subscriber")
+		err := <-result
+		t.Fatalf("construction deadline did not close the blocked subscriber: %v", err)
 	}
 	// Cleanup shares the expired construction deadline; it must not start
 	// another full timeout while waiting for unsubscribe confirmation.

@@ -43,6 +43,9 @@ func (bc *broadcast) waitReady(ctx context.Context) error {
 	owner := bc.transport()
 	s := &owner.readiness
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if bc.closed.Load() {
 			return errAdapterClosed
 		}

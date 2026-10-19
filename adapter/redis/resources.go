@@ -65,6 +65,12 @@ func (s *sharedResources) add(nsp string, opts *options) (*broadcast, error) {
 	if err == nil {
 		err = bc.waitReady(ctx)
 	}
+	if !stop() && err == nil {
+		err = ctx.Err()
+	}
+	if err == nil {
+		err = ctx.Err()
+	}
 	if err != nil {
 		_ = bc.Close()
 		return nil, err

@@ -77,7 +77,7 @@ func TestDynamicNamespaceWaitsForSubscriptionAcknowledgements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer first.(*broadcast).Close()
+	defer func() { _ = first.(*broadcast).Close() }()
 	entered, release := make(chan struct{}), make(chan struct{})
 	defer close(release)
 	s.Server().SetPreHook(func(_ *server.Peer, cmd string, args ...string) bool {

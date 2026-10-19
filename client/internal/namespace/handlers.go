@@ -40,7 +40,22 @@ func (nh *Handler) OnError(f func(Conn, error)) {
 func (nh *Handler) ConnectHandler() func(Conn) error {
 	nh.eventsLock.RLock()
 	defer nh.eventsLock.RUnlock()
-	return nh.onConnect
+	f := nh.onConnect
+	if f == nil {
+		return nil
+	}
+	return func(conn Conn) (err error) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				if cause, ok := recovered.(error); ok {
+					err = fmt.Errorf("connect callback: %w", cause)
+				} else {
+					err = fmt.Errorf("connect callback: %v", recovered)
+				}
+			}
+		}()
+		return f(conn)
+	}
 }
 
 func (nh *Handler) DisconnectHandler() func(Conn, string) {

@@ -253,8 +253,11 @@ func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 			// Known control packets can be ignored here, but an invalid wire
 			// type is a parser failure and must terminate the session.
 			if pt < eioparser.OPEN || pt > eioparser.NOOP {
-				_ = s.fail(fmt.Errorf("invalid Engine.IO packet type %d", pt))
-				_ = r.Close()
+				// Drain through the bounded reader before recording the parse
+				// error so an inflated-size failure keeps its transport cause.
+				if s.fail(r.Close()) == nil {
+					_ = s.fail(fmt.Errorf("invalid Engine.IO packet type %d", pt))
+				}
 				_ = s.Close()
 				return 0, nil, s.readerCloseError()
 			}

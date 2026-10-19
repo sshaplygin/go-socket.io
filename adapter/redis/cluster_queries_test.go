@@ -362,3 +362,82 @@ func TestRedisCustomHandlerFailureCannotFabricateSuccess(t *testing.T) {
 		require.Empty(t, a.resources.clusterWorkers())
 	}
 }
+
+// Covers A5
+// Covers B4
+func TestRedisQueryCommandFailuresPreserveLocalStateAndRemovePending(t *testing.T) {
+	cases := []struct {
+		name    string
+		command string
+		reply   func(*server.Peer, string)
+	}{
+		{"ACL denies NUMSUB", "PUBSUB", func(p *server.Peer, _ string) { p.WriteError("NOPERM denied") }},
+		{"short count reply", "PUBSUB", func(p *server.Peer, _ string) { p.WriteLen(0) }},
+		{"wrong channel", "PUBSUB", func(p *server.Peer, _ string) { p.WriteLen(2); p.WriteBulk("wrong"); p.WriteInt(1) }},
+		{"negative count", "PUBSUB", func(p *server.Peer, ch string) { p.WriteLen(2); p.WriteBulk(ch); p.WriteInt(-1) }},
+		{"zero subscribers", "PUBSUB", func(p *server.Peer, ch string) { p.WriteLen(2); p.WriteBulk(ch); p.WriteInt(0) }},
+		{"ACL denies PUBLISH", "PUBLISH", func(p *server.Peer, _ string) { p.WriteError("NOPERM denied") }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := miniredis.RunT(t)
+			a := newTestRedisBroadcast(t, s)
+			a.Join("local", newRedisTestConn("local"))
+			s.Server().SetPreHook(func(p *server.Peer, command string, _ ...string) bool {
+				if command == tc.command {
+					tc.reply(p, a.reqChannel)
+					return true
+				}
+				return false
+			})
+			ids, err := a.IDsContext(context.Background())
+			require.Error(t, err)
+			require.Equal(t, []string{"local"}, ids)
+			a.requestLock.Lock()
+			require.Empty(t, a.requests)
+			a.requestLock.Unlock()
+		})
+	}
+}
+
+// Covers A9
+func TestRedisMalformedRequestsAndRepliesDoNotStopDispatcher(t *testing.T) {
+	s := miniredis.RunT(t)
+	done := make(chan struct{})
+	base, err := New(WithAddr(s.Addr()), WithCustomRequestHandler(func(context.Context, json.RawMessage) (json.RawMessage, error) { close(done); return nil, nil }))("/")
+	require.NoError(t, err)
+	a := base.(*broadcast)
+	t.Cleanup(func() { _ = a.Close() })
+	socket := newClusterTestSocket(a, "live")
+	socket.Join("keep")
+	for _, raw := range []string{`invalid`, `{}`, `{"requestid":"x","type":-1}`, `{"requestid":"x","type":7}`, `{"requestid":"x","type":"0"}`, `{"requestid":"x","type":3}`, `{"requestid":"x","type":3,"sid":"live"}`, `{"requestid":"x","type":4,"sid":"live"}`} {
+		s.Publish(a.reqChannel, raw)
+	}
+	for _, raw := range []string{`invalid`, `{"requestid":2}`, `{"requestid":"unknown","data":null}`} {
+		s.Publish(a.resChannel, raw)
+	}
+	ids, err := a.IDsContext(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []string{"live"}, ids)
+	require.Equal(t, 1, a.Memory.Len("keep"))
+	// Default hook accepts a Node request omitting its optional data field.
+	s.Publish(a.reqChannel, `{"requestid":"default","type":5}`)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("default data hook not invoked")
+	}
+}
+
+// Covers A9
+func TestRedisClearReportsPartialFailure(t *testing.T) {
+	s := miniredis.RunT(t)
+	a := newTestRedisBroadcast(t, s)
+	supported := newClusterTestSocket(a, "a-supported")
+	supported.Join("room")
+	a.Join("room", newRedisTestConn("z-unsupported"))
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, a.ClearContext(ctx, "room"), context.DeadlineExceeded)
+	require.Equal(t, []string{"z-unsupported"}, a.Memory.IDs("room"), "successful earlier removal is not rolled back")
+}

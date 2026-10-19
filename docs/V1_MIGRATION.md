@@ -258,7 +258,9 @@ callbacks. Redis composes Memory and uses the Node-compatible wire described in
 The pre-release legacy Go JSON format is not compatible with the new default.
 Stop and upgrade all Go peers together, or deploy the new cluster with a distinct
 `WithPrefix`; there is no automatic mixed legacy mode or dual publication. Node
-peers must use `socket.io-redis@5.4.0` with the same prefix. Redis database selection
+peers must use `socket.io-redis@5.4.0` with the same prefix and namespace names
+preserved by Node URL-path parsing, without `#`; see the protocol notes for the
+reference adapter's unsafe prefix matching of `#` request channels. Redis database selection
 does not isolate Pub/Sub channels; use prefixes for independent applications.
 
 `SendTo` now supports exclusion and room-union deduplication across instances,

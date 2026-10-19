@@ -585,6 +585,9 @@ All notable changes to this project are documented here. The format follows
 
 - Redis uses the Node-compatible MessagePack/JSON protocol. Legacy Go JSON peers
   require a coordinated upgrade or a distinct prefix; see the v1 migration guide.
+- Mixed Go/Node namespaces must be Node-compatible URL paths without `#`.
+  The pinned Node adapter prefix-matches request channels, so names containing
+  `#` can address a different Node namespace; Go-only request routing is exact.
 - Redis Pub/Sub does not replay messages missed during disconnection. Cluster
   queries are non-atomic snapshots, may return partial results on timeout, and do
   not guarantee consistent counts during concurrent membership changes. Clear

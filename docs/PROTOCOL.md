@@ -175,8 +175,16 @@ The v1 Redis adapter speaks the broadcast and request protocol of
 `socket.io-redis` 5.4.0 with `socket.io` 2.5.0: MessagePack event envelopes with
 binary values, room unions, socket exclusions and delivery flags; JSON cluster
 queries and remote join/leave/disconnect/custom requests. Go and Node instances
-can share a standalone Redis Pub/Sub cluster. Namespace identity is checked from
-the packet, independently of channel separators. Custom request payloads are JSON,
+can share a standalone Redis Pub/Sub cluster. Mixed-peer namespace names must be
+preserved by Node's URL-path parsing and must not contain `#`. Node 2.5 CONNECT
+parsing strips URL fragments, and Node Redis 5.4.0 prefix-matches request channels:
+a request for `/cluster#other` can execute against `/cluster`. Such names are
+unsupported in mixed clusters, including administrative requests; Go cannot fix
+routing performed by an unmodified Node peer.
+
+Go-only adapters route requests by exact channel and namespace. Broadcast namespace
+identity is checked from the packet independently of channel separators, including
+`#`; that broadcast check does not repair Node's request routing. Custom payloads are JSON,
 not binary, matching the reference adapter.
 
 Redis Pub/Sub provides no replay during disconnection. Queries are bounded,

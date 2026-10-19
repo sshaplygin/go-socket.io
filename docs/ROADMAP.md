@@ -3165,7 +3165,12 @@ Wire and migration contract:
   exact packet namespace validation, event packet types and binary values. Channel
   is `prefix#namespace#` plus `room#` only for a single room. Publish a union once.
   UID belongs to the envelope. Literal namespace equality protects names containing
-  `#` and glob characters; malformed messages are rejected without dispatcher panic.
+  `#` and glob characters on Go receivers; malformed messages are rejected without
+  dispatcher panic. Mixed-peer names must be preserved by Node URL-path parsing
+  and contain no `#`: pinned Node CONNECT strips fragments and its Redis request
+  handler prefix-matches channels. Go cannot prevent that peer from executing a
+  `/cluster#other` request against `/cluster`. This is a reference limitation,
+  not a promise of mixed-peer exact request isolation for those names.
 - Preserve JSON tags/custom JSON marshaling and parser.Buffer through canonical
   argument preparation; do not encode arbitrary application structs directly with
   MessagePack defaults. Preserve integer values without an intermediate float64;
@@ -3259,7 +3264,10 @@ Acceptance: ordinary adapter tests use miniredis and need no external service.
 Tagged conformance requires a real Redis service (CI pinned Redis image and health
 check) plus the pinned Node adapter; missing service is a failure when that gate
 runs, never a silent skip. Test two Go servers and a Go/Node pair with clients pinned
-to both versions, polling and websocket: namespace/room isolation (including `#`),
+to both versions, polling and websocket: namespace/room isolation for supported mixed-peer names,
+Go-only exact request isolation with `#`, Go broadcast-envelope isolation with `#`
+(including Node-originated broadcasts without Node clients in that namespace),
+and an executable pinned-reference proof of the unsupported Node `#` request case,
 room union dedupe, exclusion, local/volatile/compression flags, nested binary payloads,
 cluster IDs/rooms/counts, Go-to-Node and Node-to-Go remote operations/custom replies,
 startup readiness, reconnect, malformed replies, timeouts and close cancellation.

@@ -6,12 +6,13 @@ const modulePath = "github.com/sshaplygin/go-socket.io"
 // are module-relative package paths; the empty path denotes the Socket.IO server.
 // These are allowed direct edges, not required imports. Test imports are separate.
 var allowedImports = map[string][]string{
-	"":                                 {"internal/connection", "internal/namespace", "adapter", "engineio", "logger"},
-	"internal/connection":              {"internal/namespace", "adapter", "parser", "engineio", "engineio/parser", "logger"},
-	"internal/namespace":               {"adapter", "parser", "engineio"},
-	"client":                           {"client/internal/connection", "client/internal/namespace", "engineio/client", "engineio/transport", "engineio/transport/polling", "engineio/transport/websocket", "logger"},
-	"client/internal/connection":       {"client/internal/namespace", "parser", "engineio/client", "engineio/parser", "engineio/transport", "engineio/transport/polling", "engineio/transport/websocket", "logger"},
-	"client/internal/namespace":        {"parser", "engineio/client"},
+	"":                                 {"internal/connection", "internal/namespace", "adapter", "engineio", "logger", "internal/event"},
+	"internal/connection":              {"internal/namespace", "adapter", "parser", "engineio", "engineio/parser", "logger", "internal/event"},
+	"internal/namespace":               {"adapter", "parser", "engineio", "internal/event"},
+	"client":                           {"client/internal/connection", "client/internal/namespace", "engineio/client", "engineio/transport", "engineio/transport/polling", "engineio/transport/websocket", "logger", "internal/event"},
+	"client/internal/connection":       {"client/internal/namespace", "parser", "engineio/client", "engineio/parser", "engineio/transport", "engineio/transport/polling", "engineio/transport/websocket", "logger", "internal/event"},
+	"client/internal/namespace":        {"parser", "engineio/client", "internal/event"},
+	"internal/event":                   {"parser"},
 	"adapter":                          {},
 	"adapter/redis":                    {"adapter", "logger"},
 	"parser":                           {"logger"},

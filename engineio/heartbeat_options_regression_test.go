@@ -27,9 +27,13 @@ func TestReviewG22NegativeHeartbeatNotAdvertised(t *testing.T) {
 			defer resp.Body.Close()
 			b, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
-			if resp.StatusCode == http.StatusOK {
-				require.NotContains(t, string(b), `"pingTimeout":-`)
-				require.NotContains(t, string(b), `"pingInterval":-`)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.NotContains(t, string(b), `"pingTimeout":-`)
+			require.NotContains(t, string(b), `"pingInterval":-`)
+			if i == 0 {
+				require.Contains(t, string(b), `"pingTimeout":20000`)
+			} else {
+				require.Contains(t, string(b), `"pingInterval":25000`)
 			}
 		})
 	}

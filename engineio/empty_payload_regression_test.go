@@ -1,6 +1,7 @@
 package engineio_test
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,15 +19,22 @@ func TestReviewG27EmptyBinaryPostKeepsSession(t *testing.T) {
 	ts := httptest.NewServer(s)
 	defer ts.Close()
 	defer s.Close()
-	done := make(chan struct{})
+	done := make(chan string, 1)
 	go func() {
-		defer close(done)
 		c, err := s.Accept()
 		if err == nil {
-			_, r, _ := c.NextReader()
-			if r != nil {
-				_ = r.Close()
+			_, r, readErr := c.NextReader()
+			if readErr != nil {
+				done <- readErr.Error()
+				return
 			}
+			body, readErr := io.ReadAll(r)
+			_ = r.Close()
+			if readErr != nil {
+				done <- readErr.Error()
+				return
+			}
+			done <- string(body)
 		}
 	}()
 	resp, err := http.Get(ts.URL + "/?EIO=3&transport=polling")
@@ -43,9 +51,15 @@ func TestReviewG27EmptyBinaryPostKeepsSession(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "reference treats empty binary payload as no packets")
+	require.NoError(t, resp.Body.Close())
+	resp, err = http.Post(ts.URL+"/?EIO=3&transport=polling&sid="+sid, "application/octet-stream", bytes.NewReader([]byte{0, 2, 255, '4', 'x'}))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 	select {
-	case <-done:
-		t.Error("empty POST ended session reader")
-	case <-time.After(100 * time.Millisecond):
+	case body := <-done:
+		require.Equal(t, "x", body)
+	case <-time.After(time.Second):
+		t.Fatal("session did not deliver the message after an empty POST")
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -160,10 +161,15 @@ func TestHandshakeData(t *testing.T) {
 
 func testHandshakeAfterUpgrade(t *testing.T) {
 	seen := make(chan Conn, 2)
+	// Keep namespace CONNECT out of the initial OPEN payload: this test needs a
+	// separate poll to observe the subsequent upgrade, independent of batching.
+	admitted := make(chan struct{})
+	release := sync.OnceFunc(func() { close(admitted) })
+	defer release()
 	var srv *Server
 	ts := newTestServer(t, func(s *Server) {
 		srv = s
-		s.OnConnect("/", func(c Conn) error { seen <- c; return nil })
+		s.OnConnect("/", func(c Conn) error { seen <- c; <-admitted; return nil })
 		s.Of("/chat").Use(func(c Conn) error { seen <- c; return nil })
 	})
 	client := &http.Client{Timeout: 2 * time.Second}
@@ -188,8 +194,9 @@ func testHandshakeAfterUpgrade(t *testing.T) {
 	params, err := eioparser.ReadConnParameters(strings.NewReader(open[1:]))
 	require.NoError(t, err)
 	poll := ts.URL + "/?EIO=3&transport=polling&b64=1&sid=" + params.SID
-	require.Equal(t, "2:40", get(poll))
 	root := recv(t, seen, "polling root")
+	release()
+	require.Equal(t, "2:40", get(poll))
 	ws, _, err := gorilla.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/?EIO=3&transport=websocket&sid="+params.SID+"&upgrade=only", http.Header{"X-Upgrade": []string{"websocket"}, "Origin": []string{ts.URL}})
 	require.NoError(t, err)
 	defer func() { _ = ws.Close() }()

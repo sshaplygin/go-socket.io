@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Covers: G27
+// Covers G27
 func TestReviewG27EmptyBinaryPostKeepsSession(t *testing.T) {
 	s := engineio.NewServer()
 	ts := httptest.NewServer(s)

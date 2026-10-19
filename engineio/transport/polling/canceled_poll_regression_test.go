@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Covers: G11
+// Covers G11
 func TestCanceledPollFailsTransportBeforeNextWrite(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest("GET", "http://localhost/?transport=polling", nil).WithContext(ctx)

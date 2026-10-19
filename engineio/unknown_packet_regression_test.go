@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Covers: G26
+// Covers G26
 func TestReviewG26UnknownPacketClosesSession(t *testing.T) {
 	s := engineio.NewServer()
 	ts := httptest.NewServer(s)

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Covers: G29
+// Covers G29
 func TestConcurrentUpgradeProbeClosesOnlySecond(t *testing.T) {
 	s := newTestSession(t, newOrderlyConn(), "polling")
 	t.Cleanup(func() { _ = s.Abort() })

@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Covers: G1
+// Covers G1
 func TestDuplicateWebsocketSessionRequestReturns(t *testing.T) {
 	s := engineio.NewServer()
 	defer s.Close()

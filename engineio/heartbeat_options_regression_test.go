@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Covers: G22
+// Covers G22
 func TestReviewG22NegativeHeartbeatNotAdvertised(t *testing.T) {
 	for i, opts := range [][]engineio.Option{
 		{engineio.WithPingTimeout(-time.Second), engineio.WithPingInterval(time.Minute)},

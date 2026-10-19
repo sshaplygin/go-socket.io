@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Covers: G25
+// Covers G25
 func TestReviewG25InvalidPayloadLengths(t *testing.T) {
 	for _, data := range []string{":4", "5:4x", "18446744073709551618:4x"} {
 		t.Run(data, func(t *testing.T) {
@@ -27,7 +27,7 @@ func TestReviewG25InvalidPayloadLengths(t *testing.T) {
 	}
 }
 
-// Covers: G25
+// Covers G25
 func TestReviewG25ZeroLengthSkipsEmptyPacket(t *testing.T) {
 	f := &fakeReaderFeeder{data: []byte("0:1:4")}
 	d := NewPayloadDecoder(f)
@@ -37,7 +37,7 @@ func TestReviewG25ZeroLengthSkipsEmptyPacket(t *testing.T) {
 	require.Equal(t, MESSAGE, pt, "reference skips the zero-length packet and delivers MESSAGE")
 }
 
-// Covers: G25
+// Malformed framing fuzz coverage complements the G25 regression tests.
 func FuzzMalformedPollingPayload(f *testing.F) {
 	for _, seed := range []string{":4", "5:4x", "18446744073709551618:4x", "0:1:4", "2:4é", "1:b"} {
 		f.Add([]byte(seed), false)
@@ -82,7 +82,8 @@ func (s *singlePayloadSource) ReleasePayloadReader(err error) error {
 	return err
 }
 
-// Covers: G25 G27
+// Covers G25
+// Covers G27
 func TestEmptyAndTruncatedPayloadBoundaries(t *testing.T) {
 	for _, data := range [][]byte{{0}, {0, 1}, {0, 1, 255}, {0, 0, 255}, {1, 255}} {
 		d := NewPayloadDecoder(&singlePayloadSource{data: data, binary: true})

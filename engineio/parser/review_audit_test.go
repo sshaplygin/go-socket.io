@@ -62,9 +62,11 @@ func FuzzMalformedPollingPayload(f *testing.F) {
 }
 
 type singlePayloadSource struct {
-	data     []byte
-	binary   bool
-	acquired bool
+	data        []byte
+	binary      bool
+	acquired    bool
+	releasedErr error
+	releases    int
 }
 
 func (s *singlePayloadSource) AcquirePayloadReader() (io.Reader, bool, error) {
@@ -74,4 +76,30 @@ func (s *singlePayloadSource) AcquirePayloadReader() (io.Reader, bool, error) {
 	s.acquired = true
 	return bytes.NewReader(s.data), s.binary, nil
 }
-func (*singlePayloadSource) ReleasePayloadReader(err error) error { return err }
+func (s *singlePayloadSource) ReleasePayloadReader(err error) error {
+	s.releasedErr = err
+	s.releases++
+	return err
+}
+
+// Covers: G25 G27
+func TestEmptyAndTruncatedPayloadBoundaries(t *testing.T) {
+	for _, data := range [][]byte{{0}, {0, 1}, {0, 1, 255}, {0, 0, 255}, {1, 255}} {
+		d := NewPayloadDecoder(&singlePayloadSource{data: data, binary: true})
+		_, _, _, err := d.NextReader()
+		require.Error(t, err)
+		require.NotEqual(t, io.EOF, err, "partial binary framing must not be treated as an empty POST")
+	}
+	for _, binary := range []bool{false, true} {
+		data := []byte("0:")
+		if binary {
+			data = nil
+		}
+		source := &singlePayloadSource{data: data, binary: binary}
+		d := NewPayloadDecoder(source)
+		_, _, _, err := d.NextReader()
+		require.Equal(t, io.EOF, err)
+		require.Equal(t, 1, source.releases)
+		require.Nil(t, source.releasedErr)
+	}
+}

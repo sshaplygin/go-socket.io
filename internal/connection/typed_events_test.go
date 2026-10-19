@@ -320,3 +320,20 @@ func TestEngineObserverEndsWithSocketConnection(t *testing.T) {
 	require.True(t, isDone(p.connection.engineObserverDone))
 	require.False(t, isDone(engine.stopped), "observer must not require engine capability signal to end")
 }
+
+// Covers T2
+// Covers T3
+func TestTypedAdmissionChecksEngineSignalBeforeObserverRuns(t *testing.T) {
+	p := start(t, 'S', hooks{})
+	// Model the closed signal while the observer is still waiting for its turn.
+	signal := make(chan struct{})
+	close(signal)
+	p.connection.engineDone = signal
+	nc := p.nc.(*namespaceConn)
+	require.NoError(t, nc.lifetime.Err())
+	require.ErrorIs(t, nc.SendEvent(nil, "closed", eventImpl.ValueOf(1)), eventImpl.ErrSocketClosed)
+	_, err := nc.RequestAck(nil, "closed", eventImpl.ValueOf(1), eventImpl.SchemaOf[int]())
+	require.ErrorIs(t, err, eventImpl.ErrSocketClosed)
+	require.Zero(t, ackEntries(nc))
+	require.Zero(t, nc.id.Load())
+}

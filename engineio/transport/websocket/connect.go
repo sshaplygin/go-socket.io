@@ -106,7 +106,10 @@ func (c *conn) SetWriteDeadline(t time.Time) error {
 }
 
 func (c *conn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	<-c.closed
+	select {
+	case <-c.closed:
+	case <-r.Context().Done():
+	}
 }
 
 // Close closes the connection. Only the first call closes the underlying

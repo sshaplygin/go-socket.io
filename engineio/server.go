@@ -192,6 +192,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// A websocket transport has no further HTTP requests once established.
+	// Reject duplicate requests before dispatching to its lifetime handler.
+	if sid != "" && reqTransport == "websocket" && reqSession.Transport() == "websocket" {
+		s.writeServerError(w, r, 3, nil)
+		s.reject(reqTransport, r.RemoteAddr, "duplicate websocket", nil)
+		return
+	}
+
 	// try upgrade current connection
 	if current := reqSession.Transport(); current != reqTransport {
 		if s.disableUpgrades || !s.canUpgrade(current, reqTransport) {

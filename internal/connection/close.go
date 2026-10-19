@@ -167,13 +167,7 @@ func (c *Connection) disconnectNamespace(nc *namespaceConn, reason string) {
 	if nh != nil {
 		nh.NotifyDisconnect(nc, reason)
 	}
-	c.mu.Lock()
-	pending := c.retiring[fmtNS(nc.namespace)]
-	delete(c.retiring, fmtNS(nc.namespace))
-	c.mu.Unlock()
-	if pending != nil {
-		_ = connectNamespace(c, *pending)
-	}
+	c.finishRetirement(nc)
 
 }
 
@@ -260,3 +254,42 @@ func (c *Connection) claimNamespace(nsp string, disconnect, control bool, expect
 }
 
 func (f frameIO) Close() error { return f.mark(f.c.Close()) }
+
+// finishRetirement schedules replacement admission on the reader after the old
+// socket has left its rooms. The retiring entry remains until that task is taken,
+// so another CONNECT cannot admit a replacement on a different path meanwhile.
+func (c *Connection) finishRetirement(nc *namespaceConn) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	nsp := fmtNS(nc.namespace)
+	if c.retiring[nsp] == nil || isDone(c.closing) {
+		delete(c.retiring, nsp)
+		return
+	}
+	c.reconnectReady = append(c.reconnectReady, nsp)
+	select {
+	case c.readReady <- struct{}{}:
+	default:
+	}
+}
+
+func (c *Connection) runReconnects() error {
+	for {
+		c.mu.Lock()
+		if len(c.reconnectReady) == 0 {
+			c.mu.Unlock()
+			return nil
+		}
+		nsp := c.reconnectReady[0]
+		c.reconnectReady[0] = ""
+		c.reconnectReady = c.reconnectReady[1:]
+		header := c.retiring[nsp]
+		delete(c.retiring, nsp)
+		c.mu.Unlock()
+		if header != nil {
+			if err := connectNamespace(c, *header); err != nil {
+				return err
+			}
+		}
+	}
+}

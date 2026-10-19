@@ -28,6 +28,8 @@ type Connection struct {
 	handlers         *namespaceImpl.Registry
 	namespaces       *namespaces
 	retiring         map[string]*parser.Header
+	reconnectReady   []string
+	readReady        chan struct{}
 
 	encoder *parser.Encoder
 	decoder *parser.Decoder
@@ -73,6 +75,7 @@ func New(engineConn engineio.Conn, handlers *namespaceImpl.Registry, writeBuffer
 		handlers:         handlers,
 		namespaces:       newNamespaces(),
 		retiring:         make(map[string]*parser.Header),
+		readReady:        make(chan struct{}, 1),
 		closing:          make(chan struct{}),
 		seal:             make(chan struct{}),
 		discard:          make(chan struct{}),

@@ -142,8 +142,8 @@ func TestDynamicSubscriptionWriteIsBounded(t *testing.T) {
 		}
 	case <-time.After(200 * time.Millisecond):
 		_ = c.Close()
-		<-result
-		t.Fatal("dynamic subscription write exceeded construction deadline")
+		err := <-result
+		t.Fatalf("dynamic subscription write exceeded construction deadline: %v", err)
 	}
 }
 
@@ -180,8 +180,8 @@ func TestNamespaceCloseBoundsUnsubscribeWrite(t *testing.T) {
 		}
 	case <-time.After(200 * time.Millisecond):
 		_ = c.Close()
-		<-done
-		t.Fatal("namespace Close hangs in unsubscribe flush")
+		err := <-done
+		t.Fatalf("namespace Close hangs in unsubscribe flush: %v", err)
 	}
 	owner.subLock.Lock()
 	if owner.sub == nil {

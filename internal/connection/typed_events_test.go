@@ -67,14 +67,14 @@ func TestTypedCheckedAdmissionAndLifetime(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	require.ErrorIs(t, nc.SendEvent(ctx, "canceled", eventImpl.ValueOf(1)), context.Canceled)
-	require.Error(t, nc.SendEvent(nil, "bad", eventImpl.ValueOf(make(chan int))))
-	require.ErrorIs(t, nc.SendEvent(nil, "disconnect", eventImpl.ValueOf(1)), eventImpl.ErrInvalidEventName)
-	require.ErrorIs(t, nc.SendEvent(nil, "invalid", eventImpl.Payload{}), eventImpl.ErrInvalidPayload)
-	require.NoError(t, nc.SendEvent(nil, "number", eventImpl.ValueOf(uint64(18446744073709551615))))
+	require.Error(t, nc.SendEvent(context.Background(), "bad", eventImpl.ValueOf(make(chan int))))
+	require.ErrorIs(t, nc.SendEvent(context.Background(), "disconnect", eventImpl.ValueOf(1)), eventImpl.ErrInvalidEventName)
+	require.ErrorIs(t, nc.SendEvent(context.Background(), "invalid", eventImpl.Payload{}), eventImpl.ErrInvalidPayload)
+	require.NoError(t, nc.SendEvent(context.Background(), "number", eventImpl.ValueOf(uint64(18446744073709551615))))
 	require.Equal(t, "2[\"number\",18446744073709551615]\n", recv(t, p.fc.out, "typed send"))
 	nc.Disconnect()
 	require.ErrorIs(t, nc.lifetime.Err(), context.Canceled)
-	require.ErrorIs(t, nc.SendEvent(nil, "closed", eventImpl.ValueOf(1)), eventImpl.ErrSocketClosed)
+	require.ErrorIs(t, nc.SendEvent(context.Background(), "closed", eventImpl.ValueOf(1)), eventImpl.ErrSocketClosed)
 }
 
 // Covers T3
@@ -155,7 +155,7 @@ func TestTypedPreparationRunsOutsideQueueLocks(t *testing.T) {
 	p := start(t, 'S', hooks{})
 	nc := p.nc.(*namespaceConn)
 	value := reentrantTypedValue{send: func() { nc.Emit("reentrant") }}
-	require.NoError(t, nc.SendEvent(nil, "outer", eventImpl.ValueOf(value)))
+	require.NoError(t, nc.SendEvent(context.Background(), "outer", eventImpl.ValueOf(value)))
 	require.Contains(t, recv(t, p.fc.out, "reentrant emit"), "reentrant")
 	require.Contains(t, recv(t, p.fc.out, "prepared emit"), "prepared")
 }
@@ -170,7 +170,7 @@ func TestTypedAdmissionFailureRetainsWinnerAndNoAckEntry(t *testing.T) {
 	require.ErrorIs(t, ackContextError(ctx, ctx, eventImpl.ErrSocketClosed), eventImpl.ErrSocketClosed)
 	remote := &eventImpl.RemoteError{Code: "won", Message: "reply"}
 	require.Same(t, remote, ackContextError(ctx, ctx, remote))
-	_, err := nc.RequestAck(nil, "bad", eventImpl.ValueOf(make(chan int)), eventImpl.SchemaOf[int]())
+	_, err := nc.RequestAck(context.Background(), "bad", eventImpl.ValueOf(make(chan int)), eventImpl.SchemaOf[int]())
 	require.Error(t, err)
 	require.Zero(t, ackEntries(nc))
 	require.Zero(t, nc.id.Load())
@@ -180,7 +180,7 @@ func TestTypedAdmissionFailureRetainsWinnerAndNoAckEntry(t *testing.T) {
 	for i := 0; i < defaultWriteBufferSize; i++ {
 		nc.Emit("queued")
 	}
-	_, err = nc.RequestAck(nil, "full", eventImpl.ValueOf(1), eventImpl.SchemaOf[int]())
+	_, err = nc.RequestAck(context.Background(), "full", eventImpl.ValueOf(1), eventImpl.SchemaOf[int]())
 	require.ErrorIs(t, err, ErrWriteBufferFull)
 	require.Zero(t, ackEntries(nc))
 	require.Zero(t, nc.id.Load())
@@ -279,7 +279,7 @@ func TestEngineCloseCancelsBlockedTypedHandlerAndRequests(t *testing.T) {
 	defer p.nc.(*namespaceConn).cancelLifetime()
 	done := make(chan typedResult, 1)
 	go func() {
-		v, err := p.nc.(*namespaceConn).RequestAck(nil, "question", eventImpl.ValueOf(1), eventImpl.SchemaOf[int]())
+		v, err := p.nc.(*namespaceConn).RequestAck(context.Background(), "question", eventImpl.ValueOf(1), eventImpl.SchemaOf[int]())
 		done <- typedResult{v, err}
 	}()
 	recv(t, p.fc.out, "pending request")
@@ -303,7 +303,7 @@ func TestEngineClosedBeforeAdmissionCancelsEveryLaterNamespace(t *testing.T) {
 	require.ErrorIs(t, p.nc.(*namespaceConn).lifetime.Err(), context.Canceled)
 	chat := p.join(t, "/chat").(*namespaceConn)
 	require.ErrorIs(t, chat.lifetime.Err(), context.Canceled)
-	require.ErrorIs(t, chat.SendEvent(nil, "closed", eventImpl.ValueOf(1)), eventImpl.ErrSocketClosed)
+	require.ErrorIs(t, chat.SendEvent(context.Background(), "closed", eventImpl.ValueOf(1)), eventImpl.ErrSocketClosed)
 }
 
 // Covers T1
@@ -331,8 +331,8 @@ func TestTypedAdmissionChecksEngineSignalBeforeObserverRuns(t *testing.T) {
 	p.connection.engineDone = signal
 	nc := p.nc.(*namespaceConn)
 	require.NoError(t, nc.lifetime.Err())
-	require.ErrorIs(t, nc.SendEvent(nil, "closed", eventImpl.ValueOf(1)), eventImpl.ErrSocketClosed)
-	_, err := nc.RequestAck(nil, "closed", eventImpl.ValueOf(1), eventImpl.SchemaOf[int]())
+	require.ErrorIs(t, nc.SendEvent(context.Background(), "closed", eventImpl.ValueOf(1)), eventImpl.ErrSocketClosed)
+	_, err := nc.RequestAck(context.Background(), "closed", eventImpl.ValueOf(1), eventImpl.SchemaOf[int]())
 	require.ErrorIs(t, err, eventImpl.ErrSocketClosed)
 	require.Zero(t, ackEntries(nc))
 	require.Zero(t, nc.id.Load())

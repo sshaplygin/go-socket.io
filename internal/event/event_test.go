@@ -120,6 +120,7 @@ func TestHandlerInvocation(t *testing.T) {
 	}
 }
 
+//nolint:staticcheck // Verify the explicit nil-context fallback.
 func TestValidation(t *testing.T) {
 	for _, name := range []string{"", "connect", "disconnect", "disconnecting", "error"} {
 		if !errors.Is(ValidateName(name), ErrInvalidEventName) {

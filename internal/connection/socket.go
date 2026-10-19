@@ -88,6 +88,9 @@ func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{})
 }
 
 func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, v ...interface{}) {
+	if reservedEvent(eventName) {
+		return
+	}
 	header := parser.Header{
 		Type: parser.Event,
 	}

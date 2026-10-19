@@ -428,6 +428,7 @@ func (s *Server) serveConn(conn engineio.Conn) {
 	s.active[c] = struct{}{}
 	s.activeMu.Unlock()
 	if !c.Start(s.resolveNamespace) {
+		s.engine.Remove(conn.ID())
 		s.releaseConnection(c)
 		return
 	}

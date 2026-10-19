@@ -431,3 +431,22 @@ func (d *Decoder) detachBuffer(v reflect.Value, buffers []Buffer) error {
 	}
 	return nil
 }
+
+// DecodeArgsVariadic decodes the fixed arguments followed by the elements of the
+// final variadic slice type. The returned values are suitable for reflect.Call.
+func (d *Decoder) DecodeArgsVariadic(types []reflect.Type) ([]reflect.Value, error) {
+	if len(types) == 0 || types[len(types)-1].Kind() != reflect.Slice {
+		return nil, fmt.Errorf("decode variadic arguments: final type must be a slice")
+	}
+	fixed := len(types) - 1
+	count := len(d.args)
+	if count < fixed {
+		count = fixed
+	}
+	expanded := make([]reflect.Type, count)
+	copy(expanded, types[:fixed])
+	for i := fixed; i < count; i++ {
+		expanded[i] = types[fixed].Elem()
+	}
+	return d.DecodeArgs(expanded)
+}

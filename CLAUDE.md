@@ -113,7 +113,7 @@ Each fact has one owner; other documents link to it.
 
 | File | Owns |
 | --- | --- |
-| `README.md` | V1 purpose, install, quick start and client compatibility |
+| `README.md` | V1 purpose, install, version compatibility and links to examples |
 | `docs/V1.md` | V1 usage, lifecycle, adapters and typed events |
 | `docs/PROTOCOL.md` | V1 wire behavior and interoperability limits |
 | `docs/PARITY.md` | Reference implementations and behavioral test coverage |

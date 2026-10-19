@@ -117,8 +117,11 @@ func (bc *broadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.D
 	}
 }
 
-// Close stops the dispatch goroutine and closes the connections.
+// Close stops this adapter. Shared transports remain open for other adapters.
 func (bc *broadcast) Close() error {
+	if bc.closed.Swap(true) {
+		return nil
+	}
 	if bc.resources != nil {
 		return bc.resources.remove(bc)
 	}
@@ -142,6 +145,9 @@ func (bc *broadcast) closeTransport() error {
 }
 
 func (bc *broadcast) handleMessage(m redis.Message) {
+	if bc.closed.Load() {
+		return
+	}
 	switch m.Channel {
 	case bc.reqChannel:
 		bc.onRequest(m.Data)

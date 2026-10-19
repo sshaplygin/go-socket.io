@@ -60,7 +60,15 @@ func (s *sharedResources) dispatch(m redis.Message) {
 	s.mu.Lock()
 	groups := make([][]*broadcast, 0, len(s.members))
 	for _, group := range s.members {
-		groups = append(groups, append([]*broadcast(nil), group...))
+		active := make([]*broadcast, 0, len(group))
+		for _, bc := range group {
+			if !bc.closed.Load() {
+				active = append(active, bc)
+			}
+		}
+		if len(active) != 0 {
+			groups = append(groups, active)
+		}
 	}
 	s.mu.Unlock()
 	for _, group := range groups {

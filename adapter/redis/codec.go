@@ -58,7 +58,12 @@ func (bc *broadcast) onMessage(channel string, msg []byte) error {
 }
 
 // do runs one command on a pooled publishing connection.
+var errAdapterClosed = errors.New("redis adapter closed")
+
 func (bc *broadcast) do(cmd string, args ...interface{}) (interface{}, error) {
+	if bc.closed.Load() {
+		return nil, errAdapterClosed
+	}
 	c := bc.pub.Get()
 	defer func() { _ = c.Close() }()
 	return c.Do(cmd, args...)

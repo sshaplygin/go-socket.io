@@ -21,6 +21,7 @@ type broadcast struct {
 	// the dispatch goroutine, so each command takes its own pooled connection.
 	pub       *redis.Pool
 	resources *sharedResources
+	closed    atomic.Bool // per-adapter state, independent from shared transport lifetime
 	// sub is read by the dispatch goroutine and replaced by it after a
 	// receive error; subLock orders the replacement with close.
 	sub     *redis.PubSubConn
@@ -126,7 +127,13 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 	return rbc, nil
 }
 
-func (bc *broadcast) Clear(room string) { bc.Memory.Clear(room); go bc.publishClear(room) }
+func (bc *broadcast) Clear(room string) {
+	if bc.closed.Load() {
+		return
+	}
+	bc.Memory.Clear(room)
+	go bc.publishClear(room)
+}
 
 // Send emits to a room, registering a trailing callback on each local socket.
 func (bc *broadcast) Send(room, event string, args ...interface{}) {
@@ -156,6 +163,9 @@ func (bc *broadcast) Rooms(connection adapter.Socket) []string {
 // publishing; Volatile and NoCompress are honoured locally and are not carried
 // to other instances.
 func (bc *broadcast) SendTo(opts adapter.Options, event string, args ...interface{}) error {
+	if bc.closed.Load() {
+		return errAdapterClosed
+	}
 	if len(opts.Except) != 0 {
 		return fmt.Errorf("redis broadcast: %w", adapter.ErrExceptUnsupported)
 	}

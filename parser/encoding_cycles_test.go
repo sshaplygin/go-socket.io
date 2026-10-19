@@ -31,3 +31,19 @@ func TestReviewG8CyclicValueReturnsError(t *testing.T) {
 		t.Fatalf("subprocess failed: %v\n%s", err, out)
 	}
 }
+
+func TestEncodingContainerCyclesAndSharedChildren(t *testing.T) {
+	m := map[string]interface{}{}
+	m["self"] = m
+	s := make([]interface{}, 1)
+	s[0] = s
+	for _, value := range []interface{}{m, s} {
+		if err := parser.NewEncoder(discardFrameWriter{}).Encode(parser.Header{Type: parser.Event}, []interface{}{"event", value}); err == nil {
+			t.Fatal("expected cycle error")
+		}
+	}
+	child := &struct{ Value int }{3}
+	if err := parser.NewEncoder(discardFrameWriter{}).Encode(parser.Header{Type: parser.Event}, []interface{}{"event", child, child}); err != nil {
+		t.Fatal(err)
+	}
+}

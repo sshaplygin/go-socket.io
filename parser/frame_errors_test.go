@@ -19,6 +19,7 @@ type auditWriteCloser struct{ closeErr error }
 func (auditWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
 func (w auditWriteCloser) Close() error              { return w.closeErr }
 
+// Covers G30
 func TestV1AuditEncoderMustReturnFrameCloseError(t *testing.T) {
 	want := errors.New("frame flush failed")
 	err := parser.NewEncoder(auditWriter{closeErr: want}).Encode(parser.Header{Type: parser.Event}, []any{"event", "payload"})
@@ -40,6 +41,7 @@ type auditReadCloser struct {
 
 func (r auditReadCloser) Close() error { return r.closeErr }
 
+// Covers G31
 func TestV1AuditDecoderMustReturnFrameCloseError(t *testing.T) {
 	want := errors.New("frame release failed")
 	d := parser.NewDecoder(auditReader{closeErr: want})

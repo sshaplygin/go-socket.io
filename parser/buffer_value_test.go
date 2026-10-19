@@ -7,8 +7,14 @@ import (
 
 // Covers G12
 func TestReviewG12BufferValue(t *testing.T) {
-	err := parser.NewEncoder(discardFrameWriter{}).Encode(parser.Header{Type: parser.Event}, []any{"event", parser.Buffer{Data: []byte("hello")}})
-	if err != nil {
-		t.Fatalf("Buffer by value cannot be emitted: %v", err)
+	buffer := parser.Buffer{Data: []byte("hello")}
+	for _, value := range []interface{}{buffer, struct{ Binary parser.Buffer }{buffer}, map[string]parser.Buffer{"binary": buffer}} {
+		w := new(recordedWriter)
+		if err := parser.NewEncoder(w).Encode(parser.Header{Type: parser.Event}, []any{"event", value}); err != nil {
+			t.Fatalf("Buffer value shape %T cannot be emitted: %v", value, err)
+		}
+		if len(w.frames) != 2 || w.frames[1].String() != "hello" {
+			t.Fatalf("shape %T: expected one hello attachment", value)
+		}
 	}
 }

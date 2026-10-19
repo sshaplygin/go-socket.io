@@ -16,8 +16,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
-// TestServerIgnoresJSONPParameter checks that `j` no longer selects JSONP (ROADMAP
-// Stage V1, D4): the response is the ordinary payload, not a script.
+// TestServerIgnoresJSONPParameter checks that `j` no longer selects JSONP : the response is the ordinary payload, not a script.
 func TestServerIgnoresJSONPParameter(t *testing.T) {
 	must := require.New(t)
 

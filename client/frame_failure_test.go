@@ -16,7 +16,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
-// Covers C5
 func TestClientMidFrameFailure(t *testing.T) {
 	for _, mode := range []string{"reset", "timeout"} {
 		t.Run(mode, func(t *testing.T) {

@@ -125,7 +125,6 @@ func compressionAccept(t *testing.T, s *Server) Conn {
 	}
 }
 
-// Covers E8
 func TestPerMessageDeflateNegotiated(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		t.Run(strconv.FormatBool(enabled), func(t *testing.T) {
@@ -159,8 +158,6 @@ func TestPerMessageDeflateNegotiated(t *testing.T) {
 	}
 }
 
-// Covers E8
-// Covers E4
 func TestPerMessageDeflateLimit(t *testing.T) {
 	// Prepare the 100 MB message's compressed representation before measuring the
 	// receiver. No 100 MB source buffer is allocated, even during preparation.
@@ -204,7 +201,6 @@ func TestPerMessageDeflateLimit(t *testing.T) {
 	t.Logf("wire=%d bytes, receiver allocations=%d bytes", len(wire), after.TotalAlloc-before.TotalAlloc)
 }
 
-// Covers E9
 func TestPollingHTTPCompression(t *testing.T) {
 	for _, binaryMode := range []bool{false, true} {
 		t.Run(strconv.FormatBool(binaryMode), func(t *testing.T) {
@@ -275,7 +271,6 @@ func TestPollingHTTPCompression(t *testing.T) {
 	})
 }
 
-// Covers E10
 func TestHandshakeCookie(t *testing.T) {
 	expires := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
 	cases := []struct {
@@ -374,8 +369,6 @@ func compressionPollingWire(t *testing.T, binaryMode bool) *parityWire {
 	return &parityWire{srv: s, http: ts, client: cl, poll: ts.URL + "/?EIO=3&transport=polling&sid=" + params.SID, conn: compressionAccept(t, s), params: params}
 }
 
-// Covers E8
-// Covers E19
 func TestPerMessageDeflateLimitKeepsErrorBeforeTransportClose(t *testing.T) {
 	for _, mode := range []string{"read", "discard"} {
 		t.Run(mode, func(t *testing.T) {
@@ -438,9 +431,6 @@ func TestPerMessageDeflateLimitKeepsErrorBeforeTransportClose(t *testing.T) {
 	}
 }
 
-// Covers E8
-// Covers E4
-// Covers E19
 func TestPerMessageDeflateControlPacketLimit(t *testing.T) {
 	for _, kind := range []byte{'0', '1', '2', '3', '5', '6', '9'} {
 		t.Run(string(kind), func(t *testing.T) {

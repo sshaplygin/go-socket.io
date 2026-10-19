@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// Covers G14
 func TestClosedSharedMemberCannotDeliverOrPublish(t *testing.T) {
 	server := miniredis.RunT(t)
 	factory := New(WithAddr(server.Addr()))

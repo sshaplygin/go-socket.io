@@ -63,7 +63,6 @@ func waitRedisSubscribers(t *testing.T, s *miniredis.Miniredis, channel string, 
 	require.Eventually(t, func() bool { return s.PubSubNumSub(channel)[channel] == n }, 2*time.Second, 5*time.Millisecond)
 }
 
-// Covers G23
 func TestRoomMethodsRejectForeignAndDisconnectedSockets(t *testing.T) {
 	connected := make(chan Conn, 2)
 	s, url := defectServer(t, func(s *Server) { s.OnConnect("/chat", func(c Conn) error { connected <- c; return nil }) })
@@ -83,8 +82,7 @@ func TestRoomMethodsRejectForeignAndDisconnectedSockets(t *testing.T) {
 	require.False(t, s.LeaveAllRooms("/chat", nil))
 }
 
-// Covers G23
-func TestRegressionG23NilRoomConnection(t *testing.T) {
+func TestNilRoomConnection(t *testing.T) {
 	s := NewServer()
 	defer func() { _ = s.Close() }()
 	s.Of("/")

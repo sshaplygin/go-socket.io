@@ -7,9 +7,9 @@ LIFECYCLE_COPIES := $(wildcard _examples/*/lifecycle.go)
 # chosen by .github/changes.
 PKGS ?= ./...
 # The packages that run goroutines per connection.
-STRESS_PKGS := . ./adapter/... ./internal/connection ./internal/namespace ./client/... ./parser ./engineio/...
+STRESS_PKGS := . ./adapter/... ./client/... ./parser ./engineio/...
 
-# Measured on V1-20; later PRs may raise the floor or lower the ceiling only.
+# Statement coverage and exported-function coverage requirements.
 COVER_FLOOR := 91.7
 API_UNCOVERED_MAX := 0
 
@@ -62,7 +62,7 @@ vet:
 	@set -e; for d in $(EXAMPLES); do echo "==> $$d"; (cd $$d && go vet ./...); done
 	go vet ./engineio/_examples
 
-# The final Component boundaries graph is owned by docs/ROADMAP.md.
+# Runtime package boundaries are defined in docs/ARCHITECTURE.md.
 .PHONY: architecture-check
 architecture-check:
 	go test -race -count=1 ./.github/architecture
@@ -80,16 +80,10 @@ vuln:
 cover:
 	go test -count=1 -coverprofile=c.out ./... && go tool cover -html=c.out
 
-# The gate that reads the whole repository: every internal/parity test (Covers markers
-# against docs/PARITY.md, process termination in every non-test file and the README, role
-# fixtures). The component graph reads only the root module's imports: architecture-check.
+# Public consumer/role contracts, library lifecycle policy and the runtime graph.
 .PHONY: gates
-gates:
+gates: architecture-check
 	go test -race -count=1 ./internal/parity
-
-.PHONY: parity-check
-parity-check:
-	go test -count=1 -run '^TestParityCovers$$' ./internal/parity
 
 .PHONY: cover-check
 cover-check:
@@ -130,7 +124,7 @@ examples:
 examples-node:
 	bash _examples/run-node.sh
 
-# Foundation files stay independent copies in both modules (ROADMAP D14).
+# Foundation files stay independent copies in both modules.
 .PHONY: sync-check
 sync-check:
 	@set -eu; \

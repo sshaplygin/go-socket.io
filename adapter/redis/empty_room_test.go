@@ -7,8 +7,7 @@ import (
 	"time"
 )
 
-// Covers G15
-func TestReviewG15EmptyRoomDoesNotBroadcastNamespace(t *testing.T) {
+func TestEmptyRoomDoesNotBroadcastNamespace(t *testing.T) {
 	s := miniredis.RunT(t)
 	a, b := newTestRedisBroadcast(t, s), newTestRedisBroadcast(t, s)
 	c := newRedisTestConn("not-in-empty-room")

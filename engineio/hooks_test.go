@@ -178,7 +178,6 @@ func TestEngineServerEvents(t *testing.T) {
 	})
 }
 
-// Covers E19
 func TestEngineSocketEvents(t *testing.T) {
 	records := &hookRecords{}
 	h := &Hooks{

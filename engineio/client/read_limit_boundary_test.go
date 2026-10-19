@@ -36,7 +36,6 @@ func sizedLimitPacket(t *testing.T, name, prefix, padding string, size int) (pac
 	return "", ""
 }
 
-// Covers G16
 func TestClientConfiguredOpenLimitBoundary(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		for _, size := range []int{512, 513} {
@@ -76,7 +75,6 @@ func TestClientConfiguredOpenLimitBoundary(t *testing.T) {
 	}
 }
 
-// Covers G16
 func TestClientConfiguredLimitAppliesToLaterMessages(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {

@@ -1,347 +1,128 @@
 # Working on go-socket.io
 
-Go implementation of a Socket.IO server. The repository holds two independent Go modules
-(neither imports nor requires the other, and there is no `go.work`):
-
-- the repository root is v1, `github.com/sshaplygin/go-socket.io`: the working server and
-  experimental client for Socket.IO v4 over Engine.IO v3;
-- `v2/` is v2, `github.com/sshaplygin/go-socket.io/v2`: the API skeleton without runtime
-  (stage 2.0) and everything of stage 2 and later.
-
-The branch `v1.x` is frozen at the tree the root was restored from and receives no new
-work. Layout decisions, tag forms and the path convention of the roadmap:
-[docs/ROADMAP.md](docs/ROADMAP.md#repository-layout).
+The repository contains two independent Go modules: v1 at the root and v2 in
+`v2/`. Neither imports or requires the other; there is no `go.work`. Both target
+`master`. The `v1.x` branch receives no new work.
 
 ## Layout
 
+The v1 package graph, responsibilities and runtime model are documented in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Public tests exercise consumers;
+internal tests live beside the implementation they verify.
+
 | Path | Purpose |
 | --- | --- |
-| `*.go` (root, package `socketio`) | v1 public Socket.IO Server lifecycle, namespace views, adapter factories, options and active role aliases |
-| `internal/connection/` | private server transport connection, concrete namespace sockets, queue/drain, ACK/packet dispatch and emitters |
-| `internal/namespace/` | canonical server role contracts, namespace handlers/listeners and registration/socket registries |
-| `adapter/` | v1 adapter/socket contracts and local in-memory room index; standard-library dependencies only |
-| `adapter/redis/` | v1 Redis factory/options, publication, requests and reconnect; composes the memory adapter |
-| `client/` | v1 experimental Socket.IO Go client construction/options and active role/socket entry points |
-| `client/internal/connection/` | private client manager/generations/reconnect, queues/drain, concrete sockets, ACK/packet dispatch and observers |
-| `client/internal/namespace/` | canonical independent client-role contracts, reflected handlers/listeners, registry and local room index |
-| `parser/` | v1 Socket.IO v4 packet encoder/decoder, binary attachments and independent frame types |
-| `internal/event/` | v1 common typed-event schema/handler bridge and error-first ACK codec; imports parser and neither Socket.IO role |
-| `engineio/` | v1 Engine.IO v3 acceptance/server lifecycle, options/hooks and active connection contracts |
-| `engineio/internal/session/` | private server session I/O, registry/IDs, heartbeat, close/upgrade and polling response observation |
-| `engineio/client/` | independent v1 Engine.IO client, dialer, heartbeat/upgrade and client connection state/errors |
-| `engineio/parser/` | shared Engine.IO v3 codec entry points, active wire-type aliases, OPEN parameters and fakes |
-| `engineio/parser/internal/packet/` | canonical frame/packet types and packet codec |
-| `engineio/parser/internal/payload/` | streaming payload codec, length framing and source/destination leases |
-| `engineio/transport/` | transport contracts, registry and timestamp helper; polling owns HTTP feed/flush, pause and deadline state |
-| `logger/` | v1 package-level `slog` fallback (`logger.Log`) for packages that do not receive per-instance `WithLogger` configuration: parser, transports, `engineio/parser`, client dialer |
-| `internal/conformance/` | interoperability and raw protocol tests behind the `conformance` build tag; Node fixtures under `testdata/node/` |
-| `internal/parity/` | portable PARITY marker and executable-test checks, including tagged tests without running Node; library/example process-termination source gate |
-| `_examples/` | v1 runnable examples, each with its own `go.mod` except the Go client in `_examples/client`, which belongs to the root module; excluded from `./...` of the root build by the `_` prefix |
-| `v2/*.go` (package `socketio`) | v2 API skeleton: typed events, `Server`/`Namespace`/`Socket`, `Adapter`, hooks, options; declarations only, signatures in [docs/API.md](docs/API.md) |
-| `v2/parser/` | Socket.IO v5 wire codec (bounded `Encode`/`Decode`, `Assembler`, binary attachments, `JSON[T]` argument codec), the `Packet`/`Arguments` value types of the v2 API; `testdata/oracle` is the Node check (`README.md` there) |
-| `v2/adapter/codec/` | message format of the broker adapters (Node Redis adapter 8.3.0): MessagePack broadcast, JSON requests and responses over codec-local wire types; imports `parser` and `vmihailenco/msgpack`, never the v2 root; Node-captured fixtures and oracle in `testdata/` |
-| `v2/engineio/` | Engine.IO server: `Server`, `Conn`, options, observer hook types (`hooks.go`) |
-| `v2/engineio/client/` | Engine.IO client: `Dialer`, `Opener` |
-| `v2/engineio/session/` | sessions, session manager, ID generator |
-| `v2/engineio/frame/` | frame type (`frame.Type`, `frame.String`, `frame.Binary`) |
-| `v2/engineio/packet/` | Engine.IO packet encoder/decoder and the exported test fakes in `fake.go` |
-| `v2/engineio/payload/` | Engine.IO v4 polling payload codec (`Decode`, `EncodeBatch`) and `Payload`, the pause/upgrade lifecycle between HTTP requests and a session |
-| `v2/engineio/transport/` | transport interfaces and manager |
-| `v2/engineio/transport/polling/` | long-polling transport |
-| `v2/engineio/transport/websocket/` | websocket transport |
-| `v2/engineio/transport/utils/` | timestamp helper shared by the transports |
-| `v2/engineio/internal/` | what the engineio packages share without exporting it (the shutdown hook) |
-| `v2/engineio/internal/logtest/` | log recorder shared by the `engineio` and `engineio/client` tests |
-| `v2/logger/` | package-level `slog` fallback (`logger.Log`) for packages that cannot reach `engineio.Options.Logger`: transports, `engineio/packet`, `engineio/client` |
-| `v2/internal/fixtures/` | compile-only packages built by the v2 root fixtures: positive usage, an external adapter and a client stand-in; `v2/testdata/negative/` holds the programs that must not compile |
-| `v2/_examples/` | the examples written against the v1 API, each with its own `go.mod` requiring the v2 module; they do not build until 2.5D migrates them |
-| `v2/_experiments/` | standalone prototypes, each with its own `go.mod`, never imported by the v2 module; built by `make -C v2 experiments` |
-| `docs/` | shared by both modules: protocol notes, roadmap, v1 parity matrix (`PARITY.md`), v2 API signature inventory |
-| `.github/architecture/` | v1 runtime graph gate and negative go-list/privacy/role fixtures; executable policy follows ROADMAP Component boundaries |
-| `.github/changes/` | change classifier of both workflows: which jobs, test packages and benchmark packages a pull request needs |
-| `.github/` | shared: one CI workflow with jobs per module, the benchmark workflow and its tools, Dependabot |
-
-Runtime model of v1: `engineio.Server` accepts HTTP requests and emits `engineio.Conn`
-sessions; `socketio.Server.Serve` takes each session and starts read-dispatch, write
-and error goroutines through `internal/connection`. A header I/O worker lets the read
-dispatcher receive deferred namespace admissions while waiting for network input; it
-reads one header and waits until the dispatcher has consumed that packet. Handlers
-registered with `OnEvent` run on the dispatcher, so a blocking handler blocks that client only.
-The v2 root package has no runtime yet: every operation that needs one returns
-`ErrNotImplemented`, and stages 2.1 to 2.4 of the roadmap add it.
-
-V1 source files are grouped under their owning components:
-
-| Files | Responsibility |
-| --- | --- |
-| Root `server.go`, `namespace.go`, `types.go`, `options.go`, `errors.go` | public server lifecycle/active tracking, stable namespace views/factories, active role/error aliases and configuration |
-| `internal/connection/connection.go`, `io.go`, `queue.go`, `close.go` | concrete transport connection, startup/completion, I/O loops and atomic queue/drain/close lifecycle |
-| `internal/connection/socket.go`, `emitter.go`, `packets.go`, `frames.go`, `errors.go` | concrete namespace sockets, pending emitters, packet/ACK dispatch, frame adaptation and connection errors |
-| `internal/namespace/contracts.go`, `handlers.go`, `registry.go`, `listeners.go` | canonical server role contracts, reflected callbacks, namespace/connected registries and listener snapshots |
-| `client/types.go`, `options.go`, `client.go`, `errors.go` | active client role/socket aliases, public construction/defaults/copies, functional options and error identities |
-| `client/internal/connection/manager.go`, `reconnect.go`, `observers.go` | required resolved manager inputs, connection generations, retries and callback observers |
-| `client/internal/connection/connection.go`, `io.go`, `queue.go`, `close.go`, `socket.go`, `emitter.go`, `packets.go`, `errors.go` | transport I/O, atomic queue/drain/close/ACK lifecycle, concrete sockets and emitters |
-| `client/internal/namespace/contracts.go`, `handlers.go`, `registry.go`, `listeners.go`, `rooms.go` | canonical independent client contracts, reflected callbacks/listeners, synchronized registrations and local rooms |
-| `internal/event/` | neutral typed payload/schema/handler values, common typed errors and error-first ACK codec; root owns generic descriptors and each role owns dispatch, queue admission and request lifetimes |
-| `adapter/adapter.go`, `memory.go` | minimal socket/factory contracts and local room/index/delivery ownership |
-| `adapter/redis/options.go`, `adapter.go`, `codec.go`, `requests.go`, `subscription.go` | Redis configuration/construction, Node-compatible wire format, cluster queries and subscription lifecycle |
-| `engineio/conn.go`, `id.go`, `options.go`, `hooks.go`, `headers.go` | active connection/state/error/ID contract aliases, configuration, public hook adaptation and websocket header observation |
-| `engineio/internal/session/session.go`, `close.go`, `upgrade.go`, `headers.go`, `hooks.go` | private session I/O, close/upgrade state machines and response observation |
-| `engineio/internal/session/contracts.go`, `registry.go`, `id.go` | canonical server connection/state/error contracts, private registry and ID providers |
-| `engineio/client/client.go`, `dialer.go`, `conn.go` | client Engine.IO I/O, dialing, heartbeat/upgrade and role-specific contracts |
-| `engineio/parser/packet.go`, `payload.go`, `parameters.go`, `fake.go` | active codec aliases/constructors/options, OPEN JSON and frame/packet fakes |
-| `engineio/parser/internal/packet/types.go`, `encoder.go`, `decoder.go` | canonical frame/packet values, framing interfaces and packet wire codec |
-| `engineio/parser/internal/payload/encoder.go`, `decoder.go`, `length.go` | streaming payload encoding/decoding, leases and text/binary length framing |
-| `engineio/transport/polling/payload.go`, `pauser.go`, `errors.go` | polling feed/flush ownership, pause/deadline state and operation errors |
-
-The Engine.IO server installs observers through private session hooks and owns shutdown.
-Root forced close calls `engineio.Abort`; custom engines receive their ordinary `Close`. There are no private init-time bridge
-packages. Codec and transport import/API migration is documented in
-[docs/V1_MIGRATION.md](docs/V1_MIGRATION.md); test-only `internal/conformance` and
-`internal/parity` own their gates.
-
-Tests live in the package directory of their implementation. Root tests exercise the
-public Socket.IO server; `client` tests exercise the public client, `engineio` tests its
-server/connection entry points, and private tests stay in the matching internal owner.
-Package-local `*_test.go` fixtures support integration without runtime test helpers.
-The accepted test-ownership decision and duplicate mappings live in
-[ROADMAP.md](docs/ROADMAP.md#stage-v1-work-packages).
+| `_examples/` | Runnable v1 applications; each has its own module except `_examples/client` |
+| `engineio/_examples/` | Engine.IO echo application in the root module |
+| `internal/conformance/` | Tagged interoperability tests and pinned Node fixtures |
+| `internal/parity/` | Consumer compilation, role boundaries and library lifecycle policy |
+| `.github/architecture/` | Runtime dependency and package-privacy checks |
+| `.github/changes/` | CI and benchmark change classification |
+| `.github/coverage/` | Cross-package coverage attribution |
+| `.github/benchmarks/` | Benchmark comparison and reporting |
+| `v2/` | Independent API and runtime work; contracts in `docs/API.md` |
+| `v2/_experiments/` | Standalone prototypes, excluded from both runtime modules |
 
 ## Commands
 
-Each module has its own `Makefile` and `.golangci.yml`. In the repository root (v1):
+Go 1.22+ is required. Linting uses golangci-lint v2; vulnerability checks use
+`govulncheck`. Build those tools with a current Go toolchain.
 
 ```sh
-make lint        # gofmt, make vet and golangci-lint, including the architecture checker and the classifier
-make vet         # go vet under GOOS linux, darwin and windows, with -tags conformance, in every _examples module and engineio/_examples, and of the .github tools
-make architecture-check # allowed runtime imports, role/codec closures and retired paths
-make sync-check  # compare shared v1/v2 files after the module import-path rewrite
-make test        # go test -count=1 ./... (PKGS=<patterns> narrows test, test-race, test-stress and bench)
-make test-race   # the same with -race; what CI runs, with the PKGS the classifier selects
-make conformance # tagged JS interoperability and raw transport tests; requires Node and the installs below
-make test-stress # race tests of root, adapters, private server/client owners, parser, engineio/... (STRESS_PKGS) that are in PKGS: -count=5 -shuffle=on -cpu=1,4
-make bench       # benchmarks only, no tests
-make vuln        # govulncheck ./... in the root and in every _examples module
-make cover       # coverage profile + HTML report
-make gates       # every internal/parity test (Covers markers, process termination, role fixtures): the gate that reads the whole repository
-make parity-check # validate DONE rows and Covers markers; PARITY_STRICT=1 also checks open planned rows
-make cover-check # cross-package statement floor and exported API zero-coverage ceiling
-make examples    # build/vet example modules and Engine.IO echo, compare chat/lifecycle copies, race-test cleanup and chat
-make examples-node # run each example client.js on a free port; requires CONFORMANCE_NODE_MODULES
-make all         # go install ./...
+make test               # root module tests, no external services
+make test-race          # tests with the race detector
+make test-stress        # concurrent packages, shuffled and repeated
+make lint               # formatting, vet and golangci-lint
+make vet                # Linux/macOS/Windows, conformance and example packages
+make gates              # architecture, lifecycle and public consumer fixtures
+make cover-check        # statement coverage floor and uncovered public functions
+make sync-check         # compare the explicit pairs in .github/sync-manifest
+make examples           # build/vet applications and test shared chat/lifecycle code
+make bench              # benchmarks with allocation counts
+make vuln               # scan the root and example modules
 ```
 
-In `v2/` (`make -C v2 <target>` from the root):
+`PKGS=<patterns>` narrows `test`, `test-race`, `test-stress` and `bench`.
+For v2, use `make -C v2 <target>`; `graph`, `freeze` and `fixtures` check its API
+contract, and `experiments` validates its standalone modules. The v2 examples
+are not built by its current `examples` target.
 
-```sh
-make lint       # gofmt -s check, make vet, golangci-lint (v2 config)
-make vet        # go vet under GOOS linux, darwin and windows
-make test       # go test -count=1 ./... (PKGS=<patterns> narrows test, test-race and bench)
-make test-race  # the same with -race; what CI runs, with the PKGS the classifier selects
-make bench      # benchmarks only, no tests
-make vuln       # govulncheck ./... in v2/ and in every _experiments module
-make graph      # package graph: no import cycle, the v2 root imports only engineio and parser (docs/API.md)
-make freeze     # G2 check: no unresolved marker in docs/API.md or the frozen declarations, no bare any in an exported frozen declaration
-make g2         # the gate evidence of ROADMAP row 2A: make graph, make freeze and make fixtures
-make fixtures   # the compile fixtures and the docs/API.md inventory check
-make cover      # coverage profile + HTML report
-make examples   # check that every _examples/*/chat.go is identical; the legacy examples are not built until 2.5D
-make experiments # check that _experiments stays standalone, then vet, gofmt -s, golangci-lint and race tests in every _experiments/*/ module
-make all        # go install ./...
-```
+### Interoperability
 
-Requires Go 1.22+, golangci-lint v2 and govulncheck (`go install
-golang.org/x/vuln/cmd/govulncheck@latest`), built with the newest stable Go: a
-standard-library finding is cleared by upgrading the toolchain, not by code. Default tests
-need no external services. The optional `conformance` tag needs Node, npm and the reference
-packages, installed separately so the reference server's client cannot shadow the selected
-test client:
+`make conformance` runs the tagged suite with `-race`. Node, npm and a Redis
+server are required. Install the client separately from the reference server
+so the server's dependency cannot shadow the selected client:
 
 ```sh
 npm install --no-save --prefix internal/conformance/testdata/node socket.io-client@1.7.4
-npm install --no-save --prefix internal/conformance/testdata/node/server socket.io@2.5.0
+npm install --no-save --prefix internal/conformance/testdata/node/server socket.io@2.5.0 socket.io-redis@5.4.0
 export CONFORMANCE_NODE_MODULES="$PWD/internal/conformance/testdata/node/node_modules"
+export CONFORMANCE_REDIS_ADDR=127.0.0.1:6379
 make conformance
 ```
 
-Repeat with `socket.io-client@2.5.0` for the other required client. The module directory
-must be absolute; tagged tests pass it unchanged as `NODE_PATH`. Missing Node or an absent
-or relative `CONFORMANCE_NODE_MODULES` fails the scenarios. Listing tests with `-list`
-does not require either.
+Repeat with `socket.io-client@2.5.0`. The module directory must be absolute.
+Missing dependencies fail these tests. `make examples-node` also needs a Redis
+Unix socket; see [_examples/README.md](_examples/README.md).
 
-CI (`.github/workflows/ci.yaml`) starts with the `changes` job: it tests and runs the
-classifier `.github/changes`, prints its decision in the job summary and checks `gofmt -s`
-of the changed Go files. A push to master and the weekly schedule select every job and
-`./...` of both modules; that run is the safety net for anything a pull request skips. On
-a pull request the classifier reads the diff from the merge base, and a job runs only when
-the diff reaches something it checks:
+## CI
 
-- Markdown runs nothing. Accepted gap: the gates also read Markdown (`README.md`,
-  `docs/PARITY.md` and `docs/ROADMAP.md` for v1, `docs/API.md` for v2), so a pull request
-  that breaks a gate only through these files passes and the push to master fails; the
-  classifier names the skipped gate in the job summary, and a classifier test fails when a
-  Go file names a Markdown file outside that list.
-- A change of Go comments or formatting only (the token stream without comments is
-  identical) runs the lint job of the module (`lint-v1` or `lint-v2`) and nothing else that
-  tests: golangci-lint and gofmt read comments of every kind (`//nolint` with or without a
-  space, `Deprecated:`, doc rules, directives with a space, generated-file markers), and
-  `make vet` of the lint job vets every Go file a test job compiles (the root module under
-  GOOS linux, darwin and windows, for v1 also with `-tags conformance` and the examples), so
-  the comments that `go vet` rejects (a `+build` word before `package`, a comment group
-  after the output group of an `Example`) fail there and not only in a skipped job;
-  `lint-v1` skips its test steps (`make architecture-check parity-check cover-check`)
-  when no package is selected. Only the comments that the compiler or `go test` read count
-  as code: `//go:` directives, `//line`, build constraints (`//go:build`, `// +build`),
-  every comment of a file that imports `"C"` (the cgo preamble) and, in a test file, the
-  whole comment group that starts with `Output:` or `Unordered output:` inside an `Example`
-  function. Comments of v1 test files with a `Covers` marker, and of the v2 files that
-  `frozenGoFiles` in `v2/frozen_test.go` names (read by `make freeze`; the classifier takes
-  the list from that function), also run the gates.
-- A token change in package P tests P and every package whose code or tests import it,
-  directly or transitively (`go list -e -test` with GOOS linux, darwin and windows and with
-  `-tags conformance`); a change of test files only tests P.
-- `_examples/` and `_experiments/` run the example or experiment job of their module, and
-  the other jobs this bullet names; v1 `_examples/` also runs `conformance`, which runs the examples with Node. Every Go
-  change of a v1 example (`engineio/_examples` included) also runs `lint-v1`, whose
-  `make vet` vets the examples and whose `make vuln` scans every `_examples/*/` module; a
-  comment or formatting change of a v1 example runs only `lint-v1` unless the file is a
-  byte-compared copy (`chat.go`, `lifecycle.go`), and one of a v2 example runs nothing
-  (no job compiles the v2 examples until 2.5D). Any change of an experiment runs
-  `experiments-v2`, the only golangci-lint run of those modules. The `go.mod` or `go.sum`
-  of a v1 `_examples/*/` or a v2 `_experiments/*/` module, and a Go code change (not
-  comments or formatting) of an experiment, also run the lint job of its module, whose
-  `make vuln` scans that module with govulncheck (its result depends on the code that
-  reaches a vulnerable symbol, not only on the module files). Accepted gap: the `go.mod`
-  or `go.sum` of a `v2/_examples/*/` module runs only `examples-v2`, and no job scans those
-  modules with govulncheck, on master either (`make -C v2 vuln` covers `v2/` and
-  `_experiments/` only), until 2.5D migrates them. A code change of a v1
-  example also runs `gates-v1` (`internal/parity` scans every non-test Go file of the
-  tree). A v1 non-test code change also builds the v1 examples and runs `conformance`.
-- A full run of a module is every job of that module with `./...`. It is started by
-  `go.mod`, `go.sum`, `go.work` or `go.work.sum` of the module, a file under `testdata/`, a
-  build-constraint change, a change that cannot be attributed to a package (a deleted
-  package), a file or directory no other rule classifies (such as `LICENSE`, or a directory
-  starting with `_` or `.` other than `_examples/` and `_experiments/`), a `v1`
-  `_experiments/` path, and the module's `Makefile` or `.golangci.yml`; for v1 also by
-  `.github/architecture/` and `.github/coverage/`; for both modules by `ci.yaml`, the
-  classifier `.github/changes/` and any other `.github/` file. `.github/dependabot.yml`
-  runs nothing; `benchmarks.yml` and `.github/benchmarks/` run no CI job, only every
-  benchmark of both modules.
-- `sync-check` runs when `.github/sync-manifest`, a file it names, the root `Makefile`,
-  `ci.yaml`, the classifier or any other `.github/` file of the full-run rule changes.
+`.github/workflows/ci.yaml` tests the change classifier before selecting jobs.
+Pull requests select affected packages and their reverse dependencies across
+Linux, macOS, Windows and the conformance build tag. Source changes run tests;
+ordinary comment/formatting changes run lint. Example changes select their
+build and interoperability jobs. Module, workflow and unclassified changes
+select a full run. Pushes to `master` and scheduled runs test both modules fully.
 
-Jobs are skipped with a job-level `if`, never a workflow `paths` filter, so the required
-checks report: a skipped `sync-check` reports success, and the required `conformance`
-matrix always starts and skips its steps, because a skipped matrix job reports one check
-under its unexpanded name. v1 jobs, in the root: `conformance` (Node LTS with exact clients
-1.7.4 and 2.5.0, `make conformance examples-node`), `sync-check` (the pairs of
-`.github/sync-manifest`), `gates-v1` (`make gates`), `lint-v1` (tidy diff, mod verify,
-gofmt, `make vet`, `make architecture-check parity-check cover-check` when packages are selected,
-golangci-lint,
-`make vuln` on ubuntu with the newest Go release from go.dev, because `setup-go` lags
-behind it), `test-v1` (race tests of the
-selected packages on ubuntu, macos and windows with `stable` and `oldstable` Go, plus the
-graph fixtures and checker, so conditional production imports obey the same policy),
-`stress-v1` (`make test-stress` with the selected packages, pull requests only),
-`min-go-v1` (build and race tests on ubuntu with the latest Go 1.22.x and
-`GOTOOLCHAIN=local`, so it fails if `go.mod` or a dependency requires a newer Go) and
-`examples-v1` (`make examples`). v2 jobs, with `working-directory: v2`: `gates-v2`
-(`make fixtures`, and `make graph freeze` only when `lint-v2` does not run), `lint-v2` (tidy,
-mod verify, gofmt, `make vet`, `make graph freeze` when `gates_v2` is set, golangci-lint and
-`make vuln`), `test-v2`, `min-go-v2`, `examples-v2` (`make examples`, the identical-copy
-check only) and `experiments-v2` (`make experiments`; installs golangci-lint with
-`go install`). The gate jobs run only when no test job runs the gate tests: `gates-v1`
-when a gate input changes and no v1 package is selected, because `make cover-check` of
-`lint-v1` (`go test -coverpkg=./... ./...`, without `-race`; the parity tests read files
-and run `go` subprocesses) tests every package of the module, `internal/parity` included,
-whenever one is; `gates-v2` and the `make graph freeze` steps of `lint-v2` when a gate
-input changes and the v2 root package is not selected, because the v2 gates are tests of
-that package, which `test-v2` and `min-go-v2` then run. On a pull request one gate test
-runs twice: `TestParityCovers`, in `make parity-check` of `lint-v1` (the step the V1-20
-record of `docs/ROADMAP.md` names, which reports a parity failure under its own name before
-the coverage run) and again inside `make cover-check`. A full run starts every job, so the
-gate tests then also run in the test matrix. Validate the classifier with
-`go test ./.github/changes`. Dependabot groups Go minor/patch updates of every
-module (`/`, `/v2`, `/_examples/*`, `/v2/_examples/*`, `/v2/_experiments/*`) and Actions
-updates weekly.
+Markdown files consumed by checks select their gate jobs: the v1 architecture
+contract and v2 API inventory. Other Markdown does not select runtime tests.
+Gate tests run in their own job when selected package tests do not already cover
+them. The architecture check runs both in the gate job and alongside selected
+v1 package tests. Validate selection with `go test ./.github/changes`.
 
-Benchmarks (`.github/workflows/benchmarks.yml`) compare the PR base and head on
-one Ubuntu runner with the same stable Go toolchain. Each side runs, ten times into one
-file, the benchmarks of the packages the classifier selects for the whole PR (merge base to
-head): the packages with Benchmark functions among those a code change reaches, a package
-whose test change declares a benchmark or a declaration its benchmarks reach, and every
-package of a module on a full run of it, except a full run started only by `ci.yaml`, the
-module's `Makefile` or `.golangci.yml`, `.github/architecture/` or `.github/coverage/`;
-`benchmarks.yml` and `.github/benchmarks/` select every package of both modules. The base drops the selected packages that have no benchmark there; when none is
-left, both sides run every benchmark (the base `v2/` run is skipped when the base has no
-`v2/go.mod`);
-pinned `benchstat` reports timing and allocation deltas in the job summary, a
-14-day artifact and one updated PR comment (same-repository PRs except Dependabot).
-Forks and Dependabot retain the summary and artifact. Performance deltas are
-advisory; build and benchmark failures fail the check. The summary and the comment are
-rendered by the pinned `sshaplygin/benchmark-report` action with
-`.github/benchmarks/benchmark-report.json`, one table per package headed by its full import
-path (`github.com/sshaplygin/go-socket.io/v2/<pkg>` for the v2 module).
+The v1 matrix includes stable/oldstable Go on Linux, macOS and Windows, race
+tests, Go 1.22, repeated concurrency tests, coverage, examples and Node clients
+1.7.4/2.5.0. Vulnerability checks use the newest Go release available to CI.
+`.github/sync-manifest` is the complete list of files deliberately shared across
+modules; other implementations evolve independently.
 
-The in-repo Go report formatter (`.github/benchmarks/report`; the workflow runs only its
-tests) produces separate Markdown timing tables per package
-(a package of the v2 module is headed `v2/<pkg>`),
-with median values, percentage changes and advisory markers at ±20% (using the
-displayed, rounded percentage). The full
-`benchstat` output, including allocations and statistical comparisons, is in a
-collapsible section. Added/removed benchmarks and changes from a zero baseline
-are marked not comparable. Validate rendering with
+Benchmarks compare the PR base and head on the same runner and Go toolchain,
+with ten samples per side. `.github/benchmarks/report` renders timing and
+allocation deltas using benchstat. Results go to the job summary and an artifact;
+same-repository PRs also receive an updated comment. Benchmark changes do not
+fail CI based on timing thresholds. Validate reporting with
 `go test ./.github/benchmarks/report`.
-
-A small detection job runs on every PR update. It runs the same classifier on the update:
-from the previous head on pushes, or from the merge base on opening/reopening a PR (also
-the fallback if the previous head is unavailable), and starts the comparison only when the
-update selects a benchmark package. Comments, formatting, Markdown, `_examples/` and
-`_experiments/` therefore skip it, as in CI.
 
 ## Conventions
 
-- Go: `gofmt -s`, errors wrapped with `%w`, no panics in library code.
-- Every fix carries a test that fails without it. Concurrency fixes are verified under
-  `-race`.
-- Public API changes go through `docs/ROADMAP.md` first.
-- All text in the repository (docs, comments, commit messages, identifiers) is English.
-
-## Roadmap validation
-
-After editing `docs/ROADMAP.md`, launch three independent sub-agents against the
-same saved revision: **QA** (testability, coverage and release gates), **Critic**
-(feasibility, failure modes and unsupported assumptions), and **Reviewer**
-(consistency, dependency/parallel-work graph, scope and duplication). They review
-read-only and do not see each other's findings before submitting their own.
-
-Resolve findings in the owning section; each requirement has one source of truth.
-Ask affected reviewers to recheck fixes. If a fix changes scope, public contracts or
-dependencies, all three recheck the final saved revision independently. Report
-unresolved findings and each role's verdict; do not describe the plan as validated
-while a blocking finding remains. If sub-agents are unavailable, state that this
-validation step is incomplete.
+- Use `gofmt -s`, wrap errors with `%w`, and return errors to callers. Library
+  packages must not terminate the process. Executable entry points own exit status.
+- Reproduce a bug with a behavioral test; verify concurrency changes with `-race`.
+  Test observable contracts, failure paths and boundaries. Avoid tests that only
+  repeat implementation details or count documentation markers.
+- Public API changes update the owning reference and consumer fixtures. Client
+  APIs contain client operations; server-only operations belong to server types.
+- Repository text is English. Commit and PR descriptions state the problem,
+  resulting behavior and validation without generated footers or trailers.
+- V1 documentation describes its current contract, defaults and limitations.
+  Keep implementation chronology, completed stages and change logs in Git history.
 
 ## Documentation
 
-One fact lives in exactly one file; other files link to it. Before adding text, find its
-owner below and put it there.
+Each fact has one owner; other documents link to it.
 
-| File | Owns | Must not contain |
-| --- | --- | --- |
-| `README.md` | v1: what the library is, install, quick start, supported protocol/client versions, links; one link to `v2/README.md` | dev workflow, architecture, roadmap |
-| `v2/README.md` | the same for the v2 module (what pkg.go.dev renders for it) | dev workflow, architecture, roadmap, the v1 quick start |
-| `engineio/README.md`, `v2/engineio/README.md` | what the engineio package of that module is; links to its README.md, docs/PROTOCOL.md and its godoc | install, examples, API usage |
-| `CLAUDE.md` | repo layout, commands, conventions, this map | user-facing API docs, protocol details |
-| `CONTRIBUTING.md` | PR process, review rules, release and tagging procedure | commands (link here) |
-| `CHANGELOG.md`, `v2/CHANGELOG.md` | released changes per tag of that module (v1 at the root, v2 in `v2/`); an entry is never repeated in the other | plans |
-| `docs/ROADMAP.md` | planned stages, DoD, acceptance criteria, milestones, decisions | anything already released |
-| `docs/API.md` | method-signature inventory of the v2 skeleton, the frozen-contract record, package graph and its rules, compile fixtures | behaviour (ROADMAP, godoc) |
-| `docs/PARITY.md` | the v1 parity matrix against the Node reference (socket.io 2.5.0 / engine.io 3.6.2): per-row status, evidence, verification mark and plan (kind, PR, owner decision) | PR order, PR scope and release gates (ROADMAP), protocol description (PROTOCOL.md), API usage |
-| `docs/PROTOCOL.md` | which parts of Engine.IO / Socket.IO protocols are implemented, deviations, upgrade sequence | API usage |
-| `docs/V1_MIGRATION.md` | v1 component import/API/config/error migration mappings and examples | protocol, v2 migration |
-| `docs/MIGRATION.md` (from v2) | v1 → v2 API mapping | protocol |
-| `docs/ADAPTERS.md` (from v2) | `Adapter` contract, thread-safety rules, conformance suite, shared message format | backend-specific options (`v2/adapters/<name>/README.md`) |
-| `v2/adapter/codec/testdata/README.md` | provenance of the Node adapter fixtures and the Go and Node commands that reproduce them | codec format (godoc) |
-| `_examples/README.md`, `_examples/*/README.md`, the same under `v2/` | how to run the examples of that module | library docs |
-| godoc comments | public API reference, including ack and broadcast semantics | anything above |
+| File | Owns |
+| --- | --- |
+| `README.md` | V1 purpose, install, quick start and client compatibility |
+| `docs/V1.md` | V1 usage, lifecycle, adapters and typed events |
+| `docs/PROTOCOL.md` | V1 wire behavior and interoperability limits |
+| `docs/PARITY.md` | Reference implementations and behavioral test coverage |
+| `docs/ARCHITECTURE.md` | V1 package boundaries and runtime model |
+| Godoc | Public signatures and detailed method contracts |
+| `_examples/README.md` | Running and testing v1 examples |
+| `CONTRIBUTING.md` | Contribution and release procedure |
+| `CLAUDE.md` | Development commands and repository conventions |
+| `v2/README.md`, `docs/V2_PROTOCOL.md` | V2 status and protocol behavior |
+| `docs/API.md` | V2 API inventory and compile fixtures |
+| `docs/ROADMAP.md` | Future v2 work and its acceptance criteria |
+| `v2/CHANGELOG.md` | V2 changes |

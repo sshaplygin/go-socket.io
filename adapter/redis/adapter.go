@@ -66,7 +66,7 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 	if nsp == "" {
 		nsp = "/"
 	}
-	addr := opts.getAddr()
+	addr := opts.Addr
 	var redisOpts []redis.DialOption
 	if len(opts.Password) > 0 {
 		redisOpts = append(redisOpts, redis.DialPassword(opts.Password))

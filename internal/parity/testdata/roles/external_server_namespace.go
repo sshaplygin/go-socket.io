@@ -1,7 +1,7 @@
 package main
 
-import "github.com/sshaplygin/go-socket.io/internal/namespace"
+import socketio "github.com/sshaplygin/go-socket.io"
 
-var _ *namespace.Conn
+var _ *socketio.NamespaceHandler
 
 func main() {}

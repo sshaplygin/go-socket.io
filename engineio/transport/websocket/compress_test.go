@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Covers E8
 func TestInflatedLimitIsTerminalOnBothSides(t *testing.T) {
 	for _, side := range []string{"server", "client"} {
 		t.Run(side, func(t *testing.T) {

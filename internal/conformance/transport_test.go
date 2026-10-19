@@ -131,7 +131,6 @@ func openPollingMode(t *testing.T, base string, binary bool) string {
 	return url + "&sid=" + open.SID
 }
 
-// Covers P9
 func TestPollingOptions(t *testing.T) {
 	s, ts := engineServer(t)
 	poll := openPolling(t, ts.URL)
@@ -145,7 +144,6 @@ func TestPollingOptions(t *testing.T) {
 	require.Empty(t, r.body)
 }
 
-// Covers P15
 func TestWebsocketFraming(t *testing.T) {
 	s, ts := engineServer(t)
 	ws, resp, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/?EIO=3&transport=websocket", nil)
@@ -197,7 +195,6 @@ func TestWebsocketFraming(t *testing.T) {
 	}
 }
 
-// Covers P17
 func TestPollingGracefulClose(t *testing.T) {
 	for _, binary := range []bool{false, true} {
 		for _, mode := range []string{"pending poll", "next poll", "buffered writer"} {
@@ -251,7 +248,6 @@ func TestPollingGracefulClose(t *testing.T) {
 	}
 }
 
-// Covers P18
 func TestPollingOverlaps(t *testing.T) {
 	t.Run("poll", func(t *testing.T) {
 		s, ts := engineServer(t)

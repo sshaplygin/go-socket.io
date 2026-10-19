@@ -128,7 +128,6 @@ func compressionReceive[T any](t *testing.T, ch <-chan T) T {
 	}
 }
 
-// Covers K17
 func TestEmitCompressFlag(t *testing.T) {
 	t.Run("pending and binary", func(t *testing.T) {
 		value := strings.Repeat("x", 4096)
@@ -172,7 +171,6 @@ func TestEmitCompressFlag(t *testing.T) {
 	})
 }
 
-// Covers S21
 func TestBroadcastCompressFlag(t *testing.T) {
 	connected := make(chan Conn, 2)
 	s, ts := newCompressedServer(t, func(c Conn) { connected <- c })
@@ -197,7 +195,6 @@ func TestBroadcastCompressFlag(t *testing.T) {
 	}
 }
 
-// Covers S21
 func TestRedisBroadcastCompress(t *testing.T) {
 	redis := miniredis.RunT(t)
 	local, remote := newTestRedisBroadcast(t, redis), newTestRedisBroadcast(t, redis)

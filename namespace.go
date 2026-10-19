@@ -7,8 +7,6 @@ import (
 	"sync"
 
 	"github.com/sshaplygin/go-socket.io/adapter"
-	"github.com/sshaplygin/go-socket.io/internal/connection"
-	"github.com/sshaplygin/go-socket.io/internal/namespace"
 )
 
 // ServerNamespace is a server namespace's registration and broadcast object.
@@ -102,9 +100,9 @@ func (n *ServerNamespace) Socket(id string) (Conn, bool) {
 
 func (n *ServerNamespace) emitter() Emitter {
 	if n.parent != nil {
-		return connection.NewEmitter(parentBroadcast{namespace: n})
+		return newEmitter(parentBroadcast{namespace: n})
 	}
-	return connection.NewEmitter(n.server.getNamespace(n.name).Adapter())
+	return newEmitter(n.server.getNamespace(n.name).Adapter())
 }
 
 // To starts a broadcast to a union of rooms, once per socket.
@@ -128,7 +126,7 @@ func (n *ServerNamespace) SocketIDs(rooms ...string) []string {
 	return n.registration().Adapter().IDs(rooms...)
 }
 
-func (n *ServerNamespace) registration() *namespace.Handler {
+func (n *ServerNamespace) registration() *namespaceHandler {
 	if n.parent != nil {
 		return n.parent.registration
 	}
@@ -149,7 +147,7 @@ func (n *ServerNamespace) Adapter() adapter.Adapter {
 
 type dynamicNamespace struct {
 	match        func(string, url.Values) bool
-	registration *namespace.Handler
+	registration *namespaceHandler
 	mu           sync.RWMutex
 	children     map[string]*ServerNamespace
 }
@@ -163,7 +161,7 @@ type dynamicNamespace struct {
 func (s *Server) OfFunc(match func(string, url.Values) bool) *ServerNamespace {
 	s.parentsMu.Lock()
 	defer s.parentsMu.Unlock()
-	parent := &dynamicNamespace{match: match, registration: namespace.NewHandler(), children: make(map[string]*ServerNamespace)}
+	parent := &dynamicNamespace{match: match, registration: newNamespaceHandler(), children: make(map[string]*ServerNamespace)}
 	n := &ServerNamespace{server: s, name: "/_" + strconv.Itoa(len(s.parents)), parent: parent}
 	s.parents = append(s.parents, parent)
 	return n
@@ -180,7 +178,7 @@ func (n *ServerNamespace) children() []*ServerNamespace {
 }
 
 type parentBroadcast struct {
-	namespace.NopAdapter
+	unavailableAdapter
 	namespace *ServerNamespace
 }
 

@@ -1,19 +1,19 @@
 package client
 
-import "github.com/sshaplygin/go-socket.io/client/internal/connection"
+import "errors"
 
 // ErrWriteBufferFull is reported once, to OnError of the packet's namespace and unordered with
-// OnDisconnect, when an Emit or a packet the library queues (an ACK or CONNECT reply) finds the
+// OnDisconnect, when an Emit or a packet the library queues (for example, an ACK) finds the
 // outbound queue (WithWriteBufferSize) full before any close started; a packet being
-// written does not count. Emit never blocks: that packet and every later one are dropped and the
-// connection is closed without draining. An overflow in root OnConnect fails the connect and is
-// reported with a nil Conn. Packets queued faster than they are written can close a healthy client:
+// written does not count. Queue admission does not wait for free capacity: that packet
+// and every later one are dropped, and the connection is closed without draining.
+// Emit encodes arguments synchronously and may invoke application marshalers.
+// An overflow in OnConnect is reported with that namespace's Conn and closes the
+// Engine.IO connection; it does not change the result of Connect.
+// Packets queued faster than they are written can close a healthy client:
 // a packet with k binary attachments takes k+1 Engine.IO frames, and transport
 // throughput can be lower than the application's emit rate.
-var ErrWriteBufferFull = connection.ErrWriteBufferFull
-
-// ErrServerOnly means a client connection cannot perform a server broadcast.
-var ErrServerOnly = connection.ErrServerOnly
+var ErrWriteBufferFull = errors.New("write buffer full")
 
 // ErrConnectTimeout means the engine connection did not open within WithTimeout.
-var ErrConnectTimeout = connection.ErrConnectTimeout
+var ErrConnectTimeout = errors.New("client: connect timeout")

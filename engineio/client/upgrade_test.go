@@ -57,7 +57,6 @@ func (f clientFrameFailureIO) Close() error { return f.close }
 
 // An acquired frame keeps its original errors, while NextReader exposes the first
 // cause even after cleanup explicitly closes the engine. Normal frame EOF is benign.
-// Covers C5
 func TestClientAcquiredFrameFailure(t *testing.T) {
 	for _, operation := range []string{"read", "reader-close", "write", "writer-close", "timeout", "frame-eof"} {
 		t.Run(operation, func(t *testing.T) {
@@ -225,7 +224,6 @@ func (r *upgradeFaultReader) Close() error {
 
 // Probe failures before UPGRADE preserve polling. A failure while committing it
 // closes the connection because either endpoint may already have switched.
-// Covers C5
 func TestClientUpgradeTransportErrors(t *testing.T) {
 	for _, phase := range []string{"read-deadline", "write-deadline", "ping-next", "ping-write", "ping-close", "read-next", "read-body", "read-close", "upgrade-next", "upgrade-close", "upgrade-read-deadline", "upgrade-write-deadline"} {
 		t.Run(phase, func(t *testing.T) {
@@ -355,7 +353,6 @@ func clientUpgradeWrite(conn upgradeMessageConn, switched func() bool) <-chan er
 	return result
 }
 
-// Covers C5
 func TestClientUpgradeOrder(t *testing.T) {
 	s := engineio.NewServer()
 	firstTen := make(chan struct{})
@@ -431,7 +428,6 @@ func clientUpgradeMessage(conn upgradeMessageConn, value string) error {
 	return closeErr
 }
 
-// Covers C5
 func TestClientUpgradeProbeFails(t *testing.T) {
 	for _, name := range []string{"rejected", "wrong-answer", "stalled", "unread", "clamped"} {
 		t.Run(name, func(t *testing.T) {
@@ -562,7 +558,6 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 	}
 }
 
-// Covers C5
 func TestClientUpgradeDeadline(t *testing.T) {
 	answered, stop := make(chan struct{}), make(chan struct{})
 	upgrade := make(chan error, 1)

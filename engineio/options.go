@@ -36,7 +36,7 @@ type options struct {
 	// DisableCookie suppresses the polling handshake transport's session cookie.
 	DisableCookie bool
 
-	// DisableCORS restores the legacy CORS behavior. By default every origin is
+	// DisableCORS disables the automatic CORS response policy. By default every origin is
 	// accepted: polling reflects Origin with credentials, or allows * when absent,
 	// and websocket upgrades accept cross-origin requests. When disabled, polling
 	// sends no CORS headers and websocket uses Gorilla's same-origin check.

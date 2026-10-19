@@ -16,7 +16,6 @@ import (
 	"time"
 )
 
-// Covers G24
 func TestPollingBatchesOrderedPacketsInOneResponse(t *testing.T) {
 	for _, encoding := range []string{"", "gzip"} {
 		t.Run(encoding, func(t *testing.T) {
@@ -60,7 +59,6 @@ func TestPollingBatchesOrderedPacketsInOneResponse(t *testing.T) {
 	}
 }
 
-// Covers G24
 func TestPollingBatchContainsBinaryAndCloseInOrder(t *testing.T) {
 	for _, query := range []string{"?b64=1", ""} {
 		t.Run(query, func(t *testing.T) {
@@ -99,7 +97,6 @@ func TestPollingBatchContainsBinaryAndCloseInOrder(t *testing.T) {
 	}
 }
 
-// Covers G24
 func TestPollingBatchHasFinitePacketBudget(t *testing.T) {
 	req := httptest.NewRequest("GET", "http://localhost/?b64=1", nil)
 	c := newServerConn(Default, req)
@@ -147,8 +144,6 @@ func (w *secondPacketGate) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// Covers G11
-// Covers G24
 func TestCanceledBatchKeepsActiveWriterLease(t *testing.T) {
 	p := newPayload(false)
 	p.batch = true
@@ -201,8 +196,6 @@ func TestCanceledBatchKeepsActiveWriterLease(t *testing.T) {
 	require.Zero(t, w.gate.late.Load())
 }
 
-// Covers G24
-// Covers E9
 func TestPollingBatchSeparatesCompressionPreferences(t *testing.T) {
 	for _, first := range []bool{true, false} {
 		t.Run(fmt.Sprintf("first=%t", first), func(t *testing.T) {

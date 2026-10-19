@@ -37,7 +37,6 @@ type legacyTestEndpoint struct{}
 
 func (legacyTestEndpoint) Emit(string, ...interface{}) {}
 
-// Covers T1
 func TestTypedEventDescriptor(t *testing.T) {
 	e := NewEvent[int]("value")
 	require.Equal(t, "value", e.Name())
@@ -57,7 +56,6 @@ func TestTypedEventDescriptor(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidPayload)
 }
 
-// Covers T2
 //
 //nolint:staticcheck // Exercise the documented nil-context fallback as well as validation.
 func TestTypedEventSendValidation(t *testing.T) {
@@ -85,7 +83,6 @@ func TestTypedEventSendValidation(t *testing.T) {
 	}
 }
 
-// Covers T3
 //
 //nolint:staticcheck // Exercise the documented nil-context fallback.
 func TestTypedAckDescriptor(t *testing.T) {

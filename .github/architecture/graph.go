@@ -42,13 +42,13 @@ func inspect(ctx context.Context, root string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	for _, retired := range retiredPaths {
+	for _, retired := range unsupportedPaths {
 		_, err := os.Lstat(filepath.Join(root, filepath.FromSlash(retired)))
 		if err == nil {
-			return 0, fmt.Errorf("retired path remains: %s", retired)
+			return 0, fmt.Errorf("unsupported path remains: %s", retired)
 		}
 		if !os.IsNotExist(err) {
-			return 0, fmt.Errorf("check retired path %s: %w", retired, err)
+			return 0, fmt.Errorf("check unsupported path %s: %w", retired, err)
 		}
 	}
 	if err := validateGraph(graph); err != nil {
@@ -141,7 +141,7 @@ func checkClosures(graph packageGraph) error {
 func checkDependencyClosure(path string, dependencies []string) error {
 	relative, _ := relativePath(path)
 	client := relative == "client" || strings.HasPrefix(relative, "client/") || relative == "engineio/client"
-	server := relative == "" || relative == "internal/connection" || relative == "internal/namespace" || relative == "engineio" || relative == "engineio/internal/session"
+	server := relative == "" || relative == "engineio" || relative == "engineio/internal/session"
 	for _, dependency := range dependencies {
 		local, repository := relativePath(dependency)
 		if repository {
@@ -149,7 +149,7 @@ func checkDependencyClosure(path string, dependencies []string) error {
 				return fmt.Errorf("unlisted repository dependency: %s -> %s", path, dependency)
 			}
 		}
-		if client && (repository && (local == "" || local == "engineio" || local == "internal/connection" || local == "internal/namespace" || local == "engineio/internal/session" || local == "adapter" || strings.HasPrefix(local, "adapter/")) || strings.Contains(dependency, "redigo")) {
+		if client && (repository && (local == "" || local == "engineio" || local == "engineio/internal/session" || local == "adapter" || strings.HasPrefix(local, "adapter/")) || strings.Contains(dependency, "redigo")) {
 			return fmt.Errorf("client reaches server/adapter: %s -> %s", path, dependency)
 		}
 		if server && (repository && (local == "client" || strings.HasPrefix(local, "client/") || local == "engineio/client" || local == "adapter/redis") || strings.Contains(dependency, "redigo")) {

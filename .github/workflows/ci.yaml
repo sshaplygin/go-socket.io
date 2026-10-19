@@ -165,12 +165,7 @@ jobs:
       - name: Compare shared sources across modules
         run: make sync-check
 
-  # The component graph reads only the imports of the root module, so it runs in lint-v1
-  # with the packages a code change selects, not here. The classifier sets gates_v1 only
-  # when a gate input changes and no package is selected: when one is, make cover-check of
-  # lint-v1 tests every package of the module, internal/parity included (without -race:
-  # the parity tests read files and run go subprocesses, and a full run tests the package
-  # under -race in test-v1). On push and schedule every job runs.
+  # Run repository contracts when their inputs change without selecting Go packages.
   gates-v1:
     name: Gates v1 (parity)
     needs: changes
@@ -183,7 +178,7 @@ jobs:
         with:
           go-version: stable
           check-latest: true
-      - name: Parity, termination and role gates
+      - name: Architecture, lifecycle and consumer contracts
         run: make gates
 
   # The v2 gates are tests of the v2 root package. The classifier sets gates_v2 only when a
@@ -236,18 +231,13 @@ jobs:
       # runs only this job, cannot fail a skipped job.
       - name: Vet
         run: make vet
-      # These two steps run tests. A pull request that changes only Go comments or
-      # formatting runs lint-v1 without packages to test (v1_packages is empty) and skips
-      # them; Covers markers start gates-v1 instead. make cover-check tests every package
-      # of the module, internal/parity included, so gates-v1 is not started when packages
-      # are selected; make parity-check runs TestParityCovers alone first, so that a
-      # parity failure is reported under its own name before the coverage run.
+      # Coverage tests the consumer fixtures as part of the full package suite.
       - name: Component graph and negative fixtures
         if: needs.changes.outputs.v1_packages != ''
         run: make architecture-check
-      - name: Parity markers and API coverage ratchets
+      - name: API and statement coverage
         if: needs.changes.outputs.v1_packages != ''
-        run: make parity-check cover-check
+        run: make cover-check
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:

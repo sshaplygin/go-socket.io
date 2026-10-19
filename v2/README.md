@@ -24,7 +24,7 @@ This is a maintained fork of the archived `googollee/go-socket.io`. The plan for
 | v1 (repository root) | v4 | v3 | `socket.io-client` 1.x and 2.x |
 | v2 (this module, in development, no runtime yet) | v5 | v4 | `socket.io-client` 3.x and 4.x |
 
-Details and deviations: [docs/PROTOCOL.md](../docs/PROTOCOL.md).
+Details and deviations: [docs/V2_PROTOCOL.md](../docs/V2_PROTOCOL.md).
 
 ## Install
 

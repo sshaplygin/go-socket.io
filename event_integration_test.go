@@ -71,7 +71,6 @@ func typedValue() typedPayload {
 	return typedPayload{Signed: 9007199254740993, Unsigned: 18446744073709551615, Binary: parser.Buffer{Data: []byte("binary")}, Nested: map[string]parser.Buffer{"nested": {Data: []byte{0, 1, 255}}}}
 }
 
-// Covers T3
 func TestTypedApplicationPayloadErrorIsNotDecodeFailure(t *testing.T) {
 	descriptor := socketio.NewAckEvent[int, int]("application-payload-error")
 	_, cl, serverConn, _ := typedPair(t, websocket.Default, func(srv *socketio.Server, cl *client.Client) {
@@ -92,8 +91,6 @@ func TestTypedApplicationPayloadErrorIsNotDecodeFailure(t *testing.T) {
 	}
 }
 
-// Covers T1
-// Covers T2
 func TestTypedEventAcrossServerClientAndBroadcast(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
@@ -126,7 +123,6 @@ func TestTypedEventAcrossServerClientAndBroadcast(t *testing.T) {
 	}
 }
 
-// Covers T3
 func TestTypedAcknowledgementsInBothDirections(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {

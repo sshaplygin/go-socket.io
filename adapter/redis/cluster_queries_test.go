@@ -18,8 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Covers A5
-// Covers S13
 func TestRedisClusterIDsIncludesRemoteRooms(t *testing.T) {
 	s := miniredis.RunT(t)
 	a, b := newTestRedisBroadcast(t, s), newTestRedisBroadcast(t, s)
@@ -51,9 +49,6 @@ func (s *clusterTestSocket) Close() error {
 	return nil
 }
 
-// Covers A5
-// Covers S13
-// Covers A9
 func TestRedisClusterQueriesAndRemoteOperations(t *testing.T) {
 	s := miniredis.RunT(t)
 	a, b := newTestRedisBroadcast(t, s), newTestRedisBroadcast(t, s)
@@ -95,8 +90,6 @@ func TestRedisClusterQueriesAndRemoteOperations(t *testing.T) {
 	require.ErrorIs(t, a.RemoteJoin(ctx, "missing", "room"), context.DeadlineExceeded)
 }
 
-// Covers A9
-// Covers B4
 func TestRedisClusterRequestTimeoutCancellationAndClose(t *testing.T) {
 	s := miniredis.RunT(t)
 	factory := New(WithAddr(s.Addr()), WithRequestsTimeout(25*time.Millisecond))
@@ -133,7 +126,6 @@ func TestRedisClusterRequestTimeoutCancellationAndClose(t *testing.T) {
 	a.requestLock.Unlock()
 }
 
-// Covers A9
 func TestRedisClusterCustomRequestsSharedAndReentrant(t *testing.T) {
 	s := miniredis.RunT(t)
 	var calls atomic.Int32
@@ -166,7 +158,6 @@ func TestRedisClusterCustomRequestsSharedAndReentrant(t *testing.T) {
 	require.Equal(t, []json.RawMessage{json.RawMessage("null")}, replies)
 }
 
-// Covers A9
 func TestRedisClusterMalformedResponseAndGoDeduplication(t *testing.T) {
 	s := miniredis.RunT(t)
 	a := newTestRedisBroadcast(t, s)
@@ -185,8 +176,6 @@ func TestRedisClusterMalformedResponseAndGoDeduplication(t *testing.T) {
 	require.NotContains(t, pending.values, "late")
 }
 
-// Covers A5
-// Covers B4
 func TestRedisClusterOutageRetainsLocalPartialSnapshot(t *testing.T) {
 	s := miniredis.RunT(t)
 	a := newTestRedisBroadcast(t, s)
@@ -199,7 +188,6 @@ func TestRedisClusterOutageRetainsLocalPartialSnapshot(t *testing.T) {
 	require.Equal(t, []string{"local"}, ids)
 }
 
-// Covers A9
 func TestRedisCustomHookIsReentrantAndWorkersAreBounded(t *testing.T) {
 	s := miniredis.RunT(t)
 	var a *broadcast
@@ -252,7 +240,6 @@ func TestRedisCustomHookIsReentrantAndWorkersAreBounded(t *testing.T) {
 	require.Eventually(t, func() bool { return len(blocked.resources.clusterWorkers()) == 0 }, time.Second, time.Millisecond)
 }
 
-// Covers B4
 func TestRedisClusterCommandCancellationClosesRawConnection(t *testing.T) {
 	for _, closeAdapter := range []bool{false, true} {
 		t.Run(fmt.Sprint(closeAdapter), func(t *testing.T) {
@@ -300,7 +287,6 @@ func TestRedisClusterCommandCancellationClosesRawConnection(t *testing.T) {
 	}
 }
 
-// Covers A9
 func TestRedisUnknownSocketAndMissingLifecycleCapabilityNeverSucceed(t *testing.T) {
 	s := miniredis.RunT(t)
 	a := newTestRedisBroadcast(t, s)
@@ -320,7 +306,6 @@ func TestRedisUnknownSocketAndMissingLifecycleCapabilityNeverSucceed(t *testing.
 	require.Equal(t, 1, a.Memory.Len("room"))
 }
 
-// Covers A9
 func TestRedisClusterCustomHandlerPanicDoesNotCrash(t *testing.T) {
 	const child = "SOCKETIO_REDIS_PANIC_CHILD"
 	if os.Getenv(child) != "1" {
@@ -344,7 +329,6 @@ func TestRedisClusterCustomHandlerPanicDoesNotCrash(t *testing.T) {
 	require.NoError(t, err, "panic must not stop Redis dispatcher")
 }
 
-// Covers A9
 func TestRedisCustomHandlerFailureCannotFabricateSuccess(t *testing.T) {
 	for _, handler := range []func(context.Context, json.RawMessage) (json.RawMessage, error){
 		func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, fmt.Errorf("rejected") },
@@ -363,8 +347,6 @@ func TestRedisCustomHandlerFailureCannotFabricateSuccess(t *testing.T) {
 	}
 }
 
-// Covers A5
-// Covers B4
 func TestRedisQueryCommandFailuresPreserveLocalStateAndRemovePending(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -400,7 +382,6 @@ func TestRedisQueryCommandFailuresPreserveLocalStateAndRemovePending(t *testing.
 	}
 }
 
-// Covers A9
 func TestRedisMalformedRequestsAndRepliesDoNotStopDispatcher(t *testing.T) {
 	s := miniredis.RunT(t)
 	done := make(chan struct{})
@@ -429,7 +410,6 @@ func TestRedisMalformedRequestsAndRepliesDoNotStopDispatcher(t *testing.T) {
 	}
 }
 
-// Covers A9
 func TestRedisClearReportsPartialFailure(t *testing.T) {
 	s := miniredis.RunT(t)
 	a := newTestRedisBroadcast(t, s)
@@ -442,7 +422,6 @@ func TestRedisClearReportsPartialFailure(t *testing.T) {
 	require.Equal(t, []string{"z-unsupported"}, a.Memory.IDs("room"), "successful earlier removal is not rolled back")
 }
 
-// Covers A9
 func TestRedisHashNamespaceRequestsRemainExact(t *testing.T) {
 	s := miniredis.RunT(t)
 	factory := New(WithAddr(s.Addr()))

@@ -39,7 +39,6 @@ func validationDecoder(packet string) (*Decoder, *validationFrames) {
 	return NewDecoder(f), f
 }
 
-// Covers R6
 func TestMaxAttachments(t *testing.T) {
 	for _, packet := range []string{`511-["e"]`, `5999999999999-["e"]`, `518446744073709551616-["e"]`} {
 		t.Run(packet, func(t *testing.T) {
@@ -68,7 +67,6 @@ func TestMaxAttachments(t *testing.T) {
 	})
 }
 
-// Covers R7
 func TestPayloadValidation(t *testing.T) {
 	// Payload shapes follow socket.io-parser@3.4.5 isPayloadValid, including
 	// its allowance for absent payloads and object-shaped CONNECT/ERROR data.

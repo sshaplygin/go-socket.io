@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Covers R8
 func TestErrorPacket(t *testing.T) {
 	for _, value := range []interface{}{"Invalid namespace", map[string]interface{}{"message": "denied"}, []interface{}{"detail"}, nil} {
 		w := &fakeWriter{}
@@ -24,7 +23,6 @@ func TestErrorPacket(t *testing.T) {
 	}
 }
 
-// Covers R9
 func TestDisconnectPacket(t *testing.T) {
 	for namespace, want := range map[string]string{"": "1", "/chat": "1/chat,"} {
 		w := &fakeWriter{}

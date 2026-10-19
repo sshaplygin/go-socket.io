@@ -35,8 +35,6 @@ func pollingHandshake(t *testing.T, base, query string) (*http.Response, []byte,
 }
 
 // JSONP is removed (D4): the `j` parameter is ignored, never written into a response.
-//
-// Covers P5
 func TestPollingIgnoresJSONPCallback(t *testing.T) {
 	must := require.New(t)
 	should := assert.New(t)
@@ -62,8 +60,6 @@ func TestPollingIgnoresJSONPCallback(t *testing.T) {
 }
 
 // JSONP is removed (D4): a form POST (`d=`) is rejected and never reaches the session.
-//
-// Covers P6
 func TestPollingRejectsJSONPFormPost(t *testing.T) {
 	must := require.New(t)
 	should := assert.New(t)

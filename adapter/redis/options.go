@@ -4,7 +4,6 @@ package redis
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"sync"
 	"time"
 
@@ -16,23 +15,12 @@ type options struct {
 	RequestsTimeout      time.Duration
 	CustomRequestHandler func(context.Context, json.RawMessage) (json.RawMessage, error)
 
-	// deprecated. Usage Addr options
-	Host string
-	// deprecated. Usage Addr options
-	Port     string
 	Addr     string
 	Prefix   string
 	Network  string
 	Password string
 	// DB : specifies the database to select when dialing a connection.
 	DB int
-}
-
-func (ro *options) getAddr() string {
-	if ro.Addr == "" {
-		ro.Addr = fmt.Sprintf("%s:%s", ro.Host, ro.Port)
-	}
-	return ro.Addr
 }
 
 func defaultOptions() *options {
@@ -50,14 +38,6 @@ func getOptions(opts *options) *options {
 		options.DB = opts.DB
 		options.RequestsTimeout = opts.RequestsTimeout
 		options.CustomRequestHandler = opts.CustomRequestHandler
-		if opts.Host != "" {
-			options.Host = opts.Host
-		}
-
-		if opts.Port != "" {
-			options.Port = opts.Port
-		}
-
 		if opts.Addr != "" {
 			options.Addr = opts.Addr
 		}
@@ -88,10 +68,9 @@ type Option func(*options)
 // requires distinct prefixes.
 //
 // Values implement Cluster for bounded context/error query and control methods.
-// Legacy IDs and AllRooms return partial snapshots and log errors; Len returns -1
+// IDs and AllRooms return partial snapshots and log errors; Len returns -1
 // on failure. Clear performs bounded, acknowledged remote leaves. Queries are not
 // atomic snapshots, and Clear does not roll back partial effects.
-
 func New(opts ...Option) adapter.Factory {
 	config := new(options)
 	for _, option := range opts {
@@ -136,14 +115,6 @@ func WithNetwork(value string) Option { return func(config *options) { config.Ne
 
 // WithPassword sets authentication; empty disables AUTH.
 func WithPassword(value string) Option { return func(config *options) { config.Password = value } }
-
-// WithHost retains the legacy host setting. The default address takes precedence.
-// Deprecated: use WithAddr.
-func WithHost(value string) Option { return func(config *options) { config.Host = value } }
-
-// WithPort retains the legacy port setting. The default address takes precedence.
-// Deprecated: use WithAddr.
-func WithPort(value string) Option { return func(config *options) { config.Port = value } }
 
 // WithDB selects the database on subscriber, pooled and request connections.
 // Redis Pub/Sub channels are shared across databases; use WithPrefix for isolation.

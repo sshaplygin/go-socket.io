@@ -18,5 +18,5 @@ func main() {
 		fmt.Fprintln(os.Stderr, "architecture-check:", err)
 		os.Exit(1)
 	}
-	fmt.Printf("architecture: %d runtime packages; direct edges, role/codec closures and retired paths: PASS\n", count)
+	fmt.Printf("architecture: %d runtime packages; direct edges, role/codec closures and unsupported paths: PASS\n", count)
 }

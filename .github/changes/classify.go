@@ -21,16 +21,11 @@ const (
 	v2 = "v2"
 )
 
-// gateInputs are the Markdown files that a gate reads, with the module whose gate job
-// reads them: internal/parity reads README.md and docs/PARITY.md, .github/architecture
-// reads docs/ROADMAP.md, the v2 root tests read docs/API.md. Markdown starts no job on a
-// pull request, these files included (the owner accepted that the push to master checks
-// them); the classifier only names them in its reasons so the job summary shows the skip.
+// gateInputs are documentation files read by executable gates. Their changes
+// run those gates on pull requests as well as after merge.
 var gateInputs = map[string]string{
-	"README.md":       v1,
-	"docs/PARITY.md":  v1,
-	"docs/ROADMAP.md": v1,
-	"docs/API.md":     v2,
+	"docs/ARCHITECTURE.md": v1,
+	"docs/API.md":          v2,
 }
 
 // copies are example files that make examples compares byte for byte with one master copy,
@@ -249,7 +244,8 @@ func classify(dir, base, head string) (*decision, error) {
 func (d *decision) path(status, name string, before, after []byte) {
 	if strings.HasSuffix(name, ".md") {
 		if mod, ok := gateInputs[name]; ok {
-			d.note("%s: gates-%s reads %s; skipped on a pull request, the push to master runs it", mod, mod, name)
+			d.mods[mod].gates = true
+			d.note("%s: gates read %s", mod, name)
 		}
 		return
 	}
@@ -383,12 +379,8 @@ func (d *decision) goFile(mod, status, name, rel string, before, after []byte) {
 		// Comments and formatting: golangci-lint and gofmt read every comment, so the lint
 		// job runs and no package is tested.
 		d.lint(mod, "comments or formatting of "+name)
-		// Comments that gates read: Covers markers of the parity gate in v1 tests, and the
-		// comments of the files frozenGoFiles names (TestFrozenContract).
-		if mod == v1 && test && (bytes.Contains(before, []byte("// Covers ")) || bytes.Contains(after, []byte("// Covers "))) {
-			m.gates = true
-			d.note("%s: gates (Covers marker file %s)", mod, name)
-		} else if mod == v2 && d.frozenFile(rel) {
+		// The v2 frozen contract includes documentation comments.
+		if mod == v2 && d.frozenFile(rel) {
 			m.gates = true
 			d.note("%s: gates (comment of the frozen file %s)", mod, name)
 		}

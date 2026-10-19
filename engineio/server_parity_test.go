@@ -154,7 +154,6 @@ func parityWrite(c Conn, message string) <-chan error {
 	return done
 }
 
-// Covers P4
 func TestUpgradeProbeWindow(t *testing.T) {
 	for _, name := range []string{"post", "cadence", "failed", "timeout"} {
 		t.Run(name, func(t *testing.T) {
@@ -215,7 +214,6 @@ func TestUpgradeProbeWindow(t *testing.T) {
 	}
 }
 
-// Covers E3
 func TestUpgradeTimeout(t *testing.T) {
 	f := newParityWire(t, parityOptions(map[string]any{"UpgradeTimeout": 100 * time.Millisecond}))
 	_ = parityReader(f.conn)
@@ -240,7 +238,6 @@ func TestUpgradeTimeout(t *testing.T) {
 	}
 }
 
-// Covers E4
 func TestMaxHTTPBufferSize(t *testing.T) {
 	t.Run("polling", func(t *testing.T) {
 		rec := newRecorder()
@@ -284,7 +281,6 @@ func TestMaxHTTPBufferSize(t *testing.T) {
 	})
 }
 
-// Covers E7
 func TestDisableUpgrades(t *testing.T) {
 	for _, disabled := range []bool{false, true} {
 		t.Run(fmt.Sprint(disabled), func(t *testing.T) {
@@ -307,17 +303,12 @@ func TestDisableUpgrades(t *testing.T) {
 	}
 }
 
-// Covers E2
 func TestHeartbeatDefaults(t *testing.T) {
 	f := newParityWire(t, nil)
 	require.Equal(t, 25*time.Second, f.params.PingInterval)
 	require.Equal(t, 20*time.Second, f.params.PingTimeout)
 }
 
-// Covers E5
-// Covers E14
-// Covers P11
-// Covers P12
 func TestEngineRequestValidation(t *testing.T) {
 	for _, tc := range []struct {
 		name, method, query string

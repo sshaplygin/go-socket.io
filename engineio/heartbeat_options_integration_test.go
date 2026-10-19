@@ -10,8 +10,7 @@ import (
 	"time"
 )
 
-// Covers G22
-func TestReviewG22NegativeHeartbeatNotAdvertised(t *testing.T) {
+func TestNegativeHeartbeatNotAdvertised(t *testing.T) {
 	for i, opts := range [][]engineio.Option{
 		{engineio.WithPingTimeout(-time.Second), engineio.WithPingInterval(time.Minute)},
 		{engineio.WithPingTimeout(time.Minute), engineio.WithPingInterval(-time.Second)},

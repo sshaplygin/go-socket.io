@@ -1,7 +1,7 @@
 package main
 
-import "github.com/sshaplygin/go-socket.io/internal/connection"
+import socketio "github.com/sshaplygin/go-socket.io"
 
-var _ *connection.Connection
+var _ *socketio.Connection
 
 func main() {}

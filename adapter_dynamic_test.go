@@ -41,7 +41,6 @@ func (b *observedAdapter) IDs(rooms ...string) []string {
 	return b.Memory.IDs(rooms...)
 }
 
-// Covers S5
 func TestSetAdapter(t *testing.T) {
 	b := &observedAdapter{Memory: adapter.NewMemory()}
 	var srv *Server
@@ -78,7 +77,6 @@ func TestSetAdapter(t *testing.T) {
 	require.Equal(t, 1, failedCount)
 }
 
-// Covers N5
 func TestNamespaceAdapter(t *testing.T) {
 	s := NewServer()
 	defer func() { _ = s.Close() }()
@@ -106,7 +104,6 @@ func TestNamespaceAdapter(t *testing.T) {
 	require.IsType(t, &adapter.Memory{}, s.Of("/memory").Adapter())
 }
 
-// Covers A2
 func TestAdapterJoinRooms(t *testing.T) {
 	b := &observedAdapter{Memory: adapter.NewMemory()}
 	p := start(t, 'S', hooks{setup: func(s *Server) { s.SetAdapter(func(string) (adapter.Adapter, error) { return b, nil }) }, connect: func(c Conn) error { c.Join("one", "two", "three"); return nil }})
@@ -117,7 +114,6 @@ func TestAdapterJoinRooms(t *testing.T) {
 	require.Equal(t, []string{p.nc.ID()}, b.IDs("one", "two"))
 }
 
-// Covers S9
 func TestDynamicNamespaces(t *testing.T) {
 	var srv *Server
 	var parent *ServerNamespace

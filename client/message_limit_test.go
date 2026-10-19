@@ -13,7 +13,6 @@ import (
 	"time"
 )
 
-// Covers G16
 func TestClientMessageLimitOption(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		for _, limit := range []int64{512, 4096, 0, -1} {

@@ -1,4 +1,4 @@
-// Command client joins the chat served by any of the other examples with the experimental Go
+// Command client joins the chat served by any of the other examples with the Go
 // client: it adds a user, sends one message, prints every chat event it receives for a second
 // and closes.
 package main
@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -21,6 +22,7 @@ func main() {
 	flag.Parse()
 	if err := run(*addr, *name, *message); err != nil {
 		log.Print(err)
+		os.Exit(1)
 	}
 }
 

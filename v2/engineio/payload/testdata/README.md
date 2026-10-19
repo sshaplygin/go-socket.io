@@ -21,7 +21,7 @@ calls the pinned client's actual `_getWritablePackets` method with a queue and
 polling transport name, without opening a socket. The independent Node encoder
 checks each selected Go prefix's wire bytes, bound and maximality. The fixtures
 define no server-to-client response size policy; the Go client's response read limit
-is in docs/PROTOCOL.md.
+is in the [v2 protocol notes](../../../../docs/V2_PROTOCOL.md#implemented-engineio-protocol-v3).
 
 From `v2/`, the directory of the v2 module (at the repository root these paths name
 the v1 packages):

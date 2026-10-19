@@ -16,8 +16,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
-// Covers E17
-// Covers E16
 func TestEngineClients(t *testing.T) {
 	s := NewServer()
 	ts := httptest.NewServer(s)
@@ -48,7 +46,6 @@ func TestEngineClients(t *testing.T) {
 	require.Empty(t, s.Clients())
 }
 
-// Covers E20
 func TestEngineConnState(t *testing.T) {
 	t.Run("upgrade", func(t *testing.T) { testEngineUpgrade(t, false) })
 	t.Run("close", func(t *testing.T) {

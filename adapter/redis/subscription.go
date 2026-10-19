@@ -157,6 +157,12 @@ func (bc *broadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.D
 
 // Close stops this adapter. Shared transports remain open for other adapters.
 func (bc *broadcast) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+	defer cancel()
+	return bc.closeContext(ctx)
+}
+
+func (bc *broadcast) closeContext(ctx context.Context) error {
 	if bc.closed.Swap(true) {
 		return nil
 	}
@@ -164,7 +170,7 @@ func (bc *broadcast) Close() error {
 	bc.finishRequests()
 	bc.BindSocketLookup(nil)
 	if bc.resources != nil {
-		return bc.resources.remove(bc)
+		return bc.resources.remove(ctx, bc)
 	}
 	bc.subLock.Lock()
 	defer bc.subLock.Unlock()

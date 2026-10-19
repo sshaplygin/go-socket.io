@@ -1,5 +1,7 @@
 package main
 
-import _ "github.com/sshaplygin/go-socket.io/client/internal/connection"
+import client "github.com/sshaplygin/go-socket.io/client"
+
+var _ *client.Manager
 
 func main() {}

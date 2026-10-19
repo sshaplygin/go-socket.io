@@ -29,7 +29,6 @@ func handshakeRaw(t *testing.T, target string, headers http.Header, tr transport
 	return &rawClient{t: t, conn: c}
 }
 
-// Covers K4
 func TestConnEngineConn(t *testing.T) {
 	p := start(t, 'S', hooks{})
 	require.Same(t, p.fc, p.nc.EngineConn())
@@ -38,7 +37,6 @@ func TestConnEngineConn(t *testing.T) {
 	require.False(t, p.nc.EngineConn().Upgraded())
 }
 
-// Covers K5
 func TestConnRequest(t *testing.T) {
 	seen := make(chan Conn, 40)
 	check := func(c Conn) error {
@@ -79,7 +77,6 @@ func TestConnRequest(t *testing.T) {
 	require.Equal(t, Handshake{}, fake.nc.Handshake())
 }
 
-// Covers N8
 func TestNamespaceConnectQuery(t *testing.T) {
 	query := make(chan string, 1)
 	ts := newTestServer(t, func(s *Server) {
@@ -93,7 +90,6 @@ func TestNamespaceConnectQuery(t *testing.T) {
 	require.Equal(t, "1", recv(t, query, "namespace query"))
 }
 
-// Covers K7
 func TestHandshakeQuery(t *testing.T) {
 	seen := make(chan Conn, 2)
 	ts := newTestServer(t, func(s *Server) {
@@ -115,7 +111,6 @@ func TestHandshakeQuery(t *testing.T) {
 	require.Equal(t, "namespace", chat.Handshake().Query.Get("shared"), "returned metadata does not mutate the stored handshake")
 }
 
-// Covers K10
 func TestHandshakeData(t *testing.T) {
 	for _, secure := range []bool{false, true} {
 		for _, cross := range []bool{false, true} {

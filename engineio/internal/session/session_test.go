@@ -107,8 +107,6 @@ func TestNewNilLoggerDefaults(t *testing.T) {
 // whose Close fails: the failure is that connection's, not the session's, so it is the
 // DEBUG record "engineio: close connection failed" with err, as on the other upgrade
 // probe paths.
-//
-// Covers the 1.L Levels rule on the upgrade switch (W); no 1L-T case.
 func TestSwitchTransportAfterCloseRecord(t *testing.T) {
 	h := &recordingHandler{}
 	s, err := New(failingConn{}, "sid", "polling", eioparser.ConnParameters{PingTimeout: time.Second}, slog.New(h))

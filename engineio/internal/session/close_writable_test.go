@@ -41,7 +41,6 @@ func checkClosed(t *testing.T, s *Session, reason CloseReason, cause error) {
 	require.False(t, s.Writable())
 }
 
-// Covers K24
 func TestSessionCloseError(t *testing.T) {
 	for _, reason := range []CloseReason{ReasonTransportClose, ReasonTransportError, ReasonForcedClose, ReasonServerShutdown, ReasonPingTimeout} {
 		t.Run(string(reason), func(t *testing.T) {
@@ -116,7 +115,6 @@ func TestSessionCloseError(t *testing.T) {
 
 }
 
-// Covers K16
 func TestSessionWritable(t *testing.T) {
 	t.Run("optional method and open writer", func(t *testing.T) {
 		s := newTestSession(t, &scriptConn{}, "fake")

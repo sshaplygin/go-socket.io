@@ -120,7 +120,6 @@ func TestConnInitorBeforeAccept(t *testing.T) {
 	})
 }
 
-// Covers K5
 func TestSessionRequest(t *testing.T) {
 	t.Run("unset", func(t *testing.T) {
 		c := newBlockingConn()

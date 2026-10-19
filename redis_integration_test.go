@@ -53,8 +53,6 @@ func serveAsync(srv *Server) <-chan error {
 
 // TestRedisConstructionErrorReturnedByServe checks that Serve returns the first recorded
 // construction error and that a later registration does not rebuild the broadcast.
-//
-// Covers 1I-T7 (S).
 func TestRedisConstructionErrorReturnedByServe(t *testing.T) {
 	s := miniredis.RunT(t)
 	srv := NewServer()
@@ -79,8 +77,6 @@ func TestRedisConstructionErrorReturnedByServe(t *testing.T) {
 
 // TestRedisFailedNamespaceRoomMethods checks the Server room methods of a namespace whose
 // Redis broadcast could not be created.
-//
-// Covers 1I-T9 (S).
 func TestRedisFailedNamespaceRoomMethods(t *testing.T) {
 	s := miniredis.RunT(t)
 	srv := NewServer()
@@ -113,9 +109,6 @@ func serveWithRedis(t *testing.T, srv *Server, addr string) {
 
 // TestRedisConstructionErrorFailsConnections checks that a connection to a namespace whose
 // Redis broadcast could not be created fails before the namespace is registered.
-//
-// Covers 1I-T8 (S).
-// Covers 1L-T10 (S).
 func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 	var opErr *net.OpError
 	t.Run("root", func(t *testing.T) {
@@ -171,8 +164,6 @@ func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 
 // TestRedisServerCloseStopsBroadcasts checks that Server.Close stops the Redis connections of
 // every namespace and that a handler registered after Close builds no broadcast.
-//
-// Covers 1I-T10 (S).
 func TestRedisServerCloseStopsBroadcasts(t *testing.T) {
 	s := miniredis.RunT(t)
 	srv := NewServer()
@@ -238,8 +229,6 @@ func forward(c net.Conn, addr string) {
 
 // TestRedisConcurrentRegistrationBuildsOneBroadcast checks that concurrent registrations on
 // one new namespace build one Redis broadcast, which Close stops.
-//
-// Covers 1I-T12 (S).
 func TestRedisConcurrentRegistrationBuildsOneBroadcast(t *testing.T) {
 	s := miniredis.RunT(t)
 	addr := delayedProxy(t, s.Addr(), 50*time.Millisecond)

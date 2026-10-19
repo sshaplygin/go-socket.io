@@ -50,7 +50,6 @@ func TestBroadcastSharedArgs(t *testing.T) {
 	require.Equal(t, mk(), args, "the broadcast wrote to its arguments")
 }
 
-// Covers G6
 func TestEmitSnapshotsBinaryAndNestedPayload(t *testing.T) {
 	_, c, fc, _ := connWithOptions(t, 'S', nil)
 	fc.hold.Store(true)
@@ -71,8 +70,7 @@ func TestEmitSnapshotsBinaryAndNestedPayload(t *testing.T) {
 	require.Equal(t, "before", recv(t, fc.out, "binary attachment"))
 }
 
-// Covers G6
-func TestRegressionG6EmitSnapshotsMap(t *testing.T) {
+func TestEmitSnapshotsMap(t *testing.T) {
 	_, c, fc, _ := connWithOptions(t, 'S', nil)
 	fc.hold.Store(true)
 	c.Emit("barrier")
@@ -86,7 +84,6 @@ func TestRegressionG6EmitSnapshotsMap(t *testing.T) {
 	require.Contains(t, recv(t, fc.out, "snapshot packet"), `"value":"before"`)
 }
 
-// Covers B1
 func TestEmitNil(t *testing.T) {
 	_, url := defectServer(t, func(s *Server) {
 		s.OnEvent("/", "get-nil", func(c Conn) { c.Emit("nil", nil); c.Emit("pair", nil, "tail") })

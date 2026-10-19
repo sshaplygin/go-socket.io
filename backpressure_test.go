@@ -18,7 +18,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/engineio"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
-	"github.com/sshaplygin/go-socket.io/internal/namespace"
+
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -136,7 +136,6 @@ func TestBackpressurePeerCloseReportsOnce(t *testing.T) {
 	p.disconnected(t, "/")
 }
 
-// Covers S18
 func TestServerEngine(t *testing.T) {
 	s := NewServer()
 	t.Cleanup(func() { _ = s.Close() })
@@ -202,7 +201,7 @@ type peer struct {
 func newPeer(t *testing.T, side byte, h hooks, nsps ...string) *peer {
 	p := &peer{fc: newFakeConn(t), conns: make(chan Conn, 8), errs: make(chan nsErr, 128)}
 	p.nilErrs, p.discs = make(chan error, 8), make(chan string, 8)
-	var nhs []*namespace.Handler
+	var nhs []*namespaceHandler
 
 	p.srv = NewServer()
 	if h.setup != nil {
@@ -307,15 +306,6 @@ func serverCompletion(s *Server, id string) <-chan struct{} {
 	return done
 }
 
-func isDone(ch <-chan struct{}) bool {
-	select {
-	case <-ch:
-		return true
-	default:
-		return false
-	}
-}
-
 // sub joins /a and returns its connection, DISCONNECT frame and remaining namespaces.
 func (p *peer) sub(t *testing.T) (Conn, string, []string) {
 	t.Helper()
@@ -361,13 +351,9 @@ func flood(c Conn, n int) {
 	}
 }
 
-// TestBackpressureStalledMemberDoesNotBlockRoom runs 1B-T1 with the in-memory
-// broadcast and, as 1I-T1, with the Redis broadcast. The Redis subscription registers
-// 50 ms late, and the test waits for it: RoomLen counts only the instances subscribed
-// when it asks.
-//
-// Covers 1B-T1 (S).
-// Covers 1I-T1 (S).
+// TestBackpressureStalledMemberDoesNotBlockRoom exercises the in-memory and Redis
+// adapters. The Redis subscription registers 50 ms late, and the test waits for it:
+// RoomLen counts only the instances subscribed when it asks.
 func TestBackpressureStalledMemberDoesNotBlockRoom(t *testing.T) {
 	for _, adapter := range []string{"memory", "redis"} {
 		t.Run(adapter, func(t *testing.T) {
@@ -401,7 +387,6 @@ func TestBackpressureStalledMemberDoesNotBlockRoom(t *testing.T) {
 	}
 }
 
-// Covers 1B-T2 (S).
 func TestBackpressureCloseDeliversQueue(t *testing.T) {
 	sides(t, "S", func(t *testing.T, side byte) {
 		for _, n := range []int{1, defaultWriteBufferSize} {
@@ -425,7 +410,6 @@ func TestBackpressureCloseDeliversQueue(t *testing.T) {
 	})
 }
 
-// Covers 1B-T3 (S).
 func TestBackpressureCloseWritesOnDisconnectEmits(t *testing.T) {
 	sides(t, "S", func(t *testing.T, side byte) {
 		var p *peer
@@ -445,7 +429,6 @@ func TestBackpressureCloseWritesOnDisconnectEmits(t *testing.T) {
 	})
 }
 
-// Covers 1B-T4 (S).
 func TestBackpressureCloseDropsLateAndOverflowingEmits(t *testing.T) {
 	sides(t, "S", func(t *testing.T, side byte) {
 		p := start(t, side, hooks{disconnect: func(c Conn) { flood(c, defaultWriteBufferSize+1) }}) // the last finds the queue full
@@ -470,7 +453,6 @@ func TestBackpressureCloseDropsLateAndOverflowingEmits(t *testing.T) {
 }
 
 // A CONNECT to a namespace without a handler does not end the drain either.
-// Covers 1B-T5 (S).
 func TestBackpressureCloseStopsDispatch(t *testing.T) {
 	sides(t, "S", func(t *testing.T, side byte) {
 		var ran atomic.Int32
@@ -489,7 +471,6 @@ func TestBackpressureCloseStopsDispatch(t *testing.T) {
 	})
 }
 
-// Covers 1B-T6 (S).
 func TestBackpressureDrainDeadline(t *testing.T) {
 	sides(t, "S", func(t *testing.T, side byte) {
 		p := start(t, side, hooks{setup: func(s *Server) { s.limits.drainTimeout = 50 * time.Millisecond }})
@@ -505,11 +486,6 @@ func TestBackpressureDrainDeadline(t *testing.T) {
 
 // Each trigger closes the connection, writer blocked, at once; OnDisconnect
 // overflows the queue without a report. A read or write failure ends a drain.
-// Covers 1B-T7 (S).
-// Covers 1B-T8 (S).
-// Covers 1B-T9 (S).
-// Covers 1B-T12 (S).
-// Covers 1B-T13 (S).
 func TestBackpressureLibraryCloseDiscards(t *testing.T) {
 	triggers := []struct {
 		name    string
@@ -552,7 +528,6 @@ func TestBackpressureLibraryCloseDiscards(t *testing.T) {
 	})
 }
 
-// Covers 1B-T10 (S).
 func TestBackpressureEncodeErrorRecoversAfterReport(t *testing.T) {
 	sides(t, "S", func(t *testing.T, side byte) {
 		p := start(t, side, hooks{}, "/a")
@@ -569,7 +544,6 @@ func TestBackpressureEncodeErrorRecoversAfterReport(t *testing.T) {
 	})
 }
 
-// Covers 1B-T11 (S).
 func TestBackpressureConnectFailureDiscards(t *testing.T) {
 	sides(t, "S", func(t *testing.T, side byte) {
 		var p *peer
@@ -590,7 +564,6 @@ func TestBackpressureConnectFailureDiscards(t *testing.T) {
 	})
 }
 
-// Covers 1B-T14 (S).
 func TestBackpressureNamespaceDisconnectRacesClose(t *testing.T) {
 	sides(t, "S", func(t *testing.T, side byte) {
 		var target string
@@ -610,8 +583,6 @@ func TestBackpressureNamespaceDisconnectRacesClose(t *testing.T) {
 	})
 }
 
-// Covers 1B-T15 (S).
-// Covers 1B-T16 (S).
 func TestBackpressureOverflow(t *testing.T) {
 	sides(t, "S", func(t *testing.T, side byte) {
 		p := start(t, side, hooks{}, "/a")
@@ -629,34 +600,25 @@ func TestBackpressureOverflow(t *testing.T) {
 	})
 }
 
-// An overflow, or an encode error, of a packet whose namespace the peer
-// disconnected is reported once, to that namespace's OnError.
-func TestBackpressureReportForDisconnectedNamespace(t *testing.T) {
+// A retained disconnected namespace cannot fill the shared connection's queue
+// or fail its live siblings with malformed payloads.
+func TestBackpressureIgnoresDisconnectedNamespace(t *testing.T) {
 	sides(t, "S", func(t *testing.T, side byte) {
-		for _, n := range []int{defaultWriteBufferSize + 1, 0} {
-			p := start(t, side, hooks{}, "/a")
-			nc, frame, others := p.sub(t)
-			p.send(t, frame)
-			require.Equal(t, nc.Namespace(), recv(t, p.discs, "OnDisconnect on the DISCONNECT"))
-			if p.stall(t, nc, n); n == 0 {
-				nc.Emit("bad", make(chan int)) // json cannot encode a channel
-				close(p.fc.release)
-			}
-			got := recv(t, p.errs, "the report")
-			require.Equal(t, nc.Namespace(), got.nsp)
-			require.Equal(t, n > 0, errors.Is(got.err, ErrWriteBufferFull), "an overflow report")
-			if n == 0 {
-				require.False(t, isDone(p.fc.closed))
-				require.NoError(t, p.Close())
-			}
-			p.disconnected(t, others...)
-			require.Empty(t, drain(p.errs), "a second report")
-		}
+		p := start(t, side, hooks{}, "/a")
+		nc, frame, others := p.sub(t)
+		p.send(t, frame)
+		require.Equal(t, nc.Namespace(), recv(t, p.discs, "OnDisconnect on the DISCONNECT"))
+		flood(nc, defaultWriteBufferSize+1)
+		nc.Emit("bad", make(chan int))
+		p.nc.Emit("barrier")
+		require.Equal(t, ev("barrier"), recv(t, p.fc.out, "live sibling barrier"))
+		require.False(t, isDone(p.fc.closed))
+		require.NoError(t, p.Close())
+		p.disconnected(t, others...)
+		require.Empty(t, drain(p.errs), "retired writes must not report errors")
 	})
 }
 
-// Covers 1B-T17 (S).
-// Covers 1B-T18 (S).
 func TestBackpressureOverflowInOnConnect(t *testing.T) {
 	for _, connectErr := range []error{nil, errors.New("refused"), ErrWriteBufferFull} {
 		cc, late := Conn(nil), []bool(nil) // late, per report: made after the discard, which precedes OnDisconnect
@@ -707,8 +669,6 @@ func TestBackpressureConnectFailureReportsOverflowFromOnError(t *testing.T) {
 	}
 }
 
-// Covers 1B-T19 (S).
-// Covers 1B-T20 (S).
 func TestBackpressureOverflowInBroadcast(t *testing.T) {
 	for _, overflow := range []func(*Server){
 		func(s *Server) { s.BroadcastToRoom("/", "r", "x") },
@@ -724,7 +684,6 @@ func TestBackpressureOverflowInBroadcast(t *testing.T) {
 	}
 }
 
-// Covers 1B-T21 (S).
 func TestBackpressureOverflowInOnError(t *testing.T) {
 	sides(t, "S", func(t *testing.T, side byte) {
 		p := start(t, side, hooks{
@@ -740,9 +699,6 @@ func TestBackpressureOverflowInOnError(t *testing.T) {
 	})
 }
 
-// Covers 1B-T22 (S).
-// Covers 1B-T23 (S).
-// Covers 1B-T24 (S).
 func TestBackpressureCloseFromHandlers(t *testing.T) {
 	cases := []struct {
 		name string
@@ -776,7 +732,6 @@ func TestBackpressureCloseFromHandlers(t *testing.T) {
 	})
 }
 
-// Covers 1B-T25 (S).
 func TestBackpressureNamespaceDisconnectKeepsSession(t *testing.T) {
 	sides(t, "S", func(t *testing.T, side byte) {
 		p := start(t, side, hooks{events: map[string]interface{}{"echo": func(Conn) string { return "ok" }}}, "/a")
@@ -796,7 +751,6 @@ func TestBackpressureNamespaceDisconnectKeepsSession(t *testing.T) {
 	})
 }
 
-// Covers 1B-T26 (S).
 func TestBackpressureCloseFromOnConnect(t *testing.T) {
 	p := start(t, 'S', hooks{
 		connect: func(c Conn) error {
@@ -816,7 +770,6 @@ func TestBackpressureCloseFromOnConnect(t *testing.T) {
 	require.Empty(t, drain(p.nilErrs), "reported as a connect failure")
 }
 
-// Covers 1B-T27 (S).
 func TestBackpressureLibraryPacketOverflow(t *testing.T) {
 	for _, tc := range []struct {
 		side  byte
@@ -832,7 +785,6 @@ func TestBackpressureLibraryPacketOverflow(t *testing.T) {
 	}
 }
 
-// Covers 1B-T9 (S).
 func TestBackpressureArgDecodeErrorReport(t *testing.T) {
 	p := start(t, 'S', hooks{events: map[string]interface{}{"num": func(_ Conn, n int) int { return n }}}, "/a")
 	p.join(t, "/a")

@@ -2,11 +2,14 @@ package redis
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
+
 	"github.com/gomodule/redigo/redis"
 	"github.com/google/uuid"
+
 	"github.com/sshaplygin/go-socket.io/adapter"
-	"sync"
 )
 
 // sharedResources owns one subscription loop and publishing pool for a factory.
@@ -72,7 +75,7 @@ func (s *sharedResources) add(nsp string, opts *options) (*broadcast, error) {
 		err = ctx.Err()
 	}
 	if err != nil {
-		_ = bc.Close()
+		_ = bc.closeContext(ctx)
 		return nil, err
 	}
 	return bc, nil
@@ -121,7 +124,7 @@ func (s *sharedResources) clusterWorkers() chan struct{} {
 	return s.workers
 }
 
-func (s *sharedResources) remove(bc *broadcast) error {
+func (s *sharedResources) remove(ctx context.Context, bc *broadcast) error {
 	owner := s.owner
 	owner.subLock.Lock()
 	s.mu.Lock()
@@ -159,15 +162,15 @@ func (s *sharedResources) remove(bc *broadcast) error {
 	owner.subscriptionChanged(bc.resChannel, false)
 	sub := owner.sub
 	ack := owner.beginUnsubscribe(sub, bc.reqChannel, bc.resChannel)
-	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
-	defer cancel()
 	stop := context.AfterFunc(ctx, func() { _ = sub.Close() })
 	defer stop()
 	err := sub.Unsubscribe(bc.reqChannel, bc.resChannel)
 	owner.subLock.Unlock()
 	defer owner.endUnsubscribe(ack)
 	if err != nil {
-		return err
+		// The subscriber can fail between readiness and this write. Its
+		// replacement excludes the removed member and confirms the unsubscribe.
+		_ = sub.Close()
 	}
 	select {
 	case <-ack.done:
@@ -175,6 +178,7 @@ func (s *sharedResources) remove(bc *broadcast) error {
 	case <-owner.done:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		_ = sub.Close()
+		return errors.Join(ctx.Err(), err)
 	}
 }

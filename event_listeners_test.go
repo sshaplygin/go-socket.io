@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// Covers K26
 func TestLateAck(t *testing.T) {
 	pending := make(chan AckFunc, 4)
 	ts := newTestServer(t, func(s *Server) {
@@ -34,7 +33,6 @@ func TestLateAck(t *testing.T) {
 	require.Equal(t, "310[\"ready\"]\n", c.read())
 }
 
-// Covers K28
 func TestEventListeners(t *testing.T) {
 	order := make(chan string, 32)
 	var n *ServerNamespace
@@ -137,7 +135,6 @@ func TestOnceAcrossConnections(t *testing.T) {
 	require.Equal(t, int32(1), called.Load())
 }
 
-// Covers G20
 func TestVariadicPayloadAndAckCallbacks(t *testing.T) {
 	acked := make(chan []string, 1)
 	_, url := defectServer(t, func(s *Server) {
@@ -157,7 +154,6 @@ func TestVariadicPayloadAndAckCallbacks(t *testing.T) {
 	require.Equal(t, []string{"a", "b"}, recv(t, acked, "variadic ACK"))
 }
 
-// Covers G28
 func TestReservedEmitCallsLocalListenersOnce(t *testing.T) {
 	seen := make(chan string, 4)
 	_, url := defectServer(t, func(s *Server) {
@@ -172,8 +168,7 @@ func TestReservedEmitCallsLocalListenersOnce(t *testing.T) {
 	require.Empty(t, seen)
 }
 
-// Covers G19
-func TestRegressionG19PeerCannotDispatchLifecycle(t *testing.T) {
+func TestPeerCannotDispatchLifecycle(t *testing.T) {
 	seen := make(chan string, 4)
 	_, url := defectServer(t, func(s *Server) {
 		s.Of("/").On("disconnecting", func(_ Conn, reason string) { seen <- reason })
@@ -191,8 +186,7 @@ func TestRegressionG19PeerCannotDispatchLifecycle(t *testing.T) {
 	}
 }
 
-// Covers G21
-func TestRegressionG21NoUnrequestedAck(t *testing.T) {
+func TestNoUnrequestedAck(t *testing.T) {
 	_, url := defectServer(t, func(s *Server) {
 		s.OnEvent("/", "value", func(Conn) string { return "answer" })
 		s.OnEvent("/", "barrier", func(c Conn) { c.Emit("barrier") })
@@ -204,8 +198,7 @@ func TestRegressionG21NoUnrequestedAck(t *testing.T) {
 	require.Equal(t, "2[\"barrier\"]\n", c.read(), "event without id must not generate ACK")
 }
 
-// Covers G28
-func TestRegressionG28ReservedEmitStaysLocal(t *testing.T) {
+func TestReservedEmitStaysLocal(t *testing.T) {
 	_, url := defectServer(t, func(s *Server) {
 		s.OnEvent("/", "trigger", func(c Conn) { c.Emit("disconnect", "forged"); c.Emit("barrier") })
 	})

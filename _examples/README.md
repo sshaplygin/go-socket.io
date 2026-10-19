@@ -18,9 +18,8 @@ individual protocol features.
 
 - **Server.** `chat.go` registers the chat on namespace `/` through `registerChat(server)`
   with the events and payloads of upstream `index.js`. The modules are separate, so the
-  file is copied into each chat example; `make examples` compares the non-Redis copies
-  with `default-http/chat.go`. The Redis examples keep their local `ForEach` helper
-  until their adapter supports excluding the sender.
+  file is copied into each chat example; `make examples` compares all copies
+  with `default-http/chat.go`.
 - **Page.** `asset/` holds the upstream `index.html`, `main.js` and `style.css`
   (license: `asset/LICENSE-socket.io-chat`), which the browser examples mount as
   `../asset`; the Docker images copy it from the repository root. The page loads
@@ -50,12 +49,6 @@ individual protocol features.
 | `redis-adapter-unix-socket` | the same through a Unix socket, in Docker; port 8080, page at `/public/` |
 | `client` | the Go client joining the chat of another example |
 
-The Redis examples expect a Redis server on `127.0.0.1:6379` or the Unix socket path set
-in `main.go`. `Server.ForEach`, which their chat uses to reach the other users, visits only
-the connections of its own instance, so with two instances behind Redis, users on
-different instances do not see each other's events and each instance counts only its own
-users. The chat works inside one instance.
-
 `client` joins the chat of a running example and prints what it receives, for a second:
 
 ```sh
@@ -68,8 +61,9 @@ Closing the Go client sends namespace DISCONNECT, so other chat users receive
 All server examples accept `-addr` (default `:8000`, except the Unix Redis example
 at `:8080`); pprof also accepts `-debug-addr` (default `:8001`). The examples own their HTTP servers, report service failures back to
 `run`, close Socket.IO, drain active HTTP requests with a five-second shutdown
-bound, and wait for serving goroutines before returning.
-`main` logs returned errors without terminating the process. SIGINT/SIGTERM follows
+bound, and wait for serving goroutines before returning. Startup or serving
+errors produce a nonzero exit status after cleanup.
+SIGINT/SIGTERM follows
 the same cleanup; `graceful-shutdown` keeps its three-second signal delay but stops
 immediately on a service failure. GoFrame is mounted as an HTTP handler because
 its built-in runner can terminate the process. Each standalone module carries the
@@ -79,20 +73,21 @@ same private `lifecycle.go`; `make examples` compares these copies.
 example (`engineio/_examples`), checks the shared chat/lifecycle files and race-tests
 chat, service-failure cleanup and echo I/O cleanup. The executable Node clients check ACKs, binary buffers, namespace
 authentication, room isolation, event middleware, and chat broadcasts excluding
-the sender. Install either supported client into a temporary prefix and run
-from the repository root:
+the sender. Start Redis with TCP and Unix socket listeners, then install either
+supported client into a temporary prefix and run from the repository root:
 
 ```sh
 d=$(mktemp -d)
 npm install --no-save --prefix "$d" socket.io-client@2.5.0
-CONFORMANCE_NODE_MODULES="$d/node_modules" make examples-node
+CONFORMANCE_NODE_MODULES="$d/node_modules" \
+CONFORMANCE_REDIS_ADDR=127.0.0.1:6379 \
+CONFORMANCE_REDIS_SOCKET=/path/to/redis.sock make examples-node
 ```
 
 Use `socket.io-client@1.7.4` in the same command for the other supported client.
 The target requires `CONFORMANCE_NODE_MODULES`, starts each example with a
 random local port, and fails on a missing dependency or any client failure.
-Both pinned clients run in CI. `default-http` also accepts `-addr` (default
-`:8000`) when run manually.
+Both pinned clients run in CI.
 
 ### Redis cluster examples
 

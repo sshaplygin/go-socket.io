@@ -10,7 +10,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/client"
 )
 
-// Covers C8
 func TestClientSocketState(t *testing.T) {
 	serverReady, serverClosed := make(chan bool, 2), make(chan bool, 2)
 	ts := newTestServer(t, func(srv *socketio.Server) {

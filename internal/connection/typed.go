@@ -104,7 +104,7 @@ func (nc *namespaceConn) admitTyped(ctx context.Context, name string, payload ev
 		return 0, err
 	}
 	current, exists := c.namespaces.Get(fmtNS(nc.namespace))
-	if nc.rejected || !exists || current != nc || isDone(c.closing) || nc.lifetime.Err() != nil {
+	if nc.rejected || !exists || current != nc || isDone(c.closing) || isDone(c.engineDone) || nc.lifetime.Err() != nil {
 		return 0, eventImpl.ErrSocketClosed
 	}
 	if c.pendingWrites+len(c.writeChan)+c.drainQueued >= cap(c.writeChan) {

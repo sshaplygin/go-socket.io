@@ -125,7 +125,7 @@ func TestDynamicNamespaceWaitsForSubscriptionAcknowledgements(t *testing.T) {
 
 func TestDynamicSubscriptionWriteIsBounded(t *testing.T) {
 	old := redisDialTimeout
-	redisDialTimeout = 40 * time.Millisecond
+	redisDialTimeout = time.Second
 	defer func() { redisDialTimeout = old }()
 	c := &blockedSubscriptionWrite{silentSubscription: silentSubscription{done: make(chan struct{})}}
 	owner := &broadcast{done: make(chan struct{}), pattern: "socket.io#*", sub: &redis.PubSubConn{Conn: c}}
@@ -135,6 +135,15 @@ func TestDynamicSubscriptionWriteIsBounded(t *testing.T) {
 	owner.subscriptionChanged(owner.pattern, true)
 	result := make(chan error, 1)
 	go func() { _, err := shared.add("/new", &options{Prefix: "socket.io"}); result <- err }()
+	select {
+	case <-c.done:
+	case <-time.After(2 * time.Second):
+		_ = c.Close()
+		<-result
+		t.Fatal("construction deadline did not close the blocked subscriber")
+	}
+	// Cleanup shares the expired construction deadline; it must not start
+	// another full timeout while waiting for unsubscribe confirmation.
 	select {
 	case err := <-result:
 		if err == nil {

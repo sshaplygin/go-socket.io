@@ -5,6 +5,7 @@ package parser_test
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/sshaplygin/go-socket.io/parser"
@@ -42,9 +43,6 @@ func TestEncoderHonorsJSONOmitZero(t *testing.T) {
 		{"custom IsZero", struct {
 			Hidden omittedBinary `json:"hidden,omitzero"`
 		}{omittedBinary{[]parser.Buffer{{Data: []byte("secret")}}}}},
-		{"IsZero examines numbered representation", struct {
-			Hidden omittedAfterNumbering `json:"hidden,omitzero"`
-		}{omittedAfterNumbering{parser.Buffer{Data: []byte("secret")}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := new(recordedWriter)
@@ -118,7 +116,7 @@ func (v *cyclicOmission) IsZero() bool {
 	return v.Omit
 }
 
-func TestEncoderDefersOmittedCycleToJSON(t *testing.T) {
+func TestEncoderHonorsIsZeroBeforeTraversingCycles(t *testing.T) {
 	for _, omit := range []bool{true, false} {
 		name := "visible cycle"
 		if omit {
@@ -151,5 +149,81 @@ func TestEncoderDefersOmittedCycleToJSON(t *testing.T) {
 				t.Fatalf("IsZero called %d times, want one JSON decision", calls)
 			}
 		})
+	}
+}
+
+type originalZeroBinary struct{ File parser.Buffer }
+
+func (v originalZeroBinary) IsZero() bool { return reflect.DeepEqual(v, originalZeroBinary{}) }
+
+type privateBinaryFields struct{ File parser.Buffer }
+type omittedPrivateBinary struct{ *privateBinaryFields }
+
+func (omittedPrivateBinary) IsZero() bool { return true }
+
+func TestEncoderOmitZeroUsesOriginalValue(t *testing.T) {
+	for _, value := range []any{
+		struct {
+			Optional originalZeroBinary `json:"optional,omitzero"`
+		}{},
+		struct {
+			Omitted omittedPrivateBinary `json:"omitted,omitzero"`
+		}{omittedPrivateBinary{&privateBinaryFields{parser.Buffer{Data: []byte("secret")}}}},
+	} {
+		payload := []any{"event", value}
+		standard, err := json.Marshal(payload)
+		if err != nil || string(standard) != `["event",{}]` {
+			t.Fatalf("invalid JSON oracle: %s %v", standard, err)
+		}
+		w := new(recordedWriter)
+		if err := parser.NewEncoder(w).Encode(parser.Header{Type: parser.Event}, payload); err != nil {
+			t.Errorf("valid omitted payload rejected: %v", err)
+			continue
+		}
+		if len(w.frames) != 1 || w.frames[0].String() != "2"+string(standard)+"\n" {
+			t.Errorf("omitted data transmitted: %v", w.frames)
+		}
+	}
+}
+
+func TestEncoderIsZeroSeesOriginalBufferRepresentation(t *testing.T) {
+	value := struct {
+		Visible omittedAfterNumbering `json:"visible,omitzero"`
+	}{omittedAfterNumbering{parser.Buffer{Data: []byte("public")}}}
+	w := new(recordedWriter)
+	if err := parser.NewEncoder(w).Encode(parser.Header{Type: parser.Event}, []any{"event", value}); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.frames) != 2 || w.frames[1].String() != "public" {
+		t.Fatalf("IsZero must observe the original Buffer: %v", w.frames)
+	}
+	if got, want := w.frames[0].String(), "51-[\"event\",{\"visible\":{\"File\":{\"_placeholder\":true,\"num\":0}}}]\n"; got != want {
+		t.Fatalf("text frame = %q, want %q", got, want)
+	}
+}
+
+type zeroValue interface{ IsZero() bool }
+type pointerZeroValue struct {
+	File  parser.Buffer
+	Calls *int
+}
+
+func (v *pointerZeroValue) IsZero() bool {
+	*v.Calls++
+	return true
+}
+
+func TestEncoderPreservesIsZeroReceiverSemantics(t *testing.T) {
+	calls := 0
+	value := struct {
+		Boxed pointerZeroValue `json:"boxed,omitzero"`
+		Nil   zeroValue        `json:"nil,omitzero"`
+	}{pointerZeroValue{parser.Buffer{Data: []byte("secret")}, &calls}, (*pointerZeroValue)(nil)}
+	w := new(recordedWriter)
+	if err := parser.NewEncoder(w).Encode(parser.Header{Type: parser.Event}, []any{"event", value}); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || len(w.frames) != 1 || w.frames[0].String() != "2[\"event\",{}]\n" {
+		t.Fatalf("IsZero receiver semantics changed: calls=%d frames=%v", calls, w.frames)
 	}
 }

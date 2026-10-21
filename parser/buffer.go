@@ -6,12 +6,12 @@ import (
 	"strconv"
 )
 
-// Buffer is an binary buffer handler used in emit args. All buffers will be
-// sent as binary in the transport layer.
+// Buffer carries binary data in event arguments. A Buffer included in the
+// encoded JSON is sent as a binary attachment. Omitted fields and values inside
+// custom JSON or text marshalers do not produce attachments.
 type Buffer struct {
 	num      uint64
 	isBinary bool
-	marker   string
 
 	Data []byte
 }
@@ -57,11 +57,6 @@ func (a *Buffer) encodeText(buf *bytes.Buffer) error {
 func (a *Buffer) encodeBinary(buf *bytes.Buffer) error {
 	buf.WriteString(`{"_placeholder":true,"num":`)
 	buf.WriteString(strconv.FormatUint(a.num, 10))
-	if a.marker != "" {
-		buf.WriteString(`,"_socketio_buffer":"`)
-		buf.WriteString(a.marker)
-		buf.WriteString(`"`)
-	}
 	buf.WriteString("}")
 
 	return nil

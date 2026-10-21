@@ -17,29 +17,18 @@ var (
 	textMarshaler   = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
 )
 
-// hasJSONMarshaler follows encoding/json's addressability rules. Buffer has its
-// own wire representation; other marshalers own their contents, so inspecting
-// their fields would transmit values that their marshaled output can hide.
-func hasJSONMarshaler(v reflect.Value) bool {
-	t := v.Type()
-	if v.Kind() == reflect.Interface || t == bufferType || (t.Kind() == reflect.Pointer && t.Elem() == bufferType) {
-		return false
-	}
-	if t.Implements(jsonMarshaler) || t.Implements(textMarshaler) {
-		return true
-	}
-	return v.CanAddr() && (reflect.PointerTo(t).Implements(jsonMarshaler) || reflect.PointerTo(t).Implements(textMarshaler))
-}
-
 type jsonField struct {
-	path     []int
-	omitZero bool
+	path      []int
+	name      []byte
+	omitEmpty bool
+	omitZero  bool
+	quoted    bool
 }
 
 // jsonFields selects the same struct fields as encoding/json: shallow fields
 // dominate embedded fields, a tagged name wins at equal depth, and otherwise
 // conflicting names disappear. Selection depends on types, including when an
-// embedded pointer is nil. JSON encoding itself remains with encoding/json.
+// embedded pointer is nil. Cached paths and options are immutable.
 func jsonFields(t reflect.Type) []jsonField {
 	if fields, ok := jsonFieldsCache.Load(t); ok {
 		return fields.([]jsonField)
@@ -54,6 +43,8 @@ func jsonFields(t reflect.Type) []jsonField {
 		tagged    bool
 		ambiguous bool
 		omitZero  bool
+		omitEmpty bool
+		quoted    bool
 	}
 	selected := make(map[string]field)
 	visited := make(map[reflect.Type]bool)
@@ -89,7 +80,7 @@ func jsonFields(t reflect.Type) []jsonField {
 						next[index].multiple = true
 					} else {
 						queued[embedded] = len(next)
-						next = append(next, scope{embedded, path, parent.multiple})
+						next = append(next, scope{embedded, path, false})
 					}
 					continue
 				}
@@ -97,10 +88,24 @@ func jsonFields(t reflect.Type) []jsonField {
 				if name == "" {
 					name = sf.Name
 				}
+				optionsList := strings.Split(options, ",")
+				quoted := false
+				if slices.Contains(optionsList, "string") {
+					quotedType := sf.Type
+					if (quoteNamedJSONPointers || quotedType.Name() == "") && quotedType.Kind() == reflect.Pointer {
+						quotedType = quotedType.Elem()
+					}
+					switch quotedType.Kind() {
+					case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+						reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+						reflect.Float32, reflect.Float64, reflect.String:
+						quoted = true
+					}
+				}
 				old, found := selected[name]
 				switch {
 				case !found || len(path) < len(old.path) || (len(path) == len(old.path) && tagged && !old.tagged):
-					selected[name] = field{path, tagged, parent.multiple, slices.Contains(strings.Split(options, ","), "omitzero")}
+					selected[name] = field{path, tagged, parent.multiple, slices.Contains(optionsList, "omitzero"), slices.Contains(optionsList, "omitempty"), quoted}
 				case len(path) == len(old.path) && tagged == old.tagged:
 					old.ambiguous = true
 					selected[name] = old
@@ -110,9 +115,10 @@ func jsonFields(t reflect.Type) []jsonField {
 		level = next
 	}
 	var fields []jsonField
-	for _, field := range selected {
+	for name, field := range selected {
 		if !field.ambiguous {
-			fields = append(fields, jsonField{field.path, field.omitZero})
+			encodedName, _ := json.Marshal(name)
+			fields = append(fields, jsonField{field.path, encodedName, field.omitEmpty, field.omitZero, field.quoted})
 		}
 	}
 	slices.SortFunc(fields, func(a, b jsonField) int { return slices.Compare(a.path, b.path) })
@@ -143,29 +149,4 @@ func jsonFieldValue(v reflect.Value, path []int) reflect.Value {
 		v = v.Field(index)
 	}
 	return v
-}
-
-// setJSONField copies embedded pointers before replacing a selected field.
-// An unexported embedded pointer cannot be replaced through reflection.
-func setJSONField(v reflect.Value, path []int, replacement reflect.Value) error {
-	for i, index := range path {
-		v = v.Field(index)
-		if i == len(path)-1 {
-			if !v.CanSet() {
-				return errUnsupportedBuffer
-			}
-			v.Set(replacement)
-			return nil
-		}
-		if v.Kind() == reflect.Pointer {
-			if !v.CanSet() {
-				return errUnsupportedBuffer
-			}
-			p := reflect.New(v.Type().Elem())
-			p.Elem().Set(v.Elem())
-			v.Set(p)
-			v = p.Elem()
-		}
-	}
-	return nil
 }

@@ -21,8 +21,8 @@ type (
 )
 
 // Repeated Buffer values receive separate placeholders without modifying the
-// caller. JSON-ignored fields produce no attachments. An embedded pointer to an
-// unexported struct cannot be replaced safely and returns an error.
+// caller. JSON-ignored fields produce no attachments, while visible fields of
+// embedded structs and pointers are encoded without modifying the original.
 func TestEncodeBufferShapes(t *testing.T) {
 	ph := func(n int) string { return `{"_placeholder":true,"num":` + string(rune('0'+n)) + `}` }
 	for _, tc := range []struct {
@@ -38,7 +38,8 @@ func TestEncodeBufferShapes(t *testing.T) {
 		{"embedded struct pointer", func(b *Buffer) []interface{} { return []interface{}{&embeddedOuter{embeddedInner{b}, 1}} },
 			[]string{`51-["e",{"B":` + ph(0) + ",\"N\":1}]\n", "\x01"}, nil},
 		{"field", func(b *Buffer) []interface{} { return []interface{}{struct{ b *Buffer }{b}} }, []string{"2[\"e\",{}]\n"}, nil},
-		{"embedded pointer", func(b *Buffer) []interface{} { return []interface{}{embeddedPtrOuter{&embeddedInner{b}, 1}} }, nil, errUnsupportedBuffer},
+		{"embedded pointer", func(b *Buffer) []interface{} { return []interface{}{embeddedPtrOuter{&embeddedInner{b}, 1}} },
+			[]string{`51-["e",{"B":` + ph(0) + ",\"N\":1}]\n", "\x01"}, nil},
 		{"embedded slice", func(b *Buffer) []interface{} { return []interface{}{embeddedList{bufferList{b}}} }, []string{"2[\"e\",{}]\n"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

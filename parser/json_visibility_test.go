@@ -162,3 +162,33 @@ func TestEncoderDoesNotTransmitUnusedPayloadArguments(t *testing.T) {
 		t.Fatalf("unused payload argument transmitted binary data: %v", w.frames)
 	}
 }
+
+type binaryDiamondLeaf struct{ File parser.Buffer }
+type binaryDiamondMiddle struct{ binaryDiamondLeaf }
+type binaryDiamondA struct{ binaryDiamondMiddle }
+type binaryDiamondB struct{ binaryDiamondMiddle }
+type binaryDiamond struct {
+	binaryDiamondA
+	binaryDiamondB
+}
+
+func TestEncoderPreservesDeepDiamondField(t *testing.T) {
+	value := binaryDiamond{
+		binaryDiamondA{binaryDiamondMiddle{binaryDiamondLeaf{parser.Buffer{Data: []byte("first")}}}},
+		binaryDiamondB{binaryDiamondMiddle{binaryDiamondLeaf{parser.Buffer{Data: []byte("second")}}}},
+	}
+	standard, err := json.Marshal(value)
+	if err != nil || string(standard) != `{"File":{"type":"Buffer","data":[102,105,114,115,116]}}` {
+		t.Fatalf("invalid JSON oracle: %s %v", standard, err)
+	}
+	w := new(recordedWriter)
+	if err := parser.NewEncoder(w).Encode(parser.Header{Type: parser.Event}, []any{"event", value}); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.frames) != 2 || w.frames[1].String() != "first" {
+		t.Fatalf("JSON-visible binary must remain an attachment: %v", w.frames)
+	}
+	if got, want := w.frames[0].String(), "51-[\"event\",{\"File\":{\"_placeholder\":true,\"num\":0}}]\n"; got != want {
+		t.Fatalf("text frame = %q, want %q", got, want)
+	}
+}

@@ -4,19 +4,30 @@ package parser
 
 import "reflect"
 
-var isZeroType = reflect.TypeOf((*interface{ IsZero() bool })(nil)).Elem()
+type jsonZeroer interface{ IsZero() bool }
 
-// Numbering a zero Buffer would make it nonzero. Preserve default omitzero
-// decisions before copying. User-defined IsZero methods are evaluated only by
-// encoding/json; finishAttachments removes any buffers their result omits.
+var isZeroType = reflect.TypeOf((*jsonZeroer)(nil)).Elem()
+
+// isJSONZero evaluates omission on the original field, with encoding/json's
+// nil-receiver guards and boxing for pointer methods on unaddressable values.
 func isJSONZero(v reflect.Value) bool {
-	if hasJSONZeroMethod(v) {
-		return false
+	t := v.Type()
+	if t.Implements(isZeroType) {
+		if (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) && v.IsNil() {
+			return true
+		}
+		if v.Kind() == reflect.Interface && v.Elem().Kind() == reflect.Pointer && v.Elem().IsNil() {
+			return true
+		}
+		return v.Interface().(jsonZeroer).IsZero()
+	}
+	if reflect.PointerTo(t).Implements(isZeroType) {
+		if !v.CanAddr() {
+			boxed := reflect.New(t).Elem()
+			boxed.Set(v)
+			v = boxed
+		}
+		return v.Addr().Interface().(jsonZeroer).IsZero()
 	}
 	return v.IsZero()
-}
-
-func hasJSONZeroMethod(v reflect.Value) bool {
-	t := v.Type()
-	return t.Implements(isZeroType) || reflect.PointerTo(t).Implements(isZeroType)
 }

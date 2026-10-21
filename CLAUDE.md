@@ -119,6 +119,7 @@ Each fact has one owner; other documents link to it.
 | `docs/PROTOCOL.md` | V1 wire behavior and interoperability limits |
 | `docs/PARITY.md` | Reference implementations and behavioral test coverage |
 | `docs/ARCHITECTURE.md` | V1 package boundaries and runtime model |
+| `docs/V1_RELEASE_REVIEW.md` | Findings of the v1.5.0 release-readiness review |
 | Godoc | Public signatures and detailed method contracts |
 | `_examples/README.md` | Running and testing v1 examples |
 | `CONTRIBUTING.md` | Contribution and release procedure |

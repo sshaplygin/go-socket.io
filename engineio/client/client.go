@@ -315,8 +315,8 @@ func (c *client) serve() {
 	}
 }
 
-// pingFailed logs a failure of the ping loop. It is DEBUG for
-// it is expected closure: a Close the client started, io.EOF or a closed connection, a
+// pingFailed logs expected closure at DEBUG: a Close the client started,
+// io.EOF or a closed connection, a
 // *net.OpError (a peer close, reset or passed deadline), a websocket close frame from
 // the peer (websocket.ErrCloseSent after the reply to it, or a *websocket.CloseError),
 // or a polling *polling.OpError that is not temporary (the transport stores a request

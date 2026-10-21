@@ -30,8 +30,9 @@ func TestReconnectFromDisconnect(t *testing.T) {
 			if err = c.Connect(); err != nil {
 				t.Fatal(err)
 			}
+			var initial string
 			select {
-			case <-connected:
+			case initial = <-connected:
 			case <-time.After(time.Second):
 				t.Fatal("initial connect timeout")
 			}
@@ -52,7 +53,10 @@ func TestReconnectFromDisconnect(t *testing.T) {
 				t.Fatal("callback did not return")
 			}
 			select {
-			case <-connected:
+			case replacement := <-connected:
+				if replacement == "" || replacement == initial {
+					t.Fatalf("expected a fresh connection ID, got %q after %q", replacement, initial)
+				}
 			case <-time.After(500 * time.Millisecond):
 				t.Fatal("Connect returned nil in OnDisconnect, but replacement connection never arrived")
 			}

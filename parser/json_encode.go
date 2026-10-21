@@ -2,7 +2,6 @@ package parser
 
 import (
 	"bytes"
-	"encoding"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -28,7 +27,7 @@ type jsonVisit struct {
 }
 
 func (e *payloadEncoder) value(v reflect.Value, quoted bool) error {
-	if !v.IsValid() {
+	if !v.IsValid() || (v.Kind() == reflect.Pointer && v.IsNil()) {
 		e.WriteString("null")
 		return nil
 	}
@@ -82,7 +81,7 @@ func (e *payloadEncoder) value(v reflect.Value, quoted bool) error {
 		// encoding/json treats byte slices as base64 unless their elements
 		// have a JSON or text marshaler.
 		element := v.Type().Elem()
-		if element.Kind() == reflect.Uint8 && !reflect.PointerTo(element).Implements(jsonMarshaler) && !reflect.PointerTo(element).Implements(textMarshaler) {
+		if element.Kind() == reflect.Uint8 && !implementsJSONMethod(reflect.PointerTo(element), jsonMarshalMethods) {
 			return e.standard(v, false)
 		}
 		if v.IsNil() {
@@ -150,7 +149,7 @@ func (e *payloadEncoder) mapping(v reflect.Value) error {
 	case reflect.String, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 	default:
-		if !keyType.Implements(textMarshaler) {
+		if !implementsJSONMethod(keyType, jsonTextMethods) {
 			return &json.UnsupportedTypeError{Type: v.Type()}
 		}
 	}
@@ -188,18 +187,21 @@ func (e *payloadEncoder) mapping(v reflect.Value) error {
 }
 
 func jsonMapKey(v reflect.Value) (string, error) {
-	if v.Kind() == reflect.String {
+	if v.Kind() == reflect.String && !stringJSONKeysUseMethods {
 		return v.String(), nil
 	}
-	if v.Type().Implements(textMarshaler) {
+	if implementsJSONMethod(v.Type(), jsonTextMethods) {
 		if v.Kind() == reflect.Pointer && v.IsNil() {
 			return "", nil
 		}
-		data, err := v.Interface().(encoding.TextMarshaler).MarshalText()
+		data, err := marshalJSONText(v)
 		if err != nil {
 			return "", fmt.Errorf("JSON map key: %w", err)
 		}
 		return string(data), nil
+	}
+	if v.Kind() == reflect.String {
+		return v.String(), nil
 	}
 	if v.Kind() >= reflect.Int && v.Kind() <= reflect.Int64 {
 		return strconv.FormatInt(v.Int(), 10), nil
@@ -221,7 +223,7 @@ func marshalJSONValue(v reflect.Value) ([]byte, bool, error) {
 				return nil, false, nil
 			}
 		}
-		if t.Implements(jsonMarshaler) || t.Implements(textMarshaler) {
+		if implementsJSONMethod(t, jsonMarshalMethods) {
 			// Keep the static interface type: its marshaler may intentionally
 			// accept a nil pointer receiver, unlike a plain nil pointer value.
 			array := reflect.New(reflect.ArrayOf(1, t)).Elem()
@@ -234,7 +236,7 @@ func marshalJSONValue(v reflect.Value) ([]byte, bool, error) {
 		}
 		return nil, false, nil
 	}
-	for _, marshaler := range []reflect.Type{jsonMarshaler, textMarshaler} {
+	for _, marshaler := range jsonMarshalMethods {
 		if v.CanAddr() && reflect.PointerTo(t).Implements(marshaler) {
 			data, err := json.Marshal(v.Addr().Interface())
 			return data, true, err
@@ -255,6 +257,15 @@ func isJSONEmpty(v reflect.Value) bool {
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
 		reflect.Float32, reflect.Float64, reflect.Interface, reflect.Pointer:
 		return v.IsZero()
+	}
+	return false
+}
+
+func implementsJSONMethod(t reflect.Type, methods []reflect.Type) bool {
+	for _, method := range methods {
+		if t.Implements(method) {
+			return true
+		}
 	}
 	return false
 }

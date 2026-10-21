@@ -89,6 +89,9 @@ func jsonFields(t reflect.Type) []jsonField {
 					name = sf.Name
 				}
 				optionsList := strings.Split(options, ",")
+				if !sf.IsExported() && ignorePrivateJSONField(embedded, slices.Contains(optionsList, "omitzero")) {
+					continue
+				}
 				quoted := false
 				if slices.Contains(optionsList, "string") {
 					quotedType := sf.Type

@@ -92,9 +92,13 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
 - Namespace query strings (`0/nsp?x=1`) are parsed into `Header.Query` and merged into
   `Handshake().Query` of that socket.
 
-A Socket.IO packet may contain at most 10 binary attachments. Encoding rejects
-a larger payload before writing any frames; decoding rejects a header declaring
-more than 10 attachments.
+A Socket.IO packet may contain at most 10 binary attachments. Encoding counts
+only attachments referenced by the encoded JSON and rejects a larger packet
+before writing any frames; decoding rejects a header declaring more than 10
+attachments. JSON field selection applies to embedded and private fields.
+Except for `parser.Buffer`, values implementing JSON or text marshaling use
+their marshaled representation; their fields are not inspected for binary
+attachments.
 
 ## Redis cluster interoperability
 

@@ -3,6 +3,8 @@ package parser
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"reflect"
@@ -42,7 +44,7 @@ type PreparedPacket struct {
 }
 
 // Prepare snapshots the JSON payload and binary attachments before queueing a packet.
-// It rejects payloads containing more than 10 binary attachments.
+// It rejects encoded packets containing more than 10 binary attachments.
 func Prepare(h Header, args ...interface{}) (*PreparedPacket, error) {
 	var data bytes.Buffer
 	buffers, err := new(Encoder).writePacket(bufferCloser{&data}, h, args)
@@ -139,8 +141,13 @@ func (e *Encoder) writePacket(w io.WriteCloser, h Header, args []interface{}) ([
 		bw = bufio.NewWriter(w)
 	}
 
+	// Only the first argument is the packet payload.
+	if len(args) > 1 {
+		args = args[:1]
+	}
 	max := uint64(0)
-	numbered, buffers, err := e.numberBuffers(reflect.ValueOf(args), &max)
+	walker := &bufferNumberer{active: make(map[bufferVisit]bool)}
+	numbered, buffers, err := walker.numberBuffers(reflect.ValueOf(args), &max)
 	if err != nil {
 		return nil, err
 	}
@@ -148,6 +155,17 @@ func (e *Encoder) writePacket(w io.WriteCloser, h Header, args []interface{}) ([
 		args = numbered.Interface().([]interface{})
 	}
 
+	var payload bytes.Buffer
+	if len(args) > 0 {
+		if err := json.NewEncoder(&payload).Encode(args[0]); err != nil {
+			return nil, err
+		}
+	}
+	data, buffers, err := finishAttachments(payload.Bytes(), buffers, walker.marker)
+	if err != nil {
+		return nil, err
+	}
+	max = uint64(len(buffers))
 	if len(buffers) > 0 && (h.Type == Event || h.Type == Ack) {
 		h.Type += 3
 	}
@@ -180,10 +198,8 @@ func (e *Encoder) writePacket(w io.WriteCloser, h Header, args []interface{}) ([
 		}
 	}
 
-	if len(args) > 0 {
-		if err := json.NewEncoder(bw).Encode(args[0]); err != nil {
-			return nil, err
-		}
+	if _, err := bw.Write(data); err != nil {
+		return nil, err
 	}
 
 	if f, ok := bw.(flusher); ok {
@@ -266,47 +282,42 @@ func (n *numbering) child(c reflect.Value, i int, key reflect.Value) error {
 // fields numbers the Buffers in the fields of s, the struct v or an embedded unexported struct of
 // it at path, and stores them into repl; reflect refuses to set the embedded field itself.
 func (n *numbering) fields(s reflect.Value, path []int) error {
-	for i := 0; i < s.NumField(); i++ {
-		f := s.Field(i)
-		sf := s.Type().Field(i)
-		if sf.Tag.Get("json") == "-" {
+	for _, field := range jsonFields(s.Type()) {
+		f := jsonFieldValue(s, field.path)
+		if !f.IsValid() || (field.omitZero && isJSONZero(f)) {
 			continue
 		}
-		if !sf.IsExported() && !sf.Anonymous {
+		fullPath := append(path[:len(path):len(path)], field.path...)
+		if f.Kind() == reflect.Struct && !f.CanInterface() {
+			if err := n.fields(f, fullPath); err != nil {
+				return err
+			}
 			continue
 		}
-		if !sf.IsExported() && sf.Anonymous && f.Kind() != reflect.Struct && f.Kind() != reflect.Pointer {
-			continue
-		}
-		if f.Kind() == reflect.Struct {
-			if sf.Anonymous && !sf.IsExported() {
-				if err := n.fields(f, append(path[:len(path):len(path)], i)); err != nil {
-					return err
-				}
+		before := *n.index
+		c, b, err := n.walker.numberBuffers(f, n.index)
+		if err != nil {
+			if err == n.walker.cycleErr && field.omitZero && hasJSONZeroMethod(f) {
+				// Keep the original subtree for the one IsZero decision made by
+				// encoding/json. It either omits this field or reports the cycle.
+				// Failed traversal returns no buffers, so discard its numbering.
+				*n.index = before
 				continue
 			}
-		}
-		c, b, err := n.walker.numberBuffers(f, n.index)
-		n.data = append(n.data, b...)
-		if err != nil {
 			return err
 		}
+		n.data = append(n.data, b...)
 		if c.IsValid() {
 			r, err := n.own()
 			if err != nil {
 				return err
 			}
-			r.FieldByIndex(append(path[:len(path):len(path)], i)).Set(c)
+			if err := setJSONField(r, fullPath, c); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
-}
-
-// numberBuffers returns the data of the Buffers in v and a replacement of v in which each Buffer
-// is a numbered copy. Values given to Emit or Broadcast are shared between connections: the
-// containers that hold a Buffer are copied, never changed. The Value is invalid if v has none.
-func (e *Encoder) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, [][]byte, error) {
-	return (&bufferNumberer{active: make(map[bufferVisit]bool)}).numberBuffers(v, index)
 }
 
 type bufferVisit struct {
@@ -316,12 +327,14 @@ type bufferVisit struct {
 }
 
 type bufferNumberer struct {
-	active map[bufferVisit]bool
-	depth  int
+	active   map[bufferVisit]bool
+	depth    int
+	marker   string
+	cycleErr *json.UnsupportedValueError
 }
 
 func (w *bufferNumberer) numberBuffers(v reflect.Value, index *uint64) (reflect.Value, [][]byte, error) {
-	if !v.IsValid() {
+	if !v.IsValid() || hasJSONMarshaler(v) {
 		return reflect.Value{}, nil, nil
 	}
 	w.depth++
@@ -336,7 +349,8 @@ func (w *bufferNumberer) numberBuffers(v reflect.Value, index *uint64) (reflect.
 				visit.length = v.Len()
 			}
 			if w.active[visit] {
-				return reflect.Value{}, nil, &json.UnsupportedValueError{Value: v, Str: "encountered a cycle"}
+				w.cycleErr = &json.UnsupportedValueError{Value: v, Str: "encountered a cycle"}
+				return reflect.Value{}, nil, w.cycleErr
 			}
 			w.active[visit] = true
 			defer delete(w.active, visit)
@@ -358,15 +372,19 @@ func (w *bufferNumberer) numberBuffers(v reflect.Value, index *uint64) (reflect.
 		return c, b, err
 
 	case reflect.Struct:
-		if v.Type() == reflect.TypeOf(Buffer{}) {
-			if *index >= maxAttachments {
-				return reflect.Value{}, nil, errTooManyAttachments
-			}
+		if v.Type() == bufferType {
 			if !v.CanInterface() {
 				return reflect.Value{}, nil, errUnsupportedBuffer
 			}
+			if w.marker == "" {
+				var nonce [16]byte
+				if _, err := rand.Read(nonce[:]); err != nil {
+					return reflect.Value{}, nil, err
+				}
+				w.marker = hex.EncodeToString(nonce[:])
+			}
 			src := v.Interface().(Buffer)
-			numbered := Buffer{num: *index, isBinary: true, Data: src.Data}
+			numbered := Buffer{num: *index, isBinary: true, Data: src.Data, marker: w.marker}
 			*index++
 			return reflect.ValueOf(numbered), [][]byte{src.Data}, nil
 		}

@@ -2,6 +2,7 @@ package polling
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ type clientConn struct {
 	*payload
 
 	httpClient   *http.Client
+	cancel       context.CancelFunc
 	request      http.Request
 	remoteHeader atomic.Value
 	writableMu   sync.Mutex
@@ -163,6 +165,9 @@ func (c *clientConn) Close() error {
 	c.pauseEpoch++
 	c.notifyChanged()
 	c.writableMu.Unlock()
+	if c.cancel != nil {
+		c.cancel()
+	}
 	return c.payload.Close()
 }
 
@@ -201,7 +206,6 @@ func (c *clientConn) servePost() {
 		}
 
 		discardBody(resp.Body)
-		c.setPosting(false)
 
 		if resp.StatusCode != http.StatusOK {
 			err = c.payload.Store("post", fmt.Errorf("invalid response: %s(%d)", resp.Status, resp.StatusCode))
@@ -217,7 +221,25 @@ func (c *clientConn) servePost() {
 		}
 
 		c.remoteHeader.Store(resp.Header)
+		c.setPosting(false)
 	}
+}
+
+// Flush waits for the current POST response without waiting for a long-poll GET.
+// Writers must be serialized by the caller. Close interrupts this wait.
+func (c *clientConn) Flush() error {
+	c.writableMu.Lock()
+	defer c.writableMu.Unlock()
+	for c.posting && !c.stopped {
+		changed := c.changed
+		c.writableMu.Unlock()
+		<-changed
+		c.writableMu.Lock()
+	}
+	if c.stopped {
+		return c.payload.load()
+	}
+	return nil
 }
 
 func (c *clientConn) getOpen() {

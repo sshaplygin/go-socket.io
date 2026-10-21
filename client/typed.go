@@ -239,7 +239,7 @@ func (s *Socket) RequestAck(ctx context.Context, name string, value event.Payloa
 	return result, err
 }
 
-// m.mu is held. Legacy pre-connect buffering retains its existing semantics.
+// m.mu is held. Untyped buffered events remain available for a later Connect.
 func (s *Socket) cancelBufferedTypedLocked() {
 	kept := s.buffer[:0]
 	for _, record := range s.buffer {

@@ -87,11 +87,12 @@ tests, Go 1.22, repeated concurrency tests, coverage, examples and Node clients
 modules; other implementations evolve independently.
 
 Benchmarks compare the PR base and head on the same runner and Go toolchain,
-with ten samples per side. `.github/benchmarks/report` renders timing and
-allocation deltas using benchstat. Results go to the job summary and an artifact;
-same-repository PRs also receive an updated comment. Benchmark changes do not
-fail CI based on timing thresholds. Validate reporting with
-`go test ./.github/benchmarks/report`.
+with ten samples per side. The pinned `sshaplygin/benchmark-report/report` action
+validates the manifests and generates the report and offline replay bundle using
+`.github/benchmarks/benchmark-report.json`. Results go to the job summary and an
+artifact; same-repository PRs also receive an updated comment. Benchmark changes
+do not fail CI based on timing thresholds. The workflow exercises the report
+action with the collected benchmark samples.
 
 ## Conventions
 

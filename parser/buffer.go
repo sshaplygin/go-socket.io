@@ -6,8 +6,9 @@ import (
 	"strconv"
 )
 
-// Buffer is an binary buffer handler used in emit args. All buffers will be
-// sent as binary in the transport layer.
+// Buffer carries binary data in event arguments. A Buffer included in the
+// encoded JSON is sent as a binary attachment. Omitted fields and values inside
+// custom JSON or text marshalers do not produce attachments.
 type Buffer struct {
 	num      uint64
 	isBinary bool

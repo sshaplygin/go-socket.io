@@ -1,6 +1,7 @@
 package polling
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"time"
@@ -60,6 +61,8 @@ func dial(client *http.Client, url *url.URL, requestHeader http.Header) (*client
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithCancel(req.Context())
+	req = req.WithContext(ctx)
 	for k, v := range requestHeader {
 		req.Header[k] = v
 	}
@@ -74,5 +77,6 @@ func dial(client *http.Client, url *url.URL, requestHeader http.Header) (*client
 		payload:    newPayload(supportBinary),
 		httpClient: client,
 		request:    *req,
+		cancel:     cancel,
 	}, nil
 }

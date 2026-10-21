@@ -75,3 +75,28 @@ func FuzzDecoderDiscardPacket(f *testing.F) {
 		_ = d.Close()
 	})
 }
+
+type mutatePreviouslyEncodedBuffer []byte
+
+func (v mutatePreviouslyEncodedBuffer) MarshalJSON() ([]byte, error) {
+	copy(v, "after!")
+	return []byte(`"changed"`), nil
+}
+
+func TestPreparedPacketSnapshotsBuffersBeforeLaterMarshalers(t *testing.T) {
+	data := []byte("before")
+	packet, err := parser.Prepare(parser.Header{Type: parser.Event}, []any{"event", parser.Buffer{Data: data}, mutatePreviouslyEncodedBuffer(data)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := new(recordedWriter)
+	if err := parser.NewEncoder(w).EncodePrepared(packet); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.frames) != 2 || w.frames[1].String() != "before" {
+		t.Fatalf("later marshaler changed an already encoded attachment: %v", w.frames)
+	}
+	if string(data) != "after!" {
+		t.Fatalf("marshaler did not run: %q", data)
+	}
+}

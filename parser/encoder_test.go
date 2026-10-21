@@ -3,7 +3,6 @@ package parser
 import (
 	"bytes"
 	"io"
-	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -75,7 +74,7 @@ func TestEncoder(t *testing.T) {
 	}
 }
 
-func TestAttachBuffer(t *testing.T) {
+func TestEncodeBinaryAttachments(t *testing.T) {
 	tests := []struct {
 		name   string
 		data   interface{}
@@ -106,20 +105,18 @@ func TestAttachBuffer(t *testing.T) {
 		}, 1, [][]byte{{1, 2}}},
 	}
 
-	e := Encoder{}
-
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			should := assert.New(t)
 			must := require.New(t)
 
-			index := uint64(0)
-			b, err := e.attachBuffer(reflect.ValueOf(test.data), &index)
-
-			must.NoError(err)
-
-			should.Equal(test.max, index)
-			should.Equal(test.binary, b)
+			w := &fakeWriter{}
+			must.NoError(NewEncoder(w).Encode(Header{Type: Event}, []interface{}{"binary", test.data}))
+			must.Len(w.data, int(test.max)+1)
+			for i, want := range test.binary {
+				should.Equal(Binary, w.types[i+1])
+				should.Equal(want, w.data[i+1].Bytes())
+			}
 		})
 	}
 }

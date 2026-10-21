@@ -38,8 +38,6 @@ jobs:
             v2/go.sum
       - name: Test change classification
         run: go test ./.github/changes
-      - name: Test report rendering
-        run: go test ./.github/benchmarks/report
       # The classifier of .github/changes (as in ci.yaml) decides whether this update changed
       # anything a benchmark measures: the update since the previous head, or since the
       # merge base when the PR opens or the previous head is unavailable.

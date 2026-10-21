@@ -505,14 +505,22 @@ func (m *clientState) ownsNamespaceLocked(nc *namespaceConn) bool {
 }
 
 func (m *clientState) closeSocket(s *Socket, reason string, closeLast bool, expected *conn, expectedNamespace *namespaceConn) error {
+	notify, err := m.detachSocket(s, reason, closeLast, expected, expectedNamespace)
+	if notify != nil {
+		notify()
+	}
+	return err
+}
+
+func (m *clientState) detachSocket(s *Socket, reason string, closeLast bool, expected *conn, expectedNamespace *namespaceConn) (func(), error) {
 	m.mu.Lock()
 	if expected != nil && m.conn != expected || expectedNamespace != nil && !m.ownsNamespaceLocked(expectedNamespace) {
 		m.mu.Unlock()
-		return nil
+		return nil, nil
 	}
 	if !s.active {
 		m.mu.Unlock()
-		return nil
+		return nil, nil
 	}
 	s.cancelBufferedTypedLocked()
 	current, nc, connected := m.conn, s.nc, s.connected
@@ -547,12 +555,13 @@ func (m *clientState) closeSocket(s *Socket, reason string, closeLast bool, expe
 	if last && closeLast && current != nil {
 		closeErr = current.Close()
 	}
+	var notify func()
 	if connected && claimed {
 		if f := s.handler.DisconnectHandler(); f != nil {
-			f(nc, reason)
+			notify = func() { f(nc, reason) }
 		}
 	}
-	return closeErr
+	return notify, closeErr
 }
 
 func (m *clientState) closeAll(expected ...*namespaceConn) error {
@@ -575,13 +584,21 @@ func (m *clientState) closeAll(expected ...*namespaceConn) error {
 	sockets := append([]*Socket(nil), m.order...)
 	current := m.conn
 	m.mu.Unlock()
+	var callbacks []func()
 	for _, socket := range sockets {
-		_ = m.closeSocket(socket, "io client disconnect", false, current, nil)
+		notify, _ := m.detachSocket(socket, "io client disconnect", false, current, nil)
+		if notify != nil {
+			callbacks = append(callbacks, notify)
+		}
 	}
+	var err error
 	if current != nil {
-		return current.Close()
+		err = current.Close()
 	}
-	return nil
+	for _, notify := range callbacks {
+		notify()
+	}
+	return err
 }
 
 func (m *clientState) detach(nc *namespaceConn) {

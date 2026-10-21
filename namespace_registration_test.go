@@ -19,7 +19,7 @@ func TestHandlerRegistrationIdentity(t *testing.T) {
 	h.OnConnect(g)
 	require.Equal(t, reflect.ValueOf(g).Pointer(), reflect.ValueOf(h.onConnect).Pointer())
 	h.OnEvent("event", func(Conn, int) {})
-	require.Equal(t, []reflect.Type{reflect.TypeOf(0)}, h.getEventTypes("event"))
+	require.Equal(t, []reflect.Type{reflect.TypeOf(0)}, h.Listeners("event")[0].ArgTypes())
 	disconnect := func(Conn, string) {}
 	onError := func(Conn, error) {}
 	h.OnDisconnect(disconnect)

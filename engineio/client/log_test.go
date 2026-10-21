@@ -101,7 +101,7 @@ func readAll(conn Conn) error {
 // TestDialFailureRecords dials through two failing polling transports and an invalid URL
 // with slog.Default recording. The failure Dial does not return is one WARN; the errors
 // it returns and the polling client's request failures, which reach its reader, are
-// DEBUG; every message follows the 1.L pattern. Not parallel: it sets slog.Default.
+// DEBUG; every message follows the structured log format. Not parallel: it sets slog.Default.
 func TestDialFailureRecords(t *testing.T) {
 	rec := newRecorder()
 	setDefault(t, rec)
@@ -135,7 +135,7 @@ func TestDialFailureRecords(t *testing.T) {
 // TestClientPeerCloseRecords aborts the accepted session of an engineio.Dialer client
 // that does not close itself, or has a websocket peer send a close frame after OPEN,
 // reads the client until NextReader fails and waits for its ping to fail, with
-// slog.Default recording: the 1.L Levels rule makes a ping failure after a peer close
+// slog.Default recording: the logging policy makes a ping failure after a peer close
 // expected closure, so no record is above DEBUG. Not parallel.
 func TestClientPeerCloseRecords(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
@@ -236,7 +236,7 @@ func TestClientPingFailureRecord(t *testing.T) {
 
 // TestClientReaderCloseRecord: a failing reader Close in the engine.io client's
 // NextReader, whose failure NextReader then returns, logs nothing above DEBUG under the
-// 1.L Levels rule. Not parallel: it sets slog.Default.
+// logging policy. Not parallel: it sets slog.Default.
 func TestClientReaderCloseRecord(t *testing.T) {
 	rec := newRecorder()
 	setDefault(t, rec)

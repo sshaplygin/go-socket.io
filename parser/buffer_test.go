@@ -14,17 +14,17 @@ var attachmentTests = []struct {
 	binaryEncoding string
 }{
 	{
-		Buffer{0, false, []byte{1, 255}},
+		Buffer{num: 0, Data: []byte{1, 255}},
 		`{"type":"Buffer","data":[1,255]}`,
 		`{"_placeholder":true,"num":0}`,
 	},
 	{
-		Buffer{1, false, []byte{}},
+		Buffer{num: 1, Data: []byte{}},
 		`{"type":"Buffer","data":[]}`,
 		`{"_placeholder":true,"num":1}`,
 	},
 	{
-		Buffer{2, false, nil},
+		Buffer{num: 2},
 		`{"type":"Buffer","data":[]}`,
 		`{"_placeholder":true,"num":2}`,
 	},

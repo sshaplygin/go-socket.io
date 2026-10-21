@@ -326,36 +326,58 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 
 	must.NoError(r.Close())
 
-	// PONG only confirms the probe; it does not prove that a polling GET
-	// has reached the server. Read NOOP and stop polling before UPGRADE, or
-	// the server may reject that late GET and the reader may never signal done.
+	// Consume NOOP responses while Pause waits for the active poll. Close
+	// cancels HTTP requests and must not precede the upgrade handshake.
 	releasePolling()
 	pollDone := make(chan error, 1)
+	noop := make(chan struct{}, 1)
 	go func() {
-		ft, pt, r, err := p.NextReader()
-		if err != nil {
-			pollDone <- fmt.Errorf("read polling NOOP: %w", err)
-			return
+		for {
+			ft, pt, r, err := p.NextReader()
+			if err != nil {
+				pollDone <- err
+				return
+			}
+			if err := r.Close(); err != nil {
+				pollDone <- err
+				return
+			}
+			if ft != eioparser.String || pt != eioparser.NOOP {
+				pollDone <- fmt.Errorf("expected polling NOOP, got (%v, %v)", ft, pt)
+				return
+			}
+			select {
+			case noop <- struct{}{}:
+			default:
+			}
 		}
-		closeErr := r.Close()
-		if ft != eioparser.String || pt != eioparser.NOOP {
-			pollDone <- fmt.Errorf("expected polling NOOP (%v, %v), got (%v, %v)", eioparser.String, eioparser.NOOP, ft, pt)
-			return
-		}
-		pollDone <- closeErr
 	}()
 	select {
+	case <-noop:
 	case err := <-pollDone:
-		must.NoError(err)
+		t.Fatalf("polling stopped before upgrade: %v", err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for polling NOOP before UPGRADE")
 	}
-	must.NoError(p.Close())
+	paused := make(chan struct{})
+	go func() { p.(interface{ Pause() }).Pause(); close(paused) }()
+	select {
+	case <-paused:
+	case <-time.After(5 * time.Second):
+		t.Fatal("polling pause did not finish")
+	}
 
 	w, err = ws.NextWriter(eioparser.String, eioparser.UPGRADE)
 	must.NoError(err)
 
 	must.NoError(w.Close())
+	must.NoError(p.Close())
+	select {
+	case err := <-pollDone:
+		must.ErrorIs(err, io.EOF)
+	case <-time.After(5 * time.Second):
+		t.Fatal("polling reader did not stop after close")
+	}
 
 	w, err = ws.NextWriter(eioparser.String, eioparser.MESSAGE)
 	must.NoError(err)

@@ -108,6 +108,21 @@ func (c *client) Close() error {
 	return c.terminate(ReasonForcedClose, nil)
 }
 
+// Flush completes writes accepted by a buffering transport. The write gate
+// prevents heartbeat and upgrade writes from overtaking the final POST.
+func (c *client) Flush() error {
+	if err := c.acquireWrite(nil); err != nil {
+		return err
+	}
+	defer c.releaseWrite()
+	if pending, ok := c.connection().(interface{ Flush() error }); ok {
+		if err := pending.Flush(); err != nil {
+			return c.failure(err)
+		}
+	}
+	return nil
+}
+
 func (c *client) terminate(reason CloseReason, err error) error {
 	c.initialize()
 	var result error
@@ -315,8 +330,8 @@ func (c *client) serve() {
 	}
 }
 
-// pingFailed logs a failure of the ping loop. By the 1.L Levels rule it is DEBUG when
-// it is expected closure: a Close the client started, io.EOF or a closed connection, a
+// pingFailed logs expected closure at DEBUG: a Close the client started,
+// io.EOF or a closed connection, a
 // *net.OpError (a peer close, reset or passed deadline), a websocket close frame from
 // the peer (websocket.ErrCloseSent after the reply to it, or a *websocket.CloseError),
 // or a polling *polling.OpError that is not temporary (the transport stores a request

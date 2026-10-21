@@ -228,19 +228,20 @@ func TestAbortKeepsErrorBeforeTransportClose(t *testing.T) {
 			waitClose(t, attempted)
 			select {
 			case err := <-done:
-				t.Fatalf("close passed the blocked Error hook: %v", err)
-			case <-time.After(20 * time.Millisecond):
+				require.NoError(t, err)
+			case <-time.After(time.Second):
+				t.Fatal("repeated close waited for Error hook")
 			}
 			require.False(t, c.isClosed())
 			unblock()
-			for i := 0; i < 2; i++ {
-				select {
-				case err := <-done:
-					require.NoError(t, err)
-				case <-time.After(time.Second):
-					t.Fatal("close did not return after Error")
-				}
+
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(time.Second):
+				t.Fatal("close did not return after Error")
 			}
+
 			require.True(t, c.isClosed())
 			require.Equal(t, int32(1), calls.Load())
 			require.Equal(t, ReasonTransportError, s.closeError().Reason)

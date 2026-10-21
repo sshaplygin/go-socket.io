@@ -44,6 +44,8 @@ type Hooks struct {
 	Drain func(c Conn)
 	// Error fires with the transport error that closes the session (the cause
 	// transport error), before the close; a peer close or a ping timeout fires nothing.
+	// Close/Abort called during Error return without waiting for this callback;
+	// the transport closes when Error returns. The hook must return promptly.
 	Error func(c Conn, err error)
 }
 

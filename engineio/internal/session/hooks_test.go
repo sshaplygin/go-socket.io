@@ -43,18 +43,47 @@ func TestSessionConcurrentCloseKeepsErrorBeforeTransportClose(t *testing.T) {
 	go func() { done <- s.Close() }()
 	select {
 	case err := <-done:
-		t.Fatalf("transport closed before Error returned: %v", err)
-	case <-time.After(20 * time.Millisecond):
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("repeated Close waited for Error hook")
 	}
 	require.False(t, c.isClosed())
 	unblock()
-	for i := 0; i < 2; i++ {
-		select {
-		case err := <-done:
-			require.NoError(t, err)
-		case <-time.After(time.Second):
-			t.Fatal("Close did not return")
-		}
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Close did not return")
 	}
+
 	require.True(t, c.isClosed())
+}
+
+func TestErrorHookCanCloseSession(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		close func(*Session) error
+	}{
+		{"close", (*Session).Close}, {"abort", (*Session).Abort}, {"shutdown", (*Session).Shutdown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &scriptConn{}
+			s := newTestSession(t, c, "polling")
+			require.NoError(t, s.Init())
+			result := make(chan error, 1)
+			s.SetHooks(&Hooks{Error: func(s *Session, _ error) { result <- tc.close(s) }})
+			s.observe(reasonTransportError, errors.New("peer reset"))
+			go func() { _ = s.Close() }()
+			select {
+			case err := <-result:
+				require.NoError(t, err)
+			case <-time.After(time.Second):
+				t.Fatal("Error hook deadlocked calling close")
+			}
+			waitClose(t, s.closeDone)
+			require.True(t, c.isClosed())
+			require.Equal(t, ReasonTransportError, s.closeError().Reason)
+		})
+	}
 }

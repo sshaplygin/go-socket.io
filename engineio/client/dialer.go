@@ -141,6 +141,11 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 			onPong:         d.OnPong,
 		}
 		started := time.Now()
+		ret.readDeadline = started.Add(params.PingInterval + params.PingTimeout)
+		if err = conn.SetReadDeadline(ret.readDeadline); err != nil {
+			dialFailed(i, t.Name(), err)
+			continue
+		}
 		ret.initialize()
 		go ret.serve()
 		if d.Upgrade && len(transports) > 1 {

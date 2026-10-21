@@ -55,9 +55,18 @@ func (s *Session) closeMode(reason string, abort bool) error {
 	graceful, canDrain := conn.(interface{ CloseGracefully() error })
 	orderly := canDrain && !opened.IsZero() && c.reason == reasonForcedClose && !abort
 	if !first {
+		// The first closer owns synchronous Error notification and will close
+		// the failed transport immediately afterwards. A hook may itself call
+		// Close, Abort or Server.Close; waiting here would wait for that callback
+		// to return to this same close operation.
+		if c.reason == reasonTransportError && s.hooks != nil && s.hooks.Error != nil {
+			select {
+			case <-s.notified:
+			default:
+				return nil
+			}
+		}
 		if abort {
-			// abort interrupts an established orderly wait, but cannot pass
-			// the first closer's synchronous error notification.
 			<-s.notified
 			s.closeTransport(conn)
 		} else if orderly {

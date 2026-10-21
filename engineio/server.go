@@ -68,7 +68,8 @@ func NewServer(opts ...Option) *Server {
 }
 
 // Close closes server. Accept returns io.EOF from then on. Every session not yet
-// returned by Accept, and every accepted session, is closed and removed.
+// returned by Accept, and every accepted session, is closed and removed. An
+// in-progress Error hook completes its transport close when the hook returns.
 func (s *Server) Close() error {
 	s.closeOnce.Do(func() {
 		s.lifecycle.Lock()

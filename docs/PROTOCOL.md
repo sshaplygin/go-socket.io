@@ -92,6 +92,10 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
 - Namespace query strings (`0/nsp?x=1`) are parsed into `Header.Query` and merged into
   `Handshake().Query` of that socket.
 
+A Socket.IO packet may contain at most 10 binary attachments. Encoding rejects
+a larger payload before writing any frames; decoding rejects a header declaring
+more than 10 attachments.
+
 ## Redis cluster interoperability
 
 The v1 Redis adapter speaks the broadcast and request protocol of
@@ -109,6 +113,10 @@ Go-only adapters route requests by exact channel and namespace. Broadcast namesp
 identity is checked from the packet independently of channel separators, including
 `#`; that broadcast check does not repair Node's request routing. Custom payloads are JSON,
 not binary, matching the reference adapter.
+
+Redis broadcast envelopes must contain one complete MessagePack value. Declared
+lengths must fit the message, and nesting is limited to 1000 levels before decoding.
+Malformed envelopes are discarded.
 
 Redis Pub/Sub provides no replay during disconnection. Queries are bounded,
 non-atomic snapshots; context-aware operations report timeouts and partial results.

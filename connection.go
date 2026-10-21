@@ -212,11 +212,14 @@ func nspAttr(nsp string) slog.Attr {
 	return slog.String("nsp", cmp.Or(nsp, aliasRootNamespace))
 }
 
-// errConn returns the Conn to report an error of nsp with (new if nsp was disconnected), or nil.
+// errConn preserves error context for an unjoined namespace without granting it
+// the room membership or sending capabilities of an accepted socket.
 func (c *connection) errConn(nsp string) (nc *namespaceConn) {
 	if nh := c.namespace(nsp); nh != nil && nh.ErrorHandler() != nil {
 		if nc, _ = c.namespaces.Get(nsp); nc == nil {
 			nc = newNamespaceConn(c, cmp.Or(nsp, aliasRootNamespace), nh.Adapter())
+			nc.rejected, nc.roomsClosed = true, true
+			nc.endTyped()
 		}
 	}
 	return nc

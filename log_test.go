@@ -498,7 +498,7 @@ func TestPingTimeoutRecords(t *testing.T) {
 	}
 }
 
-// keyCheck collects the module's records that break the 1.L contract and, per message,
+// keyCheck collects the module's records that break the structured logging contract and, per message,
 // the sid of each record ("" unless it has exactly one sid attribute).
 type keyCheck struct {
 	mu       sync.Mutex

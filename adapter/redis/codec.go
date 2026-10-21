@@ -25,6 +25,9 @@ func (bc *broadcast) onMessage(channel string, data []byte) error {
 	if !strings.HasPrefix(channel, bc.broadcastChannel()) {
 		return nil
 	}
+	if err := validateMessagePack(data); err != nil {
+		return err
+	}
 	var envelope []interface{}
 	if err := msgpack.Unmarshal(data, &envelope); err != nil {
 		return fmt.Errorf("invalid redis broadcast: %w", err)

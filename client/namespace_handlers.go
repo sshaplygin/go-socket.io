@@ -153,8 +153,6 @@ func newAckFunc(f interface{}) *reflectedFunc {
 	}
 }
 
-// Rooms owns local client room membership.
-
 // ArgTypes supplies the connection decoder with callback parameter types.
 func (h *reflectedFunc) ArgTypes() []reflect.Type { return h.argTypes }
 

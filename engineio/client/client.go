@@ -315,7 +315,7 @@ func (c *client) serve() {
 	}
 }
 
-// pingFailed logs a failure of the ping loop. By the 1.L Levels rule it is DEBUG when
+// pingFailed logs a failure of the ping loop. It is DEBUG for
 // it is expected closure: a Close the client started, io.EOF or a closed connection, a
 // *net.OpError (a peer close, reset or passed deadline), a websocket close frame from
 // the peer (websocket.ErrCloseSent after the reply to it, or a *websocket.CloseError),

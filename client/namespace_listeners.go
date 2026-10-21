@@ -1,11 +1,9 @@
 package client
 
 import (
-	"errors"
 	"reflect"
 
 	typed "github.com/sshaplygin/go-socket.io/internal/event"
-	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 type eventListener struct {
@@ -70,33 +68,6 @@ func (nh *namespaceHandler) Listeners(event string) []*eventListener {
 	return append([]*eventListener(nil), nh.events[event]...)
 }
 
-func (nh *namespaceHandler) Dispatch(conn Conn, header parser.Header, args ...reflect.Value) ([]reflect.Value, error) {
-	switch header.Type {
-	case parser.Connect:
-		if f := nh.ConnectHandler(); f != nil {
-			return nil, f(conn)
-		}
-		return nil, nil
-
-	case parser.Disconnect:
-		if f := nh.DisconnectHandler(); f != nil {
-			f(conn, getDispatchMessage(args...))
-		}
-		return nil, nil
-
-	case parser.Error:
-		if f := nh.ErrorHandler(); f != nil {
-			msg := getDispatchMessage(args...)
-			if msg == "" {
-				msg = "parser error dispatch"
-			}
-			f(conn, errors.New(msg))
-		}
-	}
-
-	return nil, parser.ErrInvalidPacketType
-}
-
 func (nh *namespaceHandler) DispatchEvent(conn Conn, event string, args ...reflect.Value) ([]reflect.Value, error) {
 	ret, _, err := nh.DispatchListeners(conn, event, nh.Listeners(event), func(...interface{}) {}, args...)
 	return ret, err
@@ -134,15 +105,6 @@ func (nh *namespaceHandler) DispatchListeners(conn Conn, event string, snapshot 
 		}
 	}
 	return result, ownsAck, nil
-}
-
-func getDispatchMessage(args ...reflect.Value) string {
-	var msg string
-	if len(args) > 0 {
-		msg = args[0].Interface().(string)
-	}
-
-	return msg
 }
 
 func (l *eventListener) ArgTypes() []reflect.Type { return l.handler.argTypes }

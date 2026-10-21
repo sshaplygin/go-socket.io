@@ -6,65 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/sshaplygin/go-socket.io/parser"
 )
-
-func TestNamespaceHandler(t *testing.T) {
-	should := assert.New(t)
-	must := require.New(t)
-
-	h := newNamespaceHandler(t.Name())
-
-	onConnectCalled := false
-	h.OnConnect(func(c Conn) error {
-		onConnectCalled = true
-		return nil
-	})
-
-	disconnectMsg := ""
-	h.OnDisconnect(func(c Conn, reason string) {
-		disconnectMsg = reason
-	})
-
-	var onError error
-	h.OnError(func(conn Conn, err error) {
-		onError = err
-	})
-
-	header := parser.Header{
-		Type: parser.Connect,
-	}
-
-	_, err := h.Dispatch(&testConn{}, header)
-	must.NoError(err)
-
-	should.True(onConnectCalled)
-
-	header.Type = parser.Disconnect
-
-	_, err = h.Dispatch(&testConn{}, header, []reflect.Value{reflect.ValueOf("disconnect")}...)
-	must.NoError(err)
-
-	should.Equal("disconnect", disconnectMsg)
-
-	header.Type = parser.Error
-
-	_, err = h.Dispatch(&testConn{}, header, []reflect.Value{reflect.ValueOf("failed")}...)
-	must.Error(err)
-
-	should.Equal(onError.Error(), "failed")
-
-	header.Type = parser.Event
-	args := h.Listeners("not_exist")
-
-	should.Nil(args)
-
-	ret, err := h.DispatchEvent(&testConn{}, "not_exist")
-	must.NoError(err)
-
-	should.Nil(ret)
-}
 
 func TestNamespaceHandlerEvent(t *testing.T) {
 	tests := []struct {

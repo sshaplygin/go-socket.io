@@ -42,6 +42,7 @@ type PreparedPacket struct {
 }
 
 // Prepare snapshots the JSON payload and binary attachments before queueing a packet.
+// It rejects payloads containing more than 10 binary attachments.
 func Prepare(h Header, args ...interface{}) (*PreparedPacket, error) {
 	var data bytes.Buffer
 	buffers, err := new(Encoder).writePacket(bufferCloser{&data}, h, args)
@@ -210,12 +211,6 @@ func (e *Encoder) writeUint64(w byteWriter, i uint64) error {
 	return nil
 }
 
-// attachBuffer returns the data of every Buffer in v in placeholder order; it never writes to v.
-func (e *Encoder) attachBuffer(v reflect.Value, index *uint64) ([][]byte, error) {
-	_, data, err := e.numberBuffers(v, index)
-	return data, err
-}
-
 // numbering is the state of numberBuffers for the value v: the data found so far and repl, the
 // private copy of v that numbered children are stored into.
 type numbering struct {
@@ -273,16 +268,23 @@ func (n *numbering) child(c reflect.Value, i int, key reflect.Value) error {
 func (n *numbering) fields(s reflect.Value, path []int) error {
 	for i := 0; i < s.NumField(); i++ {
 		f := s.Field(i)
+		sf := s.Type().Field(i)
+		if sf.Tag.Get("json") == "-" {
+			continue
+		}
+		if !sf.IsExported() && !sf.Anonymous {
+			continue
+		}
+		if !sf.IsExported() && sf.Anonymous && f.Kind() != reflect.Struct && f.Kind() != reflect.Pointer {
+			continue
+		}
 		if f.Kind() == reflect.Struct {
-			if sf := s.Type().Field(i); sf.Anonymous && !sf.IsExported() {
+			if sf.Anonymous && !sf.IsExported() {
 				if err := n.fields(f, append(path[:len(path):len(path)], i)); err != nil {
 					return err
 				}
 				continue
 			}
-		}
-		if s.Type().Field(i).Tag.Get("json") == "-" {
-			continue
 		}
 		c, b, err := n.walker.numberBuffers(f, n.index)
 		n.data = append(n.data, b...)
@@ -357,6 +359,9 @@ func (w *bufferNumberer) numberBuffers(v reflect.Value, index *uint64) (reflect.
 
 	case reflect.Struct:
 		if v.Type() == reflect.TypeOf(Buffer{}) {
+			if *index >= maxAttachments {
+				return reflect.Value{}, nil, errTooManyAttachments
+			}
 			if !v.CanInterface() {
 				return reflect.Value{}, nil, errUnsupportedBuffer
 			}

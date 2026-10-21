@@ -2,6 +2,7 @@ package polling
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ type clientConn struct {
 	*payload
 
 	httpClient   *http.Client
+	cancel       context.CancelFunc
 	request      http.Request
 	remoteHeader atomic.Value
 	writableMu   sync.Mutex
@@ -163,6 +165,9 @@ func (c *clientConn) Close() error {
 	c.pauseEpoch++
 	c.notifyChanged()
 	c.writableMu.Unlock()
+	if c.cancel != nil {
+		c.cancel()
+	}
 	return c.payload.Close()
 }
 

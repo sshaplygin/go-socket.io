@@ -112,9 +112,15 @@ func (c *conn) serveWrite() {
 		pkg, ok := c.nextQueued()
 		if !ok {
 			if isDone(c.seal) {
-				// Close the engine client once the application queue has drained.
-				// Keep the timer active until the reader ends.
-				go func() { _ = c.Conn.Close() }()
+				// A polling writer can finish before its POST reaches the peer.
+				// Drain that request before Close cancels transport I/O. The close
+				// timer remains active and interrupts a blocked transport flush.
+				go func() {
+					if pending, ok := c.Conn.(interface{ Flush() error }); ok {
+						_ = pending.Flush()
+					}
+					_ = c.Conn.Close()
+				}()
 				return
 			}
 			select {

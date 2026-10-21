@@ -108,6 +108,21 @@ func (c *client) Close() error {
 	return c.terminate(ReasonForcedClose, nil)
 }
 
+// Flush completes writes accepted by a buffering transport. The write gate
+// prevents heartbeat and upgrade writes from overtaking the final POST.
+func (c *client) Flush() error {
+	if err := c.acquireWrite(nil); err != nil {
+		return err
+	}
+	defer c.releaseWrite()
+	if pending, ok := c.connection().(interface{ Flush() error }); ok {
+		if err := pending.Flush(); err != nil {
+			return c.failure(err)
+		}
+	}
+	return nil
+}
+
 func (c *client) terminate(reason CloseReason, err error) error {
 	c.initialize()
 	var result error

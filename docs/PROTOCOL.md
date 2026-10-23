@@ -15,6 +15,8 @@ Package `engineio` of the v1 module at the repository root.
   with code 2, below). The `OPEN` packet carries `sid` (random, as engine.io's
   `base64id`), `upgrades` (`[]` with `WithUpgrades(false)`), `pingInterval` (default
   25 s) and `pingTimeout` (default 20 s). There is no `maxPayload`: protocol v3 has none.
+  The JSON OPEN payload ends with a newline, an intentional whitespace difference
+  from the reference server.
 - Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`). Every packet
   the session reads re-arms a window of `pingInterval + pingTimeout`; when it passes
   without one, the session closes with reason `ping timeout`.
@@ -32,6 +34,8 @@ Package `engineio` of the v1 module at the repository root.
   encoded-packet threshold when enabled. The Go client offers it when configured,
   with the same threshold. Per-packet compression defaults to true; false suppresses
   it for the packet and all its binary attachments on either transport.
+  A server-initiated websocket close closes the underlying connection without a
+  websocket close control frame; this is a known limitation.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
   to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
   threshold and only for a packet whose compression flag is true. The threshold is
@@ -71,6 +75,10 @@ Package `engineio` of the v1 module at the repository root.
   `Content-Type`, a POST the payload cannot take (paused, overlapping, closed, timed out
   or not decodable) or an invalid method, 413 for the message limit above, 500 for a poll
   whose response failed before it was started.
+  As a known compatibility limitation, polling POST accepts only
+  `application/octet-stream` or `text/plain` with an explicit UTF-8 charset
+  (case-insensitive). The reference server treats every non-octet-stream body as
+  text instead.
 
 ## Socket.IO protocol v4
 
@@ -79,6 +87,8 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
 
 - Packet format `<type>[<attachments>-][<namespace>,][<ack id>][JSON]`. Types
   0 CONNECT, 1 DISCONNECT, 2 EVENT, 3 ACK, 4 ERROR, 5 BINARY_EVENT, 6 BINARY_ACK.
+  Encoded JSON payloads end with a newline, an intentional whitespace difference
+  from the reference server.
 - On a new session the server connects the client to the root namespace `/`
   automatically and sends `0` before any client packet. Other namespaces are joined
   when the client sends `0/<nsp>`.
@@ -88,7 +98,12 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   following binary frames; on the Go side they map to `parser.Buffer`.
 - Event handlers return values become the ACK payload; an ACK packet is sent when the
   client requested an ack and a listener handled the event. Emitting with a trailing
-  function argument registers an ack callback.
+  function argument registers an ack callback. As a known limitation, an untyped
+  handler argument mismatch sends no ACK; a JavaScript ACK callback then never
+  fires. This is separate from typed descriptors' structured error ACKs.
+- ERROR payloads produced from application errors contain `err.Error()` strings;
+  structured error data is not preserved. This is a known compatibility
+  limitation compared with reference-server error objects.
 - Namespace query strings (`0/nsp?x=1`) are parsed into `Header.Query` and merged into
   `Handshake().Query` of that socket.
 

@@ -29,6 +29,7 @@ type byteReader interface {
 
 type Decoder struct {
 	r           FrameReader
+	reader      *bufio.Reader
 	lastFrame   io.ReadCloser
 	bufferCount uint64
 	args        []json.RawMessage
@@ -65,6 +66,9 @@ func (d *Decoder) closeLastFrame() error {
 	}
 	r := d.lastFrame
 	d.lastFrame = nil
+	if d.reader != nil {
+		d.reader.Reset(nil)
+	}
 	return r.Close()
 }
 
@@ -84,7 +88,13 @@ func (d *Decoder) DecodeHeader(header *Header, event *string) error {
 	if ft != Text {
 		return errInvalidFirstPacketType
 	}
-	br := bufio.NewReader(r)
+	br := d.reader
+	if br == nil {
+		br = bufio.NewReader(r)
+		d.reader = br
+	} else {
+		br.Reset(r)
+	}
 	if err := d.readHeader(br, header); err != nil {
 		return err
 	}
@@ -241,15 +251,16 @@ func (d *Decoder) validatePayload(typ Type, raw []byte, event *string) error {
 	if len(raw) == 0 {
 		return nil
 	}
-	if !json.Valid(raw) {
-		return errInvalidPayload
-	}
 	object := raw[0] == '{' || raw[0] == '[' || bytes.Equal(raw, []byte("null"))
 	var array []json.RawMessage
 	if raw[0] == '[' {
+		// Unmarshal validates the complete array, including trailing input.
+		// A separate json.Valid pass would scan every event and ACK twice.
 		if err := json.Unmarshal(raw, &array); err != nil {
 			return errInvalidPayload
 		}
+	} else if !json.Valid(raw) {
+		return errInvalidPayload
 	}
 	switch typ {
 	case Connect:

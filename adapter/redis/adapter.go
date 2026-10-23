@@ -15,6 +15,8 @@ import (
 	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
+const redisPublishMaxIdle = 16
+
 // broadcast composes the local room index with Redis publication and requests.
 type broadcast struct {
 	clusterOnce    sync.Once
@@ -97,7 +99,7 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 		}
 		return c, err
 	}
-	pub := &redis.Pool{MaxIdle: 4, Dial: func() (redis.Conn, error) {
+	pub := &redis.Pool{MaxIdle: redisPublishMaxIdle, Dial: func() (redis.Conn, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
 		defer cancel()
 		return dial(ctx)

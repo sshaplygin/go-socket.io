@@ -18,7 +18,9 @@ import (
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
-// Server is a go-socket.io server.
+// Server is a go-socket.io server and HTTP handler. Run Serve to dispatch
+// connections and events; HTTP handshakes can succeed without it and do not
+// report the missing dispatcher as an error.
 type Server struct {
 	engine *engineio.Server
 
@@ -176,7 +178,10 @@ func (s *Server) OnEvent(namespace, event string, f interface{}) {
 	h.OnEvent(event, f)
 }
 
-// Serve accepts and serves connections until Close is called, then returns nil. If a
+// Serve accepts and serves connections until Close is called, then returns nil.
+// Run it alongside the HTTP server: without Serve, connections and events are not
+// dispatched, even though HTTP handshakes can succeed without reporting an error.
+// If a
 // namespace's adapter could not be created before Serve was called (see SetAdapter)
 // and Close has not been called, Serve returns that error at once without accepting a
 // connection. The engine.io server then still completes handshakes, which nobody serves,

@@ -31,6 +31,10 @@ conformance:
 	go vet -tags conformance ./internal/conformance/...
 	go test -race -count=1 -tags conformance ./internal/conformance/...
 
+.PHONY: apidiff
+apidiff:
+	bash .github/apidiff/check.sh
+
 # Race tests of STRESS_PKGS that are also in PKGS, repeated and shuffled.
 .PHONY: test-stress
 test-stress:

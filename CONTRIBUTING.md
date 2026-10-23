@@ -14,7 +14,9 @@ A PR describes the concrete problem, resulting behavior and validation. Include
 a regression test for a bug, demonstrate that it fails without the fix, and use
 `-race` for concurrency changes. Run the relevant tests and `make lint`; update
 the owning documentation rather than repeating it across files. Report checks
-that could not be run.
+that could not be run. After the first fork v1 release, `make apidiff` must pass:
+keep the public API compatible with the latest stable fork v1 tag. The gate
+excludes inherited tags that declare the upstream module path.
 
 Review the final implementation and tests before merging. The owner merges PRs
 unless they explicitly delegate it. Use squash merge by default. Do not rewrite

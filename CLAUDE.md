@@ -31,6 +31,7 @@ Go 1.22+ is required. Linting uses golangci-lint v2; vulnerability checks use
 ```sh
 make test               # root module tests, no external services
 make test-race          # tests with the race detector
+make apidiff            # compare with the latest published fork v1 API
 make test-stress        # concurrent packages, shuffled and repeated
 make lint               # formatting, vet and golangci-lint
 make vet                # Linux/macOS/Windows, conformance and example packages
@@ -85,6 +86,11 @@ tests, Go 1.22, repeated concurrency tests, coverage, examples and Node clients
 1.7.4/2.5.0. Vulnerability checks use the newest Go release available to CI.
 `.github/sync-manifest` is the complete list of files deliberately shared across
 modules; other implementations evolve independently.
+
+`make apidiff` uses pinned `gorelease` to compare with the newest stable v1 tag
+whose go.mod declares the fork module path. It activates after the first fork
+release; inherited upstream tags are excluded. CI fetches complete history for
+this check. Set `API_BASE` to reproduce a comparison with a specific version.
 
 Benchmarks compare the PR base and head on the same runner and Go toolchain,
 with ten samples per side. The pinned `sshaplygin/benchmark-report/report` action

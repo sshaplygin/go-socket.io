@@ -1365,7 +1365,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W15. Support Engine.IO base64 over websocket
 
-- **Status:** open
+- **Status:** in progress — #162
 - **Priority:** after release
 - **Findings:** [interop-1](#interoperability-findings)
 - **Depends on:** W6 (removes the limitation it documents)
@@ -2907,7 +2907,7 @@ Every finding is listed under the dimension that reported it.
 
 | ID | Severity | Re-check | Location | Finding | Recommendation |
 | --- | --- | --- | --- | --- | --- |
-| interop-1 | major → minor | confirmed | `engineio/transport/websocket/wrapper.go:39` | WebSocket transport ignores Engine.IO base64 mode; a forceBase64 client is disconnected when it sends binary | In the websocket transport, decode text frames that start with 'b' as base64 binary packets. When the request carries `b64=1`, write binary packets as `b<base64>` text frames, as engine.io 3.6.2 does. Add a forceBase64 case (websocket and upgrade) to testdata/node/client.js. If this is not implemented for v1.5.0, document it in PROTOCOL.md as unsupported. |
+| interop-1 | major → minor | confirmed | `engineio/transport/websocket/wrapper.go:39` | WebSocket transport ignores Engine.IO base64 mode; a forceBase64 client is disconnected when it sends binary | In the websocket transport, decode text frames that start with 'b' as base64 binary packets. When the request carries `b64=1`, write binary packets as `b<base64>` text frames, as engine.io 3.6.2 does. Add a forceBase64 case (websocket and upgrade) to testdata/node/client.js. If this is not implemented for v1.5.0, document it in PROTOCOL.md as unsupported. Fixed by #162 (W15). |
 | interop-2 | minor | — | `parser/encoder.go:144` | Every JSON payload and the OPEN packet carry an undocumented trailing newline | Either drop the newline (both the Socket.IO payload and the OPEN packet), or record it in PROTOCOL.md as an intentional difference kept for compatibility with older go-socket.io releases. |
 | interop-3 | minor | — | `engineio/transport/polling/util.go:21` | Polling POST rejects Content-Types that the reference server accepts | Match the reference: treat any non-octet-stream body as text. Otherwise, document the exact accepted media types as a Go-specific restriction in PROTOCOL.md. |
 | interop-4 | minor | — | `packets.go:211` | Connect and event middleware rejections are always sent as a string; no counterpart to Node's err.data | Allow an error type (for example one with `Data() any`) whose value becomes the ERROR payload, or document in PROTOCOL.md that ERROR payloads are always `err.Error()` strings. |
@@ -3039,7 +3039,7 @@ reproduced here.
 | PERF-11 | Reproduced | Reran the review's DecodeStruct benchmark: `v1.4.2` about 3.5–3.8 µs per packet, the previous master (`3dd094d`) and `ebc9f5e` both about 4.9–5.3 µs, i.e. 37–42% slower than `v1.4.2` across runs, with no change from #143 (the decoder is unchanged). All three make 44 allocs/op, and current B/op is lower than `v1.4.2`. `v1.4.2` also allocates a bufio.Reader for non-byteReader frames, so the regression comes from the extra JSON passes (json.Valid, RawMessage split, per-argument Unmarshal), not from the per-packet bufio.Reader. Each `3dd094d` and `ebc9f5e` figure is an ad hoc measurement (no committed benchmark yet); see [W25](#w25-remove-extra-json-passes-from-decoding). Each `v1.4.2` figure is a historical ad hoc measurement; not reproducible by a committed benchmark. |
 | PERF-12 | Source-confirmed | broadcastMembers builds/populates a seen map for a single room too. |
 | PERF-13 | Reproduced | The original harness measured 7.00 goroutines per idle websocket connection on both `3dd094d` and `ebc9f5e`: 6 started by the library (engineio close watcher, header reader, serveRead dispatcher, serveError, serveWrite, observeEngineClose) plus net/http's connection goroutine. `v1.4.2` measured 4.00 (3 plus net/http). The count did not change in #143. Each `3dd094d` and `ebc9f5e` count is an ad hoc measurement (no committed benchmark yet); see [W26](#w26-reduce-the-idle-connection-footprint). The `v1.4.2` count is a historical ad hoc measurement; not reproducible by a committed benchmark. |
-| interop-1 | Reproduced | With b64=1, an outbound binary payload still produced a binary websocket frame. Inbound text `b4AQI=` closed the session with invalid Engine.IO packet type 50. The upgraded variant was not separately probed. |
+| interop-1 | Reproduced | With b64=1, an outbound binary payload still produced a binary websocket frame. Inbound text `b4AQI=` closed the session with invalid Engine.IO packet type 50. The upgraded variant was not separately probed. Fixed by #162 (W15). |
 | interop-2 | Source-confirmed | JSON payload encoding appends newline; OPEN uses JSON encoding with newline. PROTOCOL.md does not describe it. |
 | interop-3 | Source-confirmed | Go requires octet-stream or text/plain with UTF-8 charset. Installed reference Engine.IO treats every non-octet-stream request as text. |
 | interop-4 | Source-confirmed | Middleware/connect errors are serialized via err.Error(); no Node-style err.data interface exists. |

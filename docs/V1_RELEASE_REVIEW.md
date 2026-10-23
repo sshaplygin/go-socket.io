@@ -1662,7 +1662,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W25. Remove extra JSON passes from decoding
 
-- **Status:** in progress — #171; Latest combined lazy-reader snapshot has 10 samples per Decode case: allocations fall by 2/op and bytes by about 4.1 KiB/op; all time comparisons are statistically unchanged, with structs100 median +59.8% under host load. Isolated CI pending.
+- **Status:** in progress — #171; Latest combined lazy-reader snapshot has 10 samples per Decode case: allocations fall by 2/op and bytes by about 4.1 KiB/op; no timing comparison is statistically significant, with structs100 median +59.8% under host load. Isolated CI pending.
 - **Priority:** after release
 - **Findings:** [PERF-11](#performance-findings)
 - **Depends on:** W2

@@ -1,6 +1,6 @@
 # go-socket.io
 
-A [Socket.IO](https://socket.io) server for Go with namespaces, rooms, acknowledgements,
+A [Socket.IO](https://socket.io) server and Go client with namespaces, rooms, acknowledgements,
 broadcast and a Redis adapter for multi-instance deployments. Engine.IO is included as
 the `engineio` sub-package and can be used on its own.
 
@@ -45,7 +45,8 @@ The Go client is available in
 server and client use separate connection types and constructors.
 
 Configuration, namespace lifecycle, adapters and typed events: [V1 usage](docs/V1.md).
-API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0).
+API reference: [Socket.IO](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0)
+and [Engine.IO](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0/engineio).
 
 ## Contributing
 

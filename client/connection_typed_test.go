@@ -50,7 +50,7 @@ func TestTypedClientRequestAckAndCancellation(t *testing.T) {
 	request := func(ctx context.Context) <-chan typedResult {
 		done := make(chan typedResult, 1)
 		go func() {
-			v, e := endpoint.RequestAck(ctx, "ask", event.ValueOf(7), event.SchemaOf[int]())
+			v, e := endpoint.RequestAck(ctx, "ask", event.ValueOf(7), event.SchemaOf[int64]())
 			done <- typedResult{v, e}
 		}()
 		return done
@@ -61,9 +61,9 @@ func TestTypedClientRequestAckAndCancellation(t *testing.T) {
 	p.send(t, "3"+id+`[null,9007199254740993]`)
 	result := recv(t, done, "exact integer ACK")
 	require.NoError(t, result.err)
-	n, err := event.Value[int](result.value)
+	n, err := event.Value[int64](result.value)
 	require.NoError(t, err)
-	require.EqualValues(t, 9007199254740993, n)
+	require.Equal(t, int64(9007199254740993), n)
 	ctx, cancel := context.WithCancel(context.Background())
 	done = request(ctx)
 	frame = strings.TrimSpace(recv(t, p.fc.out, "cancelled request"))

@@ -124,9 +124,6 @@ func TestDynamicNamespaceWaitsForSubscriptionAcknowledgements(t *testing.T) {
 }
 
 func TestDynamicSubscriptionWriteIsBounded(t *testing.T) {
-	old := redisDialTimeout
-	redisDialTimeout = time.Second
-	defer func() { redisDialTimeout = old }()
 	c := &blockedSubscriptionWrite{silentSubscription: silentSubscription{done: make(chan struct{})}}
 	owner := &broadcast{done: make(chan struct{}), pattern: "socket.io#*", sub: &redis.PubSubConn{Conn: c}}
 	shared := &sharedResources{owner: owner, members: make(map[string][]*broadcast)}
@@ -134,7 +131,10 @@ func TestDynamicSubscriptionWriteIsBounded(t *testing.T) {
 	shared.members["/old"] = []*broadcast{owner}
 	owner.subscriptionChanged(owner.pattern, true)
 	result := make(chan error, 1)
-	go func() { _, err := shared.add("/new", &options{Prefix: "socket.io"}); result <- err }()
+	go func() {
+		_, err := shared.add("/new", &options{Prefix: "socket.io", DialTimeout: time.Second})
+		result <- err
+	}()
 	select {
 	case <-c.done:
 	case <-time.After(2 * time.Second):
@@ -171,12 +171,9 @@ func TestReadySubscriptionHonoursCanceledContext(t *testing.T) {
 }
 
 func TestNamespaceCloseBoundsUnsubscribeWrite(t *testing.T) {
-	old := redisDialTimeout
-	redisDialTimeout = 40 * time.Millisecond
-	defer func() { redisDialTimeout = old }()
 	c := &blockedSubscriptionWrite{silentSubscription: silentSubscription{done: make(chan struct{})}}
 	owner := &broadcast{done: make(chan struct{}), pattern: "socket.io#*", sub: &redis.PubSubConn{Conn: c}}
-	member := &broadcast{nsp: "/closing", reqChannel: "socket.io-request#/closing#", resChannel: "socket.io-response#/closing#"}
+	member := &broadcast{dialTimeout: 40 * time.Millisecond, nsp: "/closing", reqChannel: "socket.io-request#/closing#", resChannel: "socket.io-response#/closing#"}
 	shared := &sharedResources{owner: owner, members: map[string][]*broadcast{"/remaining": {owner}, "/closing": {member}}}
 	owner.resources = shared
 	member.resources = shared

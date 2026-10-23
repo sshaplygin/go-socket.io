@@ -19,6 +19,7 @@ import (
 type broadcast struct {
 	clusterOnce    sync.Once
 	requestTimeout time.Duration
+	dialTimeout    time.Duration
 	customHandler  func(context.Context, json.RawMessage) (json.RawMessage, error)
 	clusterContext context.Context
 	cancelCluster  context.CancelFunc
@@ -107,11 +108,11 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 		timeout = redisRequestTimeout
 	}
 	pub := &redis.Pool{MaxIdle: 4, Dial: func() (redis.Conn, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), opts.dialTimeout())
 		defer cancel()
 		return dialWithOptions(ctx, redis.DialWriteTimeout(timeout))
 	}}
-	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), opts.dialTimeout())
 	defer cancel()
 	// Dial the first publishing connection now to report an unreachable server.
 	first := pub.Get()
@@ -123,16 +124,17 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 
 	uid := uuid.NewString()
 	rbc := &broadcast{
-		Memory:     adapter.NewMemory(),
-		requests:   make(map[string]interface{}),
-		done:       make(chan struct{}),
-		pub:        pub,
-		pattern:    fmt.Sprintf("%s#*", opts.Prefix),
-		key:        fmt.Sprintf("%s#%s#", opts.Prefix, nsp),
-		reqChannel: fmt.Sprintf("%s-request#%s#", opts.Prefix, nsp),
-		resChannel: fmt.Sprintf("%s-response#%s#", opts.Prefix, nsp),
-		nsp:        nsp,
-		uid:        uid,
+		dialTimeout: opts.dialTimeout(),
+		Memory:      adapter.NewMemory(),
+		requests:    make(map[string]interface{}),
+		done:        make(chan struct{}),
+		pub:         pub,
+		pattern:     fmt.Sprintf("%s#*", opts.Prefix),
+		key:         fmt.Sprintf("%s#%s#", opts.Prefix, nsp),
+		reqChannel:  fmt.Sprintf("%s-request#%s#", opts.Prefix, nsp),
+		resChannel:  fmt.Sprintf("%s-response#%s#", opts.Prefix, nsp),
+		nsp:         nsp,
+		uid:         uid,
 	}
 	rbc.transportCtx, rbc.transportCancel = context.WithCancel(context.Background())
 	rbc.initCluster(opts)

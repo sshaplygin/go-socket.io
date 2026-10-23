@@ -167,11 +167,14 @@ func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 func TestRedisServerCloseStopsBroadcasts(t *testing.T) {
 	s := miniredis.RunT(t)
 	srv := NewServer()
-	useRedis(t, srv, s.Addr())
+	srv.SetAdapter(redisadapter.New(redisadapter.WithAddr(s.Addr()), redisadapter.WithDialTimeout(200*time.Millisecond)))
+	t.Cleanup(func() { _ = srv.Close() })
 	srv.OnConnect("/one", func(Conn) error { return nil })
 	srv.OnConnect("/two", func(Conn) error { return nil })
 	s.Close()
+	began := time.Now()
 	srv.OnConnect("/three", func(Conn) error { return nil })
+	require.Less(t, time.Since(began), time.Second)
 	require.NoError(t, s.Restart())
 	require.Eventually(t, func() bool {
 		return s.PubSubNumPat() == 1 &&

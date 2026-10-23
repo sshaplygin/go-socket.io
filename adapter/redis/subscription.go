@@ -7,12 +7,15 @@ import (
 	"github.com/gomodule/redigo/redis"
 )
 
-// redisDialTimeout bounds the two dials that build a Redis broadcast, the
-// publishing and the subscriber connection together, including AUTH and
-// SELECT, and each later dial of the publishing pool. Registration holds the
-// creation mutex for that time, and Server.Close waits for it; tests shorten
-// it.
-var redisDialTimeout = 10 * time.Second
+// redisDialTimeout is the default construction, reconnect and close timeout.
+const redisDialTimeout = 10 * time.Second
+
+func (bc *broadcast) constructionTimeout() time.Duration {
+	if bc.dialTimeout > 0 {
+		return bc.dialTimeout
+	}
+	return redisDialTimeout
+}
 
 // Backoff between attempts to reopen the subscriber connection after a
 // receive error; tests shorten it.
@@ -128,7 +131,7 @@ func (bc *broadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.D
 		if bc.resources != nil {
 			channels = bc.resources.channels()
 		}
-		ctx, cancel := context.WithTimeout(bc.transportCtx, redisDialTimeout)
+		ctx, cancel := context.WithTimeout(bc.transportCtx, bc.constructionTimeout())
 		sub, err := bc.subscribeChannels(ctx, channels)
 		cancel()
 		if err != nil {
@@ -157,7 +160,7 @@ func (bc *broadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.D
 
 // Close stops this adapter. Shared transports remain open for other adapters.
 func (bc *broadcast) Close() error {
-	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), bc.constructionTimeout())
 	defer cancel()
 	return bc.closeContext(ctx)
 }

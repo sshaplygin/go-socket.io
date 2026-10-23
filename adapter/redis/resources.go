@@ -38,7 +38,7 @@ func (s *sharedResources) add(nsp string, opts *options) (*broadcast, error) {
 		nsp = "/"
 	}
 	owner := s.owner
-	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), opts.dialTimeout())
 	defer cancel()
 	owner.subLock.Lock()
 	select {
@@ -49,7 +49,7 @@ func (s *sharedResources) add(nsp string, opts *options) (*broadcast, error) {
 	}
 	s.mu.Lock()
 	existing := len(s.members[nsp]) > 0
-	bc := &broadcast{Memory: adapter.NewMemory(), requests: make(map[string]interface{}), done: make(chan struct{}), pub: owner.pub, resources: s, nsp: nsp, uid: uuid.NewString(),
+	bc := &broadcast{dialTimeout: opts.dialTimeout(), Memory: adapter.NewMemory(), requests: make(map[string]interface{}), done: make(chan struct{}), pub: owner.pub, resources: s, nsp: nsp, uid: uuid.NewString(),
 		key: fmt.Sprintf("%s#%s#", opts.Prefix, nsp), reqChannel: fmt.Sprintf("%s-request#%s#", opts.Prefix, nsp), resChannel: fmt.Sprintf("%s-response#%s#", opts.Prefix, nsp)}
 	bc.initCluster(opts)
 	s.members[nsp] = append(s.members[nsp], bc)

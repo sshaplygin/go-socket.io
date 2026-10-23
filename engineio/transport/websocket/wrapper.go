@@ -4,10 +4,8 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/sshaplygin/go-socket.io/logger"
 
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
@@ -68,38 +66,14 @@ func (w wrapper) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 
 type rcWrapper struct {
 	io.Reader
-	nagTimer *time.Timer
-	quitNag  chan struct{}
-	l        *sync.Mutex
+	l *sync.Mutex
 }
 
-func newRcWrapper(l *sync.Mutex, r io.Reader) rcWrapper {
-	timer := time.NewTimer(30 * time.Second)
-	q := make(chan struct{})
-
-	go func() {
-		select {
-		case <-q:
-		case <-timer.C:
-			logger.Log.Debug("engineio: frame reader not closed")
-		}
-	}()
-
-	return rcWrapper{
-		nagTimer: timer,
-		quitNag:  q,
-		l:        l,
-		Reader:   r,
-	}
-}
+func newRcWrapper(l *sync.Mutex, r io.Reader) rcWrapper { return rcWrapper{Reader: r, l: l} }
 
 func (r rcWrapper) Close() error {
-	// Stop the nagger.
 	r.l.Lock()
 	defer r.l.Unlock()
-
-	r.nagTimer.Stop()
-	close(r.quitNag)
 
 	// Attempt to drain the Reader.
 	_, err := io.Copy(io.Discard, r)
@@ -136,37 +110,13 @@ func (w wrapper) nextWriter(FType eioparser.FrameType, compress bool) (io.WriteC
 
 type wcWrapper struct {
 	io.WriteCloser
-	writing  *atomic.Bool
-	nagTimer *time.Timer
-
+	writing *atomic.Bool
 	l       *sync.Mutex
-	quitNag chan struct{}
 }
 
-func newWcWrapper(l *sync.Mutex, w io.WriteCloser) wcWrapper {
-	timer := time.NewTimer(30 * time.Second)
-	chQuit := make(chan struct{})
-
-	go func() {
-		select {
-		case <-chQuit:
-		case <-timer.C:
-			logger.Log.Debug("engineio: frame writer not closed")
-		}
-	}()
-
-	return wcWrapper{
-		nagTimer:    timer,
-		quitNag:     chQuit,
-		l:           l,
-		WriteCloser: w,
-	}
-}
+func newWcWrapper(l *sync.Mutex, w io.WriteCloser) wcWrapper { return wcWrapper{WriteCloser: w, l: l} }
 
 func (w wcWrapper) Close() error {
-	// Stop the nagger.
-	w.nagTimer.Stop()
-	close(w.quitNag)
 	// Unlock the wrapper's write lock for future calls to NextWriter.
 	defer w.l.Unlock()
 	defer func() {

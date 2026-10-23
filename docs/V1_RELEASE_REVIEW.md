@@ -2996,7 +2996,7 @@ reproduced here.
 | --- | --- | --- |
 | C1 | Reproduced | B1 above. |
 | C2, ARCH-9 | Source-confirmed | Dynamic children remain in `Server.views`, the namespace registry and the parent's children map; disconnect does not evict them. The 20,000-namespace heap measurement was not repeated. |
-| C3 | Reproduced | Two real websocket sessions with a constant custom SID: Server.Close closed the second and left the first in `open` state. Manual close of the first was needed for cleanup. Fixed by #159 (W11). |
+| C3 | Reproduced | Two real websocket sessions with a constant custom SID: Server.Close closed the second and left the first in `open` state. Manual close of the first was needed for cleanup. |
 | C4, CL-3 | Source-confirmed | `ErrorHandler` discards recover's result. Root rejection can supply nil; V1.md's unconditional inactive-context wording is too broad. Existing tests passed. |
 | C5, API-3, CL-9 | Source-confirmed | M2 above; the starter example also explicitly allows every origin. |
 | API-1, CL-4, REL-1 | Source-confirmed | M1 above. A missing migration guide does not imply a requirement to restore a standalone changelog against the documented policy. |

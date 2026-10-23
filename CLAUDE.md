@@ -25,8 +25,8 @@ internal tests live beside the implementation they verify.
 
 ## Commands
 
-Go 1.22+ is required. Linting uses golangci-lint v2; vulnerability checks use
-`govulncheck`. Build those tools with a current Go toolchain.
+Go 1.22+ is required. Linting uses golangci-lint v2.8.0; vulnerability checks use
+`govulncheck` v1.9.0. Build those tools with a current Go toolchain.
 
 ```sh
 make test               # root module tests, no external services

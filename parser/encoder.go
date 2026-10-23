@@ -1,8 +1,6 @@
 package parser
 
 import (
-	"bufio"
-	"bytes"
 	"io"
 	"reflect"
 	"strconv"
@@ -43,14 +41,24 @@ type PreparedPacket struct {
 // Prepare snapshots the JSON payload and binary attachments before queueing a packet.
 // It rejects encoded packets containing more than 10 binary attachments.
 func Prepare(h Header, args ...interface{}) (*PreparedPacket, error) {
-	var data bytes.Buffer
-	buffers, err := new(Encoder).writePacket(bufferCloser{&data}, h, args)
-	if err != nil {
-		return nil, err
+	// Reserve the largest possible header before encoding, then move its start
+	// forward when the actual attachment count needs fewer bytes. The payload
+	// stays in its final backing array instead of being copied into another buffer.
+	reserved := len(preparedHeader(h, maxAttachments))
+	payload := new(payloadEncoder)
+	payload.Grow(reserved + 64)
+	payload.Write(make([]byte, reserved))
+	if len(args) > 0 {
+		// Only the first argument is the packet payload.
+		if err := payload.value(reflect.ValueOf(args[0]), false); err != nil {
+			return nil, err
+		}
+		payload.WriteByte('\n')
 	}
-	packet := &PreparedPacket{text: data.Bytes(), buffers: buffers}
-	packet.payload = packet.text[len(preparedHeader(h, len(buffers))):]
-	return packet, nil
+	header := preparedHeader(h, len(payload.buffers))
+	text := payload.Bytes()[reserved-len(header):]
+	copy(text, header)
+	return &PreparedPacket{text: text, payload: text[len(header):], buffers: payload.buffers}, nil
 }
 
 // WithHeader returns the same immutable payload with a new packet header. It
@@ -108,102 +116,6 @@ func (e *Encoder) EncodePrepared(packet *PreparedPacket) (err error) {
 	}
 
 	return
-}
-
-type bufferCloser struct{ *bytes.Buffer }
-
-func (bufferCloser) Close() error { return nil }
-
-type byteWriter interface {
-	io.Writer
-	WriteByte(byte) error
-}
-
-type flusher interface {
-	Flush() error
-}
-
-func (e *Encoder) writePacket(w io.WriteCloser, h Header, args []interface{}) ([][]byte, error) {
-	defer func() {
-		if err := w.Close(); err != nil {
-			logger.Log.Debug("socketio: close writer failed", "err", err)
-		}
-	}()
-
-	bw, ok := w.(byteWriter)
-	if !ok {
-		bw = bufio.NewWriter(w)
-	}
-
-	payload := &payloadEncoder{active: make(map[jsonVisit]bool)}
-	if len(args) > 0 {
-		// Only the first argument is the packet payload.
-		if err := payload.value(reflect.ValueOf(args[0]), false); err != nil {
-			return nil, err
-		}
-		payload.WriteByte('\n')
-	}
-	buffers := payload.buffers
-	max := uint64(len(buffers))
-	if len(buffers) > 0 && (h.Type == Event || h.Type == Ack) {
-		h.Type += 3
-	}
-
-	if err := bw.WriteByte(byte(h.Type + '0')); err != nil {
-		return nil, err
-	}
-
-	if h.Type == binaryAck || h.Type == binaryEvent {
-		if err := e.writeUint64(bw, max); err != nil {
-			return nil, err
-		}
-		if err := bw.WriteByte('-'); err != nil {
-			return nil, err
-		}
-	}
-
-	if h.Namespace != "" {
-		if _, err := bw.Write([]byte(h.Namespace)); err != nil {
-			return nil, err
-		}
-		if err := bw.WriteByte(','); err != nil {
-			return nil, err
-		}
-	}
-
-	if h.NeedAck {
-		if err := e.writeUint64(bw, h.ID); err != nil {
-			return nil, err
-		}
-	}
-
-	if _, err := bw.Write(payload.Bytes()); err != nil {
-		return nil, err
-	}
-
-	if f, ok := bw.(flusher); ok {
-		if err := f.Flush(); err != nil {
-			return nil, err
-		}
-	}
-
-	return buffers, nil
-}
-
-func (e *Encoder) writeUint64(w byteWriter, i uint64) error {
-	base := uint64(1)
-	for i/base >= 10 {
-		base *= 10
-	}
-	for base > 0 {
-		p := i / base
-		if err := w.WriteByte(byte(p) + '0'); err != nil {
-			return err
-		}
-		i -= p * base
-		base /= 10
-	}
-	return nil
 }
 
 func (e *Encoder) writeBuffer(w io.WriteCloser, buffer []byte) (err error) {

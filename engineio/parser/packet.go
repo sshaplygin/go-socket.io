@@ -1,8 +1,12 @@
 package parser
 
-import "github.com/sshaplygin/go-socket.io/engineio/parser/internal/packet"
+import (
+	"io"
 
-// FrameType is the type of frames.
+	"github.com/sshaplygin/go-socket.io/engineio/parser/internal/packet"
+)
+
+// FrameType is the byte frame type (String or Binary). Byte() byte returns its wire value.
 type FrameType = packet.FrameType
 
 const (
@@ -15,7 +19,8 @@ const (
 // ByteToFrameType converts a byte to FrameType.
 func ByteToFrameType(b byte) FrameType { return packet.ByteToFrameType(b) }
 
-// PacketType is the type of packet.
+// PacketType identifies OPEN through NOOP. String() string returns its name;
+// StringByte() byte and BinaryByte() byte return the respective wire headers.
 type PacketType = packet.PacketType
 
 const (
@@ -38,22 +43,28 @@ const (
 // ByteToPacketType converts a byte to PacketType.
 func ByteToPacketType(b byte, typ FrameType) PacketType { return packet.ByteToPacketType(b, typ) }
 
-// Frame contains a frame type and its data.
+// Frame contains fields FType FrameType and Data []byte.
 type Frame = packet.Frame
 
-// Packet contains a frame type, packet type and data.
+// Packet contains fields FType FrameType, PType PacketType and Data []byte.
 type Packet = packet.Packet
 
 // FrameWriter is the writer which supports framing.
-type FrameWriter = packet.FrameWriter
+type FrameWriter interface {
+	NextWriter(FrameType) (io.WriteCloser, error)
+}
 
 // FrameReader is the reader which supports framing.
-type FrameReader = packet.FrameReader
+type FrameReader interface {
+	NextReader() (FrameType, io.ReadCloser, error)
+}
 
 // PacketEncoder writes Engine.IO packet headers to framed destinations.
+// NextWriter(FrameType, PacketType) (io.WriteCloser, error) opens a packet writer.
 type PacketEncoder = packet.Encoder
 
 // PacketDecoder reads Engine.IO packet headers from framed sources.
+// NextReader() (FrameType, PacketType, io.ReadCloser, error) opens a packet reader.
 type PacketDecoder = packet.Decoder
 
 func NewPacketEncoder(w FrameWriter) *PacketEncoder { return packet.NewEncoder(w) }

@@ -12,15 +12,20 @@ import (
 // Endpoint is the shared sending surface of server and client namespace sockets.
 // Typed descriptors support the built-in server connections, clients and client
 // namespace sockets. Implementing Emit alone does not support typed sends.
-type Endpoint = event.Endpoint
+type Endpoint interface{ Emit(string, ...interface{}) }
 
 // ClientRegistration accepts typed handlers on a client or a client namespace.
-type ClientRegistration = event.ClientRegistration
+type ClientRegistration interface {
+	RegisterEvent(string, EventHandler) error
+}
 
 // EventHandler is an opaque registration created by a typed event descriptor.
+// Valid() bool and WantsAck() bool report its metadata; Decode and Invoke are
+// library bridge methods using internal payload types.
 type EventHandler = event.Handler
 
 // RemoteError carries the peer's error-first acknowledgement code and message.
+// Its fields are Code string and Message string; Error() string joins them.
 type RemoteError = event.RemoteError
 
 var (
@@ -65,7 +70,7 @@ func (e Event[T]) Handle(nsp *ServerNamespace, h func(context.Context, Conn, T) 
 		return fmt.Errorf("%w: nil handler", ErrInvalidPayload)
 	}
 	return nsp.registration().RegisterEvent(e.name, event.NewHandler(event.SchemaOf[T](), false,
-		func(ctx context.Context, to Endpoint, payload event.Payload) (event.Payload, error) {
+		func(ctx context.Context, to event.Endpoint, payload event.Payload) (event.Payload, error) {
 			value, err := event.Value[T](payload)
 			if err != nil {
 				return event.Payload{}, err
@@ -91,7 +96,7 @@ func (e Event[T]) HandleClient(c ClientRegistration, h func(context.Context, End
 		return fmt.Errorf("%w: nil handler", ErrInvalidPayload)
 	}
 	return c.RegisterEvent(e.name, event.NewHandler(event.SchemaOf[T](), false,
-		func(ctx context.Context, to Endpoint, payload event.Payload) (event.Payload, error) {
+		func(ctx context.Context, to event.Endpoint, payload event.Payload) (event.Payload, error) {
 			value, err := event.Value[T](payload)
 			if err != nil {
 				return event.Payload{}, err
@@ -160,7 +165,7 @@ func (e AckEvent[T, R]) Handle(nsp *ServerNamespace, h func(context.Context, Con
 		return fmt.Errorf("%w: nil handler", ErrInvalidPayload)
 	}
 	return nsp.registration().RegisterEvent(e.name, event.NewHandler(event.SchemaOf[T](), true,
-		func(ctx context.Context, to Endpoint, payload event.Payload) (event.Payload, error) {
+		func(ctx context.Context, to event.Endpoint, payload event.Payload) (event.Payload, error) {
 			value, err := event.Value[T](payload)
 			if err != nil {
 				return event.Payload{}, err
@@ -186,7 +191,7 @@ func (e AckEvent[T, R]) HandleClient(c ClientRegistration, h func(context.Contex
 		return fmt.Errorf("%w: nil handler", ErrInvalidPayload)
 	}
 	return c.RegisterEvent(e.name, event.NewHandler(event.SchemaOf[T](), true,
-		func(ctx context.Context, to Endpoint, payload event.Payload) (event.Payload, error) {
+		func(ctx context.Context, to event.Endpoint, payload event.Payload) (event.Payload, error) {
 			value, err := event.Value[T](payload)
 			if err != nil {
 				return event.Payload{}, err

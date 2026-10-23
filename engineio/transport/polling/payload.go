@@ -49,6 +49,7 @@ type payload struct {
 	writeDeadline   atomic.Value
 	encoder         *eioparser.PayloadEncoder
 	batch           bool // server GETs coalesce complete packets; client POSTs keep their lease
+	batchClock      *batchClock
 }
 
 // newPayload returns a new payload.
@@ -254,17 +255,17 @@ func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
 			}
 			packets++
 			if batchEnd.IsZero() {
-				batchEnd = time.Now().Add(5 * time.Millisecond)
+				batchEnd = p.batchNow().Add(5 * time.Millisecond)
 			}
 			if packets >= 64 || fw.size() >= 256*1024 {
 				return nil
 			}
-			idle := min(time.Millisecond, time.Until(batchEnd))
+			idle := min(time.Millisecond, p.batchUntil(batchEnd))
 			if idle <= 0 {
 				return nil
 			}
 			offer := batchOffer{writer: fw, accepted: make(chan bool, 1)}
-			timer := time.NewTimer(idle)
+			timer := p.newBatchTimer(idle)
 			select {
 			case <-ctx.Done():
 				timer.Stop()

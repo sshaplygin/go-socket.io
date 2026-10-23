@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"reflect"
 	"sync"
 )
 
@@ -108,6 +109,14 @@ func (bc *Memory) IDs(rooms ...string) []string {
 
 // broadcastMembers takes a snapshot while the caller holds the room read lock.
 func broadcastMembers(rooms map[string]map[string]Socket, opts Options) []Socket {
+	if len(opts.Rooms) == 1 && len(opts.Except) == 0 {
+		members := rooms[opts.Rooms[0]]
+		result := make([]Socket, 0, len(members))
+		for _, socket := range members {
+			result = append(result, socket)
+		}
+		return result
+	}
 	seen := make(map[string]bool, len(opts.Except))
 	for _, id := range opts.Except {
 		seen[id] = true
@@ -141,8 +150,35 @@ func broadcastIDs(targets []Socket) []string {
 	return ids
 }
 
+// preparedEmitter is optional; an opaque packet is shared only among the same
+// concrete implementation so third-party packet representations cannot mix.
+type preparedEmitter interface {
+	PrepareEmit(Options, string, ...interface{}) (interface{}, error)
+	EmitPrepared(Options, interface{})
+}
+
 func deliverBroadcast(targets []Socket, opts Options, event string, args ...interface{}) {
+	type preparedResult struct {
+		packet interface{}
+		err    error
+	}
+	var prepared map[reflect.Type]preparedResult
 	for _, c := range targets {
+		if emitter, ok := c.(preparedEmitter); ok {
+			typ := reflect.TypeOf(c)
+			result, exists := prepared[typ]
+			if !exists {
+				result.packet, result.err = emitter.PrepareEmit(opts, event, args...)
+				if prepared == nil {
+					prepared = make(map[reflect.Type]preparedResult)
+				}
+				prepared[typ] = result
+			}
+			if result.err == nil {
+				emitter.EmitPrepared(opts, result.packet)
+				continue
+			}
+		}
 		if opts.NoCompress || opts.Volatile {
 			c.EmitWithOptions(opts, event, args...)
 		} else {

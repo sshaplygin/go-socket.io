@@ -1236,7 +1236,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W11. Reject duplicate session IDs
 
-- **Status:** open
+- **Status:** in progress — #159
 - **Priority:** after release
 - **Findings:** [C3](#correctness-and-security-findings)
 - **Depends on:** none
@@ -2826,7 +2826,7 @@ Every finding is listed under the dimension that reported it.
 | --- | --- | --- | --- | --- | --- |
 | C1 | blocker | confirmed | `engineio/internal/session/session.go:489` | Permanent three-way deadlock between a session's read path, an in-flight websocket write and Close/Abort/Shutdown | Do not hold upgradeLocker while calling into transport deadline setters. In setDeadline, read s.conn under RLock, release the lock, then call SetReadDeadline and SetWriteDeadline, as nextReader and nextWriterCompress already do. Also make Session.fail lock-free: keep closed and conn in atomics or snapshot them without the RWMutex, so a failing writer can never wait on a pending Close. Optionally store the websocket write deadline atomically and apply it inside nextWriter under writeLocker, so SetWriteDeadline does not wait for an in-flight write. Make engineio.Server.Close shut sessions down concurrently or with a bound, so one stuck session cannot block the others. Add a -race regression test: a non-reading websocket client keeps sending packets (pings or messages) while the server emits large payloads, and Close/Abort/Server.Close must return promptly with OnDisconnect fired. |
 | C2 | major → minor | partially-confirmed | `server.go:406` | Dynamic namespaces created by clients through OfFunc are never removed (unbounded memory growth) | Remove a dynamic child, and close its adapter, when its last socket leaves (the equivalent of socket.io 4.6 cleanupEmptyChildNamespaces), or at least when no socket ever connected. Alternatively, offer a cap or opt-in cleanup option. State the retention in the OfFunc godoc and docs/V1.md. |
-| C3 | minor | — | `engineio/server.go:303` | Duplicate session ID from a custom IDGenerator silently replaces a live session; Server.Close leaves the first one open | Under s.lifecycle in newSession, reject the handshake (or ask the generator again) when the sid is already registered or in s.live, and document that IDGenerator must return unique IDs. |
+| C3 | minor | — | `engineio/server.go:303` | Duplicate session ID from a custom IDGenerator silently replaces a live session; Server.Close leaves the first one open | Under s.lifecycle in newSession, reject the handshake (or ask the generator again) when the sid is already registered or in s.live, and document that IDGenerator must return unique IDs. Fixed by #159 (W11). |
 | C4 | minor | — | `namespace_handlers.go:223` | Panics in a user OnError handler are swallowed without any log | Log the recovered value through the connection or server logger, e.g. c.log.Warn("socketio: OnError panic", ...), as is done for other unhandled errors. |
 | C5 | minor | — | `engineio/options.go:178` | Permissive CORS default (origin reflected with credentials, websocket origin check disabled) is documented only in godoc | Document the default and how to restrict it (WithCORS(false), transport CheckOrigin) in docs/V1.md in a security section. Consider an example that uses an origin allow-list. |
 
@@ -2996,7 +2996,7 @@ reproduced here.
 | --- | --- | --- |
 | C1 | Reproduced | B1 above. |
 | C2, ARCH-9 | Source-confirmed | Dynamic children remain in `Server.views`, the namespace registry and the parent's children map; disconnect does not evict them. The 20,000-namespace heap measurement was not repeated. |
-| C3 | Reproduced | Two real websocket sessions with a constant custom SID: Server.Close closed the second and left the first in `open` state. Manual close of the first was needed for cleanup. |
+| C3 | Reproduced | Two real websocket sessions with a constant custom SID: Server.Close closed the second and left the first in `open` state. Manual close of the first was needed for cleanup. Fixed by #159 (W11). |
 | C4, CL-3 | Source-confirmed | `ErrorHandler` discards recover's result. Root rejection can supply nil; V1.md's unconditional inactive-context wording is too broad. Existing tests passed. |
 | C5, API-3, CL-9 | Source-confirmed | M2 above; the starter example also explicitly allows every origin. |
 | API-1, CL-4, REL-1 | Source-confirmed | M1 above. A missing migration guide does not imply a requirement to restore a standalone changelog against the documented policy. |

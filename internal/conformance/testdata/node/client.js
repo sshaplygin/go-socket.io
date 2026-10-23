@@ -150,10 +150,26 @@ async function upgrade() {
   console.log(version + ': polling-to-websocket upgrade passed');
 }
 
+async function base64Binary() {
+  let upgraded;
+  const root = await connect({forceBase64: true}, engine => {
+    if (transport === 'upgrade') { upgraded = event(engine, 'upgrade'); }
+  });
+  if (upgraded) { await upgraded; }
+  const received = event(root, 'binary-event');
+  const payload = Buffer.from([1, 2, 255]);
+  const reply = await ack(root, 'binary', payload);
+  assert.deepStrictEqual(bytes((await received)[0]), Array.from(payload));
+  assert.deepStrictEqual(bytes(reply[0]), Array.from(payload));
+  root.disconnect();
+  console.log(version + ' ' + transport + ': forceBase64 binary exchange passed');
+}
+
 (async () => {
   try {
     if (transport === 'upgrade') { await upgrade(); }
     else { await basic(); await reconnect(); }
+    if (!process.argv[4] && (transport === 'websocket' || transport === 'upgrade')) { await base64Binary(); }
   } finally {
     sockets.forEach(socket => socket.disconnect());
     clearTimeout(deadline);

@@ -32,6 +32,8 @@ Package `engineio` of the v1 module at the repository root.
   encoded-packet threshold when enabled. The Go client offers it when configured,
   with the same threshold. Per-packet compression defaults to true; false suppresses
   it for the packet and all its binary attachments on either transport.
+  With `b64=1`, websocket exchanges binary packets as text
+  `b<type><base64 data>`, including after a polling-to-websocket upgrade.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
   to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
   threshold and only for a packet whose compression flag is true. The threshold is

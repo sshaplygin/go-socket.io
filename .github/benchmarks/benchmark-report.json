@@ -10,10 +10,13 @@
   "report": {
     "title": "Go benchmarks: base vs PR",
     "metrics": [
-      "time"
+      "time",
+      "bytes",
+      "allocations"
     ],
     "group_by": [
-      "package"
+      "package",
+      "metric"
     ],
     "columns": [
       "benchmark",

@@ -49,7 +49,7 @@ func (c *redisTestConn) Emit(event string, v ...interface{}) {
 	c.events <- fmt.Sprintf("%s %v", event, v)
 }
 
-func newTestRedisBroadcast(t *testing.T, s *miniredis.Miniredis) *broadcast {
+func newTestRedisBroadcast(t testing.TB, s *miniredis.Miniredis) *broadcast {
 	t.Helper()
 	before := s.PubSubNumSub(testRedisReqChannel)[testRedisReqChannel]
 	bc, err := newBroadcast("/", &options{Addr: s.Addr(), Prefix: "socket.io", Network: "tcp"})
@@ -60,7 +60,7 @@ func newTestRedisBroadcast(t *testing.T, s *miniredis.Miniredis) *broadcast {
 }
 
 // waitRedisSubscribers waits until channel has n subscribers on s.
-func waitRedisSubscribers(t *testing.T, s *miniredis.Miniredis, channel string, n int) {
+func waitRedisSubscribers(t testing.TB, s *miniredis.Miniredis, channel string, n int) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		return s.PubSubNumSub(channel)[channel] == n

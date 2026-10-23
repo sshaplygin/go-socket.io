@@ -70,6 +70,7 @@ func NewServer(opts ...Option) *Server {
 // Close closes server. Accept returns io.EOF from then on. Every session not yet
 // returned by Accept, and every accepted session, is closed and removed. An
 // in-progress Error hook completes its transport close when the hook returns.
+// Sessions shut down concurrently, so a blocked hook does not delay other sessions.
 // Once shutdown has started, repeated calls return without waiting for it to
 // finish, so an Error hook can call Close during shutdown.
 func (s *Server) Close() error {
@@ -85,10 +86,16 @@ func (s *Server) Close() error {
 			s.sessions.Remove(id)
 		}
 		s.lifecycle.Unlock()
+		var shutdown sync.WaitGroup
+		shutdown.Add(len(live))
 		for _, c := range live {
-			_ = c.Shutdown()
+			go func() {
+				defer shutdown.Done()
+				_ = c.Shutdown()
+			}()
 		}
 		s.dropUnaccepted()
+		shutdown.Wait()
 	})
 	return nil
 }

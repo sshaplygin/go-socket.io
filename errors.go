@@ -19,5 +19,7 @@ var errServerClosed = errors.New("socketio: server closed")
 var ErrWriteBufferFull = errors.New("write buffer full")
 
 // ErrBroadcastAck means a broadcast has a trailing acknowledgement callback.
-// Single-socket emits, BroadcastToRoom and BroadcastToNamespace support callbacks.
+// Single-socket emits support callbacks. BroadcastToRoom and BroadcastToNamespace
+// register callbacks per socket with the memory adapter; Redis rejects callbacks
+// before any delivery and logs the rejection at WARN.
 var ErrBroadcastAck = errors.New("socketio: callbacks are not supported when broadcasting")

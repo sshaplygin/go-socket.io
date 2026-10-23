@@ -324,7 +324,7 @@ func TestRedisClusterCustomHandlerPanicDoesNotCrash(t *testing.T) {
 	}
 	s := miniredis.RunT(t)
 	invoked := make(chan struct{}, 1)
-	base, err := New(WithAddr(s.Addr()), WithCustomRequestHandler(func(context.Context, json.RawMessage) (json.RawMessage, error) {
+	base, err := New(WithAddr(s.Addr()), WithRequestsTimeout(5*time.Second), WithCustomRequestHandler(func(context.Context, json.RawMessage) (json.RawMessage, error) {
 		invoked <- struct{}{}
 		panic("hook panic")
 	}))("/")
@@ -347,7 +347,7 @@ func TestRedisCustomHandlerFailureCannotFabricateSuccess(t *testing.T) {
 	} {
 		s := miniredis.RunT(t)
 		invoked := make(chan struct{}, 1)
-		base, err := New(WithAddr(s.Addr()), WithCustomRequestHandler(func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+		base, err := New(WithAddr(s.Addr()), WithRequestsTimeout(5*time.Second), WithCustomRequestHandler(func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 			invoked <- struct{}{}
 			return handler(ctx, raw)
 		}))("/")

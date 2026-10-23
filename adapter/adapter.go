@@ -54,18 +54,26 @@ type Adapter interface {
 	SendTo(opts Options, event string, args ...interface{}) error
 	// IDs returns a copy of the IDs in any of rooms, or all sockets when empty.
 	IDs(rooms ...string) []string
-	Join(room string, connection Socket)  // Join causes the connection to join a room
-	Leave(room string, connection Socket) // Leave causes the connection to leave a room
-	LeaveAll(connection Socket)           // LeaveAll causes given connection to leave all rooms
-	Clear(room string)                    // Clear causes removal of all connections from the room
+	// Join adds the socket to a room.
+	Join(room string, connection Socket)
+	// Leave removes the socket from a room.
+	Leave(room string, connection Socket)
+	// LeaveAll removes the socket from every room.
+	LeaveAll(connection Socket)
+	// Clear removes all sockets from the room.
+	Clear(room string)
 	// Send emits to a room. Memory registers a trailing callback per socket;
 	// Redis rejects it before delivery and logs failures at WARN.
 	Send(room, event string, args ...interface{})
 	// SendAll emits to all sockets. Memory registers a trailing callback per socket;
 	// Redis rejects it before delivery and logs failures at WARN.
 	SendAll(event string, args ...interface{})
-	ForEach(room string, f EachFunc)  // ForEach visits each local member of the room.
-	Len(room string) int              // Len gives number of connections in the room
-	Rooms(connection Socket) []string // Gives list of all the rooms if no connection given, else list of all the rooms the connection joined
-	AllRooms() []string               // Gives list of all the rooms the connection joined
+	// ForEach visits each local member of the room.
+	ForEach(room string, f EachFunc)
+	// Len counts connections in the room; clustered adapters may query peers.
+	Len(room string) int
+	// Rooms lists this socket's rooms; nil is equivalent to AllRooms.
+	Rooms(connection Socket) []string
+	// AllRooms lists all rooms of the namespace, cluster-wide for Redis.
+	AllRooms() []string
 }

@@ -6,7 +6,7 @@ import (
 
 // IDGenerator generates identifiers for WithSessionIDGenerator; nil selects random IDs.
 type IDGenerator interface {
-	// NewID returns the next session identifier.
+	// NewID returns the next nonempty, unique session identifier.
 	NewID() string
 }
 

@@ -147,7 +147,9 @@ func (s *Server) OnDisconnect(namespace string, f func(Conn, string)) {
 	h.OnDisconnect(f)
 }
 
-// OnError set a handler function f to handle error for namespace.
+// OnError sets the namespace error handler. Root connect and connection-middleware
+// failures pass a nil Conn; errors for other unjoined namespaces pass an inactive
+// Conn. A panic in the error handler is recovered and logged at WARN.
 func (s *Server) OnError(namespace string, f func(Conn, error)) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -354,6 +356,7 @@ func (s *Server) createNamespaceWithParent(nsp string, parent *namespaceHandler)
 	factory, closed := s.adapter, s.closed.Load()
 	s.createMu.Unlock()
 	handler := newNamespaceHandler()
+	handler.name, handler.log = nsp, s.log
 	if closed && factory != nil {
 		handler.SetAdapter(nil, errServerClosed)
 	} else if factory != nil {

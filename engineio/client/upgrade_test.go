@@ -435,7 +435,7 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 			setDefault(t, clientRecords)
 			opts := []engineio.Option{engineio.WithLogger(slog.New(serverRecords))}
 			if name == "clamped" {
-				opts = append(opts, engineio.WithPingInterval(100*time.Millisecond), engineio.WithPingTimeout(100*time.Millisecond))
+				opts = append(opts, engineio.WithPingInterval(300*time.Millisecond), engineio.WithPingTimeout(300*time.Millisecond))
 			}
 			s := engineio.NewServer(opts...)
 			ready, stop := make(chan struct{}), make(chan struct{})

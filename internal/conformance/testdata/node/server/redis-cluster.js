@@ -197,5 +197,15 @@ const watchdog=setTimeout(()=>{console.error('Redis cluster timeout');process.ex
  await control(goA,{Op:'disconnect',SID:peers[2].sid,Close:true});await nodeDisconnected;
  console.log('Redis mixed cluster passed: '+transport);
 })().catch(err=>{console.error(err);process.exitCode=1;}).finally(()=>{
- clearTimeout(watchdog);sockets.forEach(s=>s.close());managers.forEach(m=>m.close());io.close();pub.quit();sub.quit();server.close();
+ clearTimeout(watchdog);
+ const timings=[];
+ function cleanup(name,action){const start=Date.now();action();timings.push(name+'='+String(Date.now()-start)+'ms');}
+ cleanup('sockets',()=>sockets.forEach(s=>s.close()));
+ cleanup('managers',()=>managers.forEach(m=>m.close()));
+ cleanup('socket.io',()=>io.close());
+ cleanup('redis',()=>{pub.quit();sub.quit();});
+ cleanup('http',()=>server.close());
+ // The pinned Engine.IO server can keep a 30s polling-close timer after the
+ // clients stop polling. All assertions and cleanup calls have completed.
+ process.stdout.write('Redis cleanup: '+timings.join(', ')+'\n',()=>process.exit(process.exitCode||0));
 });

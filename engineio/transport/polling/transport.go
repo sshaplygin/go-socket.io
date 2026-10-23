@@ -11,6 +11,8 @@ import (
 
 // Transport is the transport of polling.
 type Transport struct {
+	// Client controls HTTP timeouts and connection pooling. Nil uses Default.Client.
+	// Set a custom client through client.WithTransports(&polling.Transport{Client: c}).
 	Client      *http.Client
 	CheckOrigin func(r *http.Request) bool
 	// Compression enables gzip/deflate responses at CompressionThreshold bytes
@@ -23,9 +25,18 @@ type Transport struct {
 // Default is the default transport.
 var Default = &Transport{
 	Client: &http.Client{
-		Timeout: time.Minute,
+		Timeout:   time.Minute,
+		Transport: defaultHTTPTransport(),
 	},
 	CheckOrigin: nil,
+}
+
+// Clone once so polling clients share a pool without mutating the application's
+// default transport. Sixty-four idle connections accommodate concurrent polls.
+func defaultHTTPTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConnsPerHost = 64
+	return t
 }
 
 // Name is the name of transport.

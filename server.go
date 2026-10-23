@@ -272,7 +272,10 @@ func (s *Server) ClearRoom(namespace string, room string) bool {
 	return bc != nil
 }
 
-// BroadcastToRoom broadcasts to the room. A trailing callback is registered per socket.
+// BroadcastToRoom broadcasts to the room. The result reports only that the namespace
+// is registered and its adapter was constructed, even if the adapter is now closed;
+// it does not report delivery. The memory adapter registers a trailing callback per
+// socket. Redis rejects callbacks before any delivery and logs failures at WARN.
 func (s *Server) BroadcastToRoom(namespace string, room, event string, args ...interface{}) bool {
 	bc := s.broadcastOf(namespace)
 	if bc != nil {
@@ -281,7 +284,10 @@ func (s *Server) BroadcastToRoom(namespace string, room, event string, args ...i
 	return bc != nil
 }
 
-// BroadcastToNamespace broadcasts to the namespace. A trailing callback is registered per socket.
+// BroadcastToNamespace broadcasts to the namespace. The result reports only that the
+// namespace is registered and its adapter was constructed, even if it is now closed;
+// it does not report delivery. The memory adapter registers a trailing callback per
+// socket. Redis rejects callbacks before any delivery and logs failures at WARN.
 func (s *Server) BroadcastToNamespace(namespace string, event string, args ...interface{}) bool {
 	bc := s.broadcastOf(namespace)
 	if bc != nil {

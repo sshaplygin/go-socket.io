@@ -1949,7 +1949,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W36. Replace sleeps in pauser tests
 
-- **Status:** open
+- **Status:** in progress — #188
 - **Priority:** after release
 - **Findings:** [T6](#tests-findings)
 - **Depends on:** none
@@ -2926,7 +2926,7 @@ Every finding is listed under the dimension that reported it.
 | T3 | minor | — | `docs/PARITY.md:20` | No conformance scenario asserts the Engine.IO periodic heartbeat against a real JS client; heartbeat is covered only by engineio/session tests | Add a conformance scenario with WithPingInterval(200ms) and WithPingTimeout(200ms) that keeps a JS client connected across several intervals on each transport. Also have the client suppress pings and assert 'ping timeout'. Alternatively, correct the PARITY.md row. |
 | T4 | minor | — | `redis_integration_test.go:174` | TestRedisServerCloseStopsBroadcasts spends 10s inside a blocking OnConnect and neither bounds nor documents that behavior | Expose a test hook or redis option (dial timeout) so the root test can use a short timeout and assert that registration returns within it. Document in docs/V1.md that registering a handler on a new namespace dials Redis synchronously and can block up to the dial timeout. |
 | T5 | nit | follow-up: partial | `parser/prepared_test.go:64` | No encoder or round-trip fuzz target. The decoder package `engineio/parser/internal/packet` has no tests of its own, but `TestPacketDecoder` and other `engineio/parser` contract tests exercise it through `NewPacketDecoder` (89.5% cross-package coverage), so that subclaim is not a material gap | Add FuzzDecodeArgs (decode into a fixed set of typed targets) and a round-trip fuzz (Prepare -> Decoder -> compare) for binary-free values. |
-| T6 | nit | — | `engineio/transport/polling/pauser_test.go:206` | Residual sleep-based synchronization in inherited polling tests weakens rather than flakes | Replace the sleeps with explicit readiness signals, for example a hook or channel signalled when the goroutine enters the blocking wait. |
+| T6 | nit | — | `engineio/transport/polling/pauser_test.go:206` | Residual sleep-based synchronization in inherited polling tests weakens rather than flakes | Replace the sleeps with explicit readiness signals, for example a hook or channel signalled when the goroutine enters the blocking wait. Fixed by #188 (W36). |
 
 ### Release engineering findings
 
@@ -3052,7 +3052,7 @@ reproduced here.
 | T2 | Reproduced in server error path; partial overall | Sending malformed Socket.IO packet `49` over websocket left one frame-reader nag goroutine after disconnect and Server.Close (baseline zero). The source timer bounds that nag to 30 s; this is distinct from B1's permanent deadlock. No leak gate found. The broader fixture/client leak inventory was not reproduced. |
 | T4 | Source-confirmed | Registering /three invokes Redis construction synchronously after Redis is stopped. The bound is in construction/subscription code; this is not an executing user OnConnect callback. Redis.New already documents its ten-second construction wait, although V1.md does not state that duration. |
 | T5 | Partial | Encoder and round-trip fuzz targets are absent. The decoder package `engineio/parser/internal/packet` has no tests of its own, but `TestPacketDecoder` and other `engineio/parser` contract tests exercise it through `NewPacketDecoder` (89.5% cross-package coverage, `NextReader` 75.0%), so that subclaim is not a material gap. |
-| T6 | Source-confirmed | Inherited pauser tests contain sleeps; no flakiness claim was independently established. |
+| T6 | Source-confirmed | Inherited pauser tests contain sleeps; no flakiness claim was independently established. Fixed by #188 (W36). |
 | REL-2 | Confirmed snapshot | Local v1.5.0 cache records commit bb47ddac681e. GitHub tag, proxy and sumdb currently return 404; this does not prove that nobody has ever cached that version. A fresh cache is needed for release consumption checks; no cache was deleted. |
 | REL-3 | Confirmed snapshot | Local identity is Probe/probe@example.invalid. Two master commits carry its Co-authored-by trailer: ea920ae (#139) and 3dd094d (#142). Configuration was not changed. |
 | REL-4 | Source-confirmed | stress-v1 runs only on pull_request (ci.yaml:378). CONTRIBUTING.md "Before tagging v1" step 1 (lines 43-44 at `0fa1ead`) counts race/stress tests as part of "the full CI matrix" before tagging, but push and schedule runs never execute stress-v1, and the workflow has no manual trigger. Only a pull request that selects a full v1 run covers every stress package. |

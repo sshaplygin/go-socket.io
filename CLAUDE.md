@@ -31,6 +31,7 @@ Go 1.22+ is required. Linting uses golangci-lint v2; vulnerability checks use
 ```sh
 make test               # root module tests, no external services
 make test-race          # tests with the race detector
+make test-jsonv2        # parser and Socket.IO roles with GOEXPERIMENT=jsonv2
 make test-stress        # concurrent packages, shuffled and repeated
 make lint               # formatting, vet and golangci-lint
 make vet                # Linux/macOS/Windows, conformance and example packages
@@ -82,8 +83,8 @@ v1 package tests. The `ci-ok` job aggregates all checks and fails if any selecte
 job failed or was cancelled. Validate selection with `go test ./.github/changes`.
 
 The v1 matrix includes stable/oldstable Go on Linux, macOS and Windows, race
-tests, Go 1.22, repeated concurrency tests on every event, coverage, examples and
-Node clients
+tests, Go 1.22, repeated concurrency tests on every event, JSONv2 on stable and
+oldstable Go, coverage, examples and Node clients
 1.7.4/2.5.0. Vulnerability checks use the newest Go release available to CI.
 `.github/sync-manifest` is the complete list of files deliberately shared across
 modules; other implementations evolve independently.

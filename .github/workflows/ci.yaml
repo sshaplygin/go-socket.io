@@ -391,6 +391,25 @@ jobs:
       - name: Repeated race tests of the affected stress packages
         run: make test-stress PKGS="$PKGS"
 
+  jsonv2-v1:
+    name: Test v1 JSONv2 Go ${{ matrix.go }}
+    needs: changes
+    if: needs.changes.outputs.v1_packages != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        go: [stable, oldstable]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          check-latest: true
+      - name: Parser and Socket.IO roles under JSONv2
+        run: make test-jsonv2
+
   min-go-v1:
     name: Test v1 ubuntu-latest Go 1.22 (GOTOOLCHAIN=local)
     needs: changes
@@ -510,7 +529,7 @@ jobs:
 
   ci-ok:
     name: ci-ok
-    needs: [changes, conformance, sync-check, gates-v1, gates-v2, lint-v1, lint-v2, test-v1, test-v2, stress-v1, min-go-v1, min-go-v2, examples-v1, examples-v2, experiments-v2]
+    needs: [changes, conformance, sync-check, gates-v1, gates-v2, lint-v1, lint-v2, test-v1, test-v2, stress-v1, jsonv2-v1, min-go-v1, min-go-v2, examples-v1, examples-v2, experiments-v2]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

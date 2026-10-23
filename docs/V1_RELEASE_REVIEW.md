@@ -2009,7 +2009,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W39. Stress on push and an aggregate required check
 
-- **Status:** in progress — #183; Adds all-event stress and ci-ok for the 15 current jobs; hosted checks pending. REL-5 remains open until the owner requires ci-ok in branch protection.
+- **Status:** in progress — #183; Adds all-event stress and ci-ok for all 16 jobs, including W37/#178 as an explicit prerequisite; hosted checks pending. REL-5 remains open until the owner requires ci-ok in branch protection.
 - **Priority:** after release
 - **Findings:** [REL-4](#release-engineering-findings), [REL-5](#release-engineering-findings)
 - **Depends on:** none

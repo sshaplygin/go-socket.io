@@ -144,7 +144,7 @@ func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, 
 	nc.connection.mu.Lock()
 	defer nc.connection.mu.Unlock()
 	c := nc.connection
-	if nc.rejected || nc.lifetime.Err() != nil && !nc.disconnectEmits && !nc.connecting || c.pendingWrites+len(c.writeChan)+len(c.drainQueue) != 0 ||
+	if nc.rejected || nc.lifetime.Err() != nil && !nc.disconnectEmits && !nc.connecting || c.pendingWrites+len(c.drainQueue) != 0 ||
 		isDone(c.closing) && (!c.draining || c.appSealed || isDone(c.discard)) {
 		return
 	}
@@ -257,7 +257,7 @@ func (nc *namespaceConn) retireRooms() {
 // ID returns the engine ID in the root and <namespace>#<engine ID> elsewhere.
 func (nc *namespaceConn) ID() string {
 	id := nc.Conn.ID()
-	if nc.connection.boundary && nc.namespace != "" && nc.namespace != "/" {
+	if nc.namespace != "" && nc.namespace != "/" {
 		return nc.namespace + "#" + id
 	}
 	return id
@@ -266,9 +266,6 @@ func (nc *namespaceConn) ID() string {
 func (nc *namespaceConn) Send(args ...interface{}) { nc.Emit("message", args...) }
 
 func (nc *namespaceConn) Disconnect() {
-	if !nc.connection.boundary {
-		return
-	}
 	if claimed, ok := nc.connection.claimControlDisconnect(fmtNS(nc.namespace), nc); ok && claimed == nc {
 		nc.outMu.Lock()
 		done := nc.connectDone
@@ -312,9 +309,6 @@ func (nc *namespaceConn) Disconnect() {
 
 func (nc *namespaceConn) Use(f func(string, []interface{}) error) {
 	if f == nil {
-		return
-	}
-	if !nc.connection.boundary {
 		return
 	}
 	nc.outMu.Lock()
@@ -369,7 +363,7 @@ func (nc *namespaceConn) sendPayload(pkg outboundPayload, ack *callbackFunc) {
 		pkg.prepared = pkg.prepared.WithHeader(header)
 	}
 	if nc.connecting {
-		if (!isDone(nc.connection.closing) || nc.connection.draining && !nc.connection.appSealed && !isDone(nc.connection.discard)) && nc.connection.pendingWrites+len(nc.connection.writeChan)+nc.connection.drainQueued < cap(nc.connection.writeChan) {
+		if (!isDone(nc.connection.closing) || nc.connection.draining && !nc.connection.appSealed && !isDone(nc.connection.discard)) && nc.connection.pendingWrites+nc.connection.drainQueued < nc.connection.writeBufferSize {
 			nc.connection.pendingWrites++
 			nc.pending = append(nc.pending, pkg)
 		} else {

@@ -292,6 +292,14 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 	newSession.SetRequest(r)
 	s.installHooks(newSession, r, reqTransport != "websocket")
 
+	newSession.SetCloseCallback(func() {
+		s.lifecycle.Lock()
+		if s.live[sid] == newSession {
+			delete(s.live, sid)
+		}
+		s.lifecycle.Unlock()
+	})
+
 	// Register before the handshake: the client may send its next request
 	// with this sid as soon as it reads the OPEN packet.
 	s.lifecycle.Lock()
@@ -303,14 +311,7 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 	s.sessions.Add(newSession)
 	s.live[sid] = newSession
 	s.lifecycle.Unlock()
-	go func() {
-		<-newSession.Closed()
-		s.lifecycle.Lock()
-		if s.live[sid] == newSession {
-			delete(s.live, sid)
-		}
-		s.lifecycle.Unlock()
-	}()
+
 	s.connInitor(r, newSession)
 
 	go func(newSession *sessionImpl.Session) {

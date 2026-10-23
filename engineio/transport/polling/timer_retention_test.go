@@ -15,9 +15,22 @@ import (
 
 func TestPollingTimersReleasedUnderAsyncTimerChan(t *testing.T) {
 	if os.Getenv("SOCKETIO_TIMER_RETENTION_CHILD") != "1" {
-		command := exec.Command(os.Args[0], "-test.run=^TestPollingTimersReleasedUnderAsyncTimerChan$", "-test.count=1")
-		command.Env = append(os.Environ(), "GODEBUG=asynctimerchan=1", "SOCKETIO_TIMER_RETENTION_CHILD=1", "GOMAXPROCS=2")
-		output, err := command.CombinedOutput()
+		runChild := func(legacy bool) ([]byte, error) {
+			command := exec.Command(os.Args[0], "-test.run=^TestPollingTimersReleasedUnderAsyncTimerChan$", "-test.count=1")
+			command.Env = append(os.Environ(), "SOCKETIO_TIMER_RETENTION_CHILD=1", "GOMAXPROCS=2")
+			if legacy {
+				command.Env = append(command.Env, "GODEBUG=asynctimerchan=1")
+			}
+			return command.CombinedOutput()
+		}
+		output, err := runChild(true)
+		// Go 1.27 removed the legacy mode and rejects it before tests start.
+		// Keep the same retention bound under native semantics on those runtimes;
+		// never mask a workload failure or an unrelated subprocess error.
+		if err != nil && strings.Contains(string(output), `removed GODEBUG "asynctimerchan" set to old value "1"`) {
+			t.Log("runtime removed legacy timer mode; checking retention with native timers")
+			output, err = runChild(false)
+		}
 		require.NoError(t, err, "timer retention child: %s", output)
 		t.Log(string(output))
 		return

@@ -57,7 +57,10 @@ type Conn interface {
 	// packet with "encode error", and keeps the connection open.
 	Close() error
 	Namespace
-	// EngineConn returns the underlying server Engine.IO connection.
+	// EngineConn returns the underlying server Engine.IO connection for metadata
+	// (ID, Transport, Upgraded, ReadyState) and Close. Socket.IO owns frame I/O:
+	// applications must not call NextReader or NextWriter, which would interfere
+	// with the library's reader/writer and corrupt the packet stream.
 	EngineConn() engineio.Conn
 	// Request returns the original handshake request. Its Body is consumed and its
 	// Context ends when that HTTP request returns; retain it for metadata only.

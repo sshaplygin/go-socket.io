@@ -85,8 +85,10 @@ func stallProxy(t *testing.T, addr string) (string, func()) {
 func TestRedisPublishBoundedByRequestsTimeout(t *testing.T) {
 	s := miniredis.RunT(t)
 	addr, stall := stallProxy(t, s.Addr())
+	// Allow an instrumented local proxy to complete the healthy publication;
+	// the stalled command must still finish within one second.
 	bc, err := newBroadcast("/", &options{
-		Addr: addr, Network: "tcp", Prefix: "socket.io", RequestsTimeout: 100 * time.Millisecond,
+		Addr: addr, Network: "tcp", Prefix: "socket.io", RequestsTimeout: 500 * time.Millisecond,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = bc.Close() })

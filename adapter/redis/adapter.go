@@ -79,7 +79,7 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 	// redigo v2.0.0+incompatible, which gogf/gf v1 still selects, so ctx
 	// reaches the dial through DialNetDial: it bounds the TCP dial, and once
 	// ctx is done the connection is closed, which also ends AUTH and SELECT.
-	dial := func(ctx context.Context) (redis.Conn, error) {
+	dialWithOptions := func(ctx context.Context, extra ...redis.DialOption) (redis.Conn, error) {
 		stop := func() bool { return true }
 		netDial := func(network, address string) (net.Conn, error) {
 			// The timeouts redigo v1.8.9's own dialer uses when DialNetDial is not set.
@@ -90,17 +90,26 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 			}
 			return c, err
 		}
-		c, err := redis.Dial(opts.Network, addr, append(redisOpts[:len(redisOpts):len(redisOpts)], redis.DialNetDial(netDial))...)
+		dialOpts := append(redisOpts[:len(redisOpts):len(redisOpts)], extra...)
+		dialOpts = append(dialOpts, redis.DialNetDial(netDial))
+		c, err := redis.Dial(opts.Network, addr, dialOpts...)
 		if !stop() && err == nil { // ctx ended as the dial finished: c is closed
 			_ = c.Close()
 			return nil, ctx.Err()
 		}
 		return c, err
 	}
+	dial := func(ctx context.Context) (redis.Conn, error) {
+		return dialWithOptions(ctx)
+	}
+	timeout := opts.RequestsTimeout
+	if timeout <= 0 {
+		timeout = redisRequestTimeout
+	}
 	pub := &redis.Pool{MaxIdle: 4, Dial: func() (redis.Conn, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
 		defer cancel()
-		return dial(ctx)
+		return dialWithOptions(ctx, redis.DialWriteTimeout(timeout))
 	}}
 	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
 	defer cancel()

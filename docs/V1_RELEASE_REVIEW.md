@@ -936,7 +936,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W9. Add a lifecycle sketch and runnable examples
 
-- **Status:** open
+- **Status:** in progress — #150
 - **Priority:** before tag
 - **Findings:** [CL-1](#clarity-findings) (see
   [M7](#m7-no-inline-quick-start-docs-do-not-state-that-serve-must-run))
@@ -1733,7 +1733,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W27. Package documentation and lint checks
 
-- **Status:** open
+- **Status:** in progress — #170
 - **Priority:** after release
 - **Findings:** [CL-5](#clarity-findings)
 - **Depends on:** W9 (root and client package docs)
@@ -2852,11 +2852,11 @@ Every finding is listed under the dimension that reported it.
 
 | ID | Severity | Re-check | Location | Finding | Recommendation |
 | --- | --- | --- | --- | --- | --- |
-| CL-1 | major | confirmed | `README.md:41` | No inline quick start: README links runnable server and Go client examples, but README, V1.md and godoc contain no code that mounts the handler or calls Serve, Close or client Connect, and there are no Example functions | Add a short server+client lifecycle sketch to the root package doc or docs/V1.md (README keeps linking to runnable examples, per b557f2a): NewServer, OnConnect/OnEvent, `go server.Serve()`, `defer server.Close()`, `http.Handle("/socket.io/", server)`, client.New/Connect/Emit with ack. Add runnable `Example` functions in the root and client packages. State in the Server type doc and Serve doc that Serve must run for connections to be dispatched. |
+| CL-1 | major | confirmed | `README.md:41` | No inline quick start: README links runnable server and Go client examples, but README, V1.md and godoc contain no code that mounts the handler or calls Serve, Close or client Connect, and there are no Example functions | Add a short server+client lifecycle sketch to the root package doc or docs/V1.md (README keeps linking to runnable examples, per b557f2a): NewServer, OnConnect/OnEvent, `go server.Serve()`, `defer server.Close()`, `http.Handle("/socket.io/", server)`, client.New/Connect/Emit with ack. Add runnable `Example` functions in the root and client packages. State in the Server type doc and Serve doc that Serve must run for connections to be dispatched. Fixed by #150 (W9). |
 | CL-2 | major → minor → major (M4) | partially-confirmed | `adapter/redis/adapter.go:153` | Redis adapter silently drops room/namespace broadcasts with a trailing callback, while godoc says callbacks are supported | Either make Send/SendAll log or return the rejection (and have BroadcastToRoom/BroadcastToNamespace return false), or correct the redis Send/SendAll comments, the ErrBroadcastAck doc and the BroadcastToRoom/BroadcastToNamespace docs to say that clustered adapters reject callbacks and send nothing. |
 | CL-3 | major → minor | confirmed | `server.go:150` | OnError contract undocumented: nil Conn for root rejections and silently recovered panics; V1.md's inactive-context wording is too broad | Document on both OnError methods that Conn is nil for root connect/middleware failures and an inactive Conn for other namespaces, and that panics in OnError are recovered and discarded. Fix the wording at V1.md:41. Consider logging recovered OnError panics at WARN. |
 | CL-4 | major | confirmed | `README.md:7` | No migration guide from googollee/go-socket.io despite pervasive API changes; Conn.ID format change is undocumented | Add a short 'Migrating from googollee/go-socket.io' section, in V1.md or a linked file: import path, the constructor/option mapping, Redis adapter setup, client package, ID format, and removed APIs. State the ID format in the Conn.ID godoc of both roles. |
-| CL-5 | minor | — | `.golangci.yml:17` | 9 of 12 public packages lack a package comment; lint explicitly disables the checks | Add package docs (root and client with a usage sketch). Document the remaining exported identifiers. Re-enable ST1000/ST1020-1022 or revive's exported rule, at least for the root, client, engineio and adapter packages. |
+| CL-5 | minor | — | `.golangci.yml:17` | 9 of 12 public packages lack a package comment; lint explicitly disables the checks | Add package docs (root and client with a usage sketch). Document the remaining exported identifiers. Re-enable ST1000/ST1020-1022 or revive's exported rule, at least for the root, client, engineio and adapter packages. Fixed by #170 (W27). |
 | CL-6 | minor | — | `adapter/redis/cluster.go:26` | redis.Cluster methods have unnamed parameters; argument order and the bool meaning are invisible | Name the parameters in the interface (ctx, sid, room, closeEngine) and add one-line docs per method, including error and timeout semantics. |
 | CL-7 | minor | — | `adapter/adapter.go:66` | adapter.Adapter AllRooms comment contradicts the implementation (it refers to a connection); the Rooms comment is accurate | Rewrite the interface method docs to state that AllRooms lists all rooms in the namespace (cluster-wide for Redis) and that Rooms(nil) equals AllRooms, and convert the trailing comments into proper doc comments. |
 | CL-8 | minor | — | `server.go:276` | Overlapping server APIs with different semantics and no guidance on which to use | In V1.md, state that the Server.*(namespace, ...) methods are retained wrappers in the upstream `v1.7.0` call shape (corrected: not `v1.4.2`-compatible, see API-8) and that Of(...) / Emitter is the primary API, and document the ack difference. In godoc, cross-reference the two Use variants. |

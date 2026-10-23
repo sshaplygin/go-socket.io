@@ -1662,7 +1662,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W25. Remove extra JSON passes from decoding
 
-- **Status:** open
+- **Status:** in progress — #171; Earlier combined snapshot reduced Decode allocations by 2/op and about 4.1 KiB/op; latest lazy-reader adjustment and timing comparison await coordinated rerun. Isolated CI pending.
 - **Priority:** after release
 - **Findings:** [PERF-11](#performance-findings)
 - **Depends on:** W2
@@ -2899,7 +2899,7 @@ Every finding is listed under the dimension that reported it.
 | PERF-8 | minor | — | `engineio/transport/websocket/wrapper.go:146` | Websocket wrapper spawns a goroutine and a 30s timer for every frame read and written | Drop the nag, or make it debug-only. If kept, use time.AfterFunc with no goroutine and stop it on Close. |
 | PERF-9 | minor | — | `server.go:252` | Server.JoinRoom/LeaveRoom/LeaveAllRooms copy and scan all namespace sockets on each call | Check membership with a map lookup under connectedMu (nh.connected[nc.ID()] == nc) instead of copying the slice. |
 | PERF-10 | minor | — | `.github/workflows/benchmarks.yml:148` | No Socket.IO-level benchmarks; CI benchmark comparison cannot see parser/server regressions | Add benchmarks for parser Prepare/Encode/Decode (string, struct, struct slice, binary), memory-adapter broadcast to N fake sockets, and an emit+ACK round trip over httptest websocket. Then let the existing base-vs-PR workflow pick them up. |
-| PERF-11 | minor | — | `parser/decoder.go:87` | Inbound decode 37–42% slower than v1.4.2 across runs, because it parses JSON three times; it also allocates a 4 KiB bufio.Reader per non-byteReader frame, as v1.4.2 does | Fold json.Valid into the RawMessage unmarshal, which already validates, and avoid parsing the payload more than once; reusing a bufio.Reader per Decoder (Reset), or reading directly when the frame reader is already a byteReader, is optional (corrected: `v1.4.2` also allocates one per frame, so it is not the cause). |
+| PERF-11 | minor | — | `parser/decoder.go:87` | Inbound decode 37–42% slower than v1.4.2 across runs, because it parses JSON three times; it also allocates a 4 KiB bufio.Reader per non-byteReader frame, as v1.4.2 does | Fold json.Valid into the RawMessage unmarshal, which already validates, and avoid parsing the payload more than once; reusing a bufio.Reader per Decoder (Reset), or reading directly when the frame reader is already a byteReader, is optional (corrected: `v1.4.2` also allocates one per frame, so it is not the cause). Fixed by #171 (W25). |
 | PERF-12 | nit | — | `adapter/memory.go:110` | Broadcast target selection builds a dedup map of all members even for one room without Except | Skip the seen map when len(opts.Rooms) == 1 and len(opts.Except) == 0, and pre-size the result slice (corrected: not `<= 1`; namespace-wide delivery with no rooms walks every room, and each socket is in its own ID room and possibly named rooms, so it needs the map, see W21). |
 | PERF-13 | nit | — | `connection.go:281` | 7 server goroutines per idle websocket connection (v1.4.2: 4) | Optional: merge the engine close watcher with observeEngineClose, and start the error loop lazily. |
 

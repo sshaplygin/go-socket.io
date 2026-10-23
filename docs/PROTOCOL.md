@@ -125,6 +125,42 @@ Malformed envelopes are discarded.
 Redis Pub/Sub provides no replay during disconnection. Queries are bounded,
 non-atomic snapshots; context-aware operations report timeouts and partial results.
 
+### Upgrading from upstream Go Redis adapters
+
+The Redis adapter is wire-incompatible with `googollee/go-socket.io` v1.7.0.
+Although both use `socket.io` as their default prefix, their channel names and
+broadcast codecs differ. In the patterns below, the substitutions are the prefix,
+namespace and (for the upstream key) instance ID:
+
+| Item | Upstream Go v1.7.0 | This fork |
+| --- | --- | --- |
+| Subscription pattern | `%s#%s#*` | `%s#*` |
+| Key | `%s#%s#%s` | `%s#%s#` |
+| Request channel | `%s-request#%s` | `%s-request#%s#` |
+| Broadcast codec | JSON | MessagePack |
+
+Do not run old and new Go instances with the same prefix during an upgrade.
+For a shared non-root namespace, a fork namespace-wide broadcast stops every
+upstream peer's Redis dispatcher in that namespace on a decode error. A room
+broadcast does the same when the room name, or its last `#`-separated segment,
+equals the namespace name. Those peers then receive no broadcasts and answer no
+cluster requests; their `RoomLen` and `Rooms` calls block without a timeout.
+The fork discards upstream messages it cannot decode.
+
+Root-namespace broadcasts are lost in both directions but do not stop upstream
+dispatchers. This fork normalizes the root namespace to `/`: its root channels
+(`socket.io#/#…`) do not match upstream's root subscription (`socket.io##*`),
+which uses an empty namespace. The fork cannot decode upstream root broadcasts.
+
+For a staged upgrade, give every new instance a distinct prefix, for example
+`redisadapter.New(redisadapter.WithPrefix("socket.io-fork"))`. Old and new fleets
+are then separate clusters: broadcasts and room queries do not cross between
+them. Move clients to the new fleet and retire the old instances before reusing
+its prefix. Redis Pub/Sub is shared across database numbers, so changing the
+Redis database alone does not isolate fleets. Alternatively, stop all old
+instances before starting the new fleet with the original prefix; upgrade every
+instance together without an overlap.
+
 
 ## JSONP
 

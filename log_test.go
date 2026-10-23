@@ -159,7 +159,9 @@ func TestRequestRejectedRecords(t *testing.T) {
 		_, _, r, err := c.NextReader()
 		require.NoError(t, err)
 		params, err := eioparser.ReadConnParameters(r)
+		closeErr := r.Close()
 		require.NoError(t, err)
+		require.NoError(t, closeErr)
 		return params.SID
 	}
 	wsSID, pollingSID := dial(websocket.Default), dial(polling.Default)

@@ -261,6 +261,7 @@ func WithCORS(value bool) Option {
 }
 
 // WithSessionIDGenerator sets session ID generation; nil selects cryptographic random IDs.
+// Generated IDs must be nonempty and unique; duplicates fail the handshake.
 func WithSessionIDGenerator(value IDGenerator) Option {
 	return func(config *options) { config.SessionIDGenerator = value }
 }

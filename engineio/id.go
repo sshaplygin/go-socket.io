@@ -5,6 +5,7 @@ import (
 )
 
 // IDGenerator generates identifiers for WithSessionIDGenerator; nil selects random IDs.
+// IDs must be nonempty and unique. A duplicate fails the handshake.
 type IDGenerator = sessionImpl.IDGenerator
 
 // DefaultIDGenerator generates URL-safe cryptographic random identifiers.

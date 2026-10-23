@@ -51,6 +51,11 @@ Before tagging v1:
 4. Put the requested version in the README install command and pkg.go.dev links
    for the root and Engine.IO packages. Verify the module can be consumed under
    the fork's path. Create the tag on this verified release commit.
+5. Publish GitHub release notes containing the migration summary from
+   [V1.md](docs/V1.md#migrating-from-googolleego-socketio), the statement that the
+   fork's v1.5.0 numbering is independent of upstream and supersedes its v1.7.0
+   state under the fork's module path, and every major issue explicitly deferred
+   in the release review.
 
 Installation examples must use a published fork version: upstream tags use a
 different module path. Prepare versioned links in the release PR and publish the

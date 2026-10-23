@@ -55,8 +55,9 @@ type connection struct {
 	log          *slog.Logger
 	rootRejected error
 	errorOnce    sync.Once
+	state        connectionState // guarded by mu
 
-	// mu guards close phases, queue contents/counters, namespace retirement and admission,
+	// mu guards state, queue contents/counters, namespace retirement and admission,
 	// connecting, draining, appSealed, overflow, pending, drainTimer and disconnectReason.
 	// Channels publish transitions; done has one closer on the read dispatcher.
 	mu                           sync.Mutex

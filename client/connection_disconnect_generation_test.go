@@ -11,7 +11,7 @@ import (
 
 // A server DISCONNECT invalidates cached root state even before Socket("/") exists.
 func TestClientLateRootAfterServerDisconnect(t *testing.T) {
-	cl, err := newTestManager("http://unused/chat")
+	cl, err := newTestManager(t, "http://unused/chat")
 	require.NoError(t, err)
 	fc := newFakeConn(t)
 	cl.dial = func(string) (engineclient.Conn, error) { return fc, nil }

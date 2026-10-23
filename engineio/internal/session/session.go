@@ -24,7 +24,7 @@ type Session struct {
 	headers       func(*http.Request, http.Header)
 	closeDone     chan struct{}
 	notified      chan struct{} // the first closer has finished its synchronous Error hook
-	closeErr      error
+	closeErr      error         // written by transportOnce; published by closeDone/transportDone
 	transportOnce sync.Once
 	transportDone chan struct{}
 	writeGate     chan struct{}
@@ -42,7 +42,7 @@ type Session struct {
 	upgradeTimeout time.Duration
 	probe          transport.Conn // guarded by upgradeLocker; closed with the session
 
-	upgradeLocker   sync.RWMutex // guards conn, transport, closed and opened
+	upgradeLocker   sync.RWMutex // guards conn, transport, probe, closed, opened, transportClosed and upgraded
 	closed          bool         // set by Close; a closed session is never upgraded
 	opened          time.Time    // set by Init; a session never opened logs no close
 	transportClosed bool         // set after the transport's Close returns

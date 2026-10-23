@@ -1870,7 +1870,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W33. Pair or share role-neutral runtime pieces
 
-- **Status:** open
+- **Status:** in progress — #177
 - **Priority:** after release
 - **Findings:** [ARCH-7](#architecture-findings)
 - **Depends on:** none
@@ -2877,7 +2877,7 @@ Every finding is listed under the dimension that reported it.
 | ARCH-4 | minor | — | `queue.go:88` | Vestigial non-server mode in the server connection: Start sets boundary before admission, so the writeChan delivery path is never used at runtime; only its capacity feeds the queue budget | Remove `boundary` and the writeChan path. Keep an integer capacity and a single ordered queue, and simplify the budget expressions accordingly. |
 | ARCH-5 | minor | — | `adapter/adapter.go:46` | Adapter extension contract is redundant and partly duck-typed | Before tagging, fix the AllRooms comment and declare the optional capabilities as named interfaces in package adapter (e.g. `SocketLookupBinder`). Document that the Adapter method set is frozen for v1 and new capabilities arrive as optional interfaces. |
 | ARCH-6 | minor | — | `types.go:61` | Conn.EngineConn exposes full engine frame I/O alongside the library's own reader and writer | Document EngineConn as metadata-only (ID, Transport, Upgraded, ReadyState, Close), or return a narrower public interface before v1.5.0. |
-| ARCH-7 | minor | — | `client/namespace_handlers.go:100` | Server and client runtimes are maintained in parallel | Keep role independence, but extract the role-neutral pieces (listener registry, frame failure tracking, header-reader worker) into an internal package the graph allows for both roles, or add paired behavioral tests that run against both roles. |
+| ARCH-7 | minor | — | `client/namespace_handlers.go:100` | Server and client runtimes are maintained in parallel | Keep role independence, but extract the role-neutral pieces (listener registry, frame failure tracking, header-reader worker) into an internal package the graph allows for both roles, or add paired behavioral tests that run against both roles. Fixed by #177 (W33). |
 | ARCH-8 | minor | — | `engineio/client/client.go:489` | Complexity hotspots in lifecycle code, including a 1 ms Resume retry loop because Pause has no cancellation path and a Resume issued before Pause starts is lost | For v1.5.0 no restructuring is required, but freeze behavior with the existing tests. Afterwards, give Pause a cancellation path (a context or stop channel) and model the connection close as an explicit state enum. |
 | ARCH-9 | minor | — | `namespace.go:161` | Dynamic child namespaces are never removed (unbounded registry growth), and OfFunc does not document it | Document the retention in OfFunc and in docs/V1.md, and advise restrictive match functions. Consider a later option to remove empty children (as socket.io 4.6 cleanupEmptyChildNamespaces does). |
 | ARCH-10 | minor | — | `parser/encoder.go:138` | Parser reimplements encoding/json traversal for every outbound payload; the GOEXPERIMENT=jsonv2 build variants are not exercised in CI | Add a CI job with GOEXPERIMENT=jsonv2 on the newest Go, and keep the json_compatibility tests as a differential check against encoding/json. Consider a fast path that uses json.Marshal directly when the value contains no parser.Buffer. |

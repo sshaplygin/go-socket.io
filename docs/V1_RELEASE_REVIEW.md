@@ -2063,7 +2063,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W41. Compile tests on 32-bit platforms
 
-- **Status:** open
+- **Status:** in progress — #187; Combined-snapshot exact ACK test and all root linux/386 test compilation passed; isolated make vet and hosted CI pending.
 - **Priority:** after release
 - **Findings:** [REL-8](#release-engineering-findings)
 - **Depends on:** none
@@ -2939,7 +2939,7 @@ Every finding is listed under the dimension that reported it.
 | REL-5 | minor | — | `.github/workflows/ci.yaml:17` | Branch protection requires only the drift and conformance checks; the v1 test, lint and gate jobs are not required | Add Lint v1, Gates v1 and the Go 1.22 job to the required checks; they report as skipped under their own names when their job-level if is false. The Test v1 matrix cannot be required directly: when skipped it reports one check under the unexpanded name (ci.yaml:91-93). Require it through an aggregating 'CI ok' job that runs with `if: always()` and fails when any job it needs failed or was cancelled, or make it always run and skip its steps, as the conformance job does. |
 | REL-6 | minor | — | `README.md:29` | README on master advertises v1.5.0 before it exists; the release checklist's Engine.IO link is missing; old upstream tags make @latest fail today | Push the tag promptly or keep the versioned links in the release PR, as CONTRIBUTING intends. Add the engineio pkg.go.dev link. Consider adding `retract [v0.9.1, v1.4.2]` to go.mod in the release commit to hide the inherited upstream tags. |
 | REL-7 | minor | — | `CONTRIBUTING.md:32` | Version v1.5.0 reuses an upstream release number and is lower than the upstream versions it descends from | CONTRIBUTING.md:32 already selects v1.5.0. Say in the release notes that fork versions do not continue upstream numbering, and which upstream state this release supersedes. Using a number above upstream (for example v1.9.0) would require the owner to change CONTRIBUTING and README first. |
-| REL-8 | nit | follow-up: reproduced | `client/connection_typed_test.go:66` | The test package fails to compile on 32-bit platforms | Use `int64` consistently in the request schema, decoded value and expected assertion value, or constrain this exact-integer test to 64-bit builds. Changing only the final `event.Value` type is insufficient. |
+| REL-8 | nit | follow-up: reproduced | `client/connection_typed_test.go:66` | The test package fails to compile on 32-bit platforms | Use `int64` consistently in the request schema, decoded value and expected assertion value, or constrain this exact-integer test to 64-bit builds. Changing only the final `event.Value` type is insufficient. Fixed by #187 (W41). |
 | REL-9 | nit | — | `.github/workflows/ci.yaml:244` | CI tool versions are unpinned and some actions target the deprecated Node 20 | Pin the golangci-lint version, matching the local v2 toolchain, and update to Node-24 action versions. Keep govulncheck@latest only if that is intended. |
 | REL-10 | nit | — | `_examples/gf/go.mod:24` | Example modules pin old golang.org/x/net and have typos in their module paths | Bump the framework and x/net versions in the example modules and fix the module path typos. |
 | REL-11 | nit | — | — | Stale remote branches, including a superseded release branch and a changelog draft | Delete merged or superseded branches, release/v1.5.0 in particular, before tagging. Reuse the useful parts of the v1-h/release-notes draft for REL-1. |

@@ -19,6 +19,8 @@ import (
 	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
+var _ adapter.SocketLookupBinder = (*broadcast)(nil)
+
 const testRedisReqChannel = "socket.io-request#/#"
 
 func init() {

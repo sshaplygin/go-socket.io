@@ -1,4 +1,7 @@
 // Package adapter owns namespace room selection and socket delivery contracts.
+// Adapters may implement io.Closer to release resources at server shutdown and
+// SocketLookupBinder to receive a lookup independent of room membership. New
+// capabilities are expressed through optional interfaces.
 package adapter
 
 import (
@@ -32,6 +35,12 @@ type Socket interface {
 	EmitWithOptions(opts Options, event string, args ...interface{})
 }
 
+// SocketLookupBinder optionally receives the server's live socket lookup.
+// The lookup is independent of room membership. A nil lookup clears the binding.
+type SocketLookupBinder interface {
+	BindSocketLookup(lookup func(string) Socket)
+}
+
 // Factory constructs one namespace adapter per name. The server coordinates
 // callers for the same name while unrelated factories may run concurrently.
 // Construction errors are retained by the namespace. Server.Serve reports errors
@@ -44,7 +53,8 @@ var ErrExceptUnsupported = errors.New("socketio: broadcast except is not support
 
 // Adapter manages namespace rooms and delivery. Its methods must support
 // concurrent calls from handlers and Server methods. Delivery invokes each target
-// only after releasing the adapter's lock.
+// only after releasing the adapter's lock. Send and SendAll are wrappers over
+// SendTo; Rooms(nil) is equivalent to AllRooms.
 type Adapter interface {
 	// SendTo snapshots matching sockets and emits on the caller's goroutine after
 	// releasing the adapter lock. Delivery uses target.Emit, or target.EmitWithOptions

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -108,6 +107,8 @@ func (f *flushWriter) detach() {
 // If NextReader has timeout, it returns ErrTimeout.
 // If read error while FeedIn, it returns read error.
 func (p *payload) FeedIn(r io.Reader, supportBinary bool) error {
+	var timeout operationTimer
+	defer timeout.stop()
 	select {
 	case <-p.close:
 		return p.load()
@@ -125,7 +126,7 @@ func (p *payload) FeedIn(r io.Reader, supportBinary bool) error {
 	defer p.pauser.Done()
 
 	for {
-		after, ok := p.readTimeout()
+		after, ok := timeout.until(p.readDeadline.Load().(time.Time))
 		if !ok {
 			return p.Store("read", errTimeout)
 		}
@@ -147,7 +148,7 @@ func (p *payload) FeedIn(r io.Reader, supportBinary bool) error {
 	}
 
 	for {
-		after, ok := p.readTimeout()
+		after, ok := timeout.until(p.readDeadline.Load().(time.Time))
 		if !ok {
 			return p.Store("read", errTimeout)
 		}
@@ -184,6 +185,8 @@ func (p *payload) cancelPoll(ctx context.Context) error {
 }
 
 func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
+	var timeout operationTimer
+	defer timeout.stop()
 	select {
 	case <-ctx.Done():
 		return p.cancelPoll(ctx)
@@ -211,7 +214,7 @@ func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
 	packets := 0
 	var batchEnd time.Time
 	for {
-		after, ok := p.writeTimeout()
+		after, ok := timeout.until(p.writeDeadline.Load().(time.Time))
 		if !ok {
 			return p.Store("write", errTimeout)
 		}
@@ -237,7 +240,7 @@ func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
 	}
 
 	for {
-		after, ok := p.writeTimeout()
+		after, ok := timeout.until(p.writeDeadline.Load().(time.Time))
 		if !ok {
 			return p.Store("write", errTimeout)
 		}
@@ -396,33 +399,40 @@ func (p *payload) Store(op string, err error) error {
 	return old.(error)
 }
 
-func (p *payload) readTimeout() (<-chan time.Time, bool) {
-	deadline := p.readDeadline.Load().(time.Time)
-	wait := time.Until(deadline)
-	if deadline.IsZero() {
-		// wait for every
-		wait = math.MaxInt64
+// operationTimer is owned by one feed, flush or codec acquisition. It is reset
+// when a deadline changes and stopped on every exit, including successful I/O.
+// Separate operations can wait on the same direction concurrently.
+type operationTimer struct{ timer *time.Timer }
+
+func (t *operationTimer) stop() {
+	if t.timer != nil && !t.timer.Stop() {
+		select {
+		case <-t.timer.C:
+		default:
+		}
 	}
-	if wait <= 0 {
-		return nil, false
-	}
-	return time.After(wait), true
 }
 
-func (p *payload) writeTimeout() (<-chan time.Time, bool) {
-	deadline := p.writeDeadline.Load().(time.Time)
-	wait := time.Until(deadline)
+func (t *operationTimer) until(deadline time.Time) (<-chan time.Time, bool) {
+	t.stop()
 	if deadline.IsZero() {
-		// wait for every
-		wait = math.MaxInt64
+		return nil, true
 	}
+	wait := time.Until(deadline)
 	if wait <= 0 {
 		return nil, false
 	}
-	return time.After(wait), true
+	if t.timer == nil {
+		t.timer = time.NewTimer(wait)
+	} else {
+		t.timer.Reset(wait)
+	}
+	return t.timer.C, true
 }
 
 func (p *payload) AcquirePayloadReader() (io.Reader, bool, error) {
+	var timeout operationTimer
+	defer timeout.stop()
 	select {
 	case <-p.close:
 		return nil, false, p.load()
@@ -435,7 +445,7 @@ func (p *payload) AcquirePayloadReader() (io.Reader, bool, error) {
 	p.pauser.Done()
 
 	for {
-		after, ok := p.readTimeout()
+		after, ok := timeout.until(p.readDeadline.Load().(time.Time))
 		if !ok {
 			return nil, false, p.Store("read", errTimeout)
 		}
@@ -453,13 +463,15 @@ func (p *payload) AcquirePayloadReader() (io.Reader, bool, error) {
 }
 
 func (p *payload) ReleasePayloadReader(err error) error {
+	var timeout operationTimer
+	defer timeout.stop()
 	select {
 	case <-p.close:
 		return p.load()
 	default:
 	}
 	for {
-		after, ok := p.readTimeout()
+		after, ok := timeout.until(p.readDeadline.Load().(time.Time))
 		if !ok {
 			return p.Store("read", errTimeout)
 		}
@@ -475,6 +487,8 @@ func (p *payload) ReleasePayloadReader(err error) error {
 }
 
 func (p *payload) AcquirePayloadWriter() (io.Writer, error) {
+	var timeout operationTimer
+	defer timeout.stop()
 	select {
 	case <-p.close:
 		return nil, p.load()
@@ -487,7 +501,7 @@ func (p *payload) AcquirePayloadWriter() (io.Writer, error) {
 	p.pauser.Done()
 
 	for {
-		after, ok := p.writeTimeout()
+		after, ok := timeout.until(p.writeDeadline.Load().(time.Time))
 		if !ok {
 			return nil, p.Store("write", errTimeout)
 		}
@@ -514,6 +528,8 @@ func (p *payload) AcquirePayloadWriter() (io.Writer, error) {
 }
 
 func (p *payload) ReleasePayloadWriter(err error) error {
+	var timeout operationTimer
+	defer timeout.stop()
 	if errors.Is(err, errDetached) {
 		return err // FlushOut has returned; nobody waits for this result
 	}
@@ -523,7 +539,7 @@ func (p *payload) ReleasePayloadWriter(err error) error {
 	default:
 	}
 	for {
-		after, ok := p.writeTimeout()
+		after, ok := timeout.until(p.writeDeadline.Load().(time.Time))
 		if !ok {
 			return p.Store("write", errTimeout)
 		}

@@ -24,7 +24,7 @@ func (c *instantCloseClientConn) NextReader() (eioparser.FrameType, io.ReadClose
 }
 
 func TestClientWorkersWaitForConnectAttempt(t *testing.T) {
-	cl, err := newTestManager("http://unused/", WithReconnectionDelay(time.Nanosecond), WithRandomizationFactor(-1))
+	cl, err := newTestManager(t, "http://unused/", WithReconnectionDelay(time.Nanosecond), WithRandomizationFactor(-1))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	fc := &instantCloseClientConn{fakeConn: newFakeConn(t), readEntered: make(chan struct{})}

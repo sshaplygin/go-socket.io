@@ -10,16 +10,7 @@ import (
 	"syscall"
 
 	socketio "github.com/sshaplygin/go-socket.io"
-	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/transport"
-	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
-	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
-
-// Easier to get running with CORS. Thanks for help @Vindexus and @erkie
-var allowOriginFunc = func(r *http.Request) bool {
-	return true
-}
 
 func main() {
 	addr := flag.String("addr", ":8000", "HTTP listen address")
@@ -34,14 +25,10 @@ func main() {
 }
 
 func run(ctx context.Context, addr string) error {
-	server := socketio.NewServer(socketio.WithEngineOptions(engineio.WithTransports([]transport.Transport{
-		&polling.Transport{
-			CheckOrigin: allowOriginFunc,
-		},
-		&websocket.Transport{
-			CheckOrigin: allowOriginFunc,
-		},
-	}...)))
+	// Defaults accept every origin. Use engineio.WithCORS(false) for same-origin
+	// websockets, or explicit transport CheckOrigin callbacks for an allow-list.
+	// See docs/PROTOCOL.md for polling CORS and request access-control behavior.
+	server := socketio.NewServer()
 
 	registerChat(server)
 

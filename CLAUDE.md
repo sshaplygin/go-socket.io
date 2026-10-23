@@ -78,10 +78,12 @@ Markdown files consumed by checks select their gate jobs: the v1 architecture
 contract and v2 API inventory. Other Markdown does not select runtime tests.
 Gate tests run in their own job when selected package tests do not already cover
 them. The architecture check runs both in the gate job and alongside selected
-v1 package tests. Validate selection with `go test ./.github/changes`.
+v1 package tests. The `ci-ok` job aggregates all checks and fails if any selected
+job failed or was cancelled. Validate selection with `go test ./.github/changes`.
 
 The v1 matrix includes stable/oldstable Go on Linux, macOS and Windows, race
-tests, Go 1.22, repeated concurrency tests, coverage, examples and Node clients
+tests, Go 1.22, repeated concurrency tests on every event, coverage, examples and
+Node clients
 1.7.4/2.5.0. Vulnerability checks use the newest Go release available to CI.
 `.github/sync-manifest` is the complete list of files deliberately shared across
 modules; other implementations evolve independently.

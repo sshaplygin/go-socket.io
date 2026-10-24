@@ -1533,7 +1533,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W20. Give the polling client its own HTTP transport
 
-- **Status:** in progress — #175
+- **Status:** in progress — #175; BenchmarkPollingClientsBroadcast/clients-10: dials/op 3.660 → 0, 2103 → 1875 allocs/op, 267.2 → 222.2 KiB/op, 1.743 → 1.498 ms (manual, base 88d8d26, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-5](#performance-findings)
 - **Depends on:** W2

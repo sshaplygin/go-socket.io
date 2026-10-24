@@ -1,6 +1,6 @@
 # go-socket.io
 
-A [Socket.IO](https://socket.io) server and Go client with namespaces, rooms, acknowledgements,
+A [Socket.IO](https://socket.io) server for Go with namespaces, rooms, acknowledgements,
 broadcast and a Redis adapter for multi-instance deployments. Engine.IO is included as
 the `engineio` sub-package and can be used on its own.
 

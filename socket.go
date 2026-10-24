@@ -133,6 +133,11 @@ func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, 
 		nc.sendPayload(pkg, ack)
 		return
 	}
+	nc.sendVolatile(pkg, ack)
+}
+
+func (nc *namespaceConn) sendVolatile(pkg outboundPayload, ack *callbackFunc) {
+	header := pkg.Header
 	// The transport callback runs outside queue locks; admission rechecks the
 	// queue atomically afterwards so a concurrent normal/volatile emit cannot
 	// turn this best-effort packet into an overflow or retain a dropped ACK.

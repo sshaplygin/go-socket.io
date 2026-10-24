@@ -1,6 +1,7 @@
 package socketio
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -181,6 +182,13 @@ func TestRedisServerCloseStopsBroadcasts(t *testing.T) {
 			s.PubSubNumSub("socket.io-request#/one#")["socket.io-request#/one#"] == 1 &&
 			s.PubSubNumSub("socket.io-request#/two#")["socket.io-request#/two#"] == 1
 	}, 2*time.Second, 5*time.Millisecond, "shared subscriber restored every namespace after reconnect")
+	// Redis lists the subscriptions before the adapter has read their
+	// acknowledgements. Close within the 200ms dial timeout needs the adapter to
+	// be ready, and a cluster query waits for that.
+	for _, nsp := range []string{"/one", "/two"} {
+		_, err := srv.broadcastOf(nsp).(redisadapter.Cluster).AllRoomsContext(context.Background())
+		require.NoError(t, err, nsp)
+	}
 
 	require.NotPanics(t, func() { require.NoError(t, srv.Close()) })
 	require.Eventually(t, func() bool {

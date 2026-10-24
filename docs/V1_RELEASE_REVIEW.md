@@ -1498,7 +1498,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W19. Size the Redis publishing pool
 
-- **Status:** in progress — #158
+- **Status:** in progress — #158; BenchmarkRedisSendToParallel: 24085 → 23560 ns/op, conns/op 0.006918 → 0.001983 (manual, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-4](#performance-findings)
 - **Depends on:** W2, W4

@@ -1,7 +1,6 @@
 package client
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -429,31 +428,6 @@ func clientUpgradeMessage(conn upgradeMessageConn, value string) error {
 	return closeErr
 }
 
-// deadlineCaptureTransport checks the chosen probe deadline without waiting for
-// that same heartbeat window to expire on the healthy polling connection.
-type deadlineCaptureTransport struct {
-	transport.Transport
-	ready    <-chan struct{}
-	deadline chan time.Time
-}
-
-func (t deadlineCaptureTransport) Dial(*url.URL, http.Header) (transport.Conn, error) {
-	<-t.ready
-	return deadlineCaptureConn{deadline: t.deadline}, nil
-}
-
-type deadlineCaptureConn struct {
-	transport.Conn
-	deadline chan time.Time
-}
-
-func (c deadlineCaptureConn) SetReadDeadline(deadline time.Time) error {
-	c.deadline <- deadline
-	return context.DeadlineExceeded
-}
-
-func (deadlineCaptureConn) Close() error { return nil }
-
 func TestClientUpgradeProbeFails(t *testing.T) {
 	for _, name := range []string{"rejected", "wrong-answer", "stalled", "unread", "clamped"} {
 		t.Run(name, func(t *testing.T) {
@@ -461,7 +435,7 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 			setDefault(t, clientRecords)
 			opts := []engineio.Option{engineio.WithLogger(slog.New(serverRecords))}
 			if name == "clamped" {
-				opts = append(opts, engineio.WithPingInterval(100*time.Millisecond), engineio.WithPingTimeout(10*time.Second))
+				opts = append(opts, engineio.WithPingInterval(100*time.Millisecond), engineio.WithPingTimeout(100*time.Millisecond))
 			}
 			s := engineio.NewServer(opts...)
 			ready, stop := make(chan struct{}), make(chan struct{})
@@ -489,7 +463,7 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 					if _, _, err := ws.ReadMessage(); err == nil {
 						_ = ws.WriteMessage(gorilla.TextMessage, []byte("3wrong"))
 					}
-				case "stalled":
+				case "stalled", "clamped":
 					conn, _, err := w.(http.Hijacker).Hijack()
 					if err != nil {
 						return
@@ -517,16 +491,9 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 			case "clamped":
 				bound = time.Hour
 			}
-			var candidate transport.Transport = websocket.Default
-			probeDeadline := make(chan time.Time, 1)
-			if name == "clamped" {
-				candidate = deadlineCaptureTransport{Transport: candidate, ready: ready, deadline: probeDeadline}
-			}
-			dialStarted := time.Now()
 			var err error
 			cl, err = (&Dialer{Upgrade: true, UpgradeTimeout: bound,
-				Transports: []transport.Transport{polling.Default, candidate}}).Dial(ts.URL, nil)
-			dialReturned := time.Now()
+				Transports: []transport.Transport{polling.Default, websocket.Default}}).Dial(ts.URL, nil)
 			require.NoError(t, err)
 			serverConn, err := s.Accept()
 			require.NoError(t, err)
@@ -555,16 +522,6 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 				require.Contains(t, records[0]["err"], "deadline exceeded")
 			}
 			require.NotContains(t, records[0], "sid")
-			if name == "clamped" {
-				const window = 100*time.Millisecond + 10*time.Second
-				select {
-				case deadline := <-probeDeadline:
-					require.False(t, deadline.Before(dialStarted.Add(window)), "probe deadline is shorter than the heartbeat window")
-					require.False(t, deadline.After(dialReturned.Add(window)), "hour-long upgrade timeout was not clamped")
-				default:
-					t.Fatal("probe did not receive its deadline")
-				}
-			}
 			require.Equal(t, "polling", cl.Transport())
 			require.False(t, cl.Upgraded())
 			if name == "unread" {

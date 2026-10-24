@@ -58,11 +58,13 @@ type Adapter interface {
 	Leave(room string, connection Socket) // Leave causes the connection to leave a room
 	LeaveAll(connection Socket)           // LeaveAll causes given connection to leave all rooms
 	Clear(room string)                    // Clear causes removal of all connections from the room
-	// Send emits to a room. Memory registers a trailing callback per socket;
-	// Redis rejects it before delivery and logs failures at WARN.
+	// Send emits to a room and returns no error. An adapter either registers a
+	// trailing callback per socket or rejects the broadcast before any delivery.
+	// Memory registers it; Redis rejects it, and its failures are logged at WARN,
+	// or at DEBUG once the adapter is closed.
 	Send(room, event string, args ...interface{})
-	// SendAll emits to all sockets. Memory registers a trailing callback per socket;
-	// Redis rejects it before delivery and logs failures at WARN.
+	// SendAll emits to all sockets and returns no error. A trailing callback is
+	// handled as by Send.
 	SendAll(event string, args ...interface{})
 	ForEach(room string, f EachFunc)  // ForEach visits each local member of the room.
 	Len(room string) int              // Len gives number of connections in the room

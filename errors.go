@@ -18,8 +18,12 @@ var errServerClosed = errors.New("socketio: server closed")
 // throughput can be lower than the application's emit rate.
 var ErrWriteBufferFull = errors.New("write buffer full")
 
-// ErrBroadcastAck means a broadcast has a trailing acknowledgement callback.
-// Single-socket emits support callbacks. BroadcastToRoom and BroadcastToNamespace
-// register callbacks per socket with the memory adapter; Redis rejects callbacks
-// before any delivery and logs the rejection at WARN.
+// ErrBroadcastAck means a broadcast has a trailing acknowledgement callback. Emit on
+// a broadcast Emitter returns it without sending for a trailing callback, with every
+// adapter; single-socket emits support callbacks.
+//
+// BroadcastToRoom and BroadcastToNamespace do not return it. The memory adapter
+// registers their trailing callback per socket. The Redis adapter rejects such a
+// broadcast before any delivery with its own error, which is logged at WARN, or at
+// DEBUG once the adapter is closed.
 var ErrBroadcastAck = errors.New("socketio: callbacks are not supported when broadcasting")

@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -165,20 +166,30 @@ func (bc *broadcast) Clear(room string) {
 	bc.logRequestError(bc.ClearContext(context.Background(), room))
 }
 
-// Send emits to a room. A trailing callback rejects the entire broadcast.
-// Rejection and publication failures are logged at WARN.
+// Send emits to a room. A broadcast with a trailing callback is rejected before
+// any delivery. Failures are logged at WARN, or at DEBUG once the adapter is closed.
 func (bc *broadcast) Send(room, event string, args ...interface{}) {
-	if err := bc.SendTo(adapter.Options{Rooms: []string{room}}, event, args...); err != nil {
-		logger.Log.Warn("socketio: redis broadcast failed", "nsp", bc.nsp, "err", err)
-	}
+	bc.logBroadcastError(bc.SendTo(adapter.Options{Rooms: []string{room}}, event, args...))
 }
 
-// SendAll emits once per socket. A trailing callback rejects the entire broadcast.
-// Rejection and publication failures are logged at WARN.
+// SendAll emits once per socket. A broadcast with a trailing callback is rejected
+// before any delivery. Failures are logged at WARN, or at DEBUG once the adapter is
+// closed.
 func (bc *broadcast) SendAll(event string, args ...interface{}) {
-	if err := bc.SendTo(adapter.Options{}, event, args...); err != nil {
-		logger.Log.Warn("socketio: redis broadcast failed", "nsp", bc.nsp, "err", err)
+	bc.logBroadcastError(bc.SendTo(adapter.Options{}, event, args...))
+}
+
+// logBroadcastError logs a SendTo failure of Send or SendAll, which return no error.
+// A failure after the adapter's close started is expected closure and logged at DEBUG.
+func (bc *broadcast) logBroadcastError(err error) {
+	if err == nil {
+		return
 	}
+	if bc.closed.Load() || errors.Is(err, errAdapterClosed) {
+		logger.Log.Debug("socketio: redis broadcast failed", "nsp", bc.nsp, "err", err)
+		return
+	}
+	logger.Log.Warn("socketio: redis broadcast failed", "nsp", bc.nsp, "err", err)
 }
 
 // Rooms lists all cluster rooms for nil, or this socket's local rooms.

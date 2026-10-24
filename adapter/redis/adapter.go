@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sshaplygin/go-socket.io/adapter"
+	"github.com/sshaplygin/go-socket.io/logger"
 )
 
 // broadcast composes the local room index with Redis publication and requests.
@@ -164,14 +166,30 @@ func (bc *broadcast) Clear(room string) {
 	bc.logRequestError(bc.ClearContext(context.Background(), room))
 }
 
-// Send emits to a room, registering a trailing callback on each local socket.
+// Send emits to a room. A broadcast with a trailing callback is rejected before
+// any delivery. Failures are logged at WARN, or at DEBUG once the adapter is closed.
 func (bc *broadcast) Send(room, event string, args ...interface{}) {
-	_ = bc.SendTo(adapter.Options{Rooms: []string{room}}, event, args...)
+	bc.logBroadcastError(bc.SendTo(adapter.Options{Rooms: []string{room}}, event, args...))
 }
 
-// SendAll emits once per socket, registering a trailing callback on each local socket.
+// SendAll emits once per socket. A broadcast with a trailing callback is rejected
+// before any delivery. Failures are logged at WARN, or at DEBUG once the adapter is
+// closed.
 func (bc *broadcast) SendAll(event string, args ...interface{}) {
-	_ = bc.SendTo(adapter.Options{}, event, args...)
+	bc.logBroadcastError(bc.SendTo(adapter.Options{}, event, args...))
+}
+
+// logBroadcastError logs a SendTo failure of Send or SendAll, which return no error.
+// A failure after the adapter's close started is expected closure and logged at DEBUG.
+func (bc *broadcast) logBroadcastError(err error) {
+	if err == nil {
+		return
+	}
+	if bc.closed.Load() || errors.Is(err, errAdapterClosed) {
+		logger.Log.Debug("socketio: redis broadcast failed", "nsp", bc.nsp, "err", err)
+		return
+	}
+	logger.Log.Warn("socketio: redis broadcast failed", "nsp", bc.nsp, "err", err)
 }
 
 // Rooms lists all cluster rooms for nil, or this socket's local rooms.

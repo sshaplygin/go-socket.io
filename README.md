@@ -4,7 +4,9 @@ A [Socket.IO](https://socket.io) server for Go with namespaces, rooms, acknowled
 broadcast and a Redis adapter for multi-instance deployments. Engine.IO is included as
 the `engineio` sub-package and can be used on its own.
 
-This is a maintained fork of `googollee/go-socket.io`.
+This is a maintained fork of `googollee/go-socket.io`. Applications moving from upstream
+v1.4.2 or v1.7.0 should follow the
+[migration guide](docs/V1.md#migrating-from-googolleego-socketio).
 
 ![Build Status](https://github.com/sshaplygin/go-socket.io/workflows/CI/badge.svg)
 [![GoDoc](https://pkg.go.dev/badge/github.com/sshaplygin/go-socket.io.svg)](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0)

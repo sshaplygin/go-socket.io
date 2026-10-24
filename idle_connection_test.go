@@ -1,7 +1,6 @@
 package socketio
 
 import (
-	"github.com/sshaplygin/go-socket.io/engineio"
 	"net/http/httptest"
 	"runtime"
 	"strings"
@@ -10,6 +9,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sshaplygin/go-socket.io/engineio"
 )
 
 func TestIdleWebsocketConnectionGoroutines(t *testing.T) {

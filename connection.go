@@ -19,10 +19,6 @@ import (
 // The outbound queue size (see ErrWriteBufferFull) and drain deadline (see Conn.Close).
 const defaultWriteBufferSize, defaultDrainTimeout = 64, time.Minute
 
-// Configuration, codec ownership and channel references are installed before
-// workers start. The header reader and dispatcher hand off decoder ownership;
-// the writer owns encoder/writer. Registries synchronize their own contents.
-// rootRejected is initialized before dispatch; id is atomic.
 type connection struct {
 	engineio.Conn
 
@@ -31,8 +27,8 @@ type connection struct {
 	resolveNamespace   func(string, url.Values) *namespaceHandler
 	handlers           *namespaceRegistry
 	namespaces         *namespaces
-	retiring           map[string]*parser.Header // guarded by mu
-	reconnectReady     []string                  // guarded by mu
+	retiring           map[string]*parser.Header
+	reconnectReady     []string
 	readReady          chan struct{}
 	engineDone         <-chan struct{}
 	engineObserverDone chan struct{}
@@ -49,16 +45,14 @@ type connection struct {
 	controlQueued   int
 	closeControls   int
 	controlPending  int // claimed namespace disconnects not yet enqueued; guarded by mu
-	writeBufferSize int
+	writeBufferSize int // the outbound queue capacity
 	errorChan       chan error
+	errorOnce       sync.Once // starts serveError on the first report that needs it
 
 	log          *slog.Logger
 	rootRejected error
-	errorOnce    sync.Once
 
-	// mu guards close phases, queue contents/counters, namespace retirement and admission,
-	// connecting, draining, appSealed, overflow, pending, drainTimer and disconnectReason.
-	// Channels publish transitions; done has one closer on the read dispatcher.
+	// mu orders the close state, whose steps close the channels, against queueing and registering.
 	mu                           sync.Mutex
 	closing, seal, discard, done chan struct{}
 	draining, connecting         bool             // the first close is Close; until connected

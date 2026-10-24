@@ -34,14 +34,22 @@ boundaries, package privacy and the absence of unsupported import paths.
 ## Runtime
 
 The Engine.IO server accepts HTTP requests and yields sessions to Socket.IO.
-Each server Socket.IO connection has a read dispatcher, a header reader and a
-writer. A separate observer cancels typed handlers when the engine closes, even
-if the dispatcher is inside a blocking application handler; Engine.IO removes closed
-sessions through a completion callback, without an idle registry watcher. The server error worker starts
-only when a report needs delivery. The client role retains its error worker.
-The server uses one ordered outbound queue with an integer capacity; there is no
-unused buffered delivery channel. Incoming event handlers run on the dispatcher;
-blocking one also blocks the header worker's handoff for that connection.
+Each server Socket.IO connection has up to five workers: a header reader, a
+read dispatcher, a writer, an observer that cancels typed handlers when the
+engine closes, and an error worker that starts on the first `OnError` delivery
+or outbound queue overflow. The writer drains one ordered outbound queue whose
+capacity is the write buffer size. Engine.IO removes a closed session from its
+registry in the session's close path, without a per-session watcher. Incoming
+event handlers run on the dispatcher; blocking one stalls that connection and
+also blocks the header reader's handoff of the next packet. A client connection
+starts its error worker with the connection.
 Application-initiated disconnection can invoke lifecycle callbacks concurrently.
 The client manager owns namespace sockets, connection generations, retries and
 pre-connect buffering. Queues and ACK registrations belong to their connection.
+
+Tests live beside their implementation. Public package tests exercise consumers;
+tests in those packages also cover private state and failure paths. Compile fixtures in
+`internal/parity` check role separation, public contracts and canonical `go doc`
+method/field lookup. Runtime helpers remain unexported in their owning public
+package. Node interoperability
+fixtures live in `internal/conformance` behind the `conformance` build tag.

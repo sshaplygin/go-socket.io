@@ -1533,7 +1533,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W20. Give the polling client its own HTTP transport
 
-- **Status:** in progress — #175; BenchmarkPollingClientsBroadcast/clients-10: dials/op 3.660 → 0, 2103 → 1875 allocs/op, 267.2 → 222.2 KiB/op, 1.743 → 1.498 ms (manual, base 88d8d26, darwin/arm64)
+- **Status:** done — #175; BenchmarkPollingClientsBroadcast/clients-10: dials/op 3.660 → 0, 2103 → 1875 allocs/op, 267.2 → 222.2 KiB/op, 1.743 → 1.498 ms (manual, base 88d8d26, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-5](#performance-findings)
 - **Depends on:** W2
@@ -1606,7 +1606,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W22. Copy packets only when an ACK ID is added
 
-- **Status:** in progress — #163; BenchmarkEmitWebsocket/string: 2280 → 2176 B/op, 31 → 28 allocs/op (manual, darwin/arm64)
+- **Status:** done — #163; BenchmarkEmitWebsocket/string: 2280 → 2176 B/op, 31 → 28 allocs/op (manual, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-7](#performance-findings)
 - **Depends on:** W2

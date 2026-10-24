@@ -267,7 +267,6 @@ func (s *Server) roomSocket(nsp string, conn Conn) *namespaceConn {
 	if owned && nc.Connected() && nc.beginRoomOperation() {
 		return nc
 	}
-
 	return nil
 }
 

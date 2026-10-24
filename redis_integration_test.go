@@ -168,7 +168,7 @@ func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 func TestRedisServerCloseStopsBroadcasts(t *testing.T) {
 	s := miniredis.RunT(t)
 	srv := NewServer()
-	srv.SetAdapter(redisadapter.New(redisadapter.WithAddr(s.Addr()), redisadapter.WithDialTimeout(200*time.Millisecond)))
+	srv.SetAdapter(redisadapter.New(redisadapter.WithAddr(s.Addr()), redisadapter.WithSubscribeTimeout(200*time.Millisecond)))
 	t.Cleanup(func() { _ = srv.Close() })
 	srv.OnConnect("/one", func(Conn) error { return nil })
 	srv.OnConnect("/two", func(Conn) error { return nil })
@@ -183,7 +183,7 @@ func TestRedisServerCloseStopsBroadcasts(t *testing.T) {
 			s.PubSubNumSub("socket.io-request#/two#")["socket.io-request#/two#"] == 1
 	}, 2*time.Second, 5*time.Millisecond, "shared subscriber restored every namespace after reconnect")
 	// Redis lists the subscriptions before the adapter has read their
-	// acknowledgements. Close within the 200ms dial timeout needs the adapter to
+	// acknowledgements. Close within the 200ms subscribe timeout needs the adapter to
 	// be ready, and a cluster query waits for that.
 	for _, nsp := range []string{"/one", "/two"} {
 		_, err := srv.broadcastOf(nsp).(redisadapter.Cluster).AllRoomsContext(context.Background())

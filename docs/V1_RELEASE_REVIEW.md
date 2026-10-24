@@ -1796,10 +1796,11 @@ changed to `done — #<PR>` after the merge.
   duration.
 - **Change:** the wait is the package variable `redisDialTimeout`, which only
   `adapter/redis` tests can override (`readiness_test.go:127-129`, `shutdown_test.go:23-24`).
-  Add a public option in `adapter/redis` for it (proposed name `WithDialTimeout`, default
-  10 s; the name is confirmed in review) and use it instead of the variable; the root test
-  uses 200 ms and asserts that registration returns within 1 s; V1.md "Adapters and
-  Redis": registration dials Redis synchronously and can block up to that timeout.
+  Add a public option in `adapter/redis` for it (`WithSubscribeTimeout`, default 10 s,
+  matching v2's `SubscribeTimeout` in ROADMAP.md; owner decision 2026-10-24) and use it
+  instead of the variable; the root test uses 200 ms and asserts that registration
+  returns within 1 s; V1.md "Adapters and Redis": registration dials Redis synchronously
+  and can block up to that timeout.
 - **Tests:** the updated `TestRedisServerCloseStopsBroadcasts`; `options_test.go` covers the
   option.
 - **Benchmarks:** none.

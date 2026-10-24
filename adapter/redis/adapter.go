@@ -27,13 +27,14 @@ const redisPublishMaxIdle = 16
 type broadcast struct {
 	clusterOnce    sync.Once
 	requestTimeout time.Duration
-	dialTimeout    time.Duration
 	customHandler  func(context.Context, json.RawMessage) (json.RawMessage, error)
 	clusterContext context.Context
 	cancelCluster  context.CancelFunc
 	remoteWorkers  chan struct{}
 	lookupMu       sync.RWMutex
 	socketLookup   func(string) adapter.Socket
+	// subscribeTimeout is the WithSubscribeTimeout value for reconnects and Close.
+	subscribeTimeout time.Duration
 
 	// pub serves PUBLISH and PUBSUB commands. A redigo connection allows only
 	// one concurrent caller, and these commands come from user goroutines and
@@ -121,11 +122,11 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 	// The subscriber and boundedDo keep dial, which sets no read or write
 	// timeout, because the subscriber blocks in its read while idle.
 	pub := &redis.Pool{MaxIdle: redisPublishMaxIdle, Dial: func() (redis.Conn, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), min(opts.dialTimeout(), timeout))
+		ctx, cancel := context.WithTimeout(context.Background(), min(opts.subscribeTimeout(), timeout))
 		defer cancel()
 		return dialWithOptions(ctx, redis.DialReadTimeout(timeout), redis.DialWriteTimeout(timeout))
 	}}
-	ctx, cancel := context.WithTimeout(context.Background(), opts.dialTimeout())
+	ctx, cancel := context.WithTimeout(context.Background(), opts.subscribeTimeout())
 	defer cancel()
 	// Dial the first publishing connection now to report an unreachable server.
 	first := pub.Get()
@@ -137,18 +138,18 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 
 	uid := uuid.NewString()
 	rbc := &broadcast{
-		dialTimeout: opts.dialTimeout(),
-		Memory:      adapter.NewMemory(),
-		requests:    make(map[string]interface{}),
-		done:        make(chan struct{}),
-		pub:         pub,
-		pattern:     fmt.Sprintf("%s#*", opts.Prefix),
-		key:         fmt.Sprintf("%s#%s#", opts.Prefix, nsp),
-		reqChannel:  fmt.Sprintf("%s-request#%s#", opts.Prefix, nsp),
-		resChannel:  fmt.Sprintf("%s-response#%s#", opts.Prefix, nsp),
-		nsp:         nsp,
-		uid:         uid,
+		Memory:     adapter.NewMemory(),
+		requests:   make(map[string]interface{}),
+		done:       make(chan struct{}),
+		pub:        pub,
+		pattern:    fmt.Sprintf("%s#*", opts.Prefix),
+		key:        fmt.Sprintf("%s#%s#", opts.Prefix, nsp),
+		reqChannel: fmt.Sprintf("%s-request#%s#", opts.Prefix, nsp),
+		resChannel: fmt.Sprintf("%s-response#%s#", opts.Prefix, nsp),
+		nsp:        nsp,
+		uid:        uid,
 	}
+	rbc.subscribeTimeout = opts.subscribeTimeout()
 	rbc.transportCtx, rbc.transportCancel = context.WithCancel(context.Background())
 	rbc.initCluster(opts)
 	rbc.dial.Store(&dial)

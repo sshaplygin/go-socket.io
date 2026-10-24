@@ -37,7 +37,7 @@ func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
 	}()
 	srv := socketio.NewServer()
 	failures := make(chan error, 1)
-	factory := New(WithAddr(ln.Addr().String()), WithPassword("secret"), WithDialTimeout(300*time.Millisecond))
+	factory := New(WithAddr(ln.Addr().String()), WithPassword("secret"), WithSubscribeTimeout(300*time.Millisecond))
 	srv.SetAdapter(func(name string) (adapter.Adapter, error) {
 		bc, err := factory(name)
 		if err != nil {
@@ -61,7 +61,7 @@ func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
 	require.ErrorContains(t, recv(t, failures, "recorded construction failure"), `"/x"`)
 }
 
-// TestRedisCloseDoesNotWaitForSilentSubscriber checks that the Redis dial timeout also
+// TestRedisCloseDoesNotWaitForSilentSubscriber checks that WithSubscribeTimeout also
 // bounds the subscriber dial: the publishing connection reaches a Redis server that
 // requires AUTH, the subscriber connection is accepted and never answered, and Close
 // still returns while the registration waits; the registration records the failure and
@@ -85,7 +85,7 @@ func TestRedisCloseDoesNotWaitForSilentSubscriber(t *testing.T) {
 	}()
 	srv := socketio.NewServer()
 	failures := make(chan error, 1)
-	factory := New(WithAddr(ln.Addr().String()), WithPassword("secret"), WithDialTimeout(300*time.Millisecond))
+	factory := New(WithAddr(ln.Addr().String()), WithPassword("secret"), WithSubscribeTimeout(300*time.Millisecond))
 	srv.SetAdapter(func(name string) (adapter.Adapter, error) {
 		bc, err := factory(name)
 		if err != nil {

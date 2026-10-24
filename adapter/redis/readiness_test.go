@@ -132,7 +132,7 @@ func TestDynamicSubscriptionWriteIsBounded(t *testing.T) {
 	owner.subscriptionChanged(owner.pattern, true)
 	result := make(chan error, 1)
 	go func() {
-		_, err := shared.add("/new", &options{Prefix: "socket.io", DialTimeout: time.Second})
+		_, err := shared.add("/new", &options{Prefix: "socket.io", SubscribeTimeout: time.Second})
 		result <- err
 	}()
 	select {
@@ -173,7 +173,7 @@ func TestReadySubscriptionHonoursCanceledContext(t *testing.T) {
 func TestNamespaceCloseBoundsUnsubscribeWrite(t *testing.T) {
 	c := &blockedSubscriptionWrite{silentSubscription: silentSubscription{done: make(chan struct{})}}
 	owner := &broadcast{done: make(chan struct{}), pattern: "socket.io#*", sub: &redis.PubSubConn{Conn: c}}
-	member := &broadcast{dialTimeout: 40 * time.Millisecond, nsp: "/closing", reqChannel: "socket.io-request#/closing#", resChannel: "socket.io-response#/closing#"}
+	member := &broadcast{subscribeTimeout: 40 * time.Millisecond, nsp: "/closing", reqChannel: "socket.io-request#/closing#", resChannel: "socket.io-response#/closing#"}
 	shared := &sharedResources{owner: owner, members: map[string][]*broadcast{"/remaining": {owner}, "/closing": {member}}}
 	owner.resources = shared
 	member.resources = shared

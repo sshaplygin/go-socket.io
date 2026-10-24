@@ -12,7 +12,7 @@ import (
 
 // options is private Redis configuration.
 type options struct {
-	DialTimeout          time.Duration
+	SubscribeTimeout     time.Duration
 	RequestsTimeout      time.Duration
 	CustomRequestHandler func(context.Context, json.RawMessage) (json.RawMessage, error)
 
@@ -37,7 +37,7 @@ func getOptions(opts *options) *options {
 
 	if opts != nil {
 		options.DB = opts.DB
-		options.DialTimeout = opts.DialTimeout
+		options.SubscribeTimeout = opts.SubscribeTimeout
 		options.RequestsTimeout = opts.RequestsTimeout
 		options.CustomRequestHandler = opts.CustomRequestHandler
 		if opts.Addr != "" {
@@ -65,7 +65,7 @@ type Option func(*options)
 
 // New returns a lazy namespace factory interoperable with socket.io-redis 5.4.0.
 // Namespaces share one subscriber and publishing pool. Construction waits for
-// subscription acknowledgements within WithDialTimeout (ten seconds by
+// subscription acknowledgements within WithSubscribeTimeout (ten seconds by
 // default); lost subscriptions reconnect with bounded backoff. WithDB selects
 // the Redis database, but Pub/Sub isolation requires distinct prefixes.
 //
@@ -122,19 +122,25 @@ func WithPassword(value string) Option { return func(config *options) { config.P
 // Redis Pub/Sub channels are shared across databases; use WithPrefix for isolation.
 func WithDB(value int) Option { return func(config *options) { config.DB = value } }
 
-// WithDialTimeout bounds synchronous namespace construction, including dialing,
-// authentication and subscription acknowledgements, and subsequent reconnects
-// and unsubscription. Later publishing-pool dials use the lower of this and
+// WithSubscribeTimeout bounds the subscriber connection: during namespace
+// construction, the dial, AUTH and SELECT and the PSUBSCRIBE/SUBSCRIBE
+// acknowledgements; each reconnect attempt after a lost subscription; and the
+// wait for the UNSUBSCRIBE acknowledgement in Close. Publishing-pool dials,
+// including the first one during construction, use the lower of this and
 // WithRequestsTimeout. Nonpositive values select ten seconds.
-func WithDialTimeout(value time.Duration) Option {
-	return func(config *options) { config.DialTimeout = value }
+//
+// A factory constructs one namespace at a time, so a registration queued
+// behind another can wait longer than one timeout, and Server.Close waits for
+// constructions in progress.
+func WithSubscribeTimeout(value time.Duration) Option {
+	return func(config *options) { config.SubscribeTimeout = value }
 }
 
-func (opts *options) dialTimeout() time.Duration {
-	if opts.DialTimeout > 0 {
-		return opts.DialTimeout
+func (opts *options) subscribeTimeout() time.Duration {
+	if opts.SubscribeTimeout > 0 {
+		return opts.SubscribeTimeout
 	}
-	return redisDialTimeout
+	return redisSubscribeTimeout
 }
 
 // WithRequestsTimeout bounds each cluster request and each broadcast PUBLISH,

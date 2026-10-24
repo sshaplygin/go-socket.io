@@ -95,7 +95,7 @@ func TestFactoryDefersConstructionErrors(t *testing.T) {
 	require.Nil(t, instance)
 }
 
-func TestFactoryDialTimeoutBoundsSubscription(t *testing.T) {
+func TestFactorySubscribeTimeoutBoundsSubscription(t *testing.T) {
 	s := miniredis.RunT(t)
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
@@ -106,7 +106,7 @@ func TestFactoryDialTimeoutBoundsSubscription(t *testing.T) {
 		return false
 	})
 	factory := redisadapter.New(redisadapter.WithAddr(s.Addr()),
-		redisadapter.WithDialTimeout(time.Minute), redisadapter.WithDialTimeout(50*time.Millisecond))
+		redisadapter.WithSubscribeTimeout(time.Minute), redisadapter.WithSubscribeTimeout(50*time.Millisecond))
 	started := time.Now()
 	instance, err := factory("/bounded")
 	require.Error(t, err)

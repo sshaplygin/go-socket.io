@@ -680,7 +680,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W4. Bound Redis broadcast publication
 
-- **Status:** in progress — #151; BenchmarkRedisSendTo: 56796 → 58122 ns/op, BenchmarkRedisSendToParallel: 18227 → 18561 ns/op, allocs/op unchanged
+- **Status:** done — #151; BenchmarkRedisSendTo: 56796 → 58122 ns/op, BenchmarkRedisSendToParallel: 18227 → 18561 ns/op, allocs/op unchanged
 - **Priority:** before tag
 - **Findings:** [PERF-3](#performance-findings) (see [M5](#m5-redis-publish-has-no-io-deadline))
 - **Depends on:** W2
@@ -1111,7 +1111,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D3. Typed events and client bridge methods
 
-- **Status:** decided — option A (2026-10-24); in progress — #186
+- **Status:** decided — option A (2026-10-24); done — #186
 - **Priority:** owner decision
 - **Findings:** [ARCH-3](#architecture-findings), [CL-11](#clarity-findings)
 - **Depends on:** W9 (it creates the client package doc that option A edits)

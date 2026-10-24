@@ -86,5 +86,5 @@ type Adapter interface {
 	ForEach(room string, f EachFunc)  // ForEach visits each local member of the room.
 	Len(room string) int              // Len gives number of connections in the room
 	Rooms(connection Socket) []string // Gives list of all the rooms if no connection given, else list of all the rooms the connection joined
-	AllRooms() []string               // AllRooms lists all rooms of the namespace, cluster-wide for Redis
+	AllRooms() []string               // Gives list of all the rooms the connection joined
 }

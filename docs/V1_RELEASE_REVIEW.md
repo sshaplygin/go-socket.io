@@ -731,7 +731,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W5. Report Redis broadcast failures
 
-- **Status:** in progress — #152
+- **Status:** done — #152
 - **Priority:** before tag
 - **Findings:** [ARCH-1](#architecture-findings), [CL-2](#clarity-findings) (see
   [M4](#m4-redis-send-and-sendall-drop-broadcasts-silently))
@@ -1146,7 +1146,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D4. Adapter contract
 
-- **Status:** decided — option B (2026-10-24)
+- **Status:** decided — option B (2026-10-24); in progress — #155
 - **Priority:** owner decision
 - **Findings:** [ARCH-5](#architecture-findings)
 - **Depends on:** W5 for the implementation PR (both rewrite the `Send`/`SendAll` comments
@@ -1205,7 +1205,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D6. Exported test helpers
 
-- **Status:** decided — option A (2026-10-24); in progress — #156
+- **Status:** decided — option A (2026-10-24); done — #156
 - **Priority:** owner decision
 - **Findings:** [ARCH-11](#architecture-findings), [API-12](#api-compatibility-findings)
 - **Depends on:** none
@@ -2964,7 +2964,7 @@ Every finding is listed under the dimension that reported it.
 | ARCH-2 | minor | — | `engineio/server.go:1` | Public types are aliases to internal packages, hiding their methods from go doc and breaking the project's own rule | Declare engineio.Conn (and the other session-facing types) in the public engineio package with session implementing them. For internal/event, wrap Handler in an opaque public struct without exported methods, or move the types to a public role-neutral package. Extend TestPublicRoleDocumentation to engineio and the root non-role types. Fixed by #154 (D2). |
 | ARCH-3 | minor | — | `client/event.go:10` | Typed client events live in the server package, so a client program that uses typed events must import the server | Before v1.5.0, consider a public role-neutral package (for example `event`) that owns Event/AckEvent/Endpoint/RemoteError and the sentinel errors, with root aliases kept for convenience, so client.RegisterEvent no longer exposes an internal type. Fixed by #186 (D3). |
 | ARCH-4 | minor | — | `queue.go:88` | Vestigial non-server mode in the server connection: Start sets boundary before admission, so the writeChan delivery path is never used at runtime; only its capacity feeds the queue budget | Remove `boundary` and the writeChan path. Keep an integer capacity and a single ordered queue, and simplify the budget expressions accordingly. |
-| ARCH-5 | minor | — | `adapter/adapter.go:46` | Adapter extension contract is redundant and partly duck-typed | Before tagging, fix the AllRooms comment and declare the optional capabilities as named interfaces in package adapter (e.g. `SocketLookupBinder`). Document that the Adapter method set is frozen for v1 and new capabilities arrive as optional interfaces. |
+| ARCH-5 | minor | — | `adapter/adapter.go:46` | Adapter extension contract is redundant and partly duck-typed | Before tagging, fix the AllRooms comment and declare the optional capabilities as named interfaces in package adapter (e.g. `SocketLookupBinder`). Document that the Adapter method set is frozen for v1 and new capabilities arrive as optional interfaces. Fixed by #155 (D4). |
 | ARCH-6 | minor | — | `types.go:61` | Conn.EngineConn exposes full engine frame I/O alongside the library's own reader and writer | Document EngineConn as metadata-only (ID, Transport, Upgraded, ReadyState, Close), or return a narrower public interface before v1.5.0. Fixed by #189 (D5). |
 | ARCH-7 | minor | — | `client/namespace_handlers.go:100` | Server and client runtimes are maintained in parallel | Keep role independence, but extract the role-neutral pieces (listener registry, frame failure tracking, header-reader worker) into an internal package the graph allows for both roles, or add paired behavioral tests that run against both roles. |
 | ARCH-8 | minor | — | `engineio/client/client.go:489` | Complexity hotspots in lifecycle code, including a 1 ms Resume retry loop because Pause has no cancellation path and a Resume issued before Pause starts is lost | For v1.5.0 no restructuring is required, but freeze behavior with the existing tests. Afterwards, give Pause a cancellation path (a context or stop channel) and model the connection close as an explicit state enum. |

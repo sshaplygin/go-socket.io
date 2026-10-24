@@ -32,8 +32,13 @@ Package `engineio` of the v1 module at the repository root.
   encoded-packet threshold when enabled. The Go client offers it when configured,
   with the same threshold. Per-packet compression defaults to true; false suppresses
   it for the packet and all its binary attachments on either transport.
-  With `b64=1`, websocket exchanges binary packets as text
-  `b<type><base64 data>`, including after a polling-to-websocket upgrade.
+  With `b64=1` in the websocket request, as sent by a `forceBase64` client, the
+  server writes binary packets as text messages `b<type><base64 data>` and decodes
+  such text messages as binary packets, both on a direct websocket connection and
+  after a polling-to-websocket upgrade. Binary messages are still accepted in this
+  mode; socket.io-client 1.7.4 under Node sends them despite `forceBase64`. Without
+  `b64`, a text message starting with `b` is an invalid packet type and closes the
+  session; engine.io 3.6.2 decodes it as base64 in either mode.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
   to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
   threshold and only for a packet whose compression flag is true. The threshold is

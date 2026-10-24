@@ -1606,7 +1606,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W22. Copy packets only when an ACK ID is added
 
-- **Status:** in progress — #163
+- **Status:** in progress — #163; BenchmarkEmitWebsocket/string: 2280 → 2176 B/op, 31 → 28 allocs/op (manual, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-7](#performance-findings)
 - **Depends on:** W2

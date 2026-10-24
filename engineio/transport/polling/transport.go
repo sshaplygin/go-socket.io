@@ -25,7 +25,8 @@ type Transport struct {
 // Default is the default transport. Its Client times out requests after one
 // minute. When http.DefaultTransport is an *http.Transport at initialization,
 // Client uses a clone of it that keeps up to 64 idle connections per host,
-// shared by every client that dials through Default.
+// shared by every client that dials through Default. Later changes to
+// http.DefaultTransport do not affect Default.
 var Default = &Transport{
 	Client: &http.Client{
 		Timeout:   time.Minute,

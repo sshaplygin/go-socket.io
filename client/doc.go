@@ -30,7 +30,8 @@
 //
 // Typed Event and AckEvent descriptors are defined in the root socketio package,
 // so programs using typed client events import that package as well as client.
-// The client runtime itself does not import the server. Client and Socket methods
-// RegisterEvent, SendEvent and RequestAck are internal descriptor bridges, not an
-// application extension API; use socketio.Event and socketio.AckEvent instead.
+// The client runtime itself does not import the root socketio package. Client and
+// Socket methods RegisterEvent, SendEvent and RequestAck are internal descriptor
+// bridges, not an application extension API; use socketio.Event and
+// socketio.AckEvent instead.
 package client

@@ -16,3 +16,6 @@ require (
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 )
+
+// Inherited upstream tags declare github.com/googollee/go-socket.io.
+retract [v0.9.1, v1.4.2]

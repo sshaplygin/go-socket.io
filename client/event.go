@@ -6,7 +6,8 @@ import (
 	"github.com/sshaplygin/go-socket.io/internal/event"
 )
 
-// RegisterEvent reserves the selected namespace's typed handler atomically.
+// RegisterEvent is an internal bridge for socketio.Event and socketio.AckEvent
+// descriptors only. Applications register typed handlers through those descriptors.
 func (c *Client) RegisterEvent(name string, handler event.Handler) error {
 	return c.manager.RegisterEvent(name, handler)
 }

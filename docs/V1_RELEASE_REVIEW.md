@@ -1699,7 +1699,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W26. Reduce the idle connection footprint
 
-- **Status:** in progress — #190
+- **Status:** in progress — #190; BenchmarkConnectWebsocket: 47.95 → 41.82 KiB/op, 298 → 295 allocs/op (CI, base 25d6deb, linux/amd64); 48.05 → 41.89 KiB/op, 295 → 292 allocs/op (manual, base 25d6deb, darwin/arm64); TestIdleWebsocketConnectionGoroutines: 7.00 → 5.00 goroutines per idle websocket connection
 - **Priority:** after release
 - **Findings:** [ARCH-4](#architecture-findings), [PERF-13](#performance-findings),
   [ARCH-13](#architecture-findings)

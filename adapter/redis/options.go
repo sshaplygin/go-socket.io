@@ -120,7 +120,10 @@ func WithPassword(value string) Option { return func(config *options) { config.P
 // Redis Pub/Sub channels are shared across databases; use WithPrefix for isolation.
 func WithDB(value int) Option { return func(config *options) { config.DB = value } }
 
-// WithRequestsTimeout bounds each cluster request, including Redis commands.
+// WithRequestsTimeout bounds each cluster request and each broadcast PUBLISH,
+// including Redis commands. Publication errors are returned by SendTo. The
+// bound applies per I/O phase (dial, write, read), so a stalled publication can
+// take up to about two to three times the timeout.
 // Nonpositive values select the default five seconds.
 func WithRequestsTimeout(value time.Duration) Option {
 	return func(config *options) { config.RequestsTimeout = value }

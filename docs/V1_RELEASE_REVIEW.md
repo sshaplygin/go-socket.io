@@ -1669,7 +1669,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W25. Remove extra JSON passes from decoding
 
-- **Status:** in progress — #171; Latest combined lazy-reader snapshot has 10 samples per Decode case: allocations fall by 2/op and bytes by about 4.1 KiB/op; no timing comparison is statistically significant, with structs100 median +59.8% under host load. Isolated CI pending.
+- **Status:** in progress — #171; `BenchmarkDecode` against `e72c35f` (manual interleaved benchstat, n=10, darwin/arm64, Go 1.25.5): string 1,388 → 542 ns/op and 19 → 12 allocs/op; struct 4.913 → 3.274 µs/op and 45 → 36 allocs/op; structs100 342.7 → 274.7 µs/op and 2,143 → 2,134 allocs/op; binary 3.564 → 2.627 µs/op and 50 → 42 allocs/op (all p=0.000).
 - **Priority:** after release
 - **Findings:** [PERF-11](#performance-findings)
 - **Depends on:** W2

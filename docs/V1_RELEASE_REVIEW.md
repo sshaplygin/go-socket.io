@@ -939,7 +939,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W9. Add a lifecycle sketch and runnable examples
 
-- **Status:** open
+- **Status:** in progress — #150
 - **Priority:** before tag
 - **Findings:** [CL-1](#clarity-findings) (see
   [M7](#m7-no-inline-quick-start-docs-do-not-state-that-serve-must-run))
@@ -2940,7 +2940,7 @@ Every finding is listed under the dimension that reported it.
 
 | ID | Severity | Re-check | Location | Finding | Recommendation |
 | --- | --- | --- | --- | --- | --- |
-| CL-1 | major | confirmed | `README.md:41` | No inline quick start: README links runnable server and Go client examples, but README, V1.md and godoc contain no code that mounts the handler or calls Serve, Close or client Connect, and there are no Example functions | Add a short server+client lifecycle sketch to the root package doc or docs/V1.md (README keeps linking to runnable examples, per b557f2a): NewServer, OnConnect/OnEvent, `go server.Serve()`, `defer server.Close()`, `http.Handle("/socket.io/", server)`, client.New/Connect/Emit with ack. Add runnable `Example` functions in the root and client packages. State in the Server type doc and Serve doc that Serve must run for connections to be dispatched. |
+| CL-1 | major | confirmed | `README.md:41` | No inline quick start: README links runnable server and Go client examples, but README, V1.md and godoc contain no code that mounts the handler or calls Serve, Close or client Connect, and there are no Example functions | Add a short server+client lifecycle sketch to the root package doc or docs/V1.md (README keeps linking to runnable examples, per b557f2a): NewServer, OnConnect/OnEvent, `go server.Serve()`, `defer server.Close()`, `http.Handle("/socket.io/", server)`, client.New/Connect/Emit with ack. Add runnable `Example` functions in the root and client packages. State in the Server type doc and Serve doc that Serve must run for connections to be dispatched. Fixed by #150 (W9). |
 | CL-2 | major → minor → major (M4) | partially-confirmed | `adapter/redis/adapter.go:153` | Redis adapter silently drops room/namespace broadcasts with a trailing callback, while godoc says callbacks are supported | Either make Send/SendAll log or return the rejection (and have BroadcastToRoom/BroadcastToNamespace return false), or correct the redis Send/SendAll comments, the ErrBroadcastAck doc and the BroadcastToRoom/BroadcastToNamespace docs to say that clustered adapters reject callbacks and send nothing. |
 | CL-3 | major → minor | confirmed | `server.go:150` | OnError contract undocumented: nil Conn for root rejections and silently recovered panics; V1.md's inactive-context wording is too broad | Document on both OnError methods that Conn is nil for root connect/middleware failures and an inactive Conn for other namespaces, and that panics in OnError are recovered and discarded. Fix the wording at V1.md:41. Consider logging recovered OnError panics at WARN. |
 | CL-4 | major | confirmed | `README.md:7` | No migration guide from googollee/go-socket.io despite pervasive API changes; Conn.ID format change is undocumented | Add a short 'Migrating from googollee/go-socket.io' section, in V1.md or a linked file: import path, the constructor/option mapping, Redis adapter setup, client package, ID format, and removed APIs. State the ID format in the Conn.ID godoc of both roles. |

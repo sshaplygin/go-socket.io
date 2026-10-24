@@ -158,6 +158,11 @@ type dynamicNamespace struct {
 // Parent broadcasts and snapshots span its children; later registrations affect
 // children created afterwards only. A parent broadcast stops at the first child
 // adapter error; earlier child deliveries remain. Callback rejection sends nothing.
+// Children are never removed: each child and its adapter stay registered for the
+// server's lifetime, even if every connection is rejected, so the registry grows
+// with every distinct name a match function accepts. Use restrictive match
+// functions and authenticate at the root namespace to bound the namespaces
+// untrusted clients can create.
 func (s *Server) OfFunc(match func(string, url.Values) bool) *ServerNamespace {
 	s.parentsMu.Lock()
 	defer s.parentsMu.Unlock()

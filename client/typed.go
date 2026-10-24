@@ -149,6 +149,8 @@ func (nc *namespaceConn) RequestAck(ctx context.Context, name string, value even
 	return request.await(ctx)
 }
 
+// RegisterEvent is an internal bridge for socketio.Event and socketio.AckEvent
+// descriptors only. Applications register typed handlers through those descriptors.
 func (s *Socket) RegisterEvent(name string, handler event.Handler) error {
 	return s.handler.RegisterEvent(name, handler)
 }

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // payloadEncoder reads original values. Omission and custom marshaling decisions
@@ -25,6 +27,15 @@ type jsonVisit struct {
 	ptr    uintptr
 	length int
 }
+
+var jsonNumberType = reflect.TypeOf(json.Number(""))
+
+// The JSONv2 implementation emits a literal replacement rune, while legacy
+// encoding/json escapes it. Keep invalid UTF-8 aligned with the active version.
+var invalidUTF8JSON = func() string {
+	data, _ := json.Marshal("\xff")
+	return string(data[1 : len(data)-1])
+}()
 
 func (e *payloadEncoder) value(v reflect.Value, quoted bool) error {
 	if !v.IsValid() || (v.Kind() == reflect.Pointer && v.IsNil()) {
@@ -48,6 +59,22 @@ func (e *payloadEncoder) value(v reflect.Value, quoted bool) error {
 		}
 		return err
 	}
+	// Fast path, taken only after the Buffer and custom-marshaler checks above
+	// have handled v itself. A quoted value comes from a ",string" field, an
+	// option encoding/json applies per struct field: json.Marshal of the bare
+	// value cannot see it, so a quoted value always stays on the traversal
+	// (jsonFields quotes only scalar kinds, which scalar handles). Only
+	// aggregates are delegated, where one json.Marshal call replaces a call per
+	// leaf; scalars are cheaper to append directly, and checking the Kind first
+	// skips the cache lookup for every scalar leaf.
+	if !quoted {
+		switch v.Kind() {
+		case reflect.Struct, reflect.Map, reflect.Slice, reflect.Array:
+			if isPlainJSONType(v.Type()) {
+				return e.standard(v, false)
+			}
+		}
+	}
 	e.depth++
 	defer func() { e.depth-- }()
 	if e.depth > 1000 {
@@ -61,6 +88,9 @@ func (e *payloadEncoder) value(v reflect.Value, quoted bool) error {
 			}
 			if e.active[visit] {
 				return &json.UnsupportedValueError{Value: v, Str: "encountered a cycle"}
+			}
+			if e.active == nil {
+				e.active = make(map[jsonVisit]bool)
 			}
 			e.active[visit] = true
 			defer delete(e.active, visit)
@@ -102,8 +132,111 @@ func (e *payloadEncoder) value(v reflect.Value, quoted bool) error {
 		e.WriteByte(']')
 		return nil
 	default:
+		return e.scalar(v, quoted)
+	}
+}
+
+func (e *payloadEncoder) scalar(v reflect.Value, quoted bool) error {
+	if quoted || v.Type() == jsonNumberType {
 		return e.standard(v, quoted)
 	}
+	var scratch [64]byte
+	var data []byte
+	switch v.Kind() {
+	case reflect.String:
+		e.string(v.String())
+		return nil
+	case reflect.Bool:
+		data = strconv.AppendBool(scratch[:0], v.Bool())
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		data = strconv.AppendInt(scratch[:0], v.Int(), 10)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		data = strconv.AppendUint(scratch[:0], v.Uint(), 10)
+	case reflect.Float32, reflect.Float64:
+		// Mirrors encoding/json's floatEncoder: reject NaN and infinities, use
+		// the shortest representation in 'f' format, switch to 'e' format below
+		// 1e-6 or from 1e21, and shorten a two-digit negative exponent ("e-07"
+		// becomes "e-7").
+		value := v.Float()
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return &json.UnsupportedValueError{Value: v, Str: strconv.FormatFloat(value, 'g', -1, v.Type().Bits())}
+		}
+		format := byte('f')
+		abs := math.Abs(value)
+		if v.Kind() == reflect.Float32 {
+			if abs != 0 && (float32(abs) < 1e-6 || float32(abs) >= 1e21) {
+				format = 'e'
+			}
+		} else if abs != 0 && (abs < 1e-6 || abs >= 1e21) {
+			format = 'e'
+		}
+		data = strconv.AppendFloat(scratch[:0], value, format, -1, v.Type().Bits())
+		if n := len(data); format == 'e' && n >= 4 && data[n-3] == '-' && data[n-2] == '0' {
+			data[n-2] = data[n-1]
+			data = data[:n-1]
+		}
+	default:
+		return e.standard(v, false)
+	}
+	e.Write(data)
+	return nil
+}
+
+// string follows encoding/json's default HTML and invalid-UTF-8 escaping.
+func (e *payloadEncoder) string(value string) {
+	const hex = "0123456789abcdef"
+	e.WriteByte('"')
+	start := 0
+	for i := 0; i < len(value); {
+		c := value[i]
+		if c >= utf8.RuneSelf {
+			r, size := utf8.DecodeRuneInString(value[i:])
+			if (r == utf8.RuneError && size == 1) || r == '\u2028' || r == '\u2029' {
+				e.WriteString(value[start:i])
+				switch r {
+				case '\u2028':
+					e.WriteString(`\u2028`)
+				case '\u2029':
+					e.WriteString(`\u2029`)
+				default:
+					e.WriteString(invalidUTF8JSON)
+				}
+				i += size
+				start = i
+			} else {
+				i += size
+			}
+			continue
+		}
+		if c >= 0x20 && c != '"' && c != '\\' && c != '<' && c != '>' && c != '&' {
+			i++
+			continue
+		}
+		e.WriteString(value[start:i])
+		switch c {
+		case '"', '\\':
+			e.WriteByte('\\')
+			e.WriteByte(c)
+		case '\b':
+			e.WriteString(`\b`)
+		case '\f':
+			e.WriteString(`\f`)
+		case '\n':
+			e.WriteString(`\n`)
+		case '\r':
+			e.WriteString(`\r`)
+		case '\t':
+			e.WriteString(`\t`)
+		default:
+			e.WriteString(`\u00`)
+			e.WriteByte(hex[c>>4])
+			e.WriteByte(hex[c&15])
+		}
+		i++
+		start = i
+	}
+	e.WriteString(value[start:])
+	e.WriteByte('"')
 }
 
 func (e *payloadEncoder) standard(v reflect.Value, quoted bool) error {
@@ -175,8 +308,7 @@ func (e *payloadEncoder) mapping(v reflect.Value) error {
 		if i > 0 {
 			e.WriteByte(',')
 		}
-		name, _ := json.Marshal(entry.name)
-		e.Write(name)
+		e.string(entry.name)
 		e.WriteByte(':')
 		if err := e.value(entry.value, false); err != nil {
 			return err

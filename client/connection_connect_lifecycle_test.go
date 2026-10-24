@@ -14,7 +14,7 @@ import (
 )
 
 func TestClientCloseCancelsPendingConnect(t *testing.T) {
-	cl, err := newTestManager("http://unused/", WithTimeout(-1))
+	cl, err := newTestManager(t, "http://unused/", WithTimeout(-1))
 	require.NoError(t, err)
 	entered, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
@@ -34,7 +34,7 @@ func TestClientCloseCancelsPendingConnect(t *testing.T) {
 func TestClientLastSocketCloseCancelsDial(t *testing.T) {
 	for _, timeout := range []time.Duration{-1, time.Hour} {
 		t.Run(timeout.String(), func(t *testing.T) {
-			cl, err := newTestManager("http://unused/", WithTimeout(timeout))
+			cl, err := newTestManager(t, "http://unused/", WithTimeout(timeout))
 			require.NoError(t, err)
 			fc := newFakeConn(t)
 			t.Cleanup(func() { _ = cl.Close() })
@@ -64,7 +64,7 @@ func TestClientLastSocketCloseCancelsDial(t *testing.T) {
 func TestClientClosedSocketSurvivesPendingDial(t *testing.T) {
 	for _, closedNamespace := range []string{"/", "/chat"} {
 		t.Run(closedNamespace, func(t *testing.T) {
-			cl, err := newTestManager("http://unused/", WithTimeout(-1))
+			cl, err := newTestManager(t, "http://unused/", WithTimeout(-1))
 			require.NoError(t, err)
 			fc := newFakeConn(t)
 			t.Cleanup(func() { _ = cl.Close() })
@@ -114,7 +114,7 @@ func TestClientClosedSocketSurvivesPendingDial(t *testing.T) {
 }
 
 func TestClientConcurrentConnectAndRetry(t *testing.T) {
-	cl, err := newTestManager("http://unused/")
+	cl, err := newTestManager(t, "http://unused/")
 	require.NoError(t, err)
 	refused := errors.New("dial rejected")
 	cl.dial = func(string) (engineclient.Conn, error) { return nil, refused }
@@ -153,13 +153,18 @@ func TestClientLateConnectHandler(t *testing.T) {
 			name = "error"
 		}
 		t.Run(name, func(t *testing.T) {
-			cl, err := newTestManager("http://unused/")
+			cl, err := newTestManager(t, "http://unused/")
 			require.NoError(t, err)
 			fc := newFakeConn(t)
 			cl.dial = func(string) (engineclient.Conn, error) { return fc, nil }
 			cl.OnEvent("barrier", func(Conn) string { return "ready" })
 			errs := make(chan error, 1)
-			cl.OnError(func(_ Conn, err error) { errs <- err })
+			cl.OnError(func(_ Conn, err error) {
+				select {
+				case errs <- err:
+				default:
+				}
+			})
 			require.NoError(t, cl.Connect())
 			closeAtEnd(t, fc, cl.state.conn)
 			fc.reads <- "0"
@@ -210,7 +215,7 @@ func TestClientLateConnectReplyAfterClose(t *testing.T) {
 
 // A default named socket may connect before the application asks for the root socket.
 func TestClientRootSocketAddedAfterConnect(t *testing.T) {
-	cl, err := newTestManager("http://unused/chat")
+	cl, err := newTestManager(t, "http://unused/chat")
 	require.NoError(t, err)
 	fc := newFakeConn(t)
 	cl.dial = func(string) (engineclient.Conn, error) { return fc, nil }

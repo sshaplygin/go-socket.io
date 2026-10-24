@@ -19,7 +19,7 @@ The document has three parts:
   then [Release blockers](#release-blockers) through the
   [finding catalogue](#finding-catalogue). They come from the original review and were
   corrected where the follow-up validation and the 2026-10-22 fact-check required it.
-- **[Work plan](#work-plan):** pull-request-sized work items (W1–W41) and owner decisions
+- **[Work plan](#work-plan):** pull-request-sized work items (W1–W44) and owner decisions
   (D1–D6) that cover every catalogue ID except the editorial `CL-14` (not planned), with
   their order, acceptance criteria and status.
 - **[Follow-up validation](#follow-up-validation):** the evidence log, with a status and
@@ -133,7 +133,7 @@ to do the work. The status of each item is owned by its **Status** line and nowh
    as early as possible. A decision to change the API adds its implementation as a
    before-tag PR, recorded in that D item's Status line (see Marking progress).
 5. [W10](#w10-prepare-the-release-commit) last; it is the release PR. Only the owner tags.
-6. After the tag: W11–W41 in numeric order unless **Depends on** says otherwise. Every
+6. After the tag: W11–W44 in numeric order unless **Depends on** says otherwise. Every
    performance item needs W2 merged first. W12 lands before W23. W38 needs the tag.
 
 A major (M1–M7) that is not fixed before the tag is deferred only in writing: the owner
@@ -250,7 +250,7 @@ have already merged, the item's PR changes no part of this document. Apart from 
 lines and the `Fixed by` notes, do not rewrite the review's findings, the Backlog or the Follow-up
 validation evidence log when an item is done; they record the state at `7311fbe`. This
 progress tracking is not a v1 changelog: after the tag, the owner decides whether the
-remaining items (W11–W41) move to GitHub issues, and this document then keeps only the
+remaining items (W11–W44) move to GitHub issues, and this document then keeps only the
 findings and the evidence.
 
 **Standard definition of done** (every item refers to it): the PR is squash-merged by the
@@ -311,6 +311,9 @@ changed to `done — #<PR>` after the merge.
 | [W39](#w39-stress-on-push-and-an-aggregate-required-check) | Stress on push and an aggregate required check | after release | REL-4, REL-5 | — |
 | [W40](#w40-pin-ci-tools-and-move-actions-off-node-20) | Pin CI tools and move actions off Node 20 | after release | REL-9 | — |
 | [W41](#w41-compile-tests-on-32-bit-platforms) | Compile tests on 32-bit platforms | after release | REL-8 | — |
+| [W42](#w42-fail-the-benchmark-comparison-on-lost-samples) | Fail the benchmark comparison on lost samples | after release | REL-13 | — |
+| [W43](#w43-harden-the-w1-locking-documentation-and-regression-test) | Harden the W1 locking documentation and regression test | after release | T7, CL-15 | — |
+| [W44](#w44-isolate-the-testpollingbinary-nil-reader-crash) | Isolate the TestPollingBinary nil-reader crash | after release | T8 | — |
 
 **Finding coverage.** Every catalogue ID appears in exactly one item or in "Not planned".
 
@@ -318,12 +321,12 @@ changed to `done — #<PR>` after the merge.
 | --- | --- |
 | Correctness and security | C1 W1 · C2 W14 · C3 W11 · C4 W13 · C5 W6 |
 | API compatibility | API-1 W8 · API-2 D1 · API-3 W6 · API-4 W7 · API-5 W8 · API-6 W8 · API-7 W8 · API-8 W8 · API-9 D2 · API-10 W10 · API-11 W38 · API-12 D6 · API-13 W8 |
-| Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned |
+| Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 |
 | Architecture | ARCH-1 W5 · ARCH-2 D2 · ARCH-3 D3 · ARCH-4 W26 · ARCH-5 D4 · ARCH-6 D5 · ARCH-7 W33 · ARCH-8 W32 · ARCH-9 W14 · ARCH-10 W37 · ARCH-11 D6 · ARCH-12 W28 · ARCH-13 W26 |
 | Performance | PERF-1 W3 · PERF-2 W18 · PERF-3 W4 · PERF-4 W19 · PERF-5 W20 · PERF-6 W21 · PERF-7 W22 · PERF-8 W23 · PERF-9 W24 · PERF-10 W2 · PERF-11 W25 · PERF-12 W21 · PERF-13 W26 |
 | Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 |
-| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 |
-| Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 |
+| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 |
+| Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 · REL-13 W42 |
 
 **Not planned.**
 
@@ -332,7 +335,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W1. Fix the permanent session deadlock
 
-- **Status:** in progress — #147
+- **Status:** done — #147
 - **Priority:** blocker
 - **Findings:** [C1](#correctness-and-security-findings) (see
   [B1](#b1-permanent-session-deadlock)), [REL-12](#release-engineering-findings)
@@ -479,7 +482,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W2. Add Socket.IO-level benchmarks
 
-- **Status:** in progress — #153; adds `BenchmarkEncode`, `BenchmarkEncodePrepared`, `BenchmarkDecode`, `BenchmarkBroadcastWebsocket`, `BenchmarkEmitWebsocket`, `BenchmarkJoinRoom`, `BenchmarkConnectWebsocket`, `BenchmarkMemorySendTo`, `BenchmarkRedisSendTo`, `BenchmarkRedisSendToParallel`, `BenchmarkWebsocketEcho`, `BenchmarkPollingEcho`, `BenchmarkPayloadRoundTrip` and `BenchmarkPollingClientsBroadcast` (26 cases; `BenchmarkPollingClientsBroadcast` runs only with `SOCKETIO_BENCH_POLLING=1` until W20).
+- **Status:** done — #153; adds `BenchmarkEncode`, `BenchmarkEncodePrepared`, `BenchmarkDecode`, `BenchmarkBroadcastWebsocket`, `BenchmarkEmitWebsocket`, `BenchmarkJoinRoom`, `BenchmarkConnectWebsocket`, `BenchmarkMemorySendTo`, `BenchmarkRedisSendTo`, `BenchmarkRedisSendToParallel`, `BenchmarkWebsocketEcho`, `BenchmarkPollingEcho`, `BenchmarkPayloadRoundTrip` and `BenchmarkPollingClientsBroadcast` (26 cases; `BenchmarkPollingClientsBroadcast` runs only with `SOCKETIO_BENCH_POLLING=1` until W20).
 - **Priority:** before tag (W3 and W4 need it to show before/after)
 - **Findings:** [PERF-10](#performance-findings)
 - **Depends on:** none
@@ -1033,7 +1036,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D1. Version number and inherited tags
 
-- **Status:** open (awaiting owner decision)
+- **Status:** decided — option A + R1 (2026-10-24)
 - **Priority:** owner decision
 - **Findings:** [API-2](#api-compatibility-findings), [REL-7](#release-engineering-findings),
   [CL-10](#clarity-findings)
@@ -1064,7 +1067,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D2. Aliases to internal packages
 
-- **Status:** open (awaiting owner decision)
+- **Status:** decided — option B (2026-10-24)
 - **Priority:** owner decision
 - **Findings:** [ARCH-2](#architecture-findings), [API-9](#api-compatibility-findings)
 - **Depends on:** none
@@ -1108,7 +1111,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D3. Typed events and client bridge methods
 
-- **Status:** open (awaiting owner decision)
+- **Status:** decided — option A (2026-10-24)
 - **Priority:** owner decision
 - **Findings:** [ARCH-3](#architecture-findings), [CL-11](#clarity-findings)
 - **Depends on:** W9 (it creates the client package doc that option A edits)
@@ -1143,7 +1146,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D4. Adapter contract
 
-- **Status:** open (awaiting owner decision)
+- **Status:** decided — option B (2026-10-24)
 - **Priority:** owner decision
 - **Findings:** [ARCH-5](#architecture-findings)
 - **Depends on:** W5 for the implementation PR (both rewrite the `Send`/`SendAll` comments
@@ -1180,7 +1183,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D5. Engine connection access
 
-- **Status:** open (awaiting owner decision)
+- **Status:** decided — option A (2026-10-24)
 - **Priority:** owner decision
 - **Findings:** [ARCH-6](#architecture-findings)
 - **Depends on:** none
@@ -1202,7 +1205,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D6. Exported test helpers
 
-- **Status:** open (awaiting owner decision)
+- **Status:** decided — option A (2026-10-24)
 - **Priority:** owner decision
 - **Findings:** [ARCH-11](#architecture-findings), [API-12](#api-compatibility-findings)
 - **Depends on:** none
@@ -1551,8 +1554,12 @@ changed to `done — #<PR>` after the merge.
 - **Benchmarks:** `BenchmarkPollingClientsBroadcast/clients-10` (W2) against the PR base;
   expected lower time and allocations; `dials/op` from a manual run of
   `SOCKETIO_BENCH_METRICS=1 go test -run '^$' -bench 'PollingClientsBroadcast' -benchmem -count=10 ./client`
-  on base and head, compared with `benchstat`. If W2 gated the benchmark behind
-  `SOCKETIO_BENCH_POLLING=1`, this PR removes the gate.
+  on base and head, compared with `benchstat`. W2 gated the benchmark behind
+  `SOCKETIO_BENCH_POLLING=1`, and this PR removes the gate. Because the PR base still
+  has the gate, the CI comparison shows no base side: run the manual comparison with
+  `SOCKETIO_BENCH_POLLING=1` set for the base run as well, preferably on Linux (a darwin
+  base run can lose a sample to port exhaustion), and grep both outputs for `--- FAIL`
+  (see [REL-13](#release-engineering-findings)).
 - **Docs:** godoc, `docs/V1.md` "Client limits".
 - **Acceptance criteria:**
   - [ ] `go test -race -count=1 -run TestPollingClientsReuseConnections ./client` passes; fails on master.
@@ -2079,6 +2086,83 @@ changed to `done — #<PR>` after the merge.
   succeeds; `make vet` passes.
 - **Definition of done:** standard.
 - **Out of scope:** running tests on 32-bit hardware.
+
+### W42. Fail the benchmark comparison on lost samples
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [REL-13](#release-engineering-findings)
+- **Depends on:** none
+- **Problem:** with Go 1.25.5, when a sub-benchmark's `b.N=1` probe fails in a later
+  `-count` repetition, `go test` prints `--- FAIL` but still prints `PASS` and exits 0. A
+  failure in a measured run exits 1. The Benchmarks workflow relies on the exit status
+  (`pipefail`), so a lost sample only shrinks the sample count in the report.
+- **Change:** in `.github/workflows/benchmarks.yml`, after each side's benchmark run, fail
+  the step when the raw output contains a line starting with `--- FAIL`, and print the
+  matching lines. Mention the guard in the CLAUDE.md "CI" paragraph on benchmarks.
+- **Tests:** a scratch run of the changed step on a benchmark that calls `b.Fatal` when
+  `b.N == 1` on its second repetition, quoted in the PR; `go test ./.github/changes` if the
+  classifier is touched.
+- **Benchmarks:** none.
+- **Docs:** CLAUDE.md "CI".
+- **Acceptance criteria:** the step fails on the scratch failing benchmark and passes on the
+  PR's own run; the PR quotes both outputs.
+- **Definition of done:** standard.
+- **Out of scope:** changing benchmark thresholds.
+
+### W43. Harden the W1 locking documentation and regression test
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [T7](#tests-findings), [CL-15](#clarity-findings)
+- **Depends on:** none
+- **Problem:** two notes from the review of #147 (W1). The locking-rule comment at
+  `upgradeLocker` (`engineio/internal/session/session.go`) names only read-lock holders and
+  failing writers, but write-lock holders are bound by the same rule, and
+  `frameReader.Read`/`Close` also reach `fail` → `closeTransport` while the websocket read
+  lock is held. `TestServerCloseShutsDownSessionsConcurrently`
+  (`engineio/server_close_concurrent_test.go`) blocks one session's Error hook; when map
+  iteration shuts that session down last, the old serial `Server.Close` passes too. A
+  mutation run with the serial `Close` failed 39 of 40 iterations.
+- **Change:** extend the comment to "Holders of upgradeLocker, read or write, must not call
+  transport methods that can wait for an open frame reader or writer", with the matching
+  change at `closeTransport`. In the test, make two sessions fail and close `entered`
+  through `sync.Once`, so the escape rate against a serial `Close` drops to about 0.7%.
+- **Tests:** the changed test, plus a mutation run (the serial `Close` from `6dd3b47` with
+  the test from this PR) at `-count=40`, quoted in the PR.
+- **Benchmarks:** none.
+- **Docs:** code comments only.
+- **Acceptance criteria:**
+  `go test -race -count=20 -run TestServerCloseShutsDownSessionsConcurrently ./engineio`
+  passes; the mutation run fails at least 39 of 40 iterations (quoted).
+- **Definition of done:** standard.
+- **Out of scope:** changing session locking.
+
+### W44. Isolate the TestPollingBinary nil-reader crash
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [T8](#tests-findings)
+- **Depends on:** none
+- **Problem:** during a local `go test -race -count=5 -shuffle=on -cpu=1,4
+  ./engineio/transport/...` run on darwin under ephemeral-port exhaustion (TIME_WAIT above
+  16,000), `TestPollingBinary` crashed with a nil-pointer dereference on a nil reader at
+  `engineio/transport/polling/polling_test.go:82` (`io.ReadAll(r)`). A rerun after the
+  ports drained passed. The `NextReader` error is checked at line 78 with the non-fatal
+  `should.Nil(err)`, so a returned error followed by a nil reader would crash at line 82;
+  whether `NextReader` returned an error, or a nil reader with a nil error, is not
+  established.
+- **Change:** reproduce by forcing the dial or request to fail, for example with a
+  `RoundTripper` that returns an error. If a library function returns a nil reader with a
+  nil error, fix it and add a regression test; otherwise make the test stop on the error
+  (`require.NoError` instead of `should.Nil` at line 78).
+- **Tests:** the reproduction above, failing before the change.
+- **Benchmarks:** none.
+- **Docs:** none.
+- **Acceptance criteria:** the reproduction passes with `-race -count=20`; the PR quotes the
+  original crash and states which side was at fault.
+- **Definition of done:** standard.
+- **Out of scope:** the port exhaustion itself (W20).
 
 ## Release blockers
 
@@ -2814,6 +2898,10 @@ Every finding is listed under the dimension that reported it.
   [Performance measurements](#performance-measurements) names the one that captures each
   figure. A `v1.4.2` value is a historical ad hoc measurement; not reproducible by a
   committed benchmark.
+- CL-15, T7, T8 and REL-13 were found on 2026-10-24 while reviewing the W1 and W2 pull
+  requests (#147, #153). They were not part of the original review or the follow-up, have
+  no row in [Catalogue cross-check](#catalogue-cross-check) and are not among its 85
+  entries. Their locations refer to `origin/master` at `d98e5d5`, not `7311fbe`.
 - The [work plan](#work-plan) maps every ID to exactly one work item or owner decision, or
   lists it under "Not planned"; the finding coverage table is in
   [How to use this plan](#how-to-use-this-plan). When a fix merges, the row's
@@ -2866,6 +2954,7 @@ Every finding is listed under the dimension that reported it.
 | CL-12 | minor | — | `engineio/client/client.go:489` | Core concurrency code is hard to follow: 100-219 line functions and no written close/drain state machine | Add a short state-machine comment (or an ARCHITECTURE.md subsection) for connection close phases and client probe/upgrade. Annotate which mutex guards each field. Split probeTransport into dial, probe exchange, pause and commit steps. |
 | CL-13 | nit | — | `_examples/default-http/go.mod:1` | Cosmetic inconsistencies in example module paths, error prefixes and option wording | Fix the module path typos, use a consistent package prefix in error strings, say 'nonpositive' where the code means it, mention the Go client in the README tagline, and document or unexport the test fakes. |
 | CL-14 | nit | follow-up: editorial | `CONTRIBUTING.md:3` | Contributor build/test instructions live in CLAUDE.md and CONTRIBUTING links to them; the ownership table explicitly assigns development commands to CLAUDE.md | Moving commands is an optional editorial choice, not a correction of an ownership violation. |
+| CL-15 | nit | — | `engineio/internal/session/session.go` | The W1 locking-rule comment at `upgradeLocker` names only read-lock holders and failing writers; write-lock holders and frame-reader failure paths are bound by the same rule | Extend the comment and the matching `closeTransport` note (W43). Found in the review of #147. |
 
 ### Architecture findings
 
@@ -2927,6 +3016,8 @@ Every finding is listed under the dimension that reported it.
 | T4 | minor | — | `redis_integration_test.go:174` | TestRedisServerCloseStopsBroadcasts spends 10s inside a blocking OnConnect and neither bounds nor documents that behavior | Expose a test hook or redis option (dial timeout) so the root test can use a short timeout and assert that registration returns within it. Document in docs/V1.md that registering a handler on a new namespace dials Redis synchronously and can block up to the dial timeout. |
 | T5 | nit | follow-up: partial | `parser/prepared_test.go:64` | No encoder or round-trip fuzz target. The decoder package `engineio/parser/internal/packet` has no tests of its own, but `TestPacketDecoder` and other `engineio/parser` contract tests exercise it through `NewPacketDecoder` (89.5% cross-package coverage), so that subclaim is not a material gap | Add FuzzDecodeArgs (decode into a fixed set of typed targets) and a round-trip fuzz (Prepare -> Decoder -> compare) for binary-free values. |
 | T6 | nit | — | `engineio/transport/polling/pauser_test.go:206` | Residual sleep-based synchronization in inherited polling tests weakens rather than flakes | Replace the sleeps with explicit readiness signals, for example a hook or channel signalled when the goroutine enters the blocking wait. |
+| T7 | minor | — | `engineio/server_close_concurrent_test.go` | `TestServerCloseShutsDownSessionsConcurrently` depends on map iteration order and passes against a serial `Server.Close` in about 1 of 17 runs (a mutation run failed 39 of 40) | Fail two sessions and close `entered` through `sync.Once` (W43). Found in the review of #147. |
+| T8 | minor | — | `engineio/transport/polling/polling_test.go:82` | `TestPollingBinary` crashed with a nil-reader dereference during a stress run under ephemeral-port exhaustion; the cause is not isolated | Reproduce with a forced dial failure and fix the side at fault (W44). Found while validating #147. |
 
 ### Release engineering findings
 
@@ -2944,6 +3035,7 @@ Every finding is listed under the dimension that reported it.
 | REL-10 | nit | — | `_examples/gf/go.mod:24` | Example modules pin old golang.org/x/net and have typos in their module paths | Bump the framework and x/net versions in the example modules and fix the module path typos. |
 | REL-11 | nit | — | — | Stale remote branches, including a superseded release branch and a changelog draft | Delete merged or superseded branches, release/v1.5.0 in particular, before tagging. Reuse the useful parts of the v1-h/release-notes draft for REL-1. |
 | REL-12 | nit | — | `engineio/transport/websocket/connect.go:99` | An open TODO remains in library code | Replace the TODO with a comment that explains why the lock is needed. Fixed by #147 (W1). |
+| REL-13 | minor | — | `.github/workflows/benchmarks.yml` | A sub-benchmark whose `b.N=1` probe fails in a later `-count` repetition prints `--- FAIL` but `go test` exits 0, so the Benchmarks workflow can lose samples without failing | Fail the step on `--- FAIL` in the raw output (W42). Found in the review of #153. |
 
 ## Follow-up validation
 

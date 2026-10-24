@@ -181,11 +181,10 @@ func (s *Server) OnEvent(namespace, event string, f interface{}) {
 // Serve accepts and serves connections until Close is called, then returns nil.
 // Run it alongside the HTTP server: without Serve, connections and events are not
 // dispatched, even though HTTP handshakes can succeed without reporting an error.
-// If a
-// namespace's adapter could not be created before Serve was called (see SetAdapter)
-// and Close has not been called, Serve returns that error at once without accepting a
-// connection. The engine.io server then still completes handshakes, which nobody serves,
-// until Close is called.
+// If a namespace's adapter could not be created before Serve was called (see
+// SetAdapter) and Close has not been called, Serve returns that error at once
+// without accepting a connection. The engine.io server then still completes
+// handshakes, which nobody serves, until Close is called.
 func (s *Server) Serve() error {
 	if s.closed.Load() {
 		return nil

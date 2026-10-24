@@ -65,9 +65,9 @@ type Option func(*options)
 
 // New returns a lazy namespace factory interoperable with socket.io-redis 5.4.0.
 // Namespaces share one subscriber and publishing pool. Construction waits for
-// subscription acknowledgements within WithDialTimeout (ten seconds by default); lost subscriptions reconnect
-// with bounded backoff. WithDB selects the Redis database, but Pub/Sub isolation
-// requires distinct prefixes.
+// subscription acknowledgements within WithDialTimeout (ten seconds by
+// default); lost subscriptions reconnect with bounded backoff. WithDB selects
+// the Redis database, but Pub/Sub isolation requires distinct prefixes.
 //
 // Values implement Cluster for bounded context/error query and control methods.
 // IDs and AllRooms return partial snapshots and log errors; Len returns -1
@@ -124,7 +124,8 @@ func WithDB(value int) Option { return func(config *options) { config.DB = value
 
 // WithDialTimeout bounds synchronous namespace construction, including dialing,
 // authentication and subscription acknowledgements, and subsequent reconnects
-// and unsubscription. Nonpositive values select ten seconds.
+// and unsubscription. Later publishing-pool dials use the lower of this and
+// WithRequestsTimeout. Nonpositive values select ten seconds.
 func WithDialTimeout(value time.Duration) Option {
 	return func(config *options) { config.DialTimeout = value }
 }

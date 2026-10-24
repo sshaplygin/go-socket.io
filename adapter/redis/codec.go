@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gomodule/redigo/redis"
 	"github.com/sshaplygin/go-socket.io/adapter"
 	"github.com/sshaplygin/go-socket.io/parser"
 	"github.com/vmihailenco/msgpack/v5"
@@ -194,7 +195,7 @@ func (bc *broadcast) do(cmd string, args ...interface{}) (interface{}, error) {
 	}
 	c := bc.pub.Get()
 	defer func() { _ = c.Close() }()
-	return c.Do(cmd, args...)
+	return redis.DoWithTimeout(c, bc.requestTimeout, cmd, args...)
 }
 
 // captureFrames obtains the canonical JSON representation and attachment bytes.

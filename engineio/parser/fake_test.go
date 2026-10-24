@@ -123,3 +123,5 @@ func NewFakeConnWriter() *fakeConnWriter {
 func (w *fakeConnWriter) NextWriter(fType FrameType) (io.WriteCloser, error) {
 	return newFakeFrame(w, fType), nil
 }
+
+var _ FrameWriter = (*FakeDiscardWriter)(nil)

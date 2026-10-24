@@ -17,6 +17,10 @@ import (
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
+// redisPublishMaxIdle is the number of idle publishing connections the pool
+// retains. The pool sets no MaxActive and no Wait: a publisher that finds no
+// idle connection dials one instead of queueing, so WithRequestsTimeout keeps
+// bounding each publication; connections above this number close on return.
 const redisPublishMaxIdle = 16
 
 // broadcast composes the local room index with Redis publication and requests.

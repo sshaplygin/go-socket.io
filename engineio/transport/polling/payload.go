@@ -37,6 +37,7 @@ type payload struct {
 	feeding      int32
 	readError    chan error
 	readDeadline atomic.Value
+	feedTimer    operationTimer // owned by the FeedIn that holds feeding
 	decoder      *eioparser.PayloadDecoder
 
 	writerChan      chan io.Writer
@@ -46,6 +47,7 @@ type payload struct {
 	flushing        int32
 	writeError      chan error
 	writeDeadline   atomic.Value
+	flushTimer      operationTimer // owned by the flushOut that holds flushing
 	encoder         *eioparser.PayloadEncoder
 	batch           bool // server GETs coalesce complete packets; client POSTs keep their lease
 }
@@ -107,8 +109,6 @@ func (f *flushWriter) detach() {
 // If NextReader has timeout, it returns ErrTimeout.
 // If read error while FeedIn, it returns read error.
 func (p *payload) FeedIn(r io.Reader, supportBinary bool) error {
-	var timeout operationTimer
-	defer timeout.stop()
 	select {
 	case <-p.close:
 		return p.load()
@@ -125,39 +125,49 @@ func (p *payload) FeedIn(r io.Reader, supportBinary bool) error {
 	}
 	defer p.pauser.Done()
 
+	err := p.offerFeed(readArg{r: r, supportBinary: supportBinary})
+	if err == nil {
+		err = p.awaitFeed()
+	}
+	p.feedTimer.stop()
+	return err
+}
+
+// offerFeed hands one request body to the decoder and returns nil once it is
+// taken; every failure it returns is non-nil. offerFeed and awaitFeed keep
+// FeedIn's blocking selects in their own small frames: under Go 1.23+ timers,
+// blocking on the deadline channel adds the timer to the runtime heap on the
+// caller's stack, and doing that under FeedIn's frame made a goroutine that
+// had just started grow its stack.
+func (p *payload) offerFeed(arg readArg) error {
 	for {
-		after, ok := timeout.until(p.readDeadline.Load().(time.Time))
+		after, ok := p.feedTimer.until(p.readDeadline.Load().(time.Time))
 		if !ok {
 			return p.Store("read", errTimeout)
 		}
-
 		select {
 		case <-p.close:
 			return p.load()
-
 		case <-after:
 			// it may changed during wait, need check again
 			continue
-
-		case p.readerChan <- readArg{
-			r:             r,
-			supportBinary: supportBinary,
-		}:
+		case p.readerChan <- arg:
+			return nil
 		}
-		break
 	}
+}
 
+// awaitFeed waits for the decoder to finish the request body.
+func (p *payload) awaitFeed() error {
 	for {
-		after, ok := timeout.until(p.readDeadline.Load().(time.Time))
+		after, ok := p.feedTimer.until(p.readDeadline.Load().(time.Time))
 		if !ok {
 			return p.Store("read", errTimeout)
 		}
-
 		select {
 		case <-after:
 			// it may changed during wait, need check again
 			continue
-
 		case err := <-p.readError:
 			return p.Store("read", err)
 		case <-p.close:
@@ -185,8 +195,6 @@ func (p *payload) cancelPoll(ctx context.Context) error {
 }
 
 func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
-	var timeout operationTimer
-	defer timeout.stop()
 	select {
 	case <-ctx.Done():
 		return p.cancelPoll(ctx)
@@ -199,6 +207,8 @@ func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
 		return newOpError("write", errOverlap)
 	}
 	defer atomic.StoreInt32(&p.flushing, 0)
+	timeout := &p.flushTimer
+	defer timeout.stop()
 
 	if ok := p.pauser.Working(); !ok {
 		_, err := w.Write(p.encoder.NOOP())
@@ -399,9 +409,21 @@ func (p *payload) Store(op string, err error) error {
 	return old.(error)
 }
 
-// operationTimer is owned by one feed, flush or codec acquisition. It is reset
-// when a deadline changes and stopped on every exit, including successful I/O.
-// Separate operations can wait on the same direction concurrently.
+// operationTimer is the deadline timer of one blocking call. FeedIn and
+// flushOut use the payload's feedTimer and flushTimer: the feeding and flushing
+// flags admit one call at a time, and the call stops its timer before it clears
+// the flag. Each Acquire/Release of the payload reader or writer has a timer of
+// its own, because it can wait on the same deadline as a running feed or flush.
+// until re-arms the timer each time the call re-reads its deadline, and every
+// return after the first until stops it.
+//
+// Stopping matters under pre-Go 1.23 timer semantics (main module go line
+// below 1.23, an older toolchain, or GODEBUG=asynctimerchan=1): an unstopped
+// timer stays live until it fires, about 45 s for polling deadlines. In that
+// mode a timer that fired before Stop leaves a value in C; stop drains it so
+// a later Reset, in the same call or the next one, cannot deliver a stale
+// tick. Under Go 1.23+ semantics Stop and Reset discard pending values and the
+// drain finds nothing.
 type operationTimer struct{ timer *time.Timer }
 
 func (t *operationTimer) stop() {

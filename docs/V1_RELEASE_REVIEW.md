@@ -1321,7 +1321,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W13. Document and log the OnError contract
 
-- **Status:** in progress — #161
+- **Status:** done — #161
 - **Priority:** after release
 - **Findings:** [CL-3](#clarity-findings), [C4](#correctness-and-security-findings)
 - **Depends on:** none
@@ -1348,7 +1348,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W14. Document dynamic namespace retention
 
-- **Status:** in progress — #164
+- **Status:** done — #164
 - **Priority:** after release
 - **Findings:** [C2](#correctness-and-security-findings), [ARCH-9](#architecture-findings)
 - **Depends on:** none

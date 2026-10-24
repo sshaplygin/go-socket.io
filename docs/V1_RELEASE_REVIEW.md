@@ -1239,7 +1239,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W11. Reject duplicate session IDs
 
-- **Status:** in progress — #159
+- **Status:** done — #159
 - **Priority:** after release
 - **Findings:** [C3](#correctness-and-security-findings)
 - **Depends on:** none
@@ -1368,7 +1368,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W15. Support Engine.IO base64 over websocket
 
-- **Status:** open
+- **Status:** in progress — #162
 - **Priority:** after release
 - **Findings:** [interop-1](#interoperability-findings)
 - **Depends on:** W6 (removes the limitation it documents)
@@ -1424,7 +1424,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W17. Conformance heartbeat and Redis teardown
 
-- **Status:** open
+- **Status:** done — #168
 - **Priority:** after release
 - **Findings:** [T3](#tests-findings), [interop-7](#interoperability-findings),
   [interop-8](#interoperability-findings)
@@ -1498,7 +1498,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W19. Size the Redis publishing pool
 
-- **Status:** open
+- **Status:** in progress — #158; BenchmarkRedisSendToParallel: 24085 → 23560 ns/op, conns/op 0.006918 → 0.001983 (manual, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-4](#performance-findings)
 - **Depends on:** W2, W4
@@ -2981,7 +2981,7 @@ Every finding is listed under the dimension that reported it.
 | PERF-1 | major | confirmed | `parser/json_encode.go:114` | Branch's reflective JSON encoder regresses encode cost vs master and v1.4.2 (per-leaf json.Marshal, per-packet map, extra copies) | Keep the visibility and snapshot semantics but add a cached per-reflect.Type fast path. When a type's subtree cannot contain a Buffer, an interface or a custom marshaler, encode the whole subtree with one json.Marshal or Encoder call. Write string and number leaves with append-style helpers instead of json.Marshal per leaf. Create the cycle-detection map lazily, only past a depth threshold as encoding/json does. Write directly into the final buffer with header space reserved, avoiding the copy into `data`. Commit a parser encode benchmark before changing the encoder, so the CI base-vs-PR comparison shows the before/after. Fixed by #169 (W3). |
 | PERF-2 | major → minor | partially-confirmed | `engineio/transport/polling/payload.go:412` | Polling server creates a long time.After timer per packet and never stops the losing timer; when the application is built with pre-1.23 timer semantics (main module go line below 1.23, a pre-1.23 toolchain, or asynctimerchan=1), each timer keeps heap memory alive for ~45s. This library's own go directive does not decide this | Use one per-payload timer for each direction and Reset/Stop it, or an AfterFunc/context set in SetRead/WriteDeadline, and stop the timer when select returns on another case. Add a test that asserts bounded heap after N polling packets with asynctimerchan=1. Fixed by #166 (W18). |
 | PERF-3 | major | confirmed | `adapter/redis/codec.go:191` | Redis PUBLISH has no I/O deadline; a stalled Redis blocks every broadcasting caller indefinitely | Bound publishing I/O by the requests timeout: add DialWriteTimeout on publishing connections only (a read timeout must not reach the shared Pub/Sub subscriber, which uses the same dialer) and run each publishing command with redis.DoWithTimeout, which bounds the read (corrected: DoWithTimeout sets the read timeout, DialWriteTimeout the write timeout), or close the connection on deadline as boundedDo does; DoContext is unavailable in redigo v2.0.0+incompatible. Alternatively, publish through a bounded asynchronous queue and report errors through the adapter error path. Fixed by #151 (W4). |
-| PERF-4 | minor | — | `adapter/redis/adapter.go:100` | Redis publishing pool (MaxIdle 4, unbounded MaxActive) churns TCP connections under concurrent broadcasts | Size MaxIdle to the expected publish concurrency (or expose an option). Alternatively set MaxActive with Wait: true so callers queue on a bounded set of connections. |
+| PERF-4 | minor | — | `adapter/redis/adapter.go:100` | Redis publishing pool (MaxIdle 4, unbounded MaxActive) churns TCP connections under concurrent broadcasts | Size MaxIdle to the expected publish concurrency (or expose an option). Alternatively set MaxActive with Wait: true so callers queue on a bounded set of connections. Fixed by #158 (W19). |
 | PERF-5 | minor | — | `engineio/transport/polling/transport.go:24` | Go polling client: polling.Default shares http.DefaultTransport (2 idle conns/host), so several clients per process churn TCP under sustained traffic and can exhaust ephemeral ports | Give polling.Default its own http.Transport with a larger MaxIdleConnsPerHost (for example 64), or create a transport per dialed client. Document WithTransports(&polling.Transport{Client: ...}) for high client counts. |
 | PERF-6 | minor | — | `adapter/memory.go:144` | Broadcast encodes the packet once per recipient; the shareable PreparedPacket is not used for fan-out | Add an internal fast path: prepare once in the broadcast path and have namespaceConn accept a prepared packet, for example through an unexported optional interface checked by Memory and Redis, without changing adapter.Socket. Per-socket ACK variants already use WithHeader. |
 | PERF-7 | minor | — | `socket.go:154` | Every send copies the full packet via WithHeader even when no ACK ID was added | Call WithHeader only when registerAck changed the header (ack != nil). |
@@ -2996,14 +2996,14 @@ Every finding is listed under the dimension that reported it.
 
 | ID | Severity | Re-check | Location | Finding | Recommendation |
 | --- | --- | --- | --- | --- | --- |
-| interop-1 | major → minor | confirmed | `engineio/transport/websocket/wrapper.go:39` | WebSocket transport ignores Engine.IO base64 mode; a forceBase64 client is disconnected when it sends binary | In the websocket transport, decode text frames that start with 'b' as base64 binary packets. When the request carries `b64=1`, write binary packets as `b<base64>` text frames, as engine.io 3.6.2 does. Add a forceBase64 case (websocket and upgrade) to testdata/node/client.js. If this is not implemented for v1.5.0, document it in PROTOCOL.md as unsupported. |
+| interop-1 | major → minor | confirmed | `engineio/transport/websocket/wrapper.go:39` | WebSocket transport ignores Engine.IO base64 mode; a forceBase64 client is disconnected when it sends binary | In the websocket transport, decode text frames that start with 'b' as base64 binary packets. When the request carries `b64=1`, write binary packets as `b<base64>` text frames, as engine.io 3.6.2 does. Add a forceBase64 case (websocket and upgrade) to testdata/node/client.js. If this is not implemented for v1.5.0, document it in PROTOCOL.md as unsupported. Fixed by #162 (W15). |
 | interop-2 | minor | — | `parser/encoder.go:144` | Every JSON payload and the OPEN packet carry an undocumented trailing newline | Either drop the newline (both the Socket.IO payload and the OPEN packet), or record it in PROTOCOL.md as an intentional difference kept for compatibility with older go-socket.io releases. Fixed by #167 (W16). |
 | interop-3 | minor | — | `engineio/transport/polling/util.go:21` | Polling POST rejects Content-Types that the reference server accepts | Match the reference: treat any non-octet-stream body as text. Otherwise, document the exact accepted media types as a Go-specific restriction in PROTOCOL.md. Fixed by #167 (W16). |
 | interop-4 | minor | — | `packets.go:211` | Connect and event middleware rejections are always sent as a string; no counterpart to Node's err.data | Allow an error type (for example one with `Data() any`) whose value becomes the ERROR payload, or document in PROTOCOL.md that ERROR payloads are always `err.Error()` strings. Fixed by #167 (W16). |
 | interop-5 | minor | — | `packets.go:103` | Untyped handler with a mismatched argument type sends no ACK, so the JS callback never fires (undocumented) | Document the behavior next to the ACK rules in V1.md or PROTOCOL.md. Consider sending an error ACK or an ERROR packet so JS callers can detect the failure. Fixed by #167 (W16). |
 | interop-6 | nit | — | `engineio/transport/websocket/connect.go:117` | Server-initiated websocket close sends no close frame | Write a CloseMessage (1000) with a short deadline before closing the underlying connection on orderly server closes. Fixed by #167 (W16). |
-| interop-7 | nit | — | `docs/PARITY.md:20` | PARITY.md groups heartbeat with raw conformance coverage, but no conformance scenario asserts a periodic ping | Add a short-interval heartbeat scenario (for example `WithPingInterval(200ms)`, then idle for about 1 s and send an ACK) to client.js for both transports, or make the PARITY.md row say which tests own the heartbeat. |
-| interop-8 | nit | — | `internal/conformance/testdata/node/server/redis-cluster.js:199` | Redis mixed-cluster polling scenario idles 30 s after finishing, leaving little margin in runNode's 45 s timeout | Find and remove what keeps the process alive after cleanup, or end the scenario with an explicit `process.exit(process.exitCode \|\| 0)` after cleanup (corrected: the clients are already closed before `io.close()`, `redis-cluster.js:199-200`; see W17). |
+| interop-7 | nit | — | `docs/PARITY.md:20` | PARITY.md groups heartbeat with raw conformance coverage, but no conformance scenario asserts a periodic ping | Add a short-interval heartbeat scenario (for example `WithPingInterval(200ms)`, then idle for about 1 s and send an ACK) to client.js for both transports, or make the PARITY.md row say which tests own the heartbeat. Fixed by #168 (W17). |
+| interop-8 | nit | — | `internal/conformance/testdata/node/server/redis-cluster.js:199` | Redis mixed-cluster polling scenario idles 30 s after finishing, leaving little margin in runNode's 45 s timeout | Find and remove what keeps the process alive after cleanup, or end the scenario with an explicit `process.exit(process.exitCode \|\| 0)` after cleanup (corrected: the clients are already closed before `io.close()`, `redis-cluster.js:199-200`; see W17). Fixed by #168 (W17). |
 | interop-9 | nit | — | `docs/PROTOCOL.md:60` | Unknown Socket.IO packet type and missing CORS wire description are undocumented differences | Add a CORS bullet (default, WithCORS(false), preflight) and a note on how invalid packets are handled to PROTOCOL.md. Fixed by #148 (W6). |
 
 ### Tests findings
@@ -3012,7 +3012,7 @@ Every finding is listed under the dimension that reported it.
 | --- | --- | --- | --- | --- | --- |
 | T1 | minor | — | `parser/json_encode.go:252` | omitempty handling in the rewritten Socket.IO JSON encoder has zero test coverage | Add a table-driven differential test in parser/json_compatibility_test.go that encodes omitempty structs (all kinds handled by isJSONEmpty, including nested and Buffer-bearing fields) and compares against json.Marshal. Consider adding an encoder fuzz target that compares against encoding/json for binary-free values. Fixed by #169 (W3). |
 | T2 | minor | — | `engineio/transport/websocket/wrapper.go:76` | No goroutine-leak detection; a probe finds library frame-reader goroutines left for 30s after parse/mid-frame errors, plus leaking client test fixtures | Close the last frame reader on the decode-error and transport-failure paths in the server and client read loops. Fix the leaking fixtures by closing clients via t.Cleanup and using buffered or select-guarded channels in handlers. Add a goroutine-leak check (go.uber.org/goleak VerifyTestMain or an equivalent NumGoroutine wait) to the root, client and engineio packages so close and shutdown regressions fail CI. |
-| T3 | minor | — | `docs/PARITY.md:20` | No conformance scenario asserts the Engine.IO periodic heartbeat against a real JS client; heartbeat is covered only by engineio/session tests | Add a conformance scenario with WithPingInterval(200ms) and WithPingTimeout(200ms) that keeps a JS client connected across several intervals on each transport. Also have the client suppress pings and assert 'ping timeout'. Alternatively, correct the PARITY.md row. |
+| T3 | minor | — | `docs/PARITY.md:20` | No conformance scenario asserts the Engine.IO periodic heartbeat against a real JS client; heartbeat is covered only by engineio/session tests | Add a conformance scenario with WithPingInterval(200ms) and WithPingTimeout(200ms) that keeps a JS client connected across several intervals on each transport. Also have the client suppress pings and assert 'ping timeout'. Alternatively, correct the PARITY.md row. Fixed by #168 (W17). |
 | T4 | minor | — | `redis_integration_test.go:174` | TestRedisServerCloseStopsBroadcasts spends 10s inside a blocking OnConnect and neither bounds nor documents that behavior | Expose a test hook or redis option (dial timeout) so the root test can use a short timeout and assert that registration returns within it. Document in docs/V1.md that registering a handler on a new namespace dials Redis synchronously and can block up to the dial timeout. |
 | T5 | nit | follow-up: partial | `parser/prepared_test.go:64` | No encoder or round-trip fuzz target. The decoder package `engineio/parser/internal/packet` has no tests of its own, but `TestPacketDecoder` and other `engineio/parser` contract tests exercise it through `NewPacketDecoder` (89.5% cross-package coverage), so that subclaim is not a material gap | Add FuzzDecodeArgs (decode into a fixed set of typed targets) and a round-trip fuzz (Prepare -> Decoder -> compare) for binary-free values. |
 | T6 | nit | — | `engineio/transport/polling/pauser_test.go:206` | Residual sleep-based synchronization in inherited polling tests weakens rather than flakes | Replace the sleeps with explicit readiness signals, for example a hook or channel signalled when the goroutine enters the blocking wait. |

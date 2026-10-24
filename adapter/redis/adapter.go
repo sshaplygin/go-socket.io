@@ -17,6 +17,12 @@ import (
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
+// redisPublishMaxIdle is the number of idle publishing connections the pool
+// retains. The pool sets no MaxActive and no Wait: a publisher that finds no
+// idle connection dials one instead of queueing, so WithRequestsTimeout keeps
+// bounding each publication; connections above this number close on return.
+const redisPublishMaxIdle = 16
+
 // broadcast composes the local room index with Redis publication and requests.
 type broadcast struct {
 	clusterOnce    sync.Once
@@ -113,7 +119,7 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 	// on a redial; DoWithTimeout replaces the read timeout for each command.
 	// The subscriber and boundedDo keep dial, which sets no read or write
 	// timeout, because the subscriber blocks in its read while idle.
-	pub := &redis.Pool{MaxIdle: 4, Dial: func() (redis.Conn, error) {
+	pub := &redis.Pool{MaxIdle: redisPublishMaxIdle, Dial: func() (redis.Conn, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), min(redisDialTimeout, timeout))
 		defer cancel()
 		return dialWithOptions(ctx, redis.DialReadTimeout(timeout), redis.DialWriteTimeout(timeout))

@@ -38,16 +38,22 @@ type PreparedPacket struct {
 	buffers [][]byte
 }
 
+// initialPayloadCapacity is the payload space Prepare allocates together with
+// the reserved header. It covers short payloads such as an event name with a few
+// scalar arguments in one allocation; larger payloads grow the buffer as usual.
+const initialPayloadCapacity = 64
+
 // Prepare snapshots the JSON payload and binary attachments before queueing a packet.
 // It rejects encoded packets containing more than 10 binary attachments.
 func Prepare(h Header, args ...interface{}) (*PreparedPacket, error) {
 	// Reserve the largest possible header before encoding, then move its start
 	// forward when the actual attachment count needs fewer bytes. The payload
 	// stays in its final backing array instead of being copied into another buffer.
-	reserved := len(preparedHeader(h, maxAttachments))
+	maxHeader := preparedHeader(h, maxAttachments)
+	reserved := len(maxHeader)
 	payload := new(payloadEncoder)
-	payload.Grow(reserved + 64)
-	payload.Write(make([]byte, reserved))
+	payload.Grow(reserved + initialPayloadCapacity)
+	payload.Write(maxHeader) // placeholder bytes, overwritten by the actual header
 	if len(args) > 0 {
 		// Only the first argument is the packet payload.
 		if err := payload.value(reflect.ValueOf(args[0]), false); err != nil {

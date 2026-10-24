@@ -28,6 +28,8 @@ type jsonVisit struct {
 	length int
 }
 
+var jsonNumberType = reflect.TypeOf(json.Number(""))
+
 // The JSONv2 implementation emits a literal replacement rune, while legacy
 // encoding/json escapes it. Keep invalid UTF-8 aligned with the active version.
 var invalidUTF8JSON = func() string {
@@ -57,10 +59,20 @@ func (e *payloadEncoder) value(v reflect.Value, quoted bool) error {
 		}
 		return err
 	}
-	if !quoted && isPlainJSONType(v.Type()) {
+	// Fast path, taken only after the Buffer and custom-marshaler checks above
+	// have handled v itself. A quoted value comes from a ",string" field, an
+	// option encoding/json applies per struct field: json.Marshal of the bare
+	// value cannot see it, so a quoted value always stays on the traversal
+	// (jsonFields quotes only scalar kinds, which scalar handles). Only
+	// aggregates are delegated, where one json.Marshal call replaces a call per
+	// leaf; scalars are cheaper to append directly, and checking the Kind first
+	// skips the cache lookup for every scalar leaf.
+	if !quoted {
 		switch v.Kind() {
 		case reflect.Struct, reflect.Map, reflect.Slice, reflect.Array:
-			return e.standard(v, false)
+			if isPlainJSONType(v.Type()) {
+				return e.standard(v, false)
+			}
 		}
 	}
 	e.depth++
@@ -125,7 +137,7 @@ func (e *payloadEncoder) value(v reflect.Value, quoted bool) error {
 }
 
 func (e *payloadEncoder) scalar(v reflect.Value, quoted bool) error {
-	if quoted || v.Type() == reflect.TypeOf(json.Number("")) {
+	if quoted || v.Type() == jsonNumberType {
 		return e.standard(v, quoted)
 	}
 	var scratch [64]byte
@@ -141,6 +153,10 @@ func (e *payloadEncoder) scalar(v reflect.Value, quoted bool) error {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		data = strconv.AppendUint(scratch[:0], v.Uint(), 10)
 	case reflect.Float32, reflect.Float64:
+		// Mirrors encoding/json's floatEncoder: reject NaN and infinities, use
+		// the shortest representation in 'f' format, switch to 'e' format below
+		// 1e-6 or from 1e21, and shorten a two-digit negative exponent ("e-07"
+		// becomes "e-7").
 		value := v.Float()
 		if math.IsNaN(value) || math.IsInf(value, 0) {
 			return &json.UnsupportedValueError{Value: v, Str: strconv.FormatFloat(value, 'g', -1, v.Type().Bits())}

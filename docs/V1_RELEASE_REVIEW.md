@@ -1464,7 +1464,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W18. Stop per-packet polling timers
 
-- **Status:** open
+- **Status:** in progress — #166; BenchmarkPayloadRoundTrip: 14 → 8 allocs/op, 1049 → 552 B/op, 2.312 → 2.215 µs/op (CI, base 88d8d26)
 - **Priority:** after release
 - **Findings:** [PERF-2](#performance-findings)
 - **Depends on:** W2
@@ -1533,7 +1533,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W20. Give the polling client its own HTTP transport
 
-- **Status:** in progress — #175; BenchmarkPollingClientsBroadcast/clients-10: dials/op 3.660 → 0, 2103 → 1875 allocs/op, 267.2 → 222.2 KiB/op, 1.743 → 1.498 ms (manual, base 88d8d26, darwin/arm64)
+- **Status:** done — #175; BenchmarkPollingClientsBroadcast/clients-10: dials/op 3.660 → 0, 2103 → 1875 allocs/op, 267.2 → 222.2 KiB/op, 1.743 → 1.498 ms (manual, base 88d8d26, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-5](#performance-findings)
 - **Depends on:** W2
@@ -1568,7 +1568,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W21. Prepare broadcasts once and skip the single-room dedup map
 
-- **Status:** open
+- **Status:** in progress — #160; BenchmarkBroadcastWebsocket/structs100-10: 5431 → 817 allocs/op, 844.5 → 497.3 µs; BenchmarkMemorySendTo/one-room: 32 → 2 allocs/op, 99.5 → 13.8 µs (manual, against e72c35f, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-6](#performance-findings), [PERF-12](#performance-findings)
 - **Depends on:** W2
@@ -1606,7 +1606,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W22. Copy packets only when an ACK ID is added
 
-- **Status:** in progress — #163; BenchmarkEmitWebsocket/string: 2280 → 2176 B/op, 31 → 28 allocs/op (manual, darwin/arm64)
+- **Status:** done — #163; BenchmarkEmitWebsocket/string: 2280 → 2176 B/op, 31 → 28 allocs/op (manual, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-7](#performance-findings)
 - **Depends on:** W2
@@ -1645,7 +1645,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W24. Look up room members without a scan
 
-- **Status:** open
+- **Status:** in progress — #165; BenchmarkJoinRoom/sockets-200: 2935 → 172.5 ns/op, 3456 → 0 B/op, 1 → 0 allocs/op (manual, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-9](#performance-findings)
 - **Depends on:** W2
@@ -2979,17 +2979,17 @@ Every finding is listed under the dimension that reported it.
 | ID | Severity | Re-check | Location | Finding | Recommendation |
 | --- | --- | --- | --- | --- | --- |
 | PERF-1 | major | confirmed | `parser/json_encode.go:114` | Branch's reflective JSON encoder regresses encode cost vs master and v1.4.2 (per-leaf json.Marshal, per-packet map, extra copies) | Keep the visibility and snapshot semantics but add a cached per-reflect.Type fast path. When a type's subtree cannot contain a Buffer, an interface or a custom marshaler, encode the whole subtree with one json.Marshal or Encoder call. Write string and number leaves with append-style helpers instead of json.Marshal per leaf. Create the cycle-detection map lazily, only past a depth threshold as encoding/json does. Write directly into the final buffer with header space reserved, avoiding the copy into `data`. Commit a parser encode benchmark before changing the encoder, so the CI base-vs-PR comparison shows the before/after. Fixed by #169 (W3). |
-| PERF-2 | major → minor | partially-confirmed | `engineio/transport/polling/payload.go:412` | Polling server creates a long time.After timer per packet and never stops the losing timer; when the application is built with pre-1.23 timer semantics (main module go line below 1.23, a pre-1.23 toolchain, or asynctimerchan=1), each timer keeps heap memory alive for ~45s. This library's own go directive does not decide this | Use one per-payload timer for each direction and Reset/Stop it, or an AfterFunc/context set in SetRead/WriteDeadline, and stop the timer when select returns on another case. Add a test that asserts bounded heap after N polling packets with asynctimerchan=1. |
+| PERF-2 | major → minor | partially-confirmed | `engineio/transport/polling/payload.go:412` | Polling server creates a long time.After timer per packet and never stops the losing timer; when the application is built with pre-1.23 timer semantics (main module go line below 1.23, a pre-1.23 toolchain, or asynctimerchan=1), each timer keeps heap memory alive for ~45s. This library's own go directive does not decide this | Use one per-payload timer for each direction and Reset/Stop it, or an AfterFunc/context set in SetRead/WriteDeadline, and stop the timer when select returns on another case. Add a test that asserts bounded heap after N polling packets with asynctimerchan=1. Fixed by #166 (W18). |
 | PERF-3 | major | confirmed | `adapter/redis/codec.go:191` | Redis PUBLISH has no I/O deadline; a stalled Redis blocks every broadcasting caller indefinitely | Bound publishing I/O by the requests timeout: add DialWriteTimeout on publishing connections only (a read timeout must not reach the shared Pub/Sub subscriber, which uses the same dialer) and run each publishing command with redis.DoWithTimeout, which bounds the read (corrected: DoWithTimeout sets the read timeout, DialWriteTimeout the write timeout), or close the connection on deadline as boundedDo does; DoContext is unavailable in redigo v2.0.0+incompatible. Alternatively, publish through a bounded asynchronous queue and report errors through the adapter error path. Fixed by #151 (W4). |
 | PERF-4 | minor | — | `adapter/redis/adapter.go:100` | Redis publishing pool (MaxIdle 4, unbounded MaxActive) churns TCP connections under concurrent broadcasts | Size MaxIdle to the expected publish concurrency (or expose an option). Alternatively set MaxActive with Wait: true so callers queue on a bounded set of connections. Fixed by #158 (W19). |
 | PERF-5 | minor | — | `engineio/transport/polling/transport.go:24` | Go polling client: polling.Default shares http.DefaultTransport (2 idle conns/host), so several clients per process churn TCP under sustained traffic and can exhaust ephemeral ports | Give polling.Default its own http.Transport with a larger MaxIdleConnsPerHost (for example 64), or create a transport per dialed client. Document WithTransports(&polling.Transport{Client: ...}) for high client counts. Fixed by #175 (W20). |
-| PERF-6 | minor | — | `adapter/memory.go:144` | Broadcast encodes the packet once per recipient; the shareable PreparedPacket is not used for fan-out | Add an internal fast path: prepare once in the broadcast path and have namespaceConn accept a prepared packet, for example through an unexported optional interface checked by Memory and Redis, without changing adapter.Socket. Per-socket ACK variants already use WithHeader. |
+| PERF-6 | minor | — | `adapter/memory.go:144` | Broadcast encodes the packet once per recipient; the shareable PreparedPacket is not used for fan-out | Add an internal fast path: prepare once in the broadcast path and have namespaceConn accept a prepared packet, for example through an unexported optional interface checked by Memory and Redis, without changing adapter.Socket. Per-socket ACK variants already use WithHeader. Fixed by #160 (W21). |
 | PERF-7 | minor | — | `socket.go:154` | Every send copies the full packet via WithHeader even when no ACK ID was added | Call WithHeader only when registerAck changed the header (ack != nil). Fixed by #163 (W22). |
 | PERF-8 | minor | — | `engineio/transport/websocket/wrapper.go:146` | Websocket wrapper spawns a goroutine and a 30s timer for every frame read and written | Drop the nag, or make it debug-only. If kept, use time.AfterFunc with no goroutine and stop it on Close. Fixed by #179 (W23). |
-| PERF-9 | minor | — | `server.go:252` | Server.JoinRoom/LeaveRoom/LeaveAllRooms copy and scan all namespace sockets on each call | Check membership with a map lookup under connectedMu (nh.connected[nc.ID()] == nc) instead of copying the slice. |
+| PERF-9 | minor | — | `server.go:252` | Server.JoinRoom/LeaveRoom/LeaveAllRooms copy and scan all namespace sockets on each call | Check membership with a map lookup under connectedMu (nh.connected[nc.ID()] == nc) instead of copying the slice. Fixed by #165 (W24). |
 | PERF-10 | minor | — | `.github/workflows/benchmarks.yml:148` | No Socket.IO-level benchmarks; CI benchmark comparison cannot see parser/server regressions | Add benchmarks for parser Prepare/Encode/Decode (string, struct, struct slice, binary), memory-adapter broadcast to N fake sockets, and an emit+ACK round trip over httptest websocket. Then let the existing base-vs-PR workflow pick them up. Fixed by #153 (W2). |
 | PERF-11 | minor | — | `parser/decoder.go:87` | Inbound decode 37–42% slower than v1.4.2 across runs, because it parses JSON three times; it also allocates a 4 KiB bufio.Reader per non-byteReader frame, as v1.4.2 does | Fold json.Valid into the RawMessage unmarshal, which already validates, and avoid parsing the payload more than once; reusing a bufio.Reader per Decoder (Reset), or reading directly when the frame reader is already a byteReader, is optional (corrected: `v1.4.2` also allocates one per frame, so it is not the cause). |
-| PERF-12 | nit | — | `adapter/memory.go:110` | Broadcast target selection builds a dedup map of all members even for one room without Except | Skip the seen map when len(opts.Rooms) == 1 and len(opts.Except) == 0, and pre-size the result slice (corrected: not `<= 1`; namespace-wide delivery with no rooms walks every room, and each socket is in its own ID room and possibly named rooms, so it needs the map, see W21). |
+| PERF-12 | nit | — | `adapter/memory.go:110` | Broadcast target selection builds a dedup map of all members even for one room without Except | Skip the seen map when len(opts.Rooms) == 1 and len(opts.Except) == 0, and pre-size the result slice (corrected: not `<= 1`; namespace-wide delivery with no rooms walks every room, and each socket is in its own ID room and possibly named rooms, so it needs the map, see W21). Fixed by #160 (W21). |
 | PERF-13 | nit | — | `connection.go:281` | 7 server goroutines per idle websocket connection (v1.4.2: 4) | Optional: merge the engine close watcher with observeEngineClose, and start the error loop lazily. |
 
 ### Interoperability findings

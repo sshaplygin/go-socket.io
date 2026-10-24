@@ -776,7 +776,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W6. Document the CORS default
 
-- **Status:** in progress — #148
+- **Status:** done — #148
 - **Priority:** before tag
 - **Findings:** [API-3](#api-compatibility-findings), [C5](#correctness-and-security-findings),
   [CL-9](#clarity-findings), [interop-9](#interoperability-findings) (see
@@ -939,7 +939,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W9. Add a lifecycle sketch and runnable examples
 
-- **Status:** in progress — #150
+- **Status:** done — #150
 - **Priority:** before tag
 - **Findings:** [CL-1](#clarity-findings) (see
   [M7](#m7-no-inline-quick-start-docs-do-not-state-that-serve-must-run))
@@ -1183,7 +1183,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D5. Engine connection access
 
-- **Status:** decided — option A (2026-10-24); in progress — #189
+- **Status:** decided — option A (2026-10-24); done — #189
 - **Priority:** owner decision
 - **Findings:** [ARCH-6](#architecture-findings)
 - **Depends on:** none
@@ -1205,7 +1205,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D6. Exported test helpers
 
-- **Status:** decided — option A (2026-10-24)
+- **Status:** decided — option A (2026-10-24); in progress — #156
 - **Priority:** owner decision
 - **Findings:** [ARCH-11](#architecture-findings), [API-12](#api-compatibility-findings)
 - **Depends on:** none
@@ -2933,7 +2933,7 @@ Every finding is listed under the dimension that reported it.
 | API-9 | minor | — | `engineio/conn.go:8` | Public aliases to internal packages hide method sets and fields from go doc, contrary to the project's own rule | Before the API freeze, define at least engineio.Conn, CloseError and RemoteError in their public packages (internal code can alias the public type instead), or extend TestPublicRoleDocumentation to these types. |
 | API-10 | minor | — | `README.md:29` | README on master advertises an install command and pkg.go.dev links for a v1.5.0 that does not exist yet | Tag promptly after merge, or keep version-less instructions on master until the tag exists. Add the engineio pkg.go.dev link as CONTRIBUTING requires. |
 | API-11 | minor | — | `Makefile` | No API-compatibility gate for v1 after release | After tagging, add a CI step such as `apidiff -m -incompatible` (or `gorelease -base=<latest v1 tag>`) against the latest v1 tag for the root module, failing on incompatible changes. |
-| API-12 | nit | — | `engineio/parser/fake.go:61` | Test fakes returning unexported types are part of the public engineio/parser API | Move them to an internal test-support package or _test.go files before tagging, or accept and document them. |
+| API-12 | nit | — | `engineio/parser/fake.go:61` | Test fakes returning unexported types are part of the public engineio/parser API | Move them to an internal test-support package or _test.go files before tagging, or accept and document them. Fixed by #156 (D6). |
 | API-13 | nit | — | `go.mod:3` | Go version floor raised to 1.22 (v1.4.2: no directive; v1.7.0: go 1.16) | Already documented in README.md:32; also list it in the release notes. |
 
 ### Clarity findings
@@ -2970,7 +2970,7 @@ Every finding is listed under the dimension that reported it.
 | ARCH-8 | minor | — | `engineio/client/client.go:489` | Complexity hotspots in lifecycle code, including a 1 ms Resume retry loop because Pause has no cancellation path and a Resume issued before Pause starts is lost | For v1.5.0 no restructuring is required, but freeze behavior with the existing tests. Afterwards, give Pause a cancellation path (a context or stop channel) and model the connection close as an explicit state enum. |
 | ARCH-9 | minor | — | `namespace.go:161` | Dynamic child namespaces are never removed (unbounded registry growth), and OfFunc does not document it | Document the retention in OfFunc and in docs/V1.md, and advise restrictive match functions. Consider a later option to remove empty children (as socket.io 4.6 cleanupEmptyChildNamespaces does). |
 | ARCH-10 | minor | — | `parser/encoder.go:138` | Parser reimplements encoding/json traversal for every outbound payload; the GOEXPERIMENT=jsonv2 build variants are not exercised in CI | Add a CI job with GOEXPERIMENT=jsonv2 on the newest Go, and keep the json_compatibility tests as a differential check against encoding/json. Consider a fast path that uses json.Marshal directly when the value contains no parser.Buffer. |
-| ARCH-11 | nit | — | `engineio/parser/fake.go:61` | engineio packages export test fakes and other API oddities | Move the fakes to an internal test helper package, unexport TimestampFromClock, and fix the two stale `base.Conn` doc comments before tagging. |
+| ARCH-11 | nit | — | `engineio/parser/fake.go:61` | engineio packages export test fakes and other API oddities | Move the fakes to an internal test helper package, unexport TimestampFromClock, and fix the two stale `base.Conn` doc comments before tagging. Fixed by #156 (D6). |
 | ARCH-12 | nit | — | `adapter/redis/cluster.go:104` | Redis log records use the attribute key 'namespace', which the logger contract does not list | Use nspAttr-style `nsp` with the '/' convention. |
 | ARCH-13 | nit | — | `docs/ARCHITECTURE.md:36` | ARCHITECTURE.md runtime section undercounts per-connection goroutines | List all five Socket.IO workers, and say that blocking a handler also blocks the header worker handoff. |
 

@@ -15,7 +15,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
-// conn implements base.Conn
+// conn implements transport.Conn
 type conn struct {
 	transport.FrameReader
 

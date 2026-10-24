@@ -38,6 +38,11 @@ func moduleGoroutines() map[string]string {
 		}
 		buffer = make([]byte, len(buffer)*2)
 	}
+	if !strings.Contains(string(buffer), prefix) {
+		// This goroutine runs this file, so a dump that never names the module
+		// root cannot attribute any goroutine, for example under -trimpath.
+		panic("goroutine gate cannot match stack paths to " + root + "; is -trimpath set?")
+	}
 	goroutines := map[string]string{}
 	for _, stack := range strings.Split(string(buffer), "\n\n") {
 		for _, line := range strings.Split(stack, "\n") {

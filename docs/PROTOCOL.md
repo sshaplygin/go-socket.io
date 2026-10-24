@@ -32,6 +32,8 @@ Package `engineio` of the v1 module at the repository root.
   encoded-packet threshold when enabled. The Go client offers it when configured,
   with the same threshold. Per-packet compression defaults to true; false suppresses
   it for the packet and all its binary attachments on either transport.
+  Websocket ignores `b64`; a `forceBase64` client is disconnected when it sends
+  base64-encoded binary data over websocket.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
   to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
   threshold and only for a packet whose compression flag is true. The threshold is
@@ -72,6 +74,53 @@ Package `engineio` of the v1 module at the repository root.
   or not decodable) or an invalid method, 413 for the message limit above, 500 for a poll
   whose response failed before it was started.
 
+### CORS
+
+By default both built-in transports accept every origin. Polling reflects the
+request's `Origin` in `Access-Control-Allow-Origin` and sets
+`Access-Control-Allow-Credentials: true`; without an Origin it uses `*` and omits
+credentials. Websocket accepts foreign origins for direct connections and upgrades.
+An `OPTIONS` request on an open polling session returns HTTP 200 with
+`Access-Control-Allow-Headers: Content-Type` and the same origin headers. An
+`OPTIONS` request without a `sid`, such as the preflight of a handshake that sends
+custom headers (for example `extraHeaders`), is answered HTTP 400 with code 2
+`Bad handshake method` (see the rejection responses under
+[Engine.IO protocol v3](#engineio-protocol-v3)).
+
+`engineio.WithCORS(false)` removes `Access-Control-Allow-Origin` and
+`Access-Control-Allow-Credentials` from polling responses, including error responses.
+An open session's `OPTIONS` request still returns HTTP 200 and
+`Access-Control-Allow-Headers: Content-Type`. Cross-origin polling requests are
+still served: CORS headers control browser access to responses, not HTTP access.
+Websocket instead uses its same-origin check and rejects foreign origins with
+HTTP 403. Requests without an Origin remain accepted.
+
+Explicit transport `CheckOrigin` callbacks override either default for requests
+dispatched to that transport. An error response for an unknown `transport=` value
+still uses the server-wide `WithCORS` setting. For example, with imports
+`net/http`, `engineio`, `engineio/transport/polling` and
+`engineio/transport/websocket` from this module, an application can configure:
+
+```go
+allowOrigin := func(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	return origin == "" || origin == "https://chat.example.com"
+}
+server := engineio.NewServer(engineio.WithTransports(
+	&polling.Transport{CheckOrigin: allowOrigin},
+	&websocket.Transport{CheckOrigin: allowOrigin},
+))
+```
+
+Browsers always send `Origin` on websocket handshakes, so accepting an empty
+Origin keeps cross-site WebSocket hijacking protection while allowing non-browser
+clients, such as this module's Go client and Node clients, which send none.
+
+A false polling origin check suppresses CORS headers; a false websocket check
+rejects the handshake. Applications needing to reject HTTP requests must also
+use request authentication/access controls, such as HTTP middleware. In
+particular, do not rely on the permissive default for cookie-authenticated access.
+
 ## Socket.IO protocol v4
 
 The v1 module at the repository root: the `socketio` package and `parser` (`parser.Buffer`,
@@ -79,6 +128,7 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
 
 - Packet format `<type>[<attachments>-][<namespace>,][<ack id>][JSON]`. Types
   0 CONNECT, 1 DISCONNECT, 2 EVENT, 3 ACK, 4 ERROR, 5 BINARY_EVENT, 6 BINARY_ACK.
+  An unknown or invalid packet type closes the connection.
 - On a new session the server connects the client to the root namespace `/`
   automatically and sends `0` before any client packet. Other namespaces are joined
   when the client sends `0/<nsp>`.

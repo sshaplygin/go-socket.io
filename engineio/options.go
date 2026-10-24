@@ -205,12 +205,12 @@ type ConnInitorFunc func(*http.Request, Conn)
 // Option configures one instance. Options are applied in order; the last setting wins.
 type Option func(*options)
 
-// WithPingTimeout sets the heartbeat reply timeout; zero means 20 seconds.
+// WithPingTimeout sets the heartbeat reply timeout; nonpositive means 20 seconds.
 func WithPingTimeout(value time.Duration) Option {
 	return func(config *options) { config.PingTimeout = value }
 }
 
-// WithPingInterval sets the heartbeat interval; zero means 25 seconds.
+// WithPingInterval sets the heartbeat interval; nonpositive means 25 seconds.
 func WithPingInterval(value time.Duration) Option {
 	return func(config *options) { config.PingInterval = value }
 }

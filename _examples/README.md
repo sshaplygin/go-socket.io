@@ -2,7 +2,11 @@
 
 Directories with a `go.mod` are standalone Go modules. Each carries a `replace`
 directive pointing at the repository root, so it builds against the checked-out
-fork. The `client` example uses the root module.
+fork. The `client` example uses the root module. Framework examples (`gf`,
+`gin-cors`, `gin-gonic`, `go-echo`, `iris` and both Redis examples) require Go
+1.26 or newer for their current dependencies; the root library remains compatible
+with Go 1.22. The GoFrame example intentionally stays on v1.16.5 to exercise the
+Redis adapter with redigo v2.0.0+incompatible.
 
 ```sh
 cd _examples/<name>

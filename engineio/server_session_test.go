@@ -72,3 +72,31 @@ func TestNewSessionRegistersBeforeHandshake(t *testing.T) {
 	require.Eventually(t, func() bool { return len(rec.find("engineio: request rejected")) == 1 },
 		5*time.Second, time.Millisecond, "failed handshake not logged")
 }
+
+type constantIDGenerator struct{}
+
+func (constantIDGenerator) NewID() string { return "constant" }
+
+func TestNewSessionRejectsDuplicateID(t *testing.T) {
+	s := NewServer(WithSessionIDGenerator(constantIDGenerator{}), WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	firstConn, secondConn := newBlockingConn(), newBlockingConn()
+	t.Cleanup(func() { _ = firstConn.Close(); _ = secondConn.Close(); _ = s.Close() })
+	first, err := s.newSession(httptest.NewRequest(http.MethodGet, "/", nil), firstConn, "polling")
+	require.NoError(t, err)
+	_, err = s.newSession(httptest.NewRequest(http.MethodGet, "/", nil), secondConn, "polling")
+	require.ErrorContains(t, err, "duplicate identifier")
+	select {
+	case <-secondConn.closed:
+	case <-time.After(time.Second):
+		t.Fatal("duplicate session transport stayed open")
+	}
+	registered, ok := s.sessions.Get(first.ID())
+	require.True(t, ok)
+	require.Same(t, first, registered)
+	require.NoError(t, s.Close())
+	select {
+	case <-first.Closed():
+	case <-time.After(time.Second):
+		t.Fatal("first session stayed open after server shutdown")
+	}
+}

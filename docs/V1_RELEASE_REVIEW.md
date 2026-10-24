@@ -731,7 +731,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W5. Report Redis broadcast failures
 
-- **Status:** in progress — #152
+- **Status:** done — #152
 - **Priority:** before tag
 - **Findings:** [ARCH-1](#architecture-findings), [CL-2](#clarity-findings) (see
   [M4](#m4-redis-send-and-sendall-drop-broadcasts-silently))
@@ -1205,7 +1205,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D6. Exported test helpers
 
-- **Status:** decided — option A (2026-10-24); in progress — #156
+- **Status:** decided — option A (2026-10-24); done — #156
 - **Priority:** owner decision
 - **Findings:** [ARCH-11](#architecture-findings), [API-12](#api-compatibility-findings)
 - **Depends on:** none

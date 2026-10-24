@@ -15,6 +15,8 @@ Package `engineio` of the v1 module at the repository root.
   with code 2, below). The `OPEN` packet carries `sid` (random, as engine.io's
   `base64id`), `upgrades` (`[]` with `WithUpgrades(false)`), `pingInterval` (default
   25 s) and `pingTimeout` (default 20 s). There is no `maxPayload`: protocol v3 has none.
+  The JSON of the `OPEN` packet ends with a newline (`\n`), an intentional
+  whitespace difference from engine.io 3.6.2.
 - Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`). Every packet
   the session reads re-arms a window of `pingInterval + pingTimeout`; when it passes
   without one, the session closes with reason `ping timeout`.
@@ -39,6 +41,10 @@ Package `engineio` of the v1 module at the repository root.
   mode; socket.io-client 1.7.4 under Node sends them despite `forceBase64`. Without
   `b64`, a text message starting with `b` is an invalid packet type and closes the
   session; engine.io 3.6.2 decodes it as base64 in either mode.
+  As a known limitation, a server-initiated websocket close, such as `Conn.Close`
+  or `Server.Close`, closes the underlying connection without a websocket close
+  control frame, so the client observes close code 1006. The message-limit close
+  below does send a close frame, with code 1009.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
   to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
   threshold and only for a packet whose compression flag is true. The threshold is
@@ -78,6 +84,13 @@ Package `engineio` of the v1 module at the repository root.
   `Content-Type`, a POST the payload cannot take (paused, overlapping, closed, timed out
   or not decodable) or an invalid method, 413 for the message limit above, 500 for a poll
   whose response failed before it was started.
+  As a known compatibility limitation, a polling POST is accepted only with
+  `Content-Type` `application/octet-stream` (binary payload, parameters ignored) or
+  `text/plain` with `charset=utf-8` (text payload); type and charset are
+  case-insensitive. Any other value, including `text/plain` without a charset and a
+  missing header, is answered HTTP 400. Engine.IO 3.6.2 decodes a body as binary
+  only when `Content-Type` is exactly `application/octet-stream` and as text
+  otherwise.
 
 ### CORS
 
@@ -86,7 +99,9 @@ request's `Origin` in `Access-Control-Allow-Origin` and sets
 `Access-Control-Allow-Credentials: true`; without an Origin it uses `*` and omits
 credentials. Websocket accepts foreign origins for direct connections and upgrades.
 An `OPTIONS` request on an open polling session returns HTTP 200 with
-`Access-Control-Allow-Headers: Content-Type` and the same origin headers. An
+`Access-Control-Allow-Headers: Content-Type` and the same origin headers. The
+transport always sets that value, replacing an `Access-Control-Allow-Headers`
+header set by middleware in front of the handler. An
 `OPTIONS` request without a `sid`, such as the preflight of a handshake that sends
 custom headers (for example `extraHeaders`), is answered HTTP 400 with code 2
 `Bad handshake method` (see the rejection responses under
@@ -134,6 +149,10 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
 - Packet format `<type>[<attachments>-][<namespace>,][<ack id>][JSON]`. Types
   0 CONNECT, 1 DISCONNECT, 2 EVENT, 3 ACK, 4 ERROR, 5 BINARY_EVENT, 6 BINARY_ACK.
   An unknown or invalid packet type closes the connection.
+  An encoded JSON payload ends with a newline (`\n`), for example
+  `2["hello","x"]\n` (Engine.IO message `42["hello","x"]\n`); a packet without a
+  payload, such as the CONNECT packet `0`, has none. This is an intentional
+  whitespace difference from the reference server.
 - On a new session the server connects the client to the root namespace `/`
   automatically and sends `0` before any client packet. Other namespaces are joined
   when the client sends `0/<nsp>`.
@@ -143,7 +162,17 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   following binary frames; on the Go side they map to `parser.Buffer`.
 - Event handlers return values become the ACK payload; an ACK packet is sent when the
   client requested an ack and a listener handled the event. Emitting with a trailing
-  function argument registers an ack callback.
+  function argument registers an ack callback. As a known limitation, when an
+  untyped handler's argument types do not match the event's arguments, the server
+  sends no ACK and no ERROR packet, so a JavaScript ACK callback never fires.
+  Acknowledged typed descriptors (`NewAckEvent`) answer the same case with an
+  error ACK.
+- An ERROR payload is always a JSON string: `err.Error()` for a connect or event
+  middleware rejection or an `OnConnect` error, for example `4"rejected"`, and
+  `Invalid namespace` for an unknown namespace. Additional error data is not
+  sent, even when the error value implements `json.Marshaler`. As a known
+  compatibility limitation, socket.io 2.5.0 instead sends `err.data` when it is
+  set, which can be any JSON value, and `err.message` otherwise.
 - Namespace query strings (`0/nsp?x=1`) are parsed into `Header.Query` and merged into
   `Handshake().Query` of that socket.
 

@@ -1067,7 +1067,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D2. Aliases to internal packages
 
-- **Status:** decided — option B (2026-10-24); in progress — #154
+- **Status:** decided — option B (2026-10-24); done — #154
 - **Priority:** owner decision
 - **Findings:** [ARCH-2](#architecture-findings), [API-9](#api-compatibility-findings)
 - **Depends on:** none
@@ -1146,7 +1146,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D4. Adapter contract
 
-- **Status:** decided — option B (2026-10-24); in progress — #155
+- **Status:** decided — option B (2026-10-24); done — #155
 - **Priority:** owner decision
 - **Findings:** [ARCH-5](#architecture-findings)
 - **Depends on:** W5 for the implementation PR (both rewrite the `Send`/`SendAll` comments

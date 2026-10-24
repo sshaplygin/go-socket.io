@@ -1272,7 +1272,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W12. Close frame readers on errors and gate goroutine leaks
 
-- **Status:** in progress — #157
+- **Status:** done — #157
 - **Priority:** after release
 - **Findings:** [T2](#tests-findings)
 - **Depends on:** none
@@ -1368,7 +1368,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W15. Support Engine.IO base64 over websocket
 
-- **Status:** in progress — #162
+- **Status:** done — #162
 - **Priority:** after release
 - **Findings:** [interop-1](#interoperability-findings)
 - **Depends on:** W6 (removes the limitation it documents)
@@ -1498,7 +1498,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W19. Size the Redis publishing pool
 
-- **Status:** in progress — #158; BenchmarkRedisSendToParallel: 24085 → 23560 ns/op, conns/op 0.006918 → 0.001983 (manual, darwin/arm64)
+- **Status:** done — #158; BenchmarkRedisSendToParallel: 24085 → 23560 ns/op, conns/op 0.006918 → 0.001983 (manual, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-4](#performance-findings)
 - **Depends on:** W2, W4
@@ -1533,7 +1533,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W20. Give the polling client its own HTTP transport
 
-- **Status:** open
+- **Status:** in progress — #175; BenchmarkPollingClientsBroadcast/clients-10: dials/op 3.660 → 0, 2103 → 1875 allocs/op, 267.2 → 222.2 KiB/op, 1.743 → 1.498 ms (manual, base 88d8d26, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-5](#performance-findings)
 - **Depends on:** W2
@@ -2982,7 +2982,7 @@ Every finding is listed under the dimension that reported it.
 | PERF-2 | major → minor | partially-confirmed | `engineio/transport/polling/payload.go:412` | Polling server creates a long time.After timer per packet and never stops the losing timer; when the application is built with pre-1.23 timer semantics (main module go line below 1.23, a pre-1.23 toolchain, or asynctimerchan=1), each timer keeps heap memory alive for ~45s. This library's own go directive does not decide this | Use one per-payload timer for each direction and Reset/Stop it, or an AfterFunc/context set in SetRead/WriteDeadline, and stop the timer when select returns on another case. Add a test that asserts bounded heap after N polling packets with asynctimerchan=1. |
 | PERF-3 | major | confirmed | `adapter/redis/codec.go:191` | Redis PUBLISH has no I/O deadline; a stalled Redis blocks every broadcasting caller indefinitely | Bound publishing I/O by the requests timeout: add DialWriteTimeout on publishing connections only (a read timeout must not reach the shared Pub/Sub subscriber, which uses the same dialer) and run each publishing command with redis.DoWithTimeout, which bounds the read (corrected: DoWithTimeout sets the read timeout, DialWriteTimeout the write timeout), or close the connection on deadline as boundedDo does; DoContext is unavailable in redigo v2.0.0+incompatible. Alternatively, publish through a bounded asynchronous queue and report errors through the adapter error path. Fixed by #151 (W4). |
 | PERF-4 | minor | — | `adapter/redis/adapter.go:100` | Redis publishing pool (MaxIdle 4, unbounded MaxActive) churns TCP connections under concurrent broadcasts | Size MaxIdle to the expected publish concurrency (or expose an option). Alternatively set MaxActive with Wait: true so callers queue on a bounded set of connections. Fixed by #158 (W19). |
-| PERF-5 | minor | — | `engineio/transport/polling/transport.go:24` | Go polling client: polling.Default shares http.DefaultTransport (2 idle conns/host), so several clients per process churn TCP under sustained traffic and can exhaust ephemeral ports | Give polling.Default its own http.Transport with a larger MaxIdleConnsPerHost (for example 64), or create a transport per dialed client. Document WithTransports(&polling.Transport{Client: ...}) for high client counts. |
+| PERF-5 | minor | — | `engineio/transport/polling/transport.go:24` | Go polling client: polling.Default shares http.DefaultTransport (2 idle conns/host), so several clients per process churn TCP under sustained traffic and can exhaust ephemeral ports | Give polling.Default its own http.Transport with a larger MaxIdleConnsPerHost (for example 64), or create a transport per dialed client. Document WithTransports(&polling.Transport{Client: ...}) for high client counts. Fixed by #175 (W20). |
 | PERF-6 | minor | — | `adapter/memory.go:144` | Broadcast encodes the packet once per recipient; the shareable PreparedPacket is not used for fan-out | Add an internal fast path: prepare once in the broadcast path and have namespaceConn accept a prepared packet, for example through an unexported optional interface checked by Memory and Redis, without changing adapter.Socket. Per-socket ACK variants already use WithHeader. |
 | PERF-7 | minor | — | `socket.go:154` | Every send copies the full packet via WithHeader even when no ACK ID was added | Call WithHeader only when registerAck changed the header (ack != nil). Fixed by #163 (W22). |
 | PERF-8 | minor | — | `engineio/transport/websocket/wrapper.go:146` | Websocket wrapper spawns a goroutine and a 30s timer for every frame read and written | Drop the nag, or make it debug-only. If kept, use time.AfterFunc with no goroutine and stop it on Close. |

@@ -21,17 +21,9 @@ import (
 const benchDeliveryTimeout = 30 * time.Second
 
 // BenchmarkPollingClientsBroadcast measures one namespace broadcast delivered
-// to ten polling clients.
-//
-// It runs only when SOCKETIO_BENCH_POLLING=1 is set: the polling clients share
-// http.DefaultTransport, which keeps too few idle connections per host
-// (PERF-5), so repeated runs exhaust darwin ephemeral ports. W20 removes the
-// skip. With SOCKETIO_BENCH_METRICS=1 it also reports new server-side TCP
-// connections per broadcast as dials/op.
+// to ten polling clients. With SOCKETIO_BENCH_METRICS=1 it also reports new
+// server-side TCP connections per broadcast as dials/op.
 func BenchmarkPollingClientsBroadcast(b *testing.B) {
-	if os.Getenv("SOCKETIO_BENCH_POLLING") != "1" {
-		b.Skip("set SOCKETIO_BENCH_POLLING=1 to run; the shared polling transport exhausts ephemeral ports until W20")
-	}
 	b.Run("clients-10", func(b *testing.B) {
 		log := slog.New(slog.NewTextHandler(io.Discard, nil))
 		srv := socketio.NewServer(socketio.WithLogger(log))

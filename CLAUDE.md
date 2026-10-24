@@ -100,6 +100,8 @@ action with the collected benchmark samples.
 
 - Use `gofmt -s`, wrap errors with `%w`, and return errors to callers. Library
   packages must not terminate the process. Executable entry points own exit status.
+- Root, client and Engine.IO test packages fail when library goroutines remain
+  after cleanup; fixtures must close clients and unblock callbacks.
 - Reproduce a bug with a behavioral test; verify concurrency changes with `-race`.
   Test observable contracts, failure paths and boundaries. Avoid tests that only
   repeat implementation details or count documentation markers.

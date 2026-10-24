@@ -156,25 +156,70 @@ func TestEncoderPreservesNilTextMapKey(t *testing.T) {
 }
 
 func TestEncodeOmitEmptyMatchesEncodingJSON(t *testing.T) {
+	type nestedBuffer struct {
+		Binary parser.Buffer `json:"binary,omitempty"`
+	}
+	type nestedBufferMirror struct {
+		Binary json.RawMessage `json:"binary,omitempty"`
+	}
+	placeholder := func(num int) json.RawMessage {
+		return json.RawMessage(fmt.Sprintf(`{"_placeholder":true,"num":%d}`, num))
+	}
+	placeholderPointer := func(num int) *json.RawMessage {
+		raw := placeholder(num)
+		return &raw
+	}
 	number := 7
 	var nilInterface any
 	var zeroInterface any = 0
 	cases := []struct {
 		name  string
 		value reflect.Value
+		// mirror is value with each Buffer replaced by its attachment placeholder;
+		// nil means value has no Buffer and is its own mirror.
+		mirror any
+		// attachments is the number of Buffers value contributes.
+		attachments int
 	}{
-		{"bool", reflect.ValueOf(false)}, {"bool-set", reflect.ValueOf(true)},
-		{"int", reflect.ValueOf(int(0))}, {"int8", reflect.ValueOf(int8(0))}, {"int16", reflect.ValueOf(int16(0))}, {"int32", reflect.ValueOf(int32(0))}, {"int64", reflect.ValueOf(int64(0))},
-		{"uint", reflect.ValueOf(uint(0))}, {"uint8", reflect.ValueOf(uint8(0))}, {"uint16", reflect.ValueOf(uint16(0))}, {"uint32", reflect.ValueOf(uint32(0))}, {"uint64", reflect.ValueOf(uint64(0))}, {"uintptr", reflect.ValueOf(uintptr(0))},
-		{"float32", reflect.ValueOf(float32(0))}, {"float64", reflect.ValueOf(float64(0))}, {"number-set", reflect.ValueOf(number)},
-		{"string", reflect.ValueOf("")}, {"string-set", reflect.ValueOf("value")},
-		{"slice-nil", reflect.ValueOf([]string(nil))}, {"slice-empty", reflect.ValueOf([]string{})}, {"slice-set", reflect.ValueOf([]string{"value"})},
-		{"map-nil", reflect.ValueOf(map[string]int(nil))}, {"map-empty", reflect.ValueOf(map[string]int{})}, {"map-set", reflect.ValueOf(map[string]int{"n": 1})},
-		{"array-empty", reflect.ValueOf([0]int{})}, {"array-zero", reflect.ValueOf([1]int{})},
-		{"pointer-nil", reflect.ValueOf((*int)(nil))}, {"pointer-set", reflect.ValueOf(&number)},
-		{"interface-nil", reflect.ValueOf(&nilInterface).Elem()}, {"interface-zero", reflect.ValueOf(&zeroInterface).Elem()},
-		{"struct-zero", reflect.ValueOf(struct{ N int }{})},
-		{"buffer", reflect.ValueOf(parser.Buffer{})}, {"buffer-pointer-nil", reflect.ValueOf((*parser.Buffer)(nil))}, {"buffer-pointer-set", reflect.ValueOf(&parser.Buffer{Data: []byte("payload")})},
+		{name: "bool", value: reflect.ValueOf(false)},
+		{name: "bool-set", value: reflect.ValueOf(true)},
+		{name: "int", value: reflect.ValueOf(int(0))},
+		{name: "int8", value: reflect.ValueOf(int8(0))},
+		{name: "int16", value: reflect.ValueOf(int16(0))},
+		{name: "int32", value: reflect.ValueOf(int32(0))},
+		{name: "int64", value: reflect.ValueOf(int64(0))},
+		{name: "uint", value: reflect.ValueOf(uint(0))},
+		{name: "uint8", value: reflect.ValueOf(uint8(0))},
+		{name: "uint16", value: reflect.ValueOf(uint16(0))},
+		{name: "uint32", value: reflect.ValueOf(uint32(0))},
+		{name: "uint64", value: reflect.ValueOf(uint64(0))},
+		{name: "uintptr", value: reflect.ValueOf(uintptr(0))},
+		{name: "float32", value: reflect.ValueOf(float32(0))},
+		{name: "float64", value: reflect.ValueOf(float64(0))},
+		{name: "number-set", value: reflect.ValueOf(number)},
+		{name: "string", value: reflect.ValueOf("")},
+		{name: "string-set", value: reflect.ValueOf("value")},
+		{name: "slice-nil", value: reflect.ValueOf([]string(nil))},
+		{name: "slice-empty", value: reflect.ValueOf([]string{})},
+		{name: "slice-set", value: reflect.ValueOf([]string{"value"})},
+		{name: "map-nil", value: reflect.ValueOf(map[string]int(nil))},
+		{name: "map-empty", value: reflect.ValueOf(map[string]int{})},
+		{name: "map-set", value: reflect.ValueOf(map[string]int{"n": 1})},
+		{name: "array-empty", value: reflect.ValueOf([0]int{})},
+		{name: "array-zero", value: reflect.ValueOf([1]int{})},
+		{name: "pointer-nil", value: reflect.ValueOf((*int)(nil))},
+		{name: "pointer-set", value: reflect.ValueOf(&number)},
+		{name: "interface-nil", value: reflect.ValueOf(&nilInterface).Elem()},
+		{name: "interface-zero", value: reflect.ValueOf(&zeroInterface).Elem()},
+		{name: "struct-zero", value: reflect.ValueOf(struct{ N int }{})},
+		// A struct is never omitted, so a nested zero Buffer still becomes an attachment.
+		{name: "struct-buffer", value: reflect.ValueOf(nestedBuffer{}), mirror: nestedBufferMirror{Binary: placeholder(0)}, attachments: 1},
+		{name: "buffer", value: reflect.ValueOf(parser.Buffer{}), mirror: placeholder(0), attachments: 1},
+		{name: "buffer-pointer-nil", value: reflect.ValueOf((*parser.Buffer)(nil)), mirror: (*json.RawMessage)(nil)},
+		{name: "buffer-pointer-set", value: reflect.ValueOf(&parser.Buffer{Data: []byte("payload")}), mirror: placeholderPointer(0), attachments: 1},
+		{name: "buffer-slice-nil", value: reflect.ValueOf([]parser.Buffer(nil)), mirror: []json.RawMessage(nil)},
+		{name: "buffer-slice-empty", value: reflect.ValueOf([]parser.Buffer{}), mirror: []json.RawMessage{}},
+		{name: "buffer-slice-set", value: reflect.ValueOf([]parser.Buffer{{Data: []byte("a")}, {}}), mirror: []json.RawMessage{placeholder(0), placeholder(1)}, attachments: 2},
 	}
 	bufferType := reflect.TypeOf(parser.Buffer{})
 	rawType := reflect.TypeOf(json.RawMessage{})
@@ -189,19 +234,8 @@ func TestEncodeOmitEmptyMatchesEncodingJSON(t *testing.T) {
 			original := reflect.New(typ).Elem()
 			original.Field(0).Set(tc.value)
 			mirrorValue := tc.value
-			attachments := 1
-			if tc.value.Type() == bufferType {
-				mirrorValue = reflect.ValueOf(json.RawMessage(`{"_placeholder":true,"num":0}`))
-				attachments++
-			}
-			if tc.value.Type() == reflect.PointerTo(bufferType) {
-				var raw *json.RawMessage
-				if !tc.value.IsNil() {
-					placeholder := json.RawMessage(`{"_placeholder":true,"num":0}`)
-					raw = &placeholder
-					attachments++
-				}
-				mirrorValue = reflect.ValueOf(raw)
+			if tc.mirror != nil {
+				mirrorValue = reflect.ValueOf(tc.mirror)
 			}
 			mirrorType := reflect.StructOf([]reflect.StructField{
 				{Name: "Value", Type: mirrorValue.Type(), Tag: `json:"value,omitempty"`},
@@ -209,7 +243,7 @@ func TestEncodeOmitEmptyMatchesEncodingJSON(t *testing.T) {
 			})
 			mirror := reflect.New(mirrorType).Elem()
 			mirror.Field(0).Set(mirrorValue)
-			mirror.Field(1).Set(reflect.ValueOf(json.RawMessage(fmt.Sprintf(`{"_placeholder":true,"num":%d}`, attachments-1))))
+			mirror.Field(1).Set(reflect.ValueOf(placeholder(tc.attachments)))
 			want, err := json.Marshal([]any{"event", mirror.Interface()})
 			if err != nil {
 				t.Fatal(err)
@@ -218,6 +252,7 @@ func TestEncodeOmitEmptyMatchesEncodingJSON(t *testing.T) {
 			if err := parser.NewEncoder(w).Encode(parser.Header{Type: parser.Event}, []any{"event", original.Interface()}); err != nil {
 				t.Fatal(err)
 			}
+			attachments := tc.attachments + 1
 			if len(w.frames) != attachments+1 {
 				t.Fatalf("attachments = %d, want %d", len(w.frames)-1, attachments)
 			}

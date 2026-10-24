@@ -1464,7 +1464,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W18. Stop per-packet polling timers
 
-- **Status:** in progress — #166; BenchmarkPayloadRoundTrip: 14 → 8 allocs/op, 1049 → 552.5 B/op, 3.755 → 3.391 µs/op (CI, base 61aeb2f)
+- **Status:** in progress — #166; BenchmarkPayloadRoundTrip: 14 → 8 allocs/op, 1049 → 552 B/op, 2.312 → 2.215 µs/op (CI, base 88d8d26)
 - **Priority:** after release
 - **Findings:** [PERF-2](#performance-findings)
 - **Depends on:** W2

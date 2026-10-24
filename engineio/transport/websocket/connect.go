@@ -15,7 +15,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
-// conn implements base.Conn
+// conn implements transport.Conn
 type conn struct {
 	transport.FrameReader
 
@@ -96,8 +96,8 @@ func (w compressFrameWriter) NextWriter(ft eioparser.FrameType) (io.WriteCloser,
 }
 
 func (c *conn) SetWriteDeadline(t time.Time) error {
-	// TODO: is locking really needed for SetWriteDeadline? If so, what about
-	// the read deadline?
+	// Gorilla stores the write deadline in a field read by its frame writer.
+	// Its one-concurrent-writer contract requires excluding an open writer here.
 	c.ws.writeLocker.Lock()
 	err := c.ws.SetWriteDeadline(t)
 	c.ws.writeLocker.Unlock()

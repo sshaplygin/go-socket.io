@@ -1937,7 +1937,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W35. Encoder and round-trip fuzz targets
 
-- **Status:** in progress — #173; Combined-snapshot 60 s campaigns passed: 13,335 RoundTrip and 52,256 DecodeArgs executions. Depends on W3; isolated seed suite and CI pending.
+- **Status:** in progress — #173
 - **Priority:** after release
 - **Findings:** [T5](#tests-findings)
 - **Depends on:** W3

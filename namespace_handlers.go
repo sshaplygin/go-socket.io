@@ -2,13 +2,17 @@ package socketio
 
 import (
 	"fmt"
+	"log/slog"
 	"reflect"
 	"sync"
 
 	"github.com/sshaplygin/go-socket.io/adapter"
+	"github.com/sshaplygin/go-socket.io/logger"
 )
 
 type namespaceHandler struct {
+	name        string       // installed before registration
+	log         *slog.Logger // installed before registration
 	connectedMu sync.RWMutex
 	connected   map[string]Conn
 	middleware  []func(Conn) error
@@ -24,7 +28,7 @@ type namespaceHandler struct {
 }
 
 func newNamespaceHandler() *namespaceHandler {
-	return &namespaceHandler{broadcast: adapter.NewMemory(), connected: make(map[string]Conn), events: make(map[string][]*eventListener)}
+	return &namespaceHandler{log: logger.Log, broadcast: adapter.NewMemory(), connected: make(map[string]Conn), events: make(map[string][]*eventListener)}
 }
 
 // unavailableAdapter is the adapter.Adapter of a namespace whose adapter could not be
@@ -196,9 +200,7 @@ func (nh *namespaceHandler) SetAdapter(b adapter.Adapter, err error) {
 		b = unavailableAdapter{err: err}
 	}
 	nh.broadcast, nh.err = b, err
-	if binding, ok := b.(interface {
-		BindSocketLookup(func(string) adapter.Socket)
-	}); ok && err == nil {
+	if binding, ok := b.(adapter.SocketLookupBinder); ok && err == nil {
 		binding.BindSocketLookup(func(id string) adapter.Socket {
 			nh.connectedMu.RLock()
 			defer nh.connectedMu.RUnlock()
@@ -220,7 +222,11 @@ func (nh *namespaceHandler) ErrorHandler() func(Conn, error) {
 		return nil
 	}
 	return func(c Conn, err error) {
-		defer func() { _ = recover() }()
+		defer func() {
+			if value := recover(); value != nil {
+				nh.log.Warn("socketio: error handler panic", nspAttr(nh.name), "err", fmt.Errorf("%v", value))
+			}
+		}()
 		callback(c, err)
 	}
 }

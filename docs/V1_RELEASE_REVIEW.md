@@ -680,7 +680,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W4. Bound Redis broadcast publication
 
-- **Status:** in progress — #151
+- **Status:** in progress — #151; BenchmarkRedisSendTo: 56796 → 58122 ns/op, BenchmarkRedisSendToParallel: 18227 → 18561 ns/op, allocs/op unchanged
 - **Priority:** before tag
 - **Findings:** [PERF-3](#performance-findings) (see [M5](#m5-redis-publish-has-no-io-deadline))
 - **Depends on:** W2

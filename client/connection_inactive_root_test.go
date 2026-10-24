@@ -13,7 +13,7 @@ import (
 func TestClientInactiveRootDuringReconnect(t *testing.T) {
 	for _, mode := range []string{"server", "client"} {
 		t.Run(mode, func(t *testing.T) {
-			cl, err := newTestManager("http://unused/", WithReconnectionAttempts(1), WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
+			cl, err := newTestManager(t, "http://unused/", WithReconnectionAttempts(1), WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
 			first, second := newFakeConn(t), newFakeConn(t)

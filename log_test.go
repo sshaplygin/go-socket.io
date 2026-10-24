@@ -159,7 +159,9 @@ func TestRequestRejectedRecords(t *testing.T) {
 		_, _, r, err := c.NextReader()
 		require.NoError(t, err)
 		params, err := eioparser.ReadConnParameters(r)
+		closeErr := r.Close()
 		require.NoError(t, err)
+		require.NoError(t, closeErr)
 		return params.SID
 	}
 	wsSID, pollingSID := dial(websocket.Default), dial(polling.Default)
@@ -575,23 +577,6 @@ func (h *keyCheck) result(msg string) (problems, sids []string) {
 	return append(problems, h.problems...), append(sids, h.sids[msg]...)
 }
 
-// moduleGoroutines returns the IDs of the goroutines with a frame in a non-test file of
-// the module.
-func moduleGoroutines() map[string]bool {
-	_, file, _, _ := runtime.Caller(0)
-	dir := "\t" + file[:strings.LastIndex(file, "/")+1]
-	buf := make([]byte, 1<<22)
-	ids := map[string]bool{}
-	for _, g := range strings.Split(string(buf[:runtime.Stack(buf, true)]), "\n\n") {
-		for _, line := range strings.Split(g, "\n") {
-			if f, _, _ := strings.Cut(line, ":"); strings.HasPrefix(f, dir) && !strings.HasSuffix(f, "_test.go") {
-				ids[strings.Fields(g)[1]] = true
-			}
-		}
-	}
-	return ids
-}
-
 // TestNoBadKeyAttrs runs the TestLifecycleRootNamespace scenario at trace with checking
 // handlers on WithLogger and slog.Default.
 func TestNoBadKeyAttrs(t *testing.T) {
@@ -607,7 +592,7 @@ func TestNoBadKeyAttrs(t *testing.T) {
 	// Go client's polling goroutines after Close, have all returned.
 	require.Eventually(t, func() bool {
 		for id := range moduleGoroutines() {
-			if !before[id] {
+			if _, ok := before[id]; !ok {
 				return false
 			}
 		}

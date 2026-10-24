@@ -613,7 +613,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W3. Restore encoder performance
 
-- **Status:** in progress — #169; BenchmarkEncode/structs100: 3619 → 411 allocs/op, 349.3 → 79.4 µs (CI, base 38ba465, linux/amd64); against 3dd094d: 1012 → 510 allocs/op, 128.0 → 42.1 µs (−67.1%, p=0.000, darwin/arm64)
+- **Status:** done — #169; BenchmarkEncode/structs100: 3619 → 411 allocs/op, 349.3 → 79.4 µs (CI, base 38ba465, linux/amd64); against 3dd094d: 1012 → 510 allocs/op, 128.0 → 42.1 µs (−67.1%, p=0.000, darwin/arm64)
 - **Priority:** before tag (or deferred in writing with the cost in the release notes)
 - **Findings:** [PERF-1](#performance-findings) (see
   [M6](#m6-json-encoder-from-143-regresses-encode-cost)), [T1](#tests-findings)
@@ -852,7 +852,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W8. Write the migration guide
 
-- **Status:** in progress — #191
+- **Status:** done — #191
 - **Priority:** before tag
 - **Findings:** [API-1](#api-compatibility-findings), [CL-4](#clarity-findings),
   [REL-1](#release-engineering-findings), [API-5](#api-compatibility-findings),

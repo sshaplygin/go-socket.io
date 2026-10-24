@@ -3,6 +3,7 @@ package socketio_test
 import (
 	"io"
 	"log/slog"
+	"net"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -22,6 +23,11 @@ type benchItem struct {
 	Meta   map[string]string `json:"meta,omitempty"`
 	Online bool              `json:"online"`
 }
+
+// benchWaitTimeout bounds each wait for a handshake, callback or delivered
+// frame, so a lost delivery fails the iteration instead of stalling the run.
+const benchWaitTimeout = 30 * time.Second
+
 type benchServer struct {
 	srv          *socketio.Server
 	url          string
@@ -29,15 +35,15 @@ type benchServer struct {
 	disconnected chan struct{}
 	frames       chan error
 	stop         chan struct{}
-	deadline     <-chan time.Time
+	timer        *time.Timer
 	clients      []*websocket.Conn
 	readers      sync.WaitGroup
 }
 
 func benchNewServer(b *testing.B) *benchServer {
 	h := &benchServer{connected: make(chan socketio.Conn, 256), disconnected: make(chan struct{}, 256), frames: make(chan error, 256), stop: make(chan struct{})}
-	timer := time.NewTimer(5 * time.Minute)
-	h.deadline = timer.C
+	h.timer = time.NewTimer(benchWaitTimeout)
+	h.timer.Stop()
 	h.srv = socketio.NewServer(socketio.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))))
 	h.srv.OnConnect("/", func(c socketio.Conn) error { h.connected <- c; return nil })
 	h.srv.OnDisconnect("/", func(socketio.Conn, string) {
@@ -59,11 +65,25 @@ func benchNewServer(b *testing.B) *benchServer {
 		_ = h.srv.Close()
 		ts.Close()
 		<-served
-		timer.Stop()
+		h.timer.Stop()
 		polling.Default.Client.CloseIdleConnections()
 	})
 	return h
 }
+
+// arm restarts the wait timer for one wait. It does not allocate, so it can
+// run inside the timed loop.
+func (h *benchServer) arm() <-chan time.Time {
+	if !h.timer.Stop() {
+		select {
+		case <-h.timer.C:
+		default:
+		}
+	}
+	h.timer.Reset(benchWaitTimeout)
+	return h.timer.C
+}
+
 func (h *benchServer) dial(b *testing.B) (*websocket.Conn, socketio.Conn) {
 	b.Helper()
 	c, resp, err := websocket.DefaultDialer.Dial(h.url, nil)
@@ -73,7 +93,7 @@ func (h *benchServer) dial(b *testing.B) (*websocket.Conn, socketio.Conn) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	if err = c.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+	if err = c.SetReadDeadline(time.Now().Add(benchWaitTimeout)); err != nil {
 		_ = c.Close()
 		b.Fatal(err)
 	}
@@ -95,12 +115,13 @@ func (h *benchServer) dial(b *testing.B) (*websocket.Conn, socketio.Conn) {
 	select {
 	case conn := <-h.connected:
 		return c, conn
-	case <-h.deadline:
+	case <-h.arm():
 		_ = c.Close()
 		b.Fatal("connection callback timeout")
 		return nil, nil
 	}
 }
+
 func (h *benchServer) addClient(b *testing.B) socketio.Conn {
 	c, conn := h.dial(b)
 	h.clients = append(h.clients, c)
@@ -121,23 +142,33 @@ func (h *benchServer) addClient(b *testing.B) socketio.Conn {
 	}()
 	return conn
 }
+
 func (h *benchServer) waitFrames(b *testing.B, n int) {
 	b.Helper()
+	timeout := h.arm()
 	for i := 0; i < n; i++ {
 		select {
 		case err := <-h.frames:
 			if err != nil {
 				b.Fatal(err)
 			}
-		case <-h.deadline:
-			b.Fatal("frame timeout")
+		case <-timeout:
+			b.Fatalf("frame timeout: %d of %d frames received", i, n)
 		}
 	}
 }
+
 func BenchmarkBroadcastWebsocket(b *testing.B) {
 	items := make([]benchItem, 100)
 	for i := range items {
-		items[i] = benchItem{"alice", "hello world, this is a chat message", 1700000000, []string{"a", "b", "c"}, map[string]string{"k1": "v1", "k2": "v2"}, true}
+		items[i] = benchItem{
+			User:   "alice",
+			Text:   "hello world, this is a chat message",
+			Time:   1700000000,
+			Tags:   []string{"a", "b", "c"},
+			Meta:   map[string]string{"k1": "v1", "k2": "v2"},
+			Online: true,
+		}
 	}
 	for _, tc := range []struct {
 		name    string
@@ -156,10 +187,10 @@ func BenchmarkBroadcastWebsocket(b *testing.B) {
 				}
 				h.waitFrames(b, 10)
 			}
-			b.StopTimer()
 		})
 	}
 }
+
 func BenchmarkEmitWebsocket(b *testing.B) {
 	b.Run("string", func(b *testing.B) {
 		h := benchNewServer(b)
@@ -170,9 +201,9 @@ func BenchmarkEmitWebsocket(b *testing.B) {
 			c.Emit("data", "hello")
 			h.waitFrames(b, 1)
 		}
-		b.StopTimer()
 	})
 }
+
 func BenchmarkJoinRoom(b *testing.B) {
 	b.Run("sockets-200", func(b *testing.B) {
 		h := benchNewServer(b)
@@ -187,23 +218,30 @@ func BenchmarkJoinRoom(b *testing.B) {
 				b.Fatal("join rejected")
 			}
 		}
-		b.StopTimer()
 	})
 }
+
 func BenchmarkConnectWebsocket(b *testing.B) {
 	h := benchNewServer(b)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		c, _ := h.dial(b)
+		// Reset instead of FIN so each iteration does not leave a client-side
+		// TIME_WAIT socket; -count=10 otherwise exhausts darwin ephemeral ports.
+		if tc, ok := c.NetConn().(*net.TCPConn); ok {
+			if err := tc.SetLinger(0); err != nil {
+				_ = c.Close()
+				b.Fatal(err)
+			}
+		}
 		if err := c.Close(); err != nil {
 			b.Fatal(err)
 		}
 		select {
 		case <-h.disconnected:
-		case <-h.deadline:
+		case <-h.arm():
 			b.Fatalf("disconnect timeout after iteration %d", i)
 		}
 	}
-	b.StopTimer()
 }

@@ -1,9 +1,10 @@
 package adapter_test
 
 import (
-	"github.com/sshaplygin/go-socket.io/adapter"
 	"strconv"
 	"testing"
+
+	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
 type benchSocket struct {
@@ -14,6 +15,7 @@ type benchSocket struct {
 func (s benchSocket) ID() string                                            { return s.id }
 func (benchSocket) Emit(string, ...interface{})                             {}
 func (benchSocket) EmitWithOptions(adapter.Options, string, ...interface{}) {}
+
 func BenchmarkMemorySendTo(b *testing.B) {
 	for _, name := range []string{"one-room", "all", "three-rooms"} {
 		b.Run(name, func(b *testing.B) {

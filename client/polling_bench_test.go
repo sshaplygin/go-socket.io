@@ -16,7 +16,22 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 )
 
+// benchDeliveryTimeout bounds the wait for one broadcast to reach every
+// client, so a lost delivery fails the iteration instead of stalling the run.
+const benchDeliveryTimeout = 30 * time.Second
+
+// BenchmarkPollingClientsBroadcast measures one namespace broadcast delivered
+// to ten polling clients.
+//
+// It runs only when SOCKETIO_BENCH_POLLING=1 is set: the polling clients share
+// http.DefaultTransport, which keeps too few idle connections per host
+// (PERF-5), so repeated runs exhaust darwin ephemeral ports. W20 removes the
+// skip. With SOCKETIO_BENCH_METRICS=1 it also reports new server-side TCP
+// connections per broadcast as dials/op.
 func BenchmarkPollingClientsBroadcast(b *testing.B) {
+	if os.Getenv("SOCKETIO_BENCH_POLLING") != "1" {
+		b.Skip("set SOCKETIO_BENCH_POLLING=1 to run; the shared polling transport exhausts ephemeral ports until W20")
+	}
 	b.Run("clients-10", func(b *testing.B) {
 		log := slog.New(slog.NewTextHandler(io.Discard, nil))
 		srv := socketio.NewServer(socketio.WithLogger(log))
@@ -34,7 +49,8 @@ func BenchmarkPollingClientsBroadcast(b *testing.B) {
 		clients := make([]*client.Client, 0, 10)
 		stop := make(chan struct{})
 		received := make(chan struct{}, 10)
-		timer := time.NewTimer(5 * time.Minute)
+		timer := time.NewTimer(benchDeliveryTimeout)
+		timer.Stop()
 		b.Cleanup(func() {
 			close(stop)
 			for _, c := range clients {
@@ -69,11 +85,18 @@ func BenchmarkPollingClientsBroadcast(b *testing.B) {
 			if !srv.BroadcastToNamespace("/", "data", "hello") {
 				b.Fatal("broadcast rejected")
 			}
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(benchDeliveryTimeout)
 			for j := 0; j < 10; j++ {
 				select {
 				case <-received:
 				case <-timer.C:
-					b.Fatal("broadcast delivery timeout")
+					b.Fatalf("broadcast delivery timeout: %d of 10 clients received iteration %d", j, i)
 				}
 			}
 		}

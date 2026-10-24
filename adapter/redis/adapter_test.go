@@ -49,10 +49,17 @@ func (c *redisTestConn) Emit(event string, v ...interface{}) {
 	c.events <- fmt.Sprintf("%s %v", event, v)
 }
 
-func newTestRedisBroadcast(t testing.TB, s *miniredis.Miniredis) *broadcast {
+// newTestRedisBroadcast starts a broadcast for namespace "/" on s and waits
+// until its request subscription is active. configure adjusts the options
+// before the broadcast is created.
+func newTestRedisBroadcast(t testing.TB, s *miniredis.Miniredis, configure ...func(*options)) *broadcast {
 	t.Helper()
+	opts := &options{Addr: s.Addr(), Prefix: "socket.io", Network: "tcp"}
+	for _, f := range configure {
+		f(opts)
+	}
 	before := s.PubSubNumSub(testRedisReqChannel)[testRedisReqChannel]
-	bc, err := newBroadcast("/", &options{Addr: s.Addr(), Prefix: "socket.io", Network: "tcp"})
+	bc, err := newBroadcast("/", opts)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = bc.Close() })
 	waitRedisSubscribers(t, s, testRedisReqChannel, before+1)

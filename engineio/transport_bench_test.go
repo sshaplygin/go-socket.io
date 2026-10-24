@@ -15,6 +15,10 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio"
 )
 
+// benchWaitTimeout bounds each echo round trip, so a lost frame fails the
+// iteration instead of stalling the run.
+const benchWaitTimeout = 30 * time.Second
+
 func benchEchoServer(b *testing.B) *httptest.Server {
 	srv := engineio.NewServer(engineio.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))))
 	ts := httptest.NewServer(srv)
@@ -50,6 +54,7 @@ func benchEchoServer(b *testing.B) *httptest.Server {
 	b.Cleanup(func() { _ = srv.Close(); ts.Close(); <-done })
 	return ts
 }
+
 func BenchmarkWebsocketEcho(b *testing.B) {
 	for _, tc := range []struct{ name, payload string }{{"small", "4hello"}, {"4KiB", "4" + strings.Repeat("x", 4096)}} {
 		b.Run(tc.name, func(b *testing.B) {
@@ -62,10 +67,7 @@ func BenchmarkWebsocketEcho(b *testing.B) {
 				b.Fatal(err)
 			}
 			b.Cleanup(func() { _ = c.Close() })
-			if err = c.SetReadDeadline(time.Now().Add(5 * time.Minute)); err != nil {
-				b.Fatal(err)
-			}
-			if err = c.SetWriteDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+			if err = c.SetReadDeadline(time.Now().Add(benchWaitTimeout)); err != nil {
 				b.Fatal(err)
 			}
 			if _, _, err = c.ReadMessage(); err != nil {
@@ -76,6 +78,13 @@ func BenchmarkWebsocketEcho(b *testing.B) {
 			b.SetBytes(int64(len(payload) - 1))
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
+				deadline := time.Now().Add(benchWaitTimeout)
+				if err := c.SetWriteDeadline(deadline); err != nil {
+					b.Fatal(err)
+				}
+				if err := c.SetReadDeadline(deadline); err != nil {
+					b.Fatal(err)
+				}
 				if err := c.WriteMessage(websocket.TextMessage, payload); err != nil {
 					b.Fatal(err)
 				}
@@ -87,10 +96,10 @@ func BenchmarkWebsocketEcho(b *testing.B) {
 					b.Fatalf("unexpected echo %q", got)
 				}
 			}
-			b.StopTimer()
 		})
 	}
 }
+
 func benchHTTP(b *testing.B, c *http.Client, method, url, body string) []byte {
 	b.Helper()
 	req, err := http.NewRequest(method, url, strings.NewReader(body))
@@ -117,6 +126,7 @@ func benchHTTP(b *testing.B, c *http.Client, method, url, body string) []byte {
 	}
 	return data
 }
+
 func BenchmarkPollingEcho(b *testing.B) {
 	ts := benchEchoServer(b)
 	c := &http.Client{Transport: &http.Transport{}, Timeout: 10 * time.Second}
@@ -143,5 +153,4 @@ func BenchmarkPollingEcho(b *testing.B) {
 			b.Fatalf("unexpected echo %q", got)
 		}
 	}
-	b.StopTimer()
 }

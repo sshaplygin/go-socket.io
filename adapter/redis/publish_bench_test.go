@@ -9,16 +9,14 @@ import (
 	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
+// benchRedisSendTo measures publishing one broadcast through Redis. With
+// SOCKETIO_BENCH_METRICS=1 it also reports new Redis connections per
+// operation as conns/op.
 func benchRedisSendTo(b *testing.B, parallel bool) {
 	s := miniredis.RunT(b)
 	// Keep the test fixture's short request timeout out of the pool-throughput
 	// measurement. Deadline behavior has separate regression tests.
-	bc, err := newBroadcast("/", &options{Addr: s.Addr(), Prefix: "socket.io", Network: "tcp", RequestsTimeout: time.Minute})
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.Cleanup(func() { _ = bc.Close() })
-	waitRedisSubscribers(b, s, testRedisReqChannel, 1)
+	bc := newTestRedisBroadcast(b, s, func(o *options) { o.RequestsTimeout = time.Minute })
 	before := s.TotalConnectionCount()
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -44,5 +42,11 @@ func benchRedisSendTo(b *testing.B, parallel bool) {
 		b.ReportMetric(float64(s.TotalConnectionCount()-before)/float64(b.N), "conns/op")
 	}
 }
-func BenchmarkRedisSendTo(b *testing.B)         { benchRedisSendTo(b, false) }
+
+// BenchmarkRedisSendTo publishes broadcasts sequentially; see benchRedisSendTo
+// for SOCKETIO_BENCH_METRICS.
+func BenchmarkRedisSendTo(b *testing.B) { benchRedisSendTo(b, false) }
+
+// BenchmarkRedisSendToParallel publishes broadcasts from 16*GOMAXPROCS
+// goroutines; see benchRedisSendTo for SOCKETIO_BENCH_METRICS.
 func BenchmarkRedisSendToParallel(b *testing.B) { benchRedisSendTo(b, true) }

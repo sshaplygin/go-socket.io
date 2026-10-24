@@ -17,6 +17,7 @@ type benchItem struct {
 	Meta   map[string]string `json:"meta,omitempty"`
 	Online bool              `json:"online"`
 }
+
 type benchItemNoMap struct {
 	User   string   `json:"user"`
 	Text   string   `json:"text"`
@@ -24,6 +25,7 @@ type benchItemNoMap struct {
 	Tags   []string `json:"tags,omitempty"`
 	Online bool     `json:"online"`
 }
+
 type benchScalar struct {
 	N int
 	S string
@@ -35,21 +37,45 @@ func benchPayloads() []struct {
 	name  string
 	value interface{}
 } {
-	item := benchItem{"alice", "hello world, this is a chat message", 1700000000, []string{"a", "b", "c"}, map[string]string{"k1": "v1", "k2": "v2"}, true}
+	item := benchItem{
+		User:   "alice",
+		Text:   "hello world, this is a chat message",
+		Time:   1700000000,
+		Tags:   []string{"a", "b", "c"},
+		Meta:   map[string]string{"k1": "v1", "k2": "v2"},
+		Online: true,
+	}
 	items := make([]benchItem, 100)
 	noMaps := make([]benchItemNoMap, 100)
 	scalars := make([]benchScalar, 100)
 	for i := range items {
 		items[i] = item
-		noMaps[i] = benchItemNoMap{item.User, item.Text, item.Time, item.Tags, item.Online}
-		scalars[i] = benchScalar{i, "hello", true, 3.14}
+		noMaps[i] = benchItemNoMap{User: item.User, Text: item.Text, Time: item.Time, Tags: item.Tags, Online: item.Online}
+		scalars[i] = benchScalar{N: i, S: "hello", B: true, F: 3.14}
 	}
 	return []struct {
 		name  string
 		value interface{}
 	}{
-		{"string", "hello"}, {"struct", item}, {"structs100", items}, {"structsNoMap100", noMaps}, {"scalars100", scalars}, {"binary", &parser.Buffer{Data: make([]byte, 1024)}},
+		{name: "string", value: "hello"},
+		{name: "struct", value: item},
+		{name: "structs100", value: items},
+		{name: "structsNoMap100", value: noMaps},
+		{name: "scalars100", value: scalars},
+		{name: "binary", value: &parser.Buffer{Data: make([]byte, 1024)}},
 	}
+}
+
+// benchPayload returns the payload named name from benchPayloads.
+func benchPayload(b *testing.B, name string) interface{} {
+	b.Helper()
+	for _, tc := range benchPayloads() {
+		if tc.name == name {
+			return tc.value
+		}
+	}
+	b.Fatalf("unknown benchmark payload %q", name)
+	return nil
 }
 
 type benchDiscardWriter struct{}
@@ -75,9 +101,10 @@ func BenchmarkEncode(b *testing.B) {
 		})
 	}
 }
+
 func BenchmarkEncodePrepared(b *testing.B) {
 	b.Run("structs100", func(b *testing.B) {
-		packet, err := parser.Prepare(parser.Header{Type: parser.Event}, []interface{}{"event", benchPayloads()[2].value})
+		packet, err := parser.Prepare(parser.Header{Type: parser.Event}, []interface{}{"event", benchPayload(b, "structs100")})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -96,18 +123,21 @@ type benchFrame struct {
 	typ  parser.FrameType
 	data *bytes.Buffer
 }
+
 type benchFrames struct {
 	frames []benchFrame
 	next   int
 }
+
 type benchBufferCloser struct{ *bytes.Buffer }
 
 func (benchBufferCloser) Close() error { return nil }
 func (f *benchFrames) NextWriter(typ parser.FrameType) (io.WriteCloser, error) {
 	buf := new(bytes.Buffer)
-	f.frames = append(f.frames, benchFrame{typ, buf})
+	f.frames = append(f.frames, benchFrame{typ: typ, data: buf})
 	return benchBufferCloser{buf}, nil
 }
+
 func (f *benchFrames) NextReader() (parser.FrameType, io.ReadCloser, error) {
 	if f.next == len(f.frames) {
 		return 0, nil, io.EOF
@@ -116,6 +146,7 @@ func (f *benchFrames) NextReader() (parser.FrameType, io.ReadCloser, error) {
 	f.next++
 	return frame.typ, io.NopCloser(bytes.NewReader(frame.data.Bytes())), nil
 }
+
 func BenchmarkDecode(b *testing.B) {
 	for _, tc := range benchPayloads() {
 		if tc.name == "structsNoMap100" || tc.name == "scalars100" {

@@ -1645,7 +1645,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W24. Look up room members without a scan
 
-- **Status:** in progress — #165
+- **Status:** in progress — #165; BenchmarkJoinRoom/sockets-200: 2935 → 172.5 ns/op, 3456 → 0 B/op, 1 → 0 allocs/op (manual, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-9](#performance-findings)
 - **Depends on:** W2

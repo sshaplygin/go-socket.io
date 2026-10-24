@@ -39,7 +39,7 @@ func TestDefaultHTTPTransportClonesStandardTransport(t *testing.T) {
 	t.Cleanup(func() { http.DefaultTransport = original })
 	base := &http.Transport{MaxIdleConnsPerHost: 7, ResponseHeaderTimeout: 3 * time.Second}
 	http.DefaultTransport = base
-	var cloned http.RoundTripper = defaultHTTPTransport()
+	cloned := defaultHTTPTransport()
 	require.IsType(t, base, cloned)
 	tuned := cloned.(*http.Transport)
 	require.NotSame(t, base, tuned)

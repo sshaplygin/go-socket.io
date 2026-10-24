@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/sshaplygin/go-socket.io/parser"
 )
@@ -150,5 +152,214 @@ func TestEncoderPreservesNilTextMapKey(t *testing.T) {
 	}
 	if len(w.frames) != 1 || w.frames[0].String() != "3"+string(want)+"\n" {
 		t.Fatalf("nil map key changed: %v, want %s", w.frames, want)
+	}
+}
+
+func TestEncodeOmitEmptyMatchesEncodingJSON(t *testing.T) {
+	type nestedBuffer struct {
+		Binary parser.Buffer `json:"binary,omitempty"`
+	}
+	type nestedBufferMirror struct {
+		Binary json.RawMessage `json:"binary,omitempty"`
+	}
+	placeholder := func(num int) json.RawMessage {
+		return json.RawMessage(fmt.Sprintf(`{"_placeholder":true,"num":%d}`, num))
+	}
+	placeholderPointer := func(num int) *json.RawMessage {
+		raw := placeholder(num)
+		return &raw
+	}
+	number := 7
+	var nilInterface any
+	var zeroInterface any = 0
+	cases := []struct {
+		name  string
+		value reflect.Value
+		// mirror is value with each Buffer replaced by its attachment placeholder;
+		// nil means value has no Buffer and is its own mirror.
+		mirror any
+		// attachments is the number of Buffers value contributes.
+		attachments int
+	}{
+		{name: "bool", value: reflect.ValueOf(false)},
+		{name: "bool-set", value: reflect.ValueOf(true)},
+		{name: "int", value: reflect.ValueOf(int(0))},
+		{name: "int8", value: reflect.ValueOf(int8(0))},
+		{name: "int16", value: reflect.ValueOf(int16(0))},
+		{name: "int32", value: reflect.ValueOf(int32(0))},
+		{name: "int64", value: reflect.ValueOf(int64(0))},
+		{name: "uint", value: reflect.ValueOf(uint(0))},
+		{name: "uint8", value: reflect.ValueOf(uint8(0))},
+		{name: "uint16", value: reflect.ValueOf(uint16(0))},
+		{name: "uint32", value: reflect.ValueOf(uint32(0))},
+		{name: "uint64", value: reflect.ValueOf(uint64(0))},
+		{name: "uintptr", value: reflect.ValueOf(uintptr(0))},
+		{name: "float32", value: reflect.ValueOf(float32(0))},
+		{name: "float64", value: reflect.ValueOf(float64(0))},
+		{name: "number-set", value: reflect.ValueOf(number)},
+		{name: "string", value: reflect.ValueOf("")},
+		{name: "string-set", value: reflect.ValueOf("value")},
+		{name: "slice-nil", value: reflect.ValueOf([]string(nil))},
+		{name: "slice-empty", value: reflect.ValueOf([]string{})},
+		{name: "slice-set", value: reflect.ValueOf([]string{"value"})},
+		{name: "map-nil", value: reflect.ValueOf(map[string]int(nil))},
+		{name: "map-empty", value: reflect.ValueOf(map[string]int{})},
+		{name: "map-set", value: reflect.ValueOf(map[string]int{"n": 1})},
+		{name: "array-empty", value: reflect.ValueOf([0]int{})},
+		{name: "array-zero", value: reflect.ValueOf([1]int{})},
+		{name: "pointer-nil", value: reflect.ValueOf((*int)(nil))},
+		{name: "pointer-set", value: reflect.ValueOf(&number)},
+		{name: "interface-nil", value: reflect.ValueOf(&nilInterface).Elem()},
+		{name: "interface-zero", value: reflect.ValueOf(&zeroInterface).Elem()},
+		{name: "struct-zero", value: reflect.ValueOf(struct{ N int }{})},
+		// A struct is never omitted, so a nested zero Buffer still becomes an attachment.
+		{name: "struct-buffer", value: reflect.ValueOf(nestedBuffer{}), mirror: nestedBufferMirror{Binary: placeholder(0)}, attachments: 1},
+		{name: "buffer", value: reflect.ValueOf(parser.Buffer{}), mirror: placeholder(0), attachments: 1},
+		{name: "buffer-pointer-nil", value: reflect.ValueOf((*parser.Buffer)(nil)), mirror: (*json.RawMessage)(nil)},
+		{name: "buffer-pointer-set", value: reflect.ValueOf(&parser.Buffer{Data: []byte("payload")}), mirror: placeholderPointer(0), attachments: 1},
+		{name: "buffer-slice-nil", value: reflect.ValueOf([]parser.Buffer(nil)), mirror: []json.RawMessage(nil)},
+		{name: "buffer-slice-empty", value: reflect.ValueOf([]parser.Buffer{}), mirror: []json.RawMessage{}},
+		{name: "buffer-slice-set", value: reflect.ValueOf([]parser.Buffer{{Data: []byte("a")}, {}}), mirror: []json.RawMessage{placeholder(0), placeholder(1)}, attachments: 2},
+	}
+	bufferType := reflect.TypeOf(parser.Buffer{})
+	rawType := reflect.TypeOf(json.RawMessage{})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// A visible Buffer keeps the parent on the attachment-aware traversal even
+			// when Value alone could use encoding/json's fast path.
+			typ := reflect.StructOf([]reflect.StructField{
+				{Name: "Value", Type: tc.value.Type(), Tag: `json:"value,omitempty"`},
+				{Name: "Binary", Type: bufferType, Tag: `json:"binary,omitempty"`},
+			})
+			original := reflect.New(typ).Elem()
+			original.Field(0).Set(tc.value)
+			mirrorValue := tc.value
+			if tc.mirror != nil {
+				mirrorValue = reflect.ValueOf(tc.mirror)
+			}
+			mirrorType := reflect.StructOf([]reflect.StructField{
+				{Name: "Value", Type: mirrorValue.Type(), Tag: `json:"value,omitempty"`},
+				{Name: "Binary", Type: rawType, Tag: `json:"binary,omitempty"`},
+			})
+			mirror := reflect.New(mirrorType).Elem()
+			mirror.Field(0).Set(mirrorValue)
+			mirror.Field(1).Set(reflect.ValueOf(placeholder(tc.attachments)))
+			want, err := json.Marshal([]any{"event", mirror.Interface()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w := new(recordedWriter)
+			if err := parser.NewEncoder(w).Encode(parser.Header{Type: parser.Event}, []any{"event", original.Interface()}); err != nil {
+				t.Fatal(err)
+			}
+			attachments := tc.attachments + 1
+			if len(w.frames) != attachments+1 {
+				t.Fatalf("attachments = %d, want %d", len(w.frames)-1, attachments)
+			}
+			if got := w.frames[0].String(); got != fmt.Sprintf("5%d-%s\n", attachments, want) {
+				t.Fatalf("packet = %s, want %s", got, want)
+			}
+		})
+	}
+}
+
+func TestEncodePlainTypesMatchEncodingJSON(t *testing.T) {
+	type embedded struct {
+		Name string `json:"name"`
+	}
+	type fields struct {
+		embedded
+		Hidden  string   `json:"-"`
+		Number  int      `json:"number,string"`
+		Empty   []string `json:"empty,omitempty"`
+		private string
+	}
+	for _, value := range []any{
+		[][]int{{1, 2}, nil, {}}, map[string][]float64{"x": {1.5, 2.5}}, [2][2]string{{"a", "b"}, {"<", ">"}},
+		fields{embedded: embedded{"visible"}, Hidden: "hidden", Number: 42, private: "private"},
+		[]map[int]string{{2: "two", 10: "ten"}}, []byte{0, 255},
+	} {
+		t.Run(fmt.Sprintf("%T", value), func(t *testing.T) {
+			want, err := json.Marshal([]any{"event", value})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w := new(recordedWriter)
+			if err := parser.NewEncoder(w).Encode(parser.Header{Type: parser.Event}, []any{"event", value}); err != nil {
+				t.Fatal(err)
+			}
+			if len(w.frames) != 1 || w.frames[0].String() != "2"+string(want)+"\n" {
+				t.Fatalf("frames=%v, want %s", w.frames, want)
+			}
+		})
+	}
+}
+
+func TestEncodeScalarsMatchEncodingJSON(t *testing.T) {
+	for _, value := range []any{
+		"\x00\x01\b\f\n\r\t\"\\<>&\u2028\u2029\xffλ", true, false, int64(-9223372036854775808), uint64(18446744073709551615),
+		json.Number("1e100"), json.Number("9007199254740993"), json.Number(""),
+		float32(1e-7), float32(1e20), float32(1e21), float64(1e-7), float64(1e-6), float64(1e20), float64(1e21),
+	} {
+		t.Run(fmt.Sprintf("%T/%v", value, value), func(t *testing.T) {
+			payload := []any{"event", value}
+			want, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			w := new(recordedWriter)
+			if err := parser.NewEncoder(w).Encode(parser.Header{Type: parser.Event}, payload); err != nil {
+				t.Fatal(err)
+			}
+			if len(w.frames) != 1 || w.frames[0].String() != "2"+string(want)+"\n" {
+				t.Fatalf("frames=%v, want %s", w.frames, want)
+			}
+		})
+	}
+}
+
+func TestEncodeNonFiniteScalarsMatchEncodingJSON(t *testing.T) {
+	for _, value := range []any{math.NaN(), math.Inf(1), math.Inf(-1), float32(math.Inf(1))} {
+		_, standardErr := json.Marshal(value)
+		_, err := parser.Prepare(parser.Header{Type: parser.Event}, []any{"event", value})
+		var got, want *json.UnsupportedValueError
+		if !errors.As(err, &got) || !errors.As(standardErr, &want) || got.Str != want.Str {
+			t.Fatalf("value %v: error = %v, want %v", value, err, standardErr)
+		}
+	}
+}
+
+// sharedSubtypes refers to T twice, so nesting it n times yields n+1 distinct
+// types but 2^n paths through the type graph.
+type sharedSubtypes[T any] struct{ L, R []T }
+
+type (
+	sharedSubtypes4  = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[int]]]]
+	sharedSubtypes8  = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes4]]]]
+	sharedSubtypes12 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes8]]]]
+	sharedSubtypes16 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes12]]]]
+	sharedSubtypes20 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes16]]]]
+	sharedSubtypes24 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes20]]]]
+)
+
+func TestPreparePlainTypeCheckIsLinearInSharedSubtypes(t *testing.T) {
+	// The plain-type check must visit each distinct type once; walking every path
+	// makes the first Prepare of this type exponential in the nesting depth.
+	var value sharedSubtypes24
+	start := time.Now()
+	packet, err := parser.Prepare(parser.Header{Type: parser.Event}, []any{"event", value})
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed > 100*time.Millisecond {
+		t.Fatalf("first Prepare took %v, want at most 100ms", elapsed)
+	}
+	w := new(recordedWriter)
+	if err := parser.NewEncoder(w).EncodePrepared(packet); err != nil {
+		t.Fatal(err)
+	}
+	if want := `2["event",{"L":null,"R":null}]` + "\n"; len(w.frames) != 1 || w.frames[0].String() != want {
+		t.Fatalf("frames = %v, want %q", w.frames, want)
 	}
 }

@@ -204,7 +204,7 @@ func TestWrongTypeArgumentKeepsConnection(t *testing.T) {
 					}
 					c.Emit("bad-type")
 				})
-			}, engineio.WithPingTimeout(10*time.Second))
+			})
 			c := dialRaw(t, url)
 			require.Equal(t, "0", c.read())
 			switch kind {

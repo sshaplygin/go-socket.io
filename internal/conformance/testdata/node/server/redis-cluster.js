@@ -197,5 +197,20 @@ const watchdog=setTimeout(()=>{console.error('Redis cluster timeout');process.ex
  await control(goA,{Op:'disconnect',SID:peers[2].sid,Close:true});await nodeDisconnected;
  console.log('Redis mixed cluster passed: '+transport);
 })().catch(err=>{console.error(err);process.exitCode=1;}).finally(()=>{
- clearTimeout(watchdog);sockets.forEach(s=>s.close());managers.forEach(m=>m.close());io.close();pub.quit();sub.quit();server.close();
+ clearTimeout(watchdog);
+ const timings=[];
+ function cleanup(name,action){const start=Date.now();action();timings.push(name+'='+String(Date.now()-start)+'ms');}
+ cleanup('sockets',()=>sockets.forEach(s=>s.close()));
+ cleanup('managers',()=>managers.forEach(m=>m.close()));
+ cleanup('socket.io',()=>io.close());
+ cleanup('redis',()=>{pub.quit();sub.quit();});
+ cleanup('http',()=>server.close());
+ // engine.io 3.6.2 Polling.doClose arms a closure-private 30s closeTimeout
+ // timer when the server closes a polling socket while no GET is pending. The
+ // Go-initiated Close:true disconnects of Node-hosted clients above flush their
+ // DISCONNECT packets on the pending GET and close at once, so the timer is
+ // armed during the scenario. Only a later GET clears it, and the disconnected
+ // clients never send one, so no cleanup call can release the event loop.
+ // All assertions and cleanup calls have completed; exit with their status.
+ process.stdout.write('Redis cleanup: '+timings.join(', ')+'\n',()=>process.exit(process.exitCode||0));
 });

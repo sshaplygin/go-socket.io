@@ -43,15 +43,20 @@ type Session struct {
 	upgradeTimeout time.Duration
 	probe          transport.Conn // guarded by upgradeLocker; closed with the session
 
+	// Holders of the read lock must not call transport methods that can wait
+	// for an open frame writer, such as SetWriteDeadline: a failing writer
+	// reaches closeTransport, which takes the write lock. Snapshot conn and
+	// release the lock first, as setDeadline, nextReader and nextWriterCompress do.
 	upgradeLocker   sync.RWMutex // guards conn, transport, closed and opened
 	closed          bool         // set by Close; a closed session is never upgraded
 	opened          time.Time    // set by Init; a session never opened logs no close
 	transportClosed bool         // set after the transport's Close returns
 	upgraded        bool         // set when switchTransport commits an upgrade
 
-	cause    atomic.Pointer[closeCause] // the first close cause observed
-	writers  atomic.Int64               // open frame writers returned to callers
-	deadline atomic.Int64               // UnixNano of the liveness deadline of conn
+	cause    atomic.Pointer[closeCause]       // the first close cause observed
+	closing  atomic.Pointer[closingTransport] // immutable connection snapshot once closed
+	writers  atomic.Int64                     // open frame writers returned to callers
+	deadline atomic.Int64                     // UnixNano of the liveness deadline of conn
 }
 
 // Done closes when session shutdown starts, before an orderly transport drain.
@@ -492,18 +497,20 @@ func (w *orderedWriter) Close() error {
 }
 
 func (s *Session) setDeadline() error {
-	s.upgradeLocker.RLock()
-	defer s.upgradeLocker.RUnlock()
-
 	deadline := time.Now().Add(s.params.PingInterval + s.params.PingTimeout)
 	s.deadline.Store(deadline.UnixNano())
 
-	err := s.conn.SetReadDeadline(deadline)
+	// Deadline setters can wait for an open transport writer. Do not retain
+	// the session lock while waiting: closing must be able to interrupt it.
+	s.upgradeLocker.RLock()
+	conn := s.conn
+	s.upgradeLocker.RUnlock()
+	err := conn.SetReadDeadline(deadline)
 	if err != nil {
 		return err
 	}
 
-	return s.conn.SetWriteDeadline(deadline)
+	return conn.SetWriteDeadline(deadline)
 }
 
 // logger returns the session logger; its transport attribute follows upgrades.

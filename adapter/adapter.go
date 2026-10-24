@@ -54,14 +54,20 @@ type Adapter interface {
 	SendTo(opts Options, event string, args ...interface{}) error
 	// IDs returns a copy of the IDs in any of rooms, or all sockets when empty.
 	IDs(rooms ...string) []string
-	Join(room string, connection Socket)          // Join causes the connection to join a room
-	Leave(room string, connection Socket)         // Leave causes the connection to leave a room
-	LeaveAll(connection Socket)                   // LeaveAll causes given connection to leave all rooms
-	Clear(room string)                            // Clear causes removal of all connections from the room
-	Send(room, event string, args ...interface{}) // Send emits to a room; a trailing callback is registered per socket.
-	SendAll(event string, args ...interface{})    // SendAll emits to all sockets; a trailing callback is registered per socket.
-	ForEach(room string, f EachFunc)              // ForEach visits each local member of the room.
-	Len(room string) int                          // Len gives number of connections in the room
-	Rooms(connection Socket) []string             // Gives list of all the rooms if no connection given, else list of all the rooms the connection joined
-	AllRooms() []string                           // Gives list of all the rooms the connection joined
+	Join(room string, connection Socket)  // Join causes the connection to join a room
+	Leave(room string, connection Socket) // Leave causes the connection to leave a room
+	LeaveAll(connection Socket)           // LeaveAll causes given connection to leave all rooms
+	Clear(room string)                    // Clear causes removal of all connections from the room
+	// Send emits to a room and returns no error. An adapter either registers a
+	// trailing callback per socket or rejects the broadcast before any delivery.
+	// Memory registers it; Redis rejects it, and its failures are logged at WARN,
+	// or at DEBUG once the adapter is closed.
+	Send(room, event string, args ...interface{})
+	// SendAll emits to all sockets and returns no error. A trailing callback is
+	// handled as by Send.
+	SendAll(event string, args ...interface{})
+	ForEach(room string, f EachFunc)  // ForEach visits each local member of the room.
+	Len(room string) int              // Len gives number of connections in the room
+	Rooms(connection Socket) []string // Gives list of all the rooms if no connection given, else list of all the rooms the connection joined
+	AllRooms() []string               // Gives list of all the rooms the connection joined
 }

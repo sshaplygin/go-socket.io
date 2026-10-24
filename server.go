@@ -276,7 +276,14 @@ func (s *Server) ClearRoom(namespace string, room string) bool {
 	return bc != nil
 }
 
-// BroadcastToRoom broadcasts to the room. A trailing callback is registered per socket.
+// BroadcastToRoom broadcasts to the room. The result reports only that the namespace
+// is registered and its adapter was constructed, even if the adapter is now closed;
+// it does not report delivery. The memory adapter registers a trailing callback per
+// socket. The Redis adapter rejects a broadcast with a trailing callback before any
+// delivery; its failures are logged at WARN, or at DEBUG once the adapter is closed.
+// With Redis, a stalled PUBLISH can block the call up to the
+// [github.com/sshaplygin/go-socket.io/adapter/redis.WithRequestsTimeout] bound per I/O
+// phase, as for SendTo.
 func (s *Server) BroadcastToRoom(namespace string, room, event string, args ...interface{}) bool {
 	bc := s.broadcastOf(namespace)
 	if bc != nil {
@@ -285,7 +292,14 @@ func (s *Server) BroadcastToRoom(namespace string, room, event string, args ...i
 	return bc != nil
 }
 
-// BroadcastToNamespace broadcasts to the namespace. A trailing callback is registered per socket.
+// BroadcastToNamespace broadcasts to the namespace. The result reports only that the
+// namespace is registered and its adapter was constructed, even if the adapter is now
+// closed; it does not report delivery. The memory adapter registers a trailing callback
+// per socket. The Redis adapter rejects a broadcast with a trailing callback before any
+// delivery; its failures are logged at WARN, or at DEBUG once the adapter is closed.
+// With Redis, a stalled PUBLISH can block the call up to the
+// [github.com/sshaplygin/go-socket.io/adapter/redis.WithRequestsTimeout] bound per I/O
+// phase, as for SendTo.
 func (s *Server) BroadcastToNamespace(namespace string, event string, args ...interface{}) bool {
 	bc := s.broadcastOf(namespace)
 	if bc != nil {

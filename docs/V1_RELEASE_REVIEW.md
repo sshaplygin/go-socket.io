@@ -680,7 +680,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W4. Bound Redis broadcast publication
 
-- **Status:** in progress — #151; BenchmarkRedisSendTo: 56796 → 58122 ns/op, BenchmarkRedisSendToParallel: 18227 → 18561 ns/op, allocs/op unchanged
+- **Status:** done — #151; BenchmarkRedisSendTo: 56796 → 58122 ns/op, BenchmarkRedisSendToParallel: 18227 → 18561 ns/op, allocs/op unchanged
 - **Priority:** before tag
 - **Findings:** [PERF-3](#performance-findings) (see [M5](#m5-redis-publish-has-no-io-deadline))
 - **Depends on:** W2
@@ -731,7 +731,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W5. Report Redis broadcast failures
 
-- **Status:** open
+- **Status:** in progress — #152
 - **Priority:** before tag
 - **Findings:** [ARCH-1](#architecture-findings), [CL-2](#clarity-findings) (see
   [M4](#m4-redis-send-and-sendall-drop-broadcasts-silently))
@@ -1111,7 +1111,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D3. Typed events and client bridge methods
 
-- **Status:** decided — option A (2026-10-24); in progress — #186
+- **Status:** decided — option A (2026-10-24); done — #186
 - **Priority:** owner decision
 - **Findings:** [ARCH-3](#architecture-findings), [CL-11](#clarity-findings)
 - **Depends on:** W9 (it creates the client package doc that option A edits)
@@ -2941,7 +2941,7 @@ Every finding is listed under the dimension that reported it.
 | ID | Severity | Re-check | Location | Finding | Recommendation |
 | --- | --- | --- | --- | --- | --- |
 | CL-1 | major | confirmed | `README.md:41` | No inline quick start: README links runnable server and Go client examples, but README, V1.md and godoc contain no code that mounts the handler or calls Serve, Close or client Connect, and there are no Example functions | Add a short server+client lifecycle sketch to the root package doc or docs/V1.md (README keeps linking to runnable examples, per b557f2a): NewServer, OnConnect/OnEvent, `go server.Serve()`, `defer server.Close()`, `http.Handle("/socket.io/", server)`, client.New/Connect/Emit with ack. Add runnable `Example` functions in the root and client packages. State in the Server type doc and Serve doc that Serve must run for connections to be dispatched. Fixed by #150 (W9). |
-| CL-2 | major → minor → major (M4) | partially-confirmed | `adapter/redis/adapter.go:153` | Redis adapter silently drops room/namespace broadcasts with a trailing callback, while godoc says callbacks are supported | Either make Send/SendAll log or return the rejection (and have BroadcastToRoom/BroadcastToNamespace return false), or correct the redis Send/SendAll comments, the ErrBroadcastAck doc and the BroadcastToRoom/BroadcastToNamespace docs to say that clustered adapters reject callbacks and send nothing. |
+| CL-2 | major → minor → major (M4) | partially-confirmed | `adapter/redis/adapter.go:153` | Redis adapter silently drops room/namespace broadcasts with a trailing callback, while godoc says callbacks are supported | Either make Send/SendAll log or return the rejection (and have BroadcastToRoom/BroadcastToNamespace return false), or correct the redis Send/SendAll comments, the ErrBroadcastAck doc and the BroadcastToRoom/BroadcastToNamespace docs to say that clustered adapters reject callbacks and send nothing. Fixed by #152 (W5). |
 | CL-3 | major → minor | confirmed | `server.go:150` | OnError contract undocumented: nil Conn for root rejections and silently recovered panics; V1.md's inactive-context wording is too broad | Document on both OnError methods that Conn is nil for root connect/middleware failures and an inactive Conn for other namespaces, and that panics in OnError are recovered and discarded. Fix the wording at V1.md:41. Consider logging recovered OnError panics at WARN. |
 | CL-4 | major | confirmed | `README.md:7` | No migration guide from googollee/go-socket.io despite pervasive API changes; Conn.ID format change is undocumented | Add a short 'Migrating from googollee/go-socket.io' section, in V1.md or a linked file: import path, the constructor/option mapping, Redis adapter setup, client package, ID format, and removed APIs. State the ID format in the Conn.ID godoc of both roles. |
 | CL-5 | minor | — | `.golangci.yml:17` | 9 of 12 public packages lack a package comment; lint explicitly disables the checks | Add package docs (root and client with a usage sketch). Document the remaining exported identifiers. Re-enable ST1000/ST1020-1022 or revive's exported rule, at least for the root, client, engineio and adapter packages. |
@@ -2960,7 +2960,7 @@ Every finding is listed under the dimension that reported it.
 
 | ID | Severity | Re-check | Location | Finding | Recommendation |
 | --- | --- | --- | --- | --- | --- |
-| ARCH-1 | major | confirmed | `adapter/redis/adapter.go:154` | Error-less adapter Send/SendAll silently drop Redis broadcasts; Server.BroadcastToRoom returns true and godoc promises per-socket callbacks | Before release, log WARN in redis Send/SendAll when SendTo fails, and fix the BroadcastToRoom/BroadcastToNamespace godoc: the bool only means the namespace is registered and its adapter was constructed, and callbacks depend on the adapter. Consider documenting Send/SendAll as legacy wrappers over SendTo, with a helper third-party adapters can reuse, before freezing the adapter.Adapter interface. |
+| ARCH-1 | major | confirmed | `adapter/redis/adapter.go:154` | Error-less adapter Send/SendAll silently drop Redis broadcasts; Server.BroadcastToRoom returns true and godoc promises per-socket callbacks | Before release, log WARN in redis Send/SendAll when SendTo fails, and fix the BroadcastToRoom/BroadcastToNamespace godoc: the bool only means the namespace is registered and its adapter was constructed, and callbacks depend on the adapter. Consider documenting Send/SendAll as legacy wrappers over SendTo, with a helper third-party adapters can reuse, before freezing the adapter.Adapter interface. Fixed by #152 (W5). |
 | ARCH-2 | minor | — | `engineio/server.go:1` | Public types are aliases to internal packages, hiding their methods from go doc and breaking the project's own rule | Declare engineio.Conn (and the other session-facing types) in the public engineio package with session implementing them. For internal/event, wrap Handler in an opaque public struct without exported methods, or move the types to a public role-neutral package. Extend TestPublicRoleDocumentation to engineio and the root non-role types. Fixed by #154 (D2). |
 | ARCH-3 | minor | — | `client/event.go:10` | Typed client events live in the server package, so a client program that uses typed events must import the server | Before v1.5.0, consider a public role-neutral package (for example `event`) that owns Event/AckEvent/Endpoint/RemoteError and the sentinel errors, with root aliases kept for convenience, so client.RegisterEvent no longer exposes an internal type. Fixed by #186 (D3). |
 | ARCH-4 | minor | — | `queue.go:88` | Vestigial non-server mode in the server connection: Start sets boundary before admission, so the writeChan delivery path is never used at runtime; only its capacity feeds the queue budget | Remove `boundary` and the writeChan path. Keep an integer capacity and a single ordered queue, and simplify the budget expressions accordingly. |

@@ -102,14 +102,19 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 	dial := func(ctx context.Context) (redis.Conn, error) {
 		return dialWithOptions(ctx)
 	}
+	// Repeats initCluster's fallback because initCluster runs after the pool's first Get.
 	timeout := opts.RequestsTimeout
 	if timeout <= 0 {
 		timeout = redisRequestTimeout
 	}
+	// Publishing connections bound every I/O phase, including AUTH and SELECT
+	// on a redial; DoWithTimeout replaces the read timeout for each command.
+	// The subscriber and boundedDo keep dial, which sets no read or write
+	// timeout, because the subscriber blocks in its read while idle.
 	pub := &redis.Pool{MaxIdle: 4, Dial: func() (redis.Conn, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), min(redisDialTimeout, timeout))
 		defer cancel()
-		return dialWithOptions(ctx, redis.DialWriteTimeout(timeout))
+		return dialWithOptions(ctx, redis.DialReadTimeout(timeout), redis.DialWriteTimeout(timeout))
 	}}
 	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
 	defer cancel()
@@ -183,6 +188,8 @@ func (bc *broadcast) Rooms(connection adapter.Socket) []string {
 
 // SendTo publishes one union with exclusion and packet flags. Encoding errors
 // precede delivery; Redis errors may follow local delivery, which is not rolled back.
+// A timeout error does not mean remote peers did not receive the broadcast, so
+// retrying it may deliver the broadcast twice.
 func (bc *broadcast) SendTo(opts adapter.Options, event string, args ...interface{}) error {
 	if bc.closed.Load() {
 		return errAdapterClosed

@@ -261,10 +261,11 @@ func (s *Server) roomSocket(nsp string, conn Conn) *namespaceConn {
 	if !ok || nc == nil || h == nil || h.Err() != nil {
 		return nil
 	}
-	for _, current := range h.Sockets() {
-		if current == nc && nc.Connected() && nc.beginRoomOperation() {
-			return nc
-		}
+	h.connectedMu.RLock()
+	owned := h.connected[nc.ID()] == nc
+	h.connectedMu.RUnlock()
+	if owned && nc.Connected() && nc.beginRoomOperation() {
+		return nc
 	}
 	return nil
 }

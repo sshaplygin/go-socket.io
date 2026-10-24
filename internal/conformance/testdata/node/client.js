@@ -173,9 +173,36 @@ async function base64Binary() {
   console.log(version + ' ' + transport + ': forceBase64 binary exchange passed');
 }
 
+async function heartbeat(suppressPings) {
+  let pongs = 0;
+  const root = await connect({}, engine => {
+    engine.on('pong', () => { pongs++; });
+  });
+  const engine = root.io.engine;
+  assert.strictEqual(engine.pingInterval, 200);
+  assert.strictEqual(engine.pingTimeout, 200);
+  if (suppressPings) {
+    engine.ping = function () {};
+    clearTimeout(engine.pingIntervalTimer);
+    // Let the server own the timeout rather than racing the client's timer.
+    clearTimeout(engine.pingTimeoutTimer);
+  }
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  if (suppressPings) {
+    assert.strictEqual(pongs, 0, 'muted client must not send heartbeat pings');
+    assert.strictEqual(root.connected, false, 'server must close the muted client');
+  } else {
+    assert.strictEqual(root.connected, true, 'connection must survive heartbeats');
+    assert(pongs >= 3, 'expected at least three heartbeat pongs, got ' + pongs);
+    assert.deepStrictEqual(await ack(root, 'echo', 'after heartbeat'), ['after heartbeat']);
+  }
+  console.log(version + ' ' + transport + ': ' + scenario + ' passed (' + pongs + ' pongs)');
+}
+
 (async () => {
   try {
-    if (transport === 'upgrade') { await upgrade(); }
+    if (scenario === 'heartbeat' || scenario === 'heartbeat-timeout') { await heartbeat(scenario === 'heartbeat-timeout'); }
+    else if (transport === 'upgrade') { await upgrade(); }
     else { await basic(); await reconnect(); }
     // A scenario argument selects a different run, such as the W17 heartbeat
     // scenarios; the forceBase64 exchange belongs to the default run only.

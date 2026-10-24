@@ -30,12 +30,13 @@ var (
 )
 
 // EventHandler is an opaque registration created by a typed event descriptor.
-// Valid() bool and WantsAck() bool report its metadata; Decode and Invoke are
-// library bridge methods using internal payload types.
+// Its zero value is invalid. Valid reports whether a descriptor created it, and
+// WantsAck whether that descriptor is an AckEvent. Decode and Invoke are library
+// bridge methods using internal payload types.
 type EventHandler = event.Handler
 
 // RemoteError carries the peer's error-first acknowledgement code and message.
-// Its fields are Code string and Message string; Error() string joins them.
+// *RemoteError implements error; Error returns Code + ": " + Message.
 type RemoteError = event.RemoteError
 
 var (

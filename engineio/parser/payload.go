@@ -33,9 +33,8 @@ var (
 
 // PayloadEncoder writes Engine.IO v3 polling payload packets. Use one writer at a
 // time and close each packet writer before acquiring the next.
-// NextWriter(FrameType, PacketType) (io.WriteCloser, error) opens a packet;
-// Write([]byte) (int, error) and Close() error write and finish it.
-// NOOP() []byte returns the encoded no-op payload.
+// *PayloadEncoder implements io.WriteCloser: NextWriter opens a packet, and
+// Write and Close write and finish it. NOOP returns the encoded no-op payload.
 type PayloadEncoder = payload.Encoder
 
 // PayloadDecoder reads Engine.IO v3 polling payload packets. Close each packet
@@ -45,8 +44,8 @@ type PayloadEncoder = payload.Encoder
 // failures release the source immediately, including reads returning data and an
 // error together. EOF ends the current packet. Acquisition failures
 // may be retried because no payload was acquired.
-// NextReader() (FrameType, PacketType, io.ReadCloser, error) opens a packet;
-// Read([]byte) (int, error) and Close() error read and finish it.
+// *PayloadDecoder implements io.ReadCloser: NextReader opens a packet, and Read
+// and Close read and finish it.
 type PayloadDecoder = payload.Decoder
 
 // PayloadEncoderOption is func(*PayloadEncoder), configuring a payload encoder.

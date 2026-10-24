@@ -12,6 +12,7 @@ import (
 
 // Conn is an accepted server-side Engine.IO connection.
 type Conn interface {
+	// ID returns the session identifier sent in the handshake.
 	ID() string
 	// ReadyState returns the connection's current state.
 	ReadyState() ReadyState
@@ -19,14 +20,26 @@ type Conn interface {
 	Transport() string
 	// Upgraded reports whether a transport upgrade has completed.
 	Upgraded() bool
+	// NextReader returns the next MESSAGE frame; control packets are handled
+	// internally. The caller must Close the reader to release the transport.
 	NextReader() (eioparser.FrameType, io.ReadCloser, error)
+	// NextWriter opens a MESSAGE frame of type fType. The caller must Close the
+	// writer to finish the frame and release the transport.
 	NextWriter(fType eioparser.FrameType) (io.WriteCloser, error)
+	// Close closes the session. A polling session first delivers writes it has
+	// already accepted; Abort closes immediately.
 	Close() error
+	// URL returns the request URL of the current transport.
 	URL() url.URL
+	// LocalAddr returns the local network address of the current transport.
 	LocalAddr() net.Addr
+	// RemoteAddr returns the peer's network address on the current transport.
 	RemoteAddr() net.Addr
+	// RemoteHeader returns the request headers of the current transport.
 	RemoteHeader() http.Header
+	// SetContext stores an application value on the connection.
 	SetContext(v interface{})
+	// Context returns the value stored by SetContext, or nil.
 	Context() interface{}
 }
 
@@ -74,9 +87,12 @@ const (
 // CloseError is returned, wrapped, by NextReader and NextWriter once a session
 // closes, including the first call that observes the close. Previously obtained
 // readers and writers keep returning their own errors.
-// Its fields are Reason CloseReason and Err error. Error() string describes the
-// cause; Unwrap() error returns Err. Err is the transport error for
-// ReasonTransportError, io.EOF for ReasonTransportClose, and nil otherwise.
+//
+// *CloseError implements error (Error, Unwrap). Its field Reason is the first
+// close cause observed; Err is the transport error for ReasonTransportError,
+// io.EOF for ReasonTransportClose, and nil otherwise. Error returns
+// "engineio: session closed: " + Reason, followed by ": " and Err when Err is
+// non-nil. Unwrap returns Err.
 type CloseError = sessionImpl.CloseError
 
 // Abort immediately closes a server session; custom engines receive ordinary Close.

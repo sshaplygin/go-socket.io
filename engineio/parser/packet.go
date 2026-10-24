@@ -6,7 +6,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/parser/internal/packet"
 )
 
-// FrameType is the byte frame type (String or Binary). Byte() byte returns its wire value.
+// FrameType is the byte frame type (String or Binary). Byte returns its wire value.
 type FrameType = packet.FrameType
 
 const (
@@ -19,8 +19,8 @@ const (
 // ByteToFrameType converts a byte to FrameType.
 func ByteToFrameType(b byte) FrameType { return packet.ByteToFrameType(b) }
 
-// PacketType identifies OPEN through NOOP. String() string returns its name;
-// StringByte() byte and BinaryByte() byte return the respective wire headers.
+// PacketType identifies OPEN through NOOP. String returns its name; StringByte
+// and BinaryByte return its header byte in string and binary frames.
 type PacketType = packet.PacketType
 
 const (
@@ -43,10 +43,11 @@ const (
 // ByteToPacketType converts a byte to PacketType.
 func ByteToPacketType(b byte, typ FrameType) PacketType { return packet.ByteToPacketType(b, typ) }
 
-// Frame contains fields FType FrameType and Data []byte.
+// Frame holds a frame type in its field FType and the frame body in Data.
 type Frame = packet.Frame
 
-// Packet contains fields FType FrameType, PType PacketType and Data []byte.
+// Packet holds a frame type in its field FType, a packet type in PType and the
+// packet body in Data.
 type Packet = packet.Packet
 
 // FrameWriter is the writer which supports framing.
@@ -69,11 +70,13 @@ var (
 )
 
 // PacketEncoder writes Engine.IO packet headers to framed destinations.
-// NextWriter(FrameType, PacketType) (io.WriteCloser, error) opens a packet writer.
+// (*PacketEncoder).NextWriter opens a writer for one packet of the given frame
+// and packet type.
 type PacketEncoder = packet.Encoder
 
 // PacketDecoder reads Engine.IO packet headers from framed sources.
-// NextReader() (FrameType, PacketType, io.ReadCloser, error) opens a packet reader.
+// (*PacketDecoder).NextReader returns the frame type, packet type and a reader
+// for the next packet.
 type PacketDecoder = packet.Decoder
 
 func NewPacketEncoder(w FrameWriter) *PacketEncoder { return packet.NewEncoder(w) }

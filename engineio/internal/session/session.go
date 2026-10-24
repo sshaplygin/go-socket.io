@@ -22,6 +22,7 @@ import (
 type Session struct {
 	hooks         *Hooks
 	headers       func(*http.Request, http.Header)
+	onClosed      func() // installed before publication; runs after transport shutdown
 	closeDone     chan struct{}
 	notified      chan struct{} // the first closer has finished its synchronous Error hook
 	closeErr      error
@@ -65,6 +66,10 @@ func (s *Session) Done() <-chan struct{} { return s.stopWrites }
 
 // Closed closes after the transport and its close hooks have finished.
 func (s *Session) Closed() <-chan struct{} { return s.closeDone }
+
+// SetCloseCallback installs registry cleanup before the session is published.
+// The callback runs once, without session locks, before Closed is signaled.
+func (s *Session) SetCloseCallback(callback func()) { s.onClosed = callback }
 
 // New creates a session over conn. log receives errors the session cannot
 // return to a caller, with sid and transport attributes added; the transport

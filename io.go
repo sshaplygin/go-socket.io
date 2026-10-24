@@ -6,6 +6,8 @@ import (
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
+func (c *connection) startError() { c.errorOnce.Do(func() { go c.serveError() }) }
+
 func (c *connection) serveError() {
 	for {
 		select {

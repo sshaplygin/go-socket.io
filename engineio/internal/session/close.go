@@ -98,7 +98,7 @@ func (s *Session) closeMode(reason string, abort bool) error {
 	}
 	if orderly {
 		go func() {
-			defer close(s.closeDone)
+			defer s.finishClose()
 			timer := time.AfterFunc(s.closeTimeout, func() { s.closeTransport(conn) })
 			defer timer.Stop()
 			select {
@@ -116,7 +116,7 @@ func (s *Session) closeMode(reason string, abort bool) error {
 		return nil
 	}
 	s.closeTransport(conn)
-	close(s.closeDone)
+	s.finishClose()
 	return s.closeErr
 }
 
@@ -167,4 +167,13 @@ func (s *Session) closeError() *CloseError {
 		err = io.EOF
 	}
 	return &CloseError{Reason: CloseReason(c.reason), Err: err}
+}
+
+// finishClose retires the session synchronously instead of keeping an idle
+// registry watcher goroutine for the lifetime of each connection.
+func (s *Session) finishClose() {
+	if s.onClosed != nil {
+		s.onClosed()
+	}
+	close(s.closeDone)
 }

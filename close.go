@@ -16,9 +16,7 @@ func (c *connection) Close() error {
 		return nil
 	}
 	ncs := c.startClose()
-	if c.boundary {
-		c.disconnectReason = "server namespace disconnect"
-	}
+	c.disconnectReason = "server namespace disconnect"
 	c.draining, c.drainTimer = true, time.AfterFunc(c.drainTimeout, c.stop)
 	c.mu.Unlock()
 	c.disconnectGraceful(ncs)
@@ -123,7 +121,7 @@ func (c *connection) disconnect(ncs []*namespaceConn) {
 		nc.outMu.Lock()
 		rejected := nc.connectErr != nil
 		nc.outMu.Unlock()
-		if c.boundary && c.draining && rejected {
+		if c.draining && rejected {
 			nc.reject()
 			c.mu.Lock()
 			c.disconnecting--
@@ -131,7 +129,7 @@ func (c *connection) disconnect(ncs []*namespaceConn) {
 			c.disconnects.Done()
 			continue
 		}
-		if c.boundary && c.draining {
+		if c.draining {
 			nc.acceptPending()
 			c.write(parser.Header{Type: parser.Disconnect, Namespace: fmtNS(nc.namespace)})
 		}
@@ -142,9 +140,7 @@ func (c *connection) disconnect(ncs []*namespaceConn) {
 		nc.outMu.Lock()
 		nc.disconnectEmits = false
 		nc.outMu.Unlock()
-		if c.boundary {
-			c.log.Debug("socketio: disconnect", nspAttr(nc.namespace), "reason", "connection close")
-		}
+		c.log.Debug("socketio: disconnect", nspAttr(nc.namespace), "reason", "connection close")
 	}
 }
 

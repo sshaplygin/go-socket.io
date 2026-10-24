@@ -47,7 +47,8 @@ The Go client is available in
 server and client use separate connection types and constructors.
 
 Configuration, namespace lifecycle, adapters and typed events: [V1 usage](docs/V1.md).
-API reference: [pkg.go.dev](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0).
+API reference: [Socket.IO](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0)
+and [Engine.IO](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0/engineio).
 
 ## Contributing
 

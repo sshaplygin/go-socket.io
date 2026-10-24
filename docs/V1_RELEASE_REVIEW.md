@@ -976,7 +976,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W10. Prepare the release commit
 
-- **Status:** in progress — #193
+- **Status:** done — #193
 - **Priority:** before tag
 - **Findings:** [API-10](#api-compatibility-findings), [REL-6](#release-engineering-findings),
   [REL-2](#release-engineering-findings), [REL-3](#release-engineering-findings),

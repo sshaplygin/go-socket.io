@@ -2033,7 +2033,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W40. Pin CI tools and move actions off Node 20
 
-- **Status:** in progress — #185; Pins golangci-lint 2.8.0 and govulncheck 1.9.0; official action metadata verified Node 24. Hosted workflow annotations pending.
+- **Status:** in progress — #185; Pins golangci-lint 2.15.0 and govulncheck 1.9.0; official action metadata verified Node 24. Replaced the initial 2.8.0 pin after hosted CI exposed its Go 1.25-built analyzer failing on newer dependencies; hosted validation of 2.15.0 and workflow annotations pending.
 - **Priority:** after release
 - **Findings:** [REL-9](#release-engineering-findings)
 - **Depends on:** none

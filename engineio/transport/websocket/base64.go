@@ -10,7 +10,8 @@ import (
 )
 
 // base64FrameReader translates the text packet prefix into the binary header
-// expected by PacketDecoder. The payload streams through the base64 decoder.
+// expected by PacketDecoder. The payload streams through a strict base64
+// decoder: missing padding or invalid characters fail the read.
 type base64FrameReader struct{ wrapper }
 
 func (w base64FrameReader) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
@@ -24,22 +25,25 @@ func (w base64FrameReader) NextReader() (eioparser.FrameType, io.ReadCloser, err
 		return 0, nil, err
 	}
 	if first[0] != 'b' {
-		return ft, &base64Reader{Reader: io.MultiReader(bytes.NewReader(first[:]), r), frame: r}, nil
+		return ft, &frameBodyReader{Reader: io.MultiReader(bytes.NewReader(first[:]), r), frame: r}, nil
 	}
-	if _, err = io.ReadFull(r, first[:]); err != nil {
+	var typ [1]byte
+	if _, err = io.ReadFull(r, typ[:]); err != nil {
 		_ = r.Close()
 		return 0, nil, err
 	}
-	first[0] -= '0'
-	return eioparser.Binary, &base64Reader{Reader: io.MultiReader(bytes.NewReader(first[:]), base64.NewDecoder(base64.StdEncoding, r)), frame: r}, nil
+	typ[0] -= '0'
+	return eioparser.Binary, &frameBodyReader{Reader: io.MultiReader(bytes.NewReader(typ[:]), base64.NewDecoder(base64.StdEncoding, r)), frame: r}, nil
 }
 
-type base64Reader struct {
+// frameBodyReader reads a frame body after its first bytes were consumed,
+// either passed through or base64-decoded. Close drains it and closes the frame.
+type frameBodyReader struct {
 	io.Reader
 	frame io.ReadCloser
 }
 
-func (r *base64Reader) Close() error {
+func (r *frameBodyReader) Close() error {
 	_, err := io.Copy(io.Discard, r.Reader)
 	return errors.Join(err, r.frame.Close())
 }

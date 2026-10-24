@@ -10,6 +10,7 @@ if (process.env.CONFORMANCE_CLIENT_VERSION) {
 
 const base = process.argv[2];
 const transport = process.argv[3];
+const scenario = process.argv[4];
 const sockets = [];
 const deadline = setTimeout(() => {
   console.error('conformance scenario timed out');
@@ -176,7 +177,9 @@ async function base64Binary() {
   try {
     if (transport === 'upgrade') { await upgrade(); }
     else { await basic(); await reconnect(); }
-    if (!process.argv[4] && (transport === 'websocket' || transport === 'upgrade')) { await base64Binary(); }
+    // A scenario argument selects a different run, such as the W17 heartbeat
+    // scenarios; the forceBase64 exchange belongs to the default run only.
+    if (!scenario && (transport === 'websocket' || transport === 'upgrade')) { await base64Binary(); }
   } finally {
     sockets.forEach(socket => socket.disconnect());
     clearTimeout(deadline);

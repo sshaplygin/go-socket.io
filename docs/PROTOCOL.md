@@ -37,10 +37,12 @@ Package `engineio` of the v1 module at the repository root.
   With `b64=1` in the websocket request, as sent by a `forceBase64` client, the
   server writes binary packets as text messages `b<type><base64 data>` and decodes
   such text messages as binary packets, both on a direct websocket connection and
-  after a polling-to-websocket upgrade. Binary messages are still accepted in this
-  mode; socket.io-client 1.7.4 under Node sends them despite `forceBase64`. Without
-  `b64`, a text message starting with `b` is an invalid packet type and closes the
-  session; engine.io 3.6.2 decodes it as base64 in either mode.
+  after a polling-to-websocket upgrade. Decoding is strict: unpadded data or invalid
+  characters close the session; the reference clients always pad. Binary messages
+  are still accepted in this mode; socket.io-client 1.7.4 under Node sends them
+  despite `forceBase64`. Without `b64`, a text message starting with `b` is an
+  invalid packet type and closes the session; engine.io 3.6.2 decodes it as base64
+  in either mode.
   As a known limitation, a server-initiated websocket close, such as `Conn.Close`
   or `Server.Close`, closes the underlying connection without a websocket close
   control frame, so the client observes close code 1006. The message-limit close

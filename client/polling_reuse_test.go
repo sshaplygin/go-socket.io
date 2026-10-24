@@ -27,7 +27,7 @@ func TestPollingClientsReuseConnections(t *testing.T) {
 		}
 	}
 	ts.Start()
-	t.Cleanup(func() { _ = srv.Close(); ts.Close() })
+	t.Cleanup(func() { _ = srv.Close(); ts.Close(); polling.Default.Client.CloseIdleConnections() })
 	deliveries := make(chan int, 10)
 	connected := make(chan struct{}, 10)
 	for i := 0; i < 10; i++ {

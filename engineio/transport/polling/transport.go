@@ -12,7 +12,7 @@ import (
 // Transport is the transport of polling.
 type Transport struct {
 	// Client controls HTTP timeouts and connection pooling. Nil uses Default.Client.
-	// Set a custom client through client.WithTransports(&polling.Transport{Client: c}).
+	// For custom limits, use client.WithTransports(&polling.Transport{Client: c}).
 	Client      *http.Client
 	CheckOrigin func(r *http.Request) bool
 	// Compression enables gzip/deflate responses at CompressionThreshold bytes
@@ -22,7 +22,10 @@ type Transport struct {
 	Cookie               *http.Cookie
 }
 
-// Default is the default transport.
+// Default is the default transport. Its Client times out requests after one
+// minute. When http.DefaultTransport is an *http.Transport at initialization,
+// Client uses a clone of it that keeps up to 64 idle connections per host,
+// shared by every client that dials through Default.
 var Default = &Transport{
 	Client: &http.Client{
 		Timeout:   time.Minute,
@@ -31,8 +34,9 @@ var Default = &Transport{
 	CheckOrigin: nil,
 }
 
-// Clone standard transports so polling clients share a pool without mutating
-// the application's default. Custom RoundTrippers retain their own pool settings.
+// defaultHTTPTransport clones a standard http.DefaultTransport so polling
+// clients share a pool without mutating the application's default. A custom
+// RoundTripper keeps its own pool settings.
 func defaultHTTPTransport() http.RoundTripper {
 	base, ok := http.DefaultTransport.(*http.Transport)
 	if !ok || base == nil {

@@ -50,7 +50,7 @@ func TestJSHeartbeat(t *testing.T) {
 						if elapsed := result.at.Sub(<-connected); elapsed >= time.Second {
 							t.Fatalf("disconnect took %v, want less than 1s", elapsed)
 						}
-					default:
+					case <-time.After(time.Second):
 						t.Fatal("server did not disconnect the client while pings were suppressed")
 					}
 				}

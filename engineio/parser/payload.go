@@ -16,8 +16,9 @@ type PayloadWriter interface {
 
 // PayloadReader lends an entire Engine.IO payload and reports whether it uses
 // binary payload framing. ReleasePayloadReader runs after the final packet is
-// closed or decoding fails; its error takes precedence. Acquisition errors are
-// returned without a release.
+// closed or decoding fails; its error takes precedence, except that io.EOF
+// from an already closed source does not replace a decoding or body read
+// failure. Acquisition errors are returned without a release.
 type PayloadReader interface {
 	AcquirePayloadReader() (io.Reader, bool, error)
 	ReleasePayloadReader(error) error

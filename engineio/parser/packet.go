@@ -66,7 +66,6 @@ var (
 	_ packet.FrameWriter = FrameWriter(nil)
 	_ FrameReader        = packet.FrameReader(nil)
 	_ packet.FrameReader = FrameReader(nil)
-	_ FrameWriter        = (*FakeDiscardWriter)(nil)
 )
 
 // PacketEncoder writes Engine.IO packet headers to framed destinations.

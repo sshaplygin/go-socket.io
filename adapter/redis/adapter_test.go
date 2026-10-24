@@ -49,10 +49,17 @@ func (c *redisTestConn) Emit(event string, v ...interface{}) {
 	c.events <- fmt.Sprintf("%s %v", event, v)
 }
 
-func newTestRedisBroadcast(t *testing.T, s *miniredis.Miniredis) *broadcast {
+// newTestRedisBroadcast starts a broadcast for namespace "/" on s and waits
+// until its request subscription is active. configure adjusts the options
+// before the broadcast is created.
+func newTestRedisBroadcast(t testing.TB, s *miniredis.Miniredis, configure ...func(*options)) *broadcast {
 	t.Helper()
+	opts := &options{Addr: s.Addr(), Prefix: "socket.io", Network: "tcp"}
+	for _, f := range configure {
+		f(opts)
+	}
 	before := s.PubSubNumSub(testRedisReqChannel)[testRedisReqChannel]
-	bc, err := newBroadcast("/", &options{Addr: s.Addr(), Prefix: "socket.io", Network: "tcp"})
+	bc, err := newBroadcast("/", opts)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = bc.Close() })
 	waitRedisSubscribers(t, s, testRedisReqChannel, before+1)
@@ -60,7 +67,7 @@ func newTestRedisBroadcast(t *testing.T, s *miniredis.Miniredis) *broadcast {
 }
 
 // waitRedisSubscribers waits until channel has n subscribers on s.
-func waitRedisSubscribers(t *testing.T, s *miniredis.Miniredis, channel string, n int) {
+func waitRedisSubscribers(t testing.TB, s *miniredis.Miniredis, channel string, n int) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		return s.PubSubNumSub(channel)[channel] == n

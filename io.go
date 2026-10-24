@@ -108,6 +108,7 @@ func (c *connection) serveRead(connect, disconnect func(*connection, parser.Head
 		// failure state and running disconnect callbacks.
 		c.stop()
 		<-workerDone
+		_ = c.decoder.Close()
 		c.finishRead()
 	}()
 	for {

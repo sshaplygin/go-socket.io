@@ -1464,7 +1464,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W18. Stop per-packet polling timers
 
-- **Status:** in progress — #166; BenchmarkPayloadRoundTrip: 14 → 8 allocs/op, 1049 → 552 B/op, 2.312 → 2.215 µs/op (CI, base 88d8d26)
+- **Status:** done — #166; BenchmarkPayloadRoundTrip: 14 → 8 allocs/op, 1049 → 552 B/op, 2.312 → 2.215 µs/op (CI, base 88d8d26)
 - **Priority:** after release
 - **Findings:** [PERF-2](#performance-findings)
 - **Depends on:** W2
@@ -1568,7 +1568,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W21. Prepare broadcasts once and skip the single-room dedup map
 
-- **Status:** in progress — #160; BenchmarkBroadcastWebsocket/structs100-10: 5431 → 817 allocs/op, 844.5 → 497.3 µs; BenchmarkMemorySendTo/one-room: 32 → 2 allocs/op, 99.5 → 13.8 µs (manual, against e72c35f, darwin/arm64)
+- **Status:** done — #160; BenchmarkBroadcastWebsocket/structs100-10: 5431 → 817 allocs/op, 844.5 → 497.3 µs; BenchmarkMemorySendTo/one-room: 32 → 2 allocs/op, 99.5 → 13.8 µs (manual, against e72c35f, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-6](#performance-findings), [PERF-12](#performance-findings)
 - **Depends on:** W2
@@ -1628,7 +1628,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W23. Remove per-frame websocket timers
 
-- **Status:** in progress — #179; BenchmarkWebsocketEcho/small: 28 → 18 allocs/op, 31.25µs → 18.67µs; BenchmarkWebsocketEcho/4KiB: 40 → 30 allocs/op, 47.73µs → 35.96µs (against `25d6deb`, darwin/arm64, Go 1.25.5)
+- **Status:** done — #179; BenchmarkWebsocketEcho/small: 28 → 18 allocs/op, 31.25µs → 18.67µs; BenchmarkWebsocketEcho/4KiB: 40 → 30 allocs/op, 47.73µs → 35.96µs (against `25d6deb`, darwin/arm64, Go 1.25.5)
 - **Priority:** after release
 - **Findings:** [PERF-8](#performance-findings)
 - **Depends on:** W2, W12
@@ -1645,7 +1645,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W24. Look up room members without a scan
 
-- **Status:** in progress — #165; BenchmarkJoinRoom/sockets-200: 2935 → 172.5 ns/op, 3456 → 0 B/op, 1 → 0 allocs/op (manual, darwin/arm64)
+- **Status:** done — #165; BenchmarkJoinRoom/sockets-200: 2935 → 172.5 ns/op, 3456 → 0 B/op, 1 → 0 allocs/op (manual, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-9](#performance-findings)
 - **Depends on:** W2
@@ -1669,7 +1669,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W25. Remove extra JSON passes from decoding
 
-- **Status:** in progress — #171; `BenchmarkDecode` against `e72c35f` (manual interleaved benchstat, n=10, darwin/arm64, Go 1.25.5): string 1,388 → 542 ns/op and 19 → 12 allocs/op; struct 4.913 → 3.274 µs/op and 45 → 36 allocs/op; structs100 342.7 → 274.7 µs/op and 2,143 → 2,134 allocs/op; binary 3.564 → 2.627 µs/op and 50 → 42 allocs/op (all p=0.000).
+- **Status:** done — #171; `BenchmarkDecode` against `e72c35f` (manual interleaved benchstat, n=10, darwin/arm64, Go 1.25.5): string 1,388 → 542 ns/op and 19 → 12 allocs/op; struct 4.913 → 3.274 µs/op and 45 → 36 allocs/op; structs100 342.7 → 274.7 µs/op and 2,143 → 2,134 allocs/op; binary 3.564 → 2.627 µs/op and 50 → 42 allocs/op (all p=0.000).
 - **Priority:** after release
 - **Findings:** [PERF-11](#performance-findings)
 - **Depends on:** W2
@@ -1956,7 +1956,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W36. Replace sleeps in pauser tests
 
-- **Status:** in progress — #188
+- **Status:** done — #188
 - **Priority:** after release
 - **Findings:** [T6](#tests-findings)
 - **Depends on:** none
@@ -2112,7 +2112,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W43. Harden the W1 locking documentation and regression test
 
-- **Status:** open
+- **Status:** in progress — #197
 - **Priority:** after release
 - **Findings:** [T7](#tests-findings), [CL-15](#clarity-findings)
 - **Depends on:** none
@@ -2954,7 +2954,7 @@ Every finding is listed under the dimension that reported it.
 | CL-12 | minor | — | `engineio/client/client.go:489` | Core concurrency code is hard to follow: 100-219 line functions and no written close/drain state machine | Add a short state-machine comment (or an ARCHITECTURE.md subsection) for connection close phases and client probe/upgrade. Annotate which mutex guards each field. Split probeTransport into dial, probe exchange, pause and commit steps. |
 | CL-13 | nit | — | `_examples/default-http/go.mod:1` | Cosmetic inconsistencies in example module paths, error prefixes and option wording | Fix the module path typos, use a consistent package prefix in error strings, say 'nonpositive' where the code means it, mention the Go client in the README tagline, and document or unexport the test fakes. |
 | CL-14 | nit | follow-up: editorial | `CONTRIBUTING.md:3` | Contributor build/test instructions live in CLAUDE.md and CONTRIBUTING links to them; the ownership table explicitly assigns development commands to CLAUDE.md | Moving commands is an optional editorial choice, not a correction of an ownership violation. |
-| CL-15 | nit | — | `engineio/internal/session/session.go` | The W1 locking-rule comment at `upgradeLocker` names only read-lock holders and failing writers; write-lock holders and frame-reader failure paths are bound by the same rule | Extend the comment and the matching `closeTransport` note (W43). Found in the review of #147. |
+| CL-15 | nit | — | `engineio/internal/session/session.go` | The W1 locking-rule comment at `upgradeLocker` names only read-lock holders and failing writers; write-lock holders and frame-reader failure paths are bound by the same rule | Extend the comment and the matching `closeTransport` note (W43). Found in the review of #147. Fixed by #197 (W43). |
 
 ### Architecture findings
 
@@ -3016,7 +3016,7 @@ Every finding is listed under the dimension that reported it.
 | T4 | minor | — | `redis_integration_test.go:174` | TestRedisServerCloseStopsBroadcasts spends 10s inside a blocking OnConnect and neither bounds nor documents that behavior | Expose a test hook or redis option (dial timeout) so the root test can use a short timeout and assert that registration returns within it. Document in docs/V1.md that registering a handler on a new namespace dials Redis synchronously and can block up to the dial timeout. |
 | T5 | nit | follow-up: partial | `parser/prepared_test.go:64` | No encoder or round-trip fuzz target. The decoder package `engineio/parser/internal/packet` has no tests of its own, but `TestPacketDecoder` and other `engineio/parser` contract tests exercise it through `NewPacketDecoder` (89.5% cross-package coverage), so that subclaim is not a material gap | Add FuzzDecodeArgs (decode into a fixed set of typed targets) and a round-trip fuzz (Prepare -> Decoder -> compare) for binary-free values. |
 | T6 | nit | — | `engineio/transport/polling/pauser_test.go:206` | Residual sleep-based synchronization in inherited polling tests weakens rather than flakes | Replace the sleeps with explicit readiness signals, for example a hook or channel signalled when the goroutine enters the blocking wait. Fixed by #188 (W36). |
-| T7 | minor | — | `engineio/server_close_concurrent_test.go` | `TestServerCloseShutsDownSessionsConcurrently` depends on map iteration order and passes against a serial `Server.Close` in about 1 of 17 runs (a mutation run failed 39 of 40) | Fail two sessions and close `entered` through `sync.Once` (W43). Found in the review of #147. |
+| T7 | minor | — | `engineio/server_close_concurrent_test.go` | `TestServerCloseShutsDownSessionsConcurrently` depends on map iteration order and passes against a serial `Server.Close` in about 1 of 17 runs (a mutation run failed 39 of 40) | Fail two sessions and close `entered` through `sync.Once` (W43). Found in the review of #147. Fixed by #197 (W43). |
 | T8 | minor | — | `engineio/transport/polling/polling_test.go:82` | `TestPollingBinary` crashed with a nil-reader dereference during a stress run under ephemeral-port exhaustion; the cause is not isolated | Reproduce with a forced dial failure and fix the side at fault (W44). Found while validating #147. |
 
 ### Release engineering findings

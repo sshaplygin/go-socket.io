@@ -5,15 +5,17 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 )
 
-// leakedModuleStacks reports goroutines executing library code, including a
-// callback reached from the library. Test-only helpers and net/http's own idle
-// workers are outside this gate.
-func leakedModuleStacks() []string {
+// moduleGoroutines returns the stacks, keyed by goroutine ID, of the goroutines
+// with a frame in a non-test file of this module, including a callback reached
+// from the library. Test-only helpers and net/http's own idle workers are
+// outside this set.
+func moduleGoroutines() map[string]string {
 	_, source, _, _ := runtime.Caller(0)
 	root := filepath.Dir(source)
 	for {
@@ -36,17 +38,27 @@ func leakedModuleStacks() []string {
 		}
 		buffer = make([]byte, len(buffer)*2)
 	}
-	var leaks []string
+	goroutines := map[string]string{}
 	for _, stack := range strings.Split(string(buffer), "\n\n") {
 		for _, line := range strings.Split(stack, "\n") {
-			// The final colon precedes the line number (paths can contain a colon).
 			file, _, found := strings.Cut(line, ".go:")
 			if found && strings.HasPrefix(filepath.ToSlash(file), prefix) && !strings.HasSuffix(file, "_test") {
-				leaks = append(leaks, stack)
+				goroutines[strings.Fields(stack)[1]] = stack
 				break
 			}
 		}
 	}
+	return goroutines
+}
+
+// leakedModuleStacks returns the stacks of moduleGoroutines in a stable order.
+func leakedModuleStacks() []string {
+	goroutines := moduleGoroutines()
+	leaks := make([]string, 0, len(goroutines))
+	for _, stack := range goroutines {
+		leaks = append(leaks, stack)
+	}
+	sort.Strings(leaks)
 	return leaks
 }
 

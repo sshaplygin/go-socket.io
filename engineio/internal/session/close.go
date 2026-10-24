@@ -120,6 +120,8 @@ func (s *Session) closeMode(reason string, abort bool) error {
 	return s.closeErr
 }
 
+// closeTransport may run on a failing frame writer. Its brief write lock is
+// safe because no read-lock holder waits for a frame writer (see upgradeLocker).
 func (s *Session) closeTransport(conn transport.Conn) {
 	s.transportOnce.Do(func() {
 		s.closeErr = conn.Close()

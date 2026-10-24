@@ -31,7 +31,8 @@ func (c *blockingDeadlineConn) SetWriteDeadline(time.Time) error {
 func TestSetDeadlineDoesNotBlockClose(t *testing.T) {
 	c := &blockingDeadlineConn{
 		scriptConn: scriptConn{reads: []scriptedPacket{{ft: eioparser.String, pt: eioparser.PING}}},
-		entered:    make(chan struct{}), release: make(chan struct{}),
+		entered:    make(chan struct{}),
+		release:    make(chan struct{}),
 	}
 	s := newTestSession(t, c, "websocket")
 	release := sync.OnceFunc(func() { close(c.release) })

@@ -42,6 +42,10 @@ type Session struct {
 	upgradeTimeout time.Duration
 	probe          transport.Conn // guarded by upgradeLocker; closed with the session
 
+	// Holders of the read lock must not call transport methods that can wait
+	// for an open frame writer, such as SetWriteDeadline: a failing writer
+	// reaches closeTransport, which takes the write lock. Snapshot conn and
+	// release the lock first, as setDeadline, nextReader and nextWriterCompress do.
 	upgradeLocker   sync.RWMutex // guards conn, transport, closed and opened
 	closed          bool         // set by Close; a closed session is never upgraded
 	opened          time.Time    // set by Init; a session never opened logs no close

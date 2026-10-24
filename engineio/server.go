@@ -70,7 +70,8 @@ func NewServer(opts ...Option) *Server {
 // Close closes server. Accept returns io.EOF from then on. Every session not yet
 // returned by Accept, and every accepted session, is closed and removed. An
 // in-progress Error hook completes its transport close when the hook returns.
-// Sessions shut down concurrently, so a blocked hook does not delay other sessions.
+// Sessions shut down concurrently, so a blocked hook does not delay other sessions;
+// their Error hooks may therefore run concurrently on library goroutines.
 // Once shutdown has started, repeated calls return without waiting for it to
 // finish, so an Error hook can call Close during shutdown.
 func (s *Server) Close() error {

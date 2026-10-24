@@ -65,7 +65,12 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 				return nil
 			})
 			srv.OnEvent("/", "x", func(Conn) {})
-			srv.OnError("/", func(_ Conn, err error) { failures <- err })
+			srv.OnError("/", func(_ Conn, err error) {
+				select {
+				case failures <- err:
+				default:
+				}
+			})
 			srv.OnDisconnect("/", func(Conn, string) { close(done) })
 			go func() { _ = srv.Serve() }()
 			ts := httptest.NewServer(srv)
@@ -156,8 +161,7 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 				err = recv(t, failures, "write buffer overflow")
 				require.True(t, errors.Is(err, ErrWriteBufferFull), "unexpected error: %v", err)
 			}
-			// Keep both checks observable on the unfixed server: Close has its own
-			// ten-second bound, independent of the missing disconnect callback.
+			// t.Error, not Fatal, so a missing disconnect and a slow Close are both reported.
 			select {
 			case <-done:
 			case <-time.After(waitFor):

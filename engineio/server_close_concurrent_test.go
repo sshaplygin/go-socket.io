@@ -1,7 +1,9 @@
 package engineio_test
 
 import (
+	"errors"
 	"io"
+	"net"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -37,6 +39,9 @@ func TestServerCloseShutsDownSessionsConcurrently(t *testing.T) {
 		return ws, conn
 	}
 	ws, conn := dial()
+
+	// Flush a non-final frame, then truncate the message. Reading its body
+	// records a transport error that the subsequent shutdown reports to Error.
 	writer, err := ws.NextWriter(websocket.TextMessage)
 	require.NoError(t, err)
 	_, err = writer.Write([]byte("4" + strings.Repeat("x", 8192)))
@@ -63,7 +68,8 @@ func TestServerCloseShutsDownSessionsConcurrently(t *testing.T) {
 		require.NoError(t, client.SetReadDeadline(time.Now().Add(time.Second)))
 		_, _, err := client.ReadMessage()
 		require.Error(t, err, "client %d remained open", i)
-		if timeout, ok := err.(interface{ Timeout() bool }); ok && timeout.Timeout() {
+		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() {
 			t.Fatalf("client %d was not shut down while the Error hook was blocked: %v", i, err)
 		}
 	}

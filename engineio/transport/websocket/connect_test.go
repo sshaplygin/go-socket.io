@@ -127,3 +127,46 @@ func TestWebsocketWriterSecondCloseKeepsLock(t *testing.T) {
 	require.True(t, ws.writeLocker.TryLock(), "Close of the open writer releases the lock")
 	ws.writeLocker.Unlock()
 }
+
+func TestWebsocketWriterConcurrentCloseUnlocksOnce(t *testing.T) {
+	tran := &Transport{}
+	accepted := make(chan transport.Conn, 1)
+	httpSvr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := tran.Accept(w, r)
+		require.NoError(t, err)
+		accepted <- c
+	}))
+	defer httpSvr.Close()
+
+	u, err := url.Parse(httpSvr.URL)
+	require.NoError(t, err)
+	u.Scheme = "ws"
+	cc, err := tran.Dial(u, make(http.Header))
+	require.NoError(t, err)
+	defer func() { _ = cc.Close() }()
+	sc := <-accepted
+	defer func() { _ = sc.Close() }()
+
+	ws := cc.(*conn).ws
+	for i := 0; i < 200; i++ {
+		w, err := ws.NextWriter(eioparser.String)
+		require.NoError(t, err)
+		errs := make(chan error, 2)
+		start := make(chan struct{})
+		for j := 0; j < 2; j++ {
+			go func() {
+				<-start
+				errs <- w.Close()
+			}()
+		}
+		close(start)
+		first, second := <-errs, <-errs
+		if first != nil {
+			first, second = second, first
+		}
+		require.NoError(t, first, "one Close finishes the frame")
+		require.ErrorIs(t, second, io.ErrClosedPipe, "the other Close reports the finished writer")
+		require.True(t, ws.writeLocker.TryLock(), "the frame's lock is released once")
+		ws.writeLocker.Unlock()
+	}
+}

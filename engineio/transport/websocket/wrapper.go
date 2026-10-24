@@ -103,24 +103,25 @@ func (w wrapper) nextWriter(FType eioparser.FrameType, compress bool) (io.WriteC
 	writer := &thresholdWriter{conn: w.Conn, typ: t, threshold: w.threshold, compress: compress && w.compression}
 
 	w.writing.Store(true)
-	return &wcWrapper{WriteCloser: writer, writing: w.writing, l: w.writeLocker}, nil
+	result := &wcWrapper{WriteCloser: writer, writing: w.writing}
+	result.l.Store(w.writeLocker)
+	return result, nil
 }
 
 // wcWrapper is one frame writer. It holds the write lock until its first
-// Close, which clears l.
+// Close, which clears l; concurrent or later calls see nil and keep the lock.
 type wcWrapper struct {
 	io.WriteCloser
 	writing *atomic.Bool
-	l       *sync.Mutex
+	l       atomic.Pointer[sync.Mutex]
 }
 
 func (w *wcWrapper) Close() error {
 	// By the next call the lock may belong to the next writer: keep it.
-	l := w.l
+	l := w.l.Swap(nil)
 	if l == nil {
 		return io.ErrClosedPipe
 	}
-	w.l = nil
 	// Unlock the wrapper's write lock for future calls to NextWriter.
 	defer l.Unlock()
 	defer w.writing.Store(false)

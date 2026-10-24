@@ -155,7 +155,7 @@ func (nc *namespaceConn) sendVolatile(pkg outboundPayload, ack *callbackFunc) {
 	}
 	nc.registerAck(&header, ack)
 	pkg.Header = header
-	if pkg.prepared != nil {
+	if ack != nil && pkg.prepared != nil {
 		pkg.prepared = pkg.prepared.WithHeader(header)
 	}
 	if nc.connecting {
@@ -370,7 +370,7 @@ func (nc *namespaceConn) sendPayload(pkg outboundPayload, ack *callbackFunc) {
 	}
 	nc.registerAck(&header, ack)
 	pkg.Header = header
-	if pkg.prepared != nil {
+	if ack != nil && pkg.prepared != nil {
 		pkg.prepared = pkg.prepared.WithHeader(header)
 	}
 	if nc.connecting {

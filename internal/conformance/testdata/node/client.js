@@ -156,11 +156,18 @@ async function base64Binary() {
     if (transport === 'upgrade') { upgraded = event(engine, 'upgrade'); }
   });
   if (upgraded) { await upgraded; }
+  const engine = root.io.engine;
+  assert.strictEqual(engine.transport.name, 'websocket');
+  // Base64 mode carries binary packets in text messages in both directions.
+  const frames = [];
+  engine.transport.ws.on('message', data => frames.push(typeof data));
   const received = event(root, 'binary-event');
   const payload = Buffer.from([1, 2, 255]);
   const reply = await ack(root, 'binary', payload);
   assert.deepStrictEqual(bytes((await received)[0]), Array.from(payload));
   assert.deepStrictEqual(bytes(reply[0]), Array.from(payload));
+  assert(frames.length >= 4, 'expected binary event and ACK messages, got ' + frames.length);
+  assert(frames.every(type => type === 'string'), 'server sent a binary websocket message: ' + frames);
   root.disconnect();
   console.log(version + ' ' + transport + ': forceBase64 binary exchange passed');
 }
@@ -169,7 +176,7 @@ async function base64Binary() {
   try {
     if (transport === 'upgrade') { await upgrade(); }
     else { await basic(); await reconnect(); }
-    if (!process.argv[4] && (transport === 'websocket' || transport === 'upgrade')) { await base64Binary(); }
+    if (transport === 'websocket' || transport === 'upgrade') { await base64Binary(); }
   } finally {
     sockets.forEach(socket => socket.disconnect());
     clearTimeout(deadline);

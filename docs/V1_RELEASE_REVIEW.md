@@ -1785,7 +1785,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W29. Bound Redis registration time in tests and docs
 
-- **Status:** open
+- **Status:** in progress — #180
 - **Priority:** after release
 - **Findings:** [T4](#tests-findings)
 - **Depends on:** none
@@ -1796,10 +1796,11 @@ changed to `done — #<PR>` after the merge.
   duration.
 - **Change:** the wait is the package variable `redisDialTimeout`, which only
   `adapter/redis` tests can override (`readiness_test.go:127-129`, `shutdown_test.go:23-24`).
-  Add a public option in `adapter/redis` for it (proposed name `WithDialTimeout`, default
-  10 s; the name is confirmed in review) and use it instead of the variable; the root test
-  uses 200 ms and asserts that registration returns within 1 s; V1.md "Adapters and
-  Redis": registration dials Redis synchronously and can block up to that timeout.
+  Add a public option in `adapter/redis` for it (`WithSubscribeTimeout`, default 10 s,
+  matching v2's `SubscribeTimeout` in ROADMAP.md; owner decision 2026-10-24) and use it
+  instead of the variable; the root test uses 200 ms and asserts that registration
+  returns within 1 s; V1.md "Adapters and Redis": registration dials Redis synchronously
+  and can block up to that timeout.
 - **Tests:** the updated `TestRedisServerCloseStopsBroadcasts`; `options_test.go` covers the
   option.
 - **Benchmarks:** none.
@@ -3013,7 +3014,7 @@ Every finding is listed under the dimension that reported it.
 | T1 | minor | — | `parser/json_encode.go:252` | omitempty handling in the rewritten Socket.IO JSON encoder has zero test coverage | Add a table-driven differential test in parser/json_compatibility_test.go that encodes omitempty structs (all kinds handled by isJSONEmpty, including nested and Buffer-bearing fields) and compares against json.Marshal. Consider adding an encoder fuzz target that compares against encoding/json for binary-free values. Fixed by #169 (W3). |
 | T2 | minor | — | `engineio/transport/websocket/wrapper.go:76` | No goroutine-leak detection; a probe finds library frame-reader goroutines left for 30s after parse/mid-frame errors, plus leaking client test fixtures | Close the last frame reader on the decode-error and transport-failure paths in the server and client read loops. Fix the leaking fixtures by closing clients via t.Cleanup and using buffered or select-guarded channels in handlers. Add a goroutine-leak check (go.uber.org/goleak VerifyTestMain or an equivalent NumGoroutine wait) to the root, client and engineio packages so close and shutdown regressions fail CI. Fixed by #157 (W12). |
 | T3 | minor | — | `docs/PARITY.md:20` | No conformance scenario asserts the Engine.IO periodic heartbeat against a real JS client; heartbeat is covered only by engineio/session tests | Add a conformance scenario with WithPingInterval(200ms) and WithPingTimeout(200ms) that keeps a JS client connected across several intervals on each transport. Also have the client suppress pings and assert 'ping timeout'. Alternatively, correct the PARITY.md row. Fixed by #168 (W17). |
-| T4 | minor | — | `redis_integration_test.go:174` | TestRedisServerCloseStopsBroadcasts spends 10s inside a blocking OnConnect and neither bounds nor documents that behavior | Expose a test hook or redis option (dial timeout) so the root test can use a short timeout and assert that registration returns within it. Document in docs/V1.md that registering a handler on a new namespace dials Redis synchronously and can block up to the dial timeout. |
+| T4 | minor | — | `redis_integration_test.go:174` | TestRedisServerCloseStopsBroadcasts spends 10s inside a blocking OnConnect and neither bounds nor documents that behavior | Expose a test hook or redis option (dial timeout) so the root test can use a short timeout and assert that registration returns within it. Document in docs/V1.md that registering a handler on a new namespace dials Redis synchronously and can block up to the dial timeout. Fixed by #180 (W29). |
 | T5 | nit | follow-up: partial | `parser/prepared_test.go:64` | No encoder or round-trip fuzz target. The decoder package `engineio/parser/internal/packet` has no tests of its own, but `TestPacketDecoder` and other `engineio/parser` contract tests exercise it through `NewPacketDecoder` (89.5% cross-package coverage), so that subclaim is not a material gap | Add FuzzDecodeArgs (decode into a fixed set of typed targets) and a round-trip fuzz (Prepare -> Decoder -> compare) for binary-free values. Fixed by #173 (W35). |
 | T6 | nit | — | `engineio/transport/polling/pauser_test.go:206` | Residual sleep-based synchronization in inherited polling tests weakens rather than flakes | Replace the sleeps with explicit readiness signals, for example a hook or channel signalled when the goroutine enters the blocking wait. Fixed by #188 (W36). |
 | T7 | minor | — | `engineio/server_close_concurrent_test.go` | `TestServerCloseShutsDownSessionsConcurrently` depends on map iteration order and passes against a serial `Server.Close` in about 1 of 17 runs (a mutation run failed 39 of 40) | Fail two sessions and close `entered` through `sync.Once` (W43). Found in the review of #147. Fixed by #197 (W43). |

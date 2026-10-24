@@ -1036,7 +1036,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D1. Version number and inherited tags
 
-- **Status:** decided — options A and R1 (2026-10-24)
+- **Status:** decided — option A + R1 (2026-10-24)
 - **Priority:** owner decision
 - **Findings:** [API-2](#api-compatibility-findings), [REL-7](#release-engineering-findings),
   [CL-10](#clarity-findings)
@@ -1559,7 +1559,7 @@ changed to `done — #<PR>` after the merge.
   has the gate, the CI comparison shows no base side: run the manual comparison with
   `SOCKETIO_BENCH_POLLING=1` set for the base run as well, preferably on Linux (a darwin
   base run can lose a sample to port exhaustion), and grep both outputs for `--- FAIL`
-  (see REL-13).
+  (see [REL-13](#release-engineering-findings)).
 - **Docs:** godoc, `docs/V1.md` "Client limits".
 - **Acceptance criteria:**
   - [ ] `go test -race -count=1 -run TestPollingClientsReuseConnections ./client` passes; fails on master.
@@ -2147,12 +2147,15 @@ changed to `done — #<PR>` after the merge.
 - **Problem:** during a local `go test -race -count=5 -shuffle=on -cpu=1,4
   ./engineio/transport/...` run on darwin under ephemeral-port exhaustion (TIME_WAIT above
   16,000), `TestPollingBinary` crashed with a nil-pointer dereference on a nil reader at
-  `engineio/transport/polling/polling_test.go:82`. A rerun after the ports drained passed.
-  Whether the test ignores an error or a library path returns a nil reader without an error
-  is not established.
+  `engineio/transport/polling/polling_test.go:82` (`io.ReadAll(r)`). A rerun after the
+  ports drained passed. The `NextReader` error is checked at line 78 with the non-fatal
+  `should.Nil(err)`, so a returned error followed by a nil reader would crash at line 82;
+  whether `NextReader` returned an error, or a nil reader with a nil error, is not
+  established.
 - **Change:** reproduce by forcing the dial or request to fail, for example with a
   `RoundTripper` that returns an error. If a library function returns a nil reader with a
-  nil error, fix it and add a regression test; otherwise make the test check the error.
+  nil error, fix it and add a regression test; otherwise make the test stop on the error
+  (`require.NoError` instead of `should.Nil` at line 78).
 - **Tests:** the reproduction above, failing before the change.
 - **Benchmarks:** none.
 - **Docs:** none.
@@ -2896,7 +2899,9 @@ Every finding is listed under the dimension that reported it.
   figure. A `v1.4.2` value is a historical ad hoc measurement; not reproducible by a
   committed benchmark.
 - CL-15, T7, T8 and REL-13 were found on 2026-10-24 while reviewing the W1 and W2 pull
-  requests (#147, #153); they were not part of the original review or the follow-up.
+  requests (#147, #153). They were not part of the original review or the follow-up, have
+  no row in [Catalogue cross-check](#catalogue-cross-check) and are not among its 85
+  entries. Their locations refer to `origin/master` at `d98e5d5`, not `7311fbe`.
 - The [work plan](#work-plan) maps every ID to exactly one work item or owner decision, or
   lists it under "Not planned"; the finding coverage table is in
   [How to use this plan](#how-to-use-this-plan). When a fix merges, the row's

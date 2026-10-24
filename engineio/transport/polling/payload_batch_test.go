@@ -229,7 +229,7 @@ func TestPollingBatchSeparatesCompressionPreferences(t *testing.T) {
 				response := httptest.NewRecorder()
 				if i == 0 {
 					c.ServeHTTP(response, req)
-					clock.waitTimers(t, 1)
+					clock.waitTimers(t, 1, nil)
 				} else {
 					response = serveBatchUntilIdle(t, c, req, clock, 1)
 				}

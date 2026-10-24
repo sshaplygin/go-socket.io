@@ -64,7 +64,9 @@ func (c *manualBatchClock) advance(d time.Duration) {
 	}
 }
 
-func (c *manualBatchClock) waitTimers(t *testing.T, n int) {
+// waitTimers waits for n idle waits. A non-nil done fails the wait as soon as
+// the batch returns early.
+func (c *manualBatchClock) waitTimers(t *testing.T, n int, done <-chan struct{}) {
 	t.Helper()
 	deadline := time.NewTimer(5 * time.Second)
 	defer deadline.Stop()
@@ -72,6 +74,8 @@ func (c *manualBatchClock) waitTimers(t *testing.T, n int) {
 		select {
 		case duration := <-c.created:
 			require.Equal(t, time.Millisecond, duration, "batch idle window changed")
+		case <-done:
+			t.Fatalf("batch returned after %d of %d idle waits", i, n)
 		case <-deadline.C:
 			t.Fatal("batch did not reach its next idle wait")
 		}
@@ -83,7 +87,7 @@ func serveBatchUntilIdle(t *testing.T, c *serverConn, req *http.Request, clock *
 	response := httptest.NewRecorder()
 	done := make(chan struct{})
 	go func() { defer close(done); c.ServeHTTP(response, req) }()
-	clock.waitTimers(t, packets)
+	clock.waitTimers(t, packets, done)
 	clock.advance(time.Millisecond)
 	select {
 	case <-done:
@@ -131,9 +135,14 @@ func TestPollingBatchStopsAtTotalWindow(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("batch exceeded its five-millisecond total window")
 	}
-	require.NoError(t, <-written)
 	require.Equal(t, "2:4a2:4a", response.Body.String())
-	clock.waitTimers(t, 1)
+	select {
+	case err := <-written:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("writer did not finish both packets")
+	}
+	clock.waitTimers(t, 1, nil)
 	select {
 	case <-clock.created:
 		t.Fatal("batch started another idle wait after its total window")

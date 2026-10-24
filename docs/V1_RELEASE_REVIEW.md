@@ -1628,7 +1628,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W23. Remove per-frame websocket timers
 
-- **Status:** in progress — #179; BenchmarkWebsocketEcho: small 28 → 18, 4KiB 40 → 30 allocs/op (combined release comparison; isolated comparison pending)
+- **Status:** in progress — #179; BenchmarkWebsocketEcho/small: 28 → 18 allocs/op, 32.46µs → 19.95µs; BenchmarkWebsocketEcho/4KiB: 40 → 30 allocs/op, 51.80µs → 38.72µs (against `88d8d26`, darwin/arm64, Go 1.25.5)
 - **Priority:** after release
 - **Findings:** [PERF-8](#performance-findings)
 - **Depends on:** W2, W12

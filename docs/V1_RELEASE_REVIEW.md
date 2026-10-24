@@ -1239,7 +1239,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W11. Reject duplicate session IDs
 
-- **Status:** in progress — #159
+- **Status:** done — #159
 - **Priority:** after release
 - **Findings:** [C3](#correctness-and-security-findings)
 - **Depends on:** none
@@ -1398,7 +1398,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W16. Document the remaining wire differences
 
-- **Status:** in progress — #167
+- **Status:** done — #167
 - **Priority:** after release
 - **Findings:** [interop-2](#interoperability-findings), [interop-3](#interoperability-findings),
   [interop-4](#interoperability-findings), [interop-5](#interoperability-findings),

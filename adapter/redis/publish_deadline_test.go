@@ -85,10 +85,8 @@ func stallProxy(t *testing.T, addr string) (string, func()) {
 func TestRedisPublishBoundedByRequestsTimeout(t *testing.T) {
 	s := miniredis.RunT(t)
 	addr, stall := stallProxy(t, s.Addr())
-	// Allow an instrumented local proxy to complete the healthy publication;
-	// the stalled command must still finish within one second.
 	bc, err := newBroadcast("/", &options{
-		Addr: addr, Network: "tcp", Prefix: "socket.io", RequestsTimeout: 500 * time.Millisecond,
+		Addr: addr, Network: "tcp", Prefix: "socket.io", RequestsTimeout: 100 * time.Millisecond,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = bc.Close() })
@@ -99,10 +97,43 @@ func TestRedisPublishBoundedByRequestsTimeout(t *testing.T) {
 	go func() { done <- bc.SendTo(adapter.Options{}, "e", "stalled") }()
 	select {
 	case err := <-done:
-		require.Error(t, err)
+		var ne net.Error
+		require.ErrorAs(t, err, &ne)
+		require.True(t, ne.Timeout(), "publication error is not a timeout: %v", err)
 		require.Less(t, time.Since(started), time.Second)
 	case <-time.After(2 * time.Second):
 		t.Fatal("Redis publication did not honor WithRequestsTimeout")
+	}
+}
+
+// A publication that redials the pool must also bound the AUTH reply: the
+// stalled first publication breaks its pooled connection, so the second one
+// dials a new connection whose AUTH reply never arrives.
+func TestRedisPublishRedialBoundedByRequestsTimeout(t *testing.T) {
+	s := miniredis.RunT(t)
+	s.RequireAuth("p")
+	addr, stall := stallProxy(t, s.Addr())
+	bc, err := newBroadcast("/", &options{
+		Addr: addr, Network: "tcp", Prefix: "socket.io", Password: "p",
+		RequestsTimeout: 200 * time.Millisecond,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = bc.Close() })
+	require.NoError(t, bc.SendTo(adapter.Options{}, "e", "before"))
+	stall()
+	for i := 0; i < 2; i++ {
+		done := make(chan error, 1)
+		started := time.Now()
+		go func() { done <- bc.SendTo(adapter.Options{}, "e", "stalled") }()
+		select {
+		case err := <-done:
+			// The redial's read deadline and its dial context expire together,
+			// so the error is either an I/O timeout or a closed connection.
+			require.Error(t, err, "publication %d", i)
+			require.Less(t, time.Since(started), time.Second, "publication %d", i)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("Redis publication %d did not honor WithRequestsTimeout", i)
+		}
 	}
 }
 
@@ -120,8 +151,12 @@ func TestRedisSubscriberIdleLongerThanRequestsTimeout(t *testing.T) {
 	socket := newRedisTestConn("receiver")
 	b.Join("room", socket)
 	// Waiting longer than the publication deadline exercises the independent
-	// lifetime of the subscriber's blocking read.
+	// lifetime of the subscriber's blocking read. A read timeout on the
+	// subscriber would end that read and make it reconnect, which delivery
+	// alone does not reveal, so no new connection may appear while idle.
+	dialed := s.TotalConnectionCount()
 	time.Sleep(300 * time.Millisecond)
+	require.Equal(t, dialed, s.TotalConnectionCount(), "subscriber reconnected while idle")
 	require.NoError(t, a.SendTo(adapter.Options{Rooms: []string{"room"}}, "e", "after idle"))
 	expectEvent(t, socket, "e [after idle]")
 }

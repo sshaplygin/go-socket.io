@@ -136,8 +136,10 @@ func (opts *options) dialTimeout() time.Duration {
 	return redisDialTimeout
 }
 
-// WithRequestsTimeout bounds each cluster request and each broadcast publication,
-// including Redis commands. Publication errors are returned by SendTo.
+// WithRequestsTimeout bounds each cluster request and each broadcast PUBLISH,
+// including Redis commands. Publication errors are returned by SendTo. The
+// bound applies per I/O phase (dial, write, read), so a stalled publication can
+// take up to about two to three times the timeout.
 // Nonpositive values select the default five seconds.
 func WithRequestsTimeout(value time.Duration) Option {
 	return func(config *options) { config.RequestsTimeout = value }

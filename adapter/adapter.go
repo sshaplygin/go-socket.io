@@ -1,4 +1,7 @@
 // Package adapter owns namespace room selection and socket delivery contracts.
+// Adapters may implement io.Closer to release resources at server shutdown and
+// SocketLookupBinder to receive a lookup independent of room membership. New
+// capabilities are expressed through optional interfaces.
 package adapter
 
 import (
@@ -32,6 +35,15 @@ type Socket interface {
 	EmitWithOptions(opts Options, event string, args ...interface{})
 }
 
+// SocketLookupBinder optionally receives the server's live socket lookup.
+// The lookup is independent of room membership. The server calls it once, after
+// the adapter is constructed and before the namespace accepts connections. The
+// lookup returns nil for IDs not connected to the namespace, is safe for
+// concurrent use and holds no server lock while the adapter runs.
+type SocketLookupBinder interface {
+	BindSocketLookup(lookup func(string) Socket)
+}
+
 // Factory constructs one namespace adapter per name. The server coordinates
 // callers for the same name while unrelated factories may run concurrently.
 // Construction errors are retained by the namespace. Server.Serve reports errors
@@ -44,7 +56,12 @@ var ErrExceptUnsupported = errors.New("socketio: broadcast except is not support
 
 // Adapter manages namespace rooms and delivery. Its methods must support
 // concurrent calls from handlers and Server methods. Delivery invokes each target
-// only after releasing the adapter's lock.
+// only after releasing the adapter's lock. Send and SendAll are wrappers over
+// SendTo; Rooms(nil) is equivalent to AllRooms. Because Send and SendAll return
+// no error, an adapter must not drop a SendTo failure silently; it should log it
+// at WARN, or at DEBUG once the adapter is closed, as the Redis adapter does.
+// The Adapter method set is fixed for v1; new capabilities are expressed through
+// optional interfaces.
 type Adapter interface {
 	// SendTo snapshots matching sockets and emits on the caller's goroutine after
 	// releasing the adapter lock. Delivery uses target.Emit, or target.EmitWithOptions
@@ -54,14 +71,20 @@ type Adapter interface {
 	SendTo(opts Options, event string, args ...interface{}) error
 	// IDs returns a copy of the IDs in any of rooms, or all sockets when empty.
 	IDs(rooms ...string) []string
-	Join(room string, connection Socket)          // Join causes the connection to join a room
-	Leave(room string, connection Socket)         // Leave causes the connection to leave a room
-	LeaveAll(connection Socket)                   // LeaveAll causes given connection to leave all rooms
-	Clear(room string)                            // Clear causes removal of all connections from the room
-	Send(room, event string, args ...interface{}) // Send emits to a room; a trailing callback is registered per socket.
-	SendAll(event string, args ...interface{})    // SendAll emits to all sockets; a trailing callback is registered per socket.
-	ForEach(room string, f EachFunc)              // ForEach visits each local member of the room.
-	Len(room string) int                          // Len gives number of connections in the room
-	Rooms(connection Socket) []string             // Gives list of all the rooms if no connection given, else list of all the rooms the connection joined
-	AllRooms() []string                           // Gives list of all the rooms the connection joined
+	Join(room string, connection Socket)  // Join causes the connection to join a room
+	Leave(room string, connection Socket) // Leave causes the connection to leave a room
+	LeaveAll(connection Socket)           // LeaveAll causes given connection to leave all rooms
+	Clear(room string)                    // Clear causes removal of all connections from the room
+	// Send emits to a room and returns no error. An adapter either registers a
+	// trailing callback per socket or rejects the broadcast before any delivery.
+	// Memory registers it; Redis rejects it, and its failures are logged at WARN,
+	// or at DEBUG once the adapter is closed.
+	Send(room, event string, args ...interface{})
+	// SendAll emits to all sockets and returns no error. A trailing callback is
+	// handled as by Send.
+	SendAll(event string, args ...interface{})
+	ForEach(room string, f EachFunc)  // ForEach visits each local member of the room.
+	Len(room string) int              // Len gives number of connections in the room
+	Rooms(connection Socket) []string // Gives list of all the rooms if no connection given, else list of all the rooms the connection joined
+	AllRooms() []string               // Gives list of all the rooms the connection joined
 }

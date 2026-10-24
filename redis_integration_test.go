@@ -310,3 +310,56 @@ func TestRedisCloseStopsRacingRegistration(t *testing.T) {
 	require.Eventually(t, func() bool { return s.CurrentConnectionCount() == 0 && s.PubSubNumPat() == 0 },
 		time.Second, 5*time.Millisecond, "Redis connections of the racing registration left after Close")
 }
+
+// TestRedisBroadcastCallbackLogsWarn checks that a room broadcast with a trailing callback
+// is rejected before any delivery and that the rejection is logged at WARN.
+func TestRedisBroadcastCallbackLogsWarn(t *testing.T) {
+	s := miniredis.RunT(t)
+	rec, _ := captureLogs(t, nil)
+	p := start(t, 'S', hooks{setup: func(srv *Server) { useRedis(t, srv, s.Addr()) }})
+	p.nc.Join("r")
+	require.True(t, p.srv.BroadcastToRoom("/", "r", "e", "x", func() {}))
+	select {
+	case frame := <-p.fc.out:
+		t.Fatalf("rejected callback broadcast delivered %q", frame)
+	case <-time.After(200 * time.Millisecond):
+	}
+	logs := only(rec.since(0), "socketio: redis broadcast failed")
+	require.Len(t, logs, 1)
+	require.Equal(t, slog.LevelWarn.String(), logs[0]["level"])
+	require.Equal(t, "/", logs[0]["nsp"])
+	require.Contains(t, logs[0]["err"], "acknowledgements are unsupported")
+}
+
+// TestRedisBroadcastPublishFailureLogsWarn checks that a namespace broadcast still reaches
+// the local socket when PUBLISH fails and that the failure is logged at WARN.
+func TestRedisBroadcastPublishFailureLogsWarn(t *testing.T) {
+	s := miniredis.RunT(t)
+	rec, _ := captureLogs(t, nil)
+	p := start(t, 'S', hooks{setup: func(srv *Server) { useRedis(t, srv, s.Addr()) }})
+	s.Close()
+	require.True(t, p.srv.BroadcastToNamespace("/", "e", "x"))
+	require.Equal(t, "2[\"e\",\"x\"]\n", recv(t, p.fc.out, "local delivery despite publication failure"))
+	logs := only(rec.since(0), "socketio: redis broadcast failed")
+	require.Len(t, logs, 1)
+	require.Equal(t, slog.LevelWarn.String(), logs[0]["level"])
+	require.Equal(t, "/", logs[0]["nsp"])
+	require.NotEmpty(t, logs[0]["err"])
+}
+
+// TestRedisBroadcastAfterCloseLogsDebug checks that a broadcast after Server.Close still
+// reports the registered namespace and logs the closed adapter's failure at DEBUG only.
+func TestRedisBroadcastAfterCloseLogsDebug(t *testing.T) {
+	s := miniredis.RunT(t)
+	rec, _ := captureLogs(t, nil)
+	p := start(t, 'S', hooks{setup: func(srv *Server) { useRedis(t, srv, s.Addr()) }})
+	require.NoError(t, p.srv.Close())
+	n := rec.len()
+	require.True(t, p.srv.BroadcastToNamespace("/", "e", "x"))
+	require.Empty(t, loud(rec.since(n), ""), "records above DEBUG after Server.Close")
+	logs := only(rec.since(n), "socketio: redis broadcast failed")
+	require.Len(t, logs, 1)
+	require.Equal(t, slog.LevelDebug.String(), logs[0]["level"])
+	require.Equal(t, "/", logs[0]["nsp"])
+	require.Contains(t, logs[0]["err"], "redis adapter closed")
+}

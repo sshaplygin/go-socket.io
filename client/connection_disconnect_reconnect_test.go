@@ -13,14 +13,27 @@ func TestConnectFromServerDisconnectStartsNewLifecycle(t *testing.T) {
 	dialed := make(chan struct{}, 1)
 	p.cl.dial = func(string) (engineclient.Conn, error) { dialed <- struct{}{}; return next, nil }
 	result := make(chan error, 1)
-	p.cl.OnDisconnect(func(Conn, string) { result <- p.cl.Connect() })
+	p.cl.OnDisconnect(func(_ Conn, reason string) {
+		// Only the server DISCONNECT starts a new lifecycle; cleanup must not.
+		if reason == "io server disconnect" {
+			result <- p.cl.Connect()
+		}
+	})
 	p.send(t, "1")
 	require.NoError(t, recv(t, result, "explicit Connect in OnDisconnect"))
-	closeAtEnd(t, next, p.conn())
+	replacement := p.conn()
+	closeAtEnd(t, next, replacement)
 	recv(t, p.fc.closed, "old engine close")
 	recv(t, dialed, "replacement dial")
 	next.reads <- "0"
 	recv(t, p.conns, "replacement CONNECT")
+
+	require.NoError(t, p.cl.Close())
+	recv(t, next.closed, "replacement engine close")
+	recv(t, replacement.readStopped, "replacement reader shutdown")
+	recv(t, replacement.writeStopped, "replacement writer shutdown")
+	recv(t, replacement.errorStopped, "replacement error worker shutdown")
+	require.Empty(t, dialed, "cleanup must not start another lifecycle")
 }
 
 func TestLateAckCannotOutliveNamespace(t *testing.T) {

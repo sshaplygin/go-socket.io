@@ -93,8 +93,10 @@ validates the manifests and generates the report and offline replay bundle using
 allocations, grouped by metric. Custom metrics require `SOCKETIO_BENCH_METRICS=1`
 and are not reported by CI. Results go to the job summary and an artifact;
 same-repository PRs also receive an updated comment. Benchmark changes
-do not fail CI based on timing thresholds. The workflow exercises the report
-action with the collected benchmark samples.
+do not fail CI based on timing thresholds. A side whose raw output has a line
+starting with `--- FAIL` fails the comparison, because `go test` still exits 0
+when a later repetition's `b.N=1` probe fails and the sample is lost. The
+workflow exercises the report action with the collected benchmark samples.
 
 ## Conventions
 

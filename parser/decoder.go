@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -21,15 +20,9 @@ const (
 type FrameReader interface {
 	NextReader() (FrameType, io.ReadCloser, error)
 }
-type byteReader interface {
-	io.Reader
-	ReadByte() (byte, error)
-	UnreadByte() error
-}
 
 type Decoder struct {
 	r           FrameReader
-	reader      *bufio.Reader
 	lastFrame   io.ReadCloser
 	bufferCount uint64
 	args        []json.RawMessage
@@ -66,9 +59,6 @@ func (d *Decoder) closeLastFrame() error {
 	}
 	r := d.lastFrame
 	d.lastFrame = nil
-	if d.reader != nil {
-		d.reader.Reset(nil)
-	}
 	return r.Close()
 }
 
@@ -88,20 +78,17 @@ func (d *Decoder) DecodeHeader(header *Header, event *string) error {
 	if ft != Text {
 		return errInvalidFirstPacketType
 	}
-	br := d.reader
-	if br == nil {
-		br = bufio.NewReader(r)
-		d.reader = br
-	} else {
-		br.Reset(r)
-	}
-	if err := d.readHeader(br, header); err != nil {
-		return err
-	}
-	raw, err := io.ReadAll(br)
+	// The payload is read in full, so the header is parsed from the same bytes
+	// instead of through a per-packet buffered reader.
+	data, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}
+	br := bytes.NewReader(data)
+	if err := d.readHeader(br, header); err != nil {
+		return err
+	}
+	raw := data[len(data)-br.Len():]
 	if err := d.validatePayload(header.Type, bytes.TrimSpace(raw), event); err != nil {
 		return err
 	}
@@ -160,7 +147,7 @@ func (d *Decoder) DecodeArgs(types []reflect.Type) ([]reflect.Value, error) {
 	return ret, nil
 }
 
-func (d *Decoder) readHeader(r byteReader, h *Header) error {
+func (d *Decoder) readHeader(r *bytes.Reader, h *Header) error {
 	typ, err := r.ReadByte()
 	if err != nil {
 		return err
@@ -223,7 +210,7 @@ func (d *Decoder) readHeader(r byteReader, h *Header) error {
 	return err
 }
 
-func (d *Decoder) readUint64FromText(r byteReader) (uint64, bool, error) {
+func (d *Decoder) readUint64FromText(r *bytes.Reader) (uint64, bool, error) {
 	var n uint64
 	var read bool
 	for {
@@ -251,16 +238,15 @@ func (d *Decoder) validatePayload(typ Type, raw []byte, event *string) error {
 	if len(raw) == 0 {
 		return nil
 	}
+	if !json.Valid(raw) {
+		return errInvalidPayload
+	}
 	object := raw[0] == '{' || raw[0] == '[' || bytes.Equal(raw, []byte("null"))
 	var array []json.RawMessage
 	if raw[0] == '[' {
-		// Unmarshal validates the complete array, including trailing input.
-		// A separate json.Valid pass would scan every event and ACK twice.
-		if err := json.Unmarshal(raw, &array); err != nil {
-			return errInvalidPayload
-		}
-	} else if !json.Valid(raw) {
-		return errInvalidPayload
+		// json.Valid is the only syntax pass. DecodeArgs decodes each argument
+		// into its handler type, so the split slices them without decoding.
+		array = splitArray(raw)
 	}
 	switch typ {
 	case Connect:
@@ -465,4 +451,43 @@ func (d *Decoder) DecodeArgsVariadic(types []reflect.Type) ([]reflect.Value, err
 		expanded[i] = types[fixed].Elem()
 	}
 	return d.DecodeArgs(expanded)
+}
+
+// splitArray returns the elements of raw, a JSON array without surrounding
+// whitespace that json.Valid accepted. The elements are those json.Unmarshal
+// stores in a []json.RawMessage, sliced from raw without a second decode.
+func splitArray(raw []byte) []json.RawMessage {
+	var elems []json.RawMessage
+	depth, start, end := 0, -1, 0
+	for i := 1; i < len(raw)-1; i++ {
+		c := raw[i]
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			continue
+		}
+		if c == ',' && depth == 0 {
+			elems = append(elems, raw[start:end])
+			start = -1
+			continue
+		}
+		if start < 0 {
+			start = i
+		}
+		switch c {
+		case '"':
+			for i++; raw[i] != '"'; i++ {
+				if raw[i] == '\\' {
+					i++
+				}
+			}
+		case '[', '{':
+			depth++
+		case ']', '}':
+			depth--
+		}
+		end = i + 1
+	}
+	if start >= 0 {
+		elems = append(elems, raw[start:end])
+	}
+	return elems
 }

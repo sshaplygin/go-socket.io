@@ -145,8 +145,9 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   0 CONNECT, 1 DISCONNECT, 2 EVENT, 3 ACK, 4 ERROR, 5 BINARY_EVENT, 6 BINARY_ACK.
   An unknown or invalid packet type closes the connection.
   An encoded JSON payload ends with a newline (`\n`), for example
-  `42["hello","x"]\n`; a packet without a payload, such as `40`, has none. This is
-  an intentional whitespace difference from the reference server.
+  `2["hello","x"]\n` (Engine.IO message `42["hello","x"]\n`); a packet without a
+  payload, such as the CONNECT packet `0`, has none. This is an intentional
+  whitespace difference from the reference server.
 - On a new session the server connects the client to the root namespace `/`
   automatically and sends `0` before any client packet. Other namespaces are joined
   when the client sends `0/<nsp>`.

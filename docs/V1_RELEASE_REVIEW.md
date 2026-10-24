@@ -1568,7 +1568,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W21. Prepare broadcasts once and skip the single-room dedup map
 
-- **Status:** in progress — #160
+- **Status:** in progress — #160; BenchmarkBroadcastWebsocket/structs100-10: 5463 → 848 allocs/op, 931.8 → 579.7 µs; BenchmarkMemorySendTo/one-room: 32 → 2 allocs/op, 100.3 → 14.2 µs (manual, against 88d8d26, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-6](#performance-findings), [PERF-12](#performance-findings)
 - **Depends on:** W2

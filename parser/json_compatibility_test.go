@@ -7,6 +7,7 @@ import (
 	"math"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/sshaplygin/go-socket.io/parser"
 )
@@ -290,5 +291,40 @@ func TestEncodeNonFiniteScalarsMatchEncodingJSON(t *testing.T) {
 		if !errors.As(err, &got) || !errors.As(standardErr, &want) || got.Str != want.Str {
 			t.Fatalf("value %v: error = %v, want %v", value, err, standardErr)
 		}
+	}
+}
+
+// sharedSubtypes refers to T twice, so nesting it n times yields n+1 distinct
+// types but 2^n paths through the type graph.
+type sharedSubtypes[T any] struct{ L, R []T }
+
+type (
+	sharedSubtypes4  = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[int]]]]
+	sharedSubtypes8  = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes4]]]]
+	sharedSubtypes12 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes8]]]]
+	sharedSubtypes16 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes12]]]]
+	sharedSubtypes20 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes16]]]]
+	sharedSubtypes24 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes20]]]]
+)
+
+func TestPreparePlainTypeCheckIsLinearInSharedSubtypes(t *testing.T) {
+	// The plain-type check must visit each distinct type once; walking every path
+	// makes the first Prepare of this type exponential in the nesting depth.
+	var value sharedSubtypes24
+	start := time.Now()
+	packet, err := parser.Prepare(parser.Header{Type: parser.Event}, []any{"event", value})
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed > 100*time.Millisecond {
+		t.Fatalf("first Prepare took %v, want at most 100ms", elapsed)
+	}
+	w := new(recordedWriter)
+	if err := parser.NewEncoder(w).EncodePrepared(packet); err != nil {
+		t.Fatal(err)
+	}
+	if want := `2["event",{"L":null,"R":null}]` + "\n"; len(w.frames) != 1 || w.frames[0].String() != want {
+		t.Fatalf("frames = %v, want %q", w.frames, want)
 	}
 }

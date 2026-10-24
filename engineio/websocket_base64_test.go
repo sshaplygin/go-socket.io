@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -61,8 +62,9 @@ func TestWebsocketBase64Mode(t *testing.T) {
 			require.NoError(t, writer.Close())
 			typ, packet, err := ws.ReadMessage()
 			require.NoError(t, err)
-			require.Equal(t, websocket.TextMessage, typ)
-			require.Equal(t, "b4AQI=", string(packet))
+			// Check the inbound direction even when the outbound frame is wrong.
+			assert.Equal(t, websocket.TextMessage, typ, "outbound binary packet frame type")
+			assert.Equal(t, "b4AQI=", string(packet), "outbound binary packet encoding")
 			require.NoError(t, ws.WriteMessage(websocket.TextMessage, []byte("b4AQI=")))
 			ft, reader, err := conn.NextReader()
 			require.NoError(t, err)

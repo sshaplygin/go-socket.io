@@ -479,7 +479,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W2. Add Socket.IO-level benchmarks
 
-- **Status:** in progress — #153; adds `BenchmarkEncode`, `BenchmarkEncodePrepared`, `BenchmarkDecode`, `BenchmarkBroadcastWebsocket`, `BenchmarkEmitWebsocket`, `BenchmarkJoinRoom`, `BenchmarkConnectWebsocket`, `BenchmarkMemorySendTo`, `BenchmarkRedisSendTo`, `BenchmarkRedisSendToParallel`, `BenchmarkWebsocketEcho`, `BenchmarkPollingEcho`, `BenchmarkPayloadRoundTrip` and `BenchmarkPollingClientsBroadcast` (26 cases). Full benchmark run passed in 156.105 s; darwin polling/connect ten-repeat check passed without dial errors; Linux Benchmarks report and review pending.
+- **Status:** in progress — #153; adds `BenchmarkEncode`, `BenchmarkEncodePrepared`, `BenchmarkDecode`, `BenchmarkBroadcastWebsocket`, `BenchmarkEmitWebsocket`, `BenchmarkJoinRoom`, `BenchmarkConnectWebsocket`, `BenchmarkMemorySendTo`, `BenchmarkRedisSendTo`, `BenchmarkRedisSendToParallel`, `BenchmarkWebsocketEcho`, `BenchmarkPollingEcho`, `BenchmarkPayloadRoundTrip` and `BenchmarkPollingClientsBroadcast` (26 cases). Full benchmark run passed in 156.105 s; darwin polling/connect ten-repeat check passed without dial errors; Linux report generation and PR comment publication passed on Go 1.27.3 with all 26 new cases and Time/Bytes/Allocations tables; review pending.
 - **Priority:** before tag (W3 and W4 need it to show before/after)
 - **Findings:** [PERF-10](#performance-findings)
 - **Depends on:** none

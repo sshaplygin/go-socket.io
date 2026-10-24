@@ -196,9 +196,7 @@ func (nh *namespaceHandler) SetAdapter(b adapter.Adapter, err error) {
 		b = unavailableAdapter{err: err}
 	}
 	nh.broadcast, nh.err = b, err
-	if binding, ok := b.(interface {
-		BindSocketLookup(func(string) adapter.Socket)
-	}); ok && err == nil {
+	if binding, ok := b.(adapter.SocketLookupBinder); ok && err == nil {
 		binding.BindSocketLookup(func(id string) adapter.Socket {
 			nh.connectedMu.RLock()
 			defer nh.connectedMu.RUnlock()

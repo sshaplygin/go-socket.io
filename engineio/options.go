@@ -255,7 +255,10 @@ func WithCookieEnabled(value bool) Option {
 	return func(config *options) { config.DisableCookie = !value }
 }
 
-// WithCORS enables permissive cross-origin polling and websocket access; the default is true. Explicit transport origin checks take precedence.
+// WithCORS enables permissive cross-origin polling and websocket access; the default is true.
+// Explicit transport origin checks take precedence. The default lets any origin
+// make credentialed browser requests, so cookie-authenticated applications should
+// configure an origin allow-list.
 func WithCORS(value bool) Option {
 	return func(config *options) { config.DisableCORS = !value }
 }

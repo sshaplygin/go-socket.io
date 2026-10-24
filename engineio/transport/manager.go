@@ -5,7 +5,7 @@ import (
 	"net/url"
 )
 
-// Transport is a transport which can creates base.Conn
+// Transport accepts and dials transport connections.
 type Transport interface {
 	Name() string
 	Accept(w http.ResponseWriter, r *http.Request) (Conn, error)

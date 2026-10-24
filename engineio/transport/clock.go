@@ -16,10 +16,10 @@ func (timeClock) Now() time.Time {
 
 // Timestamp returns a string based on different nano time.
 func Timestamp() string {
-	return TimestampFromClock(timeClock{})
+	return timestampFromClock(timeClock{})
 }
 
-func TimestampFromClock(c clock) string {
+func timestampFromClock(c clock) string {
 	now := c.Now().UnixNano()
 	ret := make([]byte, 0, 16)
 	for now > 0 {

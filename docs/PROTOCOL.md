@@ -15,6 +15,8 @@ Package `engineio` of the v1 module at the repository root.
   with code 2, below). The `OPEN` packet carries `sid` (random, as engine.io's
   `base64id`), `upgrades` (`[]` with `WithUpgrades(false)`), `pingInterval` (default
   25 s) and `pingTimeout` (default 20 s). There is no `maxPayload`: protocol v3 has none.
+  The JSON of the `OPEN` packet ends with a newline (`\n`), an intentional
+  whitespace difference from engine.io 3.6.2.
 - Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`). Every packet
   the session reads re-arms a window of `pingInterval + pingTimeout`; when it passes
   without one, the session closes with reason `ping timeout`.
@@ -32,6 +34,12 @@ Package `engineio` of the v1 module at the repository root.
   encoded-packet threshold when enabled. The Go client offers it when configured,
   with the same threshold. Per-packet compression defaults to true; false suppresses
   it for the packet and all its binary attachments on either transport.
+  Websocket ignores `b64`; a `forceBase64` client is disconnected when it sends
+  base64-encoded binary data over websocket.
+  As a known limitation, a server-initiated websocket close, such as `Conn.Close`
+  or `Server.Close`, closes the underlying connection without a websocket close
+  control frame, so the client observes close code 1006. The message-limit close
+  below does send a close frame, with code 1009.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
   to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
   threshold and only for a packet whose compression flag is true. The threshold is
@@ -71,6 +79,62 @@ Package `engineio` of the v1 module at the repository root.
   `Content-Type`, a POST the payload cannot take (paused, overlapping, closed, timed out
   or not decodable) or an invalid method, 413 for the message limit above, 500 for a poll
   whose response failed before it was started.
+  As a known compatibility limitation, a polling POST is accepted only with
+  `Content-Type` `application/octet-stream` (binary payload, parameters ignored) or
+  `text/plain` with `charset=utf-8` (text payload); type and charset are
+  case-insensitive. Any other value, including `text/plain` without a charset and a
+  missing header, is answered HTTP 400. Engine.IO 3.6.2 decodes a body as binary
+  only when `Content-Type` is exactly `application/octet-stream` and as text
+  otherwise.
+
+### CORS
+
+By default both built-in transports accept every origin. Polling reflects the
+request's `Origin` in `Access-Control-Allow-Origin` and sets
+`Access-Control-Allow-Credentials: true`; without an Origin it uses `*` and omits
+credentials. Websocket accepts foreign origins for direct connections and upgrades.
+An `OPTIONS` request on an open polling session returns HTTP 200 with
+`Access-Control-Allow-Headers: Content-Type` and the same origin headers. The
+transport always sets that value, replacing an `Access-Control-Allow-Headers`
+header set by middleware in front of the handler. An
+`OPTIONS` request without a `sid`, such as the preflight of a handshake that sends
+custom headers (for example `extraHeaders`), is answered HTTP 400 with code 2
+`Bad handshake method` (see the rejection responses under
+[Engine.IO protocol v3](#engineio-protocol-v3)).
+
+`engineio.WithCORS(false)` removes `Access-Control-Allow-Origin` and
+`Access-Control-Allow-Credentials` from polling responses, including error responses.
+An open session's `OPTIONS` request still returns HTTP 200 and
+`Access-Control-Allow-Headers: Content-Type`. Cross-origin polling requests are
+still served: CORS headers control browser access to responses, not HTTP access.
+Websocket instead uses its same-origin check and rejects foreign origins with
+HTTP 403. Requests without an Origin remain accepted.
+
+Explicit transport `CheckOrigin` callbacks override either default for requests
+dispatched to that transport. An error response for an unknown `transport=` value
+still uses the server-wide `WithCORS` setting. For example, with imports
+`net/http`, `engineio`, `engineio/transport/polling` and
+`engineio/transport/websocket` from this module, an application can configure:
+
+```go
+allowOrigin := func(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	return origin == "" || origin == "https://chat.example.com"
+}
+server := engineio.NewServer(engineio.WithTransports(
+	&polling.Transport{CheckOrigin: allowOrigin},
+	&websocket.Transport{CheckOrigin: allowOrigin},
+))
+```
+
+Browsers always send `Origin` on websocket handshakes, so accepting an empty
+Origin keeps cross-site WebSocket hijacking protection while allowing non-browser
+clients, such as this module's Go client and Node clients, which send none.
+
+A false polling origin check suppresses CORS headers; a false websocket check
+rejects the handshake. Applications needing to reject HTTP requests must also
+use request authentication/access controls, such as HTTP middleware. In
+particular, do not rely on the permissive default for cookie-authenticated access.
 
 ## Socket.IO protocol v4
 
@@ -79,6 +143,11 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
 
 - Packet format `<type>[<attachments>-][<namespace>,][<ack id>][JSON]`. Types
   0 CONNECT, 1 DISCONNECT, 2 EVENT, 3 ACK, 4 ERROR, 5 BINARY_EVENT, 6 BINARY_ACK.
+  An unknown or invalid packet type closes the connection.
+  An encoded JSON payload ends with a newline (`\n`), for example
+  `2["hello","x"]\n` (Engine.IO message `42["hello","x"]\n`); a packet without a
+  payload, such as the CONNECT packet `0`, has none. This is an intentional
+  whitespace difference from the reference server.
 - On a new session the server connects the client to the root namespace `/`
   automatically and sends `0` before any client packet. Other namespaces are joined
   when the client sends `0/<nsp>`.
@@ -88,7 +157,17 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   following binary frames; on the Go side they map to `parser.Buffer`.
 - Event handlers return values become the ACK payload; an ACK packet is sent when the
   client requested an ack and a listener handled the event. Emitting with a trailing
-  function argument registers an ack callback.
+  function argument registers an ack callback. As a known limitation, when an
+  untyped handler's argument types do not match the event's arguments, the server
+  sends no ACK and no ERROR packet, so a JavaScript ACK callback never fires.
+  Acknowledged typed descriptors (`NewAckEvent`) answer the same case with an
+  error ACK.
+- An ERROR payload is always a JSON string: `err.Error()` for a connect or event
+  middleware rejection or an `OnConnect` error, for example `4"rejected"`, and
+  `Invalid namespace` for an unknown namespace. Additional error data is not
+  sent, even when the error value implements `json.Marshaler`. As a known
+  compatibility limitation, socket.io 2.5.0 instead sends `err.data` when it is
+  set, which can be any JSON value, and `err.message` otherwise.
 - Namespace query strings (`0/nsp?x=1`) are parsed into `Header.Query` and merged into
   `Handshake().Query` of that socket.
 
@@ -125,6 +204,44 @@ Malformed envelopes are discarded.
 Redis Pub/Sub provides no replay during disconnection. Queries are bounded,
 non-atomic snapshots; context-aware operations report timeouts and partial results.
 
+### Upgrading from upstream Go Redis adapters
+
+The Redis adapter is wire-incompatible with `googollee/go-socket.io` v1.7.0.
+Although both use `socket.io` as their default prefix, their channel names and
+broadcast codecs differ. The `%s` placeholders below are, in order, the prefix, the
+namespace and (in the upstream key) the instance ID:
+
+| Item | Upstream Go v1.7.0 | This fork |
+| --- | --- | --- |
+| Subscription pattern | `%s#%s#*` | `%s#*` |
+| Key | `%s#%s#%s` | `%s#%s#` |
+| Request channel | `%s-request#%s` | `%s-request#%s#` |
+| Broadcast codec | JSON | MessagePack |
+
+Do not run old and new Go instances with the same prefix during an upgrade.
+For a shared non-root namespace, any fork broadcast published on the namespace
+channel, to the whole namespace or to more than one room, stops every upstream
+peer's Redis dispatcher in that namespace on a decode error. A single-room
+broadcast does the same when the room name, or its last `#`-separated segment,
+equals the namespace name. Those peers then receive no broadcasts and answer no
+cluster requests; their `Server.RoomLen` and `Server.Rooms` calls block without a
+timeout.
+The fork discards upstream messages it cannot decode.
+
+Root-namespace broadcasts are lost in both directions but do not stop upstream
+dispatchers. This fork normalizes the root namespace to `/`: its root channels
+(`socket.io#/#…`) do not match upstream's root subscription (`socket.io##*`),
+which uses an empty namespace. Upstream root broadcasts (`socket.io##<uid>`) do not
+match the fork's root channel prefix (`socket.io#/#`), so the fork ignores them.
+
+For a staged upgrade, give every new instance a distinct prefix, for example
+`redisadapter.New(redisadapter.WithPrefix("socket.io-fork"))`. Old and new fleets
+are then separate clusters: broadcasts and room queries do not cross between
+them. Move clients to the new fleet and retire the old instances before reusing
+the original prefix. Redis Pub/Sub is shared across database numbers, so changing the
+Redis database alone does not isolate fleets. Alternatively, stop all old
+instances before starting the new fleet with the original prefix; upgrade every
+instance together without an overlap.
 
 ## JSONP
 

@@ -308,6 +308,11 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 		_ = newSession.Shutdown()
 		return nil, io.EOF
 	}
+	if _, exists := s.sessions.Get(sid); exists || s.live[sid] != nil {
+		s.lifecycle.Unlock()
+		_ = newSession.Shutdown()
+		return nil, fmt.Errorf("generate session id: duplicate identifier")
+	}
 	s.sessions.Add(newSession)
 	s.live[sid] = newSession
 	s.lifecycle.Unlock()

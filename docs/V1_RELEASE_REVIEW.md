@@ -976,7 +976,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W10. Prepare the release commit
 
-- **Status:** in progress — #193
+- **Status:** done — #193
 - **Priority:** before tag
 - **Findings:** [API-10](#api-compatibility-findings), [REL-6](#release-engineering-findings),
   [REL-2](#release-engineering-findings), [REL-3](#release-engineering-findings),
@@ -1036,7 +1036,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D1. Version number and inherited tags
 
-- **Status:** decided — option A + R1 (2026-10-24); in progress — #193
+- **Status:** decided — option A + R1 (2026-10-24); done — #193
 - **Priority:** owner decision
 - **Findings:** [API-2](#api-compatibility-findings), [REL-7](#release-engineering-findings),
   [CL-10](#clarity-findings)
@@ -1239,7 +1239,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W11. Reject duplicate session IDs
 
-- **Status:** open
+- **Status:** done — #159
 - **Priority:** after release
 - **Findings:** [C3](#correctness-and-security-findings)
 - **Depends on:** none
@@ -1321,7 +1321,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W13. Document and log the OnError contract
 
-- **Status:** open
+- **Status:** done — #161
 - **Priority:** after release
 - **Findings:** [CL-3](#clarity-findings), [C4](#correctness-and-security-findings)
 - **Depends on:** none
@@ -1348,7 +1348,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W14. Document dynamic namespace retention
 
-- **Status:** open
+- **Status:** done — #164
 - **Priority:** after release
 - **Findings:** [C2](#correctness-and-security-findings), [ARCH-9](#architecture-findings)
 - **Depends on:** none
@@ -1398,7 +1398,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W16. Document the remaining wire differences
 
-- **Status:** open
+- **Status:** done — #167
 - **Priority:** after release
 - **Findings:** [interop-2](#interoperability-findings), [interop-3](#interoperability-findings),
   [interop-4](#interoperability-findings), [interop-5](#interoperability-findings),
@@ -1424,7 +1424,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W17. Conformance heartbeat and Redis teardown
 
-- **Status:** open
+- **Status:** in progress — #168
 - **Priority:** after release
 - **Findings:** [T3](#tests-findings), [interop-7](#interoperability-findings),
   [interop-8](#interoperability-findings)
@@ -2913,9 +2913,9 @@ Every finding is listed under the dimension that reported it.
 | ID | Severity | Re-check | Location | Finding | Recommendation |
 | --- | --- | --- | --- | --- | --- |
 | C1 | blocker | confirmed | `engineio/internal/session/session.go:489` | Permanent three-way deadlock between a session's read path, an in-flight websocket write and Close/Abort/Shutdown | Do not hold upgradeLocker while calling into transport deadline setters. In setDeadline, read s.conn under RLock, release the lock, then call SetReadDeadline and SetWriteDeadline, as nextReader and nextWriterCompress already do. Also make Session.fail lock-free: keep closed and conn in atomics or snapshot them without the RWMutex, so a failing writer can never wait on a pending Close. Optionally store the websocket write deadline atomically and apply it inside nextWriter under writeLocker, so SetWriteDeadline does not wait for an in-flight write. Make engineio.Server.Close shut sessions down concurrently or with a bound, so one stuck session cannot block the others. Add a -race regression test: a non-reading websocket client keeps sending packets (pings or messages) while the server emits large payloads, and Close/Abort/Server.Close must return promptly with OnDisconnect fired. Fixed by #147 (W1). |
-| C2 | major → minor | partially-confirmed | `server.go:406` | Dynamic namespaces created by clients through OfFunc are never removed (unbounded memory growth) | Remove a dynamic child, and close its adapter, when its last socket leaves (the equivalent of socket.io 4.6 cleanupEmptyChildNamespaces), or at least when no socket ever connected. Alternatively, offer a cap or opt-in cleanup option. State the retention in the OfFunc godoc and docs/V1.md. |
-| C3 | minor | — | `engineio/server.go:303` | Duplicate session ID from a custom IDGenerator silently replaces a live session; Server.Close leaves the first one open | Under s.lifecycle in newSession, reject the handshake (or ask the generator again) when the sid is already registered or in s.live, and document that IDGenerator must return unique IDs. |
-| C4 | minor | — | `namespace_handlers.go:223` | Panics in a user OnError handler are swallowed without any log | Log the recovered value through the connection or server logger, e.g. c.log.Warn("socketio: OnError panic", ...), as is done for other unhandled errors. |
+| C2 | major → minor | partially-confirmed | `server.go:406` | Dynamic namespaces created by clients through OfFunc are never removed (unbounded memory growth) | Remove a dynamic child, and close its adapter, when its last socket leaves (the equivalent of socket.io 4.6 cleanupEmptyChildNamespaces), or at least when no socket ever connected. Alternatively, offer a cap or opt-in cleanup option. State the retention in the OfFunc godoc and docs/V1.md. Fixed by #164 (W14). |
+| C3 | minor | — | `engineio/server.go:303` | Duplicate session ID from a custom IDGenerator silently replaces a live session; Server.Close leaves the first one open | Under s.lifecycle in newSession, reject the handshake (or ask the generator again) when the sid is already registered or in s.live, and document that IDGenerator must return unique IDs. Fixed by #159 (W11). |
+| C4 | minor | — | `namespace_handlers.go:223` | Panics in a user OnError handler are swallowed without any log | Log the recovered value through the connection or server logger, e.g. c.log.Warn("socketio: OnError panic", ...), as is done for other unhandled errors. Fixed by #161 (W13). |
 | C5 | minor | — | `engineio/options.go:178` | Permissive CORS default (origin reflected with credentials, websocket origin check disabled) is documented only in godoc | Document the default and how to restrict it (WithCORS(false), transport CheckOrigin) in docs/V1.md in a security section. Consider an example that uses an origin allow-list. Fixed by #148 (W6). |
 
 ### API compatibility findings
@@ -2942,7 +2942,7 @@ Every finding is listed under the dimension that reported it.
 | --- | --- | --- | --- | --- | --- |
 | CL-1 | major | confirmed | `README.md:41` | No inline quick start: README links runnable server and Go client examples, but README, V1.md and godoc contain no code that mounts the handler or calls Serve, Close or client Connect, and there are no Example functions | Add a short server+client lifecycle sketch to the root package doc or docs/V1.md (README keeps linking to runnable examples, per b557f2a): NewServer, OnConnect/OnEvent, `go server.Serve()`, `defer server.Close()`, `http.Handle("/socket.io/", server)`, client.New/Connect/Emit with ack. Add runnable `Example` functions in the root and client packages. State in the Server type doc and Serve doc that Serve must run for connections to be dispatched. Fixed by #150 (W9). |
 | CL-2 | major → minor → major (M4) | partially-confirmed | `adapter/redis/adapter.go:153` | Redis adapter silently drops room/namespace broadcasts with a trailing callback, while godoc says callbacks are supported | Either make Send/SendAll log or return the rejection (and have BroadcastToRoom/BroadcastToNamespace return false), or correct the redis Send/SendAll comments, the ErrBroadcastAck doc and the BroadcastToRoom/BroadcastToNamespace docs to say that clustered adapters reject callbacks and send nothing. Fixed by #152 (W5). |
-| CL-3 | major → minor | confirmed | `server.go:150` | OnError contract undocumented: nil Conn for root rejections and silently recovered panics; V1.md's inactive-context wording is too broad | Document on both OnError methods that Conn is nil for root connect/middleware failures and an inactive Conn for other namespaces, and that panics in OnError are recovered and discarded. Fix the wording at V1.md:41. Consider logging recovered OnError panics at WARN. |
+| CL-3 | major → minor | confirmed | `server.go:150` | OnError contract undocumented: nil Conn for root rejections and silently recovered panics; V1.md's inactive-context wording is too broad | Document on both OnError methods that Conn is nil for root connect/middleware failures and an inactive Conn for other namespaces, and that panics in OnError are recovered and discarded. Fix the wording at V1.md:41. Consider logging recovered OnError panics at WARN. Fixed by #161 (W13). |
 | CL-4 | major | confirmed | `README.md:7` | No migration guide from googollee/go-socket.io despite pervasive API changes; Conn.ID format change is undocumented | Add a short 'Migrating from googollee/go-socket.io' section, in V1.md or a linked file: import path, the constructor/option mapping, Redis adapter setup, client package, ID format, and removed APIs. State the ID format in the Conn.ID godoc of both roles. Fixed by #191 (W8). |
 | CL-5 | minor | — | `.golangci.yml:17` | 9 of 12 public packages lack a package comment; lint explicitly disables the checks | Add package docs (root and client with a usage sketch). Document the remaining exported identifiers. Re-enable ST1000/ST1020-1022 or revive's exported rule, at least for the root, client, engineio and adapter packages. |
 | CL-6 | minor | — | `adapter/redis/cluster.go:26` | redis.Cluster methods have unnamed parameters; argument order and the bool meaning are invisible | Name the parameters in the interface (ctx, sid, room, closeEngine) and add one-line docs per method, including error and timeout semantics. |
@@ -2968,7 +2968,7 @@ Every finding is listed under the dimension that reported it.
 | ARCH-6 | minor | — | `types.go:61` | Conn.EngineConn exposes full engine frame I/O alongside the library's own reader and writer | Document EngineConn as metadata-only (ID, Transport, Upgraded, ReadyState, Close), or return a narrower public interface before v1.5.0. Fixed by #189 (D5). |
 | ARCH-7 | minor | — | `client/namespace_handlers.go:100` | Server and client runtimes are maintained in parallel | Keep role independence, but extract the role-neutral pieces (listener registry, frame failure tracking, header-reader worker) into an internal package the graph allows for both roles, or add paired behavioral tests that run against both roles. |
 | ARCH-8 | minor | — | `engineio/client/client.go:489` | Complexity hotspots in lifecycle code, including a 1 ms Resume retry loop because Pause has no cancellation path and a Resume issued before Pause starts is lost | For v1.5.0 no restructuring is required, but freeze behavior with the existing tests. Afterwards, give Pause a cancellation path (a context or stop channel) and model the connection close as an explicit state enum. |
-| ARCH-9 | minor | — | `namespace.go:161` | Dynamic child namespaces are never removed (unbounded registry growth), and OfFunc does not document it | Document the retention in OfFunc and in docs/V1.md, and advise restrictive match functions. Consider a later option to remove empty children (as socket.io 4.6 cleanupEmptyChildNamespaces does). |
+| ARCH-9 | minor | — | `namespace.go:161` | Dynamic child namespaces are never removed (unbounded registry growth), and OfFunc does not document it | Document the retention in OfFunc and in docs/V1.md, and advise restrictive match functions. Consider a later option to remove empty children (as socket.io 4.6 cleanupEmptyChildNamespaces does). Fixed by #164 (W14). |
 | ARCH-10 | minor | — | `parser/encoder.go:138` | Parser reimplements encoding/json traversal for every outbound payload; the GOEXPERIMENT=jsonv2 build variants are not exercised in CI | Add a CI job with GOEXPERIMENT=jsonv2 on the newest Go, and keep the json_compatibility tests as a differential check against encoding/json. Consider a fast path that uses json.Marshal directly when the value contains no parser.Buffer. |
 | ARCH-11 | nit | — | `engineio/parser/fake.go:61` | engineio packages export test fakes and other API oddities | Move the fakes to an internal test helper package, unexport TimestampFromClock, and fix the two stale `base.Conn` doc comments before tagging. Fixed by #156 (D6). |
 | ARCH-12 | nit | — | `adapter/redis/cluster.go:104` | Redis log records use the attribute key 'namespace', which the logger contract does not list | Use nspAttr-style `nsp` with the '/' convention. |
@@ -2997,13 +2997,13 @@ Every finding is listed under the dimension that reported it.
 | ID | Severity | Re-check | Location | Finding | Recommendation |
 | --- | --- | --- | --- | --- | --- |
 | interop-1 | major → minor | confirmed | `engineio/transport/websocket/wrapper.go:39` | WebSocket transport ignores Engine.IO base64 mode; a forceBase64 client is disconnected when it sends binary | In the websocket transport, decode text frames that start with 'b' as base64 binary packets. When the request carries `b64=1`, write binary packets as `b<base64>` text frames, as engine.io 3.6.2 does. Add a forceBase64 case (websocket and upgrade) to testdata/node/client.js. If this is not implemented for v1.5.0, document it in PROTOCOL.md as unsupported. |
-| interop-2 | minor | — | `parser/encoder.go:144` | Every JSON payload and the OPEN packet carry an undocumented trailing newline | Either drop the newline (both the Socket.IO payload and the OPEN packet), or record it in PROTOCOL.md as an intentional difference kept for compatibility with older go-socket.io releases. |
-| interop-3 | minor | — | `engineio/transport/polling/util.go:21` | Polling POST rejects Content-Types that the reference server accepts | Match the reference: treat any non-octet-stream body as text. Otherwise, document the exact accepted media types as a Go-specific restriction in PROTOCOL.md. |
-| interop-4 | minor | — | `packets.go:211` | Connect and event middleware rejections are always sent as a string; no counterpart to Node's err.data | Allow an error type (for example one with `Data() any`) whose value becomes the ERROR payload, or document in PROTOCOL.md that ERROR payloads are always `err.Error()` strings. |
-| interop-5 | minor | — | `packets.go:103` | Untyped handler with a mismatched argument type sends no ACK, so the JS callback never fires (undocumented) | Document the behavior next to the ACK rules in V1.md or PROTOCOL.md. Consider sending an error ACK or an ERROR packet so JS callers can detect the failure. |
-| interop-6 | nit | — | `engineio/transport/websocket/connect.go:117` | Server-initiated websocket close sends no close frame | Write a CloseMessage (1000) with a short deadline before closing the underlying connection on orderly server closes. |
-| interop-7 | nit | — | `docs/PARITY.md:20` | PARITY.md groups heartbeat with raw conformance coverage, but no conformance scenario asserts a periodic ping | Add a short-interval heartbeat scenario (for example `WithPingInterval(200ms)`, then idle for about 1 s and send an ACK) to client.js for both transports, or make the PARITY.md row say which tests own the heartbeat. |
-| interop-8 | nit | — | `internal/conformance/testdata/node/server/redis-cluster.js:199` | Redis mixed-cluster polling scenario idles 30 s after finishing, leaving little margin in runNode's 45 s timeout | Find and remove what keeps the process alive after cleanup, or end the scenario with an explicit `process.exit(process.exitCode \|\| 0)` after cleanup (corrected: the clients are already closed before `io.close()`, `redis-cluster.js:199-200`; see W17). |
+| interop-2 | minor | — | `parser/encoder.go:144` | Every JSON payload and the OPEN packet carry an undocumented trailing newline | Either drop the newline (both the Socket.IO payload and the OPEN packet), or record it in PROTOCOL.md as an intentional difference kept for compatibility with older go-socket.io releases. Fixed by #167 (W16). |
+| interop-3 | minor | — | `engineio/transport/polling/util.go:21` | Polling POST rejects Content-Types that the reference server accepts | Match the reference: treat any non-octet-stream body as text. Otherwise, document the exact accepted media types as a Go-specific restriction in PROTOCOL.md. Fixed by #167 (W16). |
+| interop-4 | minor | — | `packets.go:211` | Connect and event middleware rejections are always sent as a string; no counterpart to Node's err.data | Allow an error type (for example one with `Data() any`) whose value becomes the ERROR payload, or document in PROTOCOL.md that ERROR payloads are always `err.Error()` strings. Fixed by #167 (W16). |
+| interop-5 | minor | — | `packets.go:103` | Untyped handler with a mismatched argument type sends no ACK, so the JS callback never fires (undocumented) | Document the behavior next to the ACK rules in V1.md or PROTOCOL.md. Consider sending an error ACK or an ERROR packet so JS callers can detect the failure. Fixed by #167 (W16). |
+| interop-6 | nit | — | `engineio/transport/websocket/connect.go:117` | Server-initiated websocket close sends no close frame | Write a CloseMessage (1000) with a short deadline before closing the underlying connection on orderly server closes. Fixed by #167 (W16). |
+| interop-7 | nit | — | `docs/PARITY.md:20` | PARITY.md groups heartbeat with raw conformance coverage, but no conformance scenario asserts a periodic ping | Add a short-interval heartbeat scenario (for example `WithPingInterval(200ms)`, then idle for about 1 s and send an ACK) to client.js for both transports, or make the PARITY.md row say which tests own the heartbeat. Fixed by #168 (W17). |
+| interop-8 | nit | — | `internal/conformance/testdata/node/server/redis-cluster.js:199` | Redis mixed-cluster polling scenario idles 30 s after finishing, leaving little margin in runNode's 45 s timeout | Find and remove what keeps the process alive after cleanup, or end the scenario with an explicit `process.exit(process.exitCode \|\| 0)` after cleanup (corrected: the clients are already closed before `io.close()`, `redis-cluster.js:199-200`; see W17). Fixed by #168 (W17). |
 | interop-9 | nit | — | `docs/PROTOCOL.md:60` | Unknown Socket.IO packet type and missing CORS wire description are undocumented differences | Add a CORS bullet (default, WithCORS(false), preflight) and a note on how invalid packets are handled to PROTOCOL.md. Fixed by #148 (W6). |
 
 ### Tests findings
@@ -3012,7 +3012,7 @@ Every finding is listed under the dimension that reported it.
 | --- | --- | --- | --- | --- | --- |
 | T1 | minor | — | `parser/json_encode.go:252` | omitempty handling in the rewritten Socket.IO JSON encoder has zero test coverage | Add a table-driven differential test in parser/json_compatibility_test.go that encodes omitempty structs (all kinds handled by isJSONEmpty, including nested and Buffer-bearing fields) and compares against json.Marshal. Consider adding an encoder fuzz target that compares against encoding/json for binary-free values. Fixed by #169 (W3). |
 | T2 | minor | — | `engineio/transport/websocket/wrapper.go:76` | No goroutine-leak detection; a probe finds library frame-reader goroutines left for 30s after parse/mid-frame errors, plus leaking client test fixtures | Close the last frame reader on the decode-error and transport-failure paths in the server and client read loops. Fix the leaking fixtures by closing clients via t.Cleanup and using buffered or select-guarded channels in handlers. Add a goroutine-leak check (go.uber.org/goleak VerifyTestMain or an equivalent NumGoroutine wait) to the root, client and engineio packages so close and shutdown regressions fail CI. Fixed by #157 (W12). |
-| T3 | minor | — | `docs/PARITY.md:20` | No conformance scenario asserts the Engine.IO periodic heartbeat against a real JS client; heartbeat is covered only by engineio/session tests | Add a conformance scenario with WithPingInterval(200ms) and WithPingTimeout(200ms) that keeps a JS client connected across several intervals on each transport. Also have the client suppress pings and assert 'ping timeout'. Alternatively, correct the PARITY.md row. |
+| T3 | minor | — | `docs/PARITY.md:20` | No conformance scenario asserts the Engine.IO periodic heartbeat against a real JS client; heartbeat is covered only by engineio/session tests | Add a conformance scenario with WithPingInterval(200ms) and WithPingTimeout(200ms) that keeps a JS client connected across several intervals on each transport. Also have the client suppress pings and assert 'ping timeout'. Alternatively, correct the PARITY.md row. Fixed by #168 (W17). |
 | T4 | minor | — | `redis_integration_test.go:174` | TestRedisServerCloseStopsBroadcasts spends 10s inside a blocking OnConnect and neither bounds nor documents that behavior | Expose a test hook or redis option (dial timeout) so the root test can use a short timeout and assert that registration returns within it. Document in docs/V1.md that registering a handler on a new namespace dials Redis synchronously and can block up to the dial timeout. |
 | T5 | nit | follow-up: partial | `parser/prepared_test.go:64` | No encoder or round-trip fuzz target. The decoder package `engineio/parser/internal/packet` has no tests of its own, but `TestPacketDecoder` and other `engineio/parser` contract tests exercise it through `NewPacketDecoder` (89.5% cross-package coverage), so that subclaim is not a material gap | Add FuzzDecodeArgs (decode into a fixed set of typed targets) and a round-trip fuzz (Prepare -> Decoder -> compare) for binary-free values. |
 | T6 | nit | — | `engineio/transport/polling/pauser_test.go:206` | Residual sleep-based synchronization in inherited polling tests weakens rather than flakes | Replace the sleeps with explicit readiness signals, for example a hook or channel signalled when the goroutine enters the blocking wait. |

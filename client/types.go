@@ -25,7 +25,8 @@ type Conn interface {
 	Close() error
 	Namespace
 
-	// ID returns this namespace socket's ID.
+	// ID returns the Engine.IO ID in the root namespace, or
+	// <namespace>#<Engine.IO ID> in any other namespace.
 	ID() string
 	URL() url.URL
 	LocalAddr() net.Addr

@@ -36,7 +36,10 @@ type Socket interface {
 }
 
 // SocketLookupBinder optionally receives the server's live socket lookup.
-// The lookup is independent of room membership. A nil lookup clears the binding.
+// The lookup is independent of room membership. The server calls it once, after
+// the adapter is constructed and before the namespace accepts connections. The
+// lookup returns nil for IDs not connected to the namespace, is safe for
+// concurrent use and holds no server lock while the adapter runs.
 type SocketLookupBinder interface {
 	BindSocketLookup(lookup func(string) Socket)
 }
@@ -54,7 +57,11 @@ var ErrExceptUnsupported = errors.New("socketio: broadcast except is not support
 // Adapter manages namespace rooms and delivery. Its methods must support
 // concurrent calls from handlers and Server methods. Delivery invokes each target
 // only after releasing the adapter's lock. Send and SendAll are wrappers over
-// SendTo; Rooms(nil) is equivalent to AllRooms.
+// SendTo; Rooms(nil) is equivalent to AllRooms. Because Send and SendAll return
+// no error, an adapter must not drop a SendTo failure silently; it should log it
+// at WARN, or at DEBUG once the adapter is closed, as the Redis adapter does.
+// The Adapter method set is fixed for v1; new capabilities are expressed through
+// optional interfaces.
 type Adapter interface {
 	// SendTo snapshots matching sockets and emits on the caller's goroutine after
 	// releasing the adapter lock. Delivery uses target.Emit, or target.EmitWithOptions
@@ -79,5 +86,5 @@ type Adapter interface {
 	ForEach(room string, f EachFunc)  // ForEach visits each local member of the room.
 	Len(room string) int              // Len gives number of connections in the room
 	Rooms(connection Socket) []string // Gives list of all the rooms if no connection given, else list of all the rooms the connection joined
-	AllRooms() []string               // Gives list of all the rooms the connection joined
+	AllRooms() []string               // AllRooms lists all rooms of the namespace, cluster-wide for Redis
 }

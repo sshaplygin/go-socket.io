@@ -5,8 +5,10 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/sshaplygin/go-socket.io/adapter"
 	redisadapter "github.com/sshaplygin/go-socket.io/adapter/redis"
+	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/stretchr/testify/require"
 	"io"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -80,6 +82,35 @@ func TestRoomMethodsRejectForeignAndDisconnectedSockets(t *testing.T) {
 	require.False(t, s.JoinRoom("/chat", "room", chat))
 	require.False(t, s.LeaveRoom("/chat", "room", chat))
 	require.False(t, s.LeaveAllRooms("/chat", nil))
+}
+
+type sharedSessionID struct{}
+
+func (sharedSessionID) NewID() string { return "shared" }
+
+// A live socket of another server whose ID is registered here is not this
+// server's socket: room methods compare identity, not the ID alone.
+func TestRoomMethodsRejectSocketOfAnotherServerWithSameID(t *testing.T) {
+	start := func() (*Server, Conn) {
+		connected := make(chan Conn, 1)
+		s := NewServer(WithEngineOptions(append(shortPingOptions(), engineio.WithSessionIDGenerator(sharedSessionID{}))...))
+		s.OnConnect("/", func(c Conn) error { connected <- c; return nil })
+		go func() { _ = s.Serve() }()
+		ts := httptest.NewServer(s)
+		t.Cleanup(func() { _ = s.Close(); ts.Close() })
+		c := dialRaw(t, ts.URL)
+		require.Equal(t, "0", c.read())
+		return s, recv(t, connected, "root socket")
+	}
+	first, own := start()
+	_, other := start()
+	require.Equal(t, own.ID(), other.ID())
+	require.False(t, first.JoinRoom("/", "room", other))
+	require.False(t, first.LeaveRoom("/", "room", other))
+	require.False(t, first.LeaveAllRooms("/", other))
+	require.Zero(t, first.RoomLen("/", "room"))
+	require.True(t, first.JoinRoom("/", "room", own))
+	require.Equal(t, 1, first.RoomLen("/", "room"))
 }
 
 func TestNilRoomConnection(t *testing.T) {

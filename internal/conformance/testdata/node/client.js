@@ -176,7 +176,7 @@ async function base64Binary() {
   try {
     if (transport === 'upgrade') { await upgrade(); }
     else { await basic(); await reconnect(); }
-    if (transport === 'websocket' || transport === 'upgrade') { await base64Binary(); }
+    if (!process.argv[4] && (transport === 'websocket' || transport === 'upgrade')) { await base64Binary(); }
   } finally {
     sockets.forEach(socket => socket.disconnect());
     clearTimeout(deadline);

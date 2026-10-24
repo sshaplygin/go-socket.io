@@ -613,7 +613,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W3. Restore encoder performance
 
-- **Status:** in progress — #169; Combined-snapshot structs100: 2,518 to 510 allocs/op; 3dd094d: 1,012 to 510. Time 1,027.3 to 636.6 us versus 3dd094d under uncontrolled host load; bytes remain +11.61%. Isolated CI and benchmark comparison pending.
+- **Status:** in progress — #169; BenchmarkEncode/structs100: 3619 → 411 allocs/op, 349.3 → 79.4 µs (CI, base 38ba465, linux/amd64); against 3dd094d: 1012 → 510 allocs/op, 128.0 → 42.1 µs (−67.1%, p=0.000, darwin/arm64)
 - **Priority:** before tag (or deferred in writing with the cost in the release notes)
 - **Findings:** [PERF-1](#performance-findings) (see
   [M6](#m6-json-encoder-from-143-regresses-encode-cost)), [T1](#tests-findings)

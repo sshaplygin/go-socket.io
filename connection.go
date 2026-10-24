@@ -19,6 +19,10 @@ import (
 // The outbound queue size (see ErrWriteBufferFull) and drain deadline (see Conn.Close).
 const defaultWriteBufferSize, defaultDrainTimeout = 64, time.Minute
 
+// Configuration, codec ownership and channel references are installed before
+// workers start. The header reader and dispatcher hand off decoder ownership;
+// the writer owns encoder/writer. Registries synchronize their own contents.
+// rootRejected is initialized before dispatch; id is atomic.
 type connection struct {
 	engineio.Conn
 
@@ -27,8 +31,8 @@ type connection struct {
 	resolveNamespace   func(string, url.Values) *namespaceHandler
 	handlers           *namespaceRegistry
 	namespaces         *namespaces
-	retiring           map[string]*parser.Header
-	reconnectReady     []string
+	retiring           map[string]*parser.Header // guarded by mu
+	reconnectReady     []string                  // guarded by mu
 	readReady          chan struct{}
 	engineDone         <-chan struct{}
 	engineObserverDone chan struct{}
@@ -38,21 +42,24 @@ type connection struct {
 	reader  *frameReader // tells the decoder's transport failures apart
 	writer  *queueWriter // tells the encoder's transport failures apart
 
-	writeReady     chan struct{}
-	drainQueue     []drainPacket
-	pendingWrites  int
-	drainQueued    int
-	controlQueued  int
-	closeControls  int
-	controlPending int // claimed namespace disconnects not yet enqueued; guarded by mu
-	writeChan      chan outboundPayload
-	errorChan      chan error
+	writeReady      chan struct{}
+	drainQueue      []drainPacket
+	pendingWrites   int
+	drainQueued     int
+	controlQueued   int
+	closeControls   int
+	controlPending  int // claimed namespace disconnects not yet enqueued; guarded by mu
+	writeBufferSize int
+	errorChan       chan error
 
 	log          *slog.Logger
 	rootRejected error
-	boundary     bool // log the namespace connect and disconnect records (Server only)
+	errorOnce    sync.Once
+	state        connectionState // guarded by mu
 
-	// mu orders the close state, whose steps close the channels, against queueing and registering.
+	// mu guards state, queue contents/counters, namespace retirement and admission,
+	// connecting, draining, appSealed, overflow, pending, drainTimer and disconnectReason.
+	// Channels publish transitions; done has one closer on the read dispatcher.
 	mu                           sync.Mutex
 	closing, seal, discard, done chan struct{}
 	draining, connecting         bool             // the first close is Close; until connected
@@ -72,7 +79,7 @@ func newConnection(engineConn engineio.Conn, handlers *namespaceRegistry, writeB
 		disconnectReason: "forced close",
 		Conn:             engineConn,
 		errorChan:        make(chan error),
-		writeChan:        make(chan outboundPayload, writeBufferSize),
+		writeBufferSize:  writeBufferSize,
 		writeReady:       make(chan struct{}, 1),
 		handlers:         handlers,
 		namespaces:       newNamespaces(),
@@ -174,9 +181,7 @@ func (c *connection) connected(err error) bool {
 	if failed && c.overflow != nil { // final: no overflow once a close started
 		err = errors.Join(ErrWriteBufferFull, err)
 	}
-	if c.boundary {
-		c.connectRecord(rootNamespace, cmp.Or(err, c.rootRejected))
-	}
+	c.connectRecord(rootNamespace, cmp.Or(err, c.rootRejected))
 	if failed {
 		c.reportOverflow(nil)
 		c.finish()
@@ -244,6 +249,7 @@ func (c *connection) report(namespace string, err, failed error) {
 		}
 		return
 	}
+	c.startError()
 	select {
 	case c.errorChan <- msg:
 		<-msg.done
@@ -257,28 +263,21 @@ func (c *connection) namespace(nsp string) *namespaceHandler {
 }
 
 func (c *connection) EngineConn() engineio.Conn {
-	if c.boundary {
-		return c.Conn
-	}
-	return nil
+	return c.Conn
 }
 
 func (c *connection) Request() *http.Request {
-	if c.boundary {
-		return c.request
-	}
-	return nil
+	return c.request
 }
 
-// Start connects the root socket and starts its error and writer loops.
+// Start connects the root socket and starts its writer. The error worker starts
+// only when a report needs it.
 // The public server registers this connection before invoking Start.
 func (c *connection) Start(resolve func(string, url.Values) *namespaceHandler) bool {
-	c.boundary = true
 	c.resolveNamespace = resolve
 	if !c.connected(c.connect()) {
 		return false
 	}
-	go c.serveError()
 	go c.serveWrite()
 	return true
 }

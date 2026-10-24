@@ -58,9 +58,9 @@ func TestOptionsReachConnections(t *testing.T) {
 	})
 }
 
-func defectServer(t *testing.T, configure func(*Server)) (*Server, string) {
+func defectServer(t *testing.T, configure func(*Server), options ...engineio.Option) (*Server, string) {
 	t.Helper()
-	s := NewServer(WithEngineOptions(shortPingOptions()...))
+	s := NewServer(WithEngineOptions(append(shortPingOptions(), options...)...))
 	s.OnConnect("/", func(Conn) error { return nil })
 	configure(s)
 	go func() { _ = s.Serve() }()

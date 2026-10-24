@@ -776,7 +776,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W6. Document the CORS default
 
-- **Status:** in progress — #148
+- **Status:** done — #148
 - **Priority:** before tag
 - **Findings:** [API-3](#api-compatibility-findings), [C5](#correctness-and-security-findings),
   [CL-9](#clarity-findings), [interop-9](#interoperability-findings) (see
@@ -939,7 +939,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W9. Add a lifecycle sketch and runnable examples
 
-- **Status:** in progress — #150
+- **Status:** done — #150
 - **Priority:** before tag
 - **Findings:** [CL-1](#clarity-findings) (see
   [M7](#m7-no-inline-quick-start-docs-do-not-state-that-serve-must-run))
@@ -1183,7 +1183,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D5. Engine connection access
 
-- **Status:** decided — option A (2026-10-24); in progress — #189
+- **Status:** decided — option A (2026-10-24); done — #189
 - **Priority:** owner decision
 - **Findings:** [ARCH-6](#architecture-findings)
 - **Depends on:** none

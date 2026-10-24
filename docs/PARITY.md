@@ -18,7 +18,7 @@ Supported wire behavior and differences are specified in
 | Typed payloads and error-first ACKs | Root `event_integration_test.go` and `connection_typed_events_test.go`, `client/connection_typed_test.go`, typed consumer fixtures and Node typed-ACK tests |
 | Socket.IO packet encoding, nested binary, exact integers, malformed input and cycles | `parser` unit tests, fuzz targets and Node conformance fixtures |
 | Engine.IO handshake, polling/websocket upgrade and rejection responses | `engineio` / private session tests and raw conformance tests |
-| Engine.IO heartbeat and missing-ping timeout | Private session heartbeat tests and `internal/conformance.TestJSHeartbeat` with both pinned JavaScript clients over polling and websocket |
+| Engine.IO heartbeat and missing-ping timeout | `engineio/internal/session` `TestPingTimeoutIdleClient`, `engineio` `TestPingPostReleasesBeforePongPoll` and `TestHeartbeatDefaults`, and `internal/conformance` `TestJSHeartbeat` with both pinned JavaScript clients over polling and websocket |
 | Transport bounds, compression, polling batches and I/O errors | Polling, websocket and engine client tests |
 | Local room unions, exclusions and lock release during delivery | `adapter` tests |
 | Redis publication, queries, remote operations, timeouts, subscription readiness and reconnection | `adapter/redis` tests; mixed Go/Node cluster tests with real Redis |

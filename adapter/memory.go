@@ -152,9 +152,10 @@ func broadcastIDs(targets []Socket) []string {
 
 // preparedEmitter is optional; an opaque packet is shared only among the same
 // concrete implementation so third-party packet representations cannot mix.
+// EmitPrepared reports false when it did not deliver the packet.
 type preparedEmitter interface {
 	PrepareEmit(Options, string, ...interface{}) (interface{}, error)
-	EmitPrepared(Options, interface{})
+	EmitPrepared(Options, interface{}) bool
 }
 
 func deliverBroadcast(targets []Socket, opts Options, event string, args ...interface{}) {
@@ -174,8 +175,7 @@ func deliverBroadcast(targets []Socket, opts Options, event string, args ...inte
 				}
 				prepared[typ] = result
 			}
-			if result.err == nil {
-				emitter.EmitPrepared(opts, result.packet)
+			if result.err == nil && emitter.EmitPrepared(opts, result.packet) {
 				continue
 			}
 		}

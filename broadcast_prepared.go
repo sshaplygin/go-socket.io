@@ -38,18 +38,29 @@ func (nc *namespaceConn) PrepareEmit(opts adapter.Options, name string, args ...
 }
 
 // EmitPrepared admits a packet produced by this implementation of PrepareEmit.
-func (nc *namespaceConn) EmitPrepared(opts adapter.Options, value interface{}) {
+// It reports false for any other value, so the adapter falls back to Emit.
+func (nc *namespaceConn) EmitPrepared(opts adapter.Options, value interface{}) bool {
 	packet, ok := value.(*preparedBroadcast)
 	if !ok {
-		return
+		return false
 	}
 	if reservedEvent(packet.event) {
 		nc.emitLocal(packet.event, packet.local...)
-		return
+		return true
+	}
+	// A standalone Memory may hold sockets of several namespaces, while the
+	// packet carries the namespace of the socket that prepared it.
+	pkg := packet.payload
+	if ns := fmtNS(nc.namespace); pkg.Header.Namespace != ns {
+		pkg.Header.Namespace = ns
+		if pkg.prepared != nil {
+			pkg.prepared = pkg.prepared.WithHeader(pkg.Header)
+		}
 	}
 	if opts.Volatile {
-		nc.sendVolatile(packet.payload, packet.ack)
+		nc.sendVolatile(pkg, packet.ack)
 	} else {
-		nc.sendPayload(packet.payload, packet.ack)
+		nc.sendPayload(pkg, packet.ack)
 	}
+	return true
 }

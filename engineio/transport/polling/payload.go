@@ -129,6 +129,8 @@ func (p *payload) FeedIn(r io.Reader, supportBinary bool) error {
 	if err == nil {
 		err = p.awaitFeed()
 	}
+	// Not deferred, to keep this frame small; after a panic the next owner's
+	// until stops the timer.
 	p.feedTimer.stop()
 	return err
 }
@@ -420,9 +422,11 @@ func (p *payload) Store(op string, err error) error {
 // Stopping matters under pre-Go 1.23 timer semantics (main module go line
 // below 1.23, an older toolchain, or GODEBUG=asynctimerchan=1): an unstopped
 // timer stays live until it fires, about 45 s for polling deadlines. In that
-// mode a timer that fired before Stop leaves a value in C; stop drains it so
-// a later Reset, in the same call or the next one, cannot deliver a stale
-// tick. Under Go 1.23+ semantics Stop and Reset discard pending values and the
+// mode a timer that fired before Stop can leave a value in C, and stop drains
+// it. A firing still in flight when Stop returns can land after the next
+// Reset, so a call may see a spurious tick; every deadline case only re-reads
+// the deadline, so such a tick costs one extra loop and cannot shorten it.
+// Under Go 1.23+ semantics Stop and Reset discard pending values and the
 // drain finds nothing.
 type operationTimer struct{ timer *time.Timer }
 

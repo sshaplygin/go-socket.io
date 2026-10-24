@@ -10,57 +10,60 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// pauseWaitLocker replaces the pauser's Cond locker. The pauser methods lock p.l
+// directly, so only Cond.Wait calls this Unlock: after it has registered the
+// waiter and before it releases p.l, so a later Done or Broadcast wakes it.
+// Production code needs no scheduling hook for these tests.
+type pauseWaitLocker struct {
+	sync.Locker
+	ready chan struct{}
+}
+
+func (l pauseWaitLocker) Unlock() { l.ready <- struct{}{}; l.Locker.Unlock() }
+
 func TestPauserTrigger(t *testing.T) {
-	should := assert.New(t)
 	p := newPauser()
-
-	ok := p.Working()
-	should.True(ok)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
-		ok := p.Pause()
-		should.True(ok)
-
-		defer p.Resume()
-	}()
-
+	ready := make(chan struct{}, 1)
+	p.c = sync.NewCond(pauseWaitLocker{Locker: &p.l, ready: ready})
+	assert.True(t, p.Working())
+	paused := p.PausedTrigger()
+	result := make(chan bool, 1)
+	go func() { result <- p.Pause() }()
 	select {
-	case <-p.PausingTrigger():
-	case <-time.After(time.Second / 10):
-		should.True(false, "should not run here")
-	}
-	select {
-	case <-p.PausedTrigger():
-		should.True(false, "should not run here")
-	case <-time.After(time.Second / 10):
-	}
-
-	go func() {
-		time.Sleep(time.Second / 10)
-		p.Done()
-	}()
-
-	select {
-	case <-p.PausedTrigger():
+	case <-ready:
 	case <-time.After(time.Second):
-		should.True(false, "should not run here")
+		t.Fatal("Pause did not wait for its worker")
 	}
-
-	wg.Wait()
-
 	select {
 	case <-p.PausingTrigger():
-		should.True(false, "should not run here")
-	case <-p.PausedTrigger():
-		should.True(false, "should not run here")
-	case <-time.After(time.Second / 10):
+	default:
+		t.Fatal("pausing trigger did not close")
 	}
-
+	select {
+	case <-paused:
+		t.Fatal("pause finished before its worker")
+	default:
+	}
+	p.Done()
+	select {
+	case ok := <-result:
+		assert.True(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("Pause did not finish")
+	}
+	select {
+	case <-paused:
+	default:
+		t.Fatal("paused trigger did not close")
+	}
+	p.Resume()
+	select {
+	case <-p.PausingTrigger():
+		t.Fatal("pausing trigger was not reset")
+	case <-p.PausedTrigger():
+		t.Fatal("paused trigger was not reset")
+	default:
+	}
 }
 
 func TestPauserPauseOnlyOnce(t *testing.T) {
@@ -189,6 +192,8 @@ func TestPauserOnlyOnePauseAfterWaiting(t *testing.T) {
 	count := int64(0)
 	wg := sync.WaitGroup{}
 	p := newPauser()
+	ready := make(chan struct{}, 10)
+	p.c = sync.NewCond(pauseWaitLocker{Locker: &p.l, ready: ready})
 
 	ok := p.Working()
 	should.True(ok)
@@ -203,7 +208,13 @@ func TestPauserOnlyOnePauseAfterWaiting(t *testing.T) {
 			}
 		}()
 	}
-	time.Sleep(time.Second / 10) // Wait all goroutines pausing
+	for i := 0; i < 10; i++ {
+		select {
+		case <-ready:
+		case <-time.After(time.Second):
+			t.Fatal("Pause did not enter its worker wait")
+		}
+	}
 
 	p.Done()
 	wg.Wait()

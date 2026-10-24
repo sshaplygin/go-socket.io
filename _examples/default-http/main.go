@@ -25,8 +25,10 @@ func main() {
 }
 
 func run(ctx context.Context, addr string) error {
-	// Defaults accept every origin. Use engineio.WithCORS(false) for same-origin
-	// websockets, or explicit transport CheckOrigin callbacks for an allow-list.
+	// Defaults accept every origin. Pass
+	// socketio.WithEngineOptions(engineio.WithCORS(false)) for same-origin
+	// websockets, or explicit transport CheckOrigin callbacks for an allow-list
+	// that also accepts an empty Origin, which non-browser clients send.
 	// See docs/PROTOCOL.md for polling CORS and request access-control behavior.
 	server := socketio.NewServer()
 

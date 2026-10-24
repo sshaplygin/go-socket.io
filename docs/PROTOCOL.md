@@ -81,7 +81,11 @@ request's `Origin` in `Access-Control-Allow-Origin` and sets
 `Access-Control-Allow-Credentials: true`; without an Origin it uses `*` and omits
 credentials. Websocket accepts foreign origins for direct connections and upgrades.
 An `OPTIONS` request on an open polling session returns HTTP 200 with
-`Access-Control-Allow-Headers: Content-Type` and the same origin headers.
+`Access-Control-Allow-Headers: Content-Type` and the same origin headers. An
+`OPTIONS` request without a `sid`, such as the preflight of a handshake that sends
+custom headers (for example `extraHeaders`), is answered HTTP 400 with code 2
+`Bad handshake method` (see the rejection responses under
+[Engine.IO protocol v3](#engineio-protocol-v3)).
 
 `engineio.WithCORS(false)` removes `Access-Control-Allow-Origin` and
 `Access-Control-Allow-Credentials` from polling responses, including error responses.
@@ -91,19 +95,26 @@ still served: CORS headers control browser access to responses, not HTTP access.
 Websocket instead uses its same-origin check and rejects foreign origins with
 HTTP 403. Requests without an Origin remain accepted.
 
-Explicit transport `CheckOrigin` callbacks override either default. For example,
-with imports `net/http`, `engineio`, `engineio/transport/polling` and
+Explicit transport `CheckOrigin` callbacks override either default for requests
+dispatched to that transport. An error response for an unknown `transport=` value
+still uses the server-wide `WithCORS` setting. For example, with imports
+`net/http`, `engineio`, `engineio/transport/polling` and
 `engineio/transport/websocket` from this module, an application can configure:
 
 ```go
 allowOrigin := func(r *http.Request) bool {
-    return r.Header.Get("Origin") == "https://chat.example.com"
+	origin := r.Header.Get("Origin")
+	return origin == "" || origin == "https://chat.example.com"
 }
 server := engineio.NewServer(engineio.WithTransports(
-    &polling.Transport{CheckOrigin: allowOrigin},
-    &websocket.Transport{CheckOrigin: allowOrigin},
+	&polling.Transport{CheckOrigin: allowOrigin},
+	&websocket.Transport{CheckOrigin: allowOrigin},
 ))
 ```
+
+Browsers always send `Origin` on websocket handshakes, so accepting an empty
+Origin keeps cross-site WebSocket hijacking protection while allowing non-browser
+clients, such as this module's Go client and Node clients, which send none.
 
 A false polling origin check suppresses CORS headers; a false websocket check
 rejects the handshake. Applications needing to reject HTTP requests must also

@@ -19,6 +19,16 @@ type ClientRegistration interface {
 	RegisterEvent(string, EventHandler) error
 }
 
+// The public interfaces keep the method sets of the typed event contracts, and
+// server connections are endpoints.
+var (
+	_ Endpoint                 = event.Endpoint(nil)
+	_ event.Endpoint           = Endpoint(nil)
+	_ ClientRegistration       = event.ClientRegistration(nil)
+	_ event.ClientRegistration = ClientRegistration(nil)
+	_ Endpoint                 = (*namespaceConn)(nil)
+)
+
 // EventHandler is an opaque registration created by a typed event descriptor.
 // Valid() bool and WantsAck() bool report its metadata; Decode and Invoke are
 // library bridge methods using internal payload types.

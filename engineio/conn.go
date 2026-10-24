@@ -36,6 +36,17 @@ type CompressWriter interface {
 	NextWriterCompress(ft eioparser.FrameType, compress bool) (io.WriteCloser, error)
 }
 
+// The public interfaces keep the method sets of the session contracts, and the
+// server session implements both.
+var (
+	_ Conn                       = sessionImpl.Conn(nil)
+	_ sessionImpl.Conn           = Conn(nil)
+	_ CompressWriter             = sessionImpl.CompressWriter(nil)
+	_ sessionImpl.CompressWriter = CompressWriter(nil)
+	_ Conn                       = (*sessionImpl.Session)(nil)
+	_ CompressWriter             = (*sessionImpl.Session)(nil)
+)
+
 // ReadyState is the string state of a session: StateOpening, StateOpen,
 // StateClosing or StateClosed.
 type ReadyState = sessionImpl.ReadyState

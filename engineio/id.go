@@ -14,3 +14,10 @@ type IDGenerator interface {
 // NewID() string returns an empty identifier when the random source fails.
 // Its legacy field ID uint64 is unused.
 type DefaultIDGenerator = sessionImpl.DefaultIDGenerator
+
+// IDGenerator keeps the method set of the session contract it is passed to.
+var (
+	_ IDGenerator             = sessionImpl.IDGenerator(nil)
+	_ sessionImpl.IDGenerator = IDGenerator(nil)
+	_ IDGenerator             = (*DefaultIDGenerator)(nil)
+)

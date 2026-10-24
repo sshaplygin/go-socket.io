@@ -23,6 +23,14 @@ type PayloadReader interface {
 	ReleasePayloadReader(error) error
 }
 
+// The public payload interfaces keep the method sets of the codec contracts.
+var (
+	_ PayloadWriter  = payload.Writer(nil)
+	_ payload.Writer = PayloadWriter(nil)
+	_ PayloadReader  = payload.Reader(nil)
+	_ payload.Reader = PayloadReader(nil)
+)
+
 // PayloadEncoder writes Engine.IO v3 polling payload packets. Use one writer at a
 // time and close each packet writer before acquiring the next.
 // NextWriter(FrameType, PacketType) (io.WriteCloser, error) opens a packet;

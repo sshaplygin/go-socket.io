@@ -59,6 +59,15 @@ type FrameReader interface {
 	NextReader() (FrameType, io.ReadCloser, error)
 }
 
+// The public frame interfaces keep the method sets of the codec contracts.
+var (
+	_ FrameWriter        = packet.FrameWriter(nil)
+	_ packet.FrameWriter = FrameWriter(nil)
+	_ FrameReader        = packet.FrameReader(nil)
+	_ packet.FrameReader = FrameReader(nil)
+	_ FrameWriter        = (*FakeDiscardWriter)(nil)
+)
+
 // PacketEncoder writes Engine.IO packet headers to framed destinations.
 // NextWriter(FrameType, PacketType) (io.WriteCloser, error) opens a packet writer.
 type PacketEncoder = packet.Encoder

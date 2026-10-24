@@ -8,7 +8,10 @@ import (
 
 type externalAdapter struct{ *adapter.Memory }
 
+func (*externalAdapter) BindSocketLookup(func(string) adapter.Socket) {}
+
 var _ adapter.Adapter = (*externalAdapter)(nil)
+var _ adapter.SocketLookupBinder = (*externalAdapter)(nil)
 var _ adapter.Socket = socketio.Conn(nil)
 var _ func(...redisadapter.Option) adapter.Factory = redisadapter.New
 

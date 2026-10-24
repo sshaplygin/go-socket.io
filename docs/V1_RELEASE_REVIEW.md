@@ -1606,7 +1606,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W22. Copy packets only when an ACK ID is added
 
-- **Status:** open
+- **Status:** in progress — #163; BenchmarkEmitWebsocket/string: 2280 → 2176 B/op, 31 → 28 allocs/op (manual, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-7](#performance-findings)
 - **Depends on:** W2
@@ -2984,7 +2984,7 @@ Every finding is listed under the dimension that reported it.
 | PERF-4 | minor | — | `adapter/redis/adapter.go:100` | Redis publishing pool (MaxIdle 4, unbounded MaxActive) churns TCP connections under concurrent broadcasts | Size MaxIdle to the expected publish concurrency (or expose an option). Alternatively set MaxActive with Wait: true so callers queue on a bounded set of connections. Fixed by #158 (W19). |
 | PERF-5 | minor | — | `engineio/transport/polling/transport.go:24` | Go polling client: polling.Default shares http.DefaultTransport (2 idle conns/host), so several clients per process churn TCP under sustained traffic and can exhaust ephemeral ports | Give polling.Default its own http.Transport with a larger MaxIdleConnsPerHost (for example 64), or create a transport per dialed client. Document WithTransports(&polling.Transport{Client: ...}) for high client counts. |
 | PERF-6 | minor | — | `adapter/memory.go:144` | Broadcast encodes the packet once per recipient; the shareable PreparedPacket is not used for fan-out | Add an internal fast path: prepare once in the broadcast path and have namespaceConn accept a prepared packet, for example through an unexported optional interface checked by Memory and Redis, without changing adapter.Socket. Per-socket ACK variants already use WithHeader. |
-| PERF-7 | minor | — | `socket.go:154` | Every send copies the full packet via WithHeader even when no ACK ID was added | Call WithHeader only when registerAck changed the header (ack != nil). |
+| PERF-7 | minor | — | `socket.go:154` | Every send copies the full packet via WithHeader even when no ACK ID was added | Call WithHeader only when registerAck changed the header (ack != nil). Fixed by #163 (W22). |
 | PERF-8 | minor | — | `engineio/transport/websocket/wrapper.go:146` | Websocket wrapper spawns a goroutine and a 30s timer for every frame read and written | Drop the nag, or make it debug-only. If kept, use time.AfterFunc with no goroutine and stop it on Close. Fixed by #179 (W23). |
 | PERF-9 | minor | — | `server.go:252` | Server.JoinRoom/LeaveRoom/LeaveAllRooms copy and scan all namespace sockets on each call | Check membership with a map lookup under connectedMu (nh.connected[nc.ID()] == nc) instead of copying the slice. |
 | PERF-10 | minor | — | `.github/workflows/benchmarks.yml:148` | No Socket.IO-level benchmarks; CI benchmark comparison cannot see parser/server regressions | Add benchmarks for parser Prepare/Encode/Decode (string, struct, struct slice, binary), memory-adapter broadcast to N fake sockets, and an emit+ACK round trip over httptest websocket. Then let the existing base-vs-PR workflow pick them up. Fixed by #153 (W2). |

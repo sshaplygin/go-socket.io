@@ -6,8 +6,9 @@ import (
 
 // IDGenerator generates identifiers for WithSessionIDGenerator; nil selects random IDs.
 type IDGenerator interface {
-	// NewID returns an identifier unique among the server's sessions; an empty
-	// identifier fails the handshake.
+	// NewID returns an identifier not used by any registered or still open
+	// session of the server; an empty or duplicate identifier fails the
+	// handshake.
 	NewID() string
 }
 

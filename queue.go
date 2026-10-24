@@ -62,16 +62,16 @@ func (c *connection) queuePayloadLocked(pkg outboundPayload, reserved bool) {
 	control := header.Type == parser.Connect || header.Type == parser.Disconnect
 	switch {
 	case isDone(c.closing) && (!c.draining || isDone(c.seal) || isDone(c.discard) || c.appSealed && !control && !reserved && !pkg.lifecycle):
-	case c.boundary || c.draining:
+	default:
 		// Server lifecycle packets share ordering with application packets but
 		// do not consume the application budget reserved by pending Emits.
 		// Reserve a finite pair of lifecycle slots per application slot. This
 		// admits CONNECT followed by DISCONNECT even with a one-slot budget.
-		controlSpace := control && c.controlQueued < 2*cap(c.writeChan) && (header.Type == parser.Disconnect || len(c.writeChan)+c.drainQueued < cap(c.writeChan))
+		controlSpace := control && c.controlQueued < 2*c.writeBufferSize && (header.Type == parser.Disconnect || c.drainQueued < c.writeBufferSize)
 		if control && c.draining {
 			controlSpace = c.closeControls > 0
 		}
-		if controlSpace || reserved || !control && len(c.writeChan)+c.drainQueued+c.pendingWrites < cap(c.writeChan) {
+		if controlSpace || reserved || !control && c.drainQueued+c.pendingWrites < c.writeBufferSize {
 			c.drainQueue = append(c.drainQueue, drainPacket{pkg, control})
 			if control {
 				c.controlQueued++
@@ -85,11 +85,6 @@ func (c *connection) queuePayloadLocked(pkg outboundPayload, reserved bool) {
 		} else if !c.draining {
 			c.overflowWrite(header)
 		}
-	case len(c.writeChan) < cap(c.writeChan) && (reserved || len(c.writeChan)+c.pendingWrites < cap(c.writeChan)):
-		c.writeChan <- pkg
-		c.notifyWrite()
-	case !isDone(c.closing):
-		c.overflowWrite(header)
 	}
 
 }
@@ -103,6 +98,7 @@ func (c *connection) overflowWrite(header parser.Header) {
 		c.overflow = &namespaceConn{connection: c, namespace: header.Namespace}
 	}
 	if c.pending = c.startClose(); !c.connecting {
+		c.startError()
 		c.stopLocked()
 	}
 
@@ -133,9 +129,6 @@ func (c *connection) notifyWrite() {
 func (c *connection) nextQueued() (outboundPayload, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.writeChan) > 0 {
-		return <-c.writeChan, true
-	}
 	if len(c.drainQueue) > 0 {
 		packet := c.drainQueue[0]
 		c.drainQueue[0] = drainPacket{}

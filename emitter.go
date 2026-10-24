@@ -17,9 +17,6 @@ func (e emitter) asBroadcast() emitter {
 	if !e.broadcast {
 		e.broadcast = true
 		e.adapter = e.socket.broadcast
-		if !e.socket.connection.boundary {
-			e.adapter = nil
-		}
 		e.opts.Except = append(append([]string(nil), e.opts.Except...), e.socket.ID())
 	}
 	return e

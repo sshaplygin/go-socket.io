@@ -1464,7 +1464,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W18. Stop per-packet polling timers
 
-- **Status:** in progress — #166; BenchmarkPayloadRoundTrip: 14 → 8 allocs/op, 1049 → 552 B/op, 2.312 → 2.215 µs/op (CI, base 88d8d26)
+- **Status:** done — #166; BenchmarkPayloadRoundTrip: 14 → 8 allocs/op, 1049 → 552 B/op, 2.312 → 2.215 µs/op (CI, base 88d8d26)
 - **Priority:** after release
 - **Findings:** [PERF-2](#performance-findings)
 - **Depends on:** W2
@@ -1568,7 +1568,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W21. Prepare broadcasts once and skip the single-room dedup map
 
-- **Status:** in progress — #160; BenchmarkBroadcastWebsocket/structs100-10: 5431 → 817 allocs/op, 844.5 → 497.3 µs; BenchmarkMemorySendTo/one-room: 32 → 2 allocs/op, 99.5 → 13.8 µs (manual, against e72c35f, darwin/arm64)
+- **Status:** done — #160; BenchmarkBroadcastWebsocket/structs100-10: 5431 → 817 allocs/op, 844.5 → 497.3 µs; BenchmarkMemorySendTo/one-room: 32 → 2 allocs/op, 99.5 → 13.8 µs (manual, against e72c35f, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-6](#performance-findings), [PERF-12](#performance-findings)
 - **Depends on:** W2
@@ -1628,7 +1628,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W23. Remove per-frame websocket timers
 
-- **Status:** in progress — #179; BenchmarkWebsocketEcho/small: 28 → 18 allocs/op, 31.25µs → 18.67µs; BenchmarkWebsocketEcho/4KiB: 40 → 30 allocs/op, 47.73µs → 35.96µs (against `25d6deb`, darwin/arm64, Go 1.25.5)
+- **Status:** done — #179; BenchmarkWebsocketEcho/small: 28 → 18 allocs/op, 31.25µs → 18.67µs; BenchmarkWebsocketEcho/4KiB: 40 → 30 allocs/op, 47.73µs → 35.96µs (against `25d6deb`, darwin/arm64, Go 1.25.5)
 - **Priority:** after release
 - **Findings:** [PERF-8](#performance-findings)
 - **Depends on:** W2, W12
@@ -1645,7 +1645,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W24. Look up room members without a scan
 
-- **Status:** in progress — #165; BenchmarkJoinRoom/sockets-200: 2935 → 172.5 ns/op, 3456 → 0 B/op, 1 → 0 allocs/op (manual, darwin/arm64)
+- **Status:** done — #165; BenchmarkJoinRoom/sockets-200: 2935 → 172.5 ns/op, 3456 → 0 B/op, 1 → 0 allocs/op (manual, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-9](#performance-findings)
 - **Depends on:** W2
@@ -1669,7 +1669,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W25. Remove extra JSON passes from decoding
 
-- **Status:** in progress — #171; `BenchmarkDecode` against `e72c35f` (manual interleaved benchstat, n=10, darwin/arm64, Go 1.25.5): string 1,388 → 542 ns/op and 19 → 12 allocs/op; struct 4.913 → 3.274 µs/op and 45 → 36 allocs/op; structs100 342.7 → 274.7 µs/op and 2,143 → 2,134 allocs/op; binary 3.564 → 2.627 µs/op and 50 → 42 allocs/op (all p=0.000).
+- **Status:** done — #171; `BenchmarkDecode` against `e72c35f` (manual interleaved benchstat, n=10, darwin/arm64, Go 1.25.5): string 1,388 → 542 ns/op and 19 → 12 allocs/op; struct 4.913 → 3.274 µs/op and 45 → 36 allocs/op; structs100 342.7 → 274.7 µs/op and 2,143 → 2,134 allocs/op; binary 3.564 → 2.627 µs/op and 50 → 42 allocs/op (all p=0.000).
 - **Priority:** after release
 - **Findings:** [PERF-11](#performance-findings)
 - **Depends on:** W2
@@ -1699,7 +1699,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W26. Reduce the idle connection footprint
 
-- **Status:** open
+- **Status:** in progress — #190; BenchmarkConnectWebsocket: 47.95 → 41.82 KiB/op, 298 → 295 allocs/op (CI, base 25d6deb, linux/amd64); 48.05 → 41.89 KiB/op, 295 → 292 allocs/op (manual, base 25d6deb, darwin/arm64); TestIdleWebsocketConnectionGoroutines: 7.00 → 5.00 goroutines per idle websocket connection
 - **Priority:** after release
 - **Findings:** [ARCH-4](#architecture-findings), [PERF-13](#performance-findings),
   [ARCH-13](#architecture-findings)
@@ -1938,7 +1938,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W35. Encoder and round-trip fuzz targets
 
-- **Status:** open
+- **Status:** in progress — #173
 - **Priority:** after release
 - **Findings:** [T5](#tests-findings)
 - **Depends on:** W3
@@ -1957,7 +1957,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W36. Replace sleeps in pauser tests
 
-- **Status:** in progress — #188
+- **Status:** done — #188
 - **Priority:** after release
 - **Findings:** [T6](#tests-findings)
 - **Depends on:** none
@@ -2113,7 +2113,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W43. Harden the W1 locking documentation and regression test
 
-- **Status:** open
+- **Status:** in progress — #197
 - **Priority:** after release
 - **Findings:** [T7](#tests-findings), [CL-15](#clarity-findings)
 - **Depends on:** none
@@ -2955,7 +2955,7 @@ Every finding is listed under the dimension that reported it.
 | CL-12 | minor | — | `engineio/client/client.go:489` | Core concurrency code is hard to follow: 100-219 line functions and no written close/drain state machine | Add a short state-machine comment (or an ARCHITECTURE.md subsection) for connection close phases and client probe/upgrade. Annotate which mutex guards each field. Split probeTransport into dial, probe exchange, pause and commit steps. |
 | CL-13 | nit | — | `_examples/default-http/go.mod:1` | Cosmetic inconsistencies in example module paths, error prefixes and option wording | Fix the module path typos, use a consistent package prefix in error strings, say 'nonpositive' where the code means it, mention the Go client in the README tagline, and document or unexport the test fakes. |
 | CL-14 | nit | follow-up: editorial | `CONTRIBUTING.md:3` | Contributor build/test instructions live in CLAUDE.md and CONTRIBUTING links to them; the ownership table explicitly assigns development commands to CLAUDE.md | Moving commands is an optional editorial choice, not a correction of an ownership violation. |
-| CL-15 | nit | — | `engineio/internal/session/session.go` | The W1 locking-rule comment at `upgradeLocker` names only read-lock holders and failing writers; write-lock holders and frame-reader failure paths are bound by the same rule | Extend the comment and the matching `closeTransport` note (W43). Found in the review of #147. |
+| CL-15 | nit | — | `engineio/internal/session/session.go` | The W1 locking-rule comment at `upgradeLocker` names only read-lock holders and failing writers; write-lock holders and frame-reader failure paths are bound by the same rule | Extend the comment and the matching `closeTransport` note (W43). Found in the review of #147. Fixed by #197 (W43). |
 
 ### Architecture findings
 
@@ -2964,7 +2964,7 @@ Every finding is listed under the dimension that reported it.
 | ARCH-1 | major | confirmed | `adapter/redis/adapter.go:154` | Error-less adapter Send/SendAll silently drop Redis broadcasts; Server.BroadcastToRoom returns true and godoc promises per-socket callbacks | Before release, log WARN in redis Send/SendAll when SendTo fails, and fix the BroadcastToRoom/BroadcastToNamespace godoc: the bool only means the namespace is registered and its adapter was constructed, and callbacks depend on the adapter. Consider documenting Send/SendAll as legacy wrappers over SendTo, with a helper third-party adapters can reuse, before freezing the adapter.Adapter interface. Fixed by #152 (W5). |
 | ARCH-2 | minor | — | `engineio/server.go:1` | Public types are aliases to internal packages, hiding their methods from go doc and breaking the project's own rule | Declare engineio.Conn (and the other session-facing types) in the public engineio package with session implementing them. For internal/event, wrap Handler in an opaque public struct without exported methods, or move the types to a public role-neutral package. Extend TestPublicRoleDocumentation to engineio and the root non-role types. Fixed by #154 (D2). |
 | ARCH-3 | minor | — | `client/event.go:10` | Typed client events live in the server package, so a client program that uses typed events must import the server | Before v1.5.0, consider a public role-neutral package (for example `event`) that owns Event/AckEvent/Endpoint/RemoteError and the sentinel errors, with root aliases kept for convenience, so client.RegisterEvent no longer exposes an internal type. Fixed by #186 (D3). |
-| ARCH-4 | minor | — | `queue.go:88` | Vestigial non-server mode in the server connection: Start sets boundary before admission, so the writeChan delivery path is never used at runtime; only its capacity feeds the queue budget | Remove `boundary` and the writeChan path. Keep an integer capacity and a single ordered queue, and simplify the budget expressions accordingly. |
+| ARCH-4 | minor | — | `queue.go:88` | Vestigial non-server mode in the server connection: Start sets boundary before admission, so the writeChan delivery path is never used at runtime; only its capacity feeds the queue budget | Remove `boundary` and the writeChan path. Keep an integer capacity and a single ordered queue, and simplify the budget expressions accordingly. Fixed by #190 (W26). |
 | ARCH-5 | minor | — | `adapter/adapter.go:46` | Adapter extension contract is redundant and partly duck-typed | Before tagging, fix the AllRooms comment and declare the optional capabilities as named interfaces in package adapter (e.g. `SocketLookupBinder`). Document that the Adapter method set is frozen for v1 and new capabilities arrive as optional interfaces. Fixed by #155 (D4). |
 | ARCH-6 | minor | — | `types.go:61` | Conn.EngineConn exposes full engine frame I/O alongside the library's own reader and writer | Document EngineConn as metadata-only (ID, Transport, Upgraded, ReadyState, Close), or return a narrower public interface before v1.5.0. Fixed by #189 (D5). |
 | ARCH-7 | minor | — | `client/namespace_handlers.go:100` | Server and client runtimes are maintained in parallel | Keep role independence, but extract the role-neutral pieces (listener registry, frame failure tracking, header-reader worker) into an internal package the graph allows for both roles, or add paired behavioral tests that run against both roles. |
@@ -2973,7 +2973,7 @@ Every finding is listed under the dimension that reported it.
 | ARCH-10 | minor | — | `parser/encoder.go:138` | Parser reimplements encoding/json traversal for every outbound payload; the GOEXPERIMENT=jsonv2 build variants are not exercised in CI | Add a CI job with GOEXPERIMENT=jsonv2 on the newest Go, and keep the json_compatibility tests as a differential check against encoding/json. Consider a fast path that uses json.Marshal directly when the value contains no parser.Buffer. |
 | ARCH-11 | nit | — | `engineio/parser/fake.go:61` | engineio packages export test fakes and other API oddities | Move the fakes to an internal test helper package, unexport TimestampFromClock, and fix the two stale `base.Conn` doc comments before tagging. Fixed by #156 (D6). |
 | ARCH-12 | nit | — | `adapter/redis/cluster.go:104` | Redis log records use the attribute key 'namespace', which the logger contract does not list | Use nspAttr-style `nsp` with the '/' convention. |
-| ARCH-13 | nit | — | `docs/ARCHITECTURE.md:36` | ARCHITECTURE.md runtime section undercounts per-connection goroutines | List all five Socket.IO workers, and say that blocking a handler also blocks the header worker handoff. |
+| ARCH-13 | nit | — | `docs/ARCHITECTURE.md:36` | ARCHITECTURE.md runtime section undercounts per-connection goroutines | List all five Socket.IO workers, and say that blocking a handler also blocks the header worker handoff. Fixed by #190 (W26). |
 
 ### Performance findings
 
@@ -2991,7 +2991,7 @@ Every finding is listed under the dimension that reported it.
 | PERF-10 | minor | — | `.github/workflows/benchmarks.yml:148` | No Socket.IO-level benchmarks; CI benchmark comparison cannot see parser/server regressions | Add benchmarks for parser Prepare/Encode/Decode (string, struct, struct slice, binary), memory-adapter broadcast to N fake sockets, and an emit+ACK round trip over httptest websocket. Then let the existing base-vs-PR workflow pick them up. Fixed by #153 (W2). |
 | PERF-11 | minor | — | `parser/decoder.go:87` | Inbound decode 37–42% slower than v1.4.2 across runs, because it parses JSON three times; it also allocates a 4 KiB bufio.Reader per non-byteReader frame, as v1.4.2 does | Fold json.Valid into the RawMessage unmarshal, which already validates, and avoid parsing the payload more than once; reusing a bufio.Reader per Decoder (Reset), or reading directly when the frame reader is already a byteReader, is optional (corrected: `v1.4.2` also allocates one per frame, so it is not the cause). Fixed by #171 (W25). |
 | PERF-12 | nit | — | `adapter/memory.go:110` | Broadcast target selection builds a dedup map of all members even for one room without Except | Skip the seen map when len(opts.Rooms) == 1 and len(opts.Except) == 0, and pre-size the result slice (corrected: not `<= 1`; namespace-wide delivery with no rooms walks every room, and each socket is in its own ID room and possibly named rooms, so it needs the map, see W21). Fixed by #160 (W21). |
-| PERF-13 | nit | — | `connection.go:281` | 7 server goroutines per idle websocket connection (v1.4.2: 4) | Optional: merge the engine close watcher with observeEngineClose, and start the error loop lazily. |
+| PERF-13 | nit | — | `connection.go:281` | 7 server goroutines per idle websocket connection (v1.4.2: 4) | Optional: merge the engine close watcher with observeEngineClose, and start the error loop lazily. Fixed by #190 (W26). |
 
 ### Interoperability findings
 
@@ -3015,9 +3015,9 @@ Every finding is listed under the dimension that reported it.
 | T2 | minor | — | `engineio/transport/websocket/wrapper.go:76` | No goroutine-leak detection; a probe finds library frame-reader goroutines left for 30s after parse/mid-frame errors, plus leaking client test fixtures | Close the last frame reader on the decode-error and transport-failure paths in the server and client read loops. Fix the leaking fixtures by closing clients via t.Cleanup and using buffered or select-guarded channels in handlers. Add a goroutine-leak check (go.uber.org/goleak VerifyTestMain or an equivalent NumGoroutine wait) to the root, client and engineio packages so close and shutdown regressions fail CI. Fixed by #157 (W12). |
 | T3 | minor | — | `docs/PARITY.md:20` | No conformance scenario asserts the Engine.IO periodic heartbeat against a real JS client; heartbeat is covered only by engineio/session tests | Add a conformance scenario with WithPingInterval(200ms) and WithPingTimeout(200ms) that keeps a JS client connected across several intervals on each transport. Also have the client suppress pings and assert 'ping timeout'. Alternatively, correct the PARITY.md row. Fixed by #168 (W17). |
 | T4 | minor | — | `redis_integration_test.go:174` | TestRedisServerCloseStopsBroadcasts spends 10s inside a blocking OnConnect and neither bounds nor documents that behavior | Expose a test hook or redis option (dial timeout) so the root test can use a short timeout and assert that registration returns within it. Document in docs/V1.md that registering a handler on a new namespace dials Redis synchronously and can block up to the dial timeout. Fixed by #180 (W29). |
-| T5 | nit | follow-up: partial | `parser/prepared_test.go:64` | No encoder or round-trip fuzz target. The decoder package `engineio/parser/internal/packet` has no tests of its own, but `TestPacketDecoder` and other `engineio/parser` contract tests exercise it through `NewPacketDecoder` (89.5% cross-package coverage), so that subclaim is not a material gap | Add FuzzDecodeArgs (decode into a fixed set of typed targets) and a round-trip fuzz (Prepare -> Decoder -> compare) for binary-free values. |
+| T5 | nit | follow-up: partial | `parser/prepared_test.go:64` | No encoder or round-trip fuzz target. The decoder package `engineio/parser/internal/packet` has no tests of its own, but `TestPacketDecoder` and other `engineio/parser` contract tests exercise it through `NewPacketDecoder` (89.5% cross-package coverage), so that subclaim is not a material gap | Add FuzzDecodeArgs (decode into a fixed set of typed targets) and a round-trip fuzz (Prepare -> Decoder -> compare) for binary-free values. Fixed by #173 (W35). |
 | T6 | nit | — | `engineio/transport/polling/pauser_test.go:206` | Residual sleep-based synchronization in inherited polling tests weakens rather than flakes | Replace the sleeps with explicit readiness signals, for example a hook or channel signalled when the goroutine enters the blocking wait. Fixed by #188 (W36). |
-| T7 | minor | — | `engineio/server_close_concurrent_test.go` | `TestServerCloseShutsDownSessionsConcurrently` depends on map iteration order and passes against a serial `Server.Close` in about 1 of 17 runs (a mutation run failed 39 of 40) | Fail two sessions and close `entered` through `sync.Once` (W43). Found in the review of #147. |
+| T7 | minor | — | `engineio/server_close_concurrent_test.go` | `TestServerCloseShutsDownSessionsConcurrently` depends on map iteration order and passes against a serial `Server.Close` in about 1 of 17 runs (a mutation run failed 39 of 40) | Fail two sessions and close `entered` through `sync.Once` (W43). Found in the review of #147. Fixed by #197 (W43). |
 | T8 | minor | — | `engineio/transport/polling/polling_test.go:82` | `TestPollingBinary` crashed with a nil-reader dereference during a stress run under ephemeral-port exhaustion; the cause is not isolated | Reproduce with a forced dial failure and fix the side at fault (W44). Found while validating #147. |
 
 ### Release engineering findings

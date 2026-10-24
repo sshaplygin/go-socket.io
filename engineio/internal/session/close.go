@@ -98,7 +98,7 @@ func (s *Session) closeMode(reason string, abort bool) error {
 	}
 	if orderly {
 		go func() {
-			defer close(s.closeDone)
+			defer s.finishClose()
 			timer := time.AfterFunc(s.closeTimeout, func() { s.closeTransport(conn) })
 			defer timer.Stop()
 			select {
@@ -116,12 +116,13 @@ func (s *Session) closeMode(reason string, abort bool) error {
 		return nil
 	}
 	s.closeTransport(conn)
-	close(s.closeDone)
+	s.finishClose()
 	return s.closeErr
 }
 
-// closeTransport may run on a failing frame writer. Its brief write lock is
-// safe because no read-lock holder waits for a frame writer (see upgradeLocker).
+// closeTransport may run on a failing frame reader or writer. Its brief write
+// lock is safe because no holder of upgradeLocker, read or write, waits for a
+// frame reader or writer (see upgradeLocker).
 func (s *Session) closeTransport(conn transport.Conn) {
 	s.transportOnce.Do(func() {
 		s.closeErr = conn.Close()
@@ -166,4 +167,13 @@ func (s *Session) closeError() *CloseError {
 		err = io.EOF
 	}
 	return &CloseError{Reason: CloseReason(c.reason), Err: err}
+}
+
+// finishClose retires the session synchronously instead of keeping an idle
+// registry watcher goroutine for the lifetime of each connection.
+func (s *Session) finishClose() {
+	if s.onClosed != nil {
+		s.onClosed()
+	}
+	close(s.closeDone)
 }

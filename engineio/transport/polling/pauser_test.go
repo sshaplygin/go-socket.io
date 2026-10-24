@@ -10,8 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// pauseWaitLocker reports when Cond.Wait has registered its waiter and releases
-// the pauser mutex. Production code needs no scheduling hook for these tests.
+// pauseWaitLocker replaces the pauser's Cond locker. The pauser methods lock p.l
+// directly, so only Cond.Wait calls this Unlock: after it has registered the
+// waiter and before it releases p.l, so a later Done or Broadcast wakes it.
+// Production code needs no scheduling hook for these tests.
 type pauseWaitLocker struct {
 	sync.Locker
 	ready chan struct{}

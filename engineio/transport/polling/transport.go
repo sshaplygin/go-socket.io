@@ -31,10 +31,14 @@ var Default = &Transport{
 	CheckOrigin: nil,
 }
 
-// Clone once so polling clients share a pool without mutating the application's
-// default transport. Sixty-four idle connections accommodate concurrent polls.
-func defaultHTTPTransport() *http.Transport {
-	t := http.DefaultTransport.(*http.Transport).Clone()
+// Clone standard transports so polling clients share a pool without mutating
+// the application's default. Custom RoundTrippers retain their own pool settings.
+func defaultHTTPTransport() http.RoundTripper {
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok || base == nil {
+		return http.DefaultTransport
+	}
+	t := base.Clone()
 	t.MaxIdleConnsPerHost = 64
 	return t
 }

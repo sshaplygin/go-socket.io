@@ -17,8 +17,8 @@ func (c testClock) Now() time.Time {
 }
 
 func TestTimestampFromClock(t *testing.T) {
-	ts1 := TimestampFromClock(testClock{time.Unix(0, 1000)})
-	ts2 := TimestampFromClock(testClock{time.Unix(0, 2000)})
+	ts1 := timestampFromClock(testClock{time.Unix(0, 1000)})
+	ts2 := timestampFromClock(testClock{time.Unix(0, 2000)})
 
 	require.NotEmpty(t, ts1)
 	require.NotEmpty(t, ts2)

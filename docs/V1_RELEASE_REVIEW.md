@@ -1272,7 +1272,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W12. Close frame readers on errors and gate goroutine leaks
 
-- **Status:** in progress — #157
+- **Status:** done — #157
 - **Priority:** after release
 - **Findings:** [T2](#tests-findings)
 - **Depends on:** none
@@ -1368,7 +1368,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W15. Support Engine.IO base64 over websocket
 
-- **Status:** in progress — #162
+- **Status:** done — #162
 - **Priority:** after release
 - **Findings:** [interop-1](#interoperability-findings)
 - **Depends on:** W6 (removes the limitation it documents)
@@ -1498,7 +1498,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W19. Size the Redis publishing pool
 
-- **Status:** in progress — #158; BenchmarkRedisSendToParallel: 24085 → 23560 ns/op, conns/op 0.006918 → 0.001983 (manual, darwin/arm64)
+- **Status:** done — #158; BenchmarkRedisSendToParallel: 24085 → 23560 ns/op, conns/op 0.006918 → 0.001983 (manual, darwin/arm64)
 - **Priority:** after release
 - **Findings:** [PERF-4](#performance-findings)
 - **Depends on:** W2, W4

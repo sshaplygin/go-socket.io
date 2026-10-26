@@ -1785,7 +1785,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W29. Bound Redis registration time in tests and docs
 
-- **Status:** in progress — #180
+- **Status:** done — #180
 - **Priority:** after release
 - **Findings:** [T4](#tests-findings)
 - **Depends on:** none
@@ -1851,7 +1851,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W32. Cancellable pause and explicit close state
 
-- **Status:** in progress — #184 (Engine.IO pause; root close-state PR pending)
+- **Status:** in progress — #184 (Engine.IO pause), #192 (Socket.IO close state)
 - **Priority:** after release
 - **Findings:** [ARCH-8](#architecture-findings)
 - **Depends on:** W31
@@ -2090,7 +2090,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W42. Fail the benchmark comparison on lost samples
 
-- **Status:** in progress — #198
+- **Status:** done — #198
 - **Priority:** after release
 - **Findings:** [REL-13](#release-engineering-findings)
 - **Depends on:** none
@@ -2141,7 +2141,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W44. Isolate the TestPollingBinary nil-reader crash
 
-- **Status:** in progress — #199
+- **Status:** done — #199
 - **Priority:** after release
 - **Findings:** [T8](#tests-findings)
 - **Depends on:** none

@@ -190,6 +190,7 @@ func (c *conn) serveRead(connect, disconnect func(*conn, parser.Header) error) {
 		close(stop)
 		c.finishRead()
 		<-workerDone
+		_ = c.decoder.Close()
 		close(c.readStopped)
 	}()
 	for {

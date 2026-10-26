@@ -4,14 +4,17 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio"
 	"io"
 	"log/slog"
+	"testing"
 	"time"
 )
 
-func newTestManager(addr string, opts ...Option) (*manager, error) {
+func newTestManager(t *testing.T, addr string, opts ...Option) (*manager, error) {
+	t.Helper()
 	client, err := New(addr, opts...)
 	if err != nil {
 		return nil, err
 	}
+	t.Cleanup(func() { _ = client.Close() })
 	return client.manager, nil
 }
 

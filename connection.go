@@ -43,24 +43,25 @@ type connection struct {
 	reader  *frameReader // tells the decoder's transport failures apart
 	writer  *queueWriter // tells the encoder's transport failures apart
 
-	writeReady     chan struct{}
-	drainQueue     []drainPacket // guarded by mu
-	pendingWrites  int           // guarded by mu
-	drainQueued    int           // guarded by mu
-	controlQueued  int           // guarded by mu
-	closeControls  int           // guarded by mu
-	controlPending int           // claimed namespace disconnects not yet enqueued; guarded by mu
-	writeChan      chan outboundPayload
-	errorChan      chan error
+	writeReady      chan struct{}
+	drainQueue      []drainPacket // guarded by mu
+	pendingWrites   int           // guarded by mu
+	drainQueued     int           // guarded by mu
+	controlQueued   int           // guarded by mu
+	closeControls   int           // guarded by mu
+	controlPending  int           // claimed namespace disconnects not yet enqueued; guarded by mu
+	writeBufferSize int           // the outbound queue capacity
+	errorChan       chan error
+	errorOnce       sync.Once // starts serveError on the first report that needs it
 
 	log          *slog.Logger
 	rootRejected error
-	boundary     bool // log the namespace connect and disconnect records (Server only)
 
 	// mu guards close-state transitions and queue admission, including draining,
 	// connecting, appSealed, overflow, pending, drainTimer and disconnectReason.
-	// It serializes closing/seal/discard closure; done has a single closer in
-	// finish on the read dispatcher. drainTimeout is set before workers start.
+	// It serializes closing/seal/discard closure. finish closes done, either
+	// after failed initial connection or on the read dispatcher after success.
+	// drainTimeout is set before workers start.
 	mu                           sync.Mutex
 	closing, seal, discard, done chan struct{}
 	draining, connecting         bool             // the first close is Close; until connected
@@ -80,7 +81,7 @@ func newConnection(engineConn engineio.Conn, handlers *namespaceRegistry, writeB
 		disconnectReason: "forced close",
 		Conn:             engineConn,
 		errorChan:        make(chan error),
-		writeChan:        make(chan outboundPayload, writeBufferSize),
+		writeBufferSize:  writeBufferSize,
 		writeReady:       make(chan struct{}, 1),
 		handlers:         handlers,
 		namespaces:       newNamespaces(),
@@ -182,9 +183,7 @@ func (c *connection) connected(err error) bool {
 	if failed && c.overflow != nil { // final: no overflow once a close started
 		err = errors.Join(ErrWriteBufferFull, err)
 	}
-	if c.boundary {
-		c.connectRecord(rootNamespace, cmp.Or(err, c.rootRejected))
-	}
+	c.connectRecord(rootNamespace, cmp.Or(err, c.rootRejected))
 	if failed {
 		c.reportOverflow(nil)
 		c.finish()
@@ -252,6 +251,7 @@ func (c *connection) report(namespace string, err, failed error) {
 		}
 		return
 	}
+	c.startError()
 	select {
 	case c.errorChan <- msg:
 		<-msg.done
@@ -265,28 +265,21 @@ func (c *connection) namespace(nsp string) *namespaceHandler {
 }
 
 func (c *connection) EngineConn() engineio.Conn {
-	if c.boundary {
-		return c.Conn
-	}
-	return nil
+	return c.Conn
 }
 
 func (c *connection) Request() *http.Request {
-	if c.boundary {
-		return c.request
-	}
-	return nil
+	return c.request
 }
 
-// Start connects the root socket and starts its error and writer loops.
+// Start connects the root socket and starts its writer. The error worker starts
+// only when a report needs it.
 // The public server registers this connection before invoking Start.
 func (c *connection) Start(resolve func(string, url.Values) *namespaceHandler) bool {
-	c.boundary = true
 	c.resolveNamespace = resolve
 	if !c.connected(c.connect()) {
 		return false
 	}
-	go c.serveError()
 	go c.serveWrite()
 	return true
 }

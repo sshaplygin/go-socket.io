@@ -60,7 +60,7 @@ func TestClientVolatile(t *testing.T) {
 				base = websocket.Default
 			}
 			watched := watchedClientTransport{base, make(chan transport.Conn, 1)}
-			cl, err := newTestManager(ts.URL, WithTransports([]transport.Transport{watched}...))
+			cl, err := newTestManager(t, ts.URL, WithTransports([]transport.Transport{watched}...))
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
 			connected := make(chan Conn, 1)

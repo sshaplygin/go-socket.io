@@ -2,6 +2,7 @@ package parser
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"reflect"
 	"testing"
@@ -127,4 +128,29 @@ func TestDecodeNullArgument(t *testing.T) {
 	args, err := d.DecodeArgs([]reflect.Type{reflect.TypeOf((*string)(nil))})
 	require.NoError(t, err)
 	require.True(t, args[0].IsNil())
+}
+
+// The decoder splits event and ACK arrays itself after json.Valid; its arguments
+// must be exactly the elements encoding/json produces for the same array.
+func FuzzSplitArrayMatchesEncodingJSON(f *testing.F) {
+	for _, seed := range []string{
+		`[]`, `[ ]`, `["e"]`, ` [ "e" , 1 ,null ] `, "[\t\"e\"\r\n,\n{}\n]",
+		`["a,b",[1,[2,"]"]],{"k":"}","n":{"x":[]}}]`, `["\"",  "\\", "\\\"", "\u0022,"]`,
+		`[-1.5e+10,true,false,null,"é"]`, `[[],{},[[]],{"":{}}]`, `["e",{"_placeholder":true,"num":0}]`,
+	} {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		raw = bytes.TrimSpace(raw)
+		if len(raw) == 0 || raw[0] != '[' || !json.Valid(raw) {
+			return
+		}
+		var want []json.RawMessage
+		require.NoError(t, json.Unmarshal(raw, &want))
+		got := splitArray(raw)
+		require.Len(t, got, len(want))
+		for i := range want {
+			require.Equal(t, string(want[i]), string(got[i]), "element %d of %q", i, raw)
+		}
+	})
 }

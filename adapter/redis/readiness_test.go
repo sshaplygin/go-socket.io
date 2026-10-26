@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -124,9 +125,6 @@ func TestDynamicNamespaceWaitsForSubscriptionAcknowledgements(t *testing.T) {
 }
 
 func TestDynamicSubscriptionWriteIsBounded(t *testing.T) {
-	old := redisDialTimeout
-	redisDialTimeout = time.Second
-	defer func() { redisDialTimeout = old }()
 	c := &blockedSubscriptionWrite{silentSubscription: silentSubscription{done: make(chan struct{})}}
 	owner := &broadcast{done: make(chan struct{}), pattern: "socket.io#*", sub: &redis.PubSubConn{Conn: c}}
 	shared := &sharedResources{owner: owner, members: make(map[string][]*broadcast)}
@@ -134,7 +132,10 @@ func TestDynamicSubscriptionWriteIsBounded(t *testing.T) {
 	shared.members["/old"] = []*broadcast{owner}
 	owner.subscriptionChanged(owner.pattern, true)
 	result := make(chan error, 1)
-	go func() { _, err := shared.add("/new", &options{Prefix: "socket.io"}); result <- err }()
+	go func() {
+		_, err := shared.add("/new", &options{Prefix: "socket.io", SubscribeTimeout: time.Second})
+		result <- err
+	}()
 	select {
 	case <-c.done:
 	case <-time.After(2 * time.Second):
@@ -171,12 +172,9 @@ func TestReadySubscriptionHonoursCanceledContext(t *testing.T) {
 }
 
 func TestNamespaceCloseBoundsUnsubscribeWrite(t *testing.T) {
-	old := redisDialTimeout
-	redisDialTimeout = 40 * time.Millisecond
-	defer func() { redisDialTimeout = old }()
 	c := &blockedSubscriptionWrite{silentSubscription: silentSubscription{done: make(chan struct{})}}
 	owner := &broadcast{done: make(chan struct{}), pattern: "socket.io#*", sub: &redis.PubSubConn{Conn: c}}
-	member := &broadcast{nsp: "/closing", reqChannel: "socket.io-request#/closing#", resChannel: "socket.io-response#/closing#"}
+	member := &broadcast{subscribeTimeout: 40 * time.Millisecond, nsp: "/closing", reqChannel: "socket.io-request#/closing#", resChannel: "socket.io-response#/closing#"}
 	shared := &sharedResources{owner: owner, members: map[string][]*broadcast{"/remaining": {owner}, "/closing": {member}}}
 	owner.resources = shared
 	member.resources = shared
@@ -375,5 +373,36 @@ func TestUnsubscribeAcknowledgementsConfirmOneCommandAtATime(t *testing.T) {
 	case <-second.done:
 	default:
 		t.Fatal("second unsubscribe not confirmed")
+	}
+}
+
+// Each subscriber reconnect attempt is bounded by WithSubscribeTimeout. With
+// every PSUBSCRIBE held, the 250ms attempts time out and repeat after the test
+// backoff (at most redisReconnectMax); a ten-second bound would allow one
+// attempt within 5s.
+func TestReconnectAttemptBoundedBySubscribeTimeout(t *testing.T) {
+	s := miniredis.RunT(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	bc := newTestRedisBroadcast(t, s, func(o *options) { o.SubscribeTimeout = 250 * time.Millisecond })
+	var attempts atomic.Int32
+	s.Server().SetPreHook(func(_ *server.Peer, command string, _ ...string) bool {
+		if command == "PSUBSCRIBE" {
+			attempts.Add(1)
+			<-release
+		}
+		return false
+	})
+	bc.subLock.Lock()
+	_ = bc.sub.Close()
+	bc.subLock.Unlock()
+	require.Eventually(t, func() bool { return attempts.Load() >= 3 }, 5*time.Second, 5*time.Millisecond,
+		"reconnect attempts are not bounded by WithSubscribeTimeout")
+}
+
+func TestNonpositiveSubscribeTimeoutSelectsDefault(t *testing.T) {
+	for _, value := range []time.Duration{0, -time.Second} {
+		require.Equal(t, 10*time.Second, getOptions(&options{SubscribeTimeout: value}).subscribeTimeout(), value)
+		require.Equal(t, 10*time.Second, (&broadcast{subscribeTimeout: value}).subscribeTimeoutOrDefault(), value)
 	}
 }

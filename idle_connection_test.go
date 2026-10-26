@@ -1,7 +1,6 @@
 package socketio
 
 import (
-	"github.com/sshaplygin/go-socket.io/engineio"
 	"net/http/httptest"
 	"runtime"
 	"strings"
@@ -10,6 +9,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sshaplygin/go-socket.io/engineio"
 )
 
 func TestIdleWebsocketConnectionGoroutines(t *testing.T) {
@@ -31,7 +32,16 @@ func TestIdleWebsocketConnectionGoroutines(t *testing.T) {
 		}
 	}
 	require.Equal(t, clients, srv.Count(), "every measured connection must still be live")
-	require.Eventually(t, func() bool {
-		return runtime.NumGoroutine()-baseline <= clients*5+5
-	}, time.Second, 10*time.Millisecond, "more than five workers per idle connection")
+	// Five per connection: four library workers and the net/http connection goroutine.
+	for deadline := time.Now().Add(time.Second); ; time.Sleep(10 * time.Millisecond) {
+		added := runtime.NumGoroutine() - baseline
+		if added <= clients*5+5 {
+			t.Logf("%d idle connections added %d goroutines", clients, added)
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d idle connections added %d goroutines (%.2f each), want at most 5 each",
+				clients, added, float64(added)/clients)
+		}
+	}
 }

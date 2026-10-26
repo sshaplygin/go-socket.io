@@ -19,10 +19,11 @@ import (
 // The outbound queue size (see ErrWriteBufferFull) and drain deadline (see Conn.Close).
 const defaultWriteBufferSize, defaultDrainTimeout = 64, time.Minute
 
-// Configuration, codec ownership and channel references are installed before
-// workers start. The header reader and dispatcher hand off decoder ownership;
-// the writer owns encoder/writer. Registries synchronize their own contents.
-// rootRejected is initialized before dispatch; id is atomic.
+// connection configuration, codecs and channel references are installed before
+// workers start. The read path coordinates decoder/reader handoffs between its
+// header worker and dispatcher; rootRejected is set before those workers start.
+// The writer owns encoder/writer. Registries synchronize their own contents. Channel
+// operations synchronize wakeups and completion; id uses atomic operations.
 type connection struct {
 	engineio.Conn
 
@@ -43,23 +44,25 @@ type connection struct {
 	writer  *queueWriter // tells the encoder's transport failures apart
 
 	writeReady      chan struct{}
-	drainQueue      []drainPacket
-	pendingWrites   int
-	drainQueued     int
-	controlQueued   int
-	closeControls   int
-	controlPending  int // claimed namespace disconnects not yet enqueued; guarded by mu
-	writeBufferSize int
+	drainQueue      []drainPacket // guarded by mu
+	pendingWrites   int           // guarded by mu
+	drainQueued     int           // guarded by mu
+	controlQueued   int           // guarded by mu
+	closeControls   int           // guarded by mu
+	controlPending  int           // claimed namespace disconnects not yet enqueued; guarded by mu
+	writeBufferSize int           // the outbound queue capacity
 	errorChan       chan error
+	errorOnce       sync.Once // starts serveError on the first report that needs it
 
 	log          *slog.Logger
 	rootRejected error
-	errorOnce    sync.Once
 	state        connectionState // guarded by mu
 
-	// mu guards state, queue contents/counters, namespace retirement and admission,
-	// connecting, draining, appSealed, overflow, pending, drainTimer and disconnectReason.
-	// Channels publish transitions; done has one closer on the read dispatcher.
+	// mu guards state and close-state transitions and queue admission, including draining,
+	// connecting, appSealed, overflow, pending, drainTimer and disconnectReason.
+	// It serializes closing/seal/discard closure. finish closes done, either
+	// after failed initial connection or on the read dispatcher after success.
+	// drainTimeout is set before workers start.
 	mu                           sync.Mutex
 	closing, seal, discard, done chan struct{}
 	draining, connecting         bool             // the first close is Close; until connected

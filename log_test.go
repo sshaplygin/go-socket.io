@@ -577,23 +577,6 @@ func (h *keyCheck) result(msg string) (problems, sids []string) {
 	return append(problems, h.problems...), append(sids, h.sids[msg]...)
 }
 
-// moduleGoroutines returns the IDs of the goroutines with a frame in a non-test file of
-// the module.
-func moduleGoroutines() map[string]bool {
-	_, file, _, _ := runtime.Caller(0)
-	dir := "\t" + file[:strings.LastIndex(file, "/")+1]
-	buf := make([]byte, 1<<22)
-	ids := map[string]bool{}
-	for _, g := range strings.Split(string(buf[:runtime.Stack(buf, true)]), "\n\n") {
-		for _, line := range strings.Split(g, "\n") {
-			if f, _, _ := strings.Cut(line, ":"); strings.HasPrefix(f, dir) && !strings.HasSuffix(f, "_test.go") {
-				ids[strings.Fields(g)[1]] = true
-			}
-		}
-	}
-	return ids
-}
-
 // TestNoBadKeyAttrs runs the TestLifecycleRootNamespace scenario at trace with checking
 // handlers on WithLogger and slog.Default.
 func TestNoBadKeyAttrs(t *testing.T) {
@@ -609,7 +592,7 @@ func TestNoBadKeyAttrs(t *testing.T) {
 	// Go client's polling goroutines after Close, have all returned.
 	require.Eventually(t, func() bool {
 		for id := range moduleGoroutines() {
-			if !before[id] {
+			if _, ok := before[id]; !ok {
 				return false
 			}
 		}
@@ -657,4 +640,29 @@ func TestLoggerOptionsOrder(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOnErrorPanicIsLogged(t *testing.T) {
+	rec, _ := captureLogs(t, nil)
+	server := NewServer(WithLogger(slog.New(rec)))
+	t.Cleanup(func() { _ = server.Close() })
+	refused := errors.New("connect refused")
+	server.OnConnect("/", func(Conn) error { return refused })
+	called := false
+	server.OnError("/", func(c Conn, err error) {
+		if !errors.Is(err, refused) {
+			return // Ignore transport cleanup after the rejected connection.
+		}
+		require.Nil(t, c)
+		require.ErrorIs(t, err, refused)
+		called = true
+		panic("error callback failed")
+	})
+	server.serveConn(newFakeConn(t))
+	require.True(t, called)
+	records := only(rec.since(0), "socketio: error handler panic")
+	require.Len(t, records, 1)
+	require.Equal(t, "WARN", records[0]["level"])
+	require.Equal(t, "/", records[0]["nsp"])
+	require.Equal(t, "error callback failed", records[0]["err"])
 }

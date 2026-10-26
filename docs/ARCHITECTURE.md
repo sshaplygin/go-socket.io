@@ -15,7 +15,7 @@ imports are omitted. Test imports do not define runtime dependencies.
 | `engineio` | Engine.IO acceptance/server lifecycle, public options/hooks and session coordination | `engineio/internal/session`, `engineio/parser`, `engineio/transport`, its polling/websocket implementations, `logger` |
 | `engineio/internal/session` | Server session I/O, registry/IDs, heartbeat, close/upgrade and polling response observation | `engineio/parser`, `engineio/transport`, `engineio/transport/polling`, `logger` |
 | `engineio/client` | Engine.IO dial, heartbeat, upgrade and client connection | `engineio/parser`, `engineio/transport`, its polling/websocket implementations, `logger` |
-| `engineio/parser` | Public Engine.IO codec entry points, OPEN parameters and frame/packet test fakes | `engineio/parser/internal/packet`, `engineio/parser/internal/payload` |
+| `engineio/parser` | Public Engine.IO codec entry points and OPEN parameters | `engineio/parser/internal/packet`, `engineio/parser/internal/payload` |
 | `engineio/parser/internal/packet` | Canonical frame/packet types and packet encoder/decoder | `logger` |
 | `engineio/parser/internal/payload` | Streaming payload encoder/decoder, framing lengths and lease/error state | `engineio/parser/internal/packet` |
 | `engineio/transport` | Transport contracts and registry | `engineio/parser`, `logger` |
@@ -34,14 +34,15 @@ boundaries, package privacy and the absence of unsupported import paths.
 ## Runtime
 
 The Engine.IO server accepts HTTP requests and yields sessions to Socket.IO.
-Each server Socket.IO connection has a read dispatcher, a header reader and a
-writer. A separate observer cancels typed handlers when the engine closes, even
-if the dispatcher is inside a blocking application handler; Engine.IO removes closed
-sessions through a completion callback, without an idle registry watcher. The server error worker starts
-only when a report needs delivery. The client role retains its error worker.
-The server uses one ordered outbound queue with an integer capacity; there is no
-unused buffered delivery channel. Incoming event handlers run on the dispatcher;
-blocking one also blocks the header worker's handoff for that connection.
+Each server Socket.IO connection has up to five workers: a header reader, a
+read dispatcher, a writer, an observer that cancels typed handlers when the
+engine closes, and an error worker that starts on the first `OnError` delivery
+or outbound queue overflow. The writer drains one ordered outbound queue whose
+capacity is the write buffer size. Engine.IO removes a closed session from its
+registry in the session's close path, without a per-session watcher. Incoming
+event handlers run on the dispatcher; blocking one stalls that connection and
+also blocks the header reader's handoff of the next packet. A client connection
+starts its error worker with the connection.
 Application-initiated disconnection can invoke lifecycle callbacks concurrently.
 The client manager owns namespace sockets, connection generations, retries and
 pre-connect buffering. Queues and ACK registrations belong to their connection.
@@ -53,7 +54,8 @@ Socket.IO orders close transitions and outbound admission under the connection's
 An application close follows draining → sealed; a failure can move any active phase
 to discarded. Completion moves to closed. The `draining` flag retains the origin of
 an application close for callbacks even after a forced discard. The first close
-closes `closing`, removes its namespace generations from admission and cancels their typed-handler contexts. Later closes are idempotent.
+closes `closing`, removes its namespace generations from
+admission and cancels their typed-handler contexts. Later closes are idempotent.
 A retained namespace connection cannot send to a replacement generation.
 
 An application `Conn.Close` starts an orderly drain and its deadline. Namespace
@@ -69,8 +71,9 @@ engine. The public Close does not wait for that transport drain.
 
 A transport/dispatch failure, queue overflow or drain timeout closes `discard`
 and aborts Engine.IO, abandoning queued packets. This can cut short an orderly
-drain. The read dispatcher completes outstanding namespace callbacks and closes
-`done`; server shutdown also waits for the disconnects claimed before close.
+drain. After successful connection setup, the read dispatcher completes pending
+namespace callbacks and closes `done`; failed initial setup finishes close
+synchronously. Server shutdown also waits for all disconnects claimed before close.
 
 ### Client transport probe and upgrade
 
@@ -94,3 +97,13 @@ tests in those packages also cover private state and failure paths. Compile fixt
 method/field lookup. Runtime helpers remain unexported in their owning public
 package. Node interoperability
 fixtures live in `internal/conformance` behind the `conformance` build tag.
+
+### Client upgrade cancellation
+
+The client dials the candidate transport, exchanges the probe PING/PONG, then
+holds its write gate while pausing the current transport and committing UPGRADE.
+The built-in polling connection offers a cancellable pause: canceling the probe
+also wakes an in-progress pause, including one whose goroutine has not started.
+Rollback waits for that pause to finish and calls Resume once before releasing
+the write gate. Legacy custom transports implementing only Pause/Resume retain
+the retry fallback because their pause cannot observe cancellation.

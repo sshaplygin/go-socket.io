@@ -17,6 +17,7 @@ func (c *connection) Close() error {
 	}
 	ncs := c.startClose()
 	c.disconnectReason = "server namespace disconnect"
+	c.state = connectionDraining
 	c.draining, c.drainTimer = true, time.AfterFunc(c.drainTimeout, c.stop)
 	c.mu.Unlock()
 	c.disconnectGraceful(ncs)
@@ -61,6 +62,9 @@ func (c *connection) disconnectGraceful(ncs []*namespaceConn) {
 func (c *connection) sealIfReady() {
 	if c.appSealed && c.controlPending == 0 && !isDone(c.seal) {
 		close(c.seal)
+		if c.state < connectionSealed {
+			c.state = connectionSealed
+		}
 	}
 }
 
@@ -73,6 +77,7 @@ func (c *connection) controlEnqueued() {
 
 // startClose takes the connected namespaces; c.mu is held.
 func (c *connection) startClose() (ncs []*namespaceConn) {
+	c.state = connectionClosing
 	close(c.closing)
 	c.namespaces.Range(func(_ string, nc *namespaceConn) { ncs = append(ncs, nc) })
 	for _, nc := range ncs {
@@ -95,6 +100,7 @@ func (c *connection) stopLocked() {
 		c.pending = c.startClose()
 	}
 	if !isDone(c.discard) {
+		c.state = connectionDiscarded
 		close(c.discard)
 		if c.drainTimer != nil {
 			c.drainTimer.Stop()
@@ -110,6 +116,9 @@ func (c *connection) finish() {
 	ncs := c.pending
 	c.mu.Unlock()
 	c.disconnect(ncs)
+	c.mu.Lock()
+	c.state = connectionClosed
+	c.mu.Unlock()
 	close(c.done)
 }
 

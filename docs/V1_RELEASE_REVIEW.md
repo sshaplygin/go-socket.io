@@ -1833,7 +1833,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W31. Document the close, drain and upgrade state machines
 
-- **Status:** in progress — #174
+- **Status:** done — #174
 - **Priority:** after release
 - **Findings:** [CL-12](#clarity-findings)
 - **Depends on:** none
@@ -1851,7 +1851,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W32. Cancellable pause and explicit close state
 
-- **Status:** in progress — #184 (Engine.IO pause), #192 (Socket.IO close state)
+- **Status:** in progress — #184 (Engine.IO pause, merged), #192 (Socket.IO close state)
 - **Priority:** after release
 - **Findings:** [ARCH-8](#architecture-findings)
 - **Depends on:** W31

@@ -50,7 +50,11 @@ pre-connect buffering. Queues and ACK registrations belong to their connection.
 ### Connection close and drain
 
 Socket.IO orders close transitions and outbound admission under the connection's
-`mu`. The first close closes `closing`, removes its namespace generations from
+`mu`. Its explicit states are open, closing, draining, sealed, discarded and closed.
+An application close follows draining → sealed; a failure can move any active phase
+to discarded. Completion moves to closed. The `draining` flag retains the origin of
+an application close for callbacks even after a forced discard. The first close
+closes `closing`, removes its namespace generations from
 admission and cancels their typed-handler contexts. Later closes are idempotent.
 A retained namespace connection cannot send to a replacement generation.
 

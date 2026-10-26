@@ -56,8 +56,9 @@ type connection struct {
 
 	log          *slog.Logger
 	rootRejected error
+	state        connectionState // guarded by mu
 
-	// mu guards close-state transitions and queue admission, including draining,
+	// mu guards state and close-state transitions and queue admission, including draining,
 	// connecting, appSealed, overflow, pending, drainTimer and disconnectReason.
 	// It serializes closing/seal/discard closure. finish closes done, either
 	// after failed initial connection or on the read dispatcher after success.

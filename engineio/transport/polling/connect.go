@@ -125,11 +125,19 @@ func (c *clientConn) RemoteHeader() http.Header {
 // current POST to complete. Engine.IO holds its writers while calling it. Unlike
 // Payload.Pause, this wait can be cancelled by Resume without poisoning a payload
 // that must remain usable after a failed upgrade.
-func (c *clientConn) Pause() {
+func (c *clientConn) Pause() { _ = c.PauseContext(context.Background()) }
+
+// PauseContext stops new polls until Resume and waits for current GET/POST work.
+// Cancellation also applies before PauseContext starts, so upgrade rollback does
+// not depend on when its pause goroutine is scheduled.
+func (c *clientConn) PauseContext(ctx context.Context) error {
 	c.writableMu.Lock()
 	defer c.writableMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if c.stopped {
-		return
+		return io.ErrClosedPipe
 	}
 	c.pausing = true
 	c.pauseEpoch++
@@ -138,9 +146,24 @@ func (c *clientConn) Pause() {
 	for c.pausing && c.pauseEpoch == epoch && (c.polling || c.posting) {
 		changed := c.changed
 		c.writableMu.Unlock()
-		<-changed
+		select {
+		case <-changed:
+		case <-ctx.Done():
+		}
 		c.writableMu.Lock()
+		if err := ctx.Err(); err != nil {
+			if c.pauseEpoch == epoch {
+				c.pausing = false
+				c.pauseEpoch++
+				c.notifyChanged()
+			}
+			return err
+		}
 	}
+	if c.stopped {
+		return io.ErrClosedPipe
+	}
+	return nil
 }
 
 func (c *clientConn) Resume() {

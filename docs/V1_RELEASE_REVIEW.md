@@ -1851,7 +1851,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W32. Cancellable pause and explicit close state
 
-- **Status:** open
+- **Status:** in progress — #184 (Engine.IO pause), #192 (Socket.IO close state)
 - **Priority:** after release
 - **Findings:** [ARCH-8](#architecture-findings)
 - **Depends on:** W31

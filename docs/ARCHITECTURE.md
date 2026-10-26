@@ -93,3 +93,13 @@ tests in those packages also cover private state and failure paths. Compile fixt
 method/field lookup. Runtime helpers remain unexported in their owning public
 package. Node interoperability
 fixtures live in `internal/conformance` behind the `conformance` build tag.
+
+### Client upgrade cancellation
+
+The client dials the candidate transport, exchanges the probe PING/PONG, then
+holds its write gate while pausing the current transport and committing UPGRADE.
+The built-in polling connection offers a cancellable pause: canceling the probe
+also wakes an in-progress pause, including one whose goroutine has not started.
+Rollback waits for that pause to finish and calls Resume once before releasing
+the write gate. Legacy custom transports implementing only Pause/Resume retain
+the retry fallback because their pause cannot observe cancellation.

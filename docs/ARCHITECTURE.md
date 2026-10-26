@@ -15,7 +15,7 @@ imports are omitted. Test imports do not define runtime dependencies.
 | `engineio` | Engine.IO acceptance/server lifecycle, public options/hooks and session coordination | `engineio/internal/session`, `engineio/parser`, `engineio/transport`, its polling/websocket implementations, `logger` |
 | `engineio/internal/session` | Server session I/O, registry/IDs, heartbeat, close/upgrade and polling response observation | `engineio/parser`, `engineio/transport`, `engineio/transport/polling`, `logger` |
 | `engineio/client` | Engine.IO dial, heartbeat, upgrade and client connection | `engineio/parser`, `engineio/transport`, its polling/websocket implementations, `logger` |
-| `engineio/parser` | Public Engine.IO codec entry points, OPEN parameters and frame/packet test fakes | `engineio/parser/internal/packet`, `engineio/parser/internal/payload` |
+| `engineio/parser` | Public Engine.IO codec entry points and OPEN parameters | `engineio/parser/internal/packet`, `engineio/parser/internal/payload` |
 | `engineio/parser/internal/packet` | Canonical frame/packet types and packet encoder/decoder | `logger` |
 | `engineio/parser/internal/payload` | Streaming payload encoder/decoder, framing lengths and lease/error state | `engineio/parser/internal/packet` |
 | `engineio/transport` | Transport contracts and registry | `engineio/parser`, `logger` |
@@ -34,8 +34,15 @@ boundaries, package privacy and the absence of unsupported import paths.
 ## Runtime
 
 The Engine.IO server accepts HTTP requests and yields sessions to Socket.IO.
-Each Socket.IO connection has read-dispatch, write and error workers. Incoming
-event handlers run on the dispatcher; blocking one stalls that connection.
+Each server Socket.IO connection has up to five workers: a header reader, a
+read dispatcher, a writer, an observer that cancels typed handlers when the
+engine closes, and an error worker that starts on the first `OnError` delivery
+or outbound queue overflow. The writer drains one ordered outbound queue whose
+capacity is the write buffer size. Engine.IO removes a closed session from its
+registry in the session's close path, without a per-session watcher. Incoming
+event handlers run on the dispatcher; blocking one stalls that connection and
+also blocks the header reader's handoff of the next packet. A client connection
+starts its error worker with the connection.
 Application-initiated disconnection can invoke lifecycle callbacks concurrently.
 The client manager owns namespace sockets, connection generations, retries and
 pre-connect buffering. Queues and ACK registrations belong to their connection.

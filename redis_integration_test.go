@@ -1,6 +1,7 @@
 package socketio
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -167,17 +168,27 @@ func TestRedisConstructionErrorFailsConnections(t *testing.T) {
 func TestRedisServerCloseStopsBroadcasts(t *testing.T) {
 	s := miniredis.RunT(t)
 	srv := NewServer()
-	useRedis(t, srv, s.Addr())
+	srv.SetAdapter(redisadapter.New(redisadapter.WithAddr(s.Addr()), redisadapter.WithSubscribeTimeout(200*time.Millisecond)))
+	t.Cleanup(func() { _ = srv.Close() })
 	srv.OnConnect("/one", func(Conn) error { return nil })
 	srv.OnConnect("/two", func(Conn) error { return nil })
 	s.Close()
+	began := time.Now()
 	srv.OnConnect("/three", func(Conn) error { return nil })
+	require.Less(t, time.Since(began), time.Second)
 	require.NoError(t, s.Restart())
 	require.Eventually(t, func() bool {
 		return s.PubSubNumPat() == 1 &&
 			s.PubSubNumSub("socket.io-request#/one#")["socket.io-request#/one#"] == 1 &&
 			s.PubSubNumSub("socket.io-request#/two#")["socket.io-request#/two#"] == 1
 	}, 2*time.Second, 5*time.Millisecond, "shared subscriber restored every namespace after reconnect")
+	// Redis lists the subscriptions before the adapter has read their
+	// acknowledgements. Close within the 200ms subscribe timeout needs the adapter to
+	// be ready, and a cluster query waits for that.
+	for _, nsp := range []string{"/one", "/two"} {
+		_, err := srv.broadcastOf(nsp).(redisadapter.Cluster).AllRoomsContext(context.Background())
+		require.NoError(t, err, nsp)
+	}
 
 	require.NotPanics(t, func() { require.NoError(t, srv.Close()) })
 	require.Eventually(t, func() bool {
@@ -306,4 +317,57 @@ func TestRedisCloseStopsRacingRegistration(t *testing.T) {
 	require.NotNil(t, srv.getNamespace("/x"), "Close returned before the registration finished")
 	require.Eventually(t, func() bool { return s.CurrentConnectionCount() == 0 && s.PubSubNumPat() == 0 },
 		time.Second, 5*time.Millisecond, "Redis connections of the racing registration left after Close")
+}
+
+// TestRedisBroadcastCallbackLogsWarn checks that a room broadcast with a trailing callback
+// is rejected before any delivery and that the rejection is logged at WARN.
+func TestRedisBroadcastCallbackLogsWarn(t *testing.T) {
+	s := miniredis.RunT(t)
+	rec, _ := captureLogs(t, nil)
+	p := start(t, 'S', hooks{setup: func(srv *Server) { useRedis(t, srv, s.Addr()) }})
+	p.nc.Join("r")
+	require.True(t, p.srv.BroadcastToRoom("/", "r", "e", "x", func() {}))
+	select {
+	case frame := <-p.fc.out:
+		t.Fatalf("rejected callback broadcast delivered %q", frame)
+	case <-time.After(200 * time.Millisecond):
+	}
+	logs := only(rec.since(0), "socketio: redis broadcast failed")
+	require.Len(t, logs, 1)
+	require.Equal(t, slog.LevelWarn.String(), logs[0]["level"])
+	require.Equal(t, "/", logs[0]["nsp"])
+	require.Contains(t, logs[0]["err"], "acknowledgements are unsupported")
+}
+
+// TestRedisBroadcastPublishFailureLogsWarn checks that a namespace broadcast still reaches
+// the local socket when PUBLISH fails and that the failure is logged at WARN.
+func TestRedisBroadcastPublishFailureLogsWarn(t *testing.T) {
+	s := miniredis.RunT(t)
+	rec, _ := captureLogs(t, nil)
+	p := start(t, 'S', hooks{setup: func(srv *Server) { useRedis(t, srv, s.Addr()) }})
+	s.Close()
+	require.True(t, p.srv.BroadcastToNamespace("/", "e", "x"))
+	require.Equal(t, "2[\"e\",\"x\"]\n", recv(t, p.fc.out, "local delivery despite publication failure"))
+	logs := only(rec.since(0), "socketio: redis broadcast failed")
+	require.Len(t, logs, 1)
+	require.Equal(t, slog.LevelWarn.String(), logs[0]["level"])
+	require.Equal(t, "/", logs[0]["nsp"])
+	require.NotEmpty(t, logs[0]["err"])
+}
+
+// TestRedisBroadcastAfterCloseLogsDebug checks that a broadcast after Server.Close still
+// reports the registered namespace and logs the closed adapter's failure at DEBUG only.
+func TestRedisBroadcastAfterCloseLogsDebug(t *testing.T) {
+	s := miniredis.RunT(t)
+	rec, _ := captureLogs(t, nil)
+	p := start(t, 'S', hooks{setup: func(srv *Server) { useRedis(t, srv, s.Addr()) }})
+	require.NoError(t, p.srv.Close())
+	n := rec.len()
+	require.True(t, p.srv.BroadcastToNamespace("/", "e", "x"))
+	require.Empty(t, loud(rec.since(n), ""), "records above DEBUG after Server.Close")
+	logs := only(rec.since(n), "socketio: redis broadcast failed")
+	require.Len(t, logs, 1)
+	require.Equal(t, slog.LevelDebug.String(), logs[0]["level"])
+	require.Equal(t, "/", logs[0]["nsp"])
+	require.Contains(t, logs[0]["err"], "redis adapter closed")
 }

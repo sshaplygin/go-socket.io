@@ -289,10 +289,6 @@ func (c *clientConn) getOpen() {
 		return
 	}
 
-	defer func() {
-		discardBody(resp.Body)
-	}()
-
 	if resp.StatusCode != http.StatusOK {
 		err = fmt.Errorf("invalid request: %s(%d)", resp.Status, resp.StatusCode)
 	}
@@ -307,6 +303,8 @@ func (c *clientConn) getOpen() {
 	}
 
 	if err != nil {
+		discardBody(resp.Body)
+
 		if err = c.payload.Store("get", err); err != nil {
 			logger.Log.Debug("engineio: get request failed", "err", err)
 		}
@@ -322,9 +320,11 @@ func (c *clientConn) getOpen() {
 
 	if err = c.payload.FeedIn(c.responseBody(resp), isSupportBinary); err != nil {
 		logger.Log.Debug("engineio: get payload failed", "err", err)
+		abandonBody(resp.Body)
 
 		return
 	}
+	discardBody(resp.Body)
 }
 
 // serveGet polls until a request fails or the payload is closed or paused. If
@@ -397,7 +397,7 @@ func (c *clientConn) poll(req *http.Request) bool {
 	}
 
 	if err = c.payload.FeedIn(c.responseBody(resp), isSupportBinary); err != nil {
-		discardBody(resp.Body)
+		abandonBody(resp.Body)
 
 		return false
 	}
@@ -405,6 +405,16 @@ func (c *clientConn) poll(req *http.Request) bool {
 	c.remoteHeader.Store(resp.Header)
 	discardBody(resp.Body)
 	return true
+}
+
+// abandonBody closes a response body after a failed FeedIn. FeedIn can return on
+// close or a read timeout while the payload decoder still holds the body:
+// reading it here would race with that decoder, while closing it makes the
+// decoder's next read fail.
+func abandonBody(body io.ReadCloser) {
+	if err := body.Close(); err != nil {
+		logger.Log.Debug("engineio: close body failed", "err", err)
+	}
 }
 
 func discardBody(body io.ReadCloser) {

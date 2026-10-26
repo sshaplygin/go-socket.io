@@ -19,6 +19,11 @@ import (
 // The outbound queue size (see ErrWriteBufferFull) and drain deadline (see Conn.Close).
 const defaultWriteBufferSize, defaultDrainTimeout = 64, time.Minute
 
+// connection configuration, codecs and channel references are installed before
+// workers start. The read path coordinates decoder/reader handoffs between its
+// header worker and dispatcher; rootRejected is set before those workers start.
+// The writer owns encoder/writer. Registries synchronize their own contents. Channel
+// operations synchronize wakeups and completion; id uses atomic operations.
 type connection struct {
 	engineio.Conn
 
@@ -27,8 +32,8 @@ type connection struct {
 	resolveNamespace   func(string, url.Values) *namespaceHandler
 	handlers           *namespaceRegistry
 	namespaces         *namespaces
-	retiring           map[string]*parser.Header
-	reconnectReady     []string
+	retiring           map[string]*parser.Header // guarded by mu
+	reconnectReady     []string                  // guarded by mu
 	readReady          chan struct{}
 	engineDone         <-chan struct{}
 	engineObserverDone chan struct{}
@@ -39,20 +44,24 @@ type connection struct {
 	writer  *queueWriter // tells the encoder's transport failures apart
 
 	writeReady      chan struct{}
-	drainQueue      []drainPacket
-	pendingWrites   int
-	drainQueued     int
-	controlQueued   int
-	closeControls   int
-	controlPending  int // claimed namespace disconnects not yet enqueued; guarded by mu
-	writeBufferSize int // the outbound queue capacity
+	drainQueue      []drainPacket // guarded by mu
+	pendingWrites   int           // guarded by mu
+	drainQueued     int           // guarded by mu
+	controlQueued   int           // guarded by mu
+	closeControls   int           // guarded by mu
+	controlPending  int           // claimed namespace disconnects not yet enqueued; guarded by mu
+	writeBufferSize int           // the outbound queue capacity
 	errorChan       chan error
 	errorOnce       sync.Once // starts serveError on the first report that needs it
 
 	log          *slog.Logger
 	rootRejected error
 
-	// mu orders the close state, whose steps close the channels, against queueing and registering.
+	// mu guards close-state transitions and queue admission, including draining,
+	// connecting, appSealed, overflow, pending, drainTimer and disconnectReason.
+	// It serializes closing/seal/discard closure. finish closes done, either
+	// after failed initial connection or on the read dispatcher after success.
+	// drainTimeout is set before workers start.
 	mu                           sync.Mutex
 	closing, seal, discard, done chan struct{}
 	draining, connecting         bool             // the first close is Close; until connected

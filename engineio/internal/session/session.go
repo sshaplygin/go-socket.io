@@ -25,7 +25,7 @@ type Session struct {
 	onClosed      func() // installed before publication; runs after transport shutdown
 	closeDone     chan struct{}
 	notified      chan struct{} // the first closer has finished its synchronous Error hook
-	closeErr      error
+	closeErr      error         // written by transportOnce; published by closeDone/transportDone
 	transportOnce sync.Once
 	transportDone chan struct{}
 	writeGate     chan struct{}
@@ -48,7 +48,7 @@ type Session struct {
 	// a failing frame reader or writer reaches closeTransport, which takes the
 	// write lock. Snapshot conn and release the lock first, as setDeadline,
 	// nextReader and nextWriterCompress do.
-	upgradeLocker   sync.RWMutex // guards conn, transport, closed and opened
+	upgradeLocker   sync.RWMutex // guards conn, transport, probe, closed, opened, transportClosed and upgraded
 	closed          bool         // set by Close; a closed session is never upgraded
 	opened          time.Time    // set by Init; a session never opened logs no close
 	transportClosed bool         // set after the transport's Close returns

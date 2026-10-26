@@ -1785,7 +1785,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W29. Bound Redis registration time in tests and docs
 
-- **Status:** in progress — #180
+- **Status:** done — #180
 - **Priority:** after release
 - **Findings:** [T4](#tests-findings)
 - **Depends on:** none
@@ -1833,7 +1833,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W31. Document the close, drain and upgrade state machines
 
-- **Status:** open
+- **Status:** in progress — #174
 - **Priority:** after release
 - **Findings:** [CL-12](#clarity-findings)
 - **Depends on:** none
@@ -2090,7 +2090,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W42. Fail the benchmark comparison on lost samples
 
-- **Status:** in progress — #198
+- **Status:** done — #198
 - **Priority:** after release
 - **Findings:** [REL-13](#release-engineering-findings)
 - **Depends on:** none
@@ -2141,7 +2141,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W44. Isolate the TestPollingBinary nil-reader crash
 
-- **Status:** in progress — #199
+- **Status:** done — #199
 - **Priority:** after release
 - **Findings:** [T8](#tests-findings)
 - **Depends on:** none
@@ -2952,7 +2952,7 @@ Every finding is listed under the dimension that reported it.
 | CL-9 | minor | — | `_examples/default-http/main.go:19` | Starter example adds an explicit allow-all CheckOrigin that suggests CORS is off by default; the permissive CORS default is not in user docs | State the CORS default and how to restrict it (WithCORS(false) or a transport CheckOrigin) in V1.md. Drop the redundant CheckOrigin from default-http or replace it with a restrictive example. Fixed by #148 (W6). |
 | CL-10 | minor | — | `README.md:29` | README advertises an unpublished v1.5.0 on master; inherited googollee tags make @latest fail | Tag v1.5.0 promptly after merge. Consider adding `retract [v0.9.1, v1.4.2] // upstream tags with module path github.com/googollee/go-socket.io` to go.mod in the release commit. Align the CONTRIBUTING step with the actual README links. Fixed by #193 (D1). |
 | CL-11 | minor | — | `client/typed.go:152` | Exported 'internal bridge' methods with internal-package parameter types on client.Client and client.Socket | If they must stay exported for the cross-package bridge, group and label them consistently, for example 'Deprecated-style: for socketio.Event use only', and document Socket.RegisterEvent. Otherwise move the bridge behind an unexported interface satisfied via internal/event. Fixed by #186 (D3). |
-| CL-12 | minor | — | `engineio/client/client.go:489` | Core concurrency code is hard to follow: 100-219 line functions and no written close/drain state machine | Add a short state-machine comment (or an ARCHITECTURE.md subsection) for connection close phases and client probe/upgrade. Annotate which mutex guards each field. Split probeTransport into dial, probe exchange, pause and commit steps. |
+| CL-12 | minor | — | `engineio/client/client.go:489` | Core concurrency code is hard to follow: 100-219 line functions and no written close/drain state machine | Add a short state-machine comment (or an ARCHITECTURE.md subsection) for connection close phases and client probe/upgrade. Annotate which mutex guards each field. Split probeTransport into dial, probe exchange, pause and commit steps. Documentation fixed by #174 (W31); refactoring is tracked by W32. |
 | CL-13 | nit | — | `_examples/default-http/go.mod:1` | Cosmetic inconsistencies in example module paths, error prefixes and option wording | Fix the module path typos, use a consistent package prefix in error strings, say 'nonpositive' where the code means it, mention the Go client in the README tagline, and document or unexport the test fakes. |
 | CL-14 | nit | follow-up: editorial | `CONTRIBUTING.md:3` | Contributor build/test instructions live in CLAUDE.md and CONTRIBUTING links to them; the ownership table explicitly assigns development commands to CLAUDE.md | Moving commands is an optional editorial choice, not a correction of an ownership violation. |
 | CL-15 | nit | — | `engineio/internal/session/session.go` | The W1 locking-rule comment at `upgradeLocker` names only read-lock holders and failing writers; write-lock holders and frame-reader failure paths are bound by the same rule | Extend the comment and the matching `closeTransport` note (W43). Found in the review of #147. Fixed by #197 (W43). |

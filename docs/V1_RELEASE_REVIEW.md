@@ -1740,7 +1740,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W27. Package documentation and lint checks
 
-- **Status:** in progress — #170
+- **Status:** done — #170
 - **Priority:** after release
 - **Findings:** [CL-5](#clarity-findings)
 - **Depends on:** W9 (root and client package docs)
@@ -1759,7 +1759,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W28. Adapter godoc and Redis log keys
 
-- **Status:** open
+- **Status:** in progress — #176
 - **Priority:** after release
 - **Findings:** [CL-6](#clarity-findings), [CL-7](#clarity-findings),
   [ARCH-12](#architecture-findings)
@@ -2946,8 +2946,8 @@ Every finding is listed under the dimension that reported it.
 | CL-3 | major → minor | confirmed | `server.go:150` | OnError contract undocumented: nil Conn for root rejections and silently recovered panics; V1.md's inactive-context wording is too broad | Document on both OnError methods that Conn is nil for root connect/middleware failures and an inactive Conn for other namespaces, and that panics in OnError are recovered and discarded. Fix the wording at V1.md:41. Consider logging recovered OnError panics at WARN. Fixed by #161 (W13). |
 | CL-4 | major | confirmed | `README.md:7` | No migration guide from googollee/go-socket.io despite pervasive API changes; Conn.ID format change is undocumented | Add a short 'Migrating from googollee/go-socket.io' section, in V1.md or a linked file: import path, the constructor/option mapping, Redis adapter setup, client package, ID format, and removed APIs. State the ID format in the Conn.ID godoc of both roles. Fixed by #191 (W8). |
 | CL-5 | minor | — | `.golangci.yml:17` | 9 of 12 public packages lack a package comment; lint explicitly disables the checks | Add package docs (root and client with a usage sketch). Document the remaining exported identifiers. Re-enable ST1000/ST1020-1022 or revive's exported rule, at least for the root, client, engineio and adapter packages. Fixed by #170 (W27). |
-| CL-6 | minor | — | `adapter/redis/cluster.go:26` | redis.Cluster methods have unnamed parameters; argument order and the bool meaning are invisible | Name the parameters in the interface (ctx, sid, room, closeEngine) and add one-line docs per method, including error and timeout semantics. |
-| CL-7 | minor | — | `adapter/adapter.go:66` | adapter.Adapter AllRooms comment contradicts the implementation (it refers to a connection); the Rooms comment is accurate | Rewrite the interface method docs to state that AllRooms lists all rooms in the namespace (cluster-wide for Redis) and that Rooms(nil) equals AllRooms, and convert the trailing comments into proper doc comments. |
+| CL-6 | minor | — | `adapter/redis/cluster.go:26` | redis.Cluster methods have unnamed parameters; argument order and the bool meaning are invisible | Name the parameters in the interface (ctx, sid, room, closeEngine) and add one-line docs per method, including error and timeout semantics. Fixed by #176 (W28). |
+| CL-7 | minor | — | `adapter/adapter.go:66` | adapter.Adapter AllRooms comment contradicts the implementation (it refers to a connection); the Rooms comment is accurate | Rewrite the interface method docs to state that AllRooms lists all rooms in the namespace (cluster-wide for Redis) and that Rooms(nil) equals AllRooms, and convert the trailing comments into proper doc comments. Fixed by #176 (W28). |
 | CL-8 | minor | — | `server.go:276` | Overlapping server APIs with different semantics and no guidance on which to use | In V1.md, state that the Server.*(namespace, ...) methods are retained wrappers in the upstream `v1.7.0` call shape (corrected: not `v1.4.2`-compatible, see API-8) and that Of(...) / Emitter is the primary API, and document the ack difference. In godoc, cross-reference the two Use variants. |
 | CL-9 | minor | — | `_examples/default-http/main.go:19` | Starter example adds an explicit allow-all CheckOrigin that suggests CORS is off by default; the permissive CORS default is not in user docs | State the CORS default and how to restrict it (WithCORS(false) or a transport CheckOrigin) in V1.md. Drop the redundant CheckOrigin from default-http or replace it with a restrictive example. Fixed by #148 (W6). |
 | CL-10 | minor | — | `README.md:29` | README advertises an unpublished v1.5.0 on master; inherited googollee tags make @latest fail | Tag v1.5.0 promptly after merge. Consider adding `retract [v0.9.1, v1.4.2] // upstream tags with module path github.com/googollee/go-socket.io` to go.mod in the release commit. Align the CONTRIBUTING step with the actual README links. Fixed by #193 (D1). |
@@ -2972,7 +2972,7 @@ Every finding is listed under the dimension that reported it.
 | ARCH-9 | minor | — | `namespace.go:161` | Dynamic child namespaces are never removed (unbounded registry growth), and OfFunc does not document it | Document the retention in OfFunc and in docs/V1.md, and advise restrictive match functions. Consider a later option to remove empty children (as socket.io 4.6 cleanupEmptyChildNamespaces does). Fixed by #164 (W14). |
 | ARCH-10 | minor | — | `parser/encoder.go:138` | Parser reimplements encoding/json traversal for every outbound payload; the GOEXPERIMENT=jsonv2 build variants are not exercised in CI | Add a CI job with GOEXPERIMENT=jsonv2 on the newest Go, and keep the json_compatibility tests as a differential check against encoding/json. Consider a fast path that uses json.Marshal directly when the value contains no parser.Buffer. |
 | ARCH-11 | nit | — | `engineio/parser/fake.go:61` | engineio packages export test fakes and other API oddities | Move the fakes to an internal test helper package, unexport TimestampFromClock, and fix the two stale `base.Conn` doc comments before tagging. Fixed by #156 (D6). |
-| ARCH-12 | nit | — | `adapter/redis/cluster.go:104` | Redis log records use the attribute key 'namespace', which the logger contract does not list | Use nspAttr-style `nsp` with the '/' convention. |
+| ARCH-12 | nit | — | `adapter/redis/cluster.go:104` | Redis log records use the attribute key 'namespace', which the logger contract does not list | Use nspAttr-style `nsp` with the '/' convention. Fixed by #176 (W28). |
 | ARCH-13 | nit | — | `docs/ARCHITECTURE.md:36` | ARCHITECTURE.md runtime section undercounts per-connection goroutines | List all five Socket.IO workers, and say that blocking a handler also blocks the header worker handoff. Fixed by #190 (W26). |
 
 ### Performance findings

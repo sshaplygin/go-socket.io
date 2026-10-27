@@ -315,6 +315,7 @@ changed to `done — #<PR>` after the merge.
 | [W43](#w43-harden-the-w1-locking-documentation-and-regression-test) | Harden the W1 locking documentation and regression test | after release | T7, CL-15 | — |
 | [W44](#w44-isolate-the-testpollingbinary-nil-reader-crash) | Isolate the TestPollingBinary nil-reader crash | after release | T8 | — |
 | [W45](#w45-isolate-polling-default-transport-test-overrides) | Isolate polling default-transport test overrides | before tag | T9 | — |
+| [W46](#w46-isolate-upgrade-probe-log-fixtures) | Isolate upgrade probe log fixtures | before tag | T10 | — |
 
 **Finding coverage.** Every catalogue ID appears in exactly one item or in "Not planned".
 
@@ -326,7 +327,7 @@ changed to `done — #<PR>` after the merge.
 | Architecture | ARCH-1 W5 · ARCH-2 D2 · ARCH-3 D3 · ARCH-4 W26 · ARCH-5 D4 · ARCH-6 D5 · ARCH-7 W33 · ARCH-8 W32 · ARCH-9 W14 · ARCH-10 W37 · ARCH-11 D6 · ARCH-12 W28 · ARCH-13 W26 |
 | Performance | PERF-1 W3 · PERF-2 W18 · PERF-3 W4 · PERF-4 W19 · PERF-5 W20 · PERF-6 W21 · PERF-7 W22 · PERF-8 W23 · PERF-9 W24 · PERF-10 W2 · PERF-11 W25 · PERF-12 W21 · PERF-13 W26 |
 | Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 |
-| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 |
+| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 |
 | Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 · REL-13 W42 |
 
 **Not planned.**
@@ -2168,7 +2169,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W45. Isolate polling default-transport test overrides
 
-- **Status:** in progress — #200
+- **Status:** done — #200
 - **Priority:** before tag
 - **Findings:** [T9](#tests-findings)
 - **Depends on:** none
@@ -2189,6 +2190,31 @@ changed to `done — #<PR>` after the merge.
   the parent test; targeted repeated race checks and full polling race checks pass.
 - **Definition of done:** standard, with three independent approvals of the final head.
 - **Out of scope:** production transport behavior and unrelated polling fixtures.
+
+### W46. Isolate upgrade probe log fixtures
+
+- **Status:** in progress — #201
+- **Priority:** before tag
+- **Findings:** [T10](#tests-findings)
+- **Depends on:** none
+- **Problem:** master CI run [40427642695](https://github.com/sshaplygin/go-socket.io/actions/runs/40427642695)
+  failed in `TestClientUpgradeTransportErrors/read-deadline`: an asynchronous probe
+  from an earlier test logged `websocket: read limit exceeded` into the fixture's
+  process-global recorder before its injected error. `TestClientUpgradeProbeFails`
+  has the same first-record and record-count assumptions. Closing a client does not
+  join its probe goroutine, so serial execution cannot isolate those records.
+- **Change:** run each top-level upgrade log fixture in a bounded subprocess, keeping
+  every existing error, log-attribute, rollback and connection-state assertion.
+- **Tests:** reproduce the foreign-record mismatch with deterministic scratch-only log
+  injection and verify that subprocess isolation prevents it; repeat both fixtures with
+  `-race -count=20 -shuffle=on` and run the full client package with `-race`.
+- **Benchmarks:** none; test isolation only.
+- **Docs:** this finding and its work item.
+- **Acceptance criteria:** unrelated parent probes cannot enter either fixture's recorder;
+  child failures and timeouts fail the parent test; exact error and structured-log
+  assertions remain; repeated race checks and the existing coverage gate pass.
+- **Definition of done:** standard, with three independent approvals of the final head.
+- **Out of scope:** production client behavior and unrelated logging fixtures.
 
 ## Release blockers
 
@@ -3045,6 +3071,7 @@ Every finding is listed under the dimension that reported it.
 | T7 | minor | — | `engineio/server_close_concurrent_test.go` | `TestServerCloseShutsDownSessionsConcurrently` depends on map iteration order and passes against a serial `Server.Close` in about 1 of 17 runs (a mutation run failed 39 of 40) | Fail two sessions and close `entered` through `sync.Once` (W43). Found in the review of #147. Fixed by #197 (W43). |
 | T8 | minor | — | `engineio/transport/polling/polling_test.go:82` | `TestPollingBinary` crashed with a nil-reader dereference during a stress run under ephemeral-port exhaustion; the cause is not isolated | Reproduce with a forced dial failure and fix the side at fault (W44). Found while validating #147. Fixed by #199 (W44). |
 | T9 | minor | — | `engineio/transport/polling/default_transport_test.go` | Tests replace `http.DefaultTransport` while asynchronous HTTP requests from earlier tests can still read it; master CI run 40426080816 reported the race on macOS | Isolate each default-transport override in a bounded subprocess, retaining the behavioral assertions and race checks (W45). Fixed by #200 (W45). |
+| T10 | minor | — | `engineio/client/upgrade_test.go` | Upgrade tests consume the first global probe-failure record, which can belong to an earlier asynchronous client; master CI run 40427642695 failed on an unrelated WebSocket read-limit error | Isolate both upgrade log fixtures in bounded subprocesses without weakening error or structured-log assertions (W46). Fixed by #201 (W46). |
 
 ### Release engineering findings
 

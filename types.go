@@ -129,7 +129,8 @@ type Namespace interface {
 	// Disconnect writes DISCONNECT for this namespace, leaves its rooms and calls
 	// OnDisconnect with the server namespace reason. Other namespaces stay open.
 	Disconnect()
-	// Use appends event middleware on this server socket.
+	// Use appends incoming event middleware on this server socket.
+	// For namespace connection middleware, see ServerNamespace.Use and Server.Use.
 	Use(func(event string, args []interface{}) error)
 }
 

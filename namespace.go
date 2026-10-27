@@ -36,7 +36,8 @@ func (s *Server) Of(name string) *ServerNamespace {
 	return s.views[name]
 }
 
-// Use registers middleware on a server namespace.
+// Use registers middleware on a server namespace; see ServerNamespace.Use.
+// For incoming event middleware on one connected socket, see Namespace.Use.
 func (s *Server) Use(name string, f func(Conn) error) { s.Of(name).Use(f) }
 
 // Name returns the namespace name, "/" for the root.
@@ -63,7 +64,8 @@ func (n *ServerNamespace) OnEvent(event string, f interface{}) { n.registration(
 
 // Use appends namespace middleware, called in registration order before OnConnect
 // and before the socket joins its ID room. A rejection sends ERROR and keeps the
-// engine connection and its other namespaces open.
+// engine connection and its other namespaces open. Server.Use is its namespace-name
+// wrapper; Namespace.Use instead registers incoming event middleware on a socket.
 func (n *ServerNamespace) Use(f func(Conn) error) {
 	h := n.registration()
 	h.Use(f)

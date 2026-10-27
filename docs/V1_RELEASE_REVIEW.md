@@ -1759,7 +1759,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W28. Adapter godoc and Redis log keys
 
-- **Status:** in progress — #176
+- **Status:** done — #176
 - **Priority:** after release
 - **Findings:** [CL-6](#clarity-findings), [CL-7](#clarity-findings),
   [ARCH-12](#architecture-findings)
@@ -1812,7 +1812,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W30. Document which server API to use
 
-- **Status:** open
+- **Status:** in progress — #172
 - **Priority:** after release
 - **Findings:** [CL-8](#clarity-findings)
 - **Depends on:** none
@@ -2948,7 +2948,7 @@ Every finding is listed under the dimension that reported it.
 | CL-5 | minor | — | `.golangci.yml:17` | 9 of 12 public packages lack a package comment; lint explicitly disables the checks | Add package docs (root and client with a usage sketch). Document the remaining exported identifiers. Re-enable ST1000/ST1020-1022 or revive's exported rule, at least for the root, client, engineio and adapter packages. Fixed by #170 (W27). |
 | CL-6 | minor | — | `adapter/redis/cluster.go:26` | redis.Cluster methods have unnamed parameters; argument order and the bool meaning are invisible | Name the parameters in the interface (ctx, sid, room, closeEngine) and add one-line docs per method, including error and timeout semantics. Fixed by #176 (W28). |
 | CL-7 | minor | — | `adapter/adapter.go:66` | adapter.Adapter AllRooms comment contradicts the implementation (it refers to a connection); the Rooms comment is accurate | Rewrite the interface method docs to state that AllRooms lists all rooms in the namespace (cluster-wide for Redis) and that Rooms(nil) equals AllRooms, and convert the trailing comments into proper doc comments. Fixed by #176 (W28). |
-| CL-8 | minor | — | `server.go:276` | Overlapping server APIs with different semantics and no guidance on which to use | In V1.md, state that the Server.*(namespace, ...) methods are retained wrappers in the upstream `v1.7.0` call shape (corrected: not `v1.4.2`-compatible, see API-8) and that Of(...) / Emitter is the primary API, and document the ack difference. In godoc, cross-reference the two Use variants. |
+| CL-8 | minor | — | `server.go:276` | Overlapping server APIs with different semantics and no guidance on which to use | In V1.md, state that the Server.*(namespace, ...) methods are retained wrappers in the upstream `v1.7.0` call shape (corrected: not `v1.4.2`-compatible, see API-8) and that Of(...) / Emitter is the primary API, and document the ack difference. In godoc, cross-reference the two Use variants. Fixed by #172 (W30). |
 | CL-9 | minor | — | `_examples/default-http/main.go:19` | Starter example adds an explicit allow-all CheckOrigin that suggests CORS is off by default; the permissive CORS default is not in user docs | State the CORS default and how to restrict it (WithCORS(false) or a transport CheckOrigin) in V1.md. Drop the redundant CheckOrigin from default-http or replace it with a restrictive example. Fixed by #148 (W6). |
 | CL-10 | minor | — | `README.md:29` | README advertises an unpublished v1.5.0 on master; inherited googollee tags make @latest fail | Tag v1.5.0 promptly after merge. Consider adding `retract [v0.9.1, v1.4.2] // upstream tags with module path github.com/googollee/go-socket.io` to go.mod in the release commit. Align the CONTRIBUTING step with the actual README links. Fixed by #193 (D1). |
 | CL-11 | minor | — | `client/typed.go:152` | Exported 'internal bridge' methods with internal-package parameter types on client.Client and client.Socket | If they must stay exported for the cross-package bridge, group and label them consistently, for example 'Deprecated-style: for socketio.Event use only', and document Socket.RegisterEvent. Otherwise move the bridge behind an unexported interface satisfied via internal/event. Fixed by #186 (D3). |

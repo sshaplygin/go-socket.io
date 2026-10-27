@@ -1699,7 +1699,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W26. Reduce the idle connection footprint
 
-- **Status:** in progress — #190; BenchmarkConnectWebsocket: 47.95 → 41.82 KiB/op, 298 → 295 allocs/op (CI, base 25d6deb, linux/amd64); 48.05 → 41.89 KiB/op, 295 → 292 allocs/op (manual, base 25d6deb, darwin/arm64); TestIdleWebsocketConnectionGoroutines: 7.00 → 5.00 goroutines per idle websocket connection
+- **Status:** done — #190; BenchmarkConnectWebsocket: 47.95 → 41.82 KiB/op, 298 → 295 allocs/op (CI, base 25d6deb, linux/amd64); 48.05 → 41.89 KiB/op, 295 → 292 allocs/op (manual, base 25d6deb, darwin/arm64); TestIdleWebsocketConnectionGoroutines: 7.00 → 5.00 goroutines per idle websocket connection
 - **Priority:** after release
 - **Findings:** [ARCH-4](#architecture-findings), [PERF-13](#performance-findings),
   [ARCH-13](#architecture-findings)
@@ -1740,7 +1740,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W27. Package documentation and lint checks
 
-- **Status:** open
+- **Status:** in progress — #170
 - **Priority:** after release
 - **Findings:** [CL-5](#clarity-findings)
 - **Depends on:** W9 (root and client package docs)
@@ -1851,7 +1851,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W32. Cancellable pause and explicit close state
 
-- **Status:** in progress — #184 (Engine.IO pause, merged), #192 (Socket.IO close state)
+- **Status:** done — #184 (Engine.IO pause), #192 (Socket.IO close state)
 - **Priority:** after release
 - **Findings:** [ARCH-8](#architecture-findings)
 - **Depends on:** W31
@@ -1938,7 +1938,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W35. Encoder and round-trip fuzz targets
 
-- **Status:** in progress — #173
+- **Status:** done — #173
 - **Priority:** after release
 - **Findings:** [T5](#tests-findings)
 - **Depends on:** W3
@@ -2113,7 +2113,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W43. Harden the W1 locking documentation and regression test
 
-- **Status:** in progress — #197
+- **Status:** done — #197
 - **Priority:** after release
 - **Findings:** [T7](#tests-findings), [CL-15](#clarity-findings)
 - **Depends on:** none
@@ -2945,7 +2945,7 @@ Every finding is listed under the dimension that reported it.
 | CL-2 | major → minor → major (M4) | partially-confirmed | `adapter/redis/adapter.go:153` | Redis adapter silently drops room/namespace broadcasts with a trailing callback, while godoc says callbacks are supported | Either make Send/SendAll log or return the rejection (and have BroadcastToRoom/BroadcastToNamespace return false), or correct the redis Send/SendAll comments, the ErrBroadcastAck doc and the BroadcastToRoom/BroadcastToNamespace docs to say that clustered adapters reject callbacks and send nothing. Fixed by #152 (W5). |
 | CL-3 | major → minor | confirmed | `server.go:150` | OnError contract undocumented: nil Conn for root rejections and silently recovered panics; V1.md's inactive-context wording is too broad | Document on both OnError methods that Conn is nil for root connect/middleware failures and an inactive Conn for other namespaces, and that panics in OnError are recovered and discarded. Fix the wording at V1.md:41. Consider logging recovered OnError panics at WARN. Fixed by #161 (W13). |
 | CL-4 | major | confirmed | `README.md:7` | No migration guide from googollee/go-socket.io despite pervasive API changes; Conn.ID format change is undocumented | Add a short 'Migrating from googollee/go-socket.io' section, in V1.md or a linked file: import path, the constructor/option mapping, Redis adapter setup, client package, ID format, and removed APIs. State the ID format in the Conn.ID godoc of both roles. Fixed by #191 (W8). |
-| CL-5 | minor | — | `.golangci.yml:17` | 9 of 12 public packages lack a package comment; lint explicitly disables the checks | Add package docs (root and client with a usage sketch). Document the remaining exported identifiers. Re-enable ST1000/ST1020-1022 or revive's exported rule, at least for the root, client, engineio and adapter packages. |
+| CL-5 | minor | — | `.golangci.yml:17` | 9 of 12 public packages lack a package comment; lint explicitly disables the checks | Add package docs (root and client with a usage sketch). Document the remaining exported identifiers. Re-enable ST1000/ST1020-1022 or revive's exported rule, at least for the root, client, engineio and adapter packages. Fixed by #170 (W27). |
 | CL-6 | minor | — | `adapter/redis/cluster.go:26` | redis.Cluster methods have unnamed parameters; argument order and the bool meaning are invisible | Name the parameters in the interface (ctx, sid, room, closeEngine) and add one-line docs per method, including error and timeout semantics. |
 | CL-7 | minor | — | `adapter/adapter.go:66` | adapter.Adapter AllRooms comment contradicts the implementation (it refers to a connection); the Rooms comment is accurate | Rewrite the interface method docs to state that AllRooms lists all rooms in the namespace (cluster-wide for Redis) and that Rooms(nil) equals AllRooms, and convert the trailing comments into proper doc comments. |
 | CL-8 | minor | — | `server.go:276` | Overlapping server APIs with different semantics and no guidance on which to use | In V1.md, state that the Server.*(namespace, ...) methods are retained wrappers in the upstream `v1.7.0` call shape (corrected: not `v1.4.2`-compatible, see API-8) and that Of(...) / Emitter is the primary API, and document the ack difference. In godoc, cross-reference the two Use variants. |

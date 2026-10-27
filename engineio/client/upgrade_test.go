@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -226,6 +228,9 @@ func (r *upgradeFaultReader) Close() error {
 // Probe failures before UPGRADE preserve polling. A failure while committing it
 // closes the connection because either endpoint may already have switched.
 func TestClientUpgradeTransportErrors(t *testing.T) {
+	if runUpgradeLogTestInSubprocess(t) {
+		return
+	}
 	for _, phase := range []string{"read-deadline", "write-deadline", "ping-next", "ping-write", "ping-close", "read-next", "read-body", "read-close", "upgrade-next", "upgrade-close", "upgrade-read-deadline", "upgrade-write-deadline"} {
 		t.Run(phase, func(t *testing.T) {
 			records := newRecorder()
@@ -455,6 +460,9 @@ func (c deadlineCaptureConn) SetReadDeadline(deadline time.Time) error {
 func (deadlineCaptureConn) Close() error { return nil }
 
 func TestClientUpgradeProbeFails(t *testing.T) {
+	if runUpgradeLogTestInSubprocess(t) {
+		return
+	}
 	for _, name := range []string{"rejected", "wrong-answer", "stalled", "unread", "clamped"} {
 		t.Run(name, func(t *testing.T) {
 			clientRecords, serverRecords := newRecorder(), newRecorder()
@@ -685,4 +693,25 @@ type upgradeMessageConn interface {
 	Transport() string
 	NextReader() (eioparser.FrameType, io.ReadCloser, error)
 	NextWriter(eioparser.FrameType) (io.WriteCloser, error)
+}
+
+// runUpgradeLogTestInSubprocess keeps late probes from other tests out of these
+// fixtures' default logger. Closing a client does not join its probe goroutine;
+// serial tests and restoring slog.Default therefore cannot isolate its records.
+func runUpgradeLogTestInSubprocess(t *testing.T) bool {
+	t.Helper()
+	const childEnv = "SOCKETIO_UPGRADE_LOG_CHILD"
+	if os.Getenv(childEnv) == t.Name() {
+		return false
+	}
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, executable,
+		"-test.run=^"+regexp.QuoteMeta(t.Name())+"$", "-test.count=1", "-test.timeout=30s")
+	command.Env = append(os.Environ(), childEnv+"="+t.Name())
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, "isolated upgrade log test: %s", output)
+	return true
 }

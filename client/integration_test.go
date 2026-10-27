@@ -71,7 +71,9 @@ func TestOptionsReachConnections(t *testing.T) {
 			}
 			require.Empty(t, errors, "resolved budget accepts every slot")
 			c.Emit("overflow")
-			require.ErrorIs(t, receive(t, errors, "queue overflow"), ErrWriteBufferFull)
+			overflowErr := receive(t, errors, "queue overflow")
+			require.ErrorIs(t, overflowErr, ErrWriteBufferFull)
+			require.EqualError(t, overflowErr, "client: write buffer full")
 		})
 	}
 }

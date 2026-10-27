@@ -16,7 +16,7 @@ var errServerClosed = errors.New("socketio: server closed")
 // Packets queued faster than they are written can close a healthy client:
 // a packet with k binary attachments takes k+1 Engine.IO frames, and transport
 // throughput can be lower than the application's emit rate.
-var ErrWriteBufferFull = errors.New("write buffer full")
+var ErrWriteBufferFull = errors.New("socketio: write buffer full")
 
 // ErrBroadcastAck means a broadcast has a trailing acknowledgement callback. Emit on
 // a broadcast Emitter returns it without sending for a trailing callback, with every

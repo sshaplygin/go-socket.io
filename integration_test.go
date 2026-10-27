@@ -52,7 +52,9 @@ func TestOptionsReachConnections(t *testing.T) {
 			flood(nc, tc.size)
 			require.False(t, isDone(fc.closed), "%s: queue accepts its configured budget", tc.name)
 			nc.Emit("overflow")
-			require.ErrorIs(t, recv(t, errs, "configured queue overflow"), ErrWriteBufferFull)
+			overflowErr := recv(t, errs, "configured queue overflow")
+			require.ErrorIs(t, overflowErr, ErrWriteBufferFull)
+			require.EqualError(t, overflowErr, "socketio: write buffer full")
 			recv(t, fc.closed, "configured overflow closes engine")
 		}
 	})

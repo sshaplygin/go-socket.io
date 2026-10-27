@@ -1880,7 +1880,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W33. Pair or share role-neutral runtime pieces
 
-- **Status:** in progress — #177
+- **Status:** done — #177
 - **Priority:** after release
 - **Findings:** [ARCH-7](#architecture-findings)
 - **Depends on:** none
@@ -1909,7 +1909,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W34. Example module hygiene
 
-- **Status:** open
+- **Status:** in progress — #182
 - **Priority:** after release
 - **Findings:** [CL-13](#clarity-findings), [REL-10](#release-engineering-findings)
 - **Depends on:** none
@@ -3004,7 +3004,7 @@ Every finding is listed under the dimension that reported it.
 | CL-10 | minor | — | `README.md:29` | README advertises an unpublished v1.5.0 on master; inherited googollee tags make @latest fail | Tag v1.5.0 promptly after merge. Consider adding `retract [v0.9.1, v1.4.2] // upstream tags with module path github.com/googollee/go-socket.io` to go.mod in the release commit. Align the CONTRIBUTING step with the actual README links. Fixed by #193 (D1). |
 | CL-11 | minor | — | `client/typed.go:152` | Exported 'internal bridge' methods with internal-package parameter types on client.Client and client.Socket | If they must stay exported for the cross-package bridge, group and label them consistently, for example 'Deprecated-style: for socketio.Event use only', and document Socket.RegisterEvent. Otherwise move the bridge behind an unexported interface satisfied via internal/event. Fixed by #186 (D3). |
 | CL-12 | minor | — | `engineio/client/client.go:489` | Core concurrency code is hard to follow: 100-219 line functions and no written close/drain state machine | Add a short state-machine comment (or an ARCHITECTURE.md subsection) for connection close phases and client probe/upgrade. Annotate which mutex guards each field. Split probeTransport into dial, probe exchange, pause and commit steps. Documentation fixed by #174 (W31); refactoring is tracked by W32. |
-| CL-13 | nit | — | `_examples/default-http/go.mod:1` | Cosmetic inconsistencies in example module paths, error prefixes and option wording | Fix the module path typos, use a consistent package prefix in error strings, say 'nonpositive' where the code means it, mention the Go client in the README tagline, and document or unexport the test fakes. |
+| CL-13 | nit | — | `_examples/default-http/go.mod:1` | Cosmetic inconsistencies in example module paths, error prefixes and option wording | Fix the module path typos, use a consistent package prefix in error strings, say 'nonpositive' where the code means it, mention the Go client in the README tagline, and document or unexport the test fakes. Fixed by #182 (W34). |
 | CL-14 | nit | follow-up: editorial | `CONTRIBUTING.md:3` | Contributor build/test instructions live in CLAUDE.md and CONTRIBUTING links to them; the ownership table explicitly assigns development commands to CLAUDE.md | Moving commands is an optional editorial choice, not a correction of an ownership violation. |
 | CL-15 | nit | — | `engineio/internal/session/session.go` | The W1 locking-rule comment at `upgradeLocker` names only read-lock holders and failing writers; write-lock holders and frame-reader failure paths are bound by the same rule | Extend the comment and the matching `closeTransport` note (W43). Found in the review of #147. Fixed by #197 (W43). |
 
@@ -3086,7 +3086,7 @@ Every finding is listed under the dimension that reported it.
 | REL-7 | minor | — | `CONTRIBUTING.md:32` | Version v1.5.0 reuses an upstream release number and is lower than the upstream versions it descends from | CONTRIBUTING.md:32 already selects v1.5.0. Say in the release notes that fork versions do not continue upstream numbering, and which upstream state this release supersedes. Using a number above upstream (for example v1.9.0) would require the owner to change CONTRIBUTING and README first. Fixed by #193 (D1). |
 | REL-8 | nit | follow-up: reproduced | `client/connection_typed_test.go:66` | The test package fails to compile on 32-bit platforms | Use `int64` consistently in the request schema, decoded value and expected assertion value, or constrain this exact-integer test to 64-bit builds. Changing only the final `event.Value` type is insufficient. |
 | REL-9 | nit | — | `.github/workflows/ci.yaml:244` | CI tool versions are unpinned and some actions target the deprecated Node 20 | Pin the golangci-lint version, matching the local v2 toolchain, and update to Node-24 action versions. Keep govulncheck@latest only if that is intended. |
-| REL-10 | nit | — | `_examples/gf/go.mod:24` | Example modules pin old golang.org/x/net and have typos in their module paths | Bump the framework and x/net versions in the example modules and fix the module path typos. |
+| REL-10 | nit | — | `_examples/gf/go.mod:24` | Example modules pin old golang.org/x/net and have typos in their module paths | Bump the framework and x/net versions in the example modules and fix the module path typos. Fixed by #182 (W34). |
 | REL-11 | nit | — | — | Stale remote branches, including a superseded release branch and a changelog draft | Delete merged or superseded branches, release/v1.5.0 in particular, before tagging. Reuse the useful parts of the v1-h/release-notes draft for REL-1. |
 | REL-12 | nit | — | `engineio/transport/websocket/connect.go:99` | An open TODO remains in library code | Replace the TODO with a comment that explains why the lock is needed. Fixed by #147 (W1). |
 | REL-13 | minor | — | `.github/workflows/benchmarks.yml` | A sub-benchmark whose `b.N=1` probe fails in a later `-count` repetition prints `--- FAIL` but `go test` exits 0, so the Benchmarks workflow can lose samples without failing | Fail the step on `--- FAIL` in the raw output (W42). Found in the review of #153. Fixed by #198 (W42). |

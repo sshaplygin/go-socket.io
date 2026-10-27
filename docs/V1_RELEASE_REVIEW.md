@@ -2168,7 +2168,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W45. Isolate polling default-transport test overrides
 
-- **Status:** in progress — PR pending
+- **Status:** in progress — #200
 - **Priority:** before tag
 - **Findings:** [T9](#tests-findings)
 - **Depends on:** none
@@ -3044,7 +3044,7 @@ Every finding is listed under the dimension that reported it.
 | T6 | nit | — | `engineio/transport/polling/pauser_test.go:206` | Residual sleep-based synchronization in inherited polling tests weakens rather than flakes | Replace the sleeps with explicit readiness signals, for example a hook or channel signalled when the goroutine enters the blocking wait. Fixed by #188 (W36). |
 | T7 | minor | — | `engineio/server_close_concurrent_test.go` | `TestServerCloseShutsDownSessionsConcurrently` depends on map iteration order and passes against a serial `Server.Close` in about 1 of 17 runs (a mutation run failed 39 of 40) | Fail two sessions and close `entered` through `sync.Once` (W43). Found in the review of #147. Fixed by #197 (W43). |
 | T8 | minor | — | `engineio/transport/polling/polling_test.go:82` | `TestPollingBinary` crashed with a nil-reader dereference during a stress run under ephemeral-port exhaustion; the cause is not isolated | Reproduce with a forced dial failure and fix the side at fault (W44). Found while validating #147. Fixed by #199 (W44). |
-| T9 | minor | — | `engineio/transport/polling/default_transport_test.go` | Tests replace `http.DefaultTransport` while asynchronous HTTP requests from earlier tests can still read it; master CI run 40426080816 reported the race on macOS | Isolate each default-transport override in a bounded subprocess, retaining the behavioral assertions and race checks (W45). |
+| T9 | minor | — | `engineio/transport/polling/default_transport_test.go` | Tests replace `http.DefaultTransport` while asynchronous HTTP requests from earlier tests can still read it; master CI run 40426080816 reported the race on macOS | Isolate each default-transport override in a bounded subprocess, retaining the behavioral assertions and race checks (W45). Fixed by #200 (W45). |
 
 ### Release engineering findings
 

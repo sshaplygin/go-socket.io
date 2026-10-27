@@ -1909,7 +1909,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W34. Example module hygiene
 
-- **Status:** in progress — #182
+- **Status:** done — #182
 - **Priority:** after release
 - **Findings:** [CL-13](#clarity-findings), [REL-10](#release-engineering-findings)
 - **Depends on:** none
@@ -1981,7 +1981,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W37. CI job with GOEXPERIMENT=jsonv2
 
-- **Status:** open
+- **Status:** in progress — #178
 - **Priority:** after release
 - **Findings:** [ARCH-10](#architecture-findings)
 - **Depends on:** none
@@ -3021,7 +3021,7 @@ Every finding is listed under the dimension that reported it.
 | ARCH-7 | minor | — | `client/namespace_handlers.go:100` | Server and client runtimes are maintained in parallel | Keep role independence, but extract the role-neutral pieces (listener registry, frame failure tracking, header-reader worker) into an internal package the graph allows for both roles, or add paired behavioral tests that run against both roles. Fixed by #177 (W33). |
 | ARCH-8 | minor | — | `engineio/client/client.go:489` | Complexity hotspots in lifecycle code, including a 1 ms Resume retry loop because Pause has no cancellation path and a Resume issued before Pause starts is lost | For v1.5.0 no restructuring is required, but freeze behavior with the existing tests. Afterwards, give Pause a cancellation path (a context or stop channel) and model the connection close as an explicit state enum. |
 | ARCH-9 | minor | — | `namespace.go:161` | Dynamic child namespaces are never removed (unbounded registry growth), and OfFunc does not document it | Document the retention in OfFunc and in docs/V1.md, and advise restrictive match functions. Consider a later option to remove empty children (as socket.io 4.6 cleanupEmptyChildNamespaces does). Fixed by #164 (W14). |
-| ARCH-10 | minor | — | `parser/encoder.go:138` | Parser reimplements encoding/json traversal for every outbound payload; the GOEXPERIMENT=jsonv2 build variants are not exercised in CI | Add a CI job with GOEXPERIMENT=jsonv2 on the newest Go, and keep the json_compatibility tests as a differential check against encoding/json. Consider a fast path that uses json.Marshal directly when the value contains no parser.Buffer. |
+| ARCH-10 | minor | — | `parser/encoder.go:138` | Parser reimplements encoding/json traversal for every outbound payload; the GOEXPERIMENT=jsonv2 build variants are not exercised in CI | Add a CI job with GOEXPERIMENT=jsonv2 on the newest Go, and keep the json_compatibility tests as a differential check against encoding/json. Consider a fast path that uses json.Marshal directly when the value contains no parser.Buffer. Fixed by #178 (W37). |
 | ARCH-11 | nit | — | `engineio/parser/fake.go:61` | engineio packages export test fakes and other API oddities | Move the fakes to an internal test helper package, unexport TimestampFromClock, and fix the two stale `base.Conn` doc comments before tagging. Fixed by #156 (D6). |
 | ARCH-12 | nit | — | `adapter/redis/cluster.go:104` | Redis log records use the attribute key 'namespace', which the logger contract does not list | Use nspAttr-style `nsp` with the '/' convention. Fixed by #176 (W28). |
 | ARCH-13 | nit | — | `docs/ARCHITECTURE.md:36` | ARCHITECTURE.md runtime section undercounts per-connection goroutines | List all five Socket.IO workers, and say that blocking a handler also blocks the header worker handoff. Fixed by #190 (W26). |

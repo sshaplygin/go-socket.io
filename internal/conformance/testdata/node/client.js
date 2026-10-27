@@ -10,6 +10,7 @@ if (process.env.CONFORMANCE_CLIENT_VERSION) {
 
 const base = process.argv[2];
 const transport = process.argv[3];
+const scenario = process.argv[4];
 const sockets = [];
 const deadline = setTimeout(() => {
   console.error('conformance scenario timed out');
@@ -150,10 +151,62 @@ async function upgrade() {
   console.log(version + ': polling-to-websocket upgrade passed');
 }
 
+async function base64Binary() {
+  let upgraded;
+  const root = await connect({forceBase64: true}, engine => {
+    if (transport === 'upgrade') { upgraded = event(engine, 'upgrade'); }
+  });
+  if (upgraded) { await upgraded; }
+  const engine = root.io.engine;
+  assert.strictEqual(engine.transport.name, 'websocket');
+  // Base64 mode carries binary packets in text messages in both directions.
+  const frames = [];
+  engine.transport.ws.on('message', data => frames.push(typeof data));
+  const received = event(root, 'binary-event');
+  const payload = Buffer.from([1, 2, 255]);
+  const reply = await ack(root, 'binary', payload);
+  assert.deepStrictEqual(bytes((await received)[0]), Array.from(payload));
+  assert.deepStrictEqual(bytes(reply[0]), Array.from(payload));
+  assert(frames.length >= 4, 'expected binary event and ACK messages, got ' + frames.length);
+  assert(frames.every(type => type === 'string'), 'server sent a binary websocket message: ' + frames);
+  root.disconnect();
+  console.log(version + ' ' + transport + ': forceBase64 binary exchange passed');
+}
+
+async function heartbeat(suppressPings) {
+  let pongs = 0;
+  const root = await connect({}, engine => {
+    engine.on('pong', () => { pongs++; });
+  });
+  const engine = root.io.engine;
+  assert.strictEqual(engine.pingInterval, 200);
+  assert.strictEqual(engine.pingTimeout, 200);
+  if (suppressPings) {
+    engine.ping = function () {};
+    clearTimeout(engine.pingIntervalTimer);
+    // Let the server own the timeout rather than racing the client's timer.
+    clearTimeout(engine.pingTimeoutTimer);
+  }
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  if (suppressPings) {
+    assert.strictEqual(pongs, 0, 'muted client must not send heartbeat pings');
+    assert.strictEqual(root.connected, false, 'server must close the muted client');
+  } else {
+    assert.strictEqual(root.connected, true, 'connection must survive heartbeats');
+    assert(pongs >= 3, 'expected at least three heartbeat pongs, got ' + pongs);
+    assert.deepStrictEqual(await ack(root, 'echo', 'after heartbeat'), ['after heartbeat']);
+  }
+  console.log(version + ' ' + transport + ': ' + scenario + ' passed (' + pongs + ' pongs)');
+}
+
 (async () => {
   try {
-    if (transport === 'upgrade') { await upgrade(); }
+    if (scenario === 'heartbeat' || scenario === 'heartbeat-timeout') { await heartbeat(scenario === 'heartbeat-timeout'); }
+    else if (transport === 'upgrade') { await upgrade(); }
     else { await basic(); await reconnect(); }
+    // A scenario argument selects a different run, such as the W17 heartbeat
+    // scenarios; the forceBase64 exchange belongs to the default run only.
+    if (!scenario && (transport === 'websocket' || transport === 'upgrade')) { await base64Binary(); }
   } finally {
     sockets.forEach(socket => socket.disconnect());
     clearTimeout(deadline);

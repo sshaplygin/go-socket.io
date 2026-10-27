@@ -36,7 +36,7 @@ func TestClientWebsocketUpgradePrivate(t *testing.T) {
 			if name == "websocket" {
 				opts = append(opts, WithTransports(websocket.Default))
 			}
-			cl, err := newTestManager(ts.URL, opts...)
+			cl, err := newTestManager(t, ts.URL, opts...)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close(); _ = srv.Close(); ts.Close() })
 			ready, echoed := make(chan struct{}, 1), make(chan string, 1)
@@ -110,7 +110,7 @@ func TestClientWebsocketUpgradePrivate(t *testing.T) {
 
 // A timed-out Dial can still return: its connection must be closed rather than attached.
 func TestClientTimeoutClosesLateConnection(t *testing.T) {
-	cl, err := newTestManager("http://unused/", WithTimeout(20*time.Millisecond))
+	cl, err := newTestManager(t, "http://unused/", WithTimeout(20*time.Millisecond))
 	require.NoError(t, err)
 	late := newFakeConn(t)
 	release, entered := make(chan struct{}), make(chan struct{})

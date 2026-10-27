@@ -31,7 +31,7 @@ func TestResolvedConnectionLimits(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := newConnection(newFakeConn(t), newNamespaceRegistry(), tc.size, tc.drain, slog.Default())
-			require.Equal(t, tc.size, cap(c.writeChan), "queue size")
+			require.Equal(t, tc.size, c.writeBufferSize, "queue size")
 			require.Equal(t, tc.drain, c.drainTimeout, "drain deadline")
 		})
 	}

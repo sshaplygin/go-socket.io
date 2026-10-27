@@ -271,7 +271,7 @@ func (bc *broadcast) Len(room string) int {
 }
 func (bc *broadcast) logRequestError(err error) {
 	if err != nil {
-		logger.Log.Warn("socketio: redis cluster request failed", "namespace", bc.nsp, "err", err)
+		logger.Log.Warn("socketio: redis cluster request failed", "nsp", bc.nsp, "err", err)
 	}
 }
 

@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -144,4 +145,70 @@ func TestBroadcastRoomsMaps(t *testing.T) {
 	b.Leave("last", a)
 	require.Empty(t, b.sids)
 	require.Empty(t, b.rooms)
+}
+
+// preparingSocket shares a packet prepared by one socket of its concrete type.
+type preparingSocket struct {
+	*recordingSocket
+	prepares *int
+	err      error
+	decline  bool
+}
+
+func (c preparingSocket) PrepareEmit(opts Options, event string, args ...interface{}) (interface{}, error) {
+	*c.prepares++
+	return fmt.Sprintf("%s %v volatile=%t", event, args, opts.Volatile), c.err
+}
+
+func (c preparingSocket) EmitPrepared(_ Options, packet interface{}) bool {
+	if c.decline {
+		return false
+	}
+	c.events <- packet.(string)
+	return true
+}
+
+// failingSocket is a second implementation whose packets must not mix with preparingSocket's.
+type failingSocket struct{ preparingSocket }
+
+// decliningSocket prepares successfully but refuses to deliver the packet.
+type decliningSocket struct{ preparingSocket }
+
+func TestBroadcastPreparesOncePerImplementation(t *testing.T) {
+	b := NewMemory()
+	var prepared, failed, declined int
+	errPrepare := errors.New("prepare failed")
+	var shared []*recordingSocket
+	for _, id := range []string{"a", "b", "c"} {
+		c := preparingSocket{recordingSocket: newRecordingSocket(id), prepares: &prepared}
+		b.Join("room", c)
+		shared = append(shared, c.recordingSocket)
+	}
+	var fallback []*recordingSocket
+	for _, id := range []string{"d", "e"} {
+		c := failingSocket{preparingSocket{recordingSocket: newRecordingSocket(id), prepares: &failed, err: errPrepare}}
+		b.Join("room", c)
+		fallback = append(fallback, c.recordingSocket)
+	}
+	c := decliningSocket{preparingSocket{recordingSocket: newRecordingSocket("g"), prepares: &declined, decline: true}}
+	b.Join("room", c)
+	fallback = append(fallback, c.recordingSocket)
+	plain := newRecordingSocket("f")
+	b.Join("room", plain)
+
+	require.NoError(t, b.SendTo(Options{Rooms: []string{"room"}, Volatile: true}, "news", 7))
+	for _, c := range shared {
+		expectEvent(t, c, "news [7] volatile=true")
+	}
+	// A failed preparation is not retried per recipient, and a declined packet
+	// is not lost: each such recipient uses its own emit.
+	for _, c := range append(fallback, plain) {
+		expectEvent(t, c, "news [7]")
+	}
+	require.Equal(t, 1, prepared)
+	require.Equal(t, 1, failed)
+	require.Equal(t, 1, declined)
+	for _, c := range append(append(shared, fallback...), plain) {
+		require.Empty(t, c.events)
+	}
 }

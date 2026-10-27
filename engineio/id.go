@@ -5,8 +5,21 @@ import (
 )
 
 // IDGenerator generates identifiers for WithSessionIDGenerator; nil selects random IDs.
-type IDGenerator = sessionImpl.IDGenerator
+type IDGenerator interface {
+	// NewID returns an identifier not used by any registered or still open
+	// session of the server; an empty or duplicate identifier fails the
+	// handshake.
+	NewID() string
+}
 
 // DefaultIDGenerator generates URL-safe cryptographic random identifiers.
-// NewID returns an empty identifier when the random source fails.
+// *DefaultIDGenerator implements IDGenerator; NewID returns an empty identifier
+// when the random source fails. Its legacy field ID is unused.
 type DefaultIDGenerator = sessionImpl.DefaultIDGenerator
+
+// IDGenerator keeps the method set of the session contract it is passed to.
+var (
+	_ IDGenerator             = sessionImpl.IDGenerator(nil)
+	_ sessionImpl.IDGenerator = IDGenerator(nil)
+	_ IDGenerator             = (*DefaultIDGenerator)(nil)
+)

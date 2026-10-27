@@ -41,7 +41,7 @@ individual protocol features.
 | `binary` | binary events and ACKs in both directions |
 | `namespaces` | namespace authentication, room isolation and broadcasts excluding the sender |
 | `middleware` | connection and event rejection while other sockets remain usable |
-| `default-http` | `net/http` server and CORS-permissive transports |
+| `default-http` | `net/http` server with default (permissive) CORS |
 | `dockerize-default-http` | the same server in a Docker image (`make -i`) |
 | `gin-gonic`, `gin-cors` | mounting on gin, with and without CORS middleware; page at `/public/` |
 | `go-echo` | mounting on echo |

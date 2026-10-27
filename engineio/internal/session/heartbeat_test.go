@@ -27,7 +27,7 @@ func TestPingTimeoutIdleClient(t *testing.T) {
 					return
 				}
 				s, err := New(c, "heartbeat", "websocket", eioparser.ConnParameters{
-					PingInterval: 100 * time.Millisecond, PingTimeout: 50 * time.Millisecond,
+					PingInterval: time.Second, PingTimeout: 500 * time.Millisecond,
 				}, nil)
 				if err != nil {
 					done <- err
@@ -54,6 +54,8 @@ func TestPingTimeoutIdleClient(t *testing.T) {
 			defer func() { _ = c.Close() }()
 			s := <-accepted
 			defer func() { _ = s.Close() }()
+			// Activity lasts longer than the entire idle window, so packets must reset it.
+			// Leave enough scheduling margin for coverage and race instrumentation.
 			// Drain PONGs independently of the client's packet cadence.
 			go func() {
 				for {
@@ -65,7 +67,7 @@ func TestPingTimeoutIdleClient(t *testing.T) {
 			if name != "silent" {
 				ticker := time.NewTicker(100 * time.Millisecond)
 				defer ticker.Stop()
-				for i := 0; i < 5; i++ {
+				for i := 0; i < 20; i++ {
 					select {
 					case err := <-done:
 						t.Fatalf("client closed before its next packet: %v", err)
@@ -88,7 +90,7 @@ func TestPingTimeoutIdleClient(t *testing.T) {
 				require.Error(t, err)
 				require.NotNil(t, s.cause.Load())
 				require.Equal(t, reasonPingTimeout, s.cause.Load().reason)
-			case <-time.After(time.Second):
+			case <-time.After(3 * time.Second):
 				t.Fatal("silent client did not time out")
 			}
 		})

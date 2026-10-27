@@ -12,7 +12,7 @@ import (
 func connWithOptions(t *testing.T, side byte, opts []Option) *conn {
 	t.Helper()
 	fc := newFakeConn(t)
-	cl, err := newTestManager("http://127.0.0.1/", opts...)
+	cl, err := newTestManager(t, "http://127.0.0.1/", opts...)
 	require.NoError(t, err)
 	cl.dial = func(string) (engineclient.Conn, error) { return fc, nil }
 	cl.OnConnect(func(Conn) error { return nil })

@@ -21,14 +21,17 @@ var ErrAdapterClosed = errAdapterClosed
 // asserting the adapter returned by a Redis factory or ServerNamespace.Adapter.
 // Queries return validated partial snapshots with timeout errors, never an atomic
 // cluster snapshot. All calls use the earlier of ctx and WithRequestsTimeout.
+// Expiry of that configured bound returns ErrRequestTimeout; cancellation or
+// expiry of ctx returns its error. Calls also report transport errors and
+// ErrAdapterClosed after closure. Mutations do not roll back completed changes.
 type Cluster interface {
 	adapter.Adapter
 	// IDsContext returns the namespace's socket IDs in the room union, or all IDs.
-	// A timeout returns validated partial results with ErrRequestTimeout.
+	// A timeout returns validated partial results with the deadline error.
 	IDsContext(ctx context.Context, rooms ...string) ([]string, error)
 	// AllRoomsContext returns cluster rooms; timeouts preserve validated partial results.
 	AllRoomsContext(ctx context.Context) ([]string, error)
-	// LenContext counts room members; a timeout returns an error instead of a count.
+	// LenContext counts room members; a timeout returns a partial count and an error.
 	LenContext(ctx context.Context, room string) (int, error)
 	// ClearContext removes a snapshot of members under one deadline without rollback.
 	ClearContext(ctx context.Context, room string) error

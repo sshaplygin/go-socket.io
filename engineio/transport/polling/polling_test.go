@@ -1,11 +1,13 @@
 package polling
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -68,57 +70,13 @@ func TestPollingBinary(t *testing.T) {
 		must.NoError(cc.Close())
 	}()
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		for _, test := range tests {
-			ft, pt, r, err := cc.NextReader()
-			should.Nil(err)
-
-			should.Equal(test.ft, ft)
-			should.Equal(test.pt, pt)
-			b, err := io.ReadAll(r)
-			should.Nil(err)
-			should.Equal(test.data, b)
-			err = r.Close()
-			should.Nil(err)
-
-			w, err := cc.NextWriter(ft, pt)
-			should.Nil(err)
-			_, err = w.Write(b)
-			should.Nil(err)
-			err = w.Close()
-			should.Nil(err)
-		}
-	}()
-
-	sc := <-conn
+	clientDone := startClientEcho(cc)
+	sc := acceptServerConn(t, conn, clientDone)
 	defer func() {
 		must.NoError(sc.Close())
 	}()
 
-	for _, test := range tests {
-		w, err := sc.NextWriter(test.ft, test.pt)
-		should.Nil(err)
-		_, err = w.Write(test.data)
-		should.Nil(err)
-		err = w.Close()
-		should.Nil(err)
-
-		ft, pt, r, err := sc.NextReader()
-		should.Nil(err)
-		should.Equal(test.ft, ft)
-		should.Equal(test.pt, pt)
-		b, err := io.ReadAll(r)
-		should.Nil(err)
-		err = r.Close()
-		should.Nil(err)
-		should.Equal(test.data, b)
-	}
-
-	wg.Wait()
+	finishExchange(t, sc, clientDone)
 
 	should.Equal(sc.LocalAddr(), cc.RemoteAddr())
 	should.Empty(cc.LocalAddr().String())
@@ -168,7 +126,8 @@ func TestPollingString(t *testing.T) {
 		must.NoError(cc.Close())
 	}()
 
-	sc := <-conn
+	clientDone := startClientEcho(cc)
+	sc := acceptServerConn(t, conn, clientDone)
 	defer func() {
 		must.NoError(sc.Close())
 	}()
@@ -178,53 +137,144 @@ func TestPollingString(t *testing.T) {
 	should.Empty(cc.LocalAddr().String())
 	should.NotEmpty(sc.RemoteAddr().String())
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		for _, test := range tests {
-			ft, pt, r, err := cc.NextReader()
-			should.Nil(err)
-
-			should.Equal(test.ft, ft)
-			should.Equal(test.pt, pt)
-			b, err := io.ReadAll(r)
-			should.Nil(err)
-			err = r.Close()
-			should.Nil(err)
-			should.Equal(test.data, b)
-
-			w, err := cc.NextWriter(ft, pt)
-			should.Nil(err)
-			_, err = w.Write(b)
-			should.Nil(err)
-			err = w.Close()
-			should.Nil(err)
-		}
-	}()
-
-	for _, test := range tests {
-		w, err := sc.NextWriter(test.ft, test.pt)
-		should.Nil(err)
-
-		_, err = w.Write(test.data)
-		should.Nil(err)
-		should.Nil(w.Close())
-
-		ft, pt, r, err := sc.NextReader()
-		should.Nil(err)
-		should.Equal(test.ft, ft)
-		should.Equal(test.pt, pt)
-
-		b, err := io.ReadAll(r)
-		should.Nil(err)
-		should.Nil(r.Close())
-		should.Equal(test.data, b)
-	}
-
-	wg.Wait()
+	finishExchange(t, sc, clientDone)
 
 	should.Equal("server", cc.RemoteHeader().Get("X-Eio-Test"))
 	should.Equal("client", sc.RemoteHeader().Get("X-Eio-Test"))
+}
+
+// TestPollingClientRequestFailure reproduces the TestPollingBinary crash from
+// a run under ephemeral-port exhaustion. A failed client request makes
+// NextReader return that error with a nil reader; the exchange must stop on the
+// error instead of reading from the nil reader.
+func TestPollingClientRequestFailure(t *testing.T) {
+	must := require.New(t)
+
+	dialErr := errors.New("dial tcp: connect: can't assign requested address")
+	failing := &Transport{Client: &http.Client{Transport: dialOpenRoundTripper(
+		func(*http.Request) (*http.Response, error) { return nil, dialErr },
+	)}}
+	u, err := url.Parse("http://127.0.0.1/")
+	must.NoError(err)
+	cc, err := failing.Dial(u, nil)
+	must.NoError(err)
+	defer func() {
+		must.NoError(cc.Close())
+	}()
+	cc.(*clientConn).Resume()
+
+	_, _, r, err := cc.NextReader()
+	must.Nil(r)
+	var opErr *OpError
+	must.ErrorAs(err, &opErr)
+	must.Equal("get", opErr.Op)
+	must.ErrorIs(opErr.Err, dialErr)
+
+	must.ErrorIs(echoPackets(cc), err)
+}
+
+// startClientEcho runs echoPackets on c in a new goroutine and reports its
+// result.
+func startClientEcho(c transport.Conn) <-chan error {
+	done := make(chan error, 1)
+	go func() { done <- echoPackets(c) }()
+	return done
+}
+
+// acceptServerConn returns the connection accepted by the test server. It
+// fails the test if the client half ends first, which happens when the
+// client's first request fails and the server never sees it.
+func acceptServerConn(t *testing.T, conn <-chan transport.Conn, clientDone <-chan error) transport.Conn {
+	t.Helper()
+	select {
+	case sc := <-conn:
+		return sc
+	case err := <-clientDone:
+		require.NoError(t, err, "client")
+		require.FailNow(t, "client finished before the server accepted a connection")
+		return nil
+	}
+}
+
+// finishExchange runs sendAndExpectEcho on sc and waits for both halves. The
+// first error fails the test without waiting for the other half: the callers'
+// deferred Close calls end its blocked operations.
+func finishExchange(t *testing.T, sc transport.Conn, clientDone <-chan error) {
+	t.Helper()
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- sendAndExpectEcho(sc) }()
+	for range 2 {
+		select {
+		case err := <-clientDone:
+			require.NoError(t, err, "client")
+			clientDone = nil
+		case err := <-serverDone:
+			require.NoError(t, err, "server")
+			serverDone = nil
+		}
+	}
+}
+
+// echoPackets is the client half of the exchange: it reads each packet of
+// tests and writes it back, and returns the first error.
+func echoPackets(c transport.Conn) error {
+	for _, test := range tests {
+		if err := receivePacket(c, test.ft, test.pt, test.data); err != nil {
+			return err
+		}
+		if err := sendPacket(c, test.ft, test.pt, test.data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sendAndExpectEcho is the server half of the exchange: it writes each packet
+// of tests and reads the client's echo, and returns the first error.
+func sendAndExpectEcho(c transport.Conn) error {
+	for _, test := range tests {
+		if err := sendPacket(c, test.ft, test.pt, test.data); err != nil {
+			return err
+		}
+		if err := receivePacket(c, test.ft, test.pt, test.data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sendPacket(c transport.Conn, ft eioparser.FrameType, pt eioparser.PacketType, data []byte) error {
+	w, err := c.NextWriter(ft, pt)
+	if err != nil {
+		return fmt.Errorf("next writer: %w", err)
+	}
+	if _, err = w.Write(data); err != nil {
+		_ = w.Close()
+		return fmt.Errorf("write packet: %w", err)
+	}
+	if err = w.Close(); err != nil {
+		return fmt.Errorf("close writer: %w", err)
+	}
+	return nil
+}
+
+// receivePacket reads one packet and compares it with the expected one. A
+// NextReader error is returned before the reader is used, because the reader
+// is nil when NextReader fails.
+func receivePacket(c transport.Conn, ft eioparser.FrameType, pt eioparser.PacketType, data []byte) error {
+	gotFT, gotPT, r, err := c.NextReader()
+	if err != nil {
+		return fmt.Errorf("next reader: %w", err)
+	}
+	b, err := io.ReadAll(r)
+	if closeErr := r.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return fmt.Errorf("read packet: %w", err)
+	}
+	if gotFT != ft || gotPT != pt || !bytes.Equal(b, data) {
+		return fmt.Errorf("got packet %v %v %q, want %v %v %q", gotFT, gotPT, b, ft, pt, data)
+	}
+	return nil
 }

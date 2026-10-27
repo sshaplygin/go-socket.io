@@ -17,7 +17,7 @@ import (
 func TestClientReconnectHandlerSerial(t *testing.T) {
 	for _, mode := range []string{"attempt", "error", "failed", "success"} {
 		t.Run(mode, func(t *testing.T) {
-			cl, err := newTestManager("http://unused/", WithReconnectionAttempts(1), WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
+			cl, err := newTestManager(t, "http://unused/", WithReconnectionAttempts(1), WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
 			first, second, third := newFakeConn(t), newFakeConn(t), newFakeConn(t)
@@ -80,7 +80,7 @@ func TestClientReconnectHandlerSerial(t *testing.T) {
 func TestClientReconnectCancellation(t *testing.T) {
 	for _, mode := range []string{"client", "socket", "attempt callback"} {
 		t.Run(mode, func(t *testing.T) {
-			cl, err := newTestManager("http://unused/", WithTimeout(-1), WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
+			cl, err := newTestManager(t, "http://unused/", WithTimeout(-1), WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
 			first, late := newFakeConn(t), newFakeConn(t)
@@ -147,7 +147,7 @@ func TestClientReconnectCancellation(t *testing.T) {
 }
 
 func TestClientVolatileBeforeConnect(t *testing.T) {
-	cl, err := newTestManager("http://unused/")
+	cl, err := newTestManager(t, "http://unused/")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	fc := newFakeConn(t)
@@ -170,7 +170,7 @@ func TestClientVolatileBeforeConnect(t *testing.T) {
 }
 
 func TestClientCloseBeforeNamespaceReplyCancelsLifetime(t *testing.T) {
-	cl, err := newTestManager("http://unused/")
+	cl, err := newTestManager(t, "http://unused/")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	fc := newFakeConn(t)
@@ -184,7 +184,7 @@ func TestClientCloseBeforeNamespaceReplyCancelsLifetime(t *testing.T) {
 }
 
 func TestClientBackoffPrivate(t *testing.T) {
-	cl, err := newTestManager("http://unused")
+	cl, err := newTestManager(t, "http://unused")
 	require.NoError(t, err)
 	require.Equal(t, time.Second, cl.options.ReconnectionDelay)
 	require.Equal(t, 5*time.Second, cl.options.ReconnectionDelayMax)

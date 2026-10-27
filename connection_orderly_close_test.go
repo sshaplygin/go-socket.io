@@ -55,7 +55,7 @@ func rootWithOrderlyEngine(t *testing.T) (*connection, engineio.Conn, *rootOrder
 	s, err := engine.Accept()
 	require.NoError(t, err)
 	c := newConnection(s, newNamespaceRegistry(), 1, 50*time.Millisecond, slog.Default())
-	c.boundary, c.connecting = true, false
+	c.connecting = false
 	t.Cleanup(func() { c.stop(); _ = engineio.Abort(s); _ = engine.Close() })
 	return c, s, tr
 }

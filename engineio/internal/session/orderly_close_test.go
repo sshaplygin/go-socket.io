@@ -65,6 +65,18 @@ func TestSessionDonePrecedesTransportDrain(t *testing.T) {
 	signal, ok := interface{}(s).(interface{ Done() <-chan struct{} })
 	require.True(t, ok, "built-in session must expose close-start notification")
 	done := signal.Done()
+	closed := s.Closed()
+	var callbacks atomic.Int32
+	var callbackBeforeClosed, transportClosedInCallback bool
+	s.SetCloseCallback(func() {
+		callbacks.Add(1)
+		transportClosedInCallback = c.isClosed()
+		select {
+		case <-closed:
+		default:
+			callbackBeforeClosed = true
+		}
+	})
 	select {
 	case <-done:
 		t.Fatal("session is still open")
@@ -80,6 +92,18 @@ func TestSessionDonePrecedesTransportDrain(t *testing.T) {
 	default:
 	}
 	require.Equal(t, done, signal.Done())
+	select {
+	case <-closed:
+		t.Fatal("Closed signaled before transport drain")
+	default:
+	}
+	close(c.allow)
+	waitClose(t, closed)
+	require.True(t, transportClosedInCallback, "registry cleanup follows transport shutdown")
+	require.True(t, callbackBeforeClosed, "Closed publishes completed registry cleanup")
+	require.Equal(t, closed, s.Closed())
+	require.NoError(t, s.Abort())
+	require.Equal(t, int32(1), callbacks.Load(), "repeated close must not repeat registry cleanup")
 }
 
 func TestOrderlyCloseDrainsAcceptedWriter(t *testing.T) {
@@ -106,7 +130,7 @@ func TestOrderlyCloseDrainsAcceptedWriter(t *testing.T) {
 	require.False(t, c.isClosed())
 	require.NoError(t, s.Close(), "repeated orderly close returns without waiting for a poll")
 	close(c.allow)
-	waitClose(t, s.closeDone)
+	waitClose(t, s.Closed())
 	require.Equal(t, StateClosed, s.ReadyState())
 	require.Equal(t, int32(1), c.closes.Load())
 	writes := c.written()
@@ -131,7 +155,7 @@ func TestOrderlyCloseDeadline(t *testing.T) {
 				require.NoError(t, err)
 			}
 			require.NoError(t, s.Close())
-			waitClose(t, s.closeDone)
+			waitClose(t, s.Closed())
 			require.Equal(t, StateClosed, s.ReadyState())
 			require.Equal(t, ReasonForcedClose, s.closeError().Reason)
 			if w != nil {
@@ -157,7 +181,7 @@ func TestAbortInterruptsOrderlyClose(t *testing.T) {
 			done := make(chan struct{})
 			go func() { _ = abort.close(s); close(done) }()
 			waitClose(t, done)
-			waitClose(t, s.closeDone)
+			waitClose(t, s.Closed())
 			require.Equal(t, StateClosed, s.ReadyState())
 			require.Equal(t, ReasonForcedClose, s.closeError().Reason, "first cause is retained")
 			require.Equal(t, int32(1), c.closes.Load())
@@ -202,7 +226,7 @@ func TestOrderlyCloseStopsUpgradeProbe(t *testing.T) {
 	require.False(t, s.Upgraded())
 	require.Equal(t, "polling", s.Transport())
 	require.NoError(t, s.Abort())
-	waitClose(t, s.closeDone)
+	waitClose(t, s.Closed())
 }
 
 func TestAbortKeepsErrorBeforeTransportClose(t *testing.T) {
@@ -272,7 +296,7 @@ func TestPeerCloseInterruptsOrderlyClose(t *testing.T) {
 	waitClose(t, c.entered)
 	close(c.sendClose)
 	waitClose(t, c.done)
-	waitClose(t, s.closeDone)
+	waitClose(t, s.Closed())
 	select {
 	case err := <-read:
 		require.Error(t, err)

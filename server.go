@@ -149,7 +149,9 @@ func (s *Server) OnDisconnect(namespace string, f func(Conn, string)) {
 	h.OnDisconnect(f)
 }
 
-// OnError set a handler function f to handle error for namespace.
+// OnError sets the namespace error handler. Root connect and connection-middleware
+// failures pass a nil Conn; errors for other unjoined namespaces pass an inactive
+// Conn. A panic in the error handler is recovered and logged at WARN.
 func (s *Server) OnError(namespace string, f func(Conn, error)) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -181,11 +183,10 @@ func (s *Server) OnEvent(namespace, event string, f interface{}) {
 // Serve accepts and serves connections until Close is called, then returns nil.
 // Run it alongside the HTTP server: without Serve, connections and events are not
 // dispatched, even though HTTP handshakes can succeed without reporting an error.
-// If a
-// namespace's adapter could not be created before Serve was called (see SetAdapter)
-// and Close has not been called, Serve returns that error at once without accepting a
-// connection. The engine.io server then still completes handshakes, which nobody serves,
-// until Close is called.
+// If a namespace's adapter could not be created before Serve was called (see
+// SetAdapter) and Close has not been called, Serve returns that error at once
+// without accepting a connection. The engine.io server then still completes
+// handshakes, which nobody serves, until Close is called.
 func (s *Server) Serve() error {
 	if s.closed.Load() {
 		return nil
@@ -260,10 +261,11 @@ func (s *Server) roomSocket(nsp string, conn Conn) *namespaceConn {
 	if !ok || nc == nil || h == nil || h.Err() != nil {
 		return nil
 	}
-	for _, current := range h.Sockets() {
-		if current == nc && nc.Connected() && nc.beginRoomOperation() {
-			return nc
-		}
+	h.connectedMu.RLock()
+	owned := h.connected[nc.ID()] == nc
+	h.connectedMu.RUnlock()
+	if owned && nc.Connected() && nc.beginRoomOperation() {
+		return nc
 	}
 	return nil
 }
@@ -277,7 +279,14 @@ func (s *Server) ClearRoom(namespace string, room string) bool {
 	return bc != nil
 }
 
-// BroadcastToRoom broadcasts to the room. A trailing callback is registered per socket.
+// BroadcastToRoom broadcasts to the room. The result reports only that the namespace
+// is registered and its adapter was constructed, even if the adapter is now closed;
+// it does not report delivery. The memory adapter registers a trailing callback per
+// socket. The Redis adapter rejects a broadcast with a trailing callback before any
+// delivery; its failures are logged at WARN, or at DEBUG once the adapter is closed.
+// With Redis, a stalled PUBLISH can block the call up to the
+// [github.com/sshaplygin/go-socket.io/adapter/redis.WithRequestsTimeout] bound per I/O
+// phase, as for SendTo.
 func (s *Server) BroadcastToRoom(namespace string, room, event string, args ...interface{}) bool {
 	bc := s.broadcastOf(namespace)
 	if bc != nil {
@@ -286,7 +295,14 @@ func (s *Server) BroadcastToRoom(namespace string, room, event string, args ...i
 	return bc != nil
 }
 
-// BroadcastToNamespace broadcasts to the namespace. A trailing callback is registered per socket.
+// BroadcastToNamespace broadcasts to the namespace. The result reports only that the
+// namespace is registered and its adapter was constructed, even if the adapter is now
+// closed; it does not report delivery. The memory adapter registers a trailing callback
+// per socket. The Redis adapter rejects a broadcast with a trailing callback before any
+// delivery; its failures are logged at WARN, or at DEBUG once the adapter is closed.
+// With Redis, a stalled PUBLISH can block the call up to the
+// [github.com/sshaplygin/go-socket.io/adapter/redis.WithRequestsTimeout] bound per I/O
+// phase, as for SendTo.
 func (s *Server) BroadcastToNamespace(namespace string, event string, args ...interface{}) bool {
 	bc := s.broadcastOf(namespace)
 	if bc != nil {
@@ -359,6 +375,7 @@ func (s *Server) createNamespaceWithParent(nsp string, parent *namespaceHandler)
 	factory, closed := s.adapter, s.closed.Load()
 	s.createMu.Unlock()
 	handler := newNamespaceHandler()
+	handler.name, handler.log = nsp, s.log
 	if closed && factory != nil {
 		handler.SetAdapter(nil, errServerClosed)
 	} else if factory != nil {

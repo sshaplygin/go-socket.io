@@ -137,8 +137,12 @@ func (c *client) terminate(reason CloseReason, err error) error {
 		if probe != nil {
 			_ = probe.Close()
 		}
-		if p, ok := conn.(interface{ Resume() }); ok {
-			p.Resume() // release an upgrade's cancellable polling pause
+		// Context-aware pauses are canceled and resumed by probe rollback.
+		// Legacy transports still need Resume before Close can finish.
+		if _, cancellable := conn.(interface{ PauseContext(context.Context) error }); !cancellable {
+			if p, ok := conn.(interface{ Resume() }); ok {
+				p.Resume()
+			}
 		}
 		result = conn.Close()
 	})
@@ -487,6 +491,8 @@ func (c *client) upgradeTransports(started time.Time, u url.URL, header http.Hea
 // dial result as well as an established probe, without holding application writes
 // during the transport dial or the PING/PONG exchange.
 func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Header, candidate transport.Transport) (result error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	p := &clientProbe{cancel: make(chan struct{})}
 	finished := make(chan struct{})
 	timer := time.NewTimer(time.Until(deadline))
@@ -500,6 +506,7 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 		p.err = err
 		conn, committing := p.conn, p.committing
 		close(p.cancel)
+		cancel()
 		p.mu.Unlock()
 		if conn != nil {
 			_ = conn.Close()
@@ -517,11 +524,7 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 			abort(io.ErrClosedPipe)
 		}
 	}()
-	var paused chan struct{}
-	var pauser interface {
-		Pause()
-		Resume()
-	}
+	var pause *probePause
 	held, switched := false, false
 	defer func() {
 		p.mu.Lock()
@@ -533,24 +536,12 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 			if probe != nil {
 				_ = probe.Close()
 			}
-			if paused != nil {
-				// Resume must also cover a pause goroutine scheduled after the
-				// cancellation. Wait for its completion before another probe or
-				// an application writer can use this transport again.
-				tick := time.NewTicker(time.Millisecond)
-				defer tick.Stop()
-				for {
-					pauser.Resume()
-					select {
-					case <-paused:
-						pauser.Resume()
-						goto resumed
-					case <-tick.C:
-					}
-				}
+			if pause != nil {
+				cancel()
+				pause.resume()
 			}
 		}
-	resumed:
+
 		c.mu.Lock()
 		if c.probe == probe {
 			c.probe = nil
@@ -562,6 +553,85 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 		}
 	}()
 
+	probe, err := c.dialProbe(p, u, header, candidate)
+	if err != nil {
+		return err
+	}
+	if err = exchangeProbe(probe, deadline); err != nil {
+		return err
+	}
+	if err := c.acquireWrite(p.cancel); err != nil {
+		return err
+	}
+	held = true
+	old := c.connection()
+	c.mu.Lock()
+	c.upgrading = true
+	c.mu.Unlock()
+	pause, err = startProbePause(ctx, old)
+	if err != nil {
+		return err
+	}
+	select {
+	case <-p.cancel:
+		return context.DeadlineExceeded
+	case <-pause.done:
+		if pause.err != nil {
+			return pause.err
+		}
+	}
+	if err = c.commitProbe(p, probe, old, candidate.Name()); err != nil {
+		return err
+	}
+	switched = true
+	return nil
+}
+
+func (c *client) commitProbe(p *clientProbe, probe, old transport.Conn, name string) error {
+	p.mu.Lock()
+	if p.err != nil {
+		err := p.err
+		p.mu.Unlock()
+		return err
+	}
+	p.committing = true
+	p.mu.Unlock()
+	w, err := probe.NextWriter(eioparser.String, eioparser.UPGRADE)
+	if err == nil {
+		err = w.Close()
+	}
+	if err != nil {
+		_ = c.terminate(ReasonTransportError, err)
+		return err
+	}
+	nextDeadline := time.Now().Add(c.params.PingInterval + c.params.PingTimeout)
+	if err := probe.SetReadDeadline(nextDeadline); err != nil {
+		_ = c.terminate(ReasonTransportError, err)
+		return err
+	}
+	if err := probe.SetWriteDeadline(nextDeadline); err != nil {
+		_ = c.terminate(ReasonTransportError, err)
+		return err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.err != nil {
+		return p.err
+	}
+	c.mu.Lock()
+	if c.cause != nil {
+		c.mu.Unlock()
+		return c.closeError()
+	}
+	c.conn, c.transport, c.upgraded = probe, name, true
+	c.readDeadline, c.writeDeadline = nextDeadline, nextDeadline
+	p.done = true
+	c.mu.Unlock()
+	_ = old.Close()
+	return nil
+}
+
+func (c *client) dialProbe(p *clientProbe, u url.URL, header http.Header, candidate transport.Transport) (transport.Conn, error) {
 	query := u.Query()
 	query.Set("sid", c.params.SID)
 	u.RawQuery = query.Encode()
@@ -589,10 +659,10 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 	case <-p.cancel:
 		p.mu.Lock()
 		defer p.mu.Unlock()
-		return p.err
+		return nil, p.err
 	case dial := <-dialed:
 		if dial.err != nil {
-			return dial.err
+			return nil, dial.err
 		}
 		probe = dial.conn
 		if limited, ok := probe.(interface{ SetReadLimit(int64) }); ok {
@@ -603,11 +673,15 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 	select {
 	case <-c.close:
 		c.mu.Unlock()
-		return io.ErrClosedPipe
+		return nil, io.ErrClosedPipe
 	default:
 	}
 	c.probe = probe
 	c.mu.Unlock()
+	return probe, nil
+}
+
+func exchangeProbe(probe transport.Conn, deadline time.Time) error {
 	if err := probe.SetReadDeadline(deadline); err != nil {
 		return err
 	}
@@ -641,67 +715,45 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 	if pt != eioparser.PONG || string(answer) != "probe" {
 		return errors.New("engineio: invalid upgrade probe answer")
 	}
-	if err := c.acquireWrite(p.cancel); err != nil {
-		return err
-	}
-	held = true
-	old := c.connection()
-	pauser, _ = old.(interface {
-		Pause()
-		Resume()
-	})
-	if pauser == nil {
-		return errors.New("engineio: current transport cannot pause")
-	}
-	c.mu.Lock()
-	c.upgrading = true
-	c.mu.Unlock()
-	paused = make(chan struct{})
-	go func() { pauser.Pause(); close(paused) }()
-	select {
-	case <-p.cancel:
-		return context.DeadlineExceeded
-	case <-paused:
-	}
-	p.mu.Lock()
-	if p.err != nil {
-		err := p.err
-		p.mu.Unlock()
-		return err
-	}
-	p.committing = true
-	p.mu.Unlock()
-	w, err = probe.NextWriter(eioparser.String, eioparser.UPGRADE)
-	if err == nil {
-		err = w.Close()
-	}
-	if err != nil {
-		_ = c.terminate(ReasonTransportError, err)
-		return err
-	}
-	nextDeadline := time.Now().Add(c.params.PingInterval + c.params.PingTimeout)
-	if err := probe.SetReadDeadline(nextDeadline); err != nil {
-		_ = c.terminate(ReasonTransportError, err)
-		return err
-	}
-	if err := probe.SetWriteDeadline(nextDeadline); err != nil {
-		_ = c.terminate(ReasonTransportError, err)
-		return err
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.err != nil {
-		return p.err
-	}
-	c.mu.Lock()
-	if c.cause != nil {
-		c.mu.Unlock()
-		return c.closeError()
-	}
-	c.conn, c.transport, c.upgraded = probe, candidate.Name(), true
-	c.readDeadline, c.writeDeadline = nextDeadline, nextDeadline
-	p.done, switched = true, true
-	c.mu.Unlock()
-	_ = old.Close()
 	return nil
+}
+
+// probePause pairs completion with rollback. Built-in polling consumes context
+// cancellation even when its pause goroutine has not started yet.
+type probePause struct {
+	done   chan struct{}
+	err    error
+	resume func()
+}
+
+func startProbePause(ctx context.Context, old transport.Conn) (*probePause, error) {
+	pauser, ok := old.(transport.Pauser)
+	if !ok {
+		return nil, errors.New("engineio: current transport cannot pause")
+	}
+	pause := &probePause{done: make(chan struct{})}
+	if cancellable, ok := old.(interface{ PauseContext(context.Context) error }); ok {
+		go func() { pause.err = cancellable.PauseContext(ctx); close(pause.done) }()
+		pause.resume = func() { <-pause.done; pauser.Resume() }
+	} else {
+		// A legacy custom Pauser cannot accept cancellation before Pause starts.
+		// Keep the retry fallback for those transports to preserve upgrade support.
+		go func() { pauser.Pause(); close(pause.done) }()
+		pause.resume = func() { resumeLegacyPause(pauser, pause.done) }
+	}
+	return pause, nil
+}
+
+func resumeLegacyPause(pauser transport.Pauser, done <-chan struct{}) {
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for {
+		pauser.Resume()
+		select {
+		case <-done:
+			pauser.Resume()
+			return
+		case <-tick.C:
+		}
+	}
 }

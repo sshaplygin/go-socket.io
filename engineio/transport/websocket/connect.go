@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"encoding/base64"
 	"io"
 	"net"
 	"net/http"
@@ -15,11 +16,14 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
-// conn implements base.Conn
+// conn implements transport.Conn
 type conn struct {
 	transport.FrameReader
 
 	ws wrapper
+	// base64 is set by b64 in the request URL: binary packets travel as
+	// "b<type><base64>" text messages in both directions.
+	base64 bool
 
 	url          url.URL
 	remoteHeader http.Header
@@ -39,12 +43,20 @@ func newConn(ws *websocket.Conn, url url.URL, header http.Header, settings ...*T
 	}
 	closed := make(chan struct{})
 
+	// With b64, inbound text messages starting with 'b' decode as binary packets;
+	// binary messages are still accepted.
+	var decoder eioparser.FrameReader = w
+	b64 := url.Query().Get("b64") != ""
+	if b64 {
+		decoder = base64FrameReader{w}
+	}
 	return &conn{
 		url:          url,
 		remoteHeader: header,
 		ws:           w,
+		base64:       b64,
 		closed:       closed,
-		FrameReader:  eioparser.NewPacketDecoder(w),
+		FrameReader:  eioparser.NewPacketDecoder(decoder),
 	}
 }
 
@@ -80,6 +92,19 @@ func (c *conn) NextWriter(ft eioparser.FrameType, pt eioparser.PacketType) (io.W
 
 // NextWriterCompress keeps the compression choice for the entire encoded packet.
 func (c *conn) NextWriterCompress(ft eioparser.FrameType, pt eioparser.PacketType, compress bool) (io.WriteCloser, error) {
+	if c.base64 && ft == eioparser.Binary {
+		// b64 mode: write the binary packet as text "b<type>" followed by base64 data.
+		w, err := c.ws.nextWriter(eioparser.String, compress)
+		if err != nil {
+			return nil, err
+		}
+		if _, err = w.Write([]byte{'b', pt.StringByte()}); err != nil {
+			_ = w.Close()
+			return nil, err
+		}
+		return base64Writer{WriteCloser: base64.NewEncoder(base64.StdEncoding, w), frame: w}, nil
+	}
+
 	return eioparser.NewPacketEncoder(compressFrameWriter{c.ws, compress}).NextWriter(ft, pt)
 }
 
@@ -96,8 +121,8 @@ func (w compressFrameWriter) NextWriter(ft eioparser.FrameType) (io.WriteCloser,
 }
 
 func (c *conn) SetWriteDeadline(t time.Time) error {
-	// TODO: is locking really needed for SetWriteDeadline? If so, what about
-	// the read deadline?
+	// Gorilla stores the write deadline in a field read by its frame writer.
+	// Its one-concurrent-writer contract requires excluding an open writer here.
 	c.ws.writeLocker.Lock()
 	err := c.ws.SetWriteDeadline(t)
 	c.ws.writeLocker.Unlock()

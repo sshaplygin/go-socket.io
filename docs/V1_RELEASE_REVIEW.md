@@ -3105,7 +3105,7 @@ reproduced here.
 | API-13 | Source-confirmed | go.mod declares 1.22 and README documents it; no new Go 1.22/1.21 run was performed. |
 | CL-1 | Partial | M7 above; README links to runnable examples. |
 | CL-2, ARCH-1 | Reproduced / source-confirmed | M4 above. The bool should not be interpreted as delivery success. |
-| CL-5 | Confirmed | `go list` reports missing package docs for 9 of 12 public runtime packages; the specified lint checks are disabled. Fixed by #170 (W27). |
+| CL-5 | Confirmed | `go list` reports missing package docs for 9 of 12 public runtime packages; the specified lint checks are disabled. |
 | CL-6 | Source-confirmed | Cluster interface parameters are unnamed. Per-method clarification would improve usability; the interface already documents a common timeout contract. |
 | CL-7, ARCH-5 | Source-confirmed | AllRooms' interface comment wrongly refers to a connection; Rooms(nil), optional Closer and BindSocketLookup behavior are present. Redundancy and named optional interfaces are design judgments. |
 | CL-8 | Partial | Broadcast wrappers and Namespace/Emitter have different ACK behavior. Calling every Server wrapper "upstream-compatible" would contradict API-8 for v1.4.2 users. |

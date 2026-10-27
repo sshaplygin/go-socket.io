@@ -326,7 +326,7 @@ changed to `done — #<PR>` after the merge.
 | Architecture | ARCH-1 W5 · ARCH-2 D2 · ARCH-3 D3 · ARCH-4 W26 · ARCH-5 D4 · ARCH-6 D5 · ARCH-7 W33 · ARCH-8 W32 · ARCH-9 W14 · ARCH-10 W37 · ARCH-11 D6 · ARCH-12 W28 · ARCH-13 W26 |
 | Performance | PERF-1 W3 · PERF-2 W18 · PERF-3 W4 · PERF-4 W19 · PERF-5 W20 · PERF-6 W21 · PERF-7 W22 · PERF-8 W23 · PERF-9 W24 · PERF-10 W2 · PERF-11 W25 · PERF-12 W21 · PERF-13 W26 |
 | Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 |
-| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 |
+| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 |
 | Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 · REL-13 W42 |
 
 **Not planned.**

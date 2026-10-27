@@ -2193,7 +2193,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W46. Isolate upgrade probe log fixtures
 
-- **Status:** in progress — #201
+- **Status:** done — #201
 - **Priority:** before tag
 - **Findings:** [T10](#tests-findings)
 - **Depends on:** none

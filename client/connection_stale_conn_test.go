@@ -97,7 +97,12 @@ func TestClientPreconnectConnEmitDoesNotReplayOnReconnect(t *testing.T) {
 	p := newPeer(t, 'C', hooks{onError: func(c Conn, err error) {
 		c.Emit("old connection")
 		c.Compress(false).Emit("old flagged connection")
-		emitted <- struct{}{}
+		// Shutdown may report another write failure after the assertion has read
+		// its notification; callbacks must still be able to complete cleanup.
+		select {
+		case emitted <- struct{}{}:
+		default:
+		}
 	}})
 	require.NoError(t, p.cl.Connect())
 	closeAtEnd(t, p.fc, p.conn())

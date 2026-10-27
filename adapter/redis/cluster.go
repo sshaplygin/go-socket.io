@@ -21,17 +21,30 @@ var ErrAdapterClosed = errAdapterClosed
 // asserting the adapter returned by a Redis factory or ServerNamespace.Adapter.
 // Queries return validated partial snapshots with timeout errors, never an atomic
 // cluster snapshot. All calls use the earlier of ctx and WithRequestsTimeout.
+// Expiry of that configured bound returns ErrRequestTimeout; cancellation or
+// expiry of ctx returns its error. Calls also report transport errors and
+// ErrAdapterClosed after closure. Mutations do not roll back completed changes.
 type Cluster interface {
 	adapter.Adapter
-	IDsContext(context.Context, ...string) ([]string, error)
-	AllRoomsContext(context.Context) ([]string, error)
-	LenContext(context.Context, string) (int, error)
-	ClearContext(context.Context, string) error
-	ClientRooms(context.Context, string) ([]string, error)
-	RemoteJoin(context.Context, string, string) error
-	RemoteLeave(context.Context, string, string) error
-	RemoteDisconnect(context.Context, string, bool) error
-	CustomRequest(context.Context, json.RawMessage) ([]json.RawMessage, error)
+	// IDsContext returns the namespace's socket IDs in the room union, or all IDs.
+	// A timeout returns validated partial results with the deadline error.
+	IDsContext(ctx context.Context, rooms ...string) ([]string, error)
+	// AllRoomsContext returns cluster rooms; timeouts preserve validated partial results.
+	AllRoomsContext(ctx context.Context) ([]string, error)
+	// LenContext counts room members; a timeout returns a partial count and an error.
+	LenContext(ctx context.Context, room string) (int, error)
+	// ClearContext removes a snapshot of members under one deadline without rollback.
+	ClearContext(ctx context.Context, room string) error
+	// ClientRooms queries the rooms of sid and returns timeout or cancellation errors.
+	ClientRooms(ctx context.Context, sid string) ([]string, error)
+	// RemoteJoin joins sid to room; cancellation does not roll back completed changes.
+	RemoteJoin(ctx context.Context, sid, room string) error
+	// RemoteLeave removes sid from room; cancellation does not roll back completed changes.
+	RemoteLeave(ctx context.Context, sid, room string) error
+	// RemoteDisconnect disconnects sid, closing its engine when closeEngine is true.
+	RemoteDisconnect(ctx context.Context, sid string, closeEngine bool) error
+	// CustomRequest collects JSON replies; timeouts return validated partial results.
+	CustomRequest(ctx context.Context, data json.RawMessage) ([]json.RawMessage, error)
 }
 
 func (bc *broadcast) initCluster(opts *options) {
@@ -101,7 +114,7 @@ func (bc *broadcast) runClusterWork(work func(context.Context)) {
 	select {
 	case semaphore <- struct{}{}:
 	default:
-		logger.Log.Warn("socketio: redis remote request worker limit reached", "namespace", bc.nsp)
+		logger.Log.Warn("socketio: redis remote request worker limit reached", "nsp", bc.nsp)
 		return
 	}
 	go func() {

@@ -34,6 +34,10 @@ type Conn interface {
 }
 
 // Pauser optionally pauses and resumes a transport around an upgrade.
+// Client transports may also implement PauseContext(context.Context) error.
+// That method must honor cancellation even before it starts; on rollback the
+// client cancels it, waits for it to return, and calls Resume once. Legacy
+// client transports retain repeated Resume calls until their Pause returns.
 type Pauser interface {
 	Pause()
 	Resume()

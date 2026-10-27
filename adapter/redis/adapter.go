@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -13,7 +14,14 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sshaplygin/go-socket.io/adapter"
+	"github.com/sshaplygin/go-socket.io/logger"
 )
+
+// redisPublishMaxIdle is the number of idle publishing connections the pool
+// retains. The pool sets no MaxActive and no Wait: a publisher that finds no
+// idle connection dials one instead of queueing, so WithRequestsTimeout keeps
+// bounding each publication; connections above this number close on return.
+const redisPublishMaxIdle = 16
 
 // broadcast composes the local room index with Redis publication and requests.
 type broadcast struct {
@@ -25,6 +33,8 @@ type broadcast struct {
 	remoteWorkers  chan struct{}
 	lookupMu       sync.RWMutex
 	socketLookup   func(string) adapter.Socket
+	// subscribeTimeout is the WithSubscribeTimeout value for reconnects and Close.
+	subscribeTimeout time.Duration
 
 	// pub serves PUBLISH and PUBSUB commands. A redigo connection allows only
 	// one concurrent caller, and these commands come from user goroutines and
@@ -79,7 +89,7 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 	// redigo v2.0.0+incompatible, which gogf/gf v1 still selects, so ctx
 	// reaches the dial through DialNetDial: it bounds the TCP dial, and once
 	// ctx is done the connection is closed, which also ends AUTH and SELECT.
-	dial := func(ctx context.Context) (redis.Conn, error) {
+	dialWithOptions := func(ctx context.Context, extra ...redis.DialOption) (redis.Conn, error) {
 		stop := func() bool { return true }
 		netDial := func(network, address string) (net.Conn, error) {
 			// The timeouts redigo v1.8.9's own dialer uses when DialNetDial is not set.
@@ -90,19 +100,33 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 			}
 			return c, err
 		}
-		c, err := redis.Dial(opts.Network, addr, append(redisOpts[:len(redisOpts):len(redisOpts)], redis.DialNetDial(netDial))...)
+		dialOpts := append(redisOpts[:len(redisOpts):len(redisOpts)], extra...)
+		dialOpts = append(dialOpts, redis.DialNetDial(netDial))
+		c, err := redis.Dial(opts.Network, addr, dialOpts...)
 		if !stop() && err == nil { // ctx ended as the dial finished: c is closed
 			_ = c.Close()
 			return nil, ctx.Err()
 		}
 		return c, err
 	}
-	pub := &redis.Pool{MaxIdle: 4, Dial: func() (redis.Conn, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+	dial := func(ctx context.Context) (redis.Conn, error) {
+		return dialWithOptions(ctx)
+	}
+	// Repeats initCluster's fallback because initCluster runs after the pool's first Get.
+	timeout := opts.RequestsTimeout
+	if timeout <= 0 {
+		timeout = redisRequestTimeout
+	}
+	// Publishing connections bound every I/O phase, including AUTH and SELECT
+	// on a redial; DoWithTimeout replaces the read timeout for each command.
+	// The subscriber and boundedDo keep dial, which sets no read or write
+	// timeout, because the subscriber blocks in its read while idle.
+	pub := &redis.Pool{MaxIdle: redisPublishMaxIdle, Dial: func() (redis.Conn, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), min(opts.subscribeTimeout(), timeout))
 		defer cancel()
-		return dial(ctx)
+		return dialWithOptions(ctx, redis.DialReadTimeout(timeout), redis.DialWriteTimeout(timeout))
 	}}
-	ctx, cancel := context.WithTimeout(context.Background(), redisDialTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), opts.subscribeTimeout())
 	defer cancel()
 	// Dial the first publishing connection now to report an unreachable server.
 	first := pub.Get()
@@ -125,6 +149,7 @@ func newBroadcastWithResources(nsp string, opts *options, shared *sharedResource
 		nsp:        nsp,
 		uid:        uid,
 	}
+	rbc.subscribeTimeout = opts.subscribeTimeout()
 	rbc.transportCtx, rbc.transportCancel = context.WithCancel(context.Background())
 	rbc.initCluster(opts)
 	rbc.dial.Store(&dial)
@@ -150,14 +175,30 @@ func (bc *broadcast) Clear(room string) {
 	bc.logRequestError(bc.ClearContext(context.Background(), room))
 }
 
-// Send emits to a room, registering a trailing callback on each local socket.
+// Send emits to a room. A broadcast with a trailing callback is rejected before
+// any delivery. Failures are logged at WARN, or at DEBUG once the adapter is closed.
 func (bc *broadcast) Send(room, event string, args ...interface{}) {
-	_ = bc.SendTo(adapter.Options{Rooms: []string{room}}, event, args...)
+	bc.logBroadcastError(bc.SendTo(adapter.Options{Rooms: []string{room}}, event, args...))
 }
 
-// SendAll emits once per socket, registering a trailing callback on each local socket.
+// SendAll emits once per socket. A broadcast with a trailing callback is rejected
+// before any delivery. Failures are logged at WARN, or at DEBUG once the adapter is
+// closed.
 func (bc *broadcast) SendAll(event string, args ...interface{}) {
-	_ = bc.SendTo(adapter.Options{}, event, args...)
+	bc.logBroadcastError(bc.SendTo(adapter.Options{}, event, args...))
+}
+
+// logBroadcastError logs a SendTo failure of Send or SendAll, which return no error.
+// A failure after the adapter's close started is expected closure and logged at DEBUG.
+func (bc *broadcast) logBroadcastError(err error) {
+	if err == nil {
+		return
+	}
+	if bc.closed.Load() || errors.Is(err, errAdapterClosed) {
+		logger.Log.Debug("socketio: redis broadcast failed", "nsp", bc.nsp, "err", err)
+		return
+	}
+	logger.Log.Warn("socketio: redis broadcast failed", "nsp", bc.nsp, "err", err)
 }
 
 // Rooms lists all cluster rooms for nil, or this socket's local rooms.
@@ -174,6 +215,8 @@ func (bc *broadcast) Rooms(connection adapter.Socket) []string {
 
 // SendTo publishes one union with exclusion and packet flags. Encoding errors
 // precede delivery; Redis errors may follow local delivery, which is not rolled back.
+// A timeout error does not mean remote peers did not receive the broadcast, so
+// retrying it may deliver the broadcast twice.
 func (bc *broadcast) SendTo(opts adapter.Options, event string, args ...interface{}) error {
 	if bc.closed.Load() {
 		return errAdapterClosed

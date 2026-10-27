@@ -89,15 +89,21 @@ modules; other implementations evolve independently.
 Benchmarks compare the PR base and head on the same runner and Go toolchain,
 with ten samples per side. The pinned `sshaplygin/benchmark-report/report` action
 validates the manifests and generates the report and offline replay bundle using
-`.github/benchmarks/benchmark-report.json`. Results go to the job summary and an
-artifact; same-repository PRs also receive an updated comment. Benchmark changes
-do not fail CI based on timing thresholds. The workflow exercises the report
-action with the collected benchmark samples.
+`.github/benchmarks/benchmark-report.json`. The report shows time, bytes and
+allocations, grouped by metric. Custom metrics require `SOCKETIO_BENCH_METRICS=1`
+and are not reported by CI. Results go to the job summary and an artifact;
+same-repository PRs also receive an updated comment. Benchmark changes
+do not fail CI based on timing thresholds. A side whose raw output has a line
+starting with `--- FAIL` fails the comparison, because `go test` still exits 0
+when a later repetition's `b.N=1` probe fails and the sample is lost. The
+workflow exercises the report action with the collected benchmark samples.
 
 ## Conventions
 
 - Use `gofmt -s`, wrap errors with `%w`, and return errors to callers. Library
   packages must not terminate the process. Executable entry points own exit status.
+- Root, client and Engine.IO test packages fail when library goroutines remain
+  after cleanup; fixtures must close clients and unblock callbacks.
 - Reproduce a bug with a behavioral test; verify concurrency changes with `-race`.
   Test observable contracts, failure paths and boundaries. Avoid tests that only
   repeat implementation details or count documentation markers.

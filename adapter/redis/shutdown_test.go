@@ -14,14 +14,9 @@ import (
 	"github.com/sshaplygin/go-socket.io/adapter"
 )
 
-// startRegistration lowers redisDialTimeout, registers namespace "/x" on its own goroutine and
-// at cleanup waits for it, then restores the timeout: the registration reads the variable, which
-// the next test changes.
+// startRegistration registers on a worker and joins it during cleanup.
 func startRegistration(t *testing.T, srv *socketio.Server) {
 	t.Helper()
-	d := redisDialTimeout
-	redisDialTimeout = 300 * time.Millisecond
-	t.Cleanup(func() { redisDialTimeout = d })
 	reg := make(chan struct{})
 	go func() { srv.OnConnect("/x", func(socketio.Conn) error { return nil }); close(reg) }()
 	t.Cleanup(func() { recv(t, reg, "the registration to end") })
@@ -42,7 +37,7 @@ func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
 	}()
 	srv := socketio.NewServer()
 	failures := make(chan error, 1)
-	factory := New(WithAddr(ln.Addr().String()), WithPassword("secret"))
+	factory := New(WithAddr(ln.Addr().String()), WithPassword("secret"), WithSubscribeTimeout(300*time.Millisecond))
 	srv.SetAdapter(func(name string) (adapter.Adapter, error) {
 		bc, err := factory(name)
 		if err != nil {
@@ -66,7 +61,7 @@ func TestRedisCloseDoesNotWaitForSilentRedis(t *testing.T) {
 	require.ErrorContains(t, recv(t, failures, "recorded construction failure"), `"/x"`)
 }
 
-// TestRedisCloseDoesNotWaitForSilentSubscriber checks that the Redis dial timeout also
+// TestRedisCloseDoesNotWaitForSilentSubscriber checks that WithSubscribeTimeout also
 // bounds the subscriber dial: the publishing connection reaches a Redis server that
 // requires AUTH, the subscriber connection is accepted and never answered, and Close
 // still returns while the registration waits; the registration records the failure and
@@ -90,7 +85,7 @@ func TestRedisCloseDoesNotWaitForSilentSubscriber(t *testing.T) {
 	}()
 	srv := socketio.NewServer()
 	failures := make(chan error, 1)
-	factory := New(WithAddr(ln.Addr().String()), WithPassword("secret"))
+	factory := New(WithAddr(ln.Addr().String()), WithPassword("secret"), WithSubscribeTimeout(300*time.Millisecond))
 	srv.SetAdapter(func(name string) (adapter.Adapter, error) {
 		bc, err := factory(name)
 		if err != nil {

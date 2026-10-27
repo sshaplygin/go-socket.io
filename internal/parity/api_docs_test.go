@@ -14,6 +14,8 @@ import (
 
 // Public role contracts must be declared in their public package. Aliases to
 // implementation packages compile but hide their methods from go doc.
+// Scalar, codec and error aliases retain type identity; their public comments
+// describe members. The interfaces below must expose their own declarations.
 func TestPublicRoleDocumentation(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
@@ -24,8 +26,10 @@ func TestPublicRoleDocumentation(t *testing.T) {
 		types   []string
 		members []string
 	}{
-		{".", []string{"Conn", "Namespace", "Emitter", "Handshake", "AckFunc"},
+		{".", []string{"Conn", "Namespace", "Emitter", "Handshake", "AckFunc", "Endpoint", "ClientRegistration"},
 			[]string{"Conn.Close", "Namespace.Emit", "Emitter.Emit", "Handshake.Headers"}},
+		{"engineio", []string{"Conn", "CompressWriter", "IDGenerator"}, []string{"Conn.ID", "CompressWriter.NextWriterCompress", "IDGenerator.NewID"}},
+		{"engineio/parser", []string{"FrameWriter", "FrameReader", "PayloadWriter", "PayloadReader"}, []string{"FrameWriter.NextWriter", "FrameReader.NextReader", "PayloadWriter.AcquirePayloadWriter", "PayloadReader.AcquirePayloadReader"}},
 		{"client", []string{"Conn", "Namespace", "Emitter", "Socket", "AckFunc"},
 			[]string{"Conn.Close", "Namespace.Emit", "Emitter.Emit", "Socket.OnConnect", "Socket.Emit"}},
 	} {

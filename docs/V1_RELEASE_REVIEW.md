@@ -2168,7 +2168,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W45. Isolate polling default-transport test overrides
 
-- **Status:** in progress — #200
+- **Status:** done — #200
 - **Priority:** before tag
 - **Findings:** [T9](#tests-findings)
 - **Depends on:** none

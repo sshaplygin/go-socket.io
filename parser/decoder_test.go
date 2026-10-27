@@ -82,3 +82,14 @@ func TestDecoder(t *testing.T) {
 		})
 	}
 }
+
+func TestDecoderInvalidPacketTypeError(t *testing.T) {
+	r := fakeReader{data: [][]byte{[]byte("9")}}
+	decoder := NewDecoder(&r)
+	t.Cleanup(func() { _ = decoder.Close() })
+	var header Header
+	var event string
+	err := decoder.DecodeHeader(&header, &event)
+	require.ErrorIs(t, err, ErrInvalidPacketType)
+	require.EqualError(t, err, "parser: invalid packet type")
+}

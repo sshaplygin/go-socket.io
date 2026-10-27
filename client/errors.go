@@ -13,7 +13,7 @@ import "errors"
 // Packets queued faster than they are written can close a healthy client:
 // a packet with k binary attachments takes k+1 Engine.IO frames, and transport
 // throughput can be lower than the application's emit rate.
-var ErrWriteBufferFull = errors.New("write buffer full")
+var ErrWriteBufferFull = errors.New("client: write buffer full")
 
 // ErrConnectTimeout means the engine connection did not open within WithTimeout.
 var ErrConnectTimeout = errors.New("client: connect timeout")

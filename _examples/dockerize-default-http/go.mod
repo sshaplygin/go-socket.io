@@ -1,4 +1,4 @@
-module github.com/sshaplygin/go-socket.io/_examples/docker-with-deault-http
+module github.com/sshaplygin/go-socket.io/_examples/dockerize-default-http
 
 go 1.22
 

@@ -47,6 +47,8 @@ jobs:
           cache-dependency-path: |
             go.sum
             v2/go.sum
+      - name: Test aggregate result handling
+        run: bash .github/ci/aggregate_test.sh
       - name: Test the classifier
         run: go test -count=1 ./.github/changes
       - name: Classify the change
@@ -534,8 +536,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
       - name: Require all selected checks to succeed
         env:
           RESULTS: ${{ toJSON(needs) }}
-        run: |
-          echo "$RESULTS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")'
+        run: bash .github/ci/aggregate.sh

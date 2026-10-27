@@ -17,8 +17,9 @@ type byteReader interface {
 
 // Reader lends an entire Engine.IO payload and reports whether it uses
 // binary payload framing. ReleasePayloadReader runs after the final packet is
-// closed or decoding fails; its error takes precedence. Acquisition errors are
-// returned without a release.
+// closed or decoding fails; its error takes precedence, except that io.EOF
+// from an already closed source does not replace a decoding or body read
+// failure. Acquisition errors are returned without a release.
 type Reader interface {
 	AcquirePayloadReader() (io.Reader, bool, error)
 	ReleasePayloadReader(error) error
@@ -122,6 +123,10 @@ func (d *Decoder) Close() error {
 	if _, err := io.Copy(io.Discard, d); err != nil {
 		return d.sendError(err)
 	}
+	if d.terminalErr != nil {
+		// Draining failed and released the payload; there is no next packet.
+		return d.terminalErr
+	}
 	if d.limitReader.N > 0 {
 		return d.sendError(io.ErrUnexpectedEOF)
 	}
@@ -171,7 +176,9 @@ func (d *Decoder) sendError(err error) error {
 	d.rawReader = nil
 	d.limitReader = io.LimitedReader{}
 	d.b64Reader = nil
-	if e := d.feeder.ReleasePayloadReader(err); e != nil {
+	// A release error takes precedence, except that io.EOF from an already
+	// closed source must not hide the failure that ended this payload.
+	if e := d.feeder.ReleasePayloadReader(err); e != nil && (err == nil || e != io.EOF) {
 		err = e
 	}
 	d.terminalErr = err

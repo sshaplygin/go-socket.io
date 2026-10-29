@@ -36,11 +36,11 @@ jobs:
       experiments_v2: ${{ steps.classify.outputs.experiments_v2 }}
       sync: ${{ steps.classify.outputs.sync }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
           check-latest: true
@@ -122,14 +122,14 @@ jobs:
       - name: Skip without a change that reaches the conformance tests or the examples
         if: env.RUN != 'true'
         run: echo 'Conformance skipped; see the Changed packages job for the classification.'
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: env.RUN == 'true'
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         if: env.RUN == 'true'
         with:
           go-version: stable
           check-latest: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: env.RUN == 'true'
         with:
           node-version: 'lts/*'
@@ -165,7 +165,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Compare shared sources across modules
         run: make sync-check
 
@@ -177,8 +177,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
           check-latest: true
@@ -198,8 +198,8 @@ jobs:
       run:
         working-directory: v2
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
           check-latest: true
@@ -219,8 +219,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
           check-latest: true
@@ -243,9 +243,9 @@ jobs:
         if: needs.changes.outputs.v1_packages != ''
         run: make cover-check
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.15.0
           args: ./... ./.github/architecture ./.github/changes
       - name: govulncheck
         # setup-go reads a manifest that can lag behind go.dev, so scan with the newest
@@ -259,7 +259,7 @@ jobs:
           fi
           export GOTOOLCHAIN="$version"
           go version
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           make vuln
 
   lint-v2:
@@ -272,8 +272,8 @@ jobs:
       run:
         working-directory: v2
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
           check-latest: true
@@ -297,9 +297,9 @@ jobs:
         if: needs.changes.outputs.gates_v2 == 'true'
         run: make freeze
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.15.0
           working-directory: v2
       - name: govulncheck
         # As in lint-v1: scan with the newest Go release from go.dev.
@@ -312,7 +312,7 @@ jobs:
           fi
           export GOTOOLCHAIN="$version"
           go version
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           make vuln
 
   test-v1:
@@ -332,8 +332,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go }}
           check-latest: true
@@ -365,8 +365,8 @@ jobs:
         shell: bash
         working-directory: v2
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go }}
           check-latest: true
@@ -385,8 +385,8 @@ jobs:
     env:
       PKGS: ${{ needs.changes.outputs.v1_packages }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
           check-latest: true
@@ -404,8 +404,8 @@ jobs:
       matrix:
         go: [stable, oldstable]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go }}
           check-latest: true
@@ -424,8 +424,8 @@ jobs:
       # requires a Go version newer than the installed 1.22.
       GOTOOLCHAIN: local
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.22'
           check-latest: true
@@ -456,8 +456,8 @@ jobs:
       run:
         working-directory: v2
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.22'
           check-latest: true
@@ -478,8 +478,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
           check-latest: true
@@ -496,8 +496,8 @@ jobs:
       run:
         working-directory: v2
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
           check-latest: true
@@ -517,15 +517,15 @@ jobs:
       run:
         working-directory: v2
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
           check-latest: true
           cache-dependency-path: v2/go.sum
       - name: Install golangci-lint
         # The lint action runs one working directory; make experiments lints each module.
-        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
       - name: Vet, format, lint and test every experiment module
         run: make experiments
 
@@ -536,7 +536,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Require all selected checks to succeed
         env:
           RESULTS: ${{ toJSON(needs) }}

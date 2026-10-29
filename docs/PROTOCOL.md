@@ -46,7 +46,7 @@ Package `engineio` of the v1 module at the repository root.
   As a known limitation, a server-initiated websocket close, such as `Conn.Close`
   or `Server.Close`, closes the underlying connection without a websocket close
   control frame, so the client observes close code 1006. The message-limit close
-  below does send a close frame, with code 1009.
+  below does send a close frame, with code 1009, though a client can still see 1006.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
   to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
   threshold and only for a packet whose compression flag is true. The threshold is

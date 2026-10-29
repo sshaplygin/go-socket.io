@@ -53,7 +53,7 @@ const (
 	ReasonTransportClose CloseReason = "transport close"
 	// ReasonPingTimeout means no packet arrived within PingInterval + PingTimeout.
 	ReasonPingTimeout CloseReason = "ping timeout"
-	// ReasonTransportError means a transport read or write failed before the deadline.
+	// ReasonTransportError means a transport read or write failed, not by its deadline.
 	ReasonTransportError CloseReason = "transport error"
 	// ReasonForcedClose means Conn.Close was called.
 	ReasonForcedClose CloseReason = "forced close"

@@ -54,10 +54,9 @@ type Session struct {
 	transportClosed bool         // set after the transport's Close returns
 	upgraded        bool         // set when switchTransport commits an upgrade
 
-	cause    atomic.Pointer[closeCause]       // the first close cause observed
-	closing  atomic.Pointer[closingTransport] // immutable connection snapshot once closed
-	writers  atomic.Int64                     // open frame writers returned to callers
-	deadline atomic.Int64                     // UnixNano of the liveness deadline of conn
+	cause   atomic.Pointer[closeCause]       // the first close cause observed
+	closing atomic.Pointer[closingTransport] // immutable connection snapshot once closed
+	writers atomic.Int64                     // open frame writers returned to callers
 }
 
 // Done closes when session shutdown starts, before an orderly transport drain.
@@ -415,7 +414,7 @@ func (s *Session) nextReader() (eioparser.FrameType, eioparser.PacketType, io.Re
 
 		ft, pt, r, err := conn.NextReader()
 		if err != nil {
-			if op, ok := err.(polling.Error); ok && op.Temporary() {
+			if op, ok := err.(polling.Error); ok && op.Temporary() && !timedOut(err) {
 				continue
 			}
 			if s.replaced(conn) {
@@ -466,7 +465,7 @@ func (s *Session) nextWriterCompress(ft eioparser.FrameType, pt eioparser.Packet
 			w, err = conn.NextWriter(ft, pt)
 		}
 		if err != nil {
-			if op, ok := err.(polling.Error); ok && op.Temporary() {
+			if op, ok := err.(polling.Error); ok && op.Temporary() && !timedOut(err) {
 				continue
 			}
 			if s.replaced(conn) {
@@ -499,7 +498,6 @@ func (w *orderedWriter) Close() error {
 
 func (s *Session) setDeadline() error {
 	deadline := time.Now().Add(s.params.PingInterval + s.params.PingTimeout)
-	s.deadline.Store(deadline.UnixNano())
 
 	// Deadline setters can wait for an open transport writer. Do not retain
 	// the session lock while waiting: closing must be able to interrupt it.

@@ -28,6 +28,14 @@ func (e *OpError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Op, e.Err.Error())
 }
 
+// Timeout reports whether Err is an expired read or write deadline.
+func (e *OpError) Timeout() bool {
+	if oe, ok := e.Err.(interface{ Timeout() bool }); ok {
+		return oe.Timeout()
+	}
+	return false
+}
+
 // Temporary returns true if error can retry.
 func (e *OpError) Temporary() bool {
 	if oe, ok := e.Err.(Error); ok {
@@ -50,7 +58,13 @@ func (e retryError) Temporary() bool {
 
 var errPaused = retryError{"paused"}
 
-var errTimeout = errors.New("timeout")
+// timeoutError is an expired payload deadline. Unlike retryError it is not temporary.
+type timeoutError struct{}
+
+func (timeoutError) Error() string { return "timeout" }
+func (timeoutError) Timeout() bool { return true }
+
+var errTimeout error = timeoutError{}
 
 var errOverlap = errors.New("overlap")
 

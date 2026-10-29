@@ -2410,7 +2410,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W51. Correct the remaining reference documentation
 
-- **Status:** open
+- **Status:** in progress — #204
 - **Priority:** before tag
 - **Findings:** [CL-17](#clarity-findings), [CL-18](#clarity-findings),
   [CL-19](#clarity-findings), [interop-11](#interoperability-findings)
@@ -3348,9 +3348,9 @@ Every finding is listed under the dimension that reported it.
 | CL-14 | nit | follow-up: editorial | `CONTRIBUTING.md:3` | Contributor build/test instructions live in CLAUDE.md and CONTRIBUTING links to them; the ownership table explicitly assigns development commands to CLAUDE.md | Moving commands is an optional editorial choice, not a correction of an ownership violation. |
 | CL-15 | nit | — | `engineio/internal/session/session.go` | The W1 locking-rule comment at `upgradeLocker` names only read-lock holders and failing writers; write-lock holders and frame-reader failure paths are bound by the same rule | Extend the comment and the matching `closeTransport` note (W43). Found in the review of #147. Fixed by #197 (W43). |
 | CL-16 | major | not re-checked; W50's PR quotes the subprocess probe on master | `client/client.go:37` | `client.Client.Close` is documented as draining before Engine.IO closes, but returns at once; a subprocess that connected, emitted 20 events, closed and exited delivered 0 of 20 to the server over polling in 5 of 5 runs, with server reason `transport error`; `_examples/README.md:62` relies on the documented behavior | State that `Close` returns without waiting and how to make sure the last packets arrive (W50). |
-| CL-17 | minor | — | `server.go:138` | `Server.OnDisconnect` godoc says application closes report `forced close`; `Conn.Close` and `Conn.Disconnect` report `server namespace disconnect` | Correct the godoc (W51). |
-| CL-18 | minor | — | `adapter/redis/adapter.go:198` | The Redis adapter logs through `slog.Default()` and ignores `socketio.WithLogger`, but the logger package doc, `engineio/options.go:60` and V1.md:457 do not list it | Name the Redis adapter in those lists (W51). |
-| CL-19 | minor | — | `docs/V1.md:346` | The migration guide covers upstream v1.4.2 and v1.7.0 only; users of the intermediate releases v1.4.3 to v1.6.3 have no stated baseline | State a checked baseline for each intermediate release (W51). |
+| CL-17 | minor | — | `server.go:138` | `Server.OnDisconnect` godoc says application closes report `forced close`; `Conn.Close` and `Conn.Disconnect` report `server namespace disconnect` | Correct the godoc (W51). Fixed by #204 (W51). |
+| CL-18 | minor | — | `adapter/redis/adapter.go:198` | The Redis adapter logs through `slog.Default()` and ignores `socketio.WithLogger`, but the logger package doc, `engineio/options.go:60` and V1.md:457 do not list it | Name the Redis adapter in those lists (W51). Fixed by #204 (W51). |
+| CL-19 | minor | — | `docs/V1.md:346` | The migration guide covers upstream v1.4.2 and v1.7.0 only; users of the intermediate releases v1.4.3 to v1.6.3 have no stated baseline | State a checked baseline for each intermediate release (W51). Fixed by #204 (W51). |
 
 ### Architecture findings
 
@@ -3404,7 +3404,7 @@ Every finding is listed under the dimension that reported it.
 | interop-8 | nit | — | `internal/conformance/testdata/node/server/redis-cluster.js:199` | Redis mixed-cluster polling scenario idles 30 s after finishing, leaving little margin in runNode's 45 s timeout | Find and remove what keeps the process alive after cleanup, or end the scenario with an explicit `process.exit(process.exitCode \|\| 0)` after cleanup (corrected: the clients are already closed before `io.close()`, `redis-cluster.js:199-200`; see W17). Fixed by #168 (W17). |
 | interop-9 | nit | — | `docs/PROTOCOL.md:60` | Unknown Socket.IO packet type and missing CORS wire description are undocumented differences | Add a CORS bullet (default, WithCORS(false), preflight) and a note on how invalid packets are handled to PROTOCOL.md. Fixed by #148 (W6). |
 | interop-10 | major | not re-checked; W49's red test is the re-check | `connection.go:20` | The default outbound queue of 64 packets closes a JS client that receives a burst of more than 64 queued packets, deterministically over polling: with 2.5.0 and 1.7.4, a handler that emitted N events and then an ACK delivered 0–2 of N for N ≥ 64, and a raw polling probe without the ACK delivered all of 64 and none of 65; Socket.IO 2.5.0 delivered 3000/3000 | Raise the default and record the bound as a difference in PROTOCOL.md (W49). |
-| interop-11 | minor | — | `docs/PROTOCOL.md:49` | PROTOCOL.md (lines 49 and 61) says an oversize websocket message closes with 1009; ws 7.5.13 saw 1006 in 7 of 18 closes (13 of 18 in the rerun quoted in #204, at load average 37–52), the reference 1009 in 12 of 12 | Say that a client can see 1006 when the connection resets (W51). |
+| interop-11 | minor | — | `docs/PROTOCOL.md:49` | PROTOCOL.md (lines 49 and 61) says an oversize websocket message closes with 1009; ws 7.5.13 saw 1006 in 7 of 18 closes (13 of 18 in the rerun quoted in #204, at load average 37–52), the reference 1009 in 12 of 12 | Say that a client can see 1006 when the connection resets (W51). Fixed by #204 (W51). |
 
 ### Tests findings
 

@@ -91,10 +91,10 @@ var Level = new(slog.LevelVar)
 
 func overrideOn() bool { return Level.Level() != LevelUnset }
 
-// Log is the fallback logger for packages without access to
-// per-instance configuration: the parsers, transports and Engine.IO client
-// dialer. It writes to whatever slog.Default() is when a record is logged, so
-// an application's later slog.SetDefault applies to it.
+// Log is the fallback logger for the packages listed in the package
+// documentation, which have no access to per-instance configuration. It writes
+// to whatever slog.Default() is when a record is logged, so an application's
+// later slog.SetDefault applies to it.
 var Log = slog.New(&levelHandler{next: &defaultHandler{}})
 
 func init() {

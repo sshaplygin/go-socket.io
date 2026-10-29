@@ -2336,7 +2336,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W49. Raise the default outbound queue
 
-- **Status:** open
+- **Status:** in progress — #207
 - **Priority:** before tag
 - **Findings:** [interop-10](#interoperability-findings)
 - **Depends on:** none
@@ -3403,7 +3403,7 @@ Every finding is listed under the dimension that reported it.
 | interop-7 | nit | — | `docs/PARITY.md:20` | PARITY.md groups heartbeat with raw conformance coverage, but no conformance scenario asserts a periodic ping | Add a short-interval heartbeat scenario (for example `WithPingInterval(200ms)`, then idle for about 1 s and send an ACK) to client.js for both transports, or make the PARITY.md row say which tests own the heartbeat. Fixed by #168 (W17). |
 | interop-8 | nit | — | `internal/conformance/testdata/node/server/redis-cluster.js:199` | Redis mixed-cluster polling scenario idles 30 s after finishing, leaving little margin in runNode's 45 s timeout | Find and remove what keeps the process alive after cleanup, or end the scenario with an explicit `process.exit(process.exitCode \|\| 0)` after cleanup (corrected: the clients are already closed before `io.close()`, `redis-cluster.js:199-200`; see W17). Fixed by #168 (W17). |
 | interop-9 | nit | — | `docs/PROTOCOL.md:60` | Unknown Socket.IO packet type and missing CORS wire description are undocumented differences | Add a CORS bullet (default, WithCORS(false), preflight) and a note on how invalid packets are handled to PROTOCOL.md. Fixed by #148 (W6). |
-| interop-10 | major | not re-checked; W49's red test is the re-check | `connection.go:20` | The default outbound queue of 64 packets closes a JS client that receives a burst of more than 64 queued packets, deterministically over polling: with 2.5.0 and 1.7.4, a handler that emitted N events and then an ACK delivered 0–2 of N for N ≥ 64, and a raw polling probe without the ACK delivered all of 64 and none of 65; Socket.IO 2.5.0 delivered 3000/3000 | Raise the default and record the bound as a difference in PROTOCOL.md (W49). |
+| interop-10 | major | not re-checked; W49's red test is the re-check | `connection.go:20` | The default outbound queue of 64 packets closes a JS client that receives a burst of more than 64 queued packets, deterministically over polling: with 2.5.0 and 1.7.4, a handler that emitted N events and then an ACK delivered 0–2 of N for N ≥ 64, and a raw polling probe without the ACK delivered all of 64 and none of 65; Socket.IO 2.5.0 delivered 3000/3000 | Raise the default and record the bound as a difference in PROTOCOL.md (W49). Fixed by #207 (W49). |
 | interop-11 | minor | — | `docs/PROTOCOL.md:49` | PROTOCOL.md (lines 49 and 61) says an oversize websocket message closes with 1009; ws 7.5.13 saw 1006 in 7 of 18 closes (13 of 18 in the rerun quoted in #204, at load average 37–52), the reference 1009 in 12 of 12 | Say that a client can see 1006 when the connection resets (W51). Fixed by #204 (W51). |
 
 ### Tests findings

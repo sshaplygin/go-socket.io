@@ -3,7 +3,6 @@ package polling
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -111,13 +110,6 @@ func (f *flushWriter) detach() {
 // If NextReader has timeout, it returns ErrTimeout.
 // If read error while FeedIn, it returns read error.
 func (p *payload) FeedIn(r io.Reader, supportBinary bool) error {
-	return p.feedIn(r, supportBinary, nil)
-}
-
-// feedIn is FeedIn with an optional load, which runs on the caller's goroutine
-// once the call is admitted and replaces r with the reader it returns. A load
-// error closes the payload: the session's reader does not see r.
-func (p *payload) feedIn(r io.Reader, supportBinary bool, load func(io.Reader) (io.Reader, error)) error {
 	select {
 	case <-p.close:
 		return p.load()
@@ -134,20 +126,6 @@ func (p *payload) feedIn(r io.Reader, supportBinary bool, load func(io.Reader) (
 	}
 	defer p.pauser.Done()
 
-	if load != nil {
-		var err error
-		if r, err = load(r); err != nil {
-			select {
-			case <-p.close:
-				return p.load()
-			default:
-			}
-			// Wrapped, so that a net timeout is not retried as Temporary.
-			err = p.Store("read", fmt.Errorf("request body: %w", err))
-			_ = p.Close()
-			return err
-		}
-	}
 	err := p.offerFeed(readArg{r: r, supportBinary: supportBinary})
 	if err == nil {
 		err = p.awaitFeed()

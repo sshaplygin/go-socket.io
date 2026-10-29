@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
-// A polling request's handler goroutine does its network I/O: it reads a POST
-// body before the session decodes it and writes a GET response after the
-// session writer has filled it, so a stalled client blocks only its handler.
+// A polling request's handler goroutine does its network I/O: it streams a
+// POST body to the session's reader through a pipe and writes a GET response
+// after the session writer has filled it, so a stalled client blocks only its
+// handler.
 // Where the ResponseWriter supports deadlines, that I/O follows the session
 // deadline. Close expires a body read, which can only be incomplete; a response
 // write keeps its deadline, so packets accepted before the close (CLOSE of an
@@ -133,24 +135,32 @@ func (c *serverConn) Close() error {
 	return c.payload.Close()
 }
 
-// readBody reads a whole POST body on the handler's goroutine.
-func (c *serverConn) readBody(w http.ResponseWriter, r *http.Request, start time.Time, body io.Reader) (io.Reader, error) {
+// feedBody streams a POST body to the session through a pipe. The handler's
+// goroutine copies it from the network; FeedIn runs on its own goroutine and
+// closes the pipe when it returns, on a deadline, Close or the end of the
+// payload, so the session's reader never waits for the client.
+func (c *serverConn) feedBody(w http.ResponseWriter, r *http.Request, start time.Time, body io.Reader, supportBinary bool) error {
+	in, out := io.Pipe()
+	fed := make(chan error, 1)
+	go func() {
+		err := c.payload.FeedIn(in, supportBinary)
+		_ = in.Close()
+		fed <- err
+	}()
 	tracked := c.track(w, r, start, false)
-	var data []byte
-	var err error
-	if r.ContentLength >= 0 {
-		data = make([]byte, r.ContentLength)
-		_, err = io.ReadFull(body, data)
-	} else {
-		data, err = io.ReadAll(body)
-	}
+	buf := copyBuffers.Get().(*[]byte)
+	_, err := io.CopyBuffer(out, body, *buf)
+	copyBuffers.Put(buf)
+	_ = out.CloseWithError(err)
 	if c.untrack(tracked, err == nil) && r.ProtoMajor == 1 {
 		// The expired deadline may have failed net/http's read after the body,
 		// which cancels the connection's context; do not reuse the connection.
 		w.Header().Set("Connection", "close")
 	}
-	return bytes.NewReader(data), err
+	return <-fed
 }
+
+var copyBuffers = sync.Pool{New: func() any { b := make([]byte, 4096); return &b }}
 
 // writeResponse writes a filled GET response on the handler's goroutine. A
 // failure closes the connection, as a failed packet write did; the error is

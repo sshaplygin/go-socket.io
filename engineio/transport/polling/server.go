@@ -197,8 +197,7 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			c.rejectLargeBody(w, &http.MaxBytesError{Limit: c.readLimit})
 			return
 		}
-		load := func(body io.Reader) (io.Reader, error) { return c.readBody(w, r, start, body) }
-		if err := c.payload.feedIn(body, isSupportBinary, load); err != nil {
+		if err := c.feedBody(w, r, start, body, isSupportBinary); err != nil {
 			logger.Log.Debug("engineio: post payload failed", "err", err)
 			cause := err
 			if op, ok := cause.(*OpError); ok {

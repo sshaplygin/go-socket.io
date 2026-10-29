@@ -16,6 +16,8 @@ on:
 # diff reaches something it checks, and the test jobs test only the affected packages;
 # push and schedule run everything. Jobs are skipped with a job-level if, never with
 # workflow-level paths filters, so that the required checks always report.
+# Stress runs for selected v1 packages on all events. ci-ok aggregates every job,
+# accepting intentional skips but rejecting failures and cancellations.
 jobs:
   changes:
     name: Changed packages
@@ -45,6 +47,8 @@ jobs:
           cache-dependency-path: |
             go.sum
             v2/go.sum
+      - name: Test aggregate result handling
+        run: bash .github/ci/aggregate_test.sh
       - name: Test the classifier
         run: go test -count=1 ./.github/changes
       - name: Classify the change
@@ -375,9 +379,9 @@ jobs:
   stress-v1:
     name: Stress v1 (race, repeated, shuffled)
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.v1_packages != ''
+    if: needs.changes.outputs.v1_packages != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       PKGS: ${{ needs.changes.outputs.v1_packages }}
     steps:
@@ -524,3 +528,16 @@ jobs:
         run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
       - name: Vet, format, lint and test every experiment module
         run: make experiments
+
+  ci-ok:
+    name: ci-ok
+    needs: [changes, conformance, sync-check, gates-v1, gates-v2, lint-v1, lint-v2, test-v1, test-v2, stress-v1, jsonv2-v1, min-go-v1, min-go-v2, examples-v1, examples-v2, experiments-v2]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require all selected checks to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: bash .github/ci/aggregate.sh

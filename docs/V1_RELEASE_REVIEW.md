@@ -1981,7 +1981,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W37. CI job with GOEXPERIMENT=jsonv2
 
-- **Status:** in progress — #178
+- **Status:** done — #178
 - **Priority:** after release
 - **Findings:** [ARCH-10](#architecture-findings)
 - **Depends on:** none
@@ -2019,7 +2019,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W39. Stress on push and an aggregate required check
 
-- **Status:** open
+- **Status:** in progress — #183; REL-5 remains open until the owner requires ci-ok in branch protection.
 - **Priority:** after release
 - **Findings:** [REL-4](#release-engineering-findings), [REL-5](#release-engineering-findings)
 - **Depends on:** none
@@ -3080,7 +3080,7 @@ Every finding is listed under the dimension that reported it.
 | REL-1 | major → minor | partially-confirmed | `CONTRIBUTING.md:53` | No v1.5.0 release notes or migration guide, although this release breaks the upstream API | Before tagging, write release notes for the GitHub release covering the module path change, the API mapping from upstream v1.7.0/v1.8.0-rc.1, changed defaults and the support matrix. Either add a short 'Migrating from googollee/go-socket.io' section to docs/V1.md or link one from the release. Add a 'publish GitHub release notes' step to CONTRIBUTING 'Before tagging v1'. Fixed by #191 (W8). |
 | REL-2 | major → minor | partially-confirmed | `CONTRIBUTING.md:49` | A v1.5.0 tag was published and deleted before; the stale module is still cached and will undermine release verification | Before tagging, delete the cached v1.5.0 entries (cache/download/.../@v/v1.5.0.* and the extracted @v1.5.0 directory, or `go clean -modcache`). Run the consumption check with a fresh `GOMODCACHE=$(mktemp -d) GOFLAGS=-mod=mod go get github.com/sshaplygin/go-socket.io@v1.5.0`. Alternatively, choose a version that was never tagged. |
 | REL-3 | minor | — | `.git/config` | The repo-local git identity is a placeholder and has leaked into master history; an annotated tag would carry it | Remove or replace the local user.name/user.email before creating the tag or merging more PRs. Check the squash-merge body for Co-authored-by lines before confirming. |
-| REL-4 | minor | — | `.github/workflows/ci.yaml:378` | The full CI on push and schedule never runs the stress job, although the docs say it runs everything | Run stress-v1 on push and schedule with PKGS=./..., or add a manual `make test-stress` step to the release checklist. Make CLAUDE.md and the ci.yaml comment match whichever you choose. |
+| REL-4 | minor | — | `.github/workflows/ci.yaml:378` | The full CI on push and schedule never runs the stress job, although the docs say it runs everything | Run stress-v1 on push and schedule with PKGS=./..., or add a manual `make test-stress` step to the release checklist. Make CLAUDE.md and the ci.yaml comment match whichever you choose. Fixed by #183 (W39). |
 | REL-5 | minor | — | `.github/workflows/ci.yaml:17` | Branch protection requires only the drift and conformance checks; the v1 test, lint and gate jobs are not required | Add Lint v1, Gates v1 and the Go 1.22 job to the required checks; they report as skipped under their own names when their job-level if is false. The Test v1 matrix cannot be required directly: when skipped it reports one check under the unexpanded name (ci.yaml:91-93). Require it through an aggregating 'CI ok' job that runs with `if: always()` and fails when any job it needs failed or was cancelled, or make it always run and skip its steps, as the conformance job does. |
 | REL-6 | minor | — | `README.md:29` | README on master advertises v1.5.0 before it exists; the release checklist's Engine.IO link is missing; old upstream tags make @latest fail today | Push the tag promptly or keep the versioned links in the release PR, as CONTRIBUTING intends. Add the engineio pkg.go.dev link. Consider adding `retract [v0.9.1, v1.4.2]` to go.mod in the release commit to hide the inherited upstream tags. Fixed by #193 (W10). |
 | REL-7 | minor | — | `CONTRIBUTING.md:32` | Version v1.5.0 reuses an upstream release number and is lower than the upstream versions it descends from | CONTRIBUTING.md:32 already selects v1.5.0. Say in the release notes that fork versions do not continue upstream numbering, and which upstream state this release supersedes. Using a number above upstream (for example v1.9.0) would require the owner to change CONTRIBUTING and README first. Fixed by #193 (D1). |

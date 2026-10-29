@@ -19,7 +19,7 @@ The document has three parts:
   then [Release blockers](#release-blockers) through the
   [finding catalogue](#finding-catalogue). They come from the original review and were
   corrected where the follow-up validation and the 2026-10-22 fact-check required it.
-- **[Work plan](#work-plan):** pull-request-sized work items (W1–W44) and owner decisions
+- **[Work plan](#work-plan):** pull-request-sized work items (W1–W53) and owner decisions
   (D1–D6) that cover every catalogue ID except the editorial `CL-14` (not planned), with
   their order, acceptance criteria and status.
 - **[Follow-up validation](#follow-up-validation):** the evidence log, with a status and
@@ -95,6 +95,10 @@ Keeping the current behavior is a valid outcome.
 The [work plan](#work-plan) sets the order: [W1](#w1-fix-the-permanent-session-deadlock) for B1, W2–W10 before the tag, and
 D1–D6 for these decisions.
 
+An independent tag-readiness review of `6641d4b` on 2026-10-29 found a second blocker,
+[B2](#b2-a-partial-polling-post-pins-its-connection), and the before-tag items
+[W47](#w47-bound-polling-request-io-by-the-session-deadlines)–[W53](#w53-skip-argument-decoding-for-events-nobody-can-observe).
+
 ## Scorecard
 
 | Dimension | Score | Verdict | Reason |
@@ -112,7 +116,7 @@ D1–D6 for these decisions.
 
 This plan turns every finding in the [finding catalogue](#finding-catalogue), except
 `CL-14` (not planned), into work items of pull-request size. Facts about each defect are owned by the section the item
-links to (B1, M1–M7, Decisions, Backlog, catalogue); an item repeats only what is needed
+links to (B1, B2, M1–M7, Decisions, Backlog, catalogue); an item repeats only what is needed
 to do the work. The status of each item is owned by its **Status** line and nowhere else.
 
 ### How to use this plan
@@ -132,7 +136,10 @@ to do the work. The status of each item is owned by its **Status** line and nowh
 4. The owner decides [D1](#d1-version-number-and-inherited-tags)–[D6](#d6-exported-test-helpers)
    as early as possible. A decision to change the API adds its implementation as a
    before-tag PR, recorded in that D item's Status line (see Marking progress).
-5. [W10](#w10-prepare-the-release-commit) last; it is the release PR. Only the owner tags.
+5. [W10](#w10-prepare-the-release-commit) was the release PR of the original plan. The
+   independent review of 2026-10-29 added W47–W51 and W53, which land after it and before
+   the tag in any order, except that W47 lands after W48, and [W52](#w52-refresh-the-release-notes-and-the-tag-checklist),
+   which refreshes the release text last. Only the owner tags.
 6. After the tag: W11–W44 in numeric order unless **Depends on** says otherwise. Every
    performance item needs W2 merged first. W12 lands before W23. W38 needs the tag.
 
@@ -292,7 +299,7 @@ changed to `done — #<PR>` after the merge.
 | [W20](#w20-give-the-polling-client-its-own-http-transport) | Give the polling client its own HTTP transport | after release | PERF-5 | W2 |
 | [W21](#w21-prepare-broadcasts-once-and-skip-the-single-room-dedup-map) | Prepare broadcasts once and skip the single-room dedup map | after release | PERF-6, PERF-12 | W2 |
 | [W22](#w22-copy-packets-only-when-an-ack-id-is-added) | Copy packets only when an ACK ID is added | after release | PERF-7 | W2 |
-| [W23](#w23-remove-per-frame-websocket-timers) | Remove per-frame websocket timers | after release | PERF-8 | W2, W12 |
+| [W23](#w23-remove-per-frame-websocket-timers) | Remove per-frame websocket timers | after release | PERF-8, PERF-15 | W2, W12 |
 | [W24](#w24-look-up-room-members-without-a-scan) | Look up room members without a scan | after release | PERF-9 | W2 |
 | [W25](#w25-remove-extra-json-passes-from-decoding) | Remove extra JSON passes from decoding | after release | PERF-11 | W2 |
 | [W26](#w26-reduce-the-idle-connection-footprint) | Reduce the idle connection footprint | after release | ARCH-4, PERF-13, ARCH-13 | W2 |
@@ -316,19 +323,26 @@ changed to `done — #<PR>` after the merge.
 | [W44](#w44-isolate-the-testpollingbinary-nil-reader-crash) | Isolate the TestPollingBinary nil-reader crash | after release | T8 | — |
 | [W45](#w45-isolate-polling-default-transport-test-overrides) | Isolate polling default-transport test overrides | before tag | T9 | — |
 | [W46](#w46-isolate-upgrade-probe-log-fixtures) | Isolate upgrade probe log fixtures | before tag | T10 | — |
+| [W47](#w47-bound-polling-request-io-by-the-session-deadlines) | Bound polling request I/O by the session deadlines | before tag | C6, C7 | W48 |
+| [W48](#w48-classify-ping-timeouts-by-the-expired-deadline) | Classify ping timeouts by the expired deadline | before tag | T11 | — |
+| [W49](#w49-raise-the-default-outbound-queue) | Raise the default outbound queue | before tag | interop-10 | — |
+| [W50](#w50-state-the-go-client-close-contract-and-send-the-polling-close-packet) | State the Go client close contract and send the polling close packet | before tag | CL-16, PERF-14 | — |
+| [W51](#w51-correct-the-remaining-reference-documentation) | Correct the remaining reference documentation | before tag | CL-17, CL-18, CL-19, interop-11 | — |
+| [W52](#w52-refresh-the-release-notes-and-the-tag-checklist) | Refresh the release notes and the tag checklist | before tag | REL-14, REL-15 | W47–W51, W53 |
+| [W53](#w53-skip-argument-decoding-for-events-nobody-can-observe) | Skip argument decoding for events nobody can observe | before tag | C8 | — |
 
 **Finding coverage.** Every catalogue ID appears in exactly one item or in "Not planned".
 
 | Catalogue section | Mapping |
 | --- | --- |
-| Correctness and security | C1 W1 · C2 W14 · C3 W11 · C4 W13 · C5 W6 |
+| Correctness and security | C1 W1 · C2 W14 · C3 W11 · C4 W13 · C5 W6 · C6 W47 · C7 W47 · C8 W53 |
 | API compatibility | API-1 W8 · API-2 D1 · API-3 W6 · API-4 W7 · API-5 W8 · API-6 W8 · API-7 W8 · API-8 W8 · API-9 D2 · API-10 W10 · API-11 W38 · API-12 D6 · API-13 W8 |
-| Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 |
+| Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 · CL-16 W50 · CL-17 W51 · CL-18 W51 · CL-19 W51 |
 | Architecture | ARCH-1 W5 · ARCH-2 D2 · ARCH-3 D3 · ARCH-4 W26 · ARCH-5 D4 · ARCH-6 D5 · ARCH-7 W33 · ARCH-8 W32 · ARCH-9 W14 · ARCH-10 W37 · ARCH-11 D6 · ARCH-12 W28 · ARCH-13 W26 |
-| Performance | PERF-1 W3 · PERF-2 W18 · PERF-3 W4 · PERF-4 W19 · PERF-5 W20 · PERF-6 W21 · PERF-7 W22 · PERF-8 W23 · PERF-9 W24 · PERF-10 W2 · PERF-11 W25 · PERF-12 W21 · PERF-13 W26 |
-| Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 |
-| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 |
-| Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 · REL-13 W42 |
+| Performance | PERF-1 W3 · PERF-2 W18 · PERF-3 W4 · PERF-4 W19 · PERF-5 W20 · PERF-6 W21 · PERF-7 W22 · PERF-8 W23 · PERF-9 W24 · PERF-10 W2 · PERF-11 W25 · PERF-12 W21 · PERF-13 W26 · PERF-14 W50 · PERF-15 W23 |
+| Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 · interop-10 W49 · interop-11 W51 |
+| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 · T11 W48 |
+| Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 · REL-13 W42 · REL-14 W52 · REL-15 W52 |
 
 **Not planned.**
 
@@ -1630,9 +1644,9 @@ changed to `done — #<PR>` after the merge.
 
 ### W23. Remove per-frame websocket timers
 
-- **Status:** done — #179; BenchmarkWebsocketEcho/small: 28 → 18 allocs/op, 31.25µs → 18.67µs; BenchmarkWebsocketEcho/4KiB: 40 → 30 allocs/op, 47.73µs → 35.96µs (against `25d6deb`, darwin/arm64, Go 1.25.5)
+- **Status:** done — #179; BenchmarkWebsocketEcho/small: 28 → 18 allocs/op, 31.25µs → 18.67µs; BenchmarkWebsocketEcho/4KiB: 40 → 30 allocs/op, 47.73µs → 35.96µs (against `25d6deb`, darwin/arm64, Go 1.25.5); the owner accepted the CI time regression of `BenchmarkEmitWebsocket/string` (45.139µs → 61.231µs, +35.7%, AMD EPYC 7763; 28 → 23 allocs/op) on 2026-10-24, as recorded in #179
 - **Priority:** after release
-- **Findings:** [PERF-8](#performance-findings)
+- **Findings:** [PERF-8](#performance-findings), [PERF-15](#performance-findings)
 - **Depends on:** W2, W12
 - **Problem:** Each `rcWrapper` and `wcWrapper` (`engineio/transport/websocket/wrapper.go:76-94,146-164`)
   starts a goroutine and a 30 s timer that only log a DEBUG record when a frame stays open.
@@ -2216,6 +2230,280 @@ changed to `done — #<PR>` after the merge.
 - **Definition of done:** standard, with three independent approvals of the final head.
 - **Out of scope:** production client behavior and unrelated logging fixtures.
 
+### W47. Bound polling request I/O by the session deadlines
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [C6](#correctness-and-security-findings), [C7](#correctness-and-security-findings)
+- **Depends on:** W48 (test 1 asserts `ping timeout`, which T11 can misreport until W48 lands)
+- **Problem:** see [B2](#b2-a-partial-polling-post-pins-its-connection). The polling server
+  reads a POST body (`engineio/transport/polling/server.go:176-182` → `payload.FeedIn`) and
+  writes a GET response (`flushOut`, `flushWriter.detach` at `payload.go:99`) with no I/O
+  deadline. Closing the session (`payload.Close`, `payload.go:394`) closes channels only, so
+  it cannot interrupt a blocked body read or response write.
+- **Change:**
+  1. Ending a polling session does not depend on the peer finishing a POST body or reading
+     a GET response: ping timeout, `EngineConn().Close()` and `Server.Close` end the
+     session and run `OnDisconnect` whether or not the `ResponseWriter` supports deadlines.
+  2. Where `http.NewResponseController` supports deadlines, the POST body read follows the
+     session's read deadline and the GET response write follows its write deadline, both
+     kept in step when the session moves them, and closing the connection moves them into
+     the past, so the handler goroutine returns too.
+  3. A deadline set this way never extends one the `http.Server` already imposes: the
+     handler applies the earlier of the session deadline and the request's start plus the
+     server's `ReadTimeout` or `WriteTimeout` (the server is available through
+     `http.ServerContextKey`).
+  4. Where deadlines are not supported (`http.ErrNotSupported`, for example a wrapper
+     without `Unwrap`), only the handler goroutine remains until the peer or the server's
+     own timeouts end the request. V1.md states this.
+- **Tests:** red→green, through the public server API with raw TCP clients, PingInterval
+  1 s and PingTimeout 1 s unless stated:
+  1. a POST that declares `Content-Length: 100`, sends 11 bytes and idles: `OnDisconnect`
+     runs with reason `ping timeout` within 3 s of the last complete packet;
+  2. `EngineConn().Close()` during such a POST: `OnDisconnect` runs within 1 s;
+  3. `Server.Close` during such a POST returns within 2 s, and the library goroutine count
+     returns to its baseline within 2 s (the existing leak gate);
+  4. cases 1–3 with a handler wrapper whose `ResponseWriter` has no `Unwrap`: the session
+     outcomes are the same; the remaining handler goroutine is released by closing the
+     client socket before the leak check;
+  5. with PingInterval and PingTimeout of 1 h and `http.Server.ReadTimeout` of 500 ms, the
+     partial POST still ends the connection within 2 s, with reason `ping timeout` once
+     W48 has landed (a guard: on master it ends in about 500 ms with `transport error`);
+  6. a GET whose client never reads: the server's accepted connections have a 4 KiB send
+     buffer (a wrapping listener calls `SetWriteBuffer(4096)`), the client sets a 4 KiB
+     receive buffer, and the server emits a 1,000,000-byte packet; after the session
+     closes, the library goroutine count returns to its baseline within 2 s.
+
+  Push the test-only commit to the PR first, so that CI shows the red result on Linux,
+  macOS and Windows, and quote that run.
+- **Benchmarks:** the polling benchmarks (`BenchmarkPollingEcho`,
+  `BenchmarkPayloadRoundTrip`, `BenchmarkPollingClientsBroadcast`) in the CI comparison;
+  the report is quoted in the PR.
+- **Docs:** V1.md (item 4 of Change); PROTOCOL.md only if wire behavior changes.
+- **Acceptance criteria:** tests 1–4 and 6 fail on the test-only commit, locally and in CI,
+  and all six pass with `-race -count=20`; `make test-race`,
+  `make test-stress PKGS='./engineio/...'` and `make conformance` with both pinned clients
+  pass.
+- **Definition of done:** standard.
+- **Out of scope:** the websocket transport (read deadlines already apply there), the Go
+  polling client.
+
+### W48. Classify ping timeouts by the expired deadline
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [T11](#tests-findings)
+- **Depends on:** none
+- **Problem:** `Session.fail` (`engineio/internal/session/close.go:144`) classifies a
+  transport error as `ping timeout` by comparing `time.Now().UnixNano()` with a stored
+  wall-clock deadline (`session.go:501-502`), while the transport deadline it set
+  (`session.go:509`) expires on the monotonic clock. A read that times out while the wall
+  clock still reads before the stored value is reported as `transport error`; a clock step
+  misclassifies in either direction.
+- **Change:** classify by the error. `fail` reports `ping timeout` exactly when the error
+  matches `os.ErrDeadlineExceeded` through `errors.Is`, or when an error in its chain
+  (`errors.As`) has a `Timeout() bool` method that returns true, and drops the wall-clock
+  comparison. The two transports need these changes:
+  - websocket: gorilla/websocket replaces an expired-deadline `net.OpError` with its own
+    `*netError`, which wraps nothing but reports `Timeout() == true` (`hideTempErr`,
+    gorilla `conn.go:189-194` in v1.5.3); the `Timeout()` rule covers it, and every
+    wrapper of the websocket transport keeps that error reachable through `errors.As`;
+  - polling: `errTimeout` (`engineio/transport/polling/errors.go:53`) becomes a value of
+    an unexported type whose `Error()` is still `timeout` and whose `Timeout()` returns
+    true, and `*polling.OpError` gains `Timeout() bool`, which delegates to its `Err` as
+    `Temporary` does.
+
+  Every path on which a heartbeat expires, on both transports, returns an error that
+  matches; the PR lists those paths. Other timeouts also match the rule and report
+  `ping timeout`: a kernel `ETIMEDOUT` and a deadline the `http.Server` imposes through
+  `ReadTimeout` or `WriteTimeout` (applied to the polling body read by W47).
+- **Tests:** red→green:
+  1. a session whose transport returns `os.ErrDeadlineExceeded` while the wall clock is
+     before the stored deadline closes with `ping timeout`;
+  2. the same with an error that wraps nothing and reports `Timeout() == true`, as
+     gorilla's does;
+  3. a polling timeout `*OpError` reports `Timeout() == true`;
+  4. a transport error that matches neither rule closes with `transport error`, also after
+     the stored deadline;
+  5. the existing heartbeat tests pass on both transports.
+- **Benchmarks:** none.
+- **Docs:** the `OpError.Timeout` godoc; V1.md states which timeouts report
+  `ping timeout`.
+- **Acceptance criteria:** tests 1–4 fail on the test-only commit and pass with `-race
+  -count=50`; `make test-stress PKGS='./engineio/...'` and `make gates` pass.
+- **Definition of done:** standard.
+- **Out of scope:** changing the close reasons or their order.
+
+### W49. Raise the default outbound queue
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [interop-10](#interoperability-findings)
+- **Depends on:** none
+- **Problem:** the server's default outbound queue holds 64 packets (`connection.go:20`).
+  Admission does not wait (`queue.go:70-74`), and polling drains only on a GET, so a
+  handler that queues more than 64 packets at once, such as chat history in `OnConnect`
+  (65 events, or 64 events and an ACK), closes the connection with `ErrWriteBufferFull`. Socket.IO 2.5.0 has no such bound.
+- **Change:** the default of `socketio.WithWriteBufferSize` becomes 1024 packets (owner
+  decision, 2026-10-29). A nonpositive value still selects the default. The bound counts
+  packets, not bytes, so the worst-case memory held for one slow connection grows 16-fold
+  with the packet size; V1.md states the bound in those terms. The bound, the overflow
+  behavior and the Go client's default (64) stay.
+- **Tests:** red→green: over polling, an `OnConnect` handler that emits 1000 events (the
+  chat-history case of interop-10) delivers all of them and the connection stays open; a
+  nonpositive option selects the default. Tests that rely on the default keep their
+  meaning; a test that needs an overflow or becomes slow sets an explicit small
+  `WithWriteBufferSize`, and the PR names each one.
+- **Benchmarks:** `BenchmarkConnectWebsocket` B/op in the CI comparison shows that an idle
+  connection does not allocate for the larger bound.
+- **Docs:** V1.md (lines 107, 118 and 454), the `ErrWriteBufferFull` and
+  `WithWriteBufferSize` godoc, and a PROTOCOL.md difference: the reference server queues
+  without a bound.
+- **Acceptance criteria:** the new test fails on the test-only commit and passes;
+  `make test-race`, `make test-stress PKGS='.'`, `make examples` and `make conformance`
+  with both pinned clients pass.
+- **Definition of done:** standard.
+- **Out of scope:** the client default, a byte-based bound, waiting admission.
+
+### W50. State the Go client close contract and send the polling close packet
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [CL-16](#clarity-findings), [PERF-14](#performance-findings)
+- **Depends on:** none
+- **Problem:** `client.Client.Close` is documented as draining before Engine.IO closes
+  (`client/client.go:37-39`, `client/doc.go`), but it returns at once
+  (`client/close.go:11-26`); a program that exits after `Close` loses the queued packets
+  and the namespace DISCONNECT. `_examples/README.md:62-63` relies on the documented
+  behavior. Separately, the polling client never sends the Engine.IO close packet
+  (`engineio/client/client.go:126-147`, `engineio/transport/polling/connect.go:185-195`),
+  so the server keeps the session until its ping timeout.
+- **Change:**
+  1. State the actual contract in the `Client.Close` godoc, the package doc and
+     `_examples/README.md`: `Close` returns without waiting; queued packets and DISCONNECT
+     are written in the background up to `WithCloseTimeout`; a program that must deliver
+     them waits for an ACK of its last event before exiting.
+  2. When the polling transport is open, closing the Engine.IO client queues a close
+     packet (`1`) behind every packet already queued, lets the in-flight POST finish, and
+     sends the close packet in a final POST before it cancels outstanding requests, as
+     engine.io-client 3.5.6 does in `Polling.doClose`. The final POST and the wait for the
+     in-flight one are bounded together by an unexported timeout of at most 2 s; a failed
+     or timed-out close POST is not reported. When the drain timer has discarded the
+     queue, the close packet is still sent. No close packet is sent before the handshake,
+     after an upgrade to websocket, or after the server closed the session.
+- **Tests:**
+  1. red→green: with PingInterval and PingTimeout of 1 h, after each of 20 Go polling
+     clients connects and calls `Close`, the server's `Count()` is 0 within 2 s, and
+     `OnDisconnect` reports `client namespace disconnect`;
+  2. guard: against a server that never answers the close POST, `Close` returns within
+     100 ms and the client's library goroutines exit within 3 s;
+  3. a probe, quoted in the PR and not committed, re-checks CL-16 on master: a subprocess
+     connects over polling, emits 20 events, calls `Close` and exits, and the server's
+     received count and disconnect reason are reported.
+- **Benchmarks:** none.
+- **Docs:** as listed in Change.
+- **Acceptance criteria:** test 1 fails on the test-only commit; both pass with `-race
+  -count=20`; `make test-race`, `make examples` and `make conformance` pass.
+- **Definition of done:** standard.
+- **Out of scope:** a separate method that waits for the drain (additive, after the tag);
+  changing what `Close` waits for.
+
+### W51. Correct the remaining reference documentation
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [CL-17](#clarity-findings), [CL-18](#clarity-findings),
+  [CL-19](#clarity-findings), [interop-11](#interoperability-findings)
+- **Depends on:** none
+- **Problem:** four reference statements disagree with the code; each is described in its
+  catalogue row.
+- **Change:**
+  1. `Server.OnDisconnect` godoc (`server.go:138-142`): `server namespace disconnect` for
+     `Conn.Close` and `Conn.Disconnect`; `forced close` for every other server-side close,
+     such as `Server.Close`, an engine-level close, a parser failure, a handler panic or a
+     queue overflow.
+  2. Name the Redis adapter among the components that log to `slog.Default()` regardless
+     of `WithLogger`: the `logger` package doc, `engineio/options.go:60-61` and V1.md:457.
+  3. PROTOCOL.md:49 and :61: an oversize websocket message usually closes with 1009; a
+     client can see 1006 when the connection resets before it reads the close frame.
+  4. V1.md migration: state a baseline for every upstream release between v1.4.2 and
+     v1.7.0 (v1.4.3–v1.4.5, v1.5.0–v1.5.1, v1.6.0–v1.6.3), each checked against that
+     release's module source and mapped to the existing v1.4.2 or v1.7.0 rows with its
+     differences named, for example where the room helpers, `OnError` or `BroadcastToRoom`
+     already have the v1.7.0 shape, where the engine is already in the module, and where
+     `Manager.Get` still has the go-engine.io shape.
+- **Tests:** none; each statement is verified against the code or a probe, quoted in the
+  PR.
+- **Benchmarks:** none.
+- **Docs:** as listed in Change.
+- **Acceptance criteria:** each statement matches the code it describes; `make lint` and
+  `make gates` pass; every relative link and anchor in the touched files resolves.
+- **Definition of done:** standard.
+- **Out of scope:** a `redisadapter.WithLogger` option (additive, after the tag).
+
+### W52. Refresh the release notes and the tag checklist
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [REL-14](#release-engineering-findings), [REL-15](#release-engineering-findings)
+- **Depends on:** W47–W51, W53
+- **Problem:** the release text exists only in the description of #193 (merged as
+  `4265692`). Its "Changes since the release review" section predates 38 later pull
+  requests, and its owner checklist says to tag the merge commit of #193, which would
+  leave out W11–W53.
+- **Change:** after W47–W51 and W53 merge, a PR sets this item's Status, and its
+  description carries the release text rewritten against `4265692..<head>` and the owner
+  checklist, which names no fixed commit and tags the verified head. That description
+  replaces the text in #193 as the source of the GitHub release notes (CONTRIBUTING.md,
+  step 5). The owner-only steps of [W10](#w10-prepare-the-release-commit) still apply.
+- **Tests:** none.
+- **Benchmarks:** none.
+- **Docs:** the release text.
+- **Acceptance criteria:** every user-visible change merged after `4265692` appears in the
+  text; the checklist names no fixed commit.
+- **Definition of done:** standard; the owner accepts the text. Only the owner tags.
+- **Out of scope:** the tag itself.
+
+### W53. Skip argument decoding for events nobody can observe
+
+- **Status:** open
+- **Priority:** before tag (owner decision, 2026-10-29)
+- **Findings:** [C8](#correctness-and-security-findings)
+- **Depends on:** none
+- **Problem:** for an event with no listener, `packets.go:96-103` passes nil types to
+  `DecodeArgs`, which decodes every argument into `interface{}`, one `json.Unmarshal` per
+  element. The only consumer of those values is socket middleware, and `runMiddleware`
+  returns early when the chain is empty. Any client can send such an event. Of the
+  170,158,560 B allocated on `6641d4b` for a 999,006-byte `["e",0,0,…]` packet,
+  70,224,000 B come from `DecodeHeader` (reading and splitting the array) and the rest
+  from argument decoding.
+- **Change:** when an event has no listener and the socket has no middleware,
+  the server discards the packet's arguments and attachments without decoding them. ACKs,
+  the connection state and `OnError` calls for malformed packet framing stay as on master.
+  One behavior changes, and V1.md states it: argument values that decode as JSON but not
+  into `interface{}`, such as `1e400`, no longer call `OnError` for an event nobody
+  listens to.
+- **Tests:** red→green:
+  1. handling one unlistened 999,006-byte `["e",0,0,…]` event on a connection without
+     middleware allocates less than 100,000,000 B (the `TotalAlloc` delta of
+     `runtime.ReadMemStats`; 170,158,560 B on master, 70,224,000 B for the header alone);
+  2. middleware still receives the decoded arguments;
+  3. an unlistened event with an ACK ID and one with binary attachments behave as on
+     master;
+  4. an unlistened `42["e",1e400]` no longer calls `OnError`, and a listened one still
+     does.
+- **Benchmarks:** a committed `Benchmark*` in the root package for an unlistened 1 MB
+  event. The base revision lacks it, so the CI comparison has no base side; the
+  before/after comes from the Performance rule's manual `benchstat` run against the PR
+  base, with the benchmark file copied into the base worktree, and the Status line quotes
+  its B/op and allocs/op.
+- **Docs:** V1.md, the `OnError` change in Change.
+- **Acceptance criteria:** test 1 fails on the test-only commit; all pass with `-race`;
+  the manual benchmark comparison shows the drop; `make test-race` and `make conformance` pass.
+- **Definition of done:** standard, with the benchmark result in the Status line.
+- **Out of scope:** decoding cost for events that have listeners, including
+  `...interface{}` handlers; the cost of `DecodeHeader` itself.
+
 ## Release blockers
 
 ### B1. Permanent session deadlock
@@ -2268,6 +2556,44 @@ its 10 s bound. Every run shows the same four blocked stacks. At the Engine.IO l
    with a client that sends only messages, each over direct websocket and over the
    polling-to-websocket upgrade. It must assert that `OnDisconnect` fires and that `Abort`
    and `Server.Close` return promptly.
+
+### B2. A partial polling POST pins its connection
+
+`C6`, found by the independent tag-readiness review of 2026-10-29 at `6641d4b`. The
+review reproduced it three times, once under `-race`; the reviewer of the work items and
+the maintainer reproduced it again. Work item:
+[W47](#w47-bound-polling-request-io-by-the-session-deadlines).
+
+**Trigger.** With the default configuration, an unauthenticated polling client opens a
+session, sends a POST with `Content-Length: 100`, writes 11 bytes (`20:42["x","`) and then
+stays idle.
+
+**Evidence.** With PingInterval 1 s and PingTimeout 1 s, the maintainer's run on `6641d4b`
+printed:
+
+```
+no ping timeout 6s after the last packet; engine state open
+EngineConn().Close(): no OnDisconnect after 3s; engine state closed
+Server.Close returned after 10.000512041s
+OnDisconnect never ran; library goroutines still running: 4
+```
+
+In one of the reviewer's three runs, the engine state was already `closed` at 6 s and
+3 library goroutines remained; `OnDisconnect` did not run in any run.
+
+**Impact.**
+
+- The heartbeat never ends the connection, and `OnDisconnect` never runs, so rooms and
+  application presence state leak.
+- `EngineConn().Close()` does not finish the connection.
+- `Server.Close` waits for its 10 s bound, and 3–4 library goroutines remain per such
+  client.
+- This contradicts the idle deadline and the `OnDisconnect` guarantee in V1.md and
+  PROTOCOL.md.
+
+Upstream v1.7.0 disconnects the same client after its PingTimeout, so this is a
+regression. Websocket is not affected. `http.Server.ReadTimeout` mitigates it, but no
+document or example sets it.
 
 ## Should fix before release
 
@@ -2954,6 +3280,17 @@ Every finding is listed under the dimension that reported it.
   requests (#147, #153). They were not part of the original review or the follow-up, have
   no row in [Catalogue cross-check](#catalogue-cross-check) and are not among its 85
   entries. Their locations refer to `origin/master` at `d98e5d5`, not `7311fbe`.
+- C6 to C8, T11, interop-10, interop-11, CL-16 to CL-19, PERF-14, PERF-15, REL-14 and
+  REL-15 were found by the independent tag-readiness review of 2026-10-29. They have no
+  row in [Catalogue cross-check](#catalogue-cross-check), and their locations refer to
+  `origin/master` at `6641d4b`. That review rated findings blocker, should-fix or
+  after-tag. Here a blocker stays a blocker. A should-fix finding is major when a remote peer
+  can make the server hold resources without bound or multiply its cost, when ordinary use
+  breaks interoperability with the pinned reference clients, or when a documented core
+  contract is false; otherwise it is minor. An after-tag finding or note is a nit. Major
+  findings that were not re-checked name the red test or the probe that re-checks them.
+  The review's after-tag findings are not in this catalogue yet; the description of #203
+  lists each of them, and a later pull request records them here.
 - The [work plan](#work-plan) maps every ID to exactly one work item or owner decision, or
   lists it under "Not planned"; the finding coverage table is in
   [How to use this plan](#how-to-use-this-plan). When a fix merges, the row's
@@ -2969,6 +3306,9 @@ Every finding is listed under the dimension that reported it.
 | C3 | minor | — | `engineio/server.go:303` | Duplicate session ID from a custom IDGenerator silently replaces a live session; Server.Close leaves the first one open | Under s.lifecycle in newSession, reject the handshake (or ask the generator again) when the sid is already registered or in s.live, and document that IDGenerator must return unique IDs. Fixed by #159 (W11). |
 | C4 | minor | — | `namespace_handlers.go:223` | Panics in a user OnError handler are swallowed without any log | Log the recovered value through the connection or server logger, e.g. c.log.Warn("socketio: OnError panic", ...), as is done for other unhandled errors. Fixed by #161 (W13). |
 | C5 | minor | — | `engineio/options.go:178` | Permissive CORS default (origin reflected with credentials, websocket origin check disabled) is documented only in godoc | Document the default and how to restrict it (WithCORS(false), transport CheckOrigin) in docs/V1.md in a security section. Consider an example that uses an origin allow-list. Fixed by #148 (W6). |
+| C6 | blocker | confirmed | `engineio/transport/polling/server.go:176` | A polling POST body that never finishes blocks the session's reader with no deadline; ping timeout, `EngineConn().Close()` and `OnDisconnect` never take effect, and `Server.Close` waits for its 10 s bound with 3–4 goroutines left per client (see B2) | Bound the POST body read by the session read deadline, end the session without waiting for the body, and add a raw-TCP regression test (W47). |
+| C7 | major | not re-checked; W47's red test is the re-check | `engineio/transport/polling/payload.go:99` | A polling GET whose client stops reading keeps the handler and `serveWrite` goroutines and the packet buffer after the session and `Server.Close` have finished, until the peer reads or drops TCP; reproduced with a 1,000,000-byte packet on macOS loopback | Bound the GET response write by the session write deadline and expire it on close (W47). |
+| C8 | major | not re-checked; W53's red test is the re-check | `packets.go:96` | An event with no listener has every argument decoded into `interface{}`, one `json.Unmarshal` per element: one 1 MB `["e",0,0,…]` packet allocated 162 MiB in the parser (170×), of which about 67 MiB come from reading and splitting the array in `DecodeHeader` and the rest from argument decoding; 5 such packets over websocket allocated 816 MiB on the server | Discard the arguments when no listener or middleware can observe them, with a committed benchmark (W53). |
 
 ### API compatibility findings
 
@@ -3007,6 +3347,10 @@ Every finding is listed under the dimension that reported it.
 | CL-13 | nit | — | `_examples/default-http/go.mod:1` | Cosmetic inconsistencies in example module paths, error prefixes and option wording | Fix the module path typos, use a consistent package prefix in error strings, say 'nonpositive' where the code means it, mention the Go client in the README tagline, and document or unexport the test fakes. Fixed by #182 (W34). |
 | CL-14 | nit | follow-up: editorial | `CONTRIBUTING.md:3` | Contributor build/test instructions live in CLAUDE.md and CONTRIBUTING links to them; the ownership table explicitly assigns development commands to CLAUDE.md | Moving commands is an optional editorial choice, not a correction of an ownership violation. |
 | CL-15 | nit | — | `engineio/internal/session/session.go` | The W1 locking-rule comment at `upgradeLocker` names only read-lock holders and failing writers; write-lock holders and frame-reader failure paths are bound by the same rule | Extend the comment and the matching `closeTransport` note (W43). Found in the review of #147. Fixed by #197 (W43). |
+| CL-16 | major | not re-checked; W50's PR quotes the subprocess probe on master | `client/client.go:37` | `client.Client.Close` is documented as draining before Engine.IO closes, but returns at once; a subprocess that connected, emitted 20 events, closed and exited delivered 0 of 20 to the server over polling in 5 of 5 runs, with server reason `transport error`; `_examples/README.md:62` relies on the documented behavior | State that `Close` returns without waiting and how to make sure the last packets arrive (W50). |
+| CL-17 | minor | — | `server.go:138` | `Server.OnDisconnect` godoc says application closes report `forced close`; `Conn.Close` and `Conn.Disconnect` report `server namespace disconnect` | Correct the godoc (W51). |
+| CL-18 | minor | — | `adapter/redis/adapter.go:198` | The Redis adapter logs through `slog.Default()` and ignores `socketio.WithLogger`, but the logger package doc, `engineio/options.go:60` and V1.md:457 do not list it | Name the Redis adapter in those lists (W51). |
+| CL-19 | minor | — | `docs/V1.md:346` | The migration guide covers upstream v1.4.2 and v1.7.0 only; users of the intermediate releases v1.4.3 to v1.6.3 have no stated baseline | State a checked baseline for each intermediate release (W51). |
 
 ### Architecture findings
 
@@ -3043,6 +3387,8 @@ Every finding is listed under the dimension that reported it.
 | PERF-11 | minor | — | `parser/decoder.go:87` | Inbound decode 37–42% slower than v1.4.2 across runs, because it parses JSON three times; it also allocates a 4 KiB bufio.Reader per non-byteReader frame, as v1.4.2 does | Fold json.Valid into the RawMessage unmarshal, which already validates, and avoid parsing the payload more than once; reusing a bufio.Reader per Decoder (Reset), or reading directly when the frame reader is already a byteReader, is optional (corrected: `v1.4.2` also allocates one per frame, so it is not the cause). Fixed by #171 (W25). |
 | PERF-12 | nit | — | `adapter/memory.go:110` | Broadcast target selection builds a dedup map of all members even for one room without Except | Skip the seen map when len(opts.Rooms) == 1 and len(opts.Except) == 0, and pre-size the result slice (corrected: not `<= 1`; namespace-wide delivery with no rooms walks every room, and each socket is in its own ID room and possibly named rooms, so it needs the map, see W21). Fixed by #160 (W21). |
 | PERF-13 | nit | — | `connection.go:281` | 7 server goroutines per idle websocket connection (v1.4.2: 4) | Optional: merge the engine close watcher with observeEngineClose, and start the error loop lazily. Fixed by #190 (W26). |
+| PERF-14 | minor | — | `engineio/client/client.go:126` | The Go polling client sends no Engine.IO close packet on `Close`, so the server keeps the session until PingInterval+PingTimeout; after 50 connect/close cycles, 19 sessions remained with the default ping (all gone at 45.2 s), and 18 and 26 in two runs with a 1 h ping, so 36–52% of closed clients linger | Send the close packet in a final POST, as engine.io-client 3.5.6 does (W50). |
+| PERF-15 | nit | — | `docs/V1_RELEASE_REVIEW.md` (W23) | The owner's acceptance of the `EmitWebsocket/string` CI time regression (2026-10-24) is recorded only in the description of #179 | Record it in W23's Status line. Fixed by #203 (W23). |
 
 ### Interoperability findings
 
@@ -3057,6 +3403,8 @@ Every finding is listed under the dimension that reported it.
 | interop-7 | nit | — | `docs/PARITY.md:20` | PARITY.md groups heartbeat with raw conformance coverage, but no conformance scenario asserts a periodic ping | Add a short-interval heartbeat scenario (for example `WithPingInterval(200ms)`, then idle for about 1 s and send an ACK) to client.js for both transports, or make the PARITY.md row say which tests own the heartbeat. Fixed by #168 (W17). |
 | interop-8 | nit | — | `internal/conformance/testdata/node/server/redis-cluster.js:199` | Redis mixed-cluster polling scenario idles 30 s after finishing, leaving little margin in runNode's 45 s timeout | Find and remove what keeps the process alive after cleanup, or end the scenario with an explicit `process.exit(process.exitCode \|\| 0)` after cleanup (corrected: the clients are already closed before `io.close()`, `redis-cluster.js:199-200`; see W17). Fixed by #168 (W17). |
 | interop-9 | nit | — | `docs/PROTOCOL.md:60` | Unknown Socket.IO packet type and missing CORS wire description are undocumented differences | Add a CORS bullet (default, WithCORS(false), preflight) and a note on how invalid packets are handled to PROTOCOL.md. Fixed by #148 (W6). |
+| interop-10 | major | not re-checked; W49's red test is the re-check | `connection.go:20` | The default outbound queue of 64 packets closes a JS client that receives a burst of more than 64 queued packets, deterministically over polling: with 2.5.0 and 1.7.4, a handler that emitted N events and then an ACK delivered 0–2 of N for N ≥ 64, and a raw polling probe without the ACK delivered all of 64 and none of 65; Socket.IO 2.5.0 delivered 3000/3000 | Raise the default and record the bound as a difference in PROTOCOL.md (W49). |
+| interop-11 | minor | — | `docs/PROTOCOL.md:49` | PROTOCOL.md (lines 49 and 61) says an oversize websocket message closes with 1009; ws 7.5.13 saw 1006 in 7 of 18 closes (13 of 18 in the rerun quoted in #204, at load average 37–52), the reference 1009 in 12 of 12 | Say that a client can see 1006 when the connection resets (W51). |
 
 ### Tests findings
 
@@ -3072,6 +3420,7 @@ Every finding is listed under the dimension that reported it.
 | T8 | minor | — | `engineio/transport/polling/polling_test.go:82` | `TestPollingBinary` crashed with a nil-reader dereference during a stress run under ephemeral-port exhaustion; the cause is not isolated | Reproduce with a forced dial failure and fix the side at fault (W44). Found while validating #147. Fixed by #199 (W44). |
 | T9 | minor | — | `engineio/transport/polling/default_transport_test.go` | Tests replace `http.DefaultTransport` while asynchronous HTTP requests from earlier tests can still read it; master CI run 40426080816 reported the race on macOS | Isolate each default-transport override in a bounded subprocess, retaining the behavioral assertions and race checks (W45). Fixed by #200 (W45). |
 | T10 | minor | — | `engineio/client/upgrade_test.go` | Upgrade tests consume the first global probe-failure record, which can belong to an earlier asynchronous client; master CI run 40427642695 failed on an unrelated WebSocket read-limit error | Isolate both upgrade log fixtures in bounded subprocesses without weakening error or structured-log assertions (W46). Fixed by #201 (W46). |
+| T11 | minor | — | `engineio/internal/session/close.go:144` | `Session.fail` compares the wall clock with a stored wall-clock deadline while the transport deadline expires on the monotonic clock; Windows CI run 40128125594 reported `transport error` instead of `ping timeout` in `TestPingTimeoutIdleClient/messages` (most likely cause, not proven) | Classify by the deadline error (W48). |
 
 ### Release engineering findings
 
@@ -3090,6 +3439,8 @@ Every finding is listed under the dimension that reported it.
 | REL-11 | nit | — | — | Stale remote branches, including a superseded release branch and a changelog draft | Delete merged or superseded branches, release/v1.5.0 in particular, before tagging. Reuse the useful parts of the v1-h/release-notes draft for REL-1. |
 | REL-12 | nit | — | `engineio/transport/websocket/connect.go:99` | An open TODO remains in library code | Replace the TODO with a comment that explains why the lock is needed. Fixed by #147 (W1). |
 | REL-13 | minor | — | `.github/workflows/benchmarks.yml` | A sub-benchmark whose `b.N=1` probe fails in a later `-count` repetition prints `--- FAIL` but `go test` exits 0, so the Benchmarks workflow can lose samples without failing | Fail the step on `--- FAIL` in the raw output (W42). Found in the review of #153. Fixed by #198 (W42). |
+| REL-14 | minor | — | PR #193 description | The release notes predate 38 later pull requests and omit user-visible changes such as `WithSubscribeTimeout`, base64 over websocket and duplicate session ID rejection | Rewrite the release text against the final head (W52). |
+| REL-15 | minor | — | PR #193 description | The owner checklist says to tag the merge commit of #193 (`4265692`), which leaves out every later fix | Tag the verified head (W52). |
 
 ## Follow-up validation
 

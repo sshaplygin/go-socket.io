@@ -209,8 +209,7 @@ type manager struct {
 // A failed or timed-out attempt can be retried; late dial results are closed.
 func (c *manager) Connect() error { return c.state.connect(c) }
 
-// Close disconnects all namespace sockets and drains their queued packets before
-// closing Engine.IO, bounded by WithCloseTimeout.
+// Close disconnects all namespace sockets and returns; see Client.Close.
 func (c *manager) Close() error { return c.state.closeAll() }
 
 // Emit sends through the namespace selected by the address passed to New.

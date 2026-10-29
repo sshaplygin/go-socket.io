@@ -26,7 +26,10 @@
 // buffered. The peer must handle echo and return a value for the ACK above.
 // Callbacks run on the connection dispatcher: do not block one while waiting for
 // another event or ACK on the same connection. Close disconnects all namespaces
-// and drains queued packets within the configured close timeout.
+// and returns without waiting: queued packets and DISCONNECT are written in the
+// background within the configured close timeout, so a program that exits right
+// after Close can lose them. The example above waits for the ACK of its last
+// event before the deferred Close.
 //
 // Typed Event and AckEvent descriptors are defined in the root socketio package,
 // so programs using typed client events import that package as well as client.

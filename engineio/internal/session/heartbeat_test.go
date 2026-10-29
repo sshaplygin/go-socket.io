@@ -1,10 +1,14 @@
 package session
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -93,6 +97,85 @@ func TestPingTimeoutIdleClient(t *testing.T) {
 			case <-time.After(3 * time.Second):
 				t.Fatal("silent client did not time out")
 			}
+		})
+	}
+}
+
+// expiringConn returns err from its first NextReader once the read deadline set
+// by the session has passed, or at once when the deadline is not awaited, and
+// io.EOF from any retry.
+type expiringConn struct {
+	scriptConn
+	err      error
+	await    bool
+	read     atomic.Bool
+	deadline atomic.Value // time.Time
+}
+
+func (c *expiringConn) SetReadDeadline(t time.Time) error {
+	c.deadline.Store(t)
+	return nil
+}
+
+func (c *expiringConn) NextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
+	if c.read.Swap(true) {
+		return 0, 0, nil, io.EOF
+	}
+	if c.await {
+		time.Sleep(time.Until(c.deadline.Load().(time.Time)) + 10*time.Millisecond)
+	}
+	return 0, 0, nil, c.err
+}
+
+// timeoutError wraps nothing and reports Timeout, as gorilla's deadline error does.
+type timeoutError struct{}
+
+func (timeoutError) Error() string { return "websocket: i/o timeout" }
+func (timeoutError) Timeout() bool { return true }
+
+// TestFailClassifiesByDeadlineError checks that the close reason follows the
+// transport's error and not the session clock. os.ErrDeadlineExceeded, or an error
+// reporting Timeout, closes the session with "ping timeout" even while the clock
+// still reads before the stored deadline, as when the transport deadline expires on
+// the monotonic clock and the wall clock lags behind it. Any other error is
+// "transport error", also once the stored deadline has passed.
+func TestFailClassifiesByDeadlineError(t *testing.T) {
+	otherErr := errors.New("read: timeout")
+	for _, tc := range []struct {
+		name  string
+		err   error
+		await bool
+		want  CloseReason
+	}{
+		{"deadline error before deadline", os.ErrDeadlineExceeded, false, ReasonPingTimeout},
+		{"wrapped deadline error", fmt.Errorf("frame: %w", os.ErrDeadlineExceeded), false, ReasonPingTimeout},
+		{"timeout error before deadline", timeoutError{}, false, ReasonPingTimeout},
+		{"other error before deadline", otherErr, false, ReasonTransportError},
+		{"other error after deadline", otherErr, true, ReasonTransportError},
+	} {
+		t.Run("read "+tc.name, func(t *testing.T) {
+			s, err := New(&expiringConn{err: tc.err, await: tc.await}, "sid", "websocket",
+				eioparser.ConnParameters{PingInterval: 50 * time.Millisecond, PingTimeout: 50 * time.Millisecond}, nil)
+			require.NoError(t, err)
+			_, _, err = s.NextReader()
+			var closeErr *CloseError
+			require.ErrorAs(t, err, &closeErr)
+			require.Equal(t, tc.want, closeErr.Reason)
+			if tc.want == ReasonTransportError {
+				require.ErrorIs(t, closeErr.Err, tc.err)
+			}
+		})
+		if tc.await {
+			continue
+		}
+		t.Run("write "+tc.name, func(t *testing.T) {
+			// The stored deadline is PingInterval+PingTimeout = 2 s away.
+			s := newTestSession(t, &scriptConn{wCloseErr: tc.err}, "websocket")
+			w, err := s.NextWriter(eioparser.String)
+			require.NoError(t, err)
+			require.ErrorIs(t, w.Close(), tc.err)
+			require.NoError(t, s.Close())
+			require.Equal(t, tc.want, s.closeError().Reason)
 		})
 	}
 }

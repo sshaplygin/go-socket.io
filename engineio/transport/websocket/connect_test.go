@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -169,4 +170,59 @@ func TestWebsocketWriterConcurrentCloseUnlocksOnce(t *testing.T) {
 		require.True(t, ws.writeLocker.TryLock(), "the frame's lock is released once")
 		ws.writeLocker.Unlock()
 	}
+}
+
+// requireTimeout checks that err has an error reporting Timeout in its chain, on
+// which the session reports "ping timeout". Gorilla replaces the
+// os.ErrDeadlineExceeded of its connection with such an error of its own.
+func requireTimeout(t *testing.T, err error) {
+	t.Helper()
+	var timeout interface{ Timeout() bool }
+	require.True(t, errors.As(err, &timeout) && timeout.Timeout(), "not a timeout: %v", err)
+}
+
+// TestWebsocketDeadlineReportsTimeout checks the heartbeat expiry paths of the
+// websocket transport: a read deadline inside a message and then between
+// messages, and a write deadline.
+func TestWebsocketDeadlineReportsTimeout(t *testing.T) {
+	tran := &Transport{}
+	conn := make(chan transport.Conn, 1)
+	httpSvr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := tran.Accept(w, r)
+		require.NoError(t, err)
+		conn <- c
+	}))
+	defer httpSvr.Close()
+	u, err := url.Parse(httpSvr.URL)
+	require.NoError(t, err)
+	u.Scheme = "ws"
+	cc, err := tran.Dial(u, make(http.Header))
+	require.NoError(t, err)
+	defer func() { _ = cc.Close() }()
+	sc := <-conn
+	defer func() { _ = sc.Close() }()
+
+	// The client sends the first fragments of a message and stops: the read
+	// deadline expires inside the message.
+	w, err := cc.NextWriter(eioparser.String, eioparser.MESSAGE)
+	require.NoError(t, err)
+	_, err = w.Write(make([]byte, 16<<10))
+	require.NoError(t, err)
+	require.NoError(t, sc.SetReadDeadline(time.Now().Add(50*time.Millisecond)))
+	_, _, r, err := sc.NextReader()
+	require.NoError(t, err)
+	_, err = io.ReadAll(r)
+	requireTimeout(t, err)
+	_, _, _, err = sc.NextReader()
+	requireTimeout(t, err)
+	require.NoError(t, w.Close())
+
+	require.NoError(t, sc.SetWriteDeadline(time.Now().Add(-time.Millisecond)))
+	sw, err := sc.NextWriter(eioparser.String, eioparser.MESSAGE)
+	require.NoError(t, err)
+	_, err = sw.Write([]byte("late"))
+	if err == nil {
+		err = sw.Close()
+	}
+	requireTimeout(t, err)
 }

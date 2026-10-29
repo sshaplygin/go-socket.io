@@ -2335,10 +2335,11 @@ changed to `done — #<PR>` after the merge.
   packets, not bytes, so the worst-case memory held for one slow connection grows 16-fold
   with the packet size; V1.md states the bound in those terms. The bound, the overflow
   behavior and the Go client's default (64) stay.
-- **Tests:** red→green: over polling, an `OnConnect` handler that emits
-  `defaultWriteBufferSize` events delivers all of them and the connection stays open; a
+- **Tests:** red→green: over polling, an `OnConnect` handler that emits 1000 events (the
+  chat-history case of interop-10) delivers all of them and the connection stays open; a
   nonpositive option selects the default. Tests that rely on the default keep their
-  meaning; a test that becomes slow sets an explicit small `WithWriteBufferSize`.
+  meaning; a test that needs an overflow or becomes slow sets an explicit small
+  `WithWriteBufferSize`, and the PR names each one.
 - **Benchmarks:** `BenchmarkConnectWebsocket` B/op in the CI comparison shows that an idle
   connection does not allocate for the larger bound.
 - **Docs:** V1.md (lines 107, 118 and 454), the `ErrWriteBufferFull` and

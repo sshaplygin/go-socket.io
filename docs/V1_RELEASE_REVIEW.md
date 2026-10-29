@@ -2073,7 +2073,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W41. Compile tests on 32-bit platforms
 
-- **Status:** in progress — #187
+- **Status:** done — #187
 - **Priority:** after release
 - **Findings:** [REL-8](#release-engineering-findings)
 - **Depends on:** none

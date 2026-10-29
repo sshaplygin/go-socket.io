@@ -70,6 +70,8 @@ func NewServer(opts ...Option) *Server {
 // Close closes server. Accept returns io.EOF from then on. Every session not yet
 // returned by Accept, and every accepted session, is closed and removed. An
 // in-progress Error hook completes its transport close when the hook returns.
+// Sessions shut down concurrently, so a blocked hook does not delay other sessions;
+// their Error hooks may therefore run concurrently on library goroutines.
 // Once shutdown has started, repeated calls return without waiting for it to
 // finish, so an Error hook can call Close during shutdown.
 func (s *Server) Close() error {
@@ -85,10 +87,16 @@ func (s *Server) Close() error {
 			s.sessions.Remove(id)
 		}
 		s.lifecycle.Unlock()
+		var shutdown sync.WaitGroup
+		shutdown.Add(len(live))
 		for _, c := range live {
-			_ = c.Shutdown()
+			go func() {
+				defer shutdown.Done()
+				_ = c.Shutdown()
+			}()
 		}
 		s.dropUnaccepted()
+		shutdown.Wait()
 	})
 	return nil
 }
@@ -292,6 +300,14 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 	newSession.SetRequest(r)
 	s.installHooks(newSession, r, reqTransport != "websocket")
 
+	newSession.SetCloseCallback(func() {
+		s.lifecycle.Lock()
+		if s.live[sid] == newSession {
+			delete(s.live, sid)
+		}
+		s.lifecycle.Unlock()
+	})
+
 	// Register before the handshake: the client may send its next request
 	// with this sid as soon as it reads the OPEN packet.
 	s.lifecycle.Lock()
@@ -300,17 +316,15 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 		_ = newSession.Shutdown()
 		return nil, io.EOF
 	}
+	if _, exists := s.sessions.Get(sid); exists || s.live[sid] != nil {
+		s.lifecycle.Unlock()
+		_ = newSession.Shutdown()
+		return nil, fmt.Errorf("generate session id: duplicate identifier")
+	}
 	s.sessions.Add(newSession)
 	s.live[sid] = newSession
 	s.lifecycle.Unlock()
-	go func() {
-		<-newSession.Closed()
-		s.lifecycle.Lock()
-		if s.live[sid] == newSession {
-			delete(s.live, sid)
-		}
-		s.lifecycle.Unlock()
-	}()
+
 	s.connInitor(r, newSession)
 
 	go func(newSession *sessionImpl.Session) {

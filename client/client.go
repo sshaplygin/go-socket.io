@@ -84,7 +84,7 @@ func loggerFrom(opts *options) *slog.Logger {
 }
 
 // ErrEmptyAddr is returned by New when addr is empty.
-var ErrEmptyAddr = errors.New("empty addr")
+var ErrEmptyAddr = errors.New("client: empty addr")
 
 // prepareOptions resolves defaults and copies mutable inputs for this instance.
 func prepareOptions(u *url.URL, opts ...Option) (address, namespace string, config options) {

@@ -57,7 +57,11 @@ type Conn interface {
 	// packet with "encode error", and keeps the connection open.
 	Close() error
 	Namespace
-	// EngineConn returns the underlying server Engine.IO connection.
+	// EngineConn returns the underlying server Engine.IO connection for metadata
+	// such as ID, Transport, Upgraded, ReadyState and RemoteAddr, and for Close.
+	// Socket.IO owns the connection's frame I/O: applications must not call
+	// NextReader, NextWriter or NextWriterCompress, which would interfere with the
+	// library's reader and writer and corrupt the packet stream.
 	EngineConn() engineio.Conn
 	// Request returns the original handshake request. Its Body is consumed and its
 	// Context ends when that HTTP request returns; retain it for metadata only.
@@ -68,7 +72,8 @@ type Conn interface {
 	// It uses the original request even after an upgrade.
 	Handshake() Handshake
 
-	// ID returns this namespace socket's ID.
+	// ID returns the Engine.IO ID in the root namespace, or
+	// <namespace>#<Engine.IO ID> in any other namespace.
 	ID() string
 	URL() url.URL
 	LocalAddr() net.Addr
@@ -124,7 +129,8 @@ type Namespace interface {
 	// Disconnect writes DISCONNECT for this namespace, leaves its rooms and calls
 	// OnDisconnect with the server namespace reason. Other namespaces stay open.
 	Disconnect()
-	// Use appends event middleware on this server socket.
+	// Use appends incoming event middleware on this server socket.
+	// For namespace connection middleware, see ServerNamespace.Use and Server.Use.
 	Use(func(event string, args []interface{}) error)
 }
 

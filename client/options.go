@@ -34,7 +34,7 @@ type options struct {
 	Logger       *slog.Logger
 	// DisableReconnection disables automatic recovery after an engine failure.
 	DisableReconnection bool
-	// ReconnectionAttempts limits failed retries; zero means unlimited.
+	// ReconnectionAttempts limits failed retries; nonpositive means unlimited.
 	ReconnectionAttempts int
 	// ReconnectionDelay defaults to one second; ReconnectionDelayMax to five seconds.
 	ReconnectionDelay    time.Duration
@@ -91,7 +91,7 @@ func WithReconnection(value bool) Option {
 	return func(config *options) { config.DisableReconnection = !value }
 }
 
-// WithReconnectionAttempts limits failed retries; zero means unlimited.
+// WithReconnectionAttempts limits failed retries; nonpositive means unlimited.
 func WithReconnectionAttempts(value int) Option {
 	return func(config *options) { config.ReconnectionAttempts = value }
 }

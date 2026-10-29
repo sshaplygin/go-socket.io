@@ -2402,15 +2402,19 @@ changed to `done — #<PR>` after the merge.
   catalogue row.
 - **Change:**
   1. `Server.OnDisconnect` godoc (`server.go:138-142`): `server namespace disconnect` for
-     `Conn.Close` and `Conn.Disconnect`; `forced close` for `Server.Close`, an engine-level
-     close or a parser failure.
+     `Conn.Close` and `Conn.Disconnect`; `forced close` for every other server-side close,
+     such as `Server.Close`, an engine-level close, a parser failure, a handler panic or a
+     queue overflow.
   2. Name the Redis adapter among the components that log to `slog.Default()` regardless
      of `WithLogger`: the `logger` package doc, `engineio/options.go:60-61` and V1.md:457.
   3. PROTOCOL.md:49 and :61: an oversize websocket message usually closes with 1009; a
      client can see 1006 when the connection resets before it reads the close frame.
-  4. V1.md migration: users of upstream v1.4.3 follow the v1.4.2 rows except that
-     `BroadcastToRoom` already takes a namespace; users of v1.5.0 and v1.6.0 follow the
-     v1.7.0 rows.
+  4. V1.md migration: state a baseline for every upstream release between v1.4.2 and
+     v1.7.0 (v1.4.3–v1.4.5, v1.5.0–v1.5.1, v1.6.0–v1.6.3), each checked against that
+     release's module source and mapped to the existing v1.4.2 or v1.7.0 rows with its
+     differences named, for example where the room helpers, `OnError` or `BroadcastToRoom`
+     already have the v1.7.0 shape, where the engine is already in the module, and where
+     `Manager.Get` still has the go-engine.io shape.
 - **Tests:** none; each statement is verified against the code or a probe, quoted in the
   PR.
 - **Benchmarks:** none.
@@ -3316,7 +3320,7 @@ Every finding is listed under the dimension that reported it.
 | CL-16 | major | not re-checked; W50's documentation change is the fix | `client/client.go:37` | `client.Client.Close` is documented as draining before Engine.IO closes, but returns at once; a subprocess that connected, emitted 20 events, closed and exited delivered 0 of 20 to the server over polling in 5 of 5 runs, with server reason `transport error`; `_examples/README.md:62` relies on the documented behavior | State that `Close` returns without waiting and how to make sure the last packets arrive (W50). |
 | CL-17 | minor | — | `server.go:138` | `Server.OnDisconnect` godoc says application closes report `forced close`; `Conn.Close` and `Conn.Disconnect` report `server namespace disconnect` | Correct the godoc (W51). |
 | CL-18 | minor | — | `adapter/redis/adapter.go:198` | The Redis adapter logs through `slog.Default()` and ignores `socketio.WithLogger`, but the logger package doc, `engineio/options.go:60` and V1.md:457 do not list it | Name the Redis adapter in those lists (W51). |
-| CL-19 | minor | — | `docs/V1.md:346` | The migration guide covers upstream v1.4.2 and v1.7.0 only; users of the intermediate releases v1.4.3, v1.5.0 and v1.6.0 have no stated baseline | Add one sentence mapping them to the existing rows (W51). |
+| CL-19 | minor | — | `docs/V1.md:346` | The migration guide covers upstream v1.4.2 and v1.7.0 only; users of the intermediate releases v1.4.3 to v1.6.3 have no stated baseline | Add one sentence mapping them to the existing rows (W51). |
 
 ### Architecture findings
 

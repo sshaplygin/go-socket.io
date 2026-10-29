@@ -2267,7 +2267,8 @@ changed to `done — #<PR>` after the merge.
      outcomes are the same; the remaining handler goroutine is released by closing the
      client socket before the leak check;
   5. with PingInterval and PingTimeout of 1 h and `http.Server.ReadTimeout` of 500 ms, the
-     partial POST still ends the connection within 2 s (a guard: it also passes on master);
+     partial POST still ends the connection within 2 s, with reason `ping timeout` once
+     W48 has landed (a guard: on master it ends in about 500 ms with `transport error`);
   6. a GET whose client never reads: the server's accepted connections have a 4 KiB send
      buffer (a wrapping listener calls `SetWriteBuffer(4096)`), the client sets a 4 KiB
      receive buffer, and the server emits a 1,000,000-byte packet; after the session
@@ -2313,7 +2314,9 @@ changed to `done — #<PR>` after the merge.
     `Temporary` does.
 
   Every path on which a heartbeat expires, on both transports, returns an error that
-  matches; the PR lists those paths.
+  matches; the PR lists those paths. Other timeouts also match the rule and report
+  `ping timeout`: a kernel `ETIMEDOUT` and a deadline the `http.Server` imposes through
+  `ReadTimeout` or `WriteTimeout` (applied to the polling body read by W47).
 - **Tests:** red→green:
   1. a session whose transport returns `os.ErrDeadlineExceeded` while the wall clock is
      before the stored deadline closes with `ping timeout`;
@@ -2324,7 +2327,8 @@ changed to `done — #<PR>` after the merge.
      the stored deadline;
   5. the existing heartbeat tests pass on both transports.
 - **Benchmarks:** none.
-- **Docs:** the `OpError.Timeout` godoc.
+- **Docs:** the `OpError.Timeout` godoc; V1.md states which timeouts report
+  `ping timeout`.
 - **Acceptance criteria:** tests 1–4 fail on the test-only commit and pass with `-race
   -count=50`; `make test-stress PKGS='./engineio/...'` and `make gates` pass.
 - **Definition of done:** standard.
@@ -2473,7 +2477,7 @@ changed to `done — #<PR>` after the merge.
   170,158,560 B allocated on `6641d4b` for a 999,006-byte `["e",0,0,…]` packet,
   70,224,000 B come from `DecodeHeader` (reading and splitting the array) and the rest
   from argument decoding.
-- **Change:** when an event has no listener and the namespace has no socket middleware,
+- **Change:** when an event has no listener and the socket has no middleware,
   the server discards the packet's arguments and attachments without decoding them. ACKs,
   the connection state and `OnError` calls for malformed packet framing stay as on master.
   One behavior changes, and V1.md states it: argument values that decode as JSON but not
@@ -2489,10 +2493,13 @@ changed to `done — #<PR>` after the merge.
   4. an unlistened `42["e",1e400]` no longer calls `OnError`, and a listened one still
      does.
 - **Benchmarks:** a committed `Benchmark*` in the root package for an unlistened 1 MB
-  event, B/op and allocs/op from the CI comparison quoted in the Status line.
+  event. The base revision lacks it, so the CI comparison has no base side; the
+  before/after comes from the Performance rule's manual `benchstat` run against the PR
+  base, with the benchmark file copied into the base worktree, and the Status line quotes
+  its B/op and allocs/op.
 - **Docs:** V1.md, the `OnError` change in Change.
 - **Acceptance criteria:** test 1 fails on the test-only commit; all pass with `-race`;
-  the benchmark comparison shows the drop; `make test-race` and `make conformance` pass.
+  the manual benchmark comparison shows the drop; `make test-race` and `make conformance` pass.
 - **Definition of done:** standard, with the benchmark result in the Status line.
 - **Out of scope:** decoding cost for events that have listeners, including
   `...interface{}` handlers; the cost of `DecodeHeader` itself.
@@ -3282,9 +3289,8 @@ Every finding is listed under the dimension that reported it.
   breaks interoperability with the pinned reference clients, or when a documented core
   contract is false; otherwise it is minor. An after-tag finding or note is a nit. Major
   findings that were not re-checked name the red test or the probe that re-checks them.
-  The review's remaining after-tag findings (the Go client's ping timer, surviving
-  mutants, encoder B/op and documentation nits) are not in this catalogue yet; they are
-  listed in the description of #203 and are recorded here by a later pull request.
+  The review's after-tag findings are not in this catalogue yet; the description of #203
+  lists each of them, and a later pull request records them here.
 - The [work plan](#work-plan) maps every ID to exactly one work item or owner decision, or
   lists it under "Not planned"; the finding coverage table is in
   [How to use this plan](#how-to-use-this-plan). When a fix merges, the row's
@@ -3398,7 +3404,7 @@ Every finding is listed under the dimension that reported it.
 | interop-8 | nit | — | `internal/conformance/testdata/node/server/redis-cluster.js:199` | Redis mixed-cluster polling scenario idles 30 s after finishing, leaving little margin in runNode's 45 s timeout | Find and remove what keeps the process alive after cleanup, or end the scenario with an explicit `process.exit(process.exitCode \|\| 0)` after cleanup (corrected: the clients are already closed before `io.close()`, `redis-cluster.js:199-200`; see W17). Fixed by #168 (W17). |
 | interop-9 | nit | — | `docs/PROTOCOL.md:60` | Unknown Socket.IO packet type and missing CORS wire description are undocumented differences | Add a CORS bullet (default, WithCORS(false), preflight) and a note on how invalid packets are handled to PROTOCOL.md. Fixed by #148 (W6). |
 | interop-10 | major | not re-checked; W49's red test is the re-check | `connection.go:20` | The default outbound queue of 64 packets closes a JS client that receives a burst of more than 64 queued packets, deterministically over polling: with 2.5.0 and 1.7.4, a handler that emitted N events and then an ACK delivered 0–2 of N for N ≥ 64, and a raw polling probe without the ACK delivered all of 64 and none of 65; Socket.IO 2.5.0 delivered 3000/3000 | Raise the default and record the bound as a difference in PROTOCOL.md (W49). |
-| interop-11 | minor | — | `docs/PROTOCOL.md:49` | PROTOCOL.md (lines 49 and 61) says an oversize websocket message closes with 1009; ws 7.5.13 saw 1006 in 7 of 18 closes (13 of 18 in a rerun at load average 37–52), the reference 1009 in 12 of 12 | Say that a client can see 1006 when the connection resets (W51). |
+| interop-11 | minor | — | `docs/PROTOCOL.md:49` | PROTOCOL.md (lines 49 and 61) says an oversize websocket message closes with 1009; ws 7.5.13 saw 1006 in 7 of 18 closes (13 of 18 in the rerun quoted in #204, at load average 37–52), the reference 1009 in 12 of 12 | Say that a client can see 1006 when the connection resets (W51). |
 
 ### Tests findings
 

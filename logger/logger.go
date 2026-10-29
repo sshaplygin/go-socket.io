@@ -4,9 +4,10 @@
 //
 // # Variables
 //
-// Log is the fallback logger: the parser, the transports, engineio/parser, the
-// client dialer and the Redis adapter log through it, and it writes to
-// whatever slog.Default() is when a record is logged. Level is the library log
+// Log is the fallback logger: the Socket.IO parser, the transports,
+// engineio/parser, engineio/client (its dialer, pings and upgrade probes) and
+// the Redis adapter log through it, whatever WithLogger is set to, and it writes
+// to whatever slog.Default() is when a record is logged. Level is the library log
 // level described below.
 // To route library records, use the server/client role's WithLogger option or call
 // slog.SetDefault; assigning Log bypasses Wrap.

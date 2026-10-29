@@ -558,7 +558,12 @@ func (p *payload) ReleasePayloadWriter(err error) error {
 	var timeout operationTimer
 	defer timeout.stop()
 	if errors.Is(err, errDetached) {
-		return err // FlushOut has returned; nobody waits for this result
+		// FlushOut has returned; nobody waits for this result. The error it
+		// stored, such as an expired deadline, is why the writer was detached.
+		if stored := p.err.Load(); stored != nil {
+			return stored.(error)
+		}
+		return err
 	}
 	select {
 	case <-p.close:

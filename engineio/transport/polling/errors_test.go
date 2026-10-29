@@ -1,6 +1,9 @@
 package polling
 
 import (
+	"context"
+	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -60,6 +63,48 @@ func TestPayloadTimeoutReportsTimeout(t *testing.T) {
 			var payloadErr Error
 			require.ErrorAs(t, err, &payloadErr)
 			require.False(t, payloadErr.Temporary())
+		})
+	}
+}
+
+// TestDetachedWriterReportsStoredError holds a poll response in a session writer
+// while the poll ends. Its Close then reports what ended the poll: the expired
+// write deadline as a timeout, a cancelled poll as context.Canceled, and a closed
+// payload as no timeout.
+func TestDetachedWriterReportsStoredError(t *testing.T) {
+	for _, end := range []string{"deadline", "cancel", "close"} {
+		t.Run(end, func(t *testing.T) {
+			p := newPayload(false)
+			defer func() { _ = p.Close() }()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			deadline := time.Now().Add(time.Minute)
+			if end == "deadline" {
+				deadline = time.Now().Add(100 * time.Millisecond)
+			}
+			require.NoError(t, p.SetWriteDeadline(deadline))
+			done := make(chan error, 1)
+			go func() { done <- p.flushOut(ctx, io.Discard) }()
+			w, err := p.NextWriter(eioparser.String, eioparser.MESSAGE)
+			require.NoError(t, err)
+			_, err = w.Write([]byte("hello"))
+			require.NoError(t, err)
+			switch end {
+			case "cancel":
+				cancel()
+			case "close":
+				require.NoError(t, p.Close())
+			}
+			<-done
+			err = w.Close()
+			require.Error(t, err)
+			var timeout interface{ Timeout() bool }
+			require.Equal(t, end == "deadline", errors.As(err, &timeout) && timeout.Timeout(), "%v", err)
+			if end == "cancel" {
+				var op *OpError
+				require.ErrorAs(t, err, &op)
+				require.ErrorIs(t, op.Err, context.Canceled)
+			}
 		})
 	}
 }

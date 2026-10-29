@@ -58,8 +58,9 @@ Package `engineio` of the v1 module at the repository root.
   sets no cookie, matching engine.io 3.6.2.
 - Message limit: `WithMaxHTTPBufferSize`, default 1e6 bytes. A longer polling POST
   body is answered HTTP 413 (plain text) and closes the session; a longer websocket
-  message closes the connection with close code 1009. With permessage-deflate, the
-  same limit applies to inflated bytes; rejection does not buffer the full message.
+  message closes the connection with close code 1009. A client can see 1006 instead
+  when the connection resets before it reads the close frame. With permessage-deflate,
+  the same limit applies to inflated bytes; rejection does not buffer the full message.
 - The Go client limits incoming websocket messages (inflated bytes) and whole decoded
   polling response bodies, OPEN included, to 1 MiB by default. The configurable
   limit also applies to reconnects and candidate upgrade transports before probe I/O.

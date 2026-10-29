@@ -57,8 +57,8 @@ type options struct {
 	// it creates. nil means logger.Log. It chooses the sink only: logger.Level
 	// decides what is enabled while it is not logger.LevelUnset (set from
 	// SOCKETIO_LOG_LEVEL or by logger.Level.Set), the handler otherwise.
-	// Transports, the parser, the packet codec and the client dialer do not
-	// have access to options and keep using logger.Log.
+	// Transports, the parser, the packet codec, the client dialer and the Redis
+	// adapter do not have access to options and keep using logger.Log.
 	Logger *slog.Logger
 }
 

@@ -177,6 +177,12 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   set, which can be any JSON value, and `err.message` otherwise.
 - Namespace query strings (`0/nsp?x=1`) are parsed into `Header.Query` and merged into
   `Handshake().Query` of that socket.
+- The reference server queues outbound packets without a bound. This server queues at
+  most `WithWriteBufferSize` packets per connection (1024 by default) and does not wait
+  for free space: the packet that finds the queue full and every later one are dropped,
+  `ErrWriteBufferFull` is reported, and the connection is closed. Over polling the
+  queue drains only when the client polls, so a burst from one handler, such as
+  `OnConnect`, must fit the bound.
 
 A Socket.IO packet may contain at most 10 binary attachments. Encoding counts
 only attachments referenced by the encoded JSON and rejects a larger packet

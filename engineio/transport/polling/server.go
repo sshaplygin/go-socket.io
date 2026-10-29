@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 
@@ -29,6 +30,13 @@ type serverConn struct {
 	pollWaiting  bool
 	noCompress   atomic.Bool
 	cookie       atomic.Pointer[http.Cookie]
+
+	// ioMu orders deadline updates and Close against tracked request I/O. It is
+	// a leaf lock: only ResponseController deadline setters run under it.
+	ioMu     sync.Mutex
+	ioClosed bool
+	reading  *requestIO // the POST whose body is being read
+	writing  *requestIO // the GET whose response is being written
 }
 
 // newServerConn creates the polling connection of a request. JSONP is not supported
@@ -122,6 +130,7 @@ func (p *progressWriter) Write(b []byte) (int, error) {
 }
 
 func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	switch r.Method {
 	case http.MethodOptions:
 		c.SetHeaders(w, r)
@@ -137,28 +146,37 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/plain; charset=UTF-8")
 		}
 
-		// FlushOut has returned, so the session writer no longer uses w. If it had
-		// already started the response, a second one would corrupt it.
+		// The session writer fills resp; FlushOut has returned once this
+		// goroutine writes it. If the response had started, a second one would
+		// corrupt it.
 		c.setPollWaiting(true)
 		defer c.setPollWaiting(false)
-		var out io.Writer = w
+		resp := &responseBuffer{ResponseWriter: w}
+		var out io.Writer = resp
+		var compressed *responseWriter
 		if c.transport.Compression {
 			w.Header().Add("Vary", "Accept-Encoding")
-			compressed := &responseWriter{w: w, conn: c, encoding: acceptedEncoding(r.Header.Get("Accept-Encoding"))}
-			defer func() {
-				if err := compressed.Close(); err != nil {
-					_ = c.payload.Store("write", err)
-					_ = c.Close()
-				}
-			}()
+			compressed = &responseWriter{w: resp, conn: c, encoding: acceptedEncoding(r.Header.Get("Accept-Encoding"))}
 			out = compressed
 		}
 		pw := &progressWriter{w: out, started: func() { c.setPollWaiting(false) }}
-		if err := c.payload.flushOut(r.Context(), pw); err != nil {
-			if pw.wrote {
-				logger.Log.Debug("engineio: poll response failed after it was started", "err", err)
-				return
+		err := c.payload.flushOut(r.Context(), pw)
+		if compressed != nil {
+			if err := compressed.Close(); err != nil {
+				_ = c.payload.Store("write", err)
+				_ = c.Close()
 			}
+		}
+		if pw.wrote {
+			if werr := c.writeResponse(w, r, start, resp.buf.Bytes()); err == nil {
+				err = werr
+			}
+			if err != nil {
+				logger.Log.Debug("engineio: poll response failed after it was started", "err", err)
+			}
+			return
+		}
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
@@ -179,7 +197,8 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			c.rejectLargeBody(w, &http.MaxBytesError{Limit: c.readLimit})
 			return
 		}
-		if err := c.payload.FeedIn(body, isSupportBinary); err != nil {
+		load := func(body io.Reader) (io.Reader, error) { return c.readBody(w, r, start, body) }
+		if err := c.payload.feedIn(body, isSupportBinary, load); err != nil {
 			logger.Log.Debug("engineio: post payload failed", "err", err)
 			cause := err
 			if op, ok := cause.(*OpError); ok {

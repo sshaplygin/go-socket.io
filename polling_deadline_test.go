@@ -247,7 +247,8 @@ func TestPollingPartialPostServerReadTimeout(t *testing.T) {
 }
 
 // A poll whose client never reads a payload larger than the socket buffers
-// keeps no library goroutine once the session has closed.
+// keeps no library goroutine once the session has closed. The server's send
+// buffer and the client's receive buffer are 4 KiB on every OS.
 func TestPollingStalledGetIsReleased(t *testing.T) {
 	baseline := len(leakedModuleStacks())
 	d := newDeadlineServer(t, deadlineConfig{sendBuffer: 4096})
@@ -259,5 +260,8 @@ func TestPollingStalledGetIsReleased(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "HTTP/1.1 200", string(status), "the poll response has started")
 	require.Equal(t, "ping timeout", recv(t, d.reasons, "OnDisconnect"))
+	// Server.Close stops Serve, which the baseline does not include; it does
+	// not release a handler blocked in its response write.
+	_ = d.srv.Close()
 	requireBaseline(t, baseline, 2*time.Second)
 }

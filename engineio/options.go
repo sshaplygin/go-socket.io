@@ -205,12 +205,12 @@ type ConnInitorFunc func(*http.Request, Conn)
 // Option configures one instance. Options are applied in order; the last setting wins.
 type Option func(*options)
 
-// WithPingTimeout sets the heartbeat reply timeout; zero means 20 seconds.
+// WithPingTimeout sets the heartbeat reply timeout; nonpositive means 20 seconds.
 func WithPingTimeout(value time.Duration) Option {
 	return func(config *options) { config.PingTimeout = value }
 }
 
-// WithPingInterval sets the heartbeat interval; zero means 25 seconds.
+// WithPingInterval sets the heartbeat interval; nonpositive means 25 seconds.
 func WithPingInterval(value time.Duration) Option {
 	return func(config *options) { config.PingInterval = value }
 }
@@ -255,12 +255,16 @@ func WithCookieEnabled(value bool) Option {
 	return func(config *options) { config.DisableCookie = !value }
 }
 
-// WithCORS enables permissive cross-origin polling and websocket access; the default is true. Explicit transport origin checks take precedence.
+// WithCORS enables permissive cross-origin polling and websocket access; the default is true.
+// Explicit transport origin checks take precedence. The default lets any origin
+// make credentialed browser requests, so cookie-authenticated applications should
+// configure an origin allow-list.
 func WithCORS(value bool) Option {
 	return func(config *options) { config.DisableCORS = !value }
 }
 
 // WithSessionIDGenerator sets session ID generation; nil selects cryptographic random IDs.
+// Generated IDs must be nonempty and unique; duplicates fail the handshake.
 func WithSessionIDGenerator(value IDGenerator) Option {
 	return func(config *options) { config.SessionIDGenerator = value }
 }

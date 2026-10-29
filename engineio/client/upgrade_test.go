@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -225,6 +228,9 @@ func (r *upgradeFaultReader) Close() error {
 // Probe failures before UPGRADE preserve polling. A failure while committing it
 // closes the connection because either endpoint may already have switched.
 func TestClientUpgradeTransportErrors(t *testing.T) {
+	if runUpgradeLogTestInSubprocess(t) {
+		return
+	}
 	for _, phase := range []string{"read-deadline", "write-deadline", "ping-next", "ping-write", "ping-close", "read-next", "read-body", "read-close", "upgrade-next", "upgrade-close", "upgrade-read-deadline", "upgrade-write-deadline"} {
 		t.Run(phase, func(t *testing.T) {
 			records := newRecorder()
@@ -428,14 +434,42 @@ func clientUpgradeMessage(conn upgradeMessageConn, value string) error {
 	return closeErr
 }
 
+// deadlineCaptureTransport checks the chosen probe deadline without waiting for
+// that same heartbeat window to expire on the healthy polling connection.
+type deadlineCaptureTransport struct {
+	transport.Transport
+	ready    <-chan struct{}
+	deadline chan time.Time
+}
+
+func (t deadlineCaptureTransport) Dial(*url.URL, http.Header) (transport.Conn, error) {
+	<-t.ready
+	return deadlineCaptureConn{deadline: t.deadline}, nil
+}
+
+type deadlineCaptureConn struct {
+	transport.Conn
+	deadline chan time.Time
+}
+
+func (c deadlineCaptureConn) SetReadDeadline(deadline time.Time) error {
+	c.deadline <- deadline
+	return context.DeadlineExceeded
+}
+
+func (deadlineCaptureConn) Close() error { return nil }
+
 func TestClientUpgradeProbeFails(t *testing.T) {
+	if runUpgradeLogTestInSubprocess(t) {
+		return
+	}
 	for _, name := range []string{"rejected", "wrong-answer", "stalled", "unread", "clamped"} {
 		t.Run(name, func(t *testing.T) {
 			clientRecords, serverRecords := newRecorder(), newRecorder()
 			setDefault(t, clientRecords)
 			opts := []engineio.Option{engineio.WithLogger(slog.New(serverRecords))}
 			if name == "clamped" {
-				opts = append(opts, engineio.WithPingInterval(100*time.Millisecond), engineio.WithPingTimeout(100*time.Millisecond))
+				opts = append(opts, engineio.WithPingInterval(100*time.Millisecond), engineio.WithPingTimeout(10*time.Second))
 			}
 			s := engineio.NewServer(opts...)
 			ready, stop := make(chan struct{}), make(chan struct{})
@@ -463,7 +497,7 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 					if _, _, err := ws.ReadMessage(); err == nil {
 						_ = ws.WriteMessage(gorilla.TextMessage, []byte("3wrong"))
 					}
-				case "stalled", "clamped":
+				case "stalled":
 					conn, _, err := w.(http.Hijacker).Hijack()
 					if err != nil {
 						return
@@ -491,9 +525,16 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 			case "clamped":
 				bound = time.Hour
 			}
+			var candidate transport.Transport = websocket.Default
+			probeDeadline := make(chan time.Time, 1)
+			if name == "clamped" {
+				candidate = deadlineCaptureTransport{Transport: candidate, ready: ready, deadline: probeDeadline}
+			}
+			dialStarted := time.Now()
 			var err error
 			cl, err = (&Dialer{Upgrade: true, UpgradeTimeout: bound,
-				Transports: []transport.Transport{polling.Default, websocket.Default}}).Dial(ts.URL, nil)
+				Transports: []transport.Transport{polling.Default, candidate}}).Dial(ts.URL, nil)
+			dialReturned := time.Now()
 			require.NoError(t, err)
 			serverConn, err := s.Accept()
 			require.NoError(t, err)
@@ -522,6 +563,16 @@ func TestClientUpgradeProbeFails(t *testing.T) {
 				require.Contains(t, records[0]["err"], "deadline exceeded")
 			}
 			require.NotContains(t, records[0], "sid")
+			if name == "clamped" {
+				const window = 100*time.Millisecond + 10*time.Second
+				select {
+				case deadline := <-probeDeadline:
+					require.False(t, deadline.Before(dialStarted.Add(window)), "probe deadline is shorter than the heartbeat window")
+					require.False(t, deadline.After(dialReturned.Add(window)), "hour-long upgrade timeout was not clamped")
+				default:
+					t.Fatal("probe did not receive its deadline")
+				}
+			}
 			require.Equal(t, "polling", cl.Transport())
 			require.False(t, cl.Upgraded())
 			if name == "unread" {
@@ -642,4 +693,25 @@ type upgradeMessageConn interface {
 	Transport() string
 	NextReader() (eioparser.FrameType, io.ReadCloser, error)
 	NextWriter(eioparser.FrameType) (io.WriteCloser, error)
+}
+
+// runUpgradeLogTestInSubprocess keeps late probes from other tests out of these
+// fixtures' default logger. Closing a client does not join its probe goroutine;
+// serial tests and restoring slog.Default therefore cannot isolate its records.
+func runUpgradeLogTestInSubprocess(t *testing.T) bool {
+	t.Helper()
+	const childEnv = "SOCKETIO_UPGRADE_LOG_CHILD"
+	if os.Getenv(childEnv) == t.Name() {
+		return false
+	}
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, executable,
+		"-test.run=^"+regexp.QuoteMeta(t.Name())+"$", "-test.count=1", "-test.timeout=30s")
+	command.Env = append(os.Environ(), childEnv+"="+t.Name())
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, "isolated upgrade log test: %s", output)
+	return true
 }

@@ -34,6 +34,9 @@ conformance:
 .PHONY: apidiff
 apidiff:
 	bash .github/apidiff/check.sh
+.PHONY: test-jsonv2
+test-jsonv2:
+	GOEXPERIMENT=jsonv2 go test -race -count=1 ./parser/... . ./client/...
 
 # Race tests of STRESS_PKGS that are also in PKGS, repeated and shuffled.
 .PHONY: test-stress
@@ -62,6 +65,7 @@ lint: vet
 vet:
 	go vet ./.github/architecture ./.github/changes
 	@set -e; for os in linux darwin windows; do echo "==> GOOS=$$os"; GOOS=$$os go vet ./...; done
+	GOOS=linux GOARCH=386 go vet ./...
 	go vet -tags conformance ./...
 	@set -e; for d in $(EXAMPLES); do echo "==> $$d"; (cd $$d && go vet ./...); done
 	go vet ./engineio/_examples

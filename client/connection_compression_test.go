@@ -21,7 +21,7 @@ func (c *compressionClientConn) NextWriterCompress(ft eioparser.FrameType, compr
 }
 
 func TestClientCompressBuffered(t *testing.T) {
-	cl, err := newTestManager("http://unused/", WithReconnection(!(true)))
+	cl, err := newTestManager(t, "http://unused/", WithReconnection(!(true)))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	fc := newFakeConn(t)

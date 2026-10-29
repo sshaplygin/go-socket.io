@@ -207,7 +207,7 @@ type peer struct {
 
 func newPeer(t *testing.T, side byte, h hooks, nsps ...string) *peer {
 	p := &peer{fc: newFakeConn(t), conns: make(chan Conn, 8), errs: make(chan nsErr, 128), nilErrs: make(chan error, 8), discs: make(chan string, 8), extra: make(map[string]Conn), nsps: nsps}
-	cl, err := newTestManager("http://127.0.0.1/")
+	cl, err := newTestManager(t, "http://127.0.0.1/")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
 	cl.dial = func(string) (engineclient.Conn, error) { return p.fc, nil }

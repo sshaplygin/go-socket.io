@@ -1,4 +1,4 @@
-module github.com/sshaplygin/go-socket.io/_examples/deault-http
+module github.com/sshaplygin/go-socket.io/_examples/default-http
 
 go 1.22
 

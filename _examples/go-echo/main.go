@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/labstack/echo"
+	"github.com/labstack/echo/v4"
 
 	socketio "github.com/sshaplygin/go-socket.io"
 )

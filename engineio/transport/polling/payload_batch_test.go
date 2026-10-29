@@ -23,7 +23,8 @@ func TestPollingBatchesOrderedPacketsInOneResponse(t *testing.T) {
 			req.Header.Set("Accept-Encoding", encoding)
 			c := newServerConn(&Transport{Compression: true, CompressionThreshold: 1}, req)
 			defer func() { _ = c.Close() }()
-			require.NoError(t, c.SetWriteDeadline(time.Now().Add(time.Second)))
+			clock := newManualBatchClock(c.payload)
+			require.NoError(t, c.SetWriteDeadline(time.Now().Add(5*time.Second)))
 			done := make(chan error, 1)
 			go func() {
 				for _, body := range []string{"first", "second", "third"} {
@@ -43,8 +44,7 @@ func TestPollingBatchesOrderedPacketsInOneResponse(t *testing.T) {
 				}
 				done <- nil
 			}()
-			response := httptest.NewRecorder()
-			c.ServeHTTP(response, req)
+			response := serveBatchUntilIdle(t, c, req, clock, 3)
 			body := response.Body.Bytes()
 			if encoding != "" {
 				r, e := gzip.NewReader(bytes.NewReader(body))
@@ -65,7 +65,8 @@ func TestPollingBatchContainsBinaryAndCloseInOrder(t *testing.T) {
 			req := httptest.NewRequest("GET", "http://localhost/"+query, nil)
 			c := newServerConn(Default, req)
 			defer func() { _ = c.Close() }()
-			require.NoError(t, c.SetWriteDeadline(time.Now().Add(time.Second)))
+			clock := newManualBatchClock(c.payload)
+			require.NoError(t, c.SetWriteDeadline(time.Now().Add(5*time.Second)))
 			done := make(chan error, 1)
 			go func() {
 				for _, ft := range []eioparser.FrameType{eioparser.String, eioparser.Binary} {
@@ -85,8 +86,7 @@ func TestPollingBatchContainsBinaryAndCloseInOrder(t *testing.T) {
 				}
 				done <- c.CloseGracefully()
 			}()
-			response := httptest.NewRecorder()
-			c.ServeHTTP(response, req)
+			response := serveBatchUntilIdle(t, c, req, clock, 3)
 			require.NoError(t, <-done)
 			if query != "" {
 				require.Equal(t, "2:4a6:b4YQ==1:1", response.Body.String())
@@ -101,6 +101,7 @@ func TestPollingBatchHasFinitePacketBudget(t *testing.T) {
 	req := httptest.NewRequest("GET", "http://localhost/?b64=1", nil)
 	c := newServerConn(Default, req)
 	defer func() { _ = c.Close() }()
+	newManualBatchClock(c.payload)
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
@@ -119,15 +120,14 @@ func TestPollingBatchHasFinitePacketBudget(t *testing.T) {
 	go func() { defer close(done); c.ServeHTTP(response, req) }()
 	select {
 	case <-done:
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("sustained writes retained the GET")
 	}
-	require.NotEmpty(t, response.Body.String())
-	require.LessOrEqual(t, len(response.Body.String()), 64*3)
+	require.Equal(t, strings.Repeat("1:4", 64), response.Body.String())
 	require.NoError(t, c.Close())
 	select {
 	case <-stopped:
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("writer did not stop")
 	}
 }
@@ -147,6 +147,7 @@ func (w *secondPacketGate) Write(p []byte) (int, error) {
 func TestCanceledBatchKeepsActiveWriterLease(t *testing.T) {
 	p := newPayload(false)
 	p.batch = true
+	newManualBatchClock(p)
 	defer func() { _ = p.Close() }()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -171,13 +172,13 @@ func TestCanceledBatchKeepsActiveWriterLease(t *testing.T) {
 	go func() { err := p.flushOut(ctx, w); w.gate.returned.Store(true); flushed <- err }()
 	select {
 	case <-w.gate.started:
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("batch did not acquire second packet")
 	}
 	cancel()
 	select {
 	case <-p.close:
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("cancellation did not close payload")
 	}
 	select {
@@ -189,7 +190,7 @@ func TestCanceledBatchKeepsActiveWriterLease(t *testing.T) {
 	select {
 	case e := <-flushed:
 		require.Error(t, e)
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("flush retained writer")
 	}
 	<-written
@@ -203,7 +204,8 @@ func TestPollingBatchSeparatesCompressionPreferences(t *testing.T) {
 			req.Header.Set("Accept-Encoding", "gzip")
 			c := newServerConn(&Transport{Compression: true, CompressionThreshold: 1}, req)
 			defer func() { _ = c.Close() }()
-			require.NoError(t, c.SetWriteDeadline(time.Now().Add(time.Second)))
+			clock := newManualBatchClock(c.payload)
+			require.NoError(t, c.SetWriteDeadline(time.Now().Add(5*time.Second)))
 			done := make(chan error, 1)
 			go func() {
 				for _, compress := range []bool{first, !first} {
@@ -223,9 +225,14 @@ func TestPollingBatchSeparatesCompressionPreferences(t *testing.T) {
 				}
 				done <- nil
 			}()
-			for _, compress := range []bool{first, !first} {
+			for i, compress := range []bool{first, !first} {
 				response := httptest.NewRecorder()
-				c.ServeHTTP(response, req)
+				if i == 0 {
+					c.ServeHTTP(response, req)
+					clock.waitTimers(t, 1, nil)
+				} else {
+					response = serveBatchUntilIdle(t, c, req, clock, 1)
+				}
 				body := response.Body.Bytes()
 				if compress {
 					require.Equal(t, "gzip", response.Header().Get("Content-Encoding"))

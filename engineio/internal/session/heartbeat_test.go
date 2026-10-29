@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
@@ -178,4 +179,28 @@ func TestFailClassifiesByDeadlineError(t *testing.T) {
 			require.Equal(t, tc.want, s.closeError().Reason)
 		})
 	}
+}
+
+// retryWriterConn returns the errs from its successive NextWriter calls.
+type retryWriterConn struct {
+	scriptConn
+	errs []error
+}
+
+func (c *retryWriterConn) NextWriter(eioparser.FrameType, eioparser.PacketType) (io.WriteCloser, error) {
+	err := c.errs[0]
+	c.errs = c.errs[1:]
+	return nil, err
+}
+
+// TestWriteTimeoutIsNotRetried checks that the session does not retry a
+// temporary error that is also a timeout. A retry would surface the next
+// error and report "transport error" instead of "ping timeout".
+func TestWriteTimeoutIsNotRetried(t *testing.T) {
+	timeout := &polling.OpError{Op: "write", Err: os.ErrDeadlineExceeded}
+	s := newTestSession(t, &retryWriterConn{errs: []error{timeout, errors.New("broken")}}, "polling")
+	_, err := s.NextWriter(eioparser.String)
+	require.Error(t, err)
+	require.NoError(t, s.Close())
+	require.Equal(t, ReasonPingTimeout, s.closeError().Reason)
 }

@@ -20,6 +20,10 @@ import (
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
+// closePacketTimeout bounds, from Close, the wait for an in-flight POST and the
+// final POST that carries the polling CLOSE packet.
+const closePacketTimeout = 2 * time.Second
+
 // Opener is client connection which need receive open message first.
 type Opener interface {
 	Open() (eioparser.ConnParameters, error)
@@ -128,6 +132,8 @@ func (c *client) terminate(reason CloseReason, err error) error {
 	var result error
 	c.closeOnce.Do(func() {
 		c.mu.Lock()
+		// Only Close of a session that has not failed or been closed by the server tells it.
+		orderly := reason == ReasonForcedClose && c.cause == nil
 		if c.cause == nil {
 			c.cause = &CloseError{Reason: reason, Err: err}
 		}
@@ -144,9 +150,32 @@ func (c *client) terminate(reason CloseReason, err error) error {
 				p.Resume()
 			}
 		}
+		if polling, ok := conn.(interface{ Flush() error }); ok && orderly {
+			go c.sendClose(conn, polling)
+			return
+		}
 		result = conn.Close()
 	})
 	return result
+}
+
+// sendClose queues CLOSE behind the writes already admitted, lets the in-flight
+// POST finish and sends CLOSE in a final POST, as engine.io-client's
+// Polling.doClose does, then cancels the outstanding requests. closePacketTimeout
+// bounds it; a failed or expired CLOSE POST is not reported.
+func (c *client) sendClose(conn transport.Conn, polling interface{ Flush() error }) {
+	expired := make(chan struct{})
+	bound := time.AfterFunc(closePacketTimeout, func() { close(expired); _ = conn.Close() })
+	defer bound.Stop()
+	select {
+	case <-c.writeGate:
+		if w, err := conn.NextWriter(eioparser.String, eioparser.CLOSE); err == nil && w.Close() == nil {
+			_ = polling.Flush()
+		}
+		c.releaseWrite()
+	case <-expired:
+	}
+	_ = conn.Close()
 }
 
 func (c *client) closeError() error {

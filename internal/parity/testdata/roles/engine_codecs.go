@@ -2,6 +2,7 @@ package main
 
 import (
 	"io"
+	"strings"
 
 	"github.com/sshaplygin/go-socket.io/engineio/parser"
 )
@@ -25,8 +26,22 @@ var (
 	_ parser.Packet  = parser.Packet{FType: parser.Binary, PType: parser.MESSAGE, Data: []byte{1}}
 )
 
+type frameWriter struct{}
+
+func (frameWriter) NextWriter(parser.FrameType) (io.WriteCloser, error) { return discardWriter{}, nil }
+
+type discardWriter struct{}
+
+func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
+func (discardWriter) Close() error                { return nil }
+
+type frameReader struct{}
+
+func (frameReader) NextReader() (parser.FrameType, io.ReadCloser, error) {
+	return parser.String, io.NopCloser(strings.NewReader("4hello")), nil
+}
+
 func main() {
-	writer := parser.NewFakeConnWriter()
-	_ = parser.NewPacketEncoder(writer)
-	_ = parser.NewPacketDecoder(parser.NewFakeConnReader([]parser.Frame{{FType: parser.String}}))
+	_ = parser.NewPacketEncoder(frameWriter{})
+	_ = parser.NewPacketDecoder(frameReader{})
 }

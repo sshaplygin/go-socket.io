@@ -22,6 +22,12 @@ type closeCause struct {
 	err    error // set for reasonTransportError only
 }
 
+// closingTransport publishes the final connection without requiring a failing
+// frame writer to acquire upgradeLocker. A closed session cannot upgrade.
+type closingTransport struct {
+	conn transport.Conn
+}
+
 // Close starts an orderly polling close after accepted writes. It returns while
 // waiting for a poll; the transport remains closing for at most 30 seconds.
 // Other transports and failed sessions close immediately. The first cause wins.
@@ -48,6 +54,7 @@ func (s *Session) closeMode(reason string, abort bool) error {
 	s.closed = true
 	conn, probe := s.conn, s.probe
 	if first {
+		s.closing.Store(&closingTransport{conn: conn})
 		close(s.stopWrites)
 	}
 	s.upgradeLocker.Unlock()
@@ -91,7 +98,7 @@ func (s *Session) closeMode(reason string, abort bool) error {
 	}
 	if orderly {
 		go func() {
-			defer close(s.closeDone)
+			defer s.finishClose()
 			timer := time.AfterFunc(s.closeTimeout, func() { s.closeTransport(conn) })
 			defer timer.Stop()
 			select {
@@ -109,10 +116,13 @@ func (s *Session) closeMode(reason string, abort bool) error {
 		return nil
 	}
 	s.closeTransport(conn)
-	close(s.closeDone)
+	s.finishClose()
 	return s.closeErr
 }
 
+// closeTransport may run on a failing frame reader or writer. Its brief write
+// lock is safe because no holder of upgradeLocker, read or write, waits for a
+// frame reader or writer (see upgradeLocker).
 func (s *Session) closeTransport(conn transport.Conn) {
 	s.transportOnce.Do(func() {
 		s.closeErr = conn.Close()
@@ -138,11 +148,8 @@ func (s *Session) fail(err error) error {
 	}
 	if err != nil {
 		if _, synthetic := err.(*CloseError); !synthetic {
-			s.upgradeLocker.RLock()
-			conn, closed := s.conn, s.closed
-			s.upgradeLocker.RUnlock()
-			if closed && s.cause.Load().reason == reasonForcedClose {
-				s.closeTransport(conn)
+			if closing := s.closing.Load(); closing != nil && s.cause.Load().reason == reasonForcedClose {
+				s.closeTransport(closing.conn)
 			}
 		}
 	}
@@ -160,4 +167,13 @@ func (s *Session) closeError() *CloseError {
 		err = io.EOF
 	}
 	return &CloseError{Reason: CloseReason(c.reason), Err: err}
+}
+
+// finishClose retires the session synchronously instead of keeping an idle
+// registry watcher goroutine for the lifetime of each connection.
+func (s *Session) finishClose() {
+	if s.onClosed != nil {
+		s.onClosed()
+	}
+	close(s.closeDone)
 }

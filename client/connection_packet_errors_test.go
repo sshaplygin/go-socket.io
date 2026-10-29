@@ -95,7 +95,7 @@ func TestClientRegistrationAndDialFailures(t *testing.T) {
 		{"event", func(c *manager) { c.OnEvent("event", func(Conn) {}) }},
 	} {
 		t.Run(register.name, func(t *testing.T) {
-			c, err := newTestManager("http://127.0.0.1/")
+			c, err := newTestManager(t, "http://127.0.0.1/")
 			require.NoError(t, err)
 			register.apply(c)
 			failure := errors.New("dial failed")
@@ -106,7 +106,7 @@ func TestClientRegistrationAndDialFailures(t *testing.T) {
 	t.Run("default root handler uses the configured logger", func(t *testing.T) {
 		var records bytes.Buffer
 		log := slog.New(slog.NewTextHandler(&records, nil))
-		c, err := newTestManager("http://127.0.0.1/", WithLogger(log))
+		c, err := newTestManager(t, "http://127.0.0.1/", WithLogger(log))
 		require.NoError(t, err)
 		fc := newFakeConn(t)
 		c.dial = func(string) (engineclient.Conn, error) { return fc, nil }

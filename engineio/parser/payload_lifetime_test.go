@@ -194,3 +194,39 @@ func TestPayloadDecoderRetainsFirstBodyReadFailure(t *testing.T) {
 		}
 	}
 }
+
+// A polling transport that is already closed answers a release with io.EOF. A
+// body read failure must still end the payload: Close reports the read failure
+// and never decodes another packet from the released source.
+func TestPayloadDecoderCloseAfterBodyFailureWithClosedSource(t *testing.T) {
+	readErr := errors.New("http: invalid Read on closed Body")
+	for _, format := range []struct {
+		name   string
+		data   []byte
+		binary bool
+	}{
+		{"text", []byte("4:4abc"), false},
+		{"binary", []byte{1, 4, 0xff, 4, 'a', 'b', 'c'}, true},
+		{"base64", []byte("6:b4YWJj"), false},
+	} {
+		for _, withData := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/data=%t", format.name, withData), func(t *testing.T) {
+				raw := &transientBodyFailure{Reader: bytes.NewReader(format.data), cause: readErr, withData: withData}
+				source := &payloadLease{reader: raw, binary: format.binary, releaseErr: io.EOF}
+				decoder := parser.NewPayloadDecoder(source)
+				_, _, reader, err := decoder.NextReader()
+				require.NoError(t, err)
+				require.ErrorIs(t, reader.Close(), readErr)
+				require.Equal(t, 1, source.releases)
+				require.ErrorIs(t, source.releasedWith, readErr)
+				_, _, next, err := decoder.NextReader()
+				require.Nil(t, next)
+				require.ErrorIs(t, err, readErr)
+				require.ErrorIs(t, decoder.Close(), readErr)
+				require.Equal(t, 1, source.acquires)
+				require.Equal(t, 1, source.releases)
+				require.Zero(t, raw.readsAfterFailure, "decoder must not touch the released source")
+			})
+		}
+	}
+}

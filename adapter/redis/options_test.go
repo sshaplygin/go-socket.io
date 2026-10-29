@@ -94,3 +94,45 @@ func TestFactoryDefersConstructionErrors(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, instance)
 }
+
+func TestFactorySubscribeTimeoutBoundsSubscription(t *testing.T) {
+	s := miniredis.RunT(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	s.Server().SetPreHook(func(_ *server.Peer, command string, _ ...string) bool {
+		if command == "PSUBSCRIBE" {
+			<-release
+		}
+		return false
+	})
+	factory := redisadapter.New(redisadapter.WithAddr(s.Addr()),
+		redisadapter.WithSubscribeTimeout(time.Minute), redisadapter.WithSubscribeTimeout(50*time.Millisecond))
+	started := time.Now()
+	instance, err := factory("/bounded")
+	require.Error(t, err)
+	require.Nil(t, instance)
+	require.Less(t, time.Since(started), time.Second)
+}
+
+// A nonpositive value selects the ten-second default rather than an expired
+// bound: construction outlasts a 300ms PSUBSCRIBE hold and succeeds.
+func TestFactoryNonpositiveSubscribeTimeoutSelectsDefault(t *testing.T) {
+	for _, value := range []time.Duration{0, -time.Second} {
+		s := miniredis.RunT(t)
+		release := make(chan struct{})
+		s.Server().SetPreHook(func(_ *server.Peer, command string, _ ...string) bool {
+			if command == "PSUBSCRIBE" {
+				<-release
+			}
+			return false
+		})
+		started := time.Now()
+		timer := time.AfterFunc(300*time.Millisecond, func() { close(release) })
+		t.Cleanup(func() { timer.Stop() })
+		instance, err := redisadapter.New(redisadapter.WithAddr(s.Addr()),
+			redisadapter.WithRequestsTimeout(5*time.Second), redisadapter.WithSubscribeTimeout(value))("/default")
+		require.NoError(t, err, value)
+		t.Cleanup(func() { _ = instance.(io.Closer).Close() })
+		require.GreaterOrEqual(t, time.Since(started), 300*time.Millisecond, value)
+	}
+}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -38,6 +37,7 @@ type payload struct {
 	feeding      int32
 	readError    chan error
 	readDeadline atomic.Value
+	feedTimer    operationTimer // owned by the FeedIn that holds feeding
 	decoder      *eioparser.PayloadDecoder
 
 	writerChan      chan io.Writer
@@ -47,8 +47,10 @@ type payload struct {
 	flushing        int32
 	writeError      chan error
 	writeDeadline   atomic.Value
+	flushTimer      operationTimer // owned by the flushOut that holds flushing
 	encoder         *eioparser.PayloadEncoder
 	batch           bool // server GETs coalesce complete packets; client POSTs keep their lease
+	batchClock      *batchClock
 }
 
 // newPayload returns a new payload.
@@ -124,39 +126,51 @@ func (p *payload) FeedIn(r io.Reader, supportBinary bool) error {
 	}
 	defer p.pauser.Done()
 
+	err := p.offerFeed(readArg{r: r, supportBinary: supportBinary})
+	if err == nil {
+		err = p.awaitFeed()
+	}
+	// Not deferred, to keep this frame small; after a panic the next owner's
+	// until stops the timer.
+	p.feedTimer.stop()
+	return err
+}
+
+// offerFeed hands one request body to the decoder and returns nil once it is
+// taken; every failure it returns is non-nil. offerFeed and awaitFeed keep
+// FeedIn's blocking selects in their own small frames: under Go 1.23+ timers,
+// blocking on the deadline channel adds the timer to the runtime heap on the
+// caller's stack, and doing that under FeedIn's frame made a goroutine that
+// had just started grow its stack.
+func (p *payload) offerFeed(arg readArg) error {
 	for {
-		after, ok := p.readTimeout()
+		after, ok := p.feedTimer.until(p.readDeadline.Load().(time.Time))
 		if !ok {
 			return p.Store("read", errTimeout)
 		}
-
 		select {
 		case <-p.close:
 			return p.load()
-
 		case <-after:
 			// it may changed during wait, need check again
 			continue
-
-		case p.readerChan <- readArg{
-			r:             r,
-			supportBinary: supportBinary,
-		}:
+		case p.readerChan <- arg:
+			return nil
 		}
-		break
 	}
+}
 
+// awaitFeed waits for the decoder to finish the request body.
+func (p *payload) awaitFeed() error {
 	for {
-		after, ok := p.readTimeout()
+		after, ok := p.feedTimer.until(p.readDeadline.Load().(time.Time))
 		if !ok {
 			return p.Store("read", errTimeout)
 		}
-
 		select {
 		case <-after:
 			// it may changed during wait, need check again
 			continue
-
 		case err := <-p.readError:
 			return p.Store("read", err)
 		case <-p.close:
@@ -196,6 +210,8 @@ func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
 		return newOpError("write", errOverlap)
 	}
 	defer atomic.StoreInt32(&p.flushing, 0)
+	timeout := &p.flushTimer
+	defer timeout.stop()
 
 	if ok := p.pauser.Working(); !ok {
 		_, err := w.Write(p.encoder.NOOP())
@@ -211,7 +227,7 @@ func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
 	packets := 0
 	var batchEnd time.Time
 	for {
-		after, ok := p.writeTimeout()
+		after, ok := timeout.until(p.writeDeadline.Load().(time.Time))
 		if !ok {
 			return p.Store("write", errTimeout)
 		}
@@ -237,7 +253,7 @@ func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
 	}
 
 	for {
-		after, ok := p.writeTimeout()
+		after, ok := timeout.until(p.writeDeadline.Load().(time.Time))
 		if !ok {
 			return p.Store("write", errTimeout)
 		}
@@ -254,17 +270,17 @@ func (p *payload) flushOut(ctx context.Context, w io.Writer) error {
 			}
 			packets++
 			if batchEnd.IsZero() {
-				batchEnd = time.Now().Add(5 * time.Millisecond)
+				batchEnd = p.batchNow().Add(5 * time.Millisecond)
 			}
 			if packets >= 64 || fw.size() >= 256*1024 {
 				return nil
 			}
-			idle := min(time.Millisecond, time.Until(batchEnd))
+			idle := min(time.Millisecond, p.batchUntil(batchEnd))
 			if idle <= 0 {
 				return nil
 			}
 			offer := batchOffer{writer: fw, accepted: make(chan bool, 1)}
-			timer := time.NewTimer(idle)
+			timer := p.newBatchTimer(idle)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
@@ -396,33 +412,54 @@ func (p *payload) Store(op string, err error) error {
 	return old.(error)
 }
 
-func (p *payload) readTimeout() (<-chan time.Time, bool) {
-	deadline := p.readDeadline.Load().(time.Time)
-	wait := time.Until(deadline)
-	if deadline.IsZero() {
-		// wait for every
-		wait = math.MaxInt64
+// operationTimer is the deadline timer of one blocking call. FeedIn and
+// flushOut use the payload's feedTimer and flushTimer: the feeding and flushing
+// flags admit one call at a time, and the call stops its timer before it clears
+// the flag. Each Acquire/Release of the payload reader or writer has a timer of
+// its own, because it can wait on the same deadline as a running feed or flush.
+// until re-arms the timer each time the call re-reads its deadline, and every
+// return after the first until stops it.
+//
+// Stopping matters under pre-Go 1.23 timer semantics (main module go line
+// below 1.23, an older toolchain, or GODEBUG=asynctimerchan=1): an unstopped
+// timer stays live until it fires, about 45 s for polling deadlines. In that
+// mode a timer that fired before Stop can leave a value in C, and stop drains
+// it. A firing still in flight when Stop returns can land after the next
+// Reset, so a call may see a spurious tick; every deadline case only re-reads
+// the deadline, so such a tick costs one extra loop and cannot shorten it.
+// Under Go 1.23+ semantics Stop and Reset discard pending values and the
+// drain finds nothing.
+type operationTimer struct{ timer *time.Timer }
+
+func (t *operationTimer) stop() {
+	if t.timer != nil && !t.timer.Stop() {
+		select {
+		case <-t.timer.C:
+		default:
+		}
 	}
-	if wait <= 0 {
-		return nil, false
-	}
-	return time.After(wait), true
 }
 
-func (p *payload) writeTimeout() (<-chan time.Time, bool) {
-	deadline := p.writeDeadline.Load().(time.Time)
-	wait := time.Until(deadline)
+func (t *operationTimer) until(deadline time.Time) (<-chan time.Time, bool) {
+	t.stop()
 	if deadline.IsZero() {
-		// wait for every
-		wait = math.MaxInt64
+		return nil, true
 	}
+	wait := time.Until(deadline)
 	if wait <= 0 {
 		return nil, false
 	}
-	return time.After(wait), true
+	if t.timer == nil {
+		t.timer = time.NewTimer(wait)
+	} else {
+		t.timer.Reset(wait)
+	}
+	return t.timer.C, true
 }
 
 func (p *payload) AcquirePayloadReader() (io.Reader, bool, error) {
+	var timeout operationTimer
+	defer timeout.stop()
 	select {
 	case <-p.close:
 		return nil, false, p.load()
@@ -435,7 +472,7 @@ func (p *payload) AcquirePayloadReader() (io.Reader, bool, error) {
 	p.pauser.Done()
 
 	for {
-		after, ok := p.readTimeout()
+		after, ok := timeout.until(p.readDeadline.Load().(time.Time))
 		if !ok {
 			return nil, false, p.Store("read", errTimeout)
 		}
@@ -453,13 +490,15 @@ func (p *payload) AcquirePayloadReader() (io.Reader, bool, error) {
 }
 
 func (p *payload) ReleasePayloadReader(err error) error {
+	var timeout operationTimer
+	defer timeout.stop()
 	select {
 	case <-p.close:
 		return p.load()
 	default:
 	}
 	for {
-		after, ok := p.readTimeout()
+		after, ok := timeout.until(p.readDeadline.Load().(time.Time))
 		if !ok {
 			return p.Store("read", errTimeout)
 		}
@@ -475,6 +514,8 @@ func (p *payload) ReleasePayloadReader(err error) error {
 }
 
 func (p *payload) AcquirePayloadWriter() (io.Writer, error) {
+	var timeout operationTimer
+	defer timeout.stop()
 	select {
 	case <-p.close:
 		return nil, p.load()
@@ -487,7 +528,7 @@ func (p *payload) AcquirePayloadWriter() (io.Writer, error) {
 	p.pauser.Done()
 
 	for {
-		after, ok := p.writeTimeout()
+		after, ok := timeout.until(p.writeDeadline.Load().(time.Time))
 		if !ok {
 			return nil, p.Store("write", errTimeout)
 		}
@@ -514,6 +555,8 @@ func (p *payload) AcquirePayloadWriter() (io.Writer, error) {
 }
 
 func (p *payload) ReleasePayloadWriter(err error) error {
+	var timeout operationTimer
+	defer timeout.stop()
 	if errors.Is(err, errDetached) {
 		return err // FlushOut has returned; nobody waits for this result
 	}
@@ -523,7 +566,7 @@ func (p *payload) ReleasePayloadWriter(err error) error {
 	default:
 	}
 	for {
-		after, ok := p.writeTimeout()
+		after, ok := timeout.until(p.writeDeadline.Load().(time.Time))
 		if !ok {
 			return p.Store("write", errTimeout)
 		}

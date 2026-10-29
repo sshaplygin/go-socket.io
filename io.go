@@ -6,6 +6,8 @@ import (
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
+func (c *connection) startError() { c.errorOnce.Do(func() { go c.serveError() }) }
+
 func (c *connection) serveError() {
 	for {
 		select {
@@ -108,6 +110,7 @@ func (c *connection) serveRead(connect, disconnect func(*connection, parser.Head
 		// failure state and running disconnect callbacks.
 		c.stop()
 		<-workerDone
+		_ = c.decoder.Close()
 		c.finishRead()
 	}()
 	for {

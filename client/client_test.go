@@ -12,6 +12,7 @@ import (
 func TestClientRejectsEmptyAddr(t *testing.T) {
 	_, err := client.New("")
 	require.ErrorIs(t, err, client.ErrEmptyAddr)
+	require.EqualError(t, err, "client: empty addr")
 	_, err = client.New("http://[::1")
 	require.Error(t, err)
 }

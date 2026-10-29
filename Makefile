@@ -31,6 +31,10 @@ conformance:
 	go vet -tags conformance ./internal/conformance/...
 	go test -race -count=1 -tags conformance ./internal/conformance/...
 
+.PHONY: test-jsonv2
+test-jsonv2:
+	GOEXPERIMENT=jsonv2 go test -race -count=1 ./parser/... . ./client/...
+
 # Race tests of STRESS_PKGS that are also in PKGS, repeated and shuffled.
 .PHONY: test-stress
 test-stress:

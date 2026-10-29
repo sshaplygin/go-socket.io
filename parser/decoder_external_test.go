@@ -117,6 +117,19 @@ func TestDecoderAttachmentErrorsAndPrecedence(t *testing.T) {
 	}
 }
 
+// The text frame is read in full before its header is parsed, so a frame whose
+// read fails reports that error even when its first bytes are already invalid.
+func TestDecodeHeaderReportsFrameReadErrorBeforeHeaderError(t *testing.T) {
+	want := errors.New("frame read limit")
+	frame := io.NopCloser(io.MultiReader(strings.NewReader("9xx"), failedReader{want}))
+	d := parser.NewDecoder(&framesWithErrors{frames: []io.ReadCloser{frame}, types: []parser.FrameType{parser.Text}})
+	var h parser.Header
+	var event string
+	if err := d.DecodeHeader(&h, &event); !errors.Is(err, want) {
+		t.Fatalf("got %v; want frame read error %v", err, want)
+	}
+}
+
 func TestDiscardClosesEveryAttachmentAfterCloseFailure(t *testing.T) {
 	want := errors.New("close")
 	r := &framesWithErrors{frames: []io.ReadCloser{

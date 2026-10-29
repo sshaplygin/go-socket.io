@@ -77,7 +77,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.changed == 'true' && (needs.changes.outputs.bench_v1 != '' || needs.changes.outputs.bench_v2 != '')
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
     outputs:
       gate: ${{ steps.generate.outputs.gate }}
     env:
@@ -152,6 +152,15 @@ jobs:
         env:
           PKGS: ${{ steps.select.outputs.base_v2 }}
         run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 $PKGS | tee -a ../../base.txt
+      # When a benchmark's b.N=1 probe fails in a later -count repetition, go test prints
+      # --- FAIL but still prints PASS and exits 0, so the sample is silently missing from
+      # the report. Each side's raw output is checked for such lines.
+      - name: Fail on lost base samples
+        run: |
+          if grep '^--- FAIL' base.txt; then
+            echo '::error::A base benchmark failed (lines above); its samples are missing.'
+            exit 1
+          fi
       - name: Benchmark PR, v1 module
         if: steps.select.outputs.head_v1 != ''
         working-directory: pr
@@ -164,6 +173,12 @@ jobs:
         env:
           PKGS: ${{ steps.select.outputs.head_v2 }}
         run: go test -mod=readonly -run '^$' -bench . -benchmem -count=10 $PKGS | tee -a ../../pr.txt
+      - name: Fail on lost PR samples
+        run: |
+          if grep '^--- FAIL' pr.txt; then
+            echo '::error::A PR benchmark failed (lines above); its samples are missing.'
+            exit 1
+          fi
       - name: Record completed inputs
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}

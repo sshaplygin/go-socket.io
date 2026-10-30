@@ -77,7 +77,7 @@ func TestPollingCloseDrainsLastPost(t *testing.T) {
 				select {
 				case <-canceled:
 				case <-time.After(3 * time.Second):
-					t.Fatal("close deadline did not cancel POST")
+					t.Fatal("the 2 s close bound did not cancel POST")
 				}
 				return
 			}

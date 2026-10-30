@@ -4,9 +4,11 @@
 //
 // # Variables
 //
-// Log is the fallback logger: the parser, the transports, engineio/parser and
-// the client dialer log through it, and it writes to whatever slog.Default()
-// is when a record is logged. Level is the library log level described below.
+// Log is the fallback logger: the Socket.IO parser, the transports,
+// engineio/parser, engineio/client (its dialer, pings and upgrade probes) and
+// the Redis adapter log through it, whatever WithLogger is set to, and it writes
+// to whatever slog.Default() is when a record is logged. Level is the library log
+// level described below.
 // To route library records, use the server/client role's WithLogger option or call
 // slog.SetDefault; assigning Log bypasses Wrap.
 //
@@ -89,10 +91,10 @@ var Level = new(slog.LevelVar)
 
 func overrideOn() bool { return Level.Level() != LevelUnset }
 
-// Log is the fallback logger for packages without access to
-// per-instance configuration: the parsers, transports and Engine.IO client
-// dialer. It writes to whatever slog.Default() is when a record is logged, so
-// an application's later slog.SetDefault applies to it.
+// Log is the fallback logger for the packages listed in the package
+// documentation, which have no access to per-instance configuration. It writes
+// to whatever slog.Default() is when a record is logged, so an application's
+// later slog.SetDefault applies to it.
 var Log = slog.New(&levelHandler{next: &defaultHandler{}})
 
 func init() {

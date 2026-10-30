@@ -93,12 +93,18 @@ func eventPacketHandler(c *connection, event string, header parser.Header) error
 			return typedEventPacketHandler(c, conn, event, header, typed)
 		}
 	}
+	// Without listeners, only socket middleware observes the arguments. Without
+	// middleware either, an empty type list consumes the arguments and attachments
+	// without decoding them, and the packet ends there: no listener, no ACK.
+	unobserved := len(snapshot) == 0 && !conn.hasMiddleware()
 	var types []reflect.Type
 	if len(snapshot) != 0 {
 		types = snapshot[0].ArgTypes()
 		if types == nil {
 			types = []reflect.Type{}
 		}
+	} else if unobserved {
+		types = []reflect.Type{}
 	}
 	args, err := decodeCallbackArgs(c.decoder, types, len(snapshot) > 0 && snapshot[0].Variadic())
 	if err != nil {
@@ -109,6 +115,9 @@ func eventPacketHandler(c *connection, event string, header parser.Header) error
 			return nil
 		}
 		return errDecodeArgs
+	}
+	if unobserved {
+		return nil
 	}
 
 	if err := conn.runMiddleware(event, args); err != nil {

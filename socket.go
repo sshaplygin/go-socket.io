@@ -321,6 +321,12 @@ func (nc *namespaceConn) Use(f func(string, []interface{}) error) {
 	nc.outMu.Unlock()
 }
 
+func (nc *namespaceConn) hasMiddleware() bool {
+	nc.outMu.Lock()
+	defer nc.outMu.Unlock()
+	return len(nc.middleware) != 0
+}
+
 func (nc *namespaceConn) runMiddleware(event string, args []reflect.Value) (err error) {
 	defer func() {
 		if value := recover(); value != nil {

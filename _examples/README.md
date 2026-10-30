@@ -59,12 +59,12 @@ individual protocol features.
 go run ./_examples/client -addr http://127.0.0.1:8000 -name gopher   # from the repository root
 ```
 
-`Close` returns before the namespace DISCONNECT is written, and the example exits
-right after it, so the DISCONNECT can be lost. Other chat users still receive
-`user left`: the server ends the session when the client's DISCONNECT or Engine.IO
-CLOSE arrives, when it sees the client's connection close, or at the latest at its
-ping timeout. A program
-that must deliver its last events waits for their ACKs before it exits.
+`Close` returns without waiting, and the example exits right after it, so the
+namespace DISCONNECT can be lost. Other chat users still receive `user left`: the
+server runs the namespace's disconnect handler when the client's DISCONNECT
+arrives, or when the Engine.IO session ends on the client's CLOSE packet, on a
+closed connection, or at the latest at the server's ping timeout. A program that
+must deliver its last events waits for their ACKs before it exits.
 
 All server examples accept `-addr` (default `:8000`, except the Unix Redis example
 at `:8080`); pprof also accepts `-debug-addr` (default `:8001`). The examples own their HTTP servers, report service failures back to

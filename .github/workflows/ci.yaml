@@ -220,10 +220,14 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v7
         with:
           go-version: stable
           check-latest: true
+      - name: API compatibility with the latest fork v1 release
+        run: make apidiff
       - name: Go Tidy
         run: go mod tidy && git diff --exit-code
       - name: Go Mod Verify

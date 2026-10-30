@@ -2014,7 +2014,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W38. API compatibility gate
 
-- **Status:** open
+- **Status:** in progress — #181; real release-tag comparison pending the first fork tag.
 - **Priority:** after release (needs the v1 tag)
 - **Findings:** [API-11](#api-compatibility-findings)
 - **Depends on:** the release tag
@@ -3324,7 +3324,7 @@ Every finding is listed under the dimension that reported it.
 | API-8 | minor | — | `server.go:276` | Some v1.4.2-era calls still compile but mean something different: `BroadcastToRoom(room, event, s)` when `s` is a string (now read as namespace, room, event), and parser `Encode(h, args)` with nil `args` (untyped nil or a nil `[]interface{}`), which now writes a `null` payload where v1.4.2 wrote none | Call out both in the migration guide as 'compiles but changes meaning'. Code changes are optional, e.g. a vet-able note in the BroadcastToRoom godoc that the first argument is the namespace. Fixed by #191 (W8). |
 | API-9 | minor | — | `engineio/conn.go:8` | Public aliases to internal packages hide method sets and fields from go doc, contrary to the project's own rule | Before the API freeze, define at least engineio.Conn, CloseError and RemoteError in their public packages (internal code can alias the public type instead), or extend TestPublicRoleDocumentation to these types. Fixed by #154 (D2). |
 | API-10 | minor | — | `README.md:29` | README on master advertises an install command and pkg.go.dev links for a v1.5.0 that does not exist yet | Tag promptly after merge, or keep version-less instructions on master until the tag exists. Add the engineio pkg.go.dev link as CONTRIBUTING requires. Fixed by #193 (W10). |
-| API-11 | minor | — | `Makefile` | No API-compatibility gate for v1 after release | After tagging, add a CI step such as `apidiff -m -incompatible` (or `gorelease -base=<latest v1 tag>`) against the latest v1 tag for the root module, failing on incompatible changes. |
+| API-11 | minor | — | `Makefile` | No API-compatibility gate for v1 after release | After tagging, add a CI step such as `apidiff -m -incompatible` (or `gorelease -base=<latest v1 tag>`) against the latest v1 tag for the root module, failing on incompatible changes. Implementation prepared in #181 (W38); release-tag validation pending. |
 | API-12 | nit | — | `engineio/parser/fake.go:61` | Test fakes returning unexported types are part of the public engineio/parser API | Move them to an internal test-support package or _test.go files before tagging, or accept and document them. Fixed by #156 (D6). |
 | API-13 | nit | — | `go.mod:3` | Go version floor raised to 1.22 (v1.4.2: no directive; v1.7.0: go 1.16) | Already documented in README.md:32; also list it in the release notes. Fixed by #191 (W8). |
 

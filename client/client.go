@@ -37,8 +37,9 @@ func (c *Client) Connect() error { return c.manager.Connect() }
 // Close disconnects all namespace sockets and returns without waiting for the
 // network. Queued packets and each namespace DISCONNECT are written in the
 // background, bounded by WithCloseTimeout; over polling, the Engine.IO CLOSE
-// packet follows them. A program that exits right after Close can lose them; to
-// make sure its last events arrived, it waits for their ACKs before exiting.
+// packet follows them within a further 2 s (docs/PROTOCOL.md has the timing).
+// A program that exits right after Close can lose them; to make sure its last
+// events arrived, it waits for their ACKs before exiting.
 func (c *Client) Close() error { return c.manager.Close() }
 
 // Emit sends through the namespace selected by the address passed to New.

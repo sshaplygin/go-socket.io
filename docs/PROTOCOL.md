@@ -67,8 +67,11 @@ Package `engineio` of the v1 module at the repository root.
   packets already written, lets the in-flight POST finish and sends `CLOSE` in a final
   POST before it cancels outstanding requests, as engine.io-client 3.5.6 does. `Close`
   does not wait for it; the in-flight and final POSTs share a 2 s bound, and a failed
-  close POST is not reported. No `CLOSE` is sent after a transport failure, after the
-  server's `CLOSE`, or over an upgraded websocket, which is closed directly.
+  close POST is not reported. No `CLOSE` is sent after the client has recorded a
+  transport failure, after it has read the server's `CLOSE`, or after it has switched
+  to an upgraded websocket, which is closed directly. A `Close` that runs before the
+  client has seen one of these still sends the packet, which the server then rejects
+  (HTTP 400 after the switch) or discards; neither is reported.
 - Duplicate websocket requests carrying a live websocket session ID receive HTTP
   400/code 3. This immediate rejection is Go-specific; the Node reference does not
   use that response for this case.

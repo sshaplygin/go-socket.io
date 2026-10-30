@@ -17,7 +17,7 @@ import (
 )
 
 // The outbound queue size (see ErrWriteBufferFull) and drain deadline (see Conn.Close).
-const defaultWriteBufferSize, defaultDrainTimeout = 64, time.Minute
+const defaultWriteBufferSize, defaultDrainTimeout = 1024, time.Minute
 
 // connection configuration, codecs and channel references are installed before
 // workers start. The read path coordinates decoder/reader handoffs between its

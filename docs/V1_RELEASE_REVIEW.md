@@ -2336,7 +2336,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W49. Raise the default outbound queue
 
-- **Status:** open
+- **Status:** in progress — #207
 - **Priority:** before tag
 - **Findings:** [interop-10](#interoperability-findings)
 - **Depends on:** none
@@ -2466,7 +2466,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W53. Skip argument decoding for events nobody can observe
 
-- **Status:** open
+- **Status:** in progress — #209; BenchmarkUnobservedEvent/args: 162.25Mi → 66.97Mi B/op, 999074 → 70 allocs/op; BenchmarkUnobservedEvent/nested: 47.643Mi → 5.000Mi B/op, 81 → 37 allocs/op (manual benchstat against 6641d4b)
 - **Priority:** before tag (owner decision, 2026-10-29)
 - **Findings:** [C8](#correctness-and-security-findings)
 - **Depends on:** none
@@ -3308,7 +3308,7 @@ Every finding is listed under the dimension that reported it.
 | C5 | minor | — | `engineio/options.go:178` | Permissive CORS default (origin reflected with credentials, websocket origin check disabled) is documented only in godoc | Document the default and how to restrict it (WithCORS(false), transport CheckOrigin) in docs/V1.md in a security section. Consider an example that uses an origin allow-list. Fixed by #148 (W6). |
 | C6 | blocker | confirmed | `engineio/transport/polling/server.go:176` | A polling POST body that never finishes blocks the session's reader with no deadline; ping timeout, `EngineConn().Close()` and `OnDisconnect` never take effect, and `Server.Close` waits for its 10 s bound with 3–4 goroutines left per client (see B2) | Bound the POST body read by the session read deadline, end the session without waiting for the body, and add a raw-TCP regression test (W47). |
 | C7 | major | not re-checked; W47's red test is the re-check | `engineio/transport/polling/payload.go:99` | A polling GET whose client stops reading keeps the handler and `serveWrite` goroutines and the packet buffer after the session and `Server.Close` have finished, until the peer reads or drops TCP; reproduced with a 1,000,000-byte packet on macOS loopback | Bound the GET response write by the session write deadline and expire it on close (W47). |
-| C8 | major | not re-checked; W53's red test is the re-check | `packets.go:96` | An event with no listener has every argument decoded into `interface{}`, one `json.Unmarshal` per element: one 1 MB `["e",0,0,…]` packet allocated 162 MiB in the parser (170×), of which about 67 MiB come from reading and splitting the array in `DecodeHeader` and the rest from argument decoding; 5 such packets over websocket allocated 816 MiB on the server | Discard the arguments when no listener or middleware can observe them, with a committed benchmark (W53). |
+| C8 | major | not re-checked; W53's red test is the re-check | `packets.go:96` | An event with no listener has every argument decoded into `interface{}`, one `json.Unmarshal` per element: one 1 MB `["e",0,0,…]` packet allocated 162 MiB in the parser (170×), of which about 67 MiB come from reading and splitting the array in `DecodeHeader` and the rest from argument decoding; 5 such packets over websocket allocated 816 MiB on the server | Discard the arguments when no listener or middleware can observe them, with a committed benchmark (W53). Fixed by #209 (W53). |
 
 ### API compatibility findings
 
@@ -3403,7 +3403,7 @@ Every finding is listed under the dimension that reported it.
 | interop-7 | nit | — | `docs/PARITY.md:20` | PARITY.md groups heartbeat with raw conformance coverage, but no conformance scenario asserts a periodic ping | Add a short-interval heartbeat scenario (for example `WithPingInterval(200ms)`, then idle for about 1 s and send an ACK) to client.js for both transports, or make the PARITY.md row say which tests own the heartbeat. Fixed by #168 (W17). |
 | interop-8 | nit | — | `internal/conformance/testdata/node/server/redis-cluster.js:199` | Redis mixed-cluster polling scenario idles 30 s after finishing, leaving little margin in runNode's 45 s timeout | Find and remove what keeps the process alive after cleanup, or end the scenario with an explicit `process.exit(process.exitCode \|\| 0)` after cleanup (corrected: the clients are already closed before `io.close()`, `redis-cluster.js:199-200`; see W17). Fixed by #168 (W17). |
 | interop-9 | nit | — | `docs/PROTOCOL.md:60` | Unknown Socket.IO packet type and missing CORS wire description are undocumented differences | Add a CORS bullet (default, WithCORS(false), preflight) and a note on how invalid packets are handled to PROTOCOL.md. Fixed by #148 (W6). |
-| interop-10 | major | not re-checked; W49's red test is the re-check | `connection.go:20` | The default outbound queue of 64 packets closes a JS client that receives a burst of more than 64 queued packets, deterministically over polling: with 2.5.0 and 1.7.4, a handler that emitted N events and then an ACK delivered 0–2 of N for N ≥ 64, and a raw polling probe without the ACK delivered all of 64 and none of 65; Socket.IO 2.5.0 delivered 3000/3000 | Raise the default and record the bound as a difference in PROTOCOL.md (W49). |
+| interop-10 | major | not re-checked; W49's red test is the re-check | `connection.go:20` | The default outbound queue of 64 packets closes a JS client that receives a burst of more than 64 queued packets, deterministically over polling: with 2.5.0 and 1.7.4, a handler that emitted N events and then an ACK delivered 0–2 of N for N ≥ 64, and a raw polling probe without the ACK delivered all of 64 and none of 65; Socket.IO 2.5.0 delivered 3000/3000 | Raise the default and record the bound as a difference in PROTOCOL.md (W49). Fixed by #207 (W49). |
 | interop-11 | minor | — | `docs/PROTOCOL.md:49` | PROTOCOL.md (lines 49 and 61) says an oversize websocket message closes with 1009; ws 7.5.13 saw 1006 in 7 of 18 closes (13 of 18 in the rerun quoted in #204, at load average 37–52), the reference 1009 in 12 of 12 | Say that a client can see 1006 when the connection resets (W51). Fixed by #204 (W51). |
 
 ### Tests findings

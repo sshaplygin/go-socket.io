@@ -136,10 +136,13 @@ func (s *Server) OnConnect(namespace string, f func(Conn) error) {
 }
 
 // OnDisconnect sets the namespace's disconnect handler. Its reason is the peer's
-// namespace disconnect, the engine's transport close/error or ping timeout, or
-// forced close for an application close, shutdown or parser failure. Rooms have
-// been left before it runs; OnEvent(namespace, "disconnecting", func(Conn, string))
-// observes the same reason while the rooms are still joined.
+// namespace disconnect; server namespace disconnect for Conn.Close and
+// Conn.Disconnect; the engine's transport close/error or ping timeout; or forced
+// close for every other server-side close, such as Server.Close, an engine-level
+// close (EngineConn().Close or engineio.Abort), a parser failure, a handler panic
+// or a queue overflow. Rooms have been left before it runs;
+// OnEvent(namespace, "disconnecting", func(Conn, string)) observes the same
+// reason while the rooms are still joined.
 func (s *Server) OnDisconnect(namespace string, f func(Conn, string)) {
 	h := s.getNamespace(namespace)
 	if h == nil {

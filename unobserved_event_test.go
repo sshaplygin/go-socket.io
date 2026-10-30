@@ -74,7 +74,7 @@ func TestUnobservedEventReachesMiddlewareDecoded(t *testing.T) {
 
 // requireNoReport fails if OnError has received an error. OnError runs on the
 // dispatcher, so it has returned for every packet before a later reply arrives.
-func requireNoReport(t *testing.T, errs <-chan error) {
+func requireNoReport[T any](t *testing.T, errs <-chan T) {
 	t.Helper()
 	select {
 	case err := <-errs:
@@ -85,15 +85,22 @@ func requireNoReport(t *testing.T, errs <-chan error) {
 
 // TestUnobservedEventObservableBehavior pins what a peer and OnError observe for an
 // event without listeners: no ACK, consumed attachments and an open connection.
+// The attachment framing error is probed on /chat: if the handler returned before
+// consuming the attachments, the next header read would discard them, and the text
+// frame in the attachment slot would be reported to the root namespace instead.
 func TestUnobservedEventObservableBehavior(t *testing.T) {
-	errs := make(chan error, 8)
+	errs := make(chan string, 8)
 	ts := newTestServer(t, func(s *Server) {
 		s.OnConnect("/", func(Conn) error { return nil })
-		s.OnError("/", func(_ Conn, err error) { errs <- err })
+		s.OnError("/", func(_ Conn, err error) { errs <- "/: " + err.Error() })
 		s.OnEvent("/", "alive", func(Conn) string { return "alive" })
+		s.OnConnect("/chat", func(Conn) error { return nil })
+		s.OnError("/chat", func(_ Conn, err error) { errs <- "/chat: " + err.Error() })
 	})
 	c := dialRaw(t, ts.URL)
 	require.Equal(t, "0", c.read())
+	c.send("0/chat")
+	require.Equal(t, "0/chat,", c.read())
 	attach := func(data string) {
 		w, err := c.conn.NextWriter(eioparser.Binary)
 		require.NoError(t, err)
@@ -110,10 +117,11 @@ func TestUnobservedEventObservableBehavior(t *testing.T) {
 	require.Equal(t, "33[\"alive\"]\n", c.read(), "an ACK for an unobserved event or an unconsumed attachment came first")
 	requireNoReport(t, errs)
 
-	// A text frame in place of an attachment is reported and ends the connection.
-	c.send(`51-4["unobserved",{"_placeholder":true,"num":0}]`)
+	// A text frame in place of an attachment is reported to the namespace of the
+	// event, not to the root namespace, and ends the connection.
+	c.send(`51-/chat,["unobserved",{"_placeholder":true,"num":0}]`)
 	c.send(`2["alive"]`)
-	require.EqualError(t, recv(t, errs, "OnError"), "buffer packet should be binary")
+	require.Equal(t, "/chat: buffer packet should be binary", recv(t, errs, "OnError"))
 	require.True(t, c.readClosed())
 }
 

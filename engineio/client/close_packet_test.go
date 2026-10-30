@@ -43,32 +43,51 @@ func postHook(hook func(r *http.Request, body []byte) error) *polling.Transport 
 
 var closePacketBody = []byte{0x00, 0x01, 0xff, '1'} // CLOSE in a binary payload
 
-// closePacketServer accepts one session and sends what its reader returns: each
-// message, then the error that ends it.
+// closePacketServer accepts sessions one after another and sends what each
+// reader returns: every message, then the error that ends the session.
 func closePacketServer(t *testing.T) (string, <-chan interface{}) {
 	t.Helper()
 	s := engineio.NewServer(engineio.WithPingInterval(time.Hour), engineio.WithPingTimeout(time.Hour),
 		engineio.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))))
 	ts := httptest.NewServer(s)
 	t.Cleanup(func() { _ = s.Close(); ts.Close() })
-	read := make(chan interface{}, 2)
+	read := make(chan interface{}, 64)
 	go func() {
-		conn, err := s.Accept()
-		if err != nil {
-			return
-		}
 		for {
-			_, r, err := conn.NextReader()
+			conn, err := s.Accept()
 			if err != nil {
-				read <- err
 				return
 			}
-			b, _ := io.ReadAll(r)
-			_ = r.Close()
-			read <- string(b)
+			for {
+				_, r, err := conn.NextReader()
+				if err != nil {
+					read <- err
+					break
+				}
+				b, _ := io.ReadAll(r)
+				_ = r.Close()
+				read <- string(b)
+			}
 		}
 	}()
 	return ts.URL, read
+}
+
+// expectRead fails unless the server reads want next: a message, or the
+// engineio.CloseError reason that ends the session.
+func expectRead(t *testing.T, read <-chan interface{}, want interface{}) {
+	t.Helper()
+	select {
+	case got := <-read:
+		if err, ok := got.(error); ok {
+			var closed *engineio.CloseError
+			require.True(t, errors.As(err, &closed), "%v", err)
+			got = closed.Reason
+		}
+		require.Equal(t, want, got)
+	case <-time.After(3 * time.Second):
+		t.Fatalf("server did not read %v; without CLOSE the session lasts PingInterval+PingTimeout", want)
+	}
 }
 
 func TestPollingCloseSendsClosePacketAfterInflightPost(t *testing.T) {
@@ -87,18 +106,52 @@ func TestPollingCloseSendsClosePacketAfterInflightPost(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, w.Close())
 	require.NoError(t, c.Close())
-	for _, want := range []interface{}{"hello", engineio.ReasonTransportClose} {
-		select {
-		case got := <-read:
-			if err, ok := got.(error); ok {
-				var closed *engineio.CloseError
-				require.True(t, errors.As(err, &closed), "%v", err)
-				got = closed.Reason
+	expectRead(t, read, "hello")
+	expectRead(t, read, engineio.ReasonTransportClose)
+}
+
+// TestPollingCloseQueuesCloseBehindAdmittedWriter: a writer holds the write
+// gate, so its frame is admitted, but has not reached the transport when Close
+// is called while a POST is in flight. Close must queue CLOSE behind that
+// frame. A writer already waiting in the transport is served first in any case,
+// so the gate is taken directly, as NextWriter does before it reaches the
+// transport. Each round dials afresh.
+func TestPollingCloseQueuesCloseBehindAdmittedWriter(t *testing.T) {
+	url, read := closePacketServer(t)
+	for round := 0; round < 20; round++ {
+		entered, release := make(chan struct{}), make(chan struct{})
+		tr := postHook(func(_ *http.Request, body []byte) error {
+			if bytes.Contains(body, []byte("first")) {
+				close(entered)
+				<-release
 			}
-			require.Equal(t, want, got)
+			return nil
+		})
+		c, err := (&Dialer{Transports: []transport.Transport{tr}}).Dial(url, nil)
+		require.NoError(t, err)
+		w, err := c.NextWriter(eioparser.String)
+		require.NoError(t, err)
+		_, err = w.Write([]byte("first"))
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+		select {
+		case <-entered:
 		case <-time.After(3 * time.Second):
-			t.Fatalf("server did not read %v; without CLOSE the session lasts PingInterval+PingTimeout", want)
+			t.Fatal("no POST of the first message")
 		}
+		cl := c.(*client)
+		require.NoError(t, cl.acquireWrite(nil)) // an admitted writer
+		require.NoError(t, c.Close())
+		close(release)
+		expectRead(t, read, "first") // the in-flight POST completed; CLOSE is not in the next one
+		w, err = cl.connection().NextWriter(eioparser.String, eioparser.MESSAGE)
+		require.NoError(t, err)
+		_, err = w.Write([]byte("second"))
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+		cl.releaseWrite()
+		expectRead(t, read, "second")
+		expectRead(t, read, engineio.ReasonTransportClose)
 	}
 }
 

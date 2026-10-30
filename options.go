@@ -25,7 +25,8 @@ func WithEngineOptions(values ...engineio.Option) Option {
 	return func(config *options) { config.EngineOptions = append(config.EngineOptions, values...) }
 }
 
-// WithWriteBufferSize bounds queued packets; nonpositive means 64.
+// WithWriteBufferSize bounds queued packets per connection; nonpositive means 1024.
+// The bound counts packets, not bytes; the queue does not reserve memory for it in advance.
 func WithWriteBufferSize(value int) Option {
 	return func(config *options) { config.WriteBufferSize = value }
 }

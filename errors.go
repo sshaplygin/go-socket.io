@@ -8,8 +8,8 @@ var errServerClosed = errors.New("socketio: server closed")
 
 // ErrWriteBufferFull is reported once, to OnError of the packet's namespace and unordered with
 // OnDisconnect, when an Emit or a packet the library queues (an ACK or CONNECT reply) finds the
-// outbound queue (WithWriteBufferSize) full before any close started; a packet being
-// written does not count. Queue admission does not wait for free capacity: that packet
+// outbound queue (WithWriteBufferSize, 1024 packets by default) full before any close
+// started; a packet being written does not count. Queue admission does not wait for free capacity: that packet
 // and every later one are dropped, and the connection is closed without draining.
 // Emit encodes arguments synchronously and may invoke application marshalers.
 // An overflow in root OnConnect fails the connect and is reported with a nil Conn.

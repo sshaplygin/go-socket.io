@@ -2466,7 +2466,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W53. Skip argument decoding for events nobody can observe
 
-- **Status:** open
+- **Status:** in progress — #209; BenchmarkUnobservedEvent/args: 162.25Mi → 66.97Mi B/op, 999074 → 70 allocs/op; BenchmarkUnobservedEvent/nested: 47.643Mi → 5.000Mi B/op, 81 → 37 allocs/op (manual benchstat against 6641d4b)
 - **Priority:** before tag (owner decision, 2026-10-29)
 - **Findings:** [C8](#correctness-and-security-findings)
 - **Depends on:** none
@@ -3308,7 +3308,7 @@ Every finding is listed under the dimension that reported it.
 | C5 | minor | — | `engineio/options.go:178` | Permissive CORS default (origin reflected with credentials, websocket origin check disabled) is documented only in godoc | Document the default and how to restrict it (WithCORS(false), transport CheckOrigin) in docs/V1.md in a security section. Consider an example that uses an origin allow-list. Fixed by #148 (W6). |
 | C6 | blocker | confirmed | `engineio/transport/polling/server.go:176` | A polling POST body that never finishes blocks the session's reader with no deadline; ping timeout, `EngineConn().Close()` and `OnDisconnect` never take effect, and `Server.Close` waits for its 10 s bound with 3–4 goroutines left per client (see B2) | Bound the POST body read by the session read deadline, end the session without waiting for the body, and add a raw-TCP regression test (W47). |
 | C7 | major | not re-checked; W47's red test is the re-check | `engineio/transport/polling/payload.go:99` | A polling GET whose client stops reading keeps the handler and `serveWrite` goroutines and the packet buffer after the session and `Server.Close` have finished, until the peer reads or drops TCP; reproduced with a 1,000,000-byte packet on macOS loopback | Bound the GET response write by the session write deadline and expire it on close (W47). |
-| C8 | major | not re-checked; W53's red test is the re-check | `packets.go:96` | An event with no listener has every argument decoded into `interface{}`, one `json.Unmarshal` per element: one 1 MB `["e",0,0,…]` packet allocated 162 MiB in the parser (170×), of which about 67 MiB come from reading and splitting the array in `DecodeHeader` and the rest from argument decoding; 5 such packets over websocket allocated 816 MiB on the server | Discard the arguments when no listener or middleware can observe them, with a committed benchmark (W53). |
+| C8 | major | not re-checked; W53's red test is the re-check | `packets.go:96` | An event with no listener has every argument decoded into `interface{}`, one `json.Unmarshal` per element: one 1 MB `["e",0,0,…]` packet allocated 162 MiB in the parser (170×), of which about 67 MiB come from reading and splitting the array in `DecodeHeader` and the rest from argument decoding; 5 such packets over websocket allocated 816 MiB on the server | Discard the arguments when no listener or middleware can observe them, with a committed benchmark (W53). Fixed by #209 (W53). |
 
 ### API compatibility findings
 

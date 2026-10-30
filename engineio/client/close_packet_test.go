@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
+	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -188,4 +191,125 @@ func TestPollingCloseUnansweredClosePacket(t *testing.T) {
 	var closed *CloseError
 	require.True(t, errors.As(err, &closed), "%v", err)
 	require.Equal(t, ReasonForcedClose, closed.Reason)
+}
+
+// recordedConn records the packet types written to a dialed transport
+// connection and when it is closed. A read error queued in readErr is returned
+// by the next NextReader instead of a read.
+type recordedConn struct {
+	transport.Conn
+	mu      sync.Mutex
+	packets []eioparser.PacketType
+	readErr chan error
+	closed  chan struct{}
+	once    sync.Once
+}
+
+func (c *recordedConn) NextWriter(ft eioparser.FrameType, pt eioparser.PacketType) (io.WriteCloser, error) {
+	c.mu.Lock()
+	c.packets = append(c.packets, pt)
+	c.mu.Unlock()
+	return c.Conn.NextWriter(ft, pt)
+}
+
+func (c *recordedConn) NextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
+	select {
+	case err := <-c.readErr:
+		return 0, 0, nil, err
+	default:
+		return c.Conn.NextReader()
+	}
+}
+
+func (c *recordedConn) Close() error {
+	c.once.Do(func() { close(c.closed) })
+	return c.Conn.Close()
+}
+
+// written waits for Close on the connection and returns the packet types
+// written before it. The close step writes CLOSE, if at all, before Close.
+func (c *recordedConn) written(t *testing.T) []eioparser.PacketType {
+	t.Helper()
+	select {
+	case <-c.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the transport connection was not closed")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]eioparser.PacketType(nil), c.packets...)
+}
+
+// recordedPolling keeps the handshake and flush of a polling connection.
+type recordedPolling struct{ *recordedConn }
+
+func (c recordedPolling) Open() (eioparser.ConnParameters, error) {
+	return c.Conn.(Opener).Open()
+}
+
+func (c recordedPolling) Flush() error { return c.Conn.(interface{ Flush() error }).Flush() }
+
+// recordTransport wraps each connection tr dials and sends it on conns.
+type recordTransport struct {
+	transport.Transport
+	conns chan *recordedConn
+}
+
+func (t recordTransport) Dial(u *url.URL, h http.Header) (transport.Conn, error) {
+	conn, err := t.Transport.Dial(u, h)
+	if err != nil {
+		return nil, err
+	}
+	rec := &recordedConn{Conn: conn, readErr: make(chan error, 1), closed: make(chan struct{})}
+	t.conns <- rec
+	if _, ok := conn.(interface{ Flush() error }); ok {
+		return recordedPolling{rec}, nil
+	}
+	return rec, nil
+}
+
+func TestCloseSendsNoClosePacket(t *testing.T) {
+	t.Run("after the client upgraded to websocket", func(t *testing.T) {
+		url, _ := closePacketServer(t)
+		conns := make(chan *recordedConn, 1)
+		d := &Dialer{Upgrade: true, Transports: []transport.Transport{polling.Default, recordTransport{websocket.Default, conns}}}
+		c, err := d.Dial(url, nil)
+		require.NoError(t, err)
+		go func() { _ = readAll(c) }() // the upgrade's NOOP needs a reader
+		require.Eventually(t, c.Upgraded, 5*time.Second, time.Millisecond)
+		require.NoError(t, c.Close())
+		require.NotContains(t, (<-conns).written(t), eioparser.CLOSE)
+	})
+	t.Run("after the server's CLOSE was read", func(t *testing.T) {
+		s := engineio.NewServer(engineio.WithPingInterval(time.Hour), engineio.WithPingTimeout(time.Hour),
+			engineio.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))))
+		ts := httptest.NewServer(s)
+		t.Cleanup(func() { _ = s.Close(); ts.Close() })
+		conns := make(chan *recordedConn, 1)
+		c, err := (&Dialer{Transports: []transport.Transport{recordTransport{polling.Default, conns}}}).Dial(ts.URL, nil)
+		require.NoError(t, err)
+		accepted, err := s.Accept()
+		require.NoError(t, err)
+		require.NoError(t, accepted.Close()) // sends CLOSE to the client
+		var closed *CloseError
+		_, _, err = c.NextReader()
+		require.True(t, errors.As(err, &closed), "%v", err)
+		require.Equal(t, ReasonTransportClose, closed.Reason)
+		require.NoError(t, c.Close())
+		require.NotContains(t, (<-conns).written(t), eioparser.CLOSE)
+	})
+	t.Run("after a recorded transport failure", func(t *testing.T) {
+		url, _ := closePacketServer(t)
+		conns := make(chan *recordedConn, 1)
+		c, err := (&Dialer{Transports: []transport.Transport{recordTransport{polling.Default, conns}}}).Dial(url, nil)
+		require.NoError(t, err)
+		rec := <-conns
+		rec.readErr <- errors.New("injected read failure")
+		var closed *CloseError
+		_, _, err = c.NextReader()
+		require.True(t, errors.As(err, &closed), "%v", err)
+		require.Equal(t, ReasonTransportError, closed.Reason)
+		require.NoError(t, c.Close())
+		require.NotContains(t, rec.written(t), eioparser.CLOSE)
+	})
 }

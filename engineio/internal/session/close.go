@@ -78,7 +78,7 @@ func (s *Session) closeMode(reason string, abort bool) error {
 		}
 		if abort {
 			<-s.notified
-			s.closeTransport(conn, true)
+			s.abortTransport(conn)
 		} else if orderly {
 			return nil
 		}
@@ -102,7 +102,7 @@ func (s *Session) closeMode(reason string, abort bool) error {
 	if orderly {
 		go func() {
 			defer s.finishClose()
-			timer := time.AfterFunc(s.closeTimeout, func() { s.closeTransport(conn, true) })
+			timer := time.AfterFunc(s.closeTimeout, func() { s.abortTransport(conn) })
 			defer timer.Stop()
 			select {
 			case <-s.transportDone:
@@ -130,30 +130,37 @@ func (s *Session) closeMode(reason string, abort bool) error {
 
 // closeTransport may run on a failing frame reader or writer. Its brief write
 // lock is safe because no holder of upgradeLocker, read or write, waits for a
-// frame reader or writer (see upgradeLocker). Every close but the end of an
-// orderly one also aborts a transport that distinguishes the two: the polling
-// transport then expires a response write in progress instead of letting it
-// deliver CLOSE under the session's write deadline. The abort is not bound to
-// the first close, so it reaches a write the orderly close left in progress. A
-// connection an upgrade retired has nothing left to deliver and is aborted by
-// every close.
+// frame reader or writer (see upgradeLocker). Every first close but the end of
+// an orderly one also aborts a transport that distinguishes the two: the
+// polling transport then expires a response write in progress instead of
+// letting it deliver CLOSE under the session's write deadline. A connection an
+// upgrade retired has nothing left to deliver and is aborted by every close.
 func (s *Session) closeTransport(conn transport.Conn, abort bool) {
 	s.transportOnce.Do(func() {
 		s.closeErr = conn.Close()
+		if abort {
+			abortConn(conn)
+		}
 		s.upgradeLocker.Lock()
 		s.transportClosed = true
 		s.upgradeLocker.Unlock()
 		close(s.transportDone)
 	})
 	if retired := s.retired.Load(); retired != nil {
-		abortTransport(retired.conn)
-	}
-	if abort {
-		abortTransport(conn)
+		abortConn(retired.conn)
 	}
 }
 
-func abortTransport(conn transport.Conn) {
+// abortTransport is Abort, Shutdown and the orderly close's timer: it aborts
+// conn even after the orderly close has closed it, so a response write it left
+// in progress is expired. A failing frame reader or writer (fail) does not get
+// here: the read that Close itself expired must not interrupt CLOSE.
+func (s *Session) abortTransport(conn transport.Conn) {
+	s.closeTransport(conn, true)
+	abortConn(conn)
+}
+
+func abortConn(conn transport.Conn) {
 	if aborter, ok := conn.(interface{ Abort() error }); ok {
 		_ = aborter.Abort()
 	}

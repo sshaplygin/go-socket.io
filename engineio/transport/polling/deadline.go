@@ -3,7 +3,6 @@ package polling
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -184,14 +183,13 @@ func (c *serverConn) feedBody(w http.ResponseWriter, r *http.Request, start time
 var copyBuffers = sync.Pool{New: func() any { b := make([]byte, 4096); return &b }}
 
 // writeResponse writes a filled GET response on the handler's goroutine. A
-// failure closes the connection, as a failed packet write did; the error is
-// wrapped so that a net timeout is not retried as Temporary.
+// failure closes the connection, as a failed packet write did.
 func (c *serverConn) writeResponse(w http.ResponseWriter, r *http.Request, start time.Time, p []byte) error {
 	tracked := c.track(w, r, start, true)
 	_, err := w.Write(p)
 	c.untrack(tracked, false)
 	if err != nil {
-		_ = c.payload.Store("write", fmt.Errorf("response: %w", err))
+		_ = c.payload.Store("write", &requestError{"response", err})
 		_ = c.Close()
 	}
 	return err

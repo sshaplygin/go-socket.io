@@ -22,10 +22,11 @@ const partialBody = `20:42["x","`
 
 // deadlineConfig configures a server for the polling request deadline tests.
 type deadlineConfig struct {
-	heartbeat   time.Duration // PingInterval and PingTimeout; 1 s by default
-	opaque      bool          // hide the ResponseWriter's deadline support (no Unwrap)
-	readTimeout time.Duration // http.Server.ReadTimeout
-	sendBuffer  int           // SetWriteBuffer of accepted connections
+	heartbeat    time.Duration // PingInterval and PingTimeout; 1 s by default
+	opaque       bool          // hide the ResponseWriter's deadline support (no Unwrap)
+	readTimeout  time.Duration // http.Server.ReadTimeout
+	writeTimeout time.Duration // http.Server.WriteTimeout
+	sendBuffer   int           // SetWriteBuffer of accepted connections
 }
 
 // deadlineServer serves a root namespace that reports its connection, every
@@ -82,6 +83,7 @@ func newDeadlineServer(t *testing.T, cfg deadlineConfig) *deadlineServer {
 		d.srv.ServeHTTP(w, r)
 	}))
 	d.ts.Config.ReadTimeout = cfg.readTimeout
+	d.ts.Config.WriteTimeout = cfg.writeTimeout
 	if cfg.sendBuffer > 0 {
 		d.ts.Listener = sendBufferListener{d.ts.Listener, cfg.sendBuffer}
 	}
@@ -271,6 +273,33 @@ func TestPollingEmptyPostServerReadTimeout(t *testing.T) {
 	requireBaseline(t, baseline, 2*time.Second)
 }
 
+// stallPoll sends a poll whose client never reads a 1,000,000-byte packet
+// through 4 KiB socket buffers and returns once the response has started.
+func (d *deadlineServer) stallPoll(t *testing.T, sid string, c Conn) net.Conn {
+	t.Helper()
+	raw := d.dial(t, http.MethodGet, sid, "")
+	c.Emit("big", strings.Repeat("x", 1_000_000))
+	status := make([]byte, len("HTTP/1.1 200"))
+	_, err := io.ReadFull(raw, status)
+	require.NoError(t, err)
+	require.Equal(t, "HTTP/1.1 200", string(status), "the poll response has started")
+	return raw
+}
+
+// http.Server.WriteTimeout ends a poll whose client stops reading before the
+// heartbeat does. The write's timeout must not be retried as a temporary
+// payload error: OnDisconnect runs within 2 s, as a ping timeout.
+func TestPollingStalledGetServerWriteTimeout(t *testing.T) {
+	baseline := len(leakedModuleStacks())
+	d := newDeadlineServer(t, deadlineConfig{heartbeat: 5 * time.Second, writeTimeout: 500 * time.Millisecond, sendBuffer: 4096})
+	sid, c := d.open(t)
+	start := time.Now()
+	d.stallPoll(t, sid, c)
+	require.Equal(t, "ping timeout", within(t, d.reasons, start.Add(2*time.Second), "OnDisconnect"))
+	_ = d.srv.Close()
+	requireBaseline(t, baseline, 2*time.Second)
+}
+
 // A poll whose client never reads a payload larger than the socket buffers
 // keeps no library goroutine once the session has closed. The server's send
 // buffer and the client's receive buffer are 4 KiB on every OS.
@@ -278,12 +307,7 @@ func TestPollingStalledGetIsReleased(t *testing.T) {
 	baseline := len(leakedModuleStacks())
 	d := newDeadlineServer(t, deadlineConfig{sendBuffer: 4096})
 	sid, c := d.open(t)
-	raw := d.dial(t, http.MethodGet, sid, "")
-	c.Emit("big", strings.Repeat("x", 1_000_000))
-	status := make([]byte, len("HTTP/1.1 200"))
-	_, err := io.ReadFull(raw, status)
-	require.NoError(t, err)
-	require.Equal(t, "HTTP/1.1 200", string(status), "the poll response has started")
+	d.stallPoll(t, sid, c)
 	require.Equal(t, "ping timeout", recv(t, d.reasons, "OnDisconnect"))
 	// Server.Close stops Serve, which the baseline does not include; it does
 	// not release a handler blocked in its response write.

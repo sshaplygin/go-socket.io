@@ -71,8 +71,9 @@ Package `engineio` of the v1 module at the repository root.
   close POST is not reported. No `CLOSE` is sent after the client has recorded a
   transport failure, after it has read the server's `CLOSE`, or after it has switched
   to an upgraded websocket, which is closed directly. A `Close` that runs before the
-  client has seen one of these still sends the packet, which the server then rejects
-  (HTTP 400 after the switch) or discards; neither is reported.
+  client has seen one of these still attempts the packet: the POST is rejected with
+  HTTP 400 (after the switch, or an unread server `CLOSE` whose session is gone), or
+  the write fails on the failed transport and nothing is sent. Neither is reported.
 - Duplicate websocket requests carrying a live websocket session ID receive HTTP
   400/code 3. This immediate rejection is Go-specific; the Node reference does not
   use that response for this case.

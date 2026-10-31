@@ -22,10 +22,10 @@ func TestResolvedConnectionLimits(t *testing.T) {
 		size  int
 		drain time.Duration
 	}{
-		{"nil options", 64, time.Minute},
-		{"zero", 64, time.Minute},
-		{"heartbeat only", 64, time.Minute},
-		{"negative", 64, time.Minute},
+		{"nil options", defaultWriteBufferSize, time.Minute},
+		{"zero", defaultWriteBufferSize, time.Minute},
+		{"heartbeat only", defaultWriteBufferSize, time.Minute},
+		{"negative", defaultWriteBufferSize, time.Minute},
 		{"custom", 5, 3 * time.Second},
 		{"ordered", 5, 3 * time.Second},
 	} {

@@ -31,11 +31,12 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 		{"silent-websocket", "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// 400 emits of 256 KB overflow an explicit 64-packet queue; the default is larger.
 			srv := NewServer(WithEngineOptions(
 				engineio.WithPingInterval(2*time.Second),
 				engineio.WithPingTimeout(2*time.Second),
 				engineio.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
-			))
+			), WithWriteBufferSize(64))
 			start, done := make(chan struct{}), make(chan struct{})
 			connected := make(chan Conn, 1)
 			failures := make(chan error, 8)

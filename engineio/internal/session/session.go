@@ -163,10 +163,10 @@ func (r frameReader) Read(p []byte) (int, error) {
 	if err == io.EOF {
 		return n, err
 	}
-	return n, r.s.fail(err)
+	return n, r.s.failRead(err)
 }
 
-func (r frameReader) Close() error { return r.s.fail(r.ReadCloser.Close()) }
+func (r frameReader) Close() error { return r.s.failRead(r.ReadCloser.Close()) }
 
 type frameWriter struct {
 	io.WriteCloser

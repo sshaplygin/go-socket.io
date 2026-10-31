@@ -189,6 +189,21 @@ func (s *Session) fail(err error) error {
 	return err
 }
 
+// failRead is fail for an open frame reader. A read that fails while the
+// session closes on Close failed because that close expired the request I/O it
+// waited on; like readerCloseError for NextReader, it returns only once the
+// close has finished, so that the caller's cleanup cannot abort an orderly
+// close still delivering CLOSE. The frame keeps its own error.
+func (s *Session) failRead(err error) error {
+	err = s.fail(err)
+	if _, synthetic := err.(*CloseError); err != nil && !synthetic {
+		if closing := s.closing.Load(); closing != nil && s.cause.Load().reason == reasonForcedClose {
+			<-s.closeDone
+		}
+	}
+	return err
+}
+
 // timedOut reports whether err is an expired transport deadline: it matches
 // os.ErrDeadlineExceeded, or an error in its chain reports Timeout, as the
 // deadline errors of gorilla/websocket and of the polling payload do. The

@@ -19,7 +19,7 @@ The document has three parts:
   then [Release blockers](#release-blockers) through the
   [finding catalogue](#finding-catalogue). They come from the original review and were
   corrected where the follow-up validation and the 2026-10-22 fact-check required it.
-- **[Work plan](#work-plan):** pull-request-sized work items (W1–W53) and owner decisions
+- **[Work plan](#work-plan):** pull-request-sized work items (W1–W56) and owner decisions
   (D1–D6) that cover every catalogue ID except the editorial `CL-14` (not planned), with
   their order, acceptance criteria and status.
 - **[Follow-up validation](#follow-up-validation):** the evidence log, with a status and
@@ -139,8 +139,11 @@ to do the work. The status of each item is owned by its **Status** line and nowh
 5. [W10](#w10-prepare-the-release-commit) was the release PR of the original plan. The
    independent review of 2026-10-29 added W47–W51 and W53, which land after it and before
    the tag in any order, except that W47 lands after W48, and [W52](#w52-refresh-the-release-notes-and-the-tag-checklist),
-   which refreshes the release text last. Only the owner tags.
-6. After the tag: W11–W44 in numeric order unless **Depends on** says otherwise. Every
+   which refreshes the release text last. The owner added
+   [W54](#w54-bound-the-memory-and-time-cost-of-buffered-polling-requests) (after W47) and
+   [W55](#w55-scheduled-stress-runs-under-cpu-load) on 2026-10-31; both land before W52.
+   Only the owner tags.
+6. After the tag: W11–W44 and W56 in numeric order unless **Depends on** says otherwise. Every
    performance item needs W2 merged first. W12 lands before W23. W38 needs the tag.
 
 A major (M1–M7) that is not fixed before the tag is deferred only in writing: the owner
@@ -257,7 +260,7 @@ have already merged, the item's PR changes no part of this document. Apart from 
 lines and the `Fixed by` notes, do not rewrite the review's findings, the Backlog or the Follow-up
 validation evidence log when an item is done; they record the state at `7311fbe`. This
 progress tracking is not a v1 changelog: after the tag, the owner decides whether the
-remaining items (W11–W44) move to GitHub issues, and this document then keeps only the
+remaining items (W11–W44 and W56) move to GitHub issues, and this document then keeps only the
 findings and the evidence.
 
 **Standard definition of done** (every item refers to it): the PR is squash-merged by the
@@ -328,8 +331,11 @@ changed to `done — #<PR>` after the merge.
 | [W49](#w49-raise-the-default-outbound-queue) | Raise the default outbound queue | before tag | interop-10 | — |
 | [W50](#w50-state-the-go-client-close-contract-and-send-the-polling-close-packet) | State the Go client close contract and send the polling close packet | before tag | CL-16, PERF-14 | — |
 | [W51](#w51-correct-the-remaining-reference-documentation) | Correct the remaining reference documentation | before tag | CL-17, CL-18, CL-19, interop-11 | — |
-| [W52](#w52-refresh-the-release-notes-and-the-tag-checklist) | Refresh the release notes and the tag checklist | before tag | REL-14, REL-15 | W47–W51, W53 |
+| [W52](#w52-refresh-the-release-notes-and-the-tag-checklist) | Refresh the release notes and the tag checklist | before tag | REL-14, REL-15 | W47–W51, W53–W55 |
 | [W53](#w53-skip-argument-decoding-for-events-nobody-can-observe) | Skip argument decoding for events nobody can observe | before tag | C8 | — |
+| [W54](#w54-bound-the-memory-and-time-cost-of-buffered-polling-requests) | Bound the memory and time cost of buffered polling requests | before tag | PERF-16 | W47 |
+| [W55](#w55-scheduled-stress-runs-under-cpu-load) | Scheduled stress runs under CPU load | before tag | T12 | — |
+| [W56](#w56-make-the-load-sensitive-tests-deterministic) | Make the load-sensitive tests deterministic | after release | T13, T14 | W55 |
 
 **Finding coverage.** Every catalogue ID appears in exactly one item or in "Not planned".
 
@@ -339,9 +345,9 @@ changed to `done — #<PR>` after the merge.
 | API compatibility | API-1 W8 · API-2 D1 · API-3 W6 · API-4 W7 · API-5 W8 · API-6 W8 · API-7 W8 · API-8 W8 · API-9 D2 · API-10 W10 · API-11 W38 · API-12 D6 · API-13 W8 |
 | Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 · CL-16 W50 · CL-17 W51 · CL-18 W51 · CL-19 W51 |
 | Architecture | ARCH-1 W5 · ARCH-2 D2 · ARCH-3 D3 · ARCH-4 W26 · ARCH-5 D4 · ARCH-6 D5 · ARCH-7 W33 · ARCH-8 W32 · ARCH-9 W14 · ARCH-10 W37 · ARCH-11 D6 · ARCH-12 W28 · ARCH-13 W26 |
-| Performance | PERF-1 W3 · PERF-2 W18 · PERF-3 W4 · PERF-4 W19 · PERF-5 W20 · PERF-6 W21 · PERF-7 W22 · PERF-8 W23 · PERF-9 W24 · PERF-10 W2 · PERF-11 W25 · PERF-12 W21 · PERF-13 W26 · PERF-14 W50 · PERF-15 W23 |
+| Performance | PERF-1 W3 · PERF-2 W18 · PERF-3 W4 · PERF-4 W19 · PERF-5 W20 · PERF-6 W21 · PERF-7 W22 · PERF-8 W23 · PERF-9 W24 · PERF-10 W2 · PERF-11 W25 · PERF-12 W21 · PERF-13 W26 · PERF-14 W50 · PERF-15 W23 · PERF-16 W54 |
 | Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 · interop-10 W49 · interop-11 W51 |
-| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 · T11 W48 |
+| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 · T11 W48 · T12 W55 · T13 W56 · T14 W56 |
 | Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 · REL-13 W42 · REL-14 W52 · REL-15 W52 |
 
 **Not planned.**
@@ -2248,7 +2254,12 @@ changed to `done — #<PR>` after the merge.
   2. Where `http.NewResponseController` supports deadlines, the POST body read follows the
      session's read deadline and the GET response write follows its write deadline, both
      kept in step when the session moves them, and closing the connection moves them into
-     the past, so the handler goroutine returns too.
+     the past, so the handler goroutine returns too. By owner decision of 2026-10-30, a
+     response write that has already started is expired at once by `engineio.Abort` and
+     by session shutdown (`engineio.Server.Close`, and through it `socketio.Server.Close`),
+     also while an orderly close is in progress or after it ended. An orderly close
+     (`CloseGracefully`) keeps delivering its CLOSE packet, bounded by the session write
+     deadline and by its 30 s timer, which aborts.
   3. A deadline set this way never extends one the `http.Server` already imposes: the
      handler applies the earlier of the session deadline and the request's start plus the
      server's `ReadTimeout` or `WriteTimeout` (the server is available through
@@ -2272,7 +2283,10 @@ changed to `done — #<PR>` after the merge.
   6. a GET whose client never reads: the server's accepted connections have a 4 KiB send
      buffer (a wrapping listener calls `SetWriteBuffer(4096)`), the client sets a 4 KiB
      receive buffer, and the server emits a 1,000,000-byte packet; after the session
-     closes, the library goroutine count returns to its baseline within 2 s.
+     closes, the library goroutine count returns to its baseline within 2 s;
+  7. for the owner decision in Change 2: with such a stalled GET, `Server.Close` and
+     `engineio.Abort` release the handler within 2 s, also during and after an orderly
+     close, and an orderly close still delivers its CLOSE packet to a reading client.
 
   Push the test-only commit to the PR first, so that CI shows the red result on Linux,
   macOS and Windows, and quote that run.
@@ -2280,8 +2294,8 @@ changed to `done — #<PR>` after the merge.
   `BenchmarkPayloadRoundTrip`, `BenchmarkPollingClientsBroadcast`) in the CI comparison;
   the report is quoted in the PR.
 - **Docs:** V1.md (item 4 of Change); PROTOCOL.md only if wire behavior changes.
-- **Acceptance criteria:** tests 1–4 and 6 fail on the test-only commit, locally and in CI,
-  and all six pass with `-race -count=20`; `make test-race`,
+- **Acceptance criteria:** tests 1–4, 6 and 7 fail on the test-only commit, locally and in
+  CI, and all seven pass with `-race -count=20`; `make test-race`,
   `make test-stress PKGS='./engineio/...'` and `make conformance` with both pinned clients
   pass.
 - **Definition of done:** standard.
@@ -2290,7 +2304,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W48. Classify ping timeouts by the expired deadline
 
-- **Status:** in progress — #206
+- **Status:** done — #206
 - **Priority:** before tag
 - **Findings:** [T11](#tests-findings)
 - **Depends on:** none
@@ -2336,7 +2350,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W49. Raise the default outbound queue
 
-- **Status:** in progress — #207
+- **Status:** done — #207
 - **Priority:** before tag
 - **Findings:** [interop-10](#interoperability-findings)
 - **Depends on:** none
@@ -2367,7 +2381,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W50. State the Go client close contract and send the polling close packet
 
-- **Status:** in progress — #208
+- **Status:** done — #208
 - **Priority:** before tag
 - **Findings:** [CL-16](#clarity-findings), [PERF-14](#performance-findings)
 - **Depends on:** none
@@ -2410,7 +2424,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W51. Correct the remaining reference documentation
 
-- **Status:** in progress — #204
+- **Status:** done — #204
 - **Priority:** before tag
 - **Findings:** [CL-17](#clarity-findings), [CL-18](#clarity-findings),
   [CL-19](#clarity-findings), [interop-11](#interoperability-findings)
@@ -2424,7 +2438,7 @@ changed to `done — #<PR>` after the merge.
      queue overflow.
   2. Name the Redis adapter among the components that log to `slog.Default()` regardless
      of `WithLogger`: the `logger` package doc, `engineio/options.go:60-61` and V1.md:457.
-  3. PROTOCOL.md:49 and :61: an oversize websocket message usually closes with 1009; a
+  3. PROTOCOL.md:49 and :61: an oversize websocket message closes with 1009; a
      client can see 1006 when the connection resets before it reads the close frame.
   4. V1.md migration: state a baseline for every upstream release between v1.4.2 and
      v1.7.0 (v1.4.3–v1.4.5, v1.5.0–v1.5.1, v1.6.0–v1.6.3), each checked against that
@@ -2446,14 +2460,15 @@ changed to `done — #<PR>` after the merge.
 - **Status:** open
 - **Priority:** before tag
 - **Findings:** [REL-14](#release-engineering-findings), [REL-15](#release-engineering-findings)
-- **Depends on:** W47–W51, W53
+- **Depends on:** W47–W51, W53–W55
 - **Problem:** the release text exists only in the description of #193 (merged as
   `4265692`). Its "Changes since the release review" section predates 38 later pull
   requests, and its owner checklist says to tag the merge commit of #193, which would
-  leave out W11–W53.
-- **Change:** after W47–W51 and W53 merge, a PR sets this item's Status, and its
+  leave out W11–W55.
+- **Change:** after W47–W51 and W53–W55 merge, a PR sets this item's Status, and its
   description carries the release text rewritten against `4265692..<head>` and the owner
-  checklist, which names no fixed commit and tags the verified head. That description
+  checklist, which names no fixed commit, tags the verified head and requires an inspected
+  W55 stress run on that head. That description
   replaces the text in #193 as the source of the GitHub release notes (CONTRIBUTING.md,
   step 5). The owner-only steps of [W10](#w10-prepare-the-release-commit) still apply.
 - **Tests:** none.
@@ -2466,7 +2481,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W53. Skip argument decoding for events nobody can observe
 
-- **Status:** in progress — #209; BenchmarkUnobservedEvent/args: 162.25Mi → 66.97Mi B/op, 999074 → 70 allocs/op; BenchmarkUnobservedEvent/nested: 47.643Mi → 5.000Mi B/op, 81 → 37 allocs/op (manual benchstat against 6641d4b)
+- **Status:** done — #209; BenchmarkUnobservedEvent/args: 162.25Mi → 66.97Mi B/op, 999074 → 70 allocs/op; BenchmarkUnobservedEvent/nested: 47.643Mi → 5.000Mi B/op, 81 → 37 allocs/op (manual benchstat against 6641d4b)
 - **Priority:** before tag (owner decision, 2026-10-29)
 - **Findings:** [C8](#correctness-and-security-findings)
 - **Depends on:** none
@@ -2503,6 +2518,138 @@ changed to `done — #<PR>` after the merge.
 - **Definition of done:** standard, with the benchmark result in the Status line.
 - **Out of scope:** decoding cost for events that have listeners, including
   `...interface{}` handlers; the cost of `DecodeHeader` itself.
+
+### W54. Bound the memory and time cost of buffered polling requests
+
+- **Status:** open
+- **Priority:** before tag (owner decision, 2026-10-31)
+- **Findings:** [PERF-16](#performance-findings)
+- **Depends on:** W47
+- **Problem:** see PERF-16. W47 (#205) copies every polling POST body through an
+  `io.Pipe` into a feed goroutine, and builds every GET response in a buffer that grows by
+  appending. The payload encoder holds one packet at a time in its per-encoder
+  `frameCache` (`engineio/parser/internal/payload/encoder.go:27-91`, reset at :49); for
+  an uncompressed response the response buffer is a second copy of those frames, while a
+  response at or above the 1024-byte compression threshold holds gzip output instead. A
+  packet's size is known only when its writer closes, not in advance for a batch.
+- **Change:** reduce the allocations of both paths without giving up W47's guarantees.
+  Candidates: for uncompressed responses, avoid the second copy by moving the encoded
+  frames into the response; size the buffer from the first closed packet; reuse buffers
+  through a process-wide free list; and, where deadlines are supported, reduce the
+  per-POST cost of the pipe, the feed goroutine and channel and request tracking (the
+  pipe stays where deadlines are not supported, as W47 Change 4 requires). `sync.Pool`
+  alone gave no B/op gain in the review's experiment, most likely because the pool is
+  cleared between polls at this allocation rate. Retained buffers are bounded
+  process-wide: at most 8 buffers, each of at most 2 MiB capacity; a larger buffer is
+  dropped after use, and no buffer stays attached to a connection between polls.
+- **Tests:**
+  1. a shorter response after a longer one never carries bytes of the earlier one;
+  2. concurrent sessions reusing buffers under `-race` deliver every packet intact;
+  3. the retention bound holds: after responses larger than 2 MiB and more than 8
+     concurrent responses, the free list holds at most 8 buffers of at most 2 MiB, and a
+     buffer sized for a `BenchmarkPollingEchoLarge` response is retained and reused;
+  4. every W47 test and the tagged `TestPollingOverlaps` keep passing.
+- **Benchmarks:** `BenchmarkPollingEchoLarge`, `BenchmarkPollingEcho`,
+  `BenchmarkPayloadRoundTrip` and `BenchmarkPollingClientsBroadcast`. The base is the
+  first parent of W47's squash-merge commit; the Status line names its SHA. Only
+  `engineio/transport_bench_test.go` is copied into the base worktree. For each of the
+  three packages (`engineio`, `engineio/transport/polling`, `client`), both sides are
+  built as test binaries and run alternately ten times
+  (`for i in $(seq 10); do base.test -test.run '^$' -test.bench '<names>' -test.benchmem
+  -test.count=1 >> old.txt; head.test … >> new.txt; done`), then compared with
+  `benchstat old.txt new.txt`. The CI comparison against the PR base is quoted as well.
+- **Docs:** none, unless the memory statement in V1.md changes.
+- **Acceptance criteria:** against that base, `BenchmarkPollingEchoLarge` time at most
+  10% higher and B/op at most 5% higher, and `BenchmarkPollingEcho` B/op and allocs/op at
+  most 2% higher; no W47 test regresses; `make test-race`,
+  `make test-stress PKGS='./engineio/...'` and `make conformance` pass. If any bound is
+  missed, for any reason, the PR reports the best numbers and their cause and stops; the
+  owner then either accepts the measured numbers, recorded in the Status line as
+  `done — #<PR>; accepted by owner (<date>)` with the numbers, or changes the bound. W52
+  and the tag wait for that decision.
+- **Definition of done:** standard, with the benchmark results in the Status line.
+- **Out of scope:** writing to the network from the session writer (W47 removed that on
+  purpose).
+
+### W55. Scheduled stress runs under CPU load
+
+- **Status:** open
+- **Priority:** before tag (owner decision, 2026-10-31)
+- **Findings:** [T12](#tests-findings)
+- **Depends on:** none
+- **Problem:** see T12.
+- **Change:**
+  1. A Makefile target `test-stress-load` runs
+     `go test -race -json -count=$(STRESS_COUNT) -shuffle=on -cpu=$(STRESS_CPU)
+     -timeout=$(STRESS_TIMEOUT)` over `STRESS_PKGS` while busy loops keep the CPUs
+     loaded. Defaults: `STRESS_COUNT=20`, `STRESS_CPU=1,4`, `STRESS_TIMEOUT=90m`,
+     `STRESS_LOAD` busy loops equal to twice the CPU count (`nproc`, or
+     `sysctl -n hw.ncpu` on macOS); each busy loop is a POSIX `sh` loop, so the modules
+     gain no dependency. A `trap` on EXIT, INT and TERM stops the loops when the target
+     exits, also on failure or interruption.
+  2. A small Go tool under `.github/stress/`, with its own tests, reads the `go test -json`
+     stream and writes a summary, as Markdown for `$GITHUB_STEP_SUMMARY` and as a file:
+     failing tests with their failure counts and first failure output; package-level
+     failures (a build failure, a race reported outside a test); tests that started but
+     never ended, with the package's timeout panic output; race reports by package,
+     because a race inside parallel tests can be attributed to another test; and the
+     shuffle seed of each package.
+  3. A workflow `.github/workflows/stress.yml` runs the target on `ubuntu-latest` and
+     `macos-latest`, with a 120-minute job timeout. It is triggered by a nightly
+     `schedule`, by `workflow_dispatch`, and by `pull_request` for changes of the workflow
+     file, `.github/stress/` and the Makefile only. The paths filter is allowed here because the
+     workflow is never a required check; the header rule of `ci.yaml` applies to
+     required checks. A failing test makes the job fail; the summary and upload steps run
+     with `if: always()` and upload the JSON stream and the summary as artifacts. Known
+     flaky tests are not skipped.
+  4. CI covers the tool: the `changes` job, which already runs `go test ./.github/changes`
+     unconditionally (`ci.yaml`), also runs `go test ./.github/stress`, and
+     `./.github/stress` is added to the golangci-lint arguments in `ci.yaml` and to
+     `make lint` and `make vet`. The change classifier gets an explicit case:
+     `.github/workflows/stress.yml` selects no CI job, and `.github/stress/` selects the v1
+     lint job only. Cases in `classify_test.go` pin both.
+- **Tests:** the summary tool's tests (failing, passing, skipped and panicking tests; a
+  timeout stream; a race inside parallel tests; a package-level failure; interleaved
+  output of parallel packages); `go test ./.github/changes`; one local run of
+  `make test-stress-load` with `STRESS_COUNT=2`, quoted in the PR, plus a check that no
+  busy loop remains after a run interrupted with Ctrl-C and after a failing run; the
+  `pull_request` run of the workflow on the PR, quoted with its summary.
+- **Benchmarks:** none.
+- **Docs:** CLAUDE.md, in Layout (`.github/stress/`), Commands (`make test-stress-load`
+  and its variables) and CI (the stress workflow, its triggers, that it is not required,
+  and what the classifier selects for it); CONTRIBUTING.md:45, before tagging: inspect
+  the latest stress workflow run on the release head and record its failures in the
+  release pull request (W52).
+- **Acceptance criteria:** the PR's workflow run reaches the end of the test step on both
+  runners and publishes the summary; a run that fails because tests fail counts, a run
+  that times out or is cancelled does not; the local target runs the same command; no module manifest changes;
+  `go test ./.github/changes ./.github/stress` passes.
+- **Definition of done:** standard. Each test that fails in the PR's run is listed in the
+  PR. A failure not covered by an existing catalogue row gets a row and a work item, or
+  "Not planned", in a documentation pull request opened after W55 merges and before W52;
+  item pull requests do not add rows (Marking progress).
+- **Out of scope:** fixing the flakes it finds (W56); running the tagged conformance
+  suite under load (T13, W56).
+
+### W56. Make the load-sensitive tests deterministic
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [T13](#tests-findings), [T14](#tests-findings)
+- **Depends on:** W55 for the counts it quotes
+- **Problem:** see T13 and T14.
+- **Change:** replace each wall-clock race in the tests listed in T13 with a signal or a
+  bound derived from the configuration, and isolate the log fixtures of T14 from records
+  of other tests' goroutines, as W46 did for the upgrade fixtures.
+- **Tests:** each listed test passes `-race -count=50` under the W55 load locally; the
+  three W55 runs after the merge show no failure of the tests in `STRESS_PKGS`; the
+  tagged `TestJSHeartbeat` passes 20 consecutive runs of `make conformance` under the
+  W55 load with each pinned client.
+- **Benchmarks:** none.
+- **Docs:** none.
+- **Acceptance criteria:** as in Tests, with the W55 run linked.
+- **Definition of done:** standard.
+- **Out of scope:** library behavior.
 
 ## Release blockers
 
@@ -3291,6 +3438,12 @@ Every finding is listed under the dimension that reported it.
   findings that were not re-checked name the red test or the probe that re-checks them.
   The review's after-tag findings are not in this catalogue yet; the description of #203
   lists each of them, and a later pull request records them here.
+- PERF-16 and T12 to T14 were found on 2026-10-30 and 2026-10-31 while reviewing W47
+  (#205), W48 (#206), W49 (#207) and W50 (#208). They have no row in
+  [Catalogue cross-check](#catalogue-cross-check). PERF-16's location refers to #205 at
+  `8ae40be`, measured against `b2f2fb9` with committed benchmarks
+  (`BenchmarkPollingEchoLarge` is added by #205), so its figures are not ad hoc; the
+  other locations refer to `origin/master` at `5c99b64`.
 - The [work plan](#work-plan) maps every ID to exactly one work item or owner decision, or
   lists it under "Not planned"; the finding coverage table is in
   [How to use this plan](#how-to-use-this-plan). When a fix merges, the row's
@@ -3389,6 +3542,7 @@ Every finding is listed under the dimension that reported it.
 | PERF-13 | nit | — | `connection.go:281` | 7 server goroutines per idle websocket connection (v1.4.2: 4) | Optional: merge the engine close watcher with observeEngineClose, and start the error loop lazily. Fixed by #190 (W26). |
 | PERF-14 | minor | — | `engineio/client/client.go:126` | The Go polling client sends no Engine.IO close packet on `Close`, so the server keeps the session until PingInterval+PingTimeout; after 50 connect/close cycles, 19 sessions remained with the default ping (all gone at 45.2 s), and 18 and 26 in two runs with a 1 h ping, so 36–52% of closed clients linger | Send the close packet in a final POST, as engine.io-client 3.5.6 does (W50). Fixed by #208 (W50). |
 | PERF-15 | nit | — | `docs/V1_RELEASE_REVIEW.md` (W23) | The owner's acceptance of the `EmitWebsocket/string` CI time regression (2026-10-24) is recorded only in the description of #179 | Record it in W23's Status line. Fixed by #203 (W23). |
+| PERF-16 | minor | — | `engineio/transport/polling/deadline.go` (#205 at `8ae40be`) | W47 copies every polling POST body through an `io.Pipe` into a feed goroutine and builds every GET response in a growing buffer. Against `b2f2fb9` (darwin/arm64, ten alternated runs, two reviews of #205), `BenchmarkPollingEchoLarge` (512 KiB) cost +19–21% time and +17.4% B/op (−7.0% allocs), and `BenchmarkPollingEcho` +4.0–4.1% B/op and +5.4% allocs with no significant time change; an allocation profile attributes most of the small-echo increase to the POST pipe and feed | Reduce the allocations of both paths within a stated retention bound (W54). |
 
 ### Interoperability findings
 
@@ -3421,6 +3575,9 @@ Every finding is listed under the dimension that reported it.
 | T9 | minor | — | `engineio/transport/polling/default_transport_test.go` | Tests replace `http.DefaultTransport` while asynchronous HTTP requests from earlier tests can still read it; master CI run 40426080816 reported the race on macOS | Isolate each default-transport override in a bounded subprocess, retaining the behavioral assertions and race checks (W45). Fixed by #200 (W45). |
 | T10 | minor | — | `engineio/client/upgrade_test.go` | Upgrade tests consume the first global probe-failure record, which can belong to an earlier asynchronous client; master CI run 40427642695 failed on an unrelated WebSocket read-limit error | Isolate both upgrade log fixtures in bounded subprocesses without weakening error or structured-log assertions (W46). Fixed by #201 (W46). |
 | T11 | minor | — | `engineio/internal/session/close.go:144` | `Session.fail` compares the wall clock with a stored wall-clock deadline while the transport deadline expires on the monotonic clock; Windows CI run 40128125594 reported `transport error` instead of `ping timeout` in `TestPingTimeoutIdleClient/messages` (most likely cause, not proven) | Classify by the deadline error (W48). Fixed by #206 (W48). |
+| T12 | minor | — | `.github/workflows/ci.yaml` (`stress-v1`) | CI repeats the race tests of `STRESS_PKGS` at most `-count=5` with `-cpu=1,4`, on idle Ubuntu runners only, so timing races appear only on loaded developer machines: `TestPollingCloseEndsServerSessions` failed 2 times in about 32,000 rounds before #208 fixed it | Run the stress packages many times under CPU load on a schedule (W55). |
+| T13 | minor | — | `stalled_reader_test.go`, `engineio/transport/polling/payload_test.go`, `internal/conformance/heartbeat_test.go` | Tests race wall-clock deadlines and fail under load on master and on the PR heads alike: `TestStalledReaderIsDisconnected` (a 2 ms emit ticker against the session's 4 s write deadline, PingInterval 2 s + PingTimeout 2 s from the last inbound packet) failed 8 of 100 subtests on #207's head and 10 of 100 on master, run back to back at load average about 30–42 (#207 review); `TestPayloadFlushOutBinary` (a 100 ms write deadline) failed in a stress run (#206 review); the tagged `TestJSHeartbeat` (200 ms heartbeat, needs Node and Redis) failed 2 of 3 alternating runs on base and head under load (#205 review) | Replace each race with a signal or a configuration-derived bound; W55 covers `STRESS_PKGS` only, so the conformance case is checked by hand (W56). |
+| T14 | minor | — | `engineio/client/log_test.go:232` | Log fixtures share the process-wide `slog` recorder: `TestClientPingFailureRecord` once received an extra DEBUG record from another test's websocket client goroutine in a stress run; the same seed passed twice afterwards | Isolate the fixtures, as W46 did for the upgrade fixtures (W56). |
 
 ### Release engineering findings
 

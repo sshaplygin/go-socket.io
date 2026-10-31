@@ -34,8 +34,8 @@ func (c *serverConn) SetSessionID(id string) {
 }
 
 // responseWriter chooses the HTTP encoding from the first complete packet and
-// keeps one compression stream for the entire batch. Packet writes flush that
-// stream so network failures still reach the active packet writer synchronously.
+// keeps one compression stream for the entire batch, flushed after each packet
+// write. It writes to the response buffer that the GET handler then sends.
 type responseWriter struct {
 	w          http.ResponseWriter
 	conn       *serverConn

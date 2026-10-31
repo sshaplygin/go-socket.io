@@ -56,6 +56,7 @@ type Session struct {
 
 	cause   atomic.Pointer[closeCause]       // the first close cause observed
 	closing atomic.Pointer[closingTransport] // immutable connection snapshot once closed
+	retired atomic.Pointer[closingTransport] // the connection an upgrade replaced
 	writers atomic.Int64                     // open frame writers returned to callers
 }
 
@@ -162,10 +163,10 @@ func (r frameReader) Read(p []byte) (int, error) {
 	if err == io.EOF {
 		return n, err
 	}
-	return n, r.s.fail(err)
+	return n, r.s.failRead(err)
 }
 
-func (r frameReader) Close() error { return r.s.fail(r.ReadCloser.Close()) }
+func (r frameReader) Close() error { return r.s.failRead(r.ReadCloser.Close()) }
 
 type frameWriter struct {
 	io.WriteCloser

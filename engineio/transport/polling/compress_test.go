@@ -43,9 +43,13 @@ func TestPollingCompressionWriteFailure(t *testing.T) {
 				done <- err
 			}()
 			c.ServeHTTP(response, req)
+			// The packet writer fills the response in memory; the handler's failed
+			// send then closes the connection with the failure.
+			require.NoError(t, <-done)
+			_, err := c.NextWriter(eioparser.String, eioparser.MESSAGE)
 			var op *OpError
-			require.ErrorAs(t, <-done, &op)
-			require.Same(t, failure, op.Err)
+			require.ErrorAs(t, err, &op)
+			require.ErrorIs(t, op.Err, failure)
 			require.Empty(t, response.Body.String(), "a failed started response must not receive another HTTP error body")
 		})
 	}

@@ -86,7 +86,8 @@ Package `engineio` of the v1 module at the repository root.
   the polling transport rejects itself stays plain text: HTTP 400 for an unsupported
   `Content-Type`, a POST the payload cannot take (paused, overlapping, closed, timed out
   or not decodable) or an invalid method, 413 for the message limit above, 500 for a poll
-  whose response failed before it was started.
+  whose response failed before it was started. A POST whose body read the session's
+  close interrupted is answered with `Connection: close`.
   As a known compatibility limitation, a polling POST is accepted only with
   `Content-Type` `application/octet-stream` (binary payload, parameters ignored) or
   `text/plain` with `charset=utf-8` (text payload); type and charset are

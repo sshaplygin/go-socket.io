@@ -77,16 +77,32 @@ func detachedPolls(r *http.Request) (*http.Response, error) {
 }
 
 func TestPollingCloseEndsServerSessions(t *testing.T) {
-	reasons := make(chan string, 1)
+	reasons := make(chan string, 64)
 	srv, ts := longPingServer(t, reasons)
 	tr := &polling.Transport{Client: &http.Client{Transport: closeRoundTripper(detachedPolls)}}
 	for i := 0; i < 20; i++ {
-		// Close right after Connect, while handshake requests may be in flight.
+		// connectPolling waits for the client's OnConnect: only a connected
+		// namespace queues DISCONNECT, as in socket.io-client 2.x.
+		cl := connectPolling(t, ts.URL, tr)
+		require.NoError(t, cl.Close())
+		require.Equal(t, "client namespace disconnect", recv(t, reasons, "server OnDisconnect"))
+	}
+	require.Eventually(t, func() bool { return srv.Count() == 0 }, 2*time.Second, 5*time.Millisecond,
+		"closed clients still hold server sessions until PingInterval+PingTimeout")
+}
+
+// TestPollingCloseDuringHandshakeEndsServerSessions closes right after Connect,
+// while the server's CONNECT answer may be unread. No DISCONNECT is queued for a
+// namespace that is not connected yet, so CLOSE alone must end the session; the
+// namespace reason is not asserted.
+func TestPollingCloseDuringHandshakeEndsServerSessions(t *testing.T) {
+	srv, ts := longPingServer(t, make(chan string, 64))
+	tr := &polling.Transport{Client: &http.Client{Transport: closeRoundTripper(detachedPolls)}}
+	for i := 0; i < 20; i++ {
 		cl, err := client.New(ts.URL, client.WithTransports(tr), client.WithReconnection(false))
 		require.NoError(t, err)
 		require.NoError(t, cl.Connect())
 		require.NoError(t, cl.Close())
-		require.Equal(t, "client namespace disconnect", recv(t, reasons, "server OnDisconnect"))
 	}
 	require.Eventually(t, func() bool { return srv.Count() == 0 }, 2*time.Second, 5*time.Millisecond,
 		"closed clients still hold server sessions until PingInterval+PingTimeout")

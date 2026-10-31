@@ -95,7 +95,7 @@ func TestDetachedWriterReportsStoredError(t *testing.T) {
 			case "close":
 				require.NoError(t, p.Close())
 			}
-			<-done
+			require.Error(t, <-done) // the poll ends with write: timeout, context canceled or EOF
 			err = w.Close()
 			require.Error(t, err)
 			var timeout interface{ Timeout() bool }

@@ -2,6 +2,7 @@ package polling
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,22 @@ import (
 
 // expiredDeadline is in the past; applying it interrupts blocked request I/O.
 var expiredDeadline = time.Unix(1, 0)
+
+// requestError is a failed request body read or response write. It is not a
+// polling.Error, so the session does not retry it as temporary, and it reports
+// Timeout for an expired deadline found through errors.As.
+type requestError struct {
+	op  string
+	err error
+}
+
+func (e *requestError) Error() string { return e.op + ": " + e.err.Error() }
+func (e *requestError) Unwrap() error { return e.err }
+
+func (e *requestError) Timeout() bool {
+	var timeout interface{ Timeout() bool }
+	return errors.As(e.err, &timeout) && timeout.Timeout()
+}
 
 // requestIO is the body read (POST) or response write (GET) of one request
 // whose deadline follows the session. serverConn.ioMu guards it.
@@ -151,7 +168,11 @@ func (c *serverConn) feedBody(w http.ResponseWriter, r *http.Request, start time
 	buf := copyBuffers.Get().(*[]byte)
 	_, err := io.CopyBuffer(out, body, *buf)
 	copyBuffers.Put(buf)
-	_ = out.CloseWithError(err)
+	if err != nil {
+		_ = out.CloseWithError(&requestError{"request body", err})
+	} else {
+		_ = out.Close()
+	}
 	if c.untrack(tracked, err == nil) && r.ProtoMajor == 1 {
 		// The expired deadline may have failed net/http's read after the body,
 		// which cancels the connection's context; do not reuse the connection.

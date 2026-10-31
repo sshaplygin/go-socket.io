@@ -145,6 +145,15 @@ func (d *deadlineServer) partialPost(t *testing.T, sid string) net.Conn {
 	return raw
 }
 
+// emptyPost sends a POST that declares 100 body bytes and delivers none.
+func (d *deadlineServer) emptyPost(t *testing.T, sid string) net.Conn {
+	t.Helper()
+	raw := d.dial(t, http.MethodPost, sid, "Content-Type: text/plain;charset=UTF-8\r\nContent-Length: 100\r\n")
+	recv(t, d.posts, "empty POST")
+	time.Sleep(100 * time.Millisecond) // let the server start reading the body
+	return raw
+}
+
 // within receives from ch before deadline.
 func within[T any](t *testing.T, ch <-chan T, deadline time.Time, what string) T {
 	t.Helper()
@@ -237,13 +246,29 @@ func TestPollingPartialPostEndsSession(t *testing.T) {
 }
 
 // http.Server.ReadTimeout still ends a partial POST when it is shorter than
-// the heartbeat; the session deadline never extends it.
+// the heartbeat; the session deadline never extends it. The expired deadline
+// is reported as a ping timeout.
 func TestPollingPartialPostServerReadTimeout(t *testing.T) {
 	d := newDeadlineServer(t, deadlineConfig{heartbeat: time.Hour, readTimeout: 500 * time.Millisecond})
 	sid, _ := d.open(t)
 	start := time.Now()
 	d.partialPost(t, sid)
-	within(t, d.reasons, start.Add(2*time.Second), "OnDisconnect")
+	require.Equal(t, "ping timeout", within(t, d.reasons, start.Add(2*time.Second), "OnDisconnect"))
+}
+
+// http.Server.ReadTimeout ends a POST that declares a body and sends no byte of
+// it, before the heartbeat does. The body read's timeout must not be retried as
+// a temporary payload error: OnDisconnect runs within 2 s, and the session's
+// reader is gone with the rest of the library goroutines after Server.Close.
+func TestPollingEmptyPostServerReadTimeout(t *testing.T) {
+	baseline := len(leakedModuleStacks())
+	d := newDeadlineServer(t, deadlineConfig{heartbeat: 3 * time.Second, readTimeout: 500 * time.Millisecond})
+	sid, _ := d.open(t)
+	start := time.Now()
+	d.emptyPost(t, sid)
+	require.Equal(t, "ping timeout", within(t, d.reasons, start.Add(2*time.Second), "OnDisconnect"))
+	_ = d.srv.Close()
+	requireBaseline(t, baseline, 2*time.Second)
 }
 
 // A poll whose client never reads a payload larger than the socket buffers

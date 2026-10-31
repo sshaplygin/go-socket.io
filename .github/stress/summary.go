@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -85,12 +86,13 @@ func summarize(r io.Reader) (string, error) {
 			}
 			t := p.test(e.Test)
 			t.open--
-			if e.Action == "fail" {
+			switch e.Action {
+			case "fail":
 				t.failed++
 				if t.first == nil {
 					t.first = t.current
 				}
-			} else if e.Action == "skip" {
+			case "skip":
 				t.skipped++
 			}
 		}
@@ -136,10 +138,7 @@ func sortedKeys[V any](m map[string]V) []string {
 
 // details renders one collapsible item with a clipped output block.
 func details(b *strings.Builder, title string, blocks ...[]string) {
-	var lines []string
-	for _, block := range blocks {
-		lines = append(lines, block...)
-	}
+	lines := slices.Concat(blocks...)
 	if len(lines) > maxLines {
 		lines = append(lines[:maxLines:maxLines], fmt.Sprintf("… %d more lines", len(lines)-maxLines))
 	}
@@ -205,8 +204,7 @@ func markdown(pkgs packages, bad int) string {
 		fmt.Fprintf(&b, "%s were not go test -json events.\n\n", plural(bad, "line"))
 	}
 	if noResult > 0 {
-		verb := map[bool]string{true: "has", false: "have"}[noResult == 1]
-		fmt.Fprintf(&b, "%s %s no result; the stream may be incomplete.\n\n", plural(noResult, "package"), verb)
+		fmt.Fprintf(&b, "%s %s no result; the stream may be incomplete.\n\n", plural(noResult, "package"), map[bool]string{true: "has", false: "have"}[noResult == 1])
 	}
 	return b.String()
 }

@@ -8,6 +8,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -22,14 +23,13 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return fmt.Errorf("usage: go run ./.github/stress [-json FILE] [-summary FILE]")
 	}
-	var r io.Reader = stdin
+	r := stdin
 	if *in != "-" {
-		f, err := os.Open(*in)
+		data, err := os.ReadFile(*in)
 		if err != nil {
 			return err
 		}
-		defer f.Close()
-		r = f
+		r = bytes.NewReader(data)
 	}
 	md, err := summarize(r)
 	if err != nil {

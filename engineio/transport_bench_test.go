@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -127,7 +129,9 @@ func benchHTTP(b *testing.B, c *http.Client, method, url, body string) []byte {
 	return data
 }
 
-func BenchmarkPollingEcho(b *testing.B) {
+// benchPollingSession opens a b64 polling session on an echo server and returns
+// the client and the session's URL.
+func benchPollingSession(b *testing.B) (*http.Client, string) {
 	ts := benchEchoServer(b)
 	c := &http.Client{Transport: &http.Transport{}, Timeout: 10 * time.Second}
 	b.Cleanup(c.CloseIdleConnections)
@@ -143,7 +147,11 @@ func BenchmarkPollingEcho(b *testing.B) {
 	if err := json.Unmarshal([]byte(packet[1:]), &handshake); err != nil {
 		b.Fatal(err)
 	}
-	url += "&sid=" + handshake.SID
+	return c, url + "&sid=" + handshake.SID
+}
+
+func BenchmarkPollingEcho(b *testing.B) {
+	c, url := benchPollingSession(b)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -151,6 +159,30 @@ func BenchmarkPollingEcho(b *testing.B) {
 		got := benchHTTP(b, c, http.MethodGet, url, "")
 		if string(got) != "6:4hello" {
 			b.Fatalf("unexpected echo %q", got)
+		}
+	}
+}
+
+// BenchmarkPollingEchoLarge echoes a 512 KiB packet of text that compresses
+// poorly, within the default 1,000,000-byte message limit. The poll response
+// is built in memory before the handler writes it.
+func BenchmarkPollingEchoLarge(b *testing.B) {
+	c, url := benchPollingSession(b)
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	text := make([]byte, 512<<10)
+	for i, r := 0, rand.New(rand.NewSource(1)); i < len(text); i++ {
+		text[i] = alphabet[r.Intn(len(alphabet))]
+	}
+	payload := "4" + string(text)
+	body := strconv.Itoa(len(payload)) + ":" + payload
+	b.ReportAllocs()
+	b.SetBytes(int64(len(payload)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		benchHTTP(b, c, http.MethodPost, url, body)
+		got := benchHTTP(b, c, http.MethodGet, url, "")
+		if string(got) != body {
+			b.Fatalf("unexpected echo of %d bytes: %d bytes", len(body), len(got))
 		}
 	}
 }

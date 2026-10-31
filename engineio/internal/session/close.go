@@ -116,8 +116,7 @@ func (s *Session) closeMode(reason string, abort bool) error {
 			}
 			s.closeTransport(conn, false)
 			if drain, ok := conn.(interface{ Drained() <-chan struct{} }); ok {
-				// The response carrying CLOSE is still being written; the timer
-				// aborts it. Until then Shutdown and Abort can still reach it.
+				// The response carrying CLOSE may still be written; the timer or an abort ends it.
 				<-drain.Drained()
 			}
 		}()
@@ -130,11 +129,10 @@ func (s *Session) closeMode(reason string, abort bool) error {
 
 // closeTransport may run on a failing frame reader or writer. Its brief write
 // lock is safe because no holder of upgradeLocker, read or write, waits for a
-// frame reader or writer (see upgradeLocker). Every first close but the end of
-// an orderly one also aborts a transport that distinguishes the two: the
+// frame reader or writer (see upgradeLocker). A first close that is not the end
+// of an orderly one also aborts a transport that distinguishes the two (the
 // polling transport then expires a response write in progress instead of
-// letting it deliver CLOSE under the session's write deadline. A connection an
-// upgrade retired has nothing left to deliver and is aborted by every close.
+// delivering CLOSE); a connection an upgrade retired is aborted by every close.
 func (s *Session) closeTransport(conn transport.Conn, abort bool) {
 	s.transportOnce.Do(func() {
 		s.closeErr = conn.Close()
@@ -152,9 +150,8 @@ func (s *Session) closeTransport(conn transport.Conn, abort bool) {
 }
 
 // abortTransport is Abort, Shutdown and the orderly close's timer: it aborts
-// conn even after the orderly close has closed it, so a response write it left
-// in progress is expired. A failing frame reader or writer (fail) does not get
-// here: the read that Close itself expired must not interrupt CLOSE.
+// conn even after the orderly close has closed it, expiring a response write
+// left in progress. fail does not get here (see failRead).
 func (s *Session) abortTransport(conn transport.Conn) {
 	s.closeTransport(conn, true)
 	abortConn(conn)
@@ -190,10 +187,9 @@ func (s *Session) fail(err error) error {
 }
 
 // failRead is fail for an open frame reader. A read that fails while the
-// session closes on Close failed because that close expired the request I/O it
-// waited on; like readerCloseError for NextReader, it returns only once the
-// close has finished, so that the caller's cleanup cannot abort an orderly
-// close still delivering CLOSE. The frame keeps its own error.
+// session closes on Close failed because of that close; like readerCloseError
+// for NextReader, it returns (the frame's own error) only once the close has
+// finished, so the caller's cleanup cannot abort the CLOSE still being delivered.
 func (s *Session) failRead(err error) error {
 	err = s.fail(err)
 	if _, synthetic := err.(*CloseError); err != nil && !synthetic {

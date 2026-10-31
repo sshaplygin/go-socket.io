@@ -31,9 +31,8 @@ type serverConn struct {
 	noCompress   atomic.Bool
 	cookie       atomic.Pointer[http.Cookie]
 
-	// pollMu guards poll, held by a GET handler from its flushOut to the end of
-	// its response write (another GET meanwhile is an overlap), and pollDone,
-	// closed when that handler returns.
+	// pollMu guards poll, held by a GET handler from its flushOut to the end of its
+	// response write (another GET is an overlap), and pollDone, closed when it returns.
 	pollMu   sync.Mutex
 	poll     bool
 	pollDone chan struct{}
@@ -258,9 +257,8 @@ func (c *serverConn) endPoll() {
 	c.pollMu.Unlock()
 }
 
-// Drained closes when the GET handler of the moment has returned, so after
-// Close the response write it may still be doing has ended. It is closed
-// already when no GET is being handled.
+// Drained closes when the GET handler of the moment has returned, so after Close
+// its response write has ended; it is closed already when no GET is being handled.
 func (c *serverConn) Drained() <-chan struct{} {
 	c.pollMu.Lock()
 	defer c.pollMu.Unlock()

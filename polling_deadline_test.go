@@ -1,6 +1,7 @@
 package socketio
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -156,6 +157,17 @@ func (d *deadlineServer) emptyPost(t *testing.T, sid string) net.Conn {
 	return raw
 }
 
+// readResponse reads one HTTP response from raw within a second.
+func readResponse(t *testing.T, raw net.Conn) (int, string) {
+	t.Helper()
+	require.NoError(t, raw.SetReadDeadline(time.Now().Add(time.Second)))
+	resp, err := http.ReadResponse(bufio.NewReader(raw), nil)
+	require.NoError(t, err)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return resp.StatusCode, string(body)
+}
+
 // within receives from ch before deadline.
 func within[T any](t *testing.T, ch <-chan T, deadline time.Time, what string) T {
 	t.Helper()
@@ -296,6 +308,26 @@ func TestPollingStalledGetServerWriteTimeout(t *testing.T) {
 	start := time.Now()
 	d.stallPoll(t, sid, c)
 	require.Equal(t, "ping timeout", within(t, d.reasons, start.Add(2*time.Second), "OnDisconnect"))
+	_ = d.srv.Close()
+	requireBaseline(t, baseline, 2*time.Second)
+}
+
+// A second poll during a poll response write is refused at once with HTTP 500
+// "overlap", as it was when the session wrote the response itself. A second
+// POST during a POST body read is refused without reading its body; net/http
+// answers it when the body arrives or its own ReadTimeout ends the request.
+// Neither leaves a library goroutine once the session has closed.
+func TestPollingOverlappingRequestsAreRefused(t *testing.T) {
+	baseline := len(leakedModuleStacks())
+	d := newDeadlineServer(t, deadlineConfig{sendBuffer: 4096})
+	sid, c := d.open(t)
+	d.partialPost(t, sid)
+	d.dial(t, http.MethodPost, sid, "Content-Type: text/plain;charset=UTF-8\r\nContent-Length: 100\r\n")
+	d.stallPoll(t, sid, c)
+	status, body := readResponse(t, d.dial(t, http.MethodGet, sid, ""))
+	require.Equal(t, http.StatusInternalServerError, status)
+	require.Contains(t, body, "overlap")
+	require.Equal(t, "ping timeout", recv(t, d.reasons, "OnDisconnect"))
 	_ = d.srv.Close()
 	requireBaseline(t, baseline, 2*time.Second)
 }

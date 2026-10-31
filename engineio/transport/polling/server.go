@@ -31,12 +31,16 @@ type serverConn struct {
 	noCompress   atomic.Bool
 	cookie       atomic.Pointer[http.Cookie]
 
+	// polling is held by a GET handler from its flushOut to the end of its
+	// response write; another GET meanwhile is an overlap.
+	polling atomic.Bool
+
 	// ioMu orders deadline updates and Close against tracked request I/O. It is
 	// a leaf lock: only ResponseController deadline setters run under it.
 	ioMu     sync.Mutex
 	ioClosed bool
-	reading  *requestIO // the POST whose body is being read
-	writing  *requestIO // the GET whose response is being written
+	reading  requestSet // the POSTs whose bodies are being read
+	writing  requestSet // the GETs whose responses are being written
 }
 
 // newServerConn creates the polling connection of a request. JSONP is not supported
@@ -139,6 +143,11 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodGet:
 		c.SetHeaders(w, r)
+		if !c.polling.CompareAndSwap(false, true) {
+			http.Error(w, newOpError("write", errOverlap).Error(), http.StatusInternalServerError)
+			return
+		}
+		defer c.polling.Store(false)
 
 		if c.supportBinary {
 			w.Header().Set("Content-Type", "application/octet-stream")
@@ -192,7 +201,6 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		body := http.MaxBytesReader(w, r.Body, c.readLimit)
-		defer func() { _ = body.Close() }()
 		if r.ContentLength > c.readLimit {
 			c.rejectLargeBody(w, &http.MaxBytesError{Limit: c.readLimit})
 			return

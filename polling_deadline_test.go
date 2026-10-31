@@ -9,11 +9,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
@@ -31,6 +34,7 @@ type deadlineConfig struct {
 	sendBuffer   int           // SetWriteBuffer of accepted connections
 	failWrites   bool          // every poll response write fails with a temporary error
 	failBody     bool          // every POST body read fails with a temporary error
+	blockWrites  bool          // every poll response write blocks until a past write deadline
 }
 
 // deadlineServer serves a root namespace that reports its connection, every
@@ -41,6 +45,7 @@ type deadlineServer struct {
 	conns   chan Conn
 	ticks   chan struct{}
 	posts   chan struct{}
+	writes  chan struct{} // a blockingWriter started a write
 	reasons chan string
 }
 
@@ -65,6 +70,32 @@ type failingBody struct{ io.ReadCloser }
 
 func (failingBody) Read([]byte) (int, error) { return 0, temporaryError{} }
 
+// blockingWriter stalls every write, as a client that stops reading does, until
+// http.ResponseController sets a write deadline in the past; the write then
+// fails with os.ErrDeadlineExceeded.
+type blockingWriter struct {
+	http.ResponseWriter
+	started chan<- struct{}
+	expired chan struct{}
+	once    sync.Once
+}
+
+func (b *blockingWriter) Write([]byte) (int, error) {
+	select {
+	case b.started <- struct{}{}:
+	default:
+	}
+	<-b.expired
+	return 0, os.ErrDeadlineExceeded
+}
+
+func (b *blockingWriter) SetWriteDeadline(t time.Time) error {
+	if !t.IsZero() && !t.After(time.Now()) {
+		b.once.Do(func() { close(b.expired) })
+	}
+	return nil
+}
+
 // sendBufferListener sets a small send buffer on every accepted connection.
 type sendBufferListener struct {
 	net.Listener
@@ -86,7 +117,7 @@ func newDeadlineServer(t *testing.T, cfg deadlineConfig) *deadlineServer {
 	}
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	d := &deadlineServer{conns: make(chan Conn, 1), ticks: make(chan struct{}, 8),
-		posts: make(chan struct{}, 8), reasons: make(chan string, 1)}
+		posts: make(chan struct{}, 8), writes: make(chan struct{}, 8), reasons: make(chan string, 1)}
 	d.srv = NewServer(WithLogger(quiet), WithEngineOptions(engineio.WithLogger(quiet),
 		engineio.WithPingInterval(cfg.heartbeat), engineio.WithPingTimeout(cfg.heartbeat),
 		engineio.WithHTTPCompression(false)))
@@ -103,6 +134,10 @@ func newDeadlineServer(t *testing.T, cfg deadlineConfig) *deadlineServer {
 		}
 		if session := r.URL.Query().Get("sid") != ""; session && cfg.failWrites && r.Method == http.MethodGet {
 			w = failingWriter{w}
+		} else if session && cfg.blockWrites && r.Method == http.MethodGet {
+			b := &blockingWriter{ResponseWriter: w, started: d.writes, expired: make(chan struct{})}
+			t.Cleanup(func() { b.once.Do(func() { close(b.expired) }) }) // ts.Close waits for the handler
+			w = b
 		} else if session && cfg.failBody && r.Method == http.MethodPost {
 			r.Body = failingBody{r.Body}
 		}
@@ -312,8 +347,7 @@ func TestPollingEmptyPostServerReadTimeout(t *testing.T) {
 
 // stallPoll sends a poll whose client never reads a 1,000,000-byte packet
 // through 4 KiB socket buffers and returns once the response has started and
-// its handler is blocked writing it. Windows loopback does not stall the write
-// behind these buffers (iteration 1 of #205 on CI); the test is skipped there.
+// its handler is blocked writing it.
 func (d *deadlineServer) stallPoll(t *testing.T, sid string, c Conn) net.Conn {
 	t.Helper()
 	raw := d.dial(t, http.MethodGet, sid, "")
@@ -322,14 +356,7 @@ func (d *deadlineServer) stallPoll(t *testing.T, sid string, c Conn) net.Conn {
 	_, err := io.ReadFull(raw, status)
 	require.NoError(t, err)
 	require.Equal(t, "HTTP/1.1 200", string(status), "the poll response has started")
-	for deadline := time.Now().Add(2 * time.Second); !blockedInWrite(); time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			if runtime.GOOS == "windows" {
-				t.Skip("the poll response did not stall behind 4 KiB socket buffers")
-			}
-			t.Fatal("no handler is blocked writing the poll response")
-		}
-	}
+	requireStalledWrite(t)
 	return raw
 }
 
@@ -431,6 +458,70 @@ func TestPollingTemporaryRequestErrorsEndSession(t *testing.T) {
 			requireBaseline(t, baseline, 2*time.Second)
 		})
 	}
+}
+
+// requireStalledWrite waits up to 2 s for a handler goroutine blocked in
+// writeResponse. Windows loopback does not stall a write behind 4 KiB socket
+// buffers (iteration 1 of #205 on CI); the test is skipped there.
+func requireStalledWrite(t *testing.T) {
+	t.Helper()
+	for deadline := time.Now().Add(2 * time.Second); !blockedInWrite(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			if runtime.GOOS == "windows" {
+				t.Skip("the poll response did not stall behind 4 KiB socket buffers")
+			}
+			t.Fatal("no handler is blocked writing the poll response")
+		}
+	}
+}
+
+// Server.Close and engineio.Abort expire a poll response write that an orderly
+// close left in progress: the response carrying CLOSE blocks in the
+// ResponseWriter, the session stays live until that write ends, and the abort
+// releases the handler within 2 s.
+func TestPollingOrderlyCloseWriteExpiresOnAbort(t *testing.T) {
+	for name, abort := range map[string]func(*deadlineServer, Conn){
+		"Server.Close": func(d *deadlineServer, _ Conn) { _ = d.srv.Close() },
+		"Abort":        func(_ *deadlineServer, c Conn) { _ = engineio.Abort(c.EngineConn()) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			baseline := len(leakedModuleStacks())
+			d := newDeadlineServer(t, deadlineConfig{heartbeat: time.Hour, blockWrites: true})
+			sid, c := d.open(t)
+			d.dial(t, http.MethodGet, sid, "")
+			time.Sleep(100 * time.Millisecond) // let the poll wait for a packet
+			require.NoError(t, c.EngineConn().Close())
+			recv(t, d.writes, "the poll response write")
+			abort(d, c)
+			recv(t, d.reasons, "OnDisconnect")
+			_ = d.srv.Close()
+			requireBaseline(t, baseline, 2*time.Second)
+		})
+	}
+}
+
+// After an upgrade, Server.Close expires a poll response write that the
+// retired polling connection still has in progress.
+func TestPollingRetiredWriteExpiresOnShutdown(t *testing.T) {
+	baseline := len(leakedModuleStacks())
+	d := newDeadlineServer(t, deadlineConfig{heartbeat: time.Hour, sendBuffer: 4096})
+	sid, c := d.open(t)
+	d.stallPoll(t, sid, c)
+	ws, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(d.ts.URL, "http")+"/socket.io/?EIO=3&transport=websocket&sid="+sid, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ws.Close() })
+	require.NoError(t, ws.WriteMessage(websocket.TextMessage, []byte("2probe")))
+	_, msg, err := ws.ReadMessage()
+	require.NoError(t, err)
+	require.Equal(t, "3probe", string(msg))
+	require.NoError(t, ws.WriteMessage(websocket.TextMessage, []byte("5")))
+	for deadline := time.Now().Add(2 * time.Second); c.EngineConn().Transport() != "websocket"; time.Sleep(10 * time.Millisecond) {
+		require.True(t, time.Now().Before(deadline), "the session did not upgrade")
+	}
+	require.True(t, blockedInWrite(), "the retired poll response is still being written")
+	_ = d.srv.Close()
+	recv(t, d.reasons, "OnDisconnect")
+	requireBaseline(t, baseline, 2*time.Second)
 }
 
 // A poll whose client never reads a payload larger than the socket buffers

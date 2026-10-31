@@ -31,9 +31,12 @@ type serverConn struct {
 	noCompress   atomic.Bool
 	cookie       atomic.Pointer[http.Cookie]
 
-	// polling is held by a GET handler from its flushOut to the end of its
-	// response write; another GET meanwhile is an overlap.
-	polling atomic.Bool
+	// pollMu guards poll, held by a GET handler from its flushOut to the end of
+	// its response write (another GET meanwhile is an overlap), and pollDone,
+	// closed when that handler returns.
+	pollMu   sync.Mutex
+	poll     bool
+	pollDone chan struct{}
 
 	// ioMu orders deadline updates and Close against tracked request I/O. It is
 	// a leaf lock: only ResponseController deadline setters run under it.
@@ -144,11 +147,11 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodGet:
 		c.SetHeaders(w, r)
-		if !c.polling.CompareAndSwap(false, true) {
+		if !c.beginPoll() {
 			http.Error(w, newOpError("write", errOverlap).Error(), http.StatusInternalServerError)
 			return
 		}
-		defer c.polling.Store(false)
+		defer c.endPoll()
 
 		if c.supportBinary {
 			w.Header().Set("Content-Type", "application/octet-stream")
@@ -236,6 +239,38 @@ func (c *serverConn) rejectLargeBody(w http.ResponseWriter, err *http.MaxBytesEr
 	_ = c.Close()
 	http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
 }
+
+// beginPoll admits the connection's one GET handler at a time.
+func (c *serverConn) beginPoll() bool {
+	c.pollMu.Lock()
+	defer c.pollMu.Unlock()
+	if c.poll {
+		return false
+	}
+	c.poll, c.pollDone = true, make(chan struct{})
+	return true
+}
+
+func (c *serverConn) endPoll() {
+	c.pollMu.Lock()
+	c.poll = false
+	close(c.pollDone)
+	c.pollMu.Unlock()
+}
+
+// Drained closes when the GET handler of the moment has returned, so after
+// Close the response write it may still be doing has ended. It is closed
+// already when no GET is being handled.
+func (c *serverConn) Drained() <-chan struct{} {
+	c.pollMu.Lock()
+	defer c.pollMu.Unlock()
+	if c.poll {
+		return c.pollDone
+	}
+	return closedChan
+}
+
+var closedChan = func() chan struct{} { ch := make(chan struct{}); close(ch); return ch }()
 
 // Writable reports whether a poll is waiting and its response has not started.
 func (c *serverConn) Writable() bool {

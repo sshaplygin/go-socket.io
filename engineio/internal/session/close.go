@@ -31,7 +31,8 @@ type closingTransport struct {
 }
 
 // Close starts an orderly polling close after accepted writes. It returns while
-// waiting for a poll; the transport remains closing for at most 30 seconds.
+// waiting for a poll and while the poll response carrying CLOSE is written; the
+// transport remains closing, and the session live, for at most 30 seconds.
 // Other transports and failed sessions close immediately. The first cause wins.
 func (s *Session) Close() error {
 	return s.close(reasonForcedClose)
@@ -114,6 +115,11 @@ func (s *Session) closeMode(reason string, abort bool) error {
 				s.writeGate <- struct{}{}
 			}
 			s.closeTransport(conn, false)
+			if drain, ok := conn.(interface{ Drained() <-chan struct{} }); ok {
+				// The response carrying CLOSE is still being written; the timer
+				// aborts it. Until then Shutdown and Abort can still reach it.
+				<-drain.Drained()
+			}
 		}()
 		return nil
 	}
@@ -125,21 +131,32 @@ func (s *Session) closeMode(reason string, abort bool) error {
 // closeTransport may run on a failing frame reader or writer. Its brief write
 // lock is safe because no holder of upgradeLocker, read or write, waits for a
 // frame reader or writer (see upgradeLocker). Every close but the end of an
-// orderly one aborts a transport that distinguishes the two: the polling
+// orderly one also aborts a transport that distinguishes the two: the polling
 // transport then expires a response write in progress instead of letting it
-// deliver CLOSE under the session's write deadline.
+// deliver CLOSE under the session's write deadline. The abort is not bound to
+// the first close, so it reaches a write the orderly close left in progress. A
+// connection an upgrade retired has nothing left to deliver and is aborted by
+// every close.
 func (s *Session) closeTransport(conn transport.Conn, abort bool) {
 	s.transportOnce.Do(func() {
-		if aborter, ok := conn.(interface{ Abort() error }); ok && abort {
-			s.closeErr = aborter.Abort()
-		} else {
-			s.closeErr = conn.Close()
-		}
+		s.closeErr = conn.Close()
 		s.upgradeLocker.Lock()
 		s.transportClosed = true
 		s.upgradeLocker.Unlock()
 		close(s.transportDone)
 	})
+	if retired := s.retired.Load(); retired != nil {
+		abortTransport(retired.conn)
+	}
+	if abort {
+		abortTransport(conn)
+	}
+}
+
+func abortTransport(conn transport.Conn) {
+	if aborter, ok := conn.(interface{ Abort() error }); ok {
+		_ = aborter.Abort()
+	}
 }
 
 // observe records reason as the close cause unless one was observed before.

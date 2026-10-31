@@ -208,15 +208,15 @@ func TestSummaryClipsLongOutput(t *testing.T) {
 	for i := 0; i < maxLines+10; i++ {
 		lines = append(lines, "line "+strings.Repeat("x", i%7))
 	}
-	md := mustSummarize(t, seed(a, "1")+test(a, "TestLong", "fail", lines...)+ev(a, "fail", "", "FAIL"))
-	if strings.Count(md, "line ") != maxLines || !strings.Contains(md, "… 11 more lines") {
+	md := mustSummarize(t, seed(a, "1")+ev(a, "run", "TestLong")+ev(a, "fail", "TestLong", lines...)+ev(a, "fail", "", "FAIL"))
+	if strings.Count(md, "line ") != maxLines || !strings.Contains(md, "… 10 more lines") {
 		t.Errorf("output not clipped to %d lines:\n%s", maxLines, md)
 	}
 }
 
 func TestRunWritesTheSummaryFileAndStdout(t *testing.T) {
 	dir := t.TempDir()
-	in, out := filepath.Join(dir, "stress.json"), filepath.Join(dir, "summary.md")
+	in, out := filepath.Join(dir, "stress.json"), filepath.Join(dir, "summary.out")
 	const a = "example.com/a"
 	if err := os.WriteFile(in, []byte(seed(a, "1")+test(a, "TestFail", "fail", "--- FAIL: TestFail (0.00s)")+ev(a, "fail", "", "FAIL")), 0o600); err != nil {
 		t.Fatal(err)

@@ -270,6 +270,13 @@ func (d *decision) path(status, name string, before, after []byte) {
 	case name == ".github/dependabot.yml":
 		d.note("no job reads %s", name)
 		return
+	case name == ".github/workflows/stress.yml":
+		d.note("no CI job reads %s", name)
+		return
+	case strings.HasPrefix(name, ".github/stress/"):
+		// The Stress workflow is not a required check; lint-v1 vets and lints its tool.
+		d.lint(v1, name)
+		return
 	case strings.HasPrefix(name, ".github/"):
 		// The classifier itself and anything else under .github.
 		d.fullRun(v1, true, name)

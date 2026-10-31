@@ -20,6 +20,7 @@ internal tests live beside the implementation they verify.
 | `.github/changes/` | CI and benchmark change classification |
 | `.github/coverage/` | Cross-package coverage attribution |
 | `.github/benchmarks/` | Benchmark comparison and reporting |
+| `.github/stress/` | Summary of the `go test -json` stream of the stress runs under load |
 | `v2/` | Independent API and runtime work; contracts in `docs/API.md` |
 | `v2/_experiments/` | Standalone prototypes, excluded from both runtime modules |
 
@@ -33,6 +34,7 @@ make test               # root module tests, no external services
 make test-race          # tests with the race detector
 make test-jsonv2        # parser and Socket.IO roles with GOEXPERIMENT=jsonv2
 make test-stress        # concurrent packages, shuffled and repeated
+make test-stress-load   # the stress packages repeated under CPU load; writes stress.json and stress-summary.md
 make lint               # formatting, vet and golangci-lint
 make vet                # Linux/macOS/Windows, conformance and example packages
 make gates              # architecture, lifecycle and public consumer fixtures
@@ -44,6 +46,12 @@ make vuln               # scan the root and example modules
 ```
 
 `PKGS=<patterns>` narrows `test`, `test-race`, `test-stress` and `bench`.
+`test-stress-load` runs `STRESS_PKGS` with `go test -race -json -shuffle=on` while POSIX
+`sh` busy loops load the CPUs, then summarizes the stream with `.github/stress`; its
+variables are `STRESS_COUNT` (20), `STRESS_CPU` (`1,4`), `STRESS_TIMEOUT` (`90m`),
+`STRESS_LOAD` (busy loops; twice the CPU count from `nproc` or `sysctl -n hw.ncpu`),
+`STRESS_JSON` and `STRESS_SUMMARY` (the output files). The exit status is that of
+`go test`; the loops stop when the target exits, fails or is interrupted.
 For v2, use `make -C v2 <target>`; `graph`, `freeze` and `fixtures` check its API
 contract, and `experiments` validates its standalone modules. The v2 examples
 are not built by its current `examples` target.
@@ -89,6 +97,15 @@ oldstable Go, coverage, examples and Node clients
 1.7.4/2.5.0. Vulnerability checks use the newest Go release available to CI.
 `.github/sync-manifest` is the complete list of files deliberately shared across
 modules; other implementations evolve independently.
+
+`.github/workflows/stress.yml` runs `make test-stress-load` on `ubuntu-latest` and
+`macos-latest` with a 120-minute job timeout: nightly, on `workflow_dispatch`, and on
+pull requests that change the workflow file, `.github/stress/` or the Makefile. It is
+not a required check and not part of `ci-ok`, which is why it may use a paths filter.
+A failing test fails its job; known flaky tests are not skipped. The summary is written
+to the job summary, and the JSON stream and the summary are uploaded as artifacts. The
+classifier selects no CI job for the workflow file and the v1 lint job for
+`.github/stress/`; the `changes` job tests `.github/stress` on every run.
 
 Benchmarks compare the PR base and head on the same runner and Go toolchain,
 with ten samples per side. The pinned `sshaplygin/benchmark-report/report` action

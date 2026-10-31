@@ -77,7 +77,7 @@ func (s *Session) closeMode(reason string, abort bool) error {
 		}
 		if abort {
 			<-s.notified
-			s.closeTransport(conn)
+			s.closeTransport(conn, true)
 		} else if orderly {
 			return nil
 		}
@@ -101,7 +101,7 @@ func (s *Session) closeMode(reason string, abort bool) error {
 	if orderly {
 		go func() {
 			defer s.finishClose()
-			timer := time.AfterFunc(s.closeTimeout, func() { s.closeTransport(conn) })
+			timer := time.AfterFunc(s.closeTimeout, func() { s.closeTransport(conn, true) })
 			defer timer.Stop()
 			select {
 			case <-s.transportDone:
@@ -113,21 +113,28 @@ func (s *Session) closeMode(reason string, abort bool) error {
 				}
 				s.writeGate <- struct{}{}
 			}
-			s.closeTransport(conn)
+			s.closeTransport(conn, false)
 		}()
 		return nil
 	}
-	s.closeTransport(conn)
+	s.closeTransport(conn, true)
 	s.finishClose()
 	return s.closeErr
 }
 
 // closeTransport may run on a failing frame reader or writer. Its brief write
 // lock is safe because no holder of upgradeLocker, read or write, waits for a
-// frame reader or writer (see upgradeLocker).
-func (s *Session) closeTransport(conn transport.Conn) {
+// frame reader or writer (see upgradeLocker). Every close but the end of an
+// orderly one aborts a transport that distinguishes the two: the polling
+// transport then expires a response write in progress instead of letting it
+// deliver CLOSE under the session's write deadline.
+func (s *Session) closeTransport(conn transport.Conn, abort bool) {
 	s.transportOnce.Do(func() {
-		s.closeErr = conn.Close()
+		if aborter, ok := conn.(interface{ Abort() error }); ok && abort {
+			s.closeErr = aborter.Abort()
+		} else {
+			s.closeErr = conn.Close()
+		}
 		s.upgradeLocker.Lock()
 		s.transportClosed = true
 		s.upgradeLocker.Unlock()
@@ -151,7 +158,7 @@ func (s *Session) fail(err error) error {
 	if err != nil {
 		if _, synthetic := err.(*CloseError); !synthetic {
 			if closing := s.closing.Load(); closing != nil && s.cause.Load().reason == reasonForcedClose {
-				s.closeTransport(closing.conn)
+				s.closeTransport(closing.conn, true)
 			}
 		}
 	}

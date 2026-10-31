@@ -37,10 +37,11 @@ type serverConn struct {
 
 	// ioMu orders deadline updates and Close against tracked request I/O. It is
 	// a leaf lock: only ResponseController deadline setters run under it.
-	ioMu     sync.Mutex
-	ioClosed bool
-	reading  requestSet // the POSTs whose bodies are being read
-	writing  requestSet // the GETs whose responses are being written
+	ioMu      sync.Mutex
+	ioClosed  bool       // Close ran: body reads are expired
+	ioAborted bool       // Abort ran: response writes are expired too
+	reading   requestSet // the POSTs whose bodies are being read
+	writing   requestSet // the GETs whose responses are being written
 }
 
 // newServerConn creates the polling connection of a request. JSONP is not supported

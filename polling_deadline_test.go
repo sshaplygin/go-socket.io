@@ -332,6 +332,28 @@ func TestPollingOverlappingRequestsAreRefused(t *testing.T) {
 	requireBaseline(t, baseline, 2*time.Second)
 }
 
+// Server.Close and engineio.Abort expire a poll response write in progress at
+// once, long before the session deadline, so the handler goroutine is released
+// within 2 s. An orderly close keeps delivering CLOSE through such a write:
+// TestPollingPartialPostEndsSession, "EngineConn close".
+func TestPollingStalledGetExpiresOnAbort(t *testing.T) {
+	for name, abort := range map[string]func(*deadlineServer, Conn){
+		"Server.Close": func(d *deadlineServer, _ Conn) { _ = d.srv.Close() },
+		"Abort":        func(_ *deadlineServer, c Conn) { _ = engineio.Abort(c.EngineConn()) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			baseline := len(leakedModuleStacks())
+			d := newDeadlineServer(t, deadlineConfig{heartbeat: time.Hour, sendBuffer: 4096})
+			sid, c := d.open(t)
+			d.stallPoll(t, sid, c)
+			abort(d, c)
+			recv(t, d.reasons, "OnDisconnect")
+			_ = d.srv.Close() // stops Serve, which the baseline does not include
+			requireBaseline(t, baseline, 2*time.Second)
+		})
+	}
+}
+
 // A poll whose client never reads a payload larger than the socket buffers
 // keeps no library goroutine once the session has closed. The server's send
 // buffer and the client's receive buffer are 4 KiB on every OS.

@@ -16,7 +16,7 @@ import (
 // Where the ResponseWriter supports deadlines, that I/O follows the session
 // deadline. Close expires a body read, which can only be incomplete; a response
 // write keeps its deadline, so packets accepted before the close (CLOSE of an
-// orderly close among them) are still delivered.
+// orderly close among them) are still delivered. Abort expires both.
 
 // expiredDeadline is in the past; applying it interrupts blocked request I/O.
 var expiredDeadline = time.Unix(1, 0)
@@ -94,11 +94,14 @@ func (s requestSet) expire() {
 func (c *serverConn) track(w http.ResponseWriter, r *http.Request, start time.Time, write bool) *requestIO {
 	c.ioMu.Lock()
 	defer c.ioMu.Unlock()
-	set, deadline := &c.reading, c.payload.readDeadline.Load().(time.Time)
+	set, deadline, closed := &c.reading, c.payload.readDeadline.Load().(time.Time), c.ioClosed
 	if write {
-		set, deadline = &c.writing, c.payload.writeDeadline.Load().(time.Time)
+		set, deadline, closed = &c.writing, c.payload.writeDeadline.Load().(time.Time), c.ioAborted
 	}
-	tracked := &requestIO{rc: http.NewResponseController(w), write: write}
+	tracked := &requestIO{rc: http.NewResponseController(w), write: write, expired: closed}
+	if closed {
+		deadline = expiredDeadline
+	}
 	if srv, ok := r.Context().Value(http.ServerContextKey).(*http.Server); ok {
 		timeout := srv.ReadTimeout
 		if write {
@@ -115,9 +118,6 @@ func (c *serverConn) track(w http.ResponseWriter, r *http.Request, start time.Ti
 		*set = requestSet{}
 	}
 	(*set)[tracked] = struct{}{}
-	if c.ioClosed && !write {
-		tracked.expire()
-	}
 	return tracked
 }
 
@@ -158,13 +158,24 @@ func (c *serverConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-// Close closes the connection and expires the tracked POST body reads.
+// Close closes the connection and expires the tracked POST body reads. A
+// response write keeps its deadline: an orderly close delivers CLOSE through it.
 func (c *serverConn) Close() error {
 	c.ioMu.Lock()
 	c.ioClosed = true
 	c.reading.expire()
 	c.ioMu.Unlock()
 	return c.payload.Close()
+}
+
+// Abort closes the connection and expires the tracked response writes too. The
+// session uses it for every close that is not orderly.
+func (c *serverConn) Abort() error {
+	c.ioMu.Lock()
+	c.ioAborted = true
+	c.writing.expire()
+	c.ioMu.Unlock()
+	return c.Close()
 }
 
 // feedBody streams a POST body to the session through a pipe. The handler's

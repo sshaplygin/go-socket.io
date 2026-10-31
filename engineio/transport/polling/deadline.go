@@ -43,14 +43,21 @@ type requestIO struct {
 	rc      *http.ResponseController
 	write   bool
 	limit   time.Time // the http.Server's ReadTimeout or WriteTimeout bound, if any
+	set     bool      // a deadline was applied
 	expired bool      // an expired deadline was applied
 }
 
-// apply sets the earlier of t and the server's own bound.
+// apply sets t unless the server's own bound is earlier. That bound is known
+// only from the handler's start, so until a deadline has been applied the
+// server's own, earlier deadline is left in place rather than moved to it.
 func (r *requestIO) apply(t time.Time) error {
-	if !r.limit.IsZero() && (t.IsZero() || r.limit.Before(t)) {
+	if !r.limit.IsZero() && (t.IsZero() || !r.limit.After(t)) {
+		if !r.set {
+			return nil
+		}
 		t = r.limit
 	}
+	r.set = true
 	if r.write {
 		return r.rc.SetWriteDeadline(t)
 	}
@@ -134,7 +141,7 @@ func (c *serverConn) untrack(tracked *requestIO, read bool) bool {
 	} else {
 		delete(c.reading, tracked)
 	}
-	if read && !tracked.expired {
+	if read && tracked.set && !tracked.expired {
 		_ = tracked.rc.SetReadDeadline(time.Time{})
 	}
 	return tracked.expired

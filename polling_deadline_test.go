@@ -29,6 +29,8 @@ type deadlineConfig struct {
 	readTimeout  time.Duration // http.Server.ReadTimeout
 	writeTimeout time.Duration // http.Server.WriteTimeout
 	sendBuffer   int           // SetWriteBuffer of accepted connections
+	failWrites   bool          // every poll response write fails with a temporary error
+	failBody     bool          // every POST body read fails with a temporary error
 }
 
 // deadlineServer serves a root namespace that reports its connection, every
@@ -45,6 +47,23 @@ type deadlineServer struct {
 // opaqueWriter exposes only the http.ResponseWriter methods, so
 // http.ResponseController reports http.ErrNotSupported for deadlines.
 type opaqueWriter struct{ http.ResponseWriter }
+
+// temporaryError reports Temporary and not Timeout, as some net errors do.
+type temporaryError struct{}
+
+func (temporaryError) Error() string   { return "temporary" }
+func (temporaryError) Temporary() bool { return true }
+func (temporaryError) Timeout() bool   { return false }
+
+// failingWriter fails every write with a temporaryError.
+type failingWriter struct{ http.ResponseWriter }
+
+func (failingWriter) Write([]byte) (int, error) { return 0, temporaryError{} }
+
+// failingBody fails every read with a temporaryError.
+type failingBody struct{ io.ReadCloser }
+
+func (failingBody) Read([]byte) (int, error) { return 0, temporaryError{} }
 
 // sendBufferListener sets a small send buffer on every accepted connection.
 type sendBufferListener struct {
@@ -81,6 +100,11 @@ func newDeadlineServer(t *testing.T, cfg deadlineConfig) *deadlineServer {
 		}
 		if cfg.opaque {
 			w = opaqueWriter{w}
+		}
+		if session := r.URL.Query().Get("sid") != ""; session && cfg.failWrites && r.Method == http.MethodGet {
+			w = failingWriter{w}
+		} else if session && cfg.failBody && r.Method == http.MethodPost {
+			r.Body = failingBody{r.Body}
 		}
 		d.srv.ServeHTTP(w, r)
 	}))
@@ -370,6 +394,40 @@ func TestPollingStalledGetExpiresOnAbort(t *testing.T) {
 			abort(d, c)
 			recv(t, d.reasons, "OnDisconnect")
 			_ = d.srv.Close() // stops Serve, which the baseline does not include
+			requireBaseline(t, baseline, 2*time.Second)
+		})
+	}
+}
+
+// A poll response write or a POST body read that fails with an error reporting
+// Temporary and not Timeout ends the session as a transport error within 2 s.
+// The session retries temporary payload errors, so the request I/O error must
+// not reach it as one.
+func TestPollingTemporaryRequestErrorsEndSession(t *testing.T) {
+	for name, cfg := range map[string]deadlineConfig{
+		"write": {heartbeat: 3 * time.Second, failWrites: true},
+		"read":  {heartbeat: 3 * time.Second, failBody: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			baseline := len(leakedModuleStacks())
+			d := newDeadlineServer(t, cfg)
+			sid, c := d.open(t)
+			start := time.Now()
+			if cfg.failWrites {
+				go func() {
+					if resp, err := http.Get(d.url("&sid=" + sid)); err == nil {
+						_ = resp.Body.Close()
+					}
+				}()
+				time.Sleep(100 * time.Millisecond) // let the poll wait for a packet
+				c.Emit("x", "y")
+			} else {
+				resp, err := http.Post(d.url("&sid="+sid), "text/plain;charset=UTF-8", strings.NewReader(`10:42["tick"]`))
+				require.NoError(t, err)
+				_ = resp.Body.Close()
+			}
+			require.Equal(t, "transport error", within(t, d.reasons, start.Add(2*time.Second), "OnDisconnect"))
+			_ = d.srv.Close()
 			requireBaseline(t, baseline, 2*time.Second)
 		})
 	}

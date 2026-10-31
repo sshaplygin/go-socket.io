@@ -114,7 +114,8 @@ func (c *conn) serveWrite() {
 			if isDone(c.seal) {
 				// A polling writer can finish before its POST reaches the peer.
 				// Drain that request before Close cancels transport I/O. The close
-				// timer remains active and interrupts a blocked transport flush.
+				// timer stays armed; it only starts the Engine.IO close, whose 2 s
+				// bound cancels a blocked flush.
 				go func() {
 					if pending, ok := c.Conn.(interface{ Flush() error }); ok {
 						_ = pending.Flush()

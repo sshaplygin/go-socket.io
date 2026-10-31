@@ -64,6 +64,16 @@ Package `engineio` of the v1 module at the repository root.
 - The Go client limits incoming websocket messages (inflated bytes) and whole decoded
   polling response bodies, OPEN included, to 1 MiB by default. The configurable
   limit also applies to reconnects and candidate upgrade transports before probe I/O.
+- When the Go client closes a polling connection, it queues `CLOSE` (`1`) behind the
+  packets already written, lets the in-flight POST finish and sends `CLOSE` in a final
+  POST before it cancels outstanding requests, as engine.io-client 3.5.6 does. `Close`
+  does not wait for it; the in-flight and final POSTs share a 2 s bound, and a failed
+  close POST is not reported. No `CLOSE` is sent after the client has recorded a
+  transport failure, after it has read the server's `CLOSE`, or after it has switched
+  to an upgraded websocket, which is closed directly. A `Close` that runs before the
+  client has seen one of these still attempts the packet: the POST is rejected with
+  HTTP 400 (after the switch, or an unread server `CLOSE` whose session is gone), or
+  the write fails on the failed transport and nothing is sent. Neither is reported.
 - Duplicate websocket requests carrying a live websocket session ID receive HTTP
   400/code 3. This immediate rejection is Go-specific; the Node reference does not
   use that response for this case.

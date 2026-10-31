@@ -230,8 +230,8 @@ var copyBuffers = sync.Pool{New: func() any { b := make([]byte, 4096); return &b
 // failure closes the connection, as a failed packet write did.
 func (c *serverConn) writeResponse(w http.ResponseWriter, r *http.Request, start time.Time, p []byte) error {
 	tracked := c.track(w, r, start, true)
+	defer c.untrack(tracked, false)
 	_, err := w.Write(p)
-	c.untrack(tracked, false)
 	if err != nil {
 		_ = c.payload.Store("write", &requestError{"response", err})
 		_ = c.Close()

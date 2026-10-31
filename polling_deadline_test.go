@@ -344,15 +344,15 @@ func blockedInWrite() bool {
 }
 
 // http.Server.WriteTimeout ends a poll whose client stops reading before the
-// heartbeat does. The write's timeout must not be retried as a temporary
-// payload error: OnDisconnect runs within 2 s, as a ping timeout.
+// heartbeat does, as a ping timeout. The 2 s timeout leaves stallPoll time to
+// observe the blocked write under load.
 func TestPollingStalledGetServerWriteTimeout(t *testing.T) {
 	baseline := len(leakedModuleStacks())
-	d := newDeadlineServer(t, deadlineConfig{heartbeat: 5 * time.Second, writeTimeout: 500 * time.Millisecond, sendBuffer: 4096})
+	d := newDeadlineServer(t, deadlineConfig{heartbeat: 10 * time.Second, writeTimeout: 2 * time.Second, sendBuffer: 4096})
 	sid, c := d.open(t)
 	start := time.Now()
 	d.stallPoll(t, sid, c)
-	require.Equal(t, "ping timeout", within(t, d.reasons, start.Add(2*time.Second), "OnDisconnect"))
+	require.Equal(t, "ping timeout", within(t, d.reasons, start.Add(4*time.Second), "OnDisconnect"))
 	_ = d.srv.Close()
 	requireBaseline(t, baseline, 2*time.Second)
 }

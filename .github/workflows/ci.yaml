@@ -50,7 +50,7 @@ jobs:
       - name: Test aggregate result handling
         run: bash .github/ci/aggregate_test.sh
       - name: Test the classifier
-        run: go test -count=1 ./.github/changes
+        run: go test -count=1 ./.github/changes ./.github/stress
       - name: Classify the change
         id: classify
         env:
@@ -246,7 +246,7 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
-          args: ./... ./.github/architecture ./.github/changes
+          args: ./... ./.github/architecture ./.github/changes ./.github/stress
       - name: govulncheck
         # setup-go reads a manifest that can lag behind go.dev, so scan with the newest
         # published release; the go command downloads that toolchain via the module proxy.

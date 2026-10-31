@@ -1,0 +1,54 @@
+name: Stress
+permissions:
+  contents: read
+
+# Repeated race tests of the v1 stress packages under CPU load (make test-stress-load) on
+# Linux and macOS: nightly, on demand, and on pull requests that change this workflow, the
+# summary tool or the Makefile. Never a required check and not part of ci-ok, so the paths
+# filter is allowed here (the header rule of ci.yaml applies to required checks). A failing
+# test fails the job; the summary and the uploads run in any case; known flakes are not skipped.
+on:
+  schedule:
+    - cron: '30 2 * * *' # daily 02:30 UTC
+  workflow_dispatch:
+  pull_request:
+    branches: [master]
+    paths:
+      - .github/workflows/stress.yml
+      - '.github/stress/**'
+      - Makefile
+
+jobs:
+  stress:
+    name: Stress under load ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          check-latest: true
+      - name: Toolchain and load before the run
+        run: go version && uptime
+      # The target writes stress.json and stress-summary.md (its defaults).
+      - name: Repeated race tests under CPU load
+        run: make test-stress-load
+      # The summary is rebuilt from the stream: on a cancellation or timeout the test step
+      # leaves a partial stream and no summary file.
+      - name: Publish the summary
+        if: always()
+        run: go run ./.github/stress -json stress.json -summary stress-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the stream and the summary
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: stress-${{ matrix.os }}
+          path: |
+            stress.json
+            stress-summary.md
+          if-no-files-found: error

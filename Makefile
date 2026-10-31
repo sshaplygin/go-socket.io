@@ -44,6 +44,27 @@ test-stress:
 	echo go test -race -count=5 -shuffle=on -cpu=1,4 $$pkgs; \
 	go test -race -count=5 -shuffle=on -cpu=1,4 $$pkgs
 
+# Race tests of STRESS_PKGS repeated under CPU load: STRESS_LOAD POSIX sh busy loops (twice the
+# CPU count) run while go test -json writes STRESS_JSON, which .github/stress summarizes into
+# STRESS_SUMMARY and stdout. The exit status is that of go test. The traps kill the loops on
+# exit, failure and interruption: a non-interactive sh starts them with SIGINT ignored.
+STRESS_COUNT ?= 20
+STRESS_CPU ?= 1,4
+STRESS_TIMEOUT ?= 90m
+STRESS_LOAD ?= $(shell n=$$(nproc 2>/dev/null || sysctl -n hw.ncpu); echo $$((n * 2)))
+STRESS_JSON ?= stress.json
+STRESS_SUMMARY ?= stress-summary.md
+
+.PHONY: test-stress-load
+test-stress-load:
+	@set -e; pids=; i=0; \
+	while test $$i -lt $(STRESS_LOAD); do sh -c 'while :; do :; done' & pids="$$pids $$!"; i=$$((i+1)); done; \
+	trap 'kill $$pids 2>/dev/null' EXIT; trap 'exit 130' INT; trap 'exit 143' TERM; \
+	echo "$(STRESS_LOAD) busy loops; go test -race -json -count=$(STRESS_COUNT) -shuffle=on -cpu=$(STRESS_CPU) -timeout=$(STRESS_TIMEOUT) $(STRESS_PKGS) >$(STRESS_JSON)"; \
+	status=0; go test -race -json -count=$(STRESS_COUNT) -shuffle=on -cpu=$(STRESS_CPU) -timeout=$(STRESS_TIMEOUT) $(STRESS_PKGS) >$(STRESS_JSON) || status=$$?; \
+	go run ./.github/stress -json $(STRESS_JSON) -summary $(STRESS_SUMMARY); \
+	exit $$status
+
 .PHONY: bench
 bench:
 	go test -run '^$$' -bench . -benchmem $(PKGS)
@@ -51,7 +72,7 @@ bench:
 .PHONY: lint
 lint: vet
 	gofmt -s -l . | tee /dev/stderr | test -z "$$(cat)"
-	golangci-lint run ./... ./.github/architecture ./.github/changes
+	golangci-lint run ./... ./.github/architecture ./.github/changes ./.github/stress
 
 # go vet of every Go file that a CI job compiles, so that a change of comments alone, which
 # runs only the lint job, cannot fail a job that the change skips: the root module under
@@ -60,7 +81,7 @@ lint: vet
 # engineio/_examples (vetted again by make examples), and the .github tools.
 .PHONY: vet
 vet:
-	go vet ./.github/architecture ./.github/changes
+	go vet ./.github/architecture ./.github/changes ./.github/stress
 	@set -e; for os in linux darwin windows; do echo "==> GOOS=$$os"; GOOS=$$os go vet ./...; done
 	GOOS=linux GOARCH=386 go vet ./...
 	go vet -tags conformance ./...

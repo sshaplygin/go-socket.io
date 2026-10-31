@@ -43,7 +43,9 @@ The first release of the fork is `v1.5.0`; v2 releases follow it. The frozen
 Before tagging v1:
 
 1. Run the full CI matrix, including Go 1.22, race/stress tests, lint,
-   vulnerability checks, architecture/consumer fixtures and coverage.
+   vulnerability checks, architecture/consumer fixtures and coverage. Inspect the
+   latest run of the Stress workflow (`.github/workflows/stress.yml`) on the
+   release head and record its failures in the release pull request.
 2. Build the examples and run Node interoperability with both pinned clients,
    Redis TCP/Unix examples and the mixed Go/Node Redis adapter.
 3. Check that the usage and protocol documents agree with the implementation.

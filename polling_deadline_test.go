@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -286,7 +287,9 @@ func TestPollingEmptyPostServerReadTimeout(t *testing.T) {
 }
 
 // stallPoll sends a poll whose client never reads a 1,000,000-byte packet
-// through 4 KiB socket buffers and returns once the response has started.
+// through 4 KiB socket buffers and returns once the response has started and
+// its handler is blocked writing it. Windows loopback does not stall the write
+// behind these buffers (iteration 1 of #205 on CI); the test is skipped there.
 func (d *deadlineServer) stallPoll(t *testing.T, sid string, c Conn) net.Conn {
 	t.Helper()
 	raw := d.dial(t, http.MethodGet, sid, "")
@@ -295,7 +298,25 @@ func (d *deadlineServer) stallPoll(t *testing.T, sid string, c Conn) net.Conn {
 	_, err := io.ReadFull(raw, status)
 	require.NoError(t, err)
 	require.Equal(t, "HTTP/1.1 200", string(status), "the poll response has started")
+	for deadline := time.Now().Add(2 * time.Second); !blockedInWrite(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			if runtime.GOOS == "windows" {
+				t.Skip("the poll response did not stall behind 4 KiB socket buffers")
+			}
+			t.Fatal("no handler is blocked writing the poll response")
+		}
+	}
 	return raw
+}
+
+// blockedInWrite reports whether a handler goroutine is writing a poll response.
+func blockedInWrite() bool {
+	for _, stack := range leakedModuleStacks() {
+		if strings.Contains(stack, "(*serverConn).writeResponse") {
+			return true
+		}
+	}
+	return false
 }
 
 // http.Server.WriteTimeout ends a poll whose client stops reading before the

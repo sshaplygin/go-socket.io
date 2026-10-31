@@ -51,9 +51,14 @@ type CloseReason string
 const (
 	// ReasonTransportClose means the client sent a CLOSE packet.
 	ReasonTransportClose CloseReason = "transport close"
-	// ReasonPingTimeout means no packet arrived within PingInterval + PingTimeout.
+	// ReasonPingTimeout means the transport reported a deadline or timeout error:
+	// the heartbeat window of PingInterval + PingTimeout passed without a packet,
+	// or a server-configured HTTP timeout (http.Server ReadTimeout/WriteTimeout),
+	// a poll request context deadline, or a TCP timeout expired. CloseError.Err
+	// is nil for it.
 	ReasonPingTimeout CloseReason = "ping timeout"
-	// ReasonTransportError means a transport read or write failed before the deadline.
+	// ReasonTransportError means a transport read or write failed with an error
+	// that is not a deadline or timeout error.
 	ReasonTransportError CloseReason = "transport error"
 	// ReasonForcedClose means Conn.Close was called.
 	ReasonForcedClose CloseReason = "forced close"

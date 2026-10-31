@@ -1,8 +1,10 @@
 package session
 
 import (
+	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
@@ -139,9 +141,9 @@ func (s *Session) observe(reason string, err error) {
 }
 
 // fail observes a non-nil err of a transport read or write as "ping timeout" once the
-// PingTimeout deadline has passed, as "transport error" before, and returns it.
+// deadline has expired (see timedOut), as "transport error" otherwise, and returns it.
 func (s *Session) fail(err error) error {
-	if err != nil && time.Now().UnixNano() >= s.deadline.Load() {
+	if timedOut(err) {
 		s.observe(reasonPingTimeout, nil)
 	} else if err != nil {
 		s.observe(reasonTransportError, err)
@@ -154,6 +156,15 @@ func (s *Session) fail(err error) error {
 		}
 	}
 	return err
+}
+
+// timedOut reports whether err is an expired transport deadline: it matches
+// os.ErrDeadlineExceeded, or an error in its chain reports Timeout, as the
+// deadline errors of gorilla/websocket and of the polling payload do. The
+// transports expire deadlines on the monotonic clock; the wall clock can disagree.
+func timedOut(err error) bool {
+	var timeout interface{ Timeout() bool }
+	return errors.Is(err, os.ErrDeadlineExceeded) || errors.As(err, &timeout) && timeout.Timeout()
 }
 
 // closeError returns the immutable first cause; close records it before publishing closed.

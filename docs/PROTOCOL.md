@@ -46,7 +46,7 @@ Package `engineio` of the v1 module at the repository root.
   As a known limitation, a server-initiated websocket close, such as `Conn.Close`
   or `Server.Close`, closes the underlying connection without a websocket close
   control frame, so the client observes close code 1006. The message-limit close
-  below does send a close frame, with code 1009.
+  below does send a close frame, with code 1009, though a client can still see 1006.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
   to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
   threshold and only for a packet whose compression flag is true. The threshold is
@@ -58,8 +58,9 @@ Package `engineio` of the v1 module at the repository root.
   sets no cookie, matching engine.io 3.6.2.
 - Message limit: `WithMaxHTTPBufferSize`, default 1e6 bytes. A longer polling POST
   body is answered HTTP 413 (plain text) and closes the session; a longer websocket
-  message closes the connection with close code 1009. With permessage-deflate, the
-  same limit applies to inflated bytes; rejection does not buffer the full message.
+  message closes the connection with close code 1009. A client can see 1006 instead
+  when the connection resets before it reads the close frame. With permessage-deflate,
+  the same limit applies to inflated bytes; rejection does not buffer the full message.
 - The Go client limits incoming websocket messages (inflated bytes) and whole decoded
   polling response bodies, OPEN included, to 1 MiB by default. The configurable
   limit also applies to reconnects and candidate upgrade transports before probe I/O.
@@ -177,6 +178,10 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   set, which can be any JSON value, and `err.message` otherwise.
 - Namespace query strings (`0/nsp?x=1`) are parsed into `Header.Query` and merged into
   `Handshake().Query` of that socket.
+- The reference server queues outbound packets without a bound. This server bounds
+  the queue per connection with `WithWriteBufferSize` (1024 packets by default), so a
+  burst that must be queued at once, such as one handler's emits over polling, has to
+  fit the bound. `ErrWriteBufferFull` documents the overflow behavior.
 
 A Socket.IO packet may contain at most 10 binary attachments. Encoding counts
 only attachments referenced by the encoded JSON and rejects a larger packet

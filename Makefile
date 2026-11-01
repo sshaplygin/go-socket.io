@@ -58,11 +58,11 @@ STRESS_SUMMARY ?= stress-summary.md
 .PHONY: test-stress-load
 test-stress-load:
 	@set -e; pids=; i=0; \
-	while test $$i -lt $(STRESS_LOAD); do sh -c 'while :; do :; done' & pids="$$pids $$!"; i=$$((i+1)); done; \
 	trap 'kill $$pids 2>/dev/null' EXIT; trap 'exit 130' INT; trap 'exit 143' TERM; \
+	while test $$i -lt $(STRESS_LOAD); do sh -c 'while :; do :; done' & pids="$$pids $$!"; i=$$((i+1)); done; \
 	echo "$(STRESS_LOAD) busy loops; go test -race -json -count=$(STRESS_COUNT) -shuffle=on -cpu=$(STRESS_CPU) -timeout=$(STRESS_TIMEOUT) $(STRESS_PKGS) >$(STRESS_JSON)"; \
 	status=0; go test -race -json -count=$(STRESS_COUNT) -shuffle=on -cpu=$(STRESS_CPU) -timeout=$(STRESS_TIMEOUT) $(STRESS_PKGS) >$(STRESS_JSON) || status=$$?; \
-	go run ./.github/stress -json $(STRESS_JSON) -summary $(STRESS_SUMMARY); \
+	go run ./.github/stress -json $(STRESS_JSON) -summary $(STRESS_SUMMARY) || true; \
 	exit $$status
 
 .PHONY: bench

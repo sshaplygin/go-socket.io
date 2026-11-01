@@ -14,10 +14,10 @@ import (
 // the rest.
 const maxLines = 60
 
-// event is one line of a go test -json stream (cmd/test2json). Build events carry
-// ImportPath instead of Package.
+// event is one line of a go test -json stream (cmd/test2json). Build events carry ImportPath
+// instead of Package; a package whose build failed names it in FailedBuild ("P_test [P.test]").
 type event struct {
-	Action, Package, Test, Output, ImportPath string
+	Action, Package, Test, Output, ImportPath, FailedBuild string
 }
 
 type testState struct {
@@ -26,12 +26,13 @@ type testState struct {
 }
 
 type pkgState struct {
-	name, seed, result string
-	runs, races        int
-	output, firstRace  []string // output without a test; the first race report
-	capturing          bool     // inside the first race report
-	raceTests          map[string]int
-	tests              map[string]*testState
+	name, seed, result   string
+	runs, races          int
+	output, firstRace    []string // output without a test; the first race report
+	timeout              []string // the timeout panic header and its running-tests list
+	capturing, inTimeout bool
+	raceTests            map[string]int
+	tests                map[string]*testState
 }
 
 type packages map[string]*pkgState
@@ -57,6 +58,7 @@ func (p *pkgState) test(name string) *testState {
 // summarize reads a go test -json stream and renders its Markdown summary.
 func summarize(r io.Reader) (string, error) {
 	pkgs, bad := packages{}, 0
+	builds := map[string][]string{} // build output by ImportPath until a package claims it
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 1<<20), 1<<24)
 	for sc.Scan() {
@@ -66,9 +68,8 @@ func summarize(r io.Reader) (string, error) {
 			continue
 		}
 		if e.Package == "" {
-			if e.Action == "build-output" { // attached to the package named before " ["
-				name, _, _ := strings.Cut(e.ImportPath, " [")
-				pkgs.get(name).output = append(pkgs.get(name).output, strings.TrimSuffix(e.Output, "\n"))
+			if e.Action == "build-output" {
+				builds[e.ImportPath] = append(builds[e.ImportPath], strings.TrimSuffix(e.Output, "\n"))
 			}
 			continue
 		}
@@ -82,6 +83,10 @@ func summarize(r io.Reader) (string, error) {
 		case "pass", "fail", "skip":
 			if e.Test == "" {
 				p.result = e.Action
+				if e.FailedBuild != "" {
+					p.output = append(builds[e.FailedBuild], p.output...)
+					delete(builds, e.FailedBuild)
+				}
 				continue
 			}
 			t := p.test(e.Test)
@@ -99,6 +104,13 @@ func summarize(r io.Reader) (string, error) {
 	}
 	if err := sc.Err(); err != nil {
 		return "", fmt.Errorf("read the stream: %w", err)
+	}
+	for _, importPath := range sortedKeys(builds) { // unclaimed: no fail event followed
+		name := importPath // a dependency; "P_test [P.test]" and "P [P.test]" name P
+		if _, bracket, ok := strings.Cut(importPath, " ["); ok {
+			name = strings.TrimSuffix(bracket, ".test]")
+		}
+		pkgs.get(name).output = append(pkgs.get(name).output, builds[importPath]...)
 	}
 	return markdown(pkgs, bad), nil
 }
@@ -124,6 +136,14 @@ func (p *pkgState) line(test, line string) {
 	if p.capturing {
 		p.firstRace = append(p.firstRace, line)
 		p.capturing = line != "=================="
+	}
+	// The timeout panic appears once per package, under any test or at package level.
+	if strings.HasPrefix(line, "panic: test timed out") && p.timeout == nil {
+		p.inTimeout = true
+	}
+	if p.inTimeout {
+		p.timeout = append(p.timeout, line)
+		p.inTimeout = line != ""
 	}
 }
 
@@ -166,7 +186,7 @@ func markdown(pkgs packages, bad int) string {
 				details(&failing, fmt.Sprintf("`%s` `%s`: %d of %d runs failed", p.name, name, t.failed, t.runs), t.first)
 			}
 			if t.open > 0 {
-				details(&hung, fmt.Sprintf("`%s` `%s` started and did not end", p.name, name), t.current, p.output)
+				details(&hung, fmt.Sprintf("`%s` `%s` started and did not end", p.name, name), p.timeout, t.current, p.output)
 			}
 		}
 		if p.result == "fail" && failed == 0 && open == 0 {
@@ -201,7 +221,7 @@ func markdown(pkgs packages, bad int) string {
 		b.WriteString("No failed tests, unfinished tests or race reports.\n\n")
 	}
 	if bad > 0 {
-		fmt.Fprintf(&b, "%s were not go test -json events.\n\n", plural(bad, "line"))
+		fmt.Fprintf(&b, "%s %s not go test -json events.\n\n", plural(bad, "line"), map[bool]string{true: "was", false: "were"}[bad == 1])
 	}
 	if noResult > 0 {
 		fmt.Fprintf(&b, "%s %s no result; the stream may be incomplete.\n\n", plural(noResult, "package"), map[bool]string{true: "has", false: "have"}[noResult == 1])

@@ -199,7 +199,7 @@ func TestSummaryReportsPackageLevelFailures(t *testing.T) {
 			t.Errorf("missing package row %q in:\n%s", want, md)
 		}
 	}
-	for _, unwanted := range []string{"d_test", "`example.com/dep`", "no result"} {
+	for _, unwanted := range []string{"| `example.com/d_test`", "| `example.com/dep`", "no result"} {
 		if strings.Contains(md, unwanted) {
 			t.Errorf("unexpected %q (build output attributed to the wrong package):\n%s", unwanted, md)
 		}

@@ -18,6 +18,11 @@ on:
       - '.github/stress/**'
       - Makefile
 
+# A newer push to a pull request supersedes its run; the run id keeps other runs unique.
+concurrency:
+  group: stress-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   stress:
     name: Stress under load ${{ matrix.os }}
@@ -29,6 +34,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@v7
         with:
           go-version: stable
@@ -52,3 +59,4 @@ jobs:
             stress.json
             stress-summary.md
           if-no-files-found: error
+          retention-days: 14

@@ -500,6 +500,31 @@ func TestPollingOrderlyCloseWriteExpiresOnAbort(t *testing.T) {
 	}
 }
 
+// Without deadline support the response carrying CLOSE cannot be expired, so an
+// orderly close waits for it only until Server.Close (or its 30 s timer):
+// Server.Close returns at once, OnDisconnect runs, and only the handler
+// goroutine remains, until the client socket closes.
+func TestPollingOpaqueOrderlyCloseEndsWithServerClose(t *testing.T) {
+	baseline := len(leakedModuleStacks())
+	d := newDeadlineServer(t, deadlineConfig{heartbeat: time.Hour, opaque: true, sendBuffer: 4096})
+	sid, c := d.open(t)
+	raw := d.stallPoll(t, sid, c)
+	require.NoError(t, c.EngineConn().Close())
+	start := time.Now()
+	_ = d.srv.Close()
+	require.Less(t, time.Since(start), 2*time.Second, "Server.Close duration")
+	within(t, d.reasons, start.Add(2*time.Second), "OnDisconnect")
+	for deadline := start.Add(2 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if leaks := leakedModuleStacks(); len(leaks) == baseline+1 && blockedInWrite() {
+			break
+		} else if time.Now().After(deadline) {
+			t.Fatalf("goroutines other than the handler remain:\n%s", strings.Join(leaks, "\n\n"))
+		}
+	}
+	_ = raw.Close()
+	requireBaseline(t, baseline, 2*time.Second)
+}
+
 // After an upgrade, Server.Close expires a poll response write that the
 // retired polling connection still has in progress.
 func TestPollingRetiredWriteExpiresOnShutdown(t *testing.T) {

@@ -28,6 +28,8 @@ type Session struct {
 	closeErr      error         // written by transportOnce; published by closeDone/transportDone
 	transportOnce sync.Once
 	transportDone chan struct{}
+	aborted       chan struct{} // closed by abortTransport; ends the orderly close's drain
+	abortOnce     sync.Once
 	writeGate     chan struct{}
 	stopWrites    chan struct{}
 	closeTimeout  time.Duration
@@ -82,6 +84,7 @@ func New(conn transport.Conn, sid, transport string, params eioparser.ConnParame
 		closeDone:      make(chan struct{}),
 		notified:       make(chan struct{}),
 		transportDone:  make(chan struct{}),
+		aborted:        make(chan struct{}),
 		writeGate:      make(chan struct{}, 1),
 		stopWrites:     make(chan struct{}),
 		closeTimeout:   30 * time.Second,

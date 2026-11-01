@@ -32,8 +32,9 @@ type closingTransport struct {
 
 // Close starts an orderly polling close after accepted writes. It returns while
 // waiting for a poll and while the poll response carrying CLOSE is written; the
-// transport remains closing, and the session live, for at most 30 seconds.
-// Other transports and failed sessions close immediately. The first cause wins.
+// transport remains closing, and the session live, until that write ends, until
+// Abort or Shutdown, or for at most 30 seconds. Other transports and failed
+// sessions close immediately. The first cause wins.
 func (s *Session) Close() error {
 	return s.close(reasonForcedClose)
 }
@@ -116,8 +117,12 @@ func (s *Session) closeMode(reason string, abort bool) error {
 			}
 			s.closeTransport(conn, false)
 			if drain, ok := conn.(interface{ Drained() <-chan struct{} }); ok {
-				// The response carrying CLOSE may still be written; the timer or an abort ends it.
-				<-drain.Drained()
+				// The response carrying CLOSE may still be written. The timer or an
+				// abort expires it where the transport can, and ends the wait anyway.
+				select {
+				case <-drain.Drained():
+				case <-s.aborted:
+				}
 			}
 		}()
 		return nil
@@ -155,6 +160,7 @@ func (s *Session) closeTransport(conn transport.Conn, abort bool) {
 func (s *Session) abortTransport(conn transport.Conn) {
 	s.closeTransport(conn, true)
 	abortConn(conn)
+	s.abortOnce.Do(func() { close(s.aborted) })
 }
 
 func abortConn(conn transport.Conn) {

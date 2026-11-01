@@ -374,6 +374,9 @@ func blockedInWrite() bool {
 // heartbeat does, as a ping timeout. The 2 s timeout leaves stallPoll time to
 // observe the blocked write under load.
 func TestPollingStalledGetServerWriteTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows loopback completes the 1 MB response behind 4 KiB socket buffers before WriteTimeout fires (CI run 41206177007)")
+	}
 	baseline := len(leakedModuleStacks())
 	d := newDeadlineServer(t, deadlineConfig{heartbeat: 10 * time.Second, writeTimeout: 2 * time.Second, sendBuffer: 4096})
 	sid, c := d.open(t)
@@ -418,10 +421,11 @@ func TestPollingStalledGetExpiresOnAbort(t *testing.T) {
 			d := newDeadlineServer(t, deadlineConfig{heartbeat: time.Hour, sendBuffer: 4096})
 			sid, c := d.open(t)
 			d.stallPoll(t, sid, c)
+			start := time.Now()
 			abort(d, c)
-			recv(t, d.reasons, "OnDisconnect")
+			within(t, d.reasons, start.Add(2*time.Second), "OnDisconnect")
 			_ = d.srv.Close() // stops Serve, which the baseline does not include
-			requireBaseline(t, baseline, 2*time.Second)
+			requireBaseline(t, baseline, time.Until(start.Add(2*time.Second)))
 		})
 	}
 }
@@ -492,10 +496,11 @@ func TestPollingOrderlyCloseWriteExpiresOnAbort(t *testing.T) {
 			time.Sleep(100 * time.Millisecond) // let the poll wait for a packet
 			require.NoError(t, c.EngineConn().Close())
 			recv(t, d.writes, "the poll response write")
+			start := time.Now()
 			abort(d, c)
-			recv(t, d.reasons, "OnDisconnect")
+			within(t, d.reasons, start.Add(2*time.Second), "OnDisconnect")
 			_ = d.srv.Close()
-			requireBaseline(t, baseline, 2*time.Second)
+			requireBaseline(t, baseline, time.Until(start.Add(2*time.Second)))
 		})
 	}
 }

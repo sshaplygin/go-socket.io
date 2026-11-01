@@ -534,11 +534,20 @@ func TestPollingOpaqueOrderlyCloseEndsWithServerClose(t *testing.T) {
 	_ = d.srv.Close()
 	require.Less(t, time.Since(start), 2*time.Second, "Server.Close duration")
 	within(t, d.reasons, start.Add(2*time.Second), "OnDisconnect")
+	// Only the handler remains: the goroutines not in writeResponse are back to
+	// the baseline (which can shrink when earlier tests' goroutines exit).
 	for deadline := start.Add(2 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if leaks := leakedModuleStacks(); len(leaks) == baseline+1 && blockedInWrite() {
+		leaks, others := leakedModuleStacks(), 0
+		for _, stack := range leaks {
+			if !strings.Contains(stack, "(*serverConn).writeResponse") {
+				others++
+			}
+		}
+		if others <= baseline && others < len(leaks) {
 			break
-		} else if time.Now().After(deadline) {
-			t.Fatalf("goroutines other than the handler remain:\n%s", strings.Join(leaks, "\n\n"))
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("goroutines other than the handler remain (baseline %d):\n%s", baseline, strings.Join(leaks, "\n\n"))
 		}
 	}
 	_ = raw.Close()

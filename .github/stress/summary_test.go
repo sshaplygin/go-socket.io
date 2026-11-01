@@ -100,8 +100,9 @@ func TestSummaryReportsNothingForAPassingRun(t *testing.T) {
 
 func TestSummaryListsTestsThatNeverEndedWithTheTimeoutPanic(t *testing.T) {
 	const c = "example.com/c"
-	// Go 1.25 attributes the panic to the running test; older releases print it at package
-	// level. Both shapes end in a package fail without a test.
+	// test2json attributes the panic to the test that last printed output, which can be a
+	// test that already passed, or to the package. Both shapes end in a package fail without
+	// a test.
 	for name, panicOwner := range map[string]string{"test output": "TestHang", "package output": ""} {
 		t.Run(name, func(t *testing.T) {
 			md := mustSummarize(t, seed(c, "9")+
@@ -206,6 +207,39 @@ func TestSummaryReportsPackageLevelFailures(t *testing.T) {
 	}
 	if !strings.Contains(section(t, md, "Race reports"), "`example.com/e`: 1 race report") || strings.Contains(md, "### Failing tests") {
 		t.Errorf("a race outside a test is a race report, not a test failure:\n%s", md)
+	}
+}
+
+func TestSummaryKeepsUnattributedBuildOutputOutOfThePackageTable(t *testing.T) {
+	const p3, ok = "example.com/p3", "example.com/ok"
+	// p3 imports two dependencies that both fail to build; its fail event names only one.
+	// A cgo warning of another dependency produces build output without a build-fail.
+	build := `{"ImportPath":"example.com/dep2","Action":"build-output","Output":"# example.com/dep2\n"}` + "\n" +
+		`{"ImportPath":"example.com/dep2","Action":"build-output","Output":"dep2/dep2.go:2:23: undefined: alsomissing\n"}` + "\n" +
+		`{"ImportPath":"example.com/dep2","Action":"build-fail"}` + "\n" +
+		`{"ImportPath":"example.com/dep","Action":"build-output","Output":"dep/dep.go:2:23: undefined: missing\n"}` + "\n" +
+		`{"ImportPath":"example.com/dep","Action":"build-fail"}` + "\n" +
+		`{"ImportPath":"example.com/cgo","Action":"build-output","Output":"# example.com/cgo\n"}` + "\n" +
+		`{"ImportPath":"example.com/cgo","Action":"build-output","Output":"cgo-gcc-prolog:1:2: warning: unused variable\n"}` + "\n"
+	md := mustSummarize(t, build+
+		ev(p3, "start", "")+ev(p3, "output", "", "FAIL\texample.com/p3 [build failed]")+
+		`{"Action":"fail","Package":"example.com/p3","Elapsed":0,"FailedBuild":"example.com/dep"}`+"\n"+
+		seed(ok, "8")+test(ok, "TestOK", "pass", "--- PASS: TestOK (0.00s)")+ev(ok, "pass", "", "ok\texample.com/ok\t0.1s"))
+	for _, want := range []string{"dep/dep.go:2:23: undefined: missing", "dep2/dep2.go:2:23: undefined: alsomissing", "cgo-gcc-prolog:1:2: warning: unused variable", "`example.com/dep2`", "`example.com/cgo`"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("missing %q in:\n%s", want, md)
+		}
+	}
+	if !strings.Contains(section(t, md, "Package-level failures"), "dep/dep.go:2:23: undefined: missing") {
+		t.Errorf("the named failed build is quoted under p3:\n%s", md)
+	}
+	for _, unwanted := range []string{"| `example.com/dep", "| `example.com/cgo`", "no result"} {
+		if strings.Contains(md, unwanted) {
+			t.Errorf("unexpected %q (a dependency is not a package row):\n%s", unwanted, md)
+		}
+	}
+	if !strings.Contains(md, "| `example.com/p3` | — | fail | 0 | 0 | 0 | 0 | 0 |") || !strings.Contains(md, "| `example.com/ok` | 8 | pass | 1 | 0 | 0 | 0 | 0 |") {
+		t.Errorf("unexpected package rows:\n%s", md)
 	}
 }
 

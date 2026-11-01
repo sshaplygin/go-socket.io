@@ -40,6 +40,7 @@ type deadlineConfig struct {
 // deadlineServer serves a root namespace that reports its connection, every
 // "tick" event, every POST that reaches the handler and the disconnect reason.
 type deadlineServer struct {
+	cfg     deadlineConfig
 	srv     *Server
 	ts      *httptest.Server
 	conns   chan Conn
@@ -116,7 +117,7 @@ func newDeadlineServer(t *testing.T, cfg deadlineConfig) *deadlineServer {
 		cfg.heartbeat = time.Second
 	}
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	d := &deadlineServer{conns: make(chan Conn, 1), ticks: make(chan struct{}, 8),
+	d := &deadlineServer{cfg: cfg, conns: make(chan Conn, 1), ticks: make(chan struct{}, 8),
 		posts: make(chan struct{}, 8), writes: make(chan struct{}, 8), reasons: make(chan string, 1)}
 	d.srv = NewServer(WithLogger(quiet), WithEngineOptions(engineio.WithLogger(quiet),
 		engineio.WithPingInterval(cfg.heartbeat), engineio.WithPingTimeout(cfg.heartbeat),
@@ -160,7 +161,8 @@ func (d *deadlineServer) url(sid string) string {
 // open completes a b64 polling handshake and returns the session ID and its
 // connection, with the socket.io CONNECT packet ("2:40") delivered: it usually
 // joins the OPEN response's batch, but on a loaded machine it can miss the 5 ms
-// window and would then be the answer to the test's next poll.
+// window and would then be the answer to the test's next poll. Where poll
+// writes fail or block by configuration, that next poll is the test's own.
 func (d *deadlineServer) open(t *testing.T) (string, Conn) {
 	t.Helper()
 	s := d.get(t, "")
@@ -169,7 +171,7 @@ func (d *deadlineServer) open(t *testing.T) (string, Conn) {
 	var open struct{ Sid string }
 	require.NoError(t, json.Unmarshal([]byte(s[start:end+1]), &open))
 	c := recv(t, d.conns, "OnConnect")
-	if !strings.Contains(s, "2:40") {
+	if !strings.Contains(s, "2:40") && !d.cfg.failWrites && !d.cfg.blockWrites {
 		require.Contains(t, d.get(t, "&sid="+open.Sid), "2:40", "the CONNECT packet")
 	}
 	return open.Sid, c

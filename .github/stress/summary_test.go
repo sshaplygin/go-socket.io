@@ -125,6 +125,26 @@ func TestSummaryListsTestsThatNeverEndedWithTheTimeoutPanic(t *testing.T) {
 	}
 }
 
+func TestSummaryQuotesTheTimeoutPanicForEveryHangingParallelTest(t *testing.T) {
+	const c = "example.com/c"
+	// Two parallel tests hang; the testing package prints the panic under one of them.
+	md := mustSummarize(t, seed(c, "4")+
+		ev(c, "run", "TestA")+ev(c, "pause", "TestA", "=== RUN   TestA", "=== PAUSE TestA")+
+		ev(c, "run", "TestB")+ev(c, "pause", "TestB", "=== RUN   TestB", "=== PAUSE TestB")+
+		ev(c, "cont", "TestA", "=== CONT  TestA")+ev(c, "cont", "TestB", "=== CONT  TestB")+
+		ev(c, "output", "TestB", "panic: test timed out after 2s", "\trunning tests:", "\t\tTestA (2s)", "\t\tTestB (2s)", "", "goroutine 20 [running]:", "testing.(*M).startAlarm.func1()")+
+		ev(c, "fail", "", "FAIL\texample.com/c\t2.3s"))
+	hung := section(t, md, "Tests that never ended")
+	_, forA, _ := strings.Cut(hung, "`TestA` started and did not end")
+	forA, _, _ = strings.Cut(forA, "</details>")
+	if !strings.Contains(forA, "panic: test timed out after 2s") || !strings.Contains(forA, "TestA (2s)") || strings.Contains(forA, "goroutine 20") {
+		t.Errorf("the timeout panic lines are quoted for TestA without the goroutine dump:\n%s", hung)
+	}
+	if !strings.Contains(md, "| `example.com/c` | 4 | fail | 2 | 0 | 0 | 2 | 0 |") {
+		t.Errorf("unexpected package row:\n%s", md)
+	}
+}
+
 func TestSummaryCountsRacesByPackageAndNamesTheAttributedTest(t *testing.T) {
 	const b = "example.com/b"
 	report := []string{"==================", "WARNING: DATA RACE", "Read at 0x00c0 by goroutine 8:", "  example.com/b.TestRaceA.func1()", "=================="}
@@ -152,22 +172,37 @@ func TestSummaryCountsRacesByPackageAndNamesTheAttributedTest(t *testing.T) {
 }
 
 func TestSummaryReportsPackageLevelFailures(t *testing.T) {
-	const d, e = "example.com/d", "example.com/e"
-	build := `{"ImportPath":"example.com/d [example.com/d.test]","Action":"build-output","Output":"# example.com/d [example.com/d.test]\n"}` + "\n" +
-		`{"ImportPath":"example.com/d [example.com/d.test]","Action":"build-output","Output":"d/d.go:3:23: cannot use \"no\" (untyped string constant) as int value\n"}` + "\n" +
-		`{"ImportPath":"example.com/d [example.com/d.test]","Action":"build-fail"}` + "\n"
+	const d, e, f = "example.com/d", "example.com/e", "example.com/f"
+	// An external test package (package d_test) fails to build: the build events name
+	// "d_test [d.test]" and the fail event of d carries FailedBuild. A dependency that fails
+	// to build (f imports dep) names the dependency in both.
+	build := `{"ImportPath":"example.com/d_test [example.com/d.test]","Action":"build-output","Output":"# example.com/d_test [example.com/d.test]\n"}` + "\n" +
+		`{"ImportPath":"example.com/d_test [example.com/d.test]","Action":"build-output","Output":"d/d_ext_test.go:3:43: cannot use d.F() (value of type int) as string value\n"}` + "\n" +
+		`{"ImportPath":"example.com/d_test [example.com/d.test]","Action":"build-fail"}` + "\n" +
+		`{"ImportPath":"example.com/dep","Action":"build-output","Output":"dep/dep.go:3:9: undefined: missing\n"}` + "\n" +
+		`{"ImportPath":"example.com/dep","Action":"build-fail"}` + "\n"
 	md := mustSummarize(t, build+
-		ev(d, "start", "")+ev(d, "fail", "", "FAIL\texample.com/d [build failed]")+
+		ev(d, "start", "")+ev(d, "output", "", "FAIL\texample.com/d [build failed]")+
+		`{"Action":"fail","Package":"example.com/d","Elapsed":0,"FailedBuild":"example.com/d_test [example.com/d.test]"}`+"\n"+
+		ev(f, "start", "")+ev(f, "output", "", "FAIL\texample.com/f [build failed]")+
+		`{"Action":"fail","Package":"example.com/f","Elapsed":0,"FailedBuild":"example.com/dep"}`+"\n"+
 		seed(e, "5")+test(e, "TestOK", "pass", "--- PASS: TestOK (0.00s)")+
 		ev(e, "fail", "", "==================", "WARNING: DATA RACE", "Write at 0x00c1 by goroutine 12:", "  example.com/e.leak()", "==================", "FAIL", "FAIL\texample.com/e\t0.2s"))
 	failures := section(t, md, "Package-level failures")
-	for _, want := range []string{"`example.com/d`", "[build failed]", "d/d.go:3:23: cannot use", "`example.com/e`", "example.com/e.leak()"} {
+	for _, want := range []string{"`example.com/d` failed", "[build failed]", "d/d_ext_test.go:3:43: cannot use", "`example.com/f` failed", "dep/dep.go:3:9: undefined: missing", "`example.com/e` failed", "example.com/e.leak()"} {
 		if !strings.Contains(failures, want) {
 			t.Errorf("missing %q in package-level failures:\n%s", want, failures)
 		}
 	}
-	if !strings.Contains(md, "| `example.com/d` | — | fail | 0 | 0 | 0 | 0 | 0 |") || !strings.Contains(md, "| `example.com/e` | 5 | fail | 1 | 0 | 0 | 0 | 1 |") {
-		t.Errorf("unexpected package rows:\n%s", md)
+	for _, want := range []string{"| `example.com/d` | — | fail | 0 | 0 | 0 | 0 | 0 |", "| `example.com/f` | — | fail | 0 | 0 | 0 | 0 | 0 |", "| `example.com/e` | 5 | fail | 1 | 0 | 0 | 0 | 1 |"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("missing package row %q in:\n%s", want, md)
+		}
+	}
+	for _, unwanted := range []string{"d_test", "`example.com/dep`", "no result"} {
+		if strings.Contains(md, unwanted) {
+			t.Errorf("unexpected %q (build output attributed to the wrong package):\n%s", unwanted, md)
+		}
 	}
 	if !strings.Contains(section(t, md, "Race reports"), "`example.com/e`: 1 race report") || strings.Contains(md, "### Failing tests") {
 		t.Errorf("a race outside a test is a race report, not a test failure:\n%s", md)

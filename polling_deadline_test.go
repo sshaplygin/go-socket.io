@@ -464,12 +464,14 @@ func TestPollingTemporaryRequestErrorsEndSession(t *testing.T) {
 	}
 }
 
-// requireStalledWrite waits up to 2 s for a handler goroutine blocked in
-// writeResponse. Windows loopback does not stall a write behind 4 KiB socket
-// buffers (iteration 1 of #205 on CI); the test is skipped there.
+// requireStalledWrite waits up to 5 s for a handler goroutine blocked in
+// writeResponse; encoding the 1,000,000-byte packet under the race detector on
+// a loaded machine took more than 2 s. Windows loopback does not stall a write
+// behind 4 KiB socket buffers (iteration 1 of #205 on CI); the test is skipped
+// there.
 func requireStalledWrite(t *testing.T) {
 	t.Helper()
-	for deadline := time.Now().Add(2 * time.Second); !blockedInWrite(); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(5 * time.Second); !blockedInWrite(); time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			if runtime.GOOS == "windows" {
 				t.Skip("the poll response did not stall behind 4 KiB socket buffers")

@@ -105,14 +105,27 @@ func summarize(r io.Reader) (string, error) {
 	if err := sc.Err(); err != nil {
 		return "", fmt.Errorf("read the stream: %w", err)
 	}
-	for _, importPath := range sortedKeys(builds) { // unclaimed: no fail event followed
-		name := importPath // a dependency; "P_test [P.test]" and "P [P.test]" name P
+	// Unclaimed output: a test build "P_test [P.test]" or "P [P.test]" belongs to P. A
+	// dependency (no bracket) is never a package row: a fail event names only one of several
+	// failed dependencies, and a cgo warning has no build-fail at all.
+	var unattributed []string
+	for _, importPath := range sortedKeys(builds) {
 		if _, bracket, ok := strings.Cut(importPath, " ["); ok {
-			name = strings.TrimSuffix(bracket, ".test]")
+			name := strings.TrimSuffix(bracket, ".test]")
+			pkgs.get(name).output = append(pkgs.get(name).output, builds[importPath]...)
+		} else {
+			unattributed = append(unattributed, importPath)
 		}
-		pkgs.get(name).output = append(pkgs.get(name).output, builds[importPath]...)
 	}
-	return markdown(pkgs, bad), nil
+	md := markdown(pkgs, bad)
+	if len(unattributed) > 0 {
+		var b strings.Builder
+		for _, importPath := range unattributed {
+			details(&b, fmt.Sprintf("`%s` (a dependency: no package fail event names it)", importPath), builds[importPath])
+		}
+		md += "### Build output not attributed to a package\n\n" + b.String()
+	}
+	return md, nil
 }
 
 // line records one output line of the package, attributed to test when it is not empty.
@@ -186,7 +199,11 @@ func markdown(pkgs packages, bad int) string {
 				details(&failing, fmt.Sprintf("`%s` `%s`: %d of %d runs failed", p.name, name, t.failed, t.runs), t.first)
 			}
 			if t.open > 0 {
-				details(&hung, fmt.Sprintf("`%s` `%s` started and did not end", p.name, name), p.timeout, t.current, p.output)
+				timeout := p.timeout // not twice when the panic went to this test's own output
+				if slices.ContainsFunc(t.current, func(l string) bool { return strings.HasPrefix(l, "panic: test timed out") }) {
+					timeout = nil
+				}
+				details(&hung, fmt.Sprintf("`%s` `%s` started and did not end", p.name, name), timeout, t.current, p.output)
 			}
 		}
 		if p.result == "fail" && failed == 0 && open == 0 {

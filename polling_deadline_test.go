@@ -157,20 +157,33 @@ func (d *deadlineServer) url(sid string) string {
 	return d.ts.URL + "/socket.io/?EIO=3&b64=1&transport=polling" + sid
 }
 
-// open completes a b64 polling handshake and returns the session ID and its connection.
+// open completes a b64 polling handshake and returns the session ID and its
+// connection, with the socket.io CONNECT packet ("2:40") delivered: it usually
+// joins the OPEN response's batch, but on a loaded machine it can miss the 5 ms
+// window and would then be the answer to the test's next poll.
 func (d *deadlineServer) open(t *testing.T) (string, Conn) {
 	t.Helper()
-	resp, err := http.Get(d.url(""))
-	require.NoError(t, err)
-	body, err := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	require.NoError(t, err)
-	s := string(body)
+	s := d.get(t, "")
 	start, end := strings.Index(s, "{"), strings.Index(s, "}")
 	require.True(t, start >= 0 && end > start, "handshake response %q", s)
 	var open struct{ Sid string }
 	require.NoError(t, json.Unmarshal([]byte(s[start:end+1]), &open))
-	return open.Sid, recv(t, d.conns, "OnConnect")
+	c := recv(t, d.conns, "OnConnect")
+	if !strings.Contains(s, "2:40") {
+		require.Contains(t, d.get(t, "&sid="+open.Sid), "2:40", "the CONNECT packet")
+	}
+	return open.Sid, c
+}
+
+// get polls once and returns the response body.
+func (d *deadlineServer) get(t *testing.T, sid string) string {
+	t.Helper()
+	resp, err := http.Get(d.url(sid))
+	require.NoError(t, err)
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	require.NoError(t, err)
+	return string(body)
 }
 
 // tick posts one complete packet and returns once the server has handled it.
@@ -375,7 +388,7 @@ func blockedInWrite() bool {
 // observe the blocked write under load.
 func TestPollingStalledGetServerWriteTimeout(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("Windows loopback completes the 1 MB response behind 4 KiB socket buffers before WriteTimeout fires (CI run 41206177007)")
+		t.Skip("the 1 MB response did not stall behind 4 KiB socket buffers on Windows CI (run 41206177007), so WriteTimeout never fired")
 	}
 	baseline := len(leakedModuleStacks())
 	d := newDeadlineServer(t, deadlineConfig{heartbeat: 10 * time.Second, writeTimeout: 2 * time.Second, sendBuffer: 4096})
@@ -465,18 +478,16 @@ func TestPollingTemporaryRequestErrorsEndSession(t *testing.T) {
 }
 
 // requireStalledWrite waits up to 5 s for a handler goroutine blocked in
-// writeResponse; encoding the 1,000,000-byte packet under the race detector on
-// a loaded machine took more than 2 s. Windows loopback does not stall a write
-// behind 4 KiB socket buffers (iteration 1 of #205 on CI); the test is skipped
-// there.
+// writeResponse. On Windows CI the stall was not observed (runs 40964558286
+// and 41206177007 of #205); the test is skipped there.
 func requireStalledWrite(t *testing.T) {
 	t.Helper()
 	for deadline := time.Now().Add(5 * time.Second); !blockedInWrite(); time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			if runtime.GOOS == "windows" {
-				t.Skip("the poll response did not stall behind 4 KiB socket buffers")
+				t.Skip("the poll response did not stall behind 4 KiB socket buffers on Windows")
 			}
-			t.Fatal("no handler is blocked writing the poll response")
+			t.Fatalf("no handler is blocked writing the poll response; library goroutines:\n%s", strings.Join(leakedModuleStacks(), "\n\n"))
 		}
 	}
 }

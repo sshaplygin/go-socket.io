@@ -1,6 +1,7 @@
 package polling
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,14 +18,17 @@ import (
 func TestResponseBufferCacheRetentionAndReuse(t *testing.T) {
 	cache := newResponseBufferCache()
 	large := make([]byte, 512*1024)
-	b := cache.take()
-	b = append(b, large...)
-	want := &b[0]
-	cache.put(b)
-	reused := cache.take()
-	require.Len(t, reused, 0)
-	require.True(t, want == &reused[:cap(reused)][0], "the large echo buffer should be reused")
-	cache.put(reused)
+	long := bytes.NewBuffer(cache.take())
+	_, err := long.Write(large)
+	require.NoError(t, err)
+	want := &long.Bytes()[0]
+	cache.put(long.Bytes())
+	short := bytes.NewBuffer(cache.take())
+	require.True(t, want == &short.Bytes()[:cap(short.Bytes())][0], "the large echo buffer should be reused")
+	_, err = short.WriteString("short")
+	require.NoError(t, err)
+	require.Equal(t, "short", short.String(), "the earlier response must not leak into the next")
+	cache.put(short.Bytes())
 
 	cache.put(make([]byte, maxResponseBufferSize+1))
 	require.Len(t, cache.free, 1, "buffers larger than 2 MiB must be dropped")
@@ -113,9 +117,13 @@ func requireBoundedResponseBuffers(t *testing.T) {
 	t.Helper()
 	n := len(responseBuffers.free)
 	require.LessOrEqual(t, n, maxRetainedResponseBuffers)
+	retained := make([][]byte, 0, n)
 	for i := 0; i < n; i++ {
 		b := <-responseBuffers.free
+		retained = append(retained, b)
 		require.LessOrEqual(t, cap(b), maxResponseBufferSize)
+	}
+	for _, b := range retained {
 		responseBuffers.put(b)
 	}
 }

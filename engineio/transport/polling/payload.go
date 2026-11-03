@@ -99,6 +99,7 @@ func (f *flushWriter) size() int { f.mu.Lock(); defer f.mu.Unlock(); return f.by
 func (f *flushWriter) detach() {
 	f.mu.Lock()
 	f.gone = true
+	f.w = nil
 	f.mu.Unlock()
 }
 

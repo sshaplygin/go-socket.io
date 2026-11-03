@@ -49,4 +49,9 @@ func newResponseBuffer(w http.ResponseWriter) *responseBuffer {
 
 // release is called after the handler has finished its network write. flushOut
 // has already detached its session writer, so no other goroutine uses b.
-func (b *responseBuffer) release() { responseBuffers.put(b.buf.Bytes()) }
+// Clear both references even when the buffer was too large for the free list.
+func (b *responseBuffer) release() {
+	responseBuffers.put(b.buf.Bytes())
+	b.buf = bytes.Buffer{}
+	b.ResponseWriter = nil
+}

@@ -51,6 +51,23 @@ func TestResponseBufferCacheRetentionAndReuse(t *testing.T) {
 	}
 }
 
+func TestResponseBufferReleaseDropsOversizedBacking(t *testing.T) {
+	resp := newResponseBuffer(httptest.NewRecorder())
+	_, err := resp.Write(make([]byte, maxResponseBufferSize+1))
+	require.NoError(t, err)
+	require.Greater(t, resp.buf.Cap(), maxResponseBufferSize)
+	resp.release()
+	require.Zero(t, resp.buf.Cap(), "a completed GET must not keep its backing array")
+}
+
+func TestFlushWriterDetachReleasesResponseWriter(t *testing.T) {
+	fw := &flushWriter{w: newResponseBuffer(httptest.NewRecorder())}
+	fw.detach()
+	require.Nil(t, fw.w, "the encoder's retained flush writer must not retain a GET response")
+	_, err := fw.Write([]byte("late"))
+	require.ErrorIs(t, err, errDetached)
+}
+
 func TestPollingGETShorterAfterLongerHasNoStaleBytes(t *testing.T) {
 	req := httptest.NewRequest("GET", "http://localhost/?b64=1", nil)
 	c := newServerConn(Default, req)

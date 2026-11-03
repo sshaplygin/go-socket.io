@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 
@@ -137,7 +136,6 @@ func (p *progressWriter) Write(b []byte) (int, error) {
 }
 
 func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
 	switch r.Method {
 	case http.MethodOptions:
 		c.SetHeaders(w, r)
@@ -180,7 +178,7 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if pw.wrote {
-			if werr := c.writeResponse(w, r, start, resp.buf.Bytes()); err == nil {
+			if werr := c.writeResponse(w, r, resp.buf.Bytes()); err == nil {
 				err = werr
 			}
 			if err != nil {
@@ -208,7 +206,7 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			c.rejectLargeBody(w, &http.MaxBytesError{Limit: c.readLimit})
 			return
 		}
-		if err := c.feedBody(w, r, start, body, isSupportBinary); err != nil {
+		if err := c.feedBody(w, r, body, isSupportBinary); err != nil {
 			logger.Log.Debug("engineio: post payload failed", "err", err)
 			cause := err
 			if op, ok := cause.(*OpError); ok {

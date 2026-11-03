@@ -40,22 +40,42 @@ func (e *requestError) Timeout() bool {
 // requestIO is the body read (POST) or response write (GET) of one request
 // whose deadline follows the session. serverConn.ioMu guards it.
 type requestIO struct {
-	rc      *http.ResponseController
-	write   bool
-	limit   time.Time // the http.Server's ReadTimeout or WriteTimeout bound, if any
-	set     bool      // a deadline was applied
-	expired bool      // an expired deadline was applied
+	rc         *http.ResponseController
+	write      bool
+	bounded    bool // net/http owns a timeout whose absolute deadline is unknown
+	owner      *serverConn
+	timer      *time.Timer
+	generation uint64
+	set        bool // a deadline was applied
+	expired    bool // an expired deadline was applied
 }
 
-// apply sets t unless the server's own bound is earlier. That bound is known
-// only from the handler's start, so until a deadline has been applied the
-// server's own, earlier deadline is left in place rather than moved to it.
+// cancelTimer invalidates callbacks that may already be waiting for ioMu.
+func (r *requestIO) cancelTimer() {
+	r.generation++
+	if r.timer != nil {
+		r.timer.Stop()
+		r.timer = nil
+	}
+}
+
+// An http.Server timeout starts before the handler and its absolute deadline
+// cannot be recovered here. Never replace it with a future deadline or clear it.
+// Instead, interrupt I/O only when the session deadline actually expires.
 func (r *requestIO) apply(t time.Time) error {
-	if !r.limit.IsZero() && (t.IsZero() || !r.limit.After(t)) {
-		if !r.set {
-			return nil
+	r.cancelTimer()
+	if r.bounded && (t.IsZero() || t.After(time.Now())) {
+		if !t.IsZero() {
+			generation := r.generation
+			r.timer = time.AfterFunc(time.Until(t), func() {
+				r.owner.ioMu.Lock()
+				defer r.owner.ioMu.Unlock()
+				if r.generation == generation {
+					r.expire()
+				}
+			})
 		}
-		t = r.limit
+		return nil
 	}
 	r.set = true
 	if r.write {
@@ -96,16 +116,16 @@ func (s requestSet) expire() {
 
 // track makes the body read or response write of r follow the session
 // deadline until untrack. It returns nil, leaving that I/O to the http.Server,
-// when w does not support the deadline (http.ErrNotSupported). start is when
-// the handler started.
-func (c *serverConn) track(w http.ResponseWriter, r *http.Request, start time.Time, write bool) *requestIO {
+// when applying a deadline fails (including http.ErrNotSupported). With a
+// server timeout, support is discovered only when an expiry is applied.
+func (c *serverConn) track(w http.ResponseWriter, r *http.Request, write bool) *requestIO {
 	c.ioMu.Lock()
 	defer c.ioMu.Unlock()
 	set, deadline, closed := &c.reading, c.payload.readDeadline.Load().(time.Time), c.ioClosed
 	if write {
 		set, deadline, closed = &c.writing, c.payload.writeDeadline.Load().(time.Time), c.ioAborted
 	}
-	tracked := &requestIO{rc: http.NewResponseController(w), write: write, expired: closed}
+	tracked := &requestIO{rc: http.NewResponseController(w), write: write, expired: closed, owner: c}
 	if closed {
 		deadline = expiredDeadline
 	}
@@ -115,7 +135,7 @@ func (c *serverConn) track(w http.ResponseWriter, r *http.Request, start time.Ti
 			timeout = srv.WriteTimeout
 		}
 		if timeout > 0 {
-			tracked.limit = start.Add(timeout)
+			tracked.bounded = true
 		}
 	}
 	if tracked.apply(deadline) != nil {
@@ -141,7 +161,8 @@ func (c *serverConn) untrack(tracked *requestIO, read bool) bool {
 	} else {
 		delete(c.reading, tracked)
 	}
-	if read && tracked.set && !tracked.expired {
+	tracked.cancelTimer()
+	if read && tracked.set && !tracked.expired && !tracked.bounded {
 		_ = tracked.rc.SetReadDeadline(time.Time{})
 	}
 	return tracked.expired
@@ -192,8 +213,8 @@ func (c *serverConn) Abort() error {
 // payload cannot take (overlapping, paused or closed) is refused unread. The
 // body's Close drains what the handler did not read, so that net/http can
 // reuse the connection, under the same deadline.
-func (c *serverConn) feedBody(w http.ResponseWriter, r *http.Request, start time.Time, body io.ReadCloser, supportBinary bool) error {
-	tracked := c.track(w, r, start, false)
+func (c *serverConn) feedBody(w http.ResponseWriter, r *http.Request, body io.ReadCloser, supportBinary bool) error {
+	tracked := c.track(w, r, false)
 	var err error
 	defer func() {
 		_ = body.Close()
@@ -228,8 +249,8 @@ var copyBuffers = sync.Pool{New: func() any { b := make([]byte, 4096); return &b
 
 // writeResponse writes a filled GET response on the handler's goroutine. A
 // failure closes the connection, as a failed packet write did.
-func (c *serverConn) writeResponse(w http.ResponseWriter, r *http.Request, start time.Time, p []byte) error {
-	tracked := c.track(w, r, start, true)
+func (c *serverConn) writeResponse(w http.ResponseWriter, r *http.Request, p []byte) error {
+	tracked := c.track(w, r, true)
 	defer c.untrack(tracked, false)
 	_, err := w.Write(p)
 	if err != nil {

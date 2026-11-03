@@ -2267,8 +2267,9 @@ changed to `done — #<PR>` after the merge.
   4. Where deadlines are not supported (`http.ErrNotSupported`, for example a wrapper
      without `Unwrap`), only the handler goroutine remains until the peer or the server's
      own timeouts end the request. V1.md states this.
-- **Tests:** red→green, through the public server API with raw TCP clients, PingInterval
-  1 s and PingTimeout 1 s unless stated:
+- **Tests:** red→green, through the public server API with raw HTTP clients (TCP, and
+  the synchronous transport specified in test 6), PingInterval 1 s and PingTimeout 1 s
+  unless stated:
   1. a POST that declares `Content-Length: 100`, sends 11 bytes and idles: `OnDisconnect`
      runs with reason `ping timeout` within 3 s of the last complete packet;
   2. `EngineConn().Close()` during such a POST: `OnDisconnect` runs within 1 s;
@@ -2283,7 +2284,15 @@ changed to `done — #<PR>` after the merge.
   6. a GET whose client never reads: the server's accepted connections have a 4 KiB send
      buffer (a wrapping listener calls `SetWriteBuffer(4096)`), the client sets a 4 KiB
      receive buffer, and the server emits a 1,000,000-byte packet; after the session
-     closes, the library goroutine count returns to its baseline within 2 s;
+     closes, the library goroutine count returns to its baseline within 2 s.
+     Run this scenario and the stalled-write scenarios in test 7 through a real
+     `net/http.Server` over synchronous `net.Pipe` connections on every platform.
+     This establishes the stalled-write precondition independently of kernel socket
+     buffering and exercises the real HTTP deadline and cancellation paths; these
+     cases must not skip. Retain the TCP variant on Linux and macOS. The TCP variant
+     alone may skip on Windows, where the 1 MB response has not reliably stalled
+     behind the requested 4 KiB buffers; the pipe result does not claim Windows TCP
+     backpressure coverage. Both variants retain the same outcome and timing assertions;
   7. for the owner decision in Change 2: with such a stalled GET, `Server.Close` and
      `engineio.Abort` release the handler within 2 s, also during and after an orderly
      close, and an orderly close still delivers its CLOSE packet to a reading client.

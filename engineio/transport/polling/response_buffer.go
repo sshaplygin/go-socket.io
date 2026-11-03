@@ -6,7 +6,9 @@ import (
 )
 
 const (
-	maxRetainedResponseBuffers = 8
+	// GET buffers and gzip writers share the eight-entry process-wide budget.
+	maxRetainedPollingBuffers  = 8
+	maxRetainedResponseBuffers = maxRetainedPollingBuffers - maxRetainedGzipWriters
 	maxResponseBufferSize      = 2 << 20
 )
 

@@ -538,3 +538,33 @@ func TestPollingStalledGetIsReleased(t *testing.T) {
 	_ = d.srv.Close()
 	requireBaseline(t, baseline, 2*time.Second)
 }
+
+func TestPollingOpaqueOrderlyCloseEndsWithServerClose(t *testing.T) {
+	baseline := len(leakedModuleStacks())
+	d := newDeadlineServer(t, deadlineConfig{heartbeat: time.Hour, opaque: true, sendBuffer: 4096})
+	sid, c := d.open(t)
+	raw := d.stallPoll(t, sid, c)
+	require.NoError(t, c.EngineConn().Close())
+	start := time.Now()
+	_ = d.srv.Close()
+	require.Less(t, time.Since(start), 2*time.Second, "Server.Close duration")
+	within(t, d.reasons, start.Add(2*time.Second), "OnDisconnect")
+	// Only the handler remains: the goroutines not in writeResponse are back to
+	// the baseline (which can shrink when earlier tests' goroutines exit).
+	for deadline := start.Add(2 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		leaks, others := leakedModuleStacks(), 0
+		for _, stack := range leaks {
+			if !strings.Contains(stack, "(*serverConn).writeResponse") {
+				others++
+			}
+		}
+		if others <= baseline && others < len(leaks) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("goroutines other than the handler remain (baseline %d):\n%s", baseline, strings.Join(leaks, "\n\n"))
+		}
+	}
+	_ = raw.Close()
+	requireBaseline(t, baseline, 2*time.Second)
+}

@@ -81,7 +81,11 @@ func TestDelayedHeadersPreserveReadTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close test connection: %v", err)
+		}
+	}()
 	_, err = fmt.Fprint(conn, "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1\r\n")
 	if err != nil {
 		t.Fatal(err)
@@ -169,7 +173,11 @@ func TestDelayedHandlerPreservesWriteTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close test connection: %v", err)
+		}
+	}()
 	_, err = fmt.Fprint(conn, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
 	if err != nil {
 		t.Fatal(err)

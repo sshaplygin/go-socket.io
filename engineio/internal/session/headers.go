@@ -39,6 +39,9 @@ func (w *responseObserver) Write(p []byte) (int, error) {
 	return w.ResponseWriter.Write(p)
 }
 
+// Unwrap lets http.ResponseController reach the server's ResponseWriter.
+func (w *responseObserver) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (w *responseObserver) drain() {
 	if h := w.session.hooks; w.flushed && h != nil && h.Drain != nil {
 		h.Drain(w.session)

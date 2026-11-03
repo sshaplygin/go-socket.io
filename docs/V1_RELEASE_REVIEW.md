@@ -2238,7 +2238,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W47. Bound polling request I/O by the session deadlines
 
-- **Status:** open
+- **Status:** in progress — #205
 - **Priority:** before tag
 - **Findings:** [C6](#correctness-and-security-findings), [C7](#correctness-and-security-findings)
 - **Depends on:** W48 (test 1 asserts `ping timeout`, which T11 can misreport until W48 lands)
@@ -2267,8 +2267,9 @@ changed to `done — #<PR>` after the merge.
   4. Where deadlines are not supported (`http.ErrNotSupported`, for example a wrapper
      without `Unwrap`), only the handler goroutine remains until the peer or the server's
      own timeouts end the request. V1.md states this.
-- **Tests:** red→green, through the public server API with raw TCP clients, PingInterval
-  1 s and PingTimeout 1 s unless stated:
+- **Tests:** red→green, through the public server API with raw HTTP clients (TCP, and
+  the synchronous transport specified in test 6), PingInterval 1 s and PingTimeout 1 s
+  unless stated:
   1. a POST that declares `Content-Length: 100`, sends 11 bytes and idles: `OnDisconnect`
      runs with reason `ping timeout` within 3 s of the last complete packet;
   2. `EngineConn().Close()` during such a POST: `OnDisconnect` runs within 1 s;
@@ -2283,7 +2284,15 @@ changed to `done — #<PR>` after the merge.
   6. a GET whose client never reads: the server's accepted connections have a 4 KiB send
      buffer (a wrapping listener calls `SetWriteBuffer(4096)`), the client sets a 4 KiB
      receive buffer, and the server emits a 1,000,000-byte packet; after the session
-     closes, the library goroutine count returns to its baseline within 2 s;
+     closes, the library goroutine count returns to its baseline within 2 s.
+     Run this scenario and the stalled-write scenarios in test 7 through a real
+     `net/http.Server` over synchronous `net.Pipe` connections on every platform.
+     This establishes the stalled-write precondition independently of kernel socket
+     buffering and exercises the real HTTP deadline and cancellation paths; these
+     cases must not skip. Retain the TCP variant on Linux and macOS. The TCP variant
+     alone may skip on Windows, where the 1 MB response has not reliably stalled
+     behind the requested 4 KiB buffers; the pipe result does not claim Windows TCP
+     backpressure coverage. Both variants retain the same outcome and timing assertions;
   7. for the owner decision in Change 2: with such a stalled GET, `Server.Close` and
      `engineio.Abort` release the handler within 2 s, also during and after an orderly
      close, and an orderly close still delivers its CLOSE packet to a reading client.
@@ -3459,8 +3468,8 @@ Every finding is listed under the dimension that reported it.
 | C3 | minor | — | `engineio/server.go:303` | Duplicate session ID from a custom IDGenerator silently replaces a live session; Server.Close leaves the first one open | Under s.lifecycle in newSession, reject the handshake (or ask the generator again) when the sid is already registered or in s.live, and document that IDGenerator must return unique IDs. Fixed by #159 (W11). |
 | C4 | minor | — | `namespace_handlers.go:223` | Panics in a user OnError handler are swallowed without any log | Log the recovered value through the connection or server logger, e.g. c.log.Warn("socketio: OnError panic", ...), as is done for other unhandled errors. Fixed by #161 (W13). |
 | C5 | minor | — | `engineio/options.go:178` | Permissive CORS default (origin reflected with credentials, websocket origin check disabled) is documented only in godoc | Document the default and how to restrict it (WithCORS(false), transport CheckOrigin) in docs/V1.md in a security section. Consider an example that uses an origin allow-list. Fixed by #148 (W6). |
-| C6 | blocker | confirmed | `engineio/transport/polling/server.go:176` | A polling POST body that never finishes blocks the session's reader with no deadline; ping timeout, `EngineConn().Close()` and `OnDisconnect` never take effect, and `Server.Close` waits for its 10 s bound with 3–4 goroutines left per client (see B2) | Bound the POST body read by the session read deadline, end the session without waiting for the body, and add a raw-TCP regression test (W47). |
-| C7 | major | not re-checked; W47's red test is the re-check | `engineio/transport/polling/payload.go:99` | A polling GET whose client stops reading keeps the handler and `serveWrite` goroutines and the packet buffer after the session and `Server.Close` have finished, until the peer reads or drops TCP; reproduced with a 1,000,000-byte packet on macOS loopback | Bound the GET response write by the session write deadline and expire it on close (W47). |
+| C6 | blocker | confirmed | `engineio/transport/polling/server.go:176` | A polling POST body that never finishes blocks the session's reader with no deadline; ping timeout, `EngineConn().Close()` and `OnDisconnect` never take effect, and `Server.Close` waits for its 10 s bound with 3–4 goroutines left per client (see B2) | Bound the POST body read by the session read deadline, end the session without waiting for the body, and add a raw-TCP regression test (W47). Fixed by #205 (W47). |
+| C7 | major | not re-checked; W47's red test is the re-check | `engineio/transport/polling/payload.go:99` | A polling GET whose client stops reading keeps the handler and `serveWrite` goroutines and the packet buffer after the session and `Server.Close` have finished, until the peer reads or drops TCP; reproduced with a 1,000,000-byte packet on macOS loopback | Bound the GET response write by the session write deadline and expire it on close (W47). Fixed by #205 (W47). |
 | C8 | major | not re-checked; W53's red test is the re-check | `packets.go:96` | An event with no listener has every argument decoded into `interface{}`, one `json.Unmarshal` per element: one 1 MB `["e",0,0,…]` packet allocated 162 MiB in the parser (170×), of which about 67 MiB come from reading and splitting the array in `DecodeHeader` and the rest from argument decoding; 5 such packets over websocket allocated 816 MiB on the server | Discard the arguments when no listener or middleware can observe them, with a committed benchmark (W53). Fixed by #209 (W53). |
 
 ### API compatibility findings

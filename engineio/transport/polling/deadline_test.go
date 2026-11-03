@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -24,6 +25,33 @@ func (r *byteThenError) Read(p []byte) (int, error) {
 	return 0, io.EOF
 }
 
+type temporaryBodyError struct{}
+
+func (temporaryBodyError) Error() string   { return "temporary body read" }
+func (temporaryBodyError) Temporary() bool { return true }
+func (temporaryBodyError) Timeout() bool   { return false }
+
+type errorOnlyBody struct{ err error }
+
+func (b errorOnlyBody) Read([]byte) (int, error) { return 0, b.err }
+
+func TestRequestBodyReadByteAndEOF(t *testing.T) {
+	b := &requestBody{Reader: strings.NewReader("6:4hello")}
+	for _, want := range []byte{'6', ':'} {
+		got, err := b.ReadByte()
+		if err != nil || got != want {
+			t.Fatalf("ReadByte = %q, %v; want %q", got, err, want)
+		}
+	}
+	rest, err := io.ReadAll(b)
+	if err != nil || string(rest) != "4hello" {
+		t.Fatalf("remaining body = %q, %v", rest, err)
+	}
+	if _, err := b.ReadByte(); err != io.EOF {
+		t.Fatalf("ReadByte after body = %v, want EOF", err)
+	}
+}
+
 func TestRequestBodyPreservesErrorAfterReadByte(t *testing.T) {
 	b := &requestBody{Reader: &byteThenError{}}
 	got, err := b.ReadByte()
@@ -35,6 +63,22 @@ func TestRequestBodyPreservesErrorAfterReadByte(t *testing.T) {
 	var requestErr *requestError
 	if !errors.As(err, &requestErr) || !errors.Is(err, io.ErrClosedPipe) {
 		t.Fatalf("read error = %v, want wrapped body error", err)
+	}
+}
+
+func TestRequestBodyWrapsPartialAndTemporaryErrors(t *testing.T) {
+	b := &requestBody{Reader: &byteThenError{}}
+	var data [2]byte
+	n, err := b.Read(data[:])
+	var requestErr *requestError
+	if n != 1 || data[0] != 'x' || !errors.As(err, &requestErr) || !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("partial body read = %d, %q, %v", n, data[:n], err)
+	}
+	b = &requestBody{Reader: errorOnlyBody{err: temporaryBodyError{}}}
+	_, err = b.ReadByte()
+	var temporary temporaryBodyError
+	if !errors.As(err, &requestErr) || !errors.As(err, &temporary) || requestErr.Timeout() {
+		t.Fatalf("temporary body read = %v, want non-timeout request error", err)
 	}
 }
 
@@ -67,10 +111,9 @@ func TestRequestDeadlineThroughNestedWrappers(t *testing.T) {
 	}
 }
 
-func TestRequestDeadlineOverlapAndStaleTimer(t *testing.T) {
+func TestRequestDeadlineOverlap(t *testing.T) {
 	c := &serverConn{payload: newPayload(true)}
 	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	r = r.WithContext(context.WithValue(r.Context(), http.ServerContextKey, &http.Server{ReadTimeout: time.Hour}))
 	first := &boundedResponse{ResponseRecorder: httptest.NewRecorder()}
 	overlap := &boundedResponse{ResponseRecorder: httptest.NewRecorder()}
 	one := c.track(first, r, false)
@@ -78,17 +121,39 @@ func TestRequestDeadlineOverlapAndStaleTimer(t *testing.T) {
 	if one == nil || two == nil || one == two {
 		t.Fatal("overlapping requests need independent deadline tracking")
 	}
-	deadline := time.Now().Add(30 * time.Millisecond)
+	deadline := time.Now().Add(time.Hour)
 	_ = c.SetReadDeadline(deadline)
+	for _, w := range []*boundedResponse{first, overlap} {
+		if got := w.snapshot(); len(got) == 0 || !got[len(got)-1].Equal(deadline) {
+			t.Fatalf("overlapping request deadline = %v, want %v", got, deadline)
+		}
+	}
 	c.untrack(one, false)
 	c.untrack(two, false)
-	_ = c.SetReadDeadline(time.Now().Add(time.Hour))
-	reused := &boundedResponse{ResponseRecorder: httptest.NewRecorder()}
-	three := c.track(reused, r, false)
-	defer c.untrack(three, false)
-	time.Sleep(60 * time.Millisecond)
-	if got := reused.snapshot(); len(got) != 0 {
-		t.Fatalf("stale timer expired reused request: %v", got)
+}
+
+func TestRequestDeadlineIgnoresStaleCallback(t *testing.T) {
+	c := &serverConn{payload: newPayload(true)}
+	old := &boundedResponse{ResponseRecorder: httptest.NewRecorder()}
+	next := &boundedResponse{ResponseRecorder: httptest.NewRecorder()}
+	r := &c.readIO
+	c.ioMu.Lock()
+	*r = requestIO{w: old, owner: c, bounded: true}
+	generation := r.generation
+	started := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		close(started)
+		r.expireGeneration(c, generation)
+		close(done)
+	}()
+	<-started // the callback is queued behind ioMu
+	r.cancelTimer()
+	*r = requestIO{w: next, owner: c, bounded: true, generation: r.generation}
+	c.ioMu.Unlock()
+	<-done
+	if got := next.snapshot(); len(got) != 0 {
+		t.Fatalf("stale callback expired the next request: %v", got)
 	}
 }
 

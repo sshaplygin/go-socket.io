@@ -9,14 +9,13 @@ import (
 	"time"
 )
 
-// A polling request's handler goroutine does its network I/O: it streams a
-// POST body to the session's reader through a pipe and writes a GET response
-// after the session writer has filled it, so a stalled client blocks only its
-// handler.
-// Where the ResponseWriter supports deadlines, that I/O follows the session
-// deadline. Close expires a body read, which can only be incomplete; a response
-// write keeps its deadline, so packets accepted before the close (CLOSE of an
-// orderly close among them) are still delivered. Abort expires both.
+// A polling GET writes its filled response on the handler goroutine. A POST
+// with a supported request deadline lets the session decoder read the body;
+// otherwise its handler streams the body through a pipe, so unsupported
+// request I/O cannot block the session. Close expires a body read, which can
+// only be incomplete; a response write keeps its deadline, so packets
+// accepted before the close (CLOSE of an orderly close among them) are still
+// delivered. Abort expires both.
 
 // expiredDeadline is in the past; applying it interrupts blocked request I/O.
 var expiredDeadline = time.Unix(1, 0)
@@ -113,18 +112,23 @@ func (r *requestIO) apply(t time.Time) error {
 	if r.bounded && (t.IsZero() || t.After(time.Now())) {
 		if !t.IsZero() {
 			generation := r.generation
-			r.timer = time.AfterFunc(time.Until(t), func() {
-				r.owner.ioMu.Lock()
-				defer r.owner.ioMu.Unlock()
-				if r.generation == generation {
-					r.expire()
-				}
-			})
+			owner := r.owner
+			r.timer = time.AfterFunc(time.Until(t), func() { r.expireGeneration(owner, generation) })
 		}
 		return nil
 	}
 	r.set = true
 	return setRequestDeadline(r.w, r.write, t)
+}
+
+// expireGeneration also checks callbacks already waiting on ioMu after their
+// request has been untracked and its slot has been reused.
+func (r *requestIO) expireGeneration(owner *serverConn, generation uint64) {
+	owner.ioMu.Lock()
+	defer owner.ioMu.Unlock()
+	if r.generation == generation {
+		r.expire()
+	}
 }
 
 // setRequestDeadline follows the same ResponseWriter/Unwrap path as
@@ -293,13 +297,13 @@ func (c *serverConn) Abort() error {
 	return c.Close()
 }
 
-// feedBody streams a POST body to the session through a pipe. The handler's
-// goroutine copies it from the network; the feed runs on its own goroutine and
-// closes the pipe when it returns, on a deadline, Close or the end of the
-// payload, so the session's reader never waits for the client. A body the
-// payload cannot take (overlapping, paused or closed) is refused unread. The
-// body's Close drains what the handler did not read, so that net/http can
-// reuse the connection, under the same deadline.
+// feedBody lets the session decoder read directly when a tracked deadline can
+// interrupt it. Otherwise the handler copies through a pipe and the feed runs
+// on its own goroutine, so the session can end while unsupported or
+// server-bounded request I/O remains blocked. A body the payload cannot take
+// (overlapping, paused or closed) is refused unread. The body's Close drains
+// what the handler did not read, so that net/http can reuse the connection,
+// under the same deadline.
 func (c *serverConn) feedBody(w http.ResponseWriter, r *http.Request, body io.ReadCloser, supportBinary bool) error {
 	tracked := c.track(w, r, false)
 	var err error

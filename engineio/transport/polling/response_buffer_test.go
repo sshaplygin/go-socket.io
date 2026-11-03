@@ -85,7 +85,7 @@ func TestPollingGETConcurrentSessionsReuseBuffers(t *testing.T) {
 			defer wg.Done()
 			req := httptest.NewRequest("GET", "http://localhost/?b64=1", nil)
 			c := newServerConn(Default, req)
-			defer c.Close()
+			defer func() { _ = c.Close() }()
 			if err := c.SetWriteDeadline(time.Now().Add(15 * time.Second)); err != nil {
 				errs <- err
 				return

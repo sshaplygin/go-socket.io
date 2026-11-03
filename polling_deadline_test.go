@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,6 +28,7 @@ const partialBody = `20:42["x","`
 
 // deadlineConfig configures a server for the polling request deadline tests.
 type deadlineConfig struct {
+	pipe         bool          // use a synchronous transport to force response backpressure
 	heartbeat    time.Duration // PingInterval and PingTimeout; 1 s by default
 	opaque       bool          // hide the ResponseWriter's deadline support (no Unwrap)
 	readTimeout  time.Duration // http.Server.ReadTimeout
@@ -40,6 +42,8 @@ type deadlineConfig struct {
 // deadlineServer serves a root namespace that reports its connection, every
 // "tick" event, every POST that reaches the handler and the disconnect reason.
 type deadlineServer struct {
+	cfg     deadlineConfig
+	pipe    *pipeListener
 	srv     *Server
 	ts      *httptest.Server
 	conns   chan Conn
@@ -116,7 +120,7 @@ func newDeadlineServer(t *testing.T, cfg deadlineConfig) *deadlineServer {
 		cfg.heartbeat = time.Second
 	}
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	d := &deadlineServer{conns: make(chan Conn, 1), ticks: make(chan struct{}, 8),
+	d := &deadlineServer{cfg: cfg, conns: make(chan Conn, 1), ticks: make(chan struct{}, 8),
 		posts: make(chan struct{}, 8), writes: make(chan struct{}, 8), reasons: make(chan string, 1)}
 	d.srv = NewServer(WithLogger(quiet), WithEngineOptions(engineio.WithLogger(quiet),
 		engineio.WithPingInterval(cfg.heartbeat), engineio.WithPingTimeout(cfg.heartbeat),
@@ -145,10 +149,19 @@ func newDeadlineServer(t *testing.T, cfg deadlineConfig) *deadlineServer {
 	}))
 	d.ts.Config.ReadTimeout = cfg.readTimeout
 	d.ts.Config.WriteTimeout = cfg.writeTimeout
-	if cfg.sendBuffer > 0 {
+	if cfg.pipe {
+		addr := d.ts.Listener.Addr()
+		_ = d.ts.Listener.Close()
+		d.pipe = &pipeListener{addr: addr, conns: make(chan net.Conn), done: make(chan struct{})}
+		d.ts.Listener = d.pipe
+	} else if cfg.sendBuffer > 0 {
 		d.ts.Listener = sendBufferListener{d.ts.Listener, cfg.sendBuffer}
 	}
 	d.ts.Start()
+	if d.pipe != nil {
+		d.ts.Client().Transport = &http.Transport{DialContext: d.pipe.dial}
+		t.Cleanup(d.ts.Client().CloseIdleConnections)
+	}
 	t.Cleanup(func() { _ = d.srv.Close(); d.ts.Close() })
 	return d
 }
@@ -160,17 +173,16 @@ func (d *deadlineServer) url(sid string) string {
 // open completes a b64 polling handshake and returns the session ID and its connection.
 func (d *deadlineServer) open(t *testing.T) (string, Conn) {
 	t.Helper()
-	resp, err := http.Get(d.url(""))
-	require.NoError(t, err)
-	body, err := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	require.NoError(t, err)
-	s := string(body)
+	s := d.get(t, "")
 	start, end := strings.Index(s, "{"), strings.Index(s, "}")
 	require.True(t, start >= 0 && end > start, "handshake response %q", s)
 	var open struct{ Sid string }
 	require.NoError(t, json.Unmarshal([]byte(s[start:end+1]), &open))
-	return open.Sid, recv(t, d.conns, "OnConnect")
+	c := recv(t, d.conns, "OnConnect")
+	if !strings.Contains(s, "2:40") && !d.cfg.failWrites && !d.cfg.blockWrites {
+		require.Contains(t, d.get(t, "&sid="+open.Sid), "2:40", "the CONNECT packet")
+	}
+	return open.Sid, c
 }
 
 // tick posts one complete packet and returns once the server has handled it.
@@ -184,14 +196,22 @@ func (d *deadlineServer) tick(t *testing.T, sid string) time.Time {
 	return time.Now()
 }
 
-// dial opens a raw TCP connection with a 4 KiB receive buffer and sends one
-// polling request head for sid; extra adds request headers.
+// dial opens the selected transport and sends a polling request head for sid.
+// TCP uses a 4 KiB receive buffer; extra adds request headers.
 func (d *deadlineServer) dial(t *testing.T, method, sid, extra string) net.Conn {
 	t.Helper()
-	raw, err := net.Dial("tcp", d.ts.Listener.Addr().String())
+	var raw net.Conn
+	var err error
+	if d.pipe != nil {
+		raw, err = d.pipe.dial(context.Background(), "tcp", "")
+	} else {
+		raw, err = net.Dial("tcp", d.ts.Listener.Addr().String())
+	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = raw.Close() })
-	require.NoError(t, raw.(*net.TCPConn).SetReadBuffer(4096))
+	if tcp, ok := raw.(*net.TCPConn); ok {
+		require.NoError(t, tcp.SetReadBuffer(4096))
+	}
 	_, err = fmt.Fprintf(raw, "%s /socket.io/?EIO=3&b64=1&transport=polling&sid=%s HTTP/1.1\r\nHost: x\r\n%s\r\n", method, sid, extra)
 	require.NoError(t, err)
 	return raw
@@ -345,9 +365,9 @@ func TestPollingEmptyPostServerReadTimeout(t *testing.T) {
 	requireBaseline(t, baseline, 2*time.Second)
 }
 
-// stallPoll sends a poll whose client never reads a 1,000,000-byte packet
-// through 4 KiB socket buffers and returns once the response has started and
-// its handler is blocked writing it.
+// stallPoll reads only the status of a 1,000,000-byte poll response.
+// The pipe has no buffering; TCP uses 4 KiB socket buffers. Both must leave
+// the handler blocked writing the response.
 func (d *deadlineServer) stallPoll(t *testing.T, sid string, c Conn) net.Conn {
 	t.Helper()
 	raw := d.dial(t, http.MethodGet, sid, "")
@@ -541,7 +561,7 @@ func TestPollingStalledGetIsReleased(t *testing.T) {
 
 func TestPollingOpaqueOrderlyCloseEndsWithServerClose(t *testing.T) {
 	baseline := len(leakedModuleStacks())
-	d := newDeadlineServer(t, deadlineConfig{heartbeat: time.Hour, opaque: true, sendBuffer: 4096})
+	d := newDeadlineServer(t, deadlineConfig{heartbeat: time.Hour, opaque: true, pipe: true})
 	sid, c := d.open(t)
 	raw := d.stallPoll(t, sid, c)
 	require.NoError(t, c.EngineConn().Close())
@@ -567,4 +587,14 @@ func TestPollingOpaqueOrderlyCloseEndsWithServerClose(t *testing.T) {
 	}
 	_ = raw.Close()
 	requireBaseline(t, baseline, 2*time.Second)
+}
+
+func (d *deadlineServer) get(t *testing.T, sid string) string {
+	t.Helper()
+	resp, err := d.ts.Client().Get(d.url(sid))
+	require.NoError(t, err)
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	require.NoError(t, err)
+	return string(body)
 }

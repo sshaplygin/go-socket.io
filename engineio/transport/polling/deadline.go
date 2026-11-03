@@ -30,15 +30,49 @@ type requestError struct {
 }
 
 // requestBody keeps network read errors distinct from temporary payload
-// errors. The session must end on a failed HTTP body read rather than retry it.
-type requestBody struct{ io.Reader }
+// errors. ReadByte lets the decoder consume framing without allocating its
+// own bufio.Reader. A read that returns a byte and an error defers that error
+// until the next call, as bufio.Reader.ReadByte does.
+type requestBody struct {
+	io.Reader
+	one     [1]byte
+	pending error
+}
 
-func (b requestBody) Read(p []byte) (int, error) {
-	n, err := b.Reader.Read(p)
+func requestReadError(err error) error {
 	if err != nil && err != io.EOF {
-		return n, &requestError{"request body", err}
+		return &requestError{"request body", err}
 	}
-	return n, err
+	return err
+}
+
+func (b *requestBody) Read(p []byte) (int, error) {
+	if b.pending != nil {
+		err := b.pending
+		b.pending = nil
+		return 0, err
+	}
+	n, err := b.Reader.Read(p)
+	return n, requestReadError(err)
+}
+
+func (b *requestBody) ReadByte() (byte, error) {
+	if b.pending != nil {
+		err := b.pending
+		b.pending = nil
+		return 0, err
+	}
+	for i := 0; i < 100; i++ {
+		n, err := b.Reader.Read(b.one[:])
+		if n == 1 {
+			b.pending = requestReadError(err)
+			return b.one[0], nil
+		}
+		if err != nil {
+			return 0, requestReadError(err)
+		}
+	}
+	return 0, &requestError{"request body", io.ErrNoProgress}
 }
 
 func (e *requestError) Error() string { return e.op + ": " + e.err.Error() }
@@ -285,7 +319,7 @@ func (c *serverConn) feedBody(w http.ResponseWriter, r *http.Request, body io.Re
 		// decoder owns it. That lets this handler feed the body directly, with
 		// no pipe or per-POST goroutine. For unsupported or server-bounded
 		// requests, the pipe still keeps network I/O off the session reader.
-		err = c.payload.feed(requestBody{body}, supportBinary)
+		err = c.payload.feed(&requestBody{Reader: body}, supportBinary)
 		return err
 	}
 	in, out := io.Pipe()

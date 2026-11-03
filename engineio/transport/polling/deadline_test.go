@@ -2,6 +2,7 @@ package polling
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +12,31 @@ import (
 	"testing"
 	"time"
 )
+
+type byteThenError struct{ sent bool }
+
+func (r *byteThenError) Read(p []byte) (int, error) {
+	if !r.sent {
+		r.sent = true
+		p[0] = 'x'
+		return 1, io.ErrClosedPipe
+	}
+	return 0, io.EOF
+}
+
+func TestRequestBodyPreservesErrorAfterReadByte(t *testing.T) {
+	b := &requestBody{Reader: &byteThenError{}}
+	got, err := b.ReadByte()
+	if err != nil || got != 'x' {
+		t.Fatalf("ReadByte = %q, %v", got, err)
+	}
+	var data [1]byte
+	_, err = b.Read(data[:])
+	var requestErr *requestError
+	if !errors.As(err, &requestErr) || !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("read error = %v, want wrapped body error", err)
+	}
+}
 
 type boundedResponse struct {
 	*httptest.ResponseRecorder

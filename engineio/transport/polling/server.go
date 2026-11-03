@@ -43,6 +43,10 @@ type serverConn struct {
 	ioAborted bool       // Abort ran: response writes are expired too
 	reading   requestSet // the POSTs whose bodies are being read
 	writing   requestSet // the GETs whose responses are being written
+	readIO    requestIO  // reused by the usual one-at-a-time POST
+	writeIO   requestIO  // reused by the usual one-at-a-time GET
+	readBusy  bool
+	writeBusy bool
 }
 
 // newServerConn creates the polling connection of a request. JSONP is not supported

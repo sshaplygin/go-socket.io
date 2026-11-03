@@ -18,6 +18,54 @@ type boundedResponse struct {
 	deadlines []time.Time
 }
 
+type wrappedResponse struct{ http.ResponseWriter }
+
+func (w wrappedResponse) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func TestRequestDeadlineThroughNestedWrappers(t *testing.T) {
+	for _, write := range []bool{false, true} {
+		t.Run(map[bool]string{false: "read", true: "write"}[write], func(t *testing.T) {
+			inner := &boundedResponse{ResponseRecorder: httptest.NewRecorder()}
+			w := wrappedResponse{wrappedResponse{inner}}
+			deadline := time.Now().Add(time.Hour)
+			if err := setRequestDeadline(w, write, deadline); err != nil {
+				t.Fatal(err)
+			}
+			if got := inner.snapshot(); len(got) != 1 || !got[0].Equal(deadline) {
+				t.Fatalf("deadline through wrappers = %v, want %v", got, deadline)
+			}
+		})
+	}
+	if err := setRequestDeadline(httptest.NewRecorder(), false, time.Now()); err != http.ErrNotSupported {
+		t.Fatalf("unsupported response writer: %v", err)
+	}
+}
+
+func TestRequestDeadlineOverlapAndStaleTimer(t *testing.T) {
+	c := &serverConn{payload: newPayload(true)}
+	r := httptest.NewRequest(http.MethodPost, "/", nil)
+	r = r.WithContext(context.WithValue(r.Context(), http.ServerContextKey, &http.Server{ReadTimeout: time.Hour}))
+	first := &boundedResponse{ResponseRecorder: httptest.NewRecorder()}
+	overlap := &boundedResponse{ResponseRecorder: httptest.NewRecorder()}
+	one := c.track(first, r, false)
+	two := c.track(overlap, r, false)
+	if one == nil || two == nil || one == two {
+		t.Fatal("overlapping requests need independent deadline tracking")
+	}
+	deadline := time.Now().Add(30 * time.Millisecond)
+	_ = c.SetReadDeadline(deadline)
+	c.untrack(one, false)
+	c.untrack(two, false)
+	_ = c.SetReadDeadline(time.Now().Add(time.Hour))
+	reused := &boundedResponse{ResponseRecorder: httptest.NewRecorder()}
+	three := c.track(reused, r, false)
+	defer c.untrack(three, false)
+	time.Sleep(60 * time.Millisecond)
+	if got := reused.snapshot(); len(got) != 0 {
+		t.Fatalf("stale timer expired reused request: %v", got)
+	}
+}
+
 func (w *boundedResponse) SetReadDeadline(d time.Time) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()

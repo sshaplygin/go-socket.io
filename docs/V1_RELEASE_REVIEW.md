@@ -2530,7 +2530,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W54. Bound the memory and time cost of buffered polling requests
 
-- **Status:** in progress — #214; 10 alternating runs against W47 first parent
+- **Status:** done — #214; 10 alternating runs against W47 first parent
   `3edd8d55f626bf9eb9460e0f4c3a4d5c58d55850`: PollingEchoLarge
   11.114→7.931 ms/op (-28.64%) and 5.774→4.977 MiB/op (-13.81%);
   PollingEcho 24.40→20.40 KiB/op (-16.37%) and 240→239 allocs/op (-0.42%);

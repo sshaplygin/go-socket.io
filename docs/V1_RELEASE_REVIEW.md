@@ -2238,7 +2238,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W47. Bound polling request I/O by the session deadlines
 
-- **Status:** in progress — #205
+- **Status:** done — #205
 - **Priority:** before tag
 - **Findings:** [C6](#correctness-and-security-findings), [C7](#correctness-and-security-findings)
 - **Depends on:** W48 (test 1 asserts `ping timeout`, which T11 can misreport until W48 lands)
@@ -2530,7 +2530,13 @@ changed to `done — #<PR>` after the merge.
 
 ### W54. Bound the memory and time cost of buffered polling requests
 
-- **Status:** open
+- **Status:** in progress — #214; 10 alternating runs against W47 first parent
+  `3edd8d55f626bf9eb9460e0f4c3a4d5c58d55850`: PollingEchoLarge
+  11.114→7.931 ms/op (-28.64%) and 5.774→4.977 MiB/op (-13.81%);
+  PollingEcho 24.40→20.40 KiB/op (-16.37%) and 240→239 allocs/op (-0.42%);
+  PayloadRoundTrip 2.224→2.252 µs/op (+1.28%), 552 B/op and 8 allocs/op
+  unchanged; PollingClientsBroadcast 1.884→1.817 ms/op (no significant time
+  change), 156.7→157.8 KiB/op (+0.72%) and 1,589→1,605 allocs/op (+1.01%).
 - **Priority:** before tag (owner decision, 2026-10-31)
 - **Findings:** [PERF-16](#performance-findings)
 - **Depends on:** W47
@@ -3551,7 +3557,7 @@ Every finding is listed under the dimension that reported it.
 | PERF-13 | nit | — | `connection.go:281` | 7 server goroutines per idle websocket connection (v1.4.2: 4) | Optional: merge the engine close watcher with observeEngineClose, and start the error loop lazily. Fixed by #190 (W26). |
 | PERF-14 | minor | — | `engineio/client/client.go:126` | The Go polling client sends no Engine.IO close packet on `Close`, so the server keeps the session until PingInterval+PingTimeout; after 50 connect/close cycles, 19 sessions remained with the default ping (all gone at 45.2 s), and 18 and 26 in two runs with a 1 h ping, so 36–52% of closed clients linger | Send the close packet in a final POST, as engine.io-client 3.5.6 does (W50). Fixed by #208 (W50). |
 | PERF-15 | nit | — | `docs/V1_RELEASE_REVIEW.md` (W23) | The owner's acceptance of the `EmitWebsocket/string` CI time regression (2026-10-24) is recorded only in the description of #179 | Record it in W23's Status line. Fixed by #203 (W23). |
-| PERF-16 | minor | — | `engineio/transport/polling/deadline.go` (#205 at `8ae40be`) | W47 copies every polling POST body through an `io.Pipe` into a feed goroutine and builds every GET response in a growing buffer. Against `b2f2fb9` (darwin/arm64, ten alternated runs, two reviews of #205), `BenchmarkPollingEchoLarge` (512 KiB) cost +19–21% time and +17.4% B/op (−7.0% allocs), and `BenchmarkPollingEcho` +4.0–4.1% B/op and +5.4% allocs with no significant time change; an allocation profile attributes most of the small-echo increase to the POST pipe and feed | Reduce the allocations of both paths within a stated retention bound (W54). |
+| PERF-16 | minor | — | `engineio/transport/polling/deadline.go` (#205 at `8ae40be`) | W47 copies every polling POST body through an `io.Pipe` into a feed goroutine and builds every GET response in a growing buffer. Against `b2f2fb9` (darwin/arm64, ten alternated runs, two reviews of #205), `BenchmarkPollingEchoLarge` (512 KiB) cost +19–21% time and +17.4% B/op (−7.0% allocs), and `BenchmarkPollingEcho` +4.0–4.1% B/op and +5.4% allocs with no significant time change; an allocation profile attributes most of the small-echo increase to the POST pipe and feed | Reduce the allocations of both paths within a stated retention bound (W54). Fixed by #214 (W54). |
 
 ### Interoperability findings
 

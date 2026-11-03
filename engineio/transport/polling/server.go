@@ -31,7 +31,8 @@ type serverConn struct {
 	cookie       atomic.Pointer[http.Cookie]
 
 	// pollMu guards poll, held by a GET handler from its flushOut to the end of its
-	// response write (another GET is an overlap), and pollDone, closed when it returns.
+	// response write (another GET is an overlap). pollDone is allocated only if
+	// Drained observes that poll and closes when it returns.
 	pollMu   sync.Mutex
 	poll     bool
 	pollDone chan struct{}
@@ -43,6 +44,10 @@ type serverConn struct {
 	ioAborted bool       // Abort ran: response writes are expired too
 	reading   requestSet // the POSTs whose bodies are being read
 	writing   requestSet // the GETs whose responses are being written
+	readIO    requestIO  // reused by the usual one-at-a-time POST
+	writeIO   requestIO  // reused by the usual one-at-a-time GET
+	readBusy  bool
+	writeBusy bool
 }
 
 // newServerConn creates the polling connection of a request. JSONP is not supported
@@ -161,7 +166,8 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// corrupt it.
 		c.setPollWaiting(true)
 		defer c.setPollWaiting(false)
-		resp := &responseBuffer{ResponseWriter: w}
+		resp := newResponseBuffer(w)
+		defer resp.release()
 		var out io.Writer = resp
 		var compressed *responseWriter
 		if c.transport.Compression {
@@ -244,14 +250,17 @@ func (c *serverConn) beginPoll() bool {
 	if c.poll {
 		return false
 	}
-	c.poll, c.pollDone = true, make(chan struct{})
+	c.poll = true
 	return true
 }
 
 func (c *serverConn) endPoll() {
 	c.pollMu.Lock()
 	c.poll = false
-	close(c.pollDone)
+	if c.pollDone != nil {
+		close(c.pollDone)
+		c.pollDone = nil
+	}
 	c.pollMu.Unlock()
 }
 
@@ -261,6 +270,9 @@ func (c *serverConn) Drained() <-chan struct{} {
 	c.pollMu.Lock()
 	defer c.pollMu.Unlock()
 	if c.poll {
+		if c.pollDone == nil {
+			c.pollDone = make(chan struct{})
+		}
 		return c.pollDone
 	}
 	return closedChan

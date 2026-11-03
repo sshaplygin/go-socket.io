@@ -9,14 +9,13 @@ import (
 	"time"
 )
 
-// A polling request's handler goroutine does its network I/O: it streams a
-// POST body to the session's reader through a pipe and writes a GET response
-// after the session writer has filled it, so a stalled client blocks only its
-// handler.
-// Where the ResponseWriter supports deadlines, that I/O follows the session
-// deadline. Close expires a body read, which can only be incomplete; a response
-// write keeps its deadline, so packets accepted before the close (CLOSE of an
-// orderly close among them) are still delivered. Abort expires both.
+// A polling GET writes its filled response on the handler goroutine. A POST
+// with a supported request deadline lets the session decoder read the body;
+// otherwise its handler streams the body through a pipe, so unsupported
+// request I/O cannot block the session. Close expires a body read, which can
+// only be incomplete; a response write keeps its deadline, so packets
+// accepted before the close (CLOSE of an orderly close among them) are still
+// delivered. Abort expires both.
 
 // expiredDeadline is in the past; applying it interrupts blocked request I/O.
 var expiredDeadline = time.Unix(1, 0)
@@ -27,6 +26,52 @@ var expiredDeadline = time.Unix(1, 0)
 type requestError struct {
 	op  string
 	err error
+}
+
+// requestBody keeps network read errors distinct from temporary payload
+// errors. ReadByte lets the decoder consume framing without allocating its
+// own bufio.Reader. A read that returns a byte and an error defers that error
+// until the next call, as bufio.Reader.ReadByte does.
+type requestBody struct {
+	io.Reader
+	one     [1]byte
+	pending error
+}
+
+func requestReadError(err error) error {
+	if err != nil && err != io.EOF {
+		return &requestError{"request body", err}
+	}
+	return err
+}
+
+func (b *requestBody) Read(p []byte) (int, error) {
+	if b.pending != nil {
+		err := b.pending
+		b.pending = nil
+		return 0, err
+	}
+	n, err := b.Reader.Read(p)
+	return n, requestReadError(err)
+}
+
+func (b *requestBody) ReadByte() (byte, error) {
+	if b.pending != nil {
+		err := b.pending
+		b.pending = nil
+		return 0, err
+	}
+	for i := 0; i < 100; i++ {
+		n, err := b.Reader.Read(b.one[:])
+		if n == 1 {
+			b.pending = requestReadError(err)
+			return b.one[0], nil
+		}
+		if err != nil {
+			return 0, requestReadError(err)
+		}
+	}
+	return 0, &requestError{"request body", io.ErrNoProgress}
 }
 
 func (e *requestError) Error() string { return e.op + ": " + e.err.Error() }
@@ -40,7 +85,7 @@ func (e *requestError) Timeout() bool {
 // requestIO is the body read (POST) or response write (GET) of one request
 // whose deadline follows the session. serverConn.ioMu guards it.
 type requestIO struct {
-	rc         *http.ResponseController
+	w          http.ResponseWriter
 	write      bool
 	bounded    bool // net/http owns a timeout whose absolute deadline is unknown
 	owner      *serverConn
@@ -67,21 +112,43 @@ func (r *requestIO) apply(t time.Time) error {
 	if r.bounded && (t.IsZero() || t.After(time.Now())) {
 		if !t.IsZero() {
 			generation := r.generation
-			r.timer = time.AfterFunc(time.Until(t), func() {
-				r.owner.ioMu.Lock()
-				defer r.owner.ioMu.Unlock()
-				if r.generation == generation {
-					r.expire()
-				}
-			})
+			owner := r.owner
+			r.timer = time.AfterFunc(time.Until(t), func() { r.expireGeneration(owner, generation) })
 		}
 		return nil
 	}
 	r.set = true
-	if r.write {
-		return r.rc.SetWriteDeadline(t)
+	return setRequestDeadline(r.w, r.write, t)
+}
+
+// expireGeneration also checks callbacks already waiting on ioMu after their
+// request has been untracked and its slot has been reused.
+func (r *requestIO) expireGeneration(owner *serverConn, generation uint64) {
+	owner.ioMu.Lock()
+	defer owner.ioMu.Unlock()
+	if r.generation == generation {
+		r.expire()
 	}
-	return r.rc.SetReadDeadline(t)
+}
+
+// setRequestDeadline follows the same ResponseWriter/Unwrap path as
+// http.ResponseController. Keeping the writer on requestIO avoids allocating a
+// ResponseController for every polling request while preserving wrapper support.
+func setRequestDeadline(w http.ResponseWriter, write bool, deadline time.Time) error {
+	for {
+		if write {
+			if setter, ok := w.(interface{ SetWriteDeadline(time.Time) error }); ok {
+				return setter.SetWriteDeadline(deadline)
+			}
+		} else if setter, ok := w.(interface{ SetReadDeadline(time.Time) error }); ok {
+			return setter.SetReadDeadline(deadline)
+		}
+		unwrapper, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return http.ErrNotSupported
+		}
+		w = unwrapper.Unwrap()
+	}
 }
 
 // follow and expire skip expired I/O, so an expiry is never extended.
@@ -122,10 +189,22 @@ func (c *serverConn) track(w http.ResponseWriter, r *http.Request, write bool) *
 	c.ioMu.Lock()
 	defer c.ioMu.Unlock()
 	set, deadline, closed := &c.reading, c.payload.readDeadline.Load().(time.Time), c.ioClosed
+	slot, busy := &c.readIO, &c.readBusy
 	if write {
 		set, deadline, closed = &c.writing, c.payload.writeDeadline.Load().(time.Time), c.ioAborted
+		slot, busy = &c.writeIO, &c.writeBusy
 	}
-	tracked := &requestIO{rc: http.NewResponseController(w), write: write, expired: closed, owner: c}
+	var tracked *requestIO
+	if !*busy {
+		*busy = true
+		tracked = slot
+		generation := tracked.generation
+		*tracked = requestIO{w: w, write: write, expired: closed, owner: c, generation: generation}
+	} else {
+		// An overlapping handler still needs its own deadline while its body
+		// is closed and drained. It cannot take the active handler's slot.
+		tracked = &requestIO{w: w, write: write, expired: closed, owner: c}
+	}
 	if closed {
 		deadline = expiredDeadline
 	}
@@ -139,6 +218,10 @@ func (c *serverConn) track(w http.ResponseWriter, r *http.Request, write bool) *
 		}
 	}
 	if tracked.apply(deadline) != nil {
+		if tracked == slot {
+			*busy = false
+			tracked.w = nil
+		}
 		return nil
 	}
 	if *set == nil {
@@ -163,9 +246,17 @@ func (c *serverConn) untrack(tracked *requestIO, read bool) bool {
 	}
 	tracked.cancelTimer()
 	if read && tracked.set && !tracked.expired && !tracked.bounded {
-		_ = tracked.rc.SetReadDeadline(time.Time{})
+		_ = setRequestDeadline(tracked.w, false, time.Time{})
 	}
-	return tracked.expired
+	expired := tracked.expired
+	if tracked == &c.readIO {
+		c.readBusy = false
+		tracked.w = nil
+	} else if tracked == &c.writeIO {
+		c.writeBusy = false
+		tracked.w = nil
+	}
+	return expired
 }
 
 // SetReadDeadline bounds NextReader and the tracked POST body reads.
@@ -206,13 +297,13 @@ func (c *serverConn) Abort() error {
 	return c.Close()
 }
 
-// feedBody streams a POST body to the session through a pipe. The handler's
-// goroutine copies it from the network; the feed runs on its own goroutine and
-// closes the pipe when it returns, on a deadline, Close or the end of the
-// payload, so the session's reader never waits for the client. A body the
-// payload cannot take (overlapping, paused or closed) is refused unread. The
-// body's Close drains what the handler did not read, so that net/http can
-// reuse the connection, under the same deadline.
+// feedBody lets the session decoder read directly when a tracked deadline can
+// interrupt it. Otherwise the handler copies through a pipe and the feed runs
+// on its own goroutine, so the session can end while unsupported or
+// server-bounded request I/O remains blocked. A body the payload cannot take
+// (overlapping, paused or closed) is refused unread. The body's Close drains
+// what the handler did not read, so that net/http can reuse the connection,
+// under the same deadline.
 func (c *serverConn) feedBody(w http.ResponseWriter, r *http.Request, body io.ReadCloser, supportBinary bool) error {
 	tracked := c.track(w, r, false)
 	var err error
@@ -225,6 +316,14 @@ func (c *serverConn) feedBody(w http.ResponseWriter, r *http.Request, body io.Re
 		}
 	}()
 	if err = c.payload.acquireFeed(); err != nil {
+		return err
+	}
+	if tracked != nil && !tracked.bounded {
+		// A supported request deadline interrupts a body read even when the
+		// decoder owns it. That lets this handler feed the body directly, with
+		// no pipe or per-POST goroutine. For unsupported or server-bounded
+		// requests, the pipe still keeps network I/O off the session reader.
+		err = c.payload.feed(&requestBody{Reader: body}, supportBinary)
 		return err
 	}
 	in, out := io.Pipe()

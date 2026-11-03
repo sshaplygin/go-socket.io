@@ -2238,7 +2238,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W47. Bound polling request I/O by the session deadlines
 
-- **Status:** in progress — #205
+- **Status:** done — #205
 - **Priority:** before tag
 - **Findings:** [C6](#correctness-and-security-findings), [C7](#correctness-and-security-findings)
 - **Depends on:** W48 (test 1 asserts `ping timeout`, which T11 can misreport until W48 lands)
@@ -2530,7 +2530,13 @@ changed to `done — #<PR>` after the merge.
 
 ### W54. Bound the memory and time cost of buffered polling requests
 
-- **Status:** open
+- **Status:** in progress — #214; 10 alternating runs against W47 first parent
+  `3edd8d55f626bf9eb9460e0f4c3a4d5c58d55850`: PollingEchoLarge
+  11.114→7.931 ms/op (-28.64%) and 5.774→4.977 MiB/op (-13.81%);
+  PollingEcho 24.40→20.40 KiB/op (-16.37%) and 240→239 allocs/op (-0.42%);
+  PayloadRoundTrip 2.224→2.252 µs/op (+1.28%), 552 B/op and 8 allocs/op
+  unchanged; PollingClientsBroadcast 1.884→1.817 ms/op (no significant time
+  change), 156.7→157.8 KiB/op (+0.72%) and 1,589→1,605 allocs/op (+1.01%).
 - **Priority:** before tag (owner decision, 2026-10-31)
 - **Findings:** [PERF-16](#performance-findings)
 - **Depends on:** W47

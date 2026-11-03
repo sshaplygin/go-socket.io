@@ -161,7 +161,8 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// corrupt it.
 		c.setPollWaiting(true)
 		defer c.setPollWaiting(false)
-		resp := &responseBuffer{ResponseWriter: w}
+		resp := newResponseBuffer(w)
+		defer resp.release()
 		var out io.Writer = resp
 		var compressed *responseWriter
 		if c.transport.Compression {

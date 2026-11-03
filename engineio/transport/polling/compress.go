@@ -42,6 +42,7 @@ type responseWriter struct {
 	encoding   string
 	prefix     []byte
 	out        io.Writer
+	gzipWriter *gzip.Writer
 	compressor interface {
 		io.WriteCloser
 		Flush() error
@@ -67,7 +68,12 @@ func (w *responseWriter) Write(p []byte) (int, error) {
 			w.w.Header().Set("Content-Encoding", w.encoding)
 			w.w.Header().Del("Content-Length")
 			if w.encoding == "gzip" {
-				w.compressor = gzip.NewWriter(w.w)
+				writer, err := gzipWriters.take(w.w)
+				if err != nil {
+					return 0, err
+				}
+				w.gzipWriter = writer
+				w.compressor = writer
 			} else {
 				w.compressor = zlib.NewWriter(w.w)
 			}
@@ -89,7 +95,17 @@ func (w *responseWriter) Write(p []byte) (int, error) {
 
 func (w *responseWriter) Close() error {
 	if w.compressor != nil {
-		return w.compressor.Close()
+		compressor := w.compressor
+		w.compressor = nil
+		w.out = nil
+		err := compressor.Close()
+		if w.gzipWriter != nil {
+			if err == nil {
+				gzipWriters.put(w.gzipWriter)
+			}
+			w.gzipWriter = nil
+		}
+		return err
 	}
 	return nil
 }

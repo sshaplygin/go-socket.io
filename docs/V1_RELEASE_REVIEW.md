@@ -2467,12 +2467,12 @@ changed to `done — #<PR>` after the merge.
 
 ### W52. Refresh the release notes and the tag checklist
 
-- **Status:** open
+- **Status:** in progress
 - **Priority:** before tag
 - **Findings:** [REL-14](#release-engineering-findings), [REL-15](#release-engineering-findings)
 - **Depends on:** W47–W51, W53–W55
 - **Problem:** the release text exists only in the description of #193 (merged as
-  `4265692`). Its "Changes since the release review" section predates 38 later pull
+  `4265692`). Its "Changes since the release review" section predates later pull
   requests, and its owner checklist says to tag the merge commit of #193, which would
   leave out W11–W55.
 - **Change:** after W47–W51 and W53–W55 merge, a PR sets this item's Status, and its

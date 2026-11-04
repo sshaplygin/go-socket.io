@@ -19,7 +19,7 @@ The document has three parts:
   then [Release blockers](#release-blockers) through the
   [finding catalogue](#finding-catalogue). They come from the original review and were
   corrected where the follow-up validation and the 2026-10-22 fact-check required it.
-- **[Work plan](#work-plan):** pull-request-sized work items (W1–W56) and owner decisions
+- **[Work plan](#work-plan):** pull-request-sized work items (W1–W57) and owner decisions
   (D1–D6) that cover every catalogue ID except the editorial `CL-14` (not planned), with
   their order, acceptance criteria and status.
 - **[Follow-up validation](#follow-up-validation):** the evidence log, with a status and
@@ -143,7 +143,7 @@ to do the work. The status of each item is owned by its **Status** line and nowh
    [W54](#w54-bound-the-memory-and-time-cost-of-buffered-polling-requests) (after W47) and
    [W55](#w55-scheduled-stress-runs-under-cpu-load) on 2026-10-31; both land before W52.
    Only the owner tags.
-6. After the tag: W11–W44 and W56 in numeric order unless **Depends on** says otherwise. Every
+6. After the tag: W11–W44 and W56–W57 in numeric order unless **Depends on** says otherwise. Every
    performance item needs W2 merged first. W12 lands before W23. W38 needs the tag.
 
 A major (M1–M7) that is not fixed before the tag is deferred only in writing: the owner
@@ -260,7 +260,7 @@ have already merged, the item's PR changes no part of this document. Apart from 
 lines and the `Fixed by` notes, do not rewrite the review's findings, the Backlog or the Follow-up
 validation evidence log when an item is done; they record the state at `7311fbe`. This
 progress tracking is not a v1 changelog: after the tag, the owner decides whether the
-remaining items (W11–W44 and W56) move to GitHub issues, and this document then keeps only the
+remaining items (W11–W44 and W56–W57) move to GitHub issues, and this document then keeps only the
 findings and the evidence.
 
 **Standard definition of done** (every item refers to it): the PR is squash-merged by the
@@ -336,6 +336,7 @@ changed to `done — #<PR>` after the merge.
 | [W54](#w54-bound-the-memory-and-time-cost-of-buffered-polling-requests) | Bound the memory and time cost of buffered polling requests | before tag | PERF-16 | W47 |
 | [W55](#w55-scheduled-stress-runs-under-cpu-load) | Scheduled stress runs under CPU load | before tag | T12 | — |
 | [W56](#w56-make-the-load-sensitive-tests-deterministic) | Make the load-sensitive tests deterministic | after release | T13, T14 | W55 |
+| [W57](#w57-synchronize-client-compression-frame-recording) | Synchronize client compression frame recording | after release | T15 | W55 |
 
 **Finding coverage.** Every catalogue ID appears in exactly one item or in "Not planned".
 
@@ -347,7 +348,7 @@ changed to `done — #<PR>` after the merge.
 | Architecture | ARCH-1 W5 · ARCH-2 D2 · ARCH-3 D3 · ARCH-4 W26 · ARCH-5 D4 · ARCH-6 D5 · ARCH-7 W33 · ARCH-8 W32 · ARCH-9 W14 · ARCH-10 W37 · ARCH-11 D6 · ARCH-12 W28 · ARCH-13 W26 |
 | Performance | PERF-1 W3 · PERF-2 W18 · PERF-3 W4 · PERF-4 W19 · PERF-5 W20 · PERF-6 W21 · PERF-7 W22 · PERF-8 W23 · PERF-9 W24 · PERF-10 W2 · PERF-11 W25 · PERF-12 W21 · PERF-13 W26 · PERF-14 W50 · PERF-15 W23 · PERF-16 W54 |
 | Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 · interop-10 W49 · interop-11 W51 |
-| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 · T11 W48 · T12 W55 · T13 W56 · T14 W56 |
+| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 · T11 W48 · T12 W55 · T13 W56 · T14 W56 · T15 W57 |
 | Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 · REL-13 W42 · REL-14 W52 · REL-15 W52 |
 
 **Not planned.**
@@ -2588,7 +2589,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W55. Scheduled stress runs under CPU load
 
-- **Status:** in progress — #211
+- **Status:** done — #211
 - **Priority:** before tag (owner decision, 2026-10-31)
 - **Findings:** [T12](#tests-findings)
 - **Depends on:** none
@@ -2643,7 +2644,7 @@ changed to `done — #<PR>` after the merge.
   PR. A failure not covered by an existing catalogue row gets a row and a work item, or
   "Not planned", in a documentation pull request opened after W55 merges and before W52;
   item pull requests do not add rows (Marking progress).
-- **Out of scope:** fixing the flakes it finds (W56); running the tagged conformance
+- **Out of scope:** fixing the flakes it finds (W56, W57); running the tagged conformance
   suite under load (T13, W56).
 
 ### W56. Make the load-sensitive tests deterministic
@@ -2665,6 +2666,48 @@ changed to `done — #<PR>` after the merge.
 - **Acceptance criteria:** as in Tests, with the W55 run linked.
 - **Definition of done:** standard.
 - **Out of scope:** library behavior.
+
+### W57. Synchronize client compression frame recording
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [T15](#tests-findings)
+- **Depends on:** W55 for the recorded load runs
+- **Problem:** `TestClientCompress/on` saw three outgoing compression flags instead of
+  four after both echo ACKs arrived (`client/compression_test.go:148–152`). The raw
+  Ubuntu `stress.json` artifacts from the first four W55 runs contain two failures in
+  160 executions of this subtest; its parent also fails, not a separate occurrence.
+
+  | W55 head | Stress run | Ubuntu subtest failures / executions |
+  | --- | --- | --- |
+  | `0c1ce47` | [41206881023](https://github.com/sshaplygin/go-socket.io/actions/runs/41206881023) | 1 / 40 |
+  | `d78c5e3` | [41230894090](https://github.com/sshaplygin/go-socket.io/actions/runs/41230894090) | 1 / 40 |
+  | `83d9a30` | [41262144565](https://github.com/sshaplygin/go-socket.io/actions/runs/41262144565) | 0 / 40 |
+  | `8910771` | [41267241784](https://github.com/sshaplygin/go-socket.io/actions/runs/41267241784) | 0 / 40 |
+  | `7fbcceb` (final W55 head) | [41825750293](https://github.com/sshaplygin/go-socket.io/actions/runs/41825750293) | 0 / 40 |
+
+  Both failures expected `[false false true true]` and observed `[false false true]`.
+  `recordingCompressionConn.Write` appends to the recorder after the underlying
+  `Conn.Write` returns (`client/compression_test.go:66–71`). Receiving an ACK does not
+  synchronize with that append in the sending goroutine. This is a plausible fixture
+  ordering gap, not a demonstrated compression or packet-delivery defect; the existing
+  mutex protects the snapshot from data races but does not establish write completion.
+  The final W55 Stress run passed on Ubuntu and macOS; that does not prove the gap fixed.
+- **Change:** reproduce the suspected ordering gap with a controlled pause between the
+  underlying write and recorder append. If confirmed, synchronize the fixture's snapshot
+  with completed recording, using a bounded wait and an explicit signal. Preserve the
+  assertions for all four text/binary frame flags and both negotiation settings; do not
+  mask the failure with a sleep, skip or reduced expected frame count. If the reproduction
+  identifies a different cause, record that evidence before choosing the fix.
+- **Tests:** a deterministic regression fails before the fix and proves the snapshot
+  waits for recording after it; it passes `-race -count=50`. `TestClientCompress` passes
+  under the W55 load locally and
+  in a complete Stress run on Ubuntu and macOS, with counts and run links in the PR.
+- **Benchmarks:** none.
+- **Docs:** none.
+- **Acceptance criteria:** as in Tests, with unchanged compression assertions.
+- **Definition of done:** standard.
+- **Out of scope:** library behavior changes without a separately established defect.
 
 ## Release blockers
 
@@ -3593,6 +3636,7 @@ Every finding is listed under the dimension that reported it.
 | T12 | minor | — | `.github/workflows/ci.yaml` (`stress-v1`) | CI repeats the race tests of `STRESS_PKGS` at most `-count=5` with `-cpu=1,4`, on idle Ubuntu runners only, so timing races appear only on loaded developer machines: `TestPollingCloseEndsServerSessions` failed 2 times in about 32,000 rounds before #208 fixed it | Run the stress packages many times under CPU load on a schedule (W55). Fixed by #211 (W55). |
 | T13 | minor | — | `stalled_reader_test.go`, `engineio/transport/polling/payload_test.go`, `internal/conformance/heartbeat_test.go` | Tests race wall-clock deadlines and fail under load on master and on the PR heads alike: `TestStalledReaderIsDisconnected` (a 2 ms emit ticker against the session's 4 s write deadline, PingInterval 2 s + PingTimeout 2 s from the last inbound packet) failed 8 of 100 subtests on #207's head and 10 of 100 on master, run back to back at load average about 30–42 (#207 review); `TestPayloadFlushOutBinary` (a 100 ms write deadline) failed in a stress run (#206 review); the tagged `TestJSHeartbeat` (200 ms heartbeat, needs Node and Redis) failed 2 of 3 alternating runs on base and head under load (#205 review) | Replace each race with a signal or a configuration-derived bound; W55 covers `STRESS_PKGS` only, so the conformance case is checked by hand (W56). |
 | T14 | minor | — | `engineio/client/log_test.go:232` | Log fixtures share the process-wide `slog` recorder: `TestClientPingFailureRecord` once received an extra DEBUG record from another test's websocket client goroutine in a stress run; the same seed passed twice afterwards | Isolate the fixtures, as W46 did for the upgrade fixtures (W56). |
+| T15 | minor | confirmed in W55 load runs | `client/compression_test.go:66–71,148–152` | `TestClientCompress/on` observed `[false false true]` instead of `[false false true true]` after both ACKs: 2 failures in 160 Ubuntu executions across the first four W55 runs; 0 in 40 on the final head `7fbcceb` (run links and counts in W57). The recorder appends after the network write; an ACK does not establish that the append finished. Fixture ordering is a hypothesis, not evidence of a library compression defect | Reproduce the ordering gap and synchronize the recorded-frame snapshot without weakening its assertions (W57). |
 
 ### Release engineering findings
 

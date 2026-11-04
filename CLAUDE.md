@@ -69,11 +69,13 @@ Unix socket; see [_examples/README.md](_examples/README.md).
 ## CI
 
 `.github/workflows/ci.yaml` tests the change classifier before selecting jobs.
-Pull requests select affected packages and their reverse dependencies across
-Linux, macOS, Windows and the conformance build tag. Source changes run tests;
+Pull requests select affected packages and their reverse dependencies on Linux
+and run the conformance build tag when selected. Source changes run tests;
 ordinary comment/formatting changes run lint. Example changes select their
 build and interoperability jobs. Module, workflow and unclassified changes
-select a full run. Pushes to `master` and scheduled runs test both modules fully.
+select all jobs. Pushes to `master`, scheduled runs and manual runs test both
+modules fully. Pull requests and pushes use Linux; scheduled and manual runs
+also test on macOS and Windows.
 
 Markdown files consumed by checks select their gate jobs: the v1 architecture
 contract and v2 API inventory. Other Markdown does not select runtime tests.
@@ -83,7 +85,8 @@ v1 package tests. The `ci-ok` job aggregates all checks and fails if any selecte
 job failed or was cancelled. Validate result handling with
 `bash .github/ci/aggregate_test.sh` and selection with `go test ./.github/changes`.
 
-The v1 matrix includes stable/oldstable Go on Linux, macOS and Windows, race
+The v1 matrix includes stable/oldstable Go on Linux for every event, and on
+macOS and Windows for scheduled and manual runs. It also includes race
 tests, Go 1.22, repeated concurrency tests on every event, JSONv2 on stable and
 oldstable Go, coverage, examples and Node clients
 1.7.4/2.5.0. Vulnerability checks use the newest Go release available to CI.

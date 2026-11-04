@@ -42,8 +42,12 @@ The first release of the fork is `v1.5.0`; v2 releases follow it. The frozen
 
 Before tagging v1:
 
-1. Run the full CI matrix, including Go 1.22, race/stress tests, lint,
-   vulnerability checks, architecture/consumer fixtures and coverage. Inspect the
+1. On the final release commit on `master`, manually run
+   `.github/workflows/ci.yaml` (`gh workflow run ci.yaml --ref master`) and
+   verify that the successful run's head SHA matches the commit to tag. This
+   full run includes Linux, macOS and Windows, Go 1.22, race/stress tests, lint,
+   vulnerability checks, architecture/consumer fixtures and coverage. A green
+   push run alone does not cover the macOS and Windows test matrix. Inspect the
    latest run of the Stress workflow (`.github/workflows/stress.yml`) on the
    release head and record its failures in the release pull request.
 2. Build the examples and run Node interoperability with both pinned clients,

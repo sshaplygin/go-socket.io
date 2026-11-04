@@ -99,6 +99,7 @@ func (f *flushWriter) size() int { f.mu.Lock(); defer f.mu.Unlock(); return f.by
 func (f *flushWriter) detach() {
 	f.mu.Lock()
 	f.gone = true
+	f.w = nil
 	f.mu.Unlock()
 }
 
@@ -110,6 +111,15 @@ func (f *flushWriter) detach() {
 // If NextReader has timeout, it returns ErrTimeout.
 // If read error while FeedIn, it returns read error.
 func (p *payload) FeedIn(r io.Reader, supportBinary bool) error {
+	if err := p.acquireFeed(); err != nil {
+		return err
+	}
+	return p.feed(r, supportBinary)
+}
+
+// acquireFeed admits one request body at a time, before any of it is read;
+// feed releases it. Every error is immediate: closed, overlapping or paused.
+func (p *payload) acquireFeed() error {
 	select {
 	case <-p.close:
 		return p.load()
@@ -119,11 +129,17 @@ func (p *payload) FeedIn(r io.Reader, supportBinary bool) error {
 	if !atomic.CompareAndSwapInt32(&p.feeding, 0, 1) {
 		return newOpError("read", errOverlap)
 	}
-	defer atomic.StoreInt32(&p.feeding, 0)
 
 	if ok := p.pauser.Working(); !ok {
+		atomic.StoreInt32(&p.feeding, 0)
 		return newOpError("payload", errPaused)
 	}
+	return nil
+}
+
+// feed hands an acquired body to the decoder and waits for it to finish.
+func (p *payload) feed(r io.Reader, supportBinary bool) error {
+	defer atomic.StoreInt32(&p.feeding, 0)
 	defer p.pauser.Done()
 
 	err := p.offerFeed(readArg{r: r, supportBinary: supportBinary})

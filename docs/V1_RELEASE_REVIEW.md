@@ -2467,7 +2467,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W52. Refresh the release notes and the tag checklist
 
-- **Status:** in progress
+- **Status:** in progress — #218
 - **Priority:** before tag
 - **Findings:** [REL-14](#release-engineering-findings), [REL-15](#release-engineering-findings)
 - **Depends on:** W47–W51, W53–W55

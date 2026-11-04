@@ -3655,8 +3655,8 @@ Every finding is listed under the dimension that reported it.
 | REL-11 | nit | — | — | Stale remote branches, including a superseded release branch and a changelog draft | Delete merged or superseded branches, release/v1.5.0 in particular, before tagging. Reuse the useful parts of the v1-h/release-notes draft for REL-1. |
 | REL-12 | nit | — | `engineio/transport/websocket/connect.go:99` | An open TODO remains in library code | Replace the TODO with a comment that explains why the lock is needed. Fixed by #147 (W1). |
 | REL-13 | minor | — | `.github/workflows/benchmarks.yml` | A sub-benchmark whose `b.N=1` probe fails in a later `-count` repetition prints `--- FAIL` but `go test` exits 0, so the Benchmarks workflow can lose samples without failing | Fail the step on `--- FAIL` in the raw output (W42). Found in the review of #153. Fixed by #198 (W42). |
-| REL-14 | minor | — | PR #193 description | The release notes predate 38 later pull requests and omit user-visible changes such as `WithSubscribeTimeout`, base64 over websocket and duplicate session ID rejection | Rewrite the release text against the final head (W52). |
-| REL-15 | minor | — | PR #193 description | The owner checklist says to tag the merge commit of #193 (`4265692`), which leaves out every later fix | Tag the verified head (W52). |
+| REL-14 | minor | — | PR #193 description | The release notes predate later pull requests and omit user-visible changes such as `WithSubscribeTimeout`, base64 over websocket and duplicate session ID rejection | Rewrite the release text against the final head (W52). Fixed by #218 (W52). |
+| REL-15 | minor | — | PR #193 description | The owner checklist says to tag the merge commit of #193 (`4265692`), which leaves out every later fix | Tag the verified head (W52). Fixed by #218 (W52). |
 
 ## Follow-up validation
 

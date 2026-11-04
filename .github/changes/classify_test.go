@@ -306,6 +306,8 @@ func TestClassify(t *testing.T) {
 			want: with(map[string]string{"bench_v1": "./...", "bench_v2": "./...", "changed": "true"})},
 		{name: "classifier", edit: map[string]string{".github/changes/main.go": "package main\n\nfunc main() {}\n"},
 			want: merge(fullV1, fullV2, map[string]string{"bench_v1": "./...", "bench_v2": "./...", "changed": "true", "sync": "true"})},
+		{name: "stress workflow", edit: map[string]string{".github/workflows/stress.yml": "name: Stress\non: schedule\n"}, want: none},
+		{name: "stress summary tool", edit: map[string]string{".github/stress/main.go": "package main\n\nfunc main() {}\n"}, want: lintV1},
 		{name: "other file under .github", edit: map[string]string{".github/ISSUE_TEMPLATE/bug.yml": "name: Bug\n"},
 			want: merge(fullV1, fullV2, map[string]string{"bench_v1": "./...", "bench_v2": "./...", "changed": "true", "sync": "true"})},
 		{name: "architecture checker", edit: map[string]string{".github/architecture/arch.go": "package main\n\nfunc main() {}\n"},

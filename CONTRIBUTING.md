@@ -47,7 +47,9 @@ Before tagging v1:
    verify that the successful run's head SHA matches the commit to tag. This
    full run includes Linux, macOS and Windows, Go 1.22, race/stress tests, lint,
    vulnerability checks, architecture/consumer fixtures and coverage. A green
-   push run alone does not cover the macOS and Windows test matrix.
+   push run alone does not cover the macOS and Windows test matrix. Inspect the
+   latest run of the Stress workflow (`.github/workflows/stress.yml`) on the
+   release head and record its failures in the release pull request.
 2. Build the examples and run Node interoperability with both pinned clients,
    Redis TCP/Unix examples and the mixed Go/Node Redis adapter.
 3. Check that the usage and protocol documents agree with the implementation.

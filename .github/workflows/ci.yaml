@@ -7,6 +7,7 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
   schedule:
     - cron: '0 8 * * 1' # Mondays 08:00 UTC
 
@@ -14,8 +15,10 @@ on:
 # and v2 in v2/ (github.com/sshaplygin/go-socket.io/v2). The changes job runs the
 # classifier of .github/changes: on a pull request every other job runs only when the
 # diff reaches something it checks, and the test jobs test only the affected packages;
-# push and schedule run everything. Jobs are skipped with a job-level if, never with
-# workflow-level paths filters, so that the required checks always report.
+# push, schedule and manual dispatch run everything. PRs and pushes test on Linux;
+# schedule and manual dispatch also test on macOS and Windows. Jobs are skipped
+# with a job-level if, never with workflow-level paths filters, so that the
+# required checks always report.
 # Stress runs for selected v1 packages on all events. ci-ok aggregates every job,
 # accepting intentional skips but rejecting failures and cancellations.
 jobs:
@@ -325,7 +328,7 @@ jobs:
       fail-fast: false
       matrix:
         go: ['stable', 'oldstable']
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest"]') }}
     env:
       PKGS: ${{ needs.changes.outputs.v1_packages }}
     defaults:
@@ -357,7 +360,7 @@ jobs:
       fail-fast: false
       matrix:
         go: ['stable', 'oldstable']
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest"]') }}
     env:
       PKGS: ${{ needs.changes.outputs.v2_packages }}
     defaults:

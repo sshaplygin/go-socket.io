@@ -1,7 +1,9 @@
 package redis
 
 import (
+	"bytes"
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -95,10 +97,11 @@ func TestCloseCancelsSubscriberReconnect(t *testing.T) {
 // canceled (closeTransport closes done before it cancels transportCtx).
 func TestResubscribeAfterCloseDoesNotDial(t *testing.T) {
 	if os.Getenv(syncTimerChildEnv) != "1" {
-		// With synchronous timer channels (Go 1.23 semantics, selected by an
-		// application's go line) an expired timer is ready in the same select
-		// as done. This module's go 1.22 line selects asynchronous channels for
-		// its own tests, so repeat the check in a child with synchronous ones.
+		// With synchronous timer channels (Go 1.23 semantics) an expired
+		// timer is ready in the same select as done. Go 1.23 to 1.26 give
+		// this module's own tests asynchronous channels because of its go
+		// 1.22 line (Go 1.27 removed them, Go 1.22 has only those), so repeat
+		// the check in a child with synchronous ones.
 		require.NoError(t, runSyncTimerChild(t.Name()))
 	}
 	var dials atomic.Int32
@@ -128,7 +131,15 @@ func runSyncTimerChild(name string) error {
 	if err != nil {
 		return err
 	}
-	command := exec.Command(executable, "-test.run=^"+regexp.QuoteMeta(name)+"$", "-test.count=1")
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	args := []string{"-test.run=^" + regexp.QuoteMeta(name) + "$", "-test.count=1", "-test.timeout=30s", "-test.v"}
+	// Under go test -cover the child adds its counters to the directory this
+	// binary reads its own from when it writes the profile.
+	if dir := flag.Lookup("test.gocoverdir"); dir != nil && dir.Value.String() != "" {
+		args = append(args, "-test.gocoverdir="+dir.Value.String())
+	}
+	command := exec.CommandContext(ctx, executable, args...)
 	command.Env = append(os.Environ(), syncTimerChildEnv+"=1", "GODEBUG=asynctimerchan=0")
 	output, err := command.CombinedOutput()
 	if err != nil {
@@ -138,8 +149,12 @@ func runSyncTimerChild(name string) error {
 }
 
 // childPassed checks the verbose output of a child test binary for the
-// result of the test name.
+// result of the test name: a pattern that matched no test, or a skipped
+// test, also exits successfully.
 func childPassed(name string, output []byte) error {
+	if !bytes.Contains(output, []byte("\n--- PASS: "+name+" (")) {
+		return fmt.Errorf("synchronous timer child did not pass %s:\n%s", name, output)
+	}
 	return nil
 }
 

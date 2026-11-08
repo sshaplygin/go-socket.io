@@ -41,6 +41,11 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 			start, done := make(chan struct{}), make(chan struct{})
 			var created atomic.Int64          // MESSAGE packets the session has started to write
 			inbound := make(chan struct{}, 1) // a packet was read after start
+			var written atomic.Int64          // frames the client has written
+			// Frames the client wrote between the read that releases the overflow and
+			// the first emit of the overflow; -1 until a sending subtest gets there.
+			var margin atomic.Int64
+			margin.Store(-1)
 			upgraded := make(chan struct{})
 			srv := NewServer(WithEngineOptions(
 				engineio.WithPingInterval(pingInterval),
@@ -100,6 +105,8 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 								case <-stop:
 									return
 								}
+								atRead := written.Load()
+								margin.Store(written.Load() - atRead)
 							}
 						}
 						c.Emit("large", payload)
@@ -199,6 +206,7 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 							if ws.SetWriteDeadline(time.Now().Add(time.Second)) != nil || ws.WriteMessage(websocket.TextMessage, []byte(tc.frame)) != nil {
 								return
 							}
+							written.Add(1)
 						}
 					}
 				}()
@@ -206,6 +214,12 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 			select {
 			case err = <-failures:
 				require.True(t, errors.Is(err, ErrWriteBufferFull), "unexpected error: %v", err)
+				if tc.frame != "" {
+					// The reader gets at least one client send period to reach the deadline
+					// renewal that follows its read before the overflow closes the session.
+					require.Positive(t, margin.Load(),
+						"frames written between the read and the overflow emits")
+				}
 			case <-time.After(pingInterval + pingTimeout):
 				t.Fatal("timed out waiting for write buffer overflow")
 			}

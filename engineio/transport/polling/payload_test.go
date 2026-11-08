@@ -23,7 +23,8 @@ func TestPayloadFeedIn(t *testing.T) {
 	p.Resume()
 
 	// No read deadline while packets are exchanged: FeedIn and NextReader meet on
-	// channels, so a delay of either goroutine cannot expire the other's call.
+	// channels, so a delay of either goroutine cannot expire the other's call; runPeer bounds
+	// the whole exchange by exchangeLimit instead.
 	finish := runPeer(t, p, exchangeLimit, func() error {
 		for _, test := range payloadVectors {
 			if len(test.packets) != 1 {
@@ -74,12 +75,13 @@ type peerT interface {
 }
 
 // runPeer runs peer, the other side of a payload exchange, in a goroutine and returns
-// finish, which waits for peer to return. The payload has no deadline during the exchange,
-// so a peer error closes p to fail the test goroutine's pending call; Cleanup closes p and
-// waits for peer.
+// finish, which waits for peer to return and ends the exchange. The payload has no
+// deadline during the exchange. A peer error, or an exchange not finished within limit,
+// fails the test and closes p, which fails the pending calls of both sides. Cleanup ends
+// the exchange, closes p and waits for peer.
 func runPeer(t peerT, p *payload, limit time.Duration, peer func() error) (finish func()) {
 	t.Helper()
-	done := make(chan struct{})
+	done, finished, watched := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
 		if err := peer(); err != nil {
@@ -87,11 +89,27 @@ func runPeer(t peerT, p *payload, limit time.Duration, peer func() error) (finis
 			_ = p.Close()
 		}
 	}()
+	go func() {
+		defer close(watched)
+		timer := time.NewTimer(limit)
+		defer timer.Stop()
+		select {
+		case <-finished:
+		case <-timer.C:
+			t.Errorf("payload exchange did not finish within %v", limit)
+			_ = p.Close()
+		}
+	}()
+	end := sync.OnceFunc(func() { close(finished); <-watched })
 	t.Cleanup(func() {
+		end()
 		_ = p.Close()
 		<-done
 	})
-	return func() { <-done }
+	return func() {
+		<-done
+		end()
+	}
 }
 
 // peerRecorder is a peerT that records failures and runs cleanups on demand.
@@ -148,7 +166,8 @@ func TestPayloadFlushOutText(t *testing.T) {
 	p.Resume()
 
 	// No write deadline while packets are exchanged: FlushOut and NextWriter meet on
-	// channels, so a delay of either goroutine cannot expire the other's call.
+	// channels, so a delay of either goroutine cannot expire the other's call; runPeer bounds
+	// the whole exchange by exchangeLimit instead.
 	finish := runPeer(t, p, exchangeLimit, func() error {
 		for _, test := range payloadVectors {
 			if len(test.packets) != 1 {
@@ -200,7 +219,8 @@ func TestPayloadFlushOutBinary(t *testing.T) {
 	p.Resume()
 
 	// No write deadline while packets are exchanged: FlushOut and NextWriter meet on
-	// channels, so a delay of either goroutine cannot expire the other's call.
+	// channels, so a delay of either goroutine cannot expire the other's call; runPeer bounds
+	// the whole exchange by exchangeLimit instead.
 	finish := runPeer(t, p, exchangeLimit, func() error {
 		for _, test := range payloadVectors {
 			if len(test.packets) != 1 {

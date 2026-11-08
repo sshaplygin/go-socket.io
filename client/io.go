@@ -111,7 +111,7 @@ func (c *conn) serveWrite() {
 		}
 		pkg, ok := c.nextQueued()
 		if !ok {
-			if isDone(c.seal) {
+			if c.writeDrained() {
 				// A polling writer can finish before its POST reaches the peer.
 				// Drain that request before Close cancels transport I/O. The close
 				// timer stays armed; it only starts the Engine.IO close, whose 2 s

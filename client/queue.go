@@ -93,6 +93,14 @@ func (c *conn) nextQueued() (outboundPayload, bool) {
 	return outboundPayload{}, false
 }
 
+// writeDrained rechecks the queues with the seal: Close may have admitted packets
+// since nextQueued observed them empty. Once sealed, no new packets can enter.
+func (c *conn) writeDrained() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return isDone(c.seal) && len(c.controls) == 0 && len(c.writeChan) == 0
+}
+
 type queuedPayload struct {
 	payload  outboundPayload
 	sequence uint64

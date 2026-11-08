@@ -2669,7 +2669,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W57. Synchronize client compression frame recording
 
-- **Status:** open
+- **Status:** in progress — #223
 - **Priority:** after release
 - **Findings:** [T15](#tests-findings)
 - **Depends on:** W55 for the recorded load runs
@@ -3636,7 +3636,7 @@ Every finding is listed under the dimension that reported it.
 | T12 | minor | — | `.github/workflows/ci.yaml` (`stress-v1`) | CI repeats the race tests of `STRESS_PKGS` at most `-count=5` with `-cpu=1,4`, on idle Ubuntu runners only, so timing races appear only on loaded developer machines: `TestPollingCloseEndsServerSessions` failed 2 times in about 32,000 rounds before #208 fixed it | Run the stress packages many times under CPU load on a schedule (W55). Fixed by #211 (W55). |
 | T13 | minor | — | `stalled_reader_test.go`, `engineio/transport/polling/payload_test.go`, `internal/conformance/heartbeat_test.go` | Tests race wall-clock deadlines and fail under load on master and on the PR heads alike: `TestStalledReaderIsDisconnected` (a 2 ms emit ticker against the session's 4 s write deadline, PingInterval 2 s + PingTimeout 2 s from the last inbound packet) failed 8 of 100 subtests on #207's head and 10 of 100 on master, run back to back at load average about 30–42 (#207 review); `TestPayloadFlushOutBinary` (a 100 ms write deadline) failed in a stress run (#206 review); the tagged `TestJSHeartbeat` (200 ms heartbeat, needs Node and Redis) failed 2 of 3 alternating runs on base and head under load (#205 review) | Replace each race with a signal or a configuration-derived bound; W55 covers `STRESS_PKGS` only, so the conformance case is checked by hand (W56). |
 | T14 | minor | — | `engineio/client/log_test.go:232` | Log fixtures share the process-wide `slog` recorder: `TestClientPingFailureRecord` once received an extra DEBUG record from another test's websocket client goroutine in a stress run; the same seed passed twice afterwards | Isolate the fixtures, as W46 did for the upgrade fixtures (W56). |
-| T15 | minor | confirmed in W55 load runs | `client/compression_test.go:66–71,148–152` | `TestClientCompress/on` observed `[false false true]` instead of `[false false true true]` after both ACKs: 2 failures in 160 Ubuntu executions across the first four W55 runs; 0 in 40 on the final head `7fbcceb` (run links and counts in W57). The recorder appends after the network write; an ACK does not establish that the append finished. Fixture ordering is a hypothesis, not evidence of a library compression defect | Reproduce the ordering gap and synchronize the recorded-frame snapshot without weakening its assertions (W57). |
+| T15 | minor | confirmed in W55 load runs | `client/compression_test.go:66–71,148–152` | `TestClientCompress/on` observed `[false false true]` instead of `[false false true true]` after both ACKs: 2 failures in 160 Ubuntu executions across the first four W55 runs; 0 in 40 on the final head `7fbcceb` (run links and counts in W57). The recorder appends after the network write; an ACK does not establish that the append finished. Fixture ordering is a hypothesis, not evidence of a library compression defect | Reproduce the ordering gap and synchronize the recorded-frame snapshot without weakening its assertions (W57). Fixed by #223 (W57). |
 
 ### Release engineering findings
 

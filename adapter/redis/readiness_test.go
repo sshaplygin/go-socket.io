@@ -2,9 +2,11 @@ package redis
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -92,15 +94,12 @@ func TestCloseCancelsSubscriberReconnect(t *testing.T) {
 // backoff timer is ready at the same time and transportCtx is not yet
 // canceled (closeTransport closes done before it cancels transportCtx).
 func TestResubscribeAfterCloseDoesNotDial(t *testing.T) {
-	if os.Getenv("SOCKETIO_RESUBSCRIBE_CHILD") != "1" {
+	if os.Getenv(syncTimerChildEnv) != "1" {
 		// With synchronous timer channels (Go 1.23 semantics, selected by an
 		// application's go line) an expired timer is ready in the same select
 		// as done. This module's go 1.22 line selects asynchronous channels for
 		// its own tests, so repeat the check in a child with synchronous ones.
-		command := exec.Command(os.Args[0], "-test.run=^TestResubscribeAfterCloseDoesNotDial$", "-test.count=1")
-		command.Env = append(os.Environ(), "SOCKETIO_RESUBSCRIBE_CHILD=1", "GODEBUG=asynctimerchan=0")
-		output, err := command.CombinedOutput()
-		require.NoError(t, err, "synchronous timer child: %s", output)
+		require.NoError(t, runSyncTimerChild(t.Name()))
 	}
 	var dials atomic.Int32
 	dial := func(context.Context) (redis.Conn, error) { dials.Add(1); return nil, io.EOF }
@@ -116,6 +115,50 @@ func TestResubscribeAfterCloseDoesNotDial(t *testing.T) {
 	if n := dials.Load(); n != 0 {
 		t.Fatalf("closed broadcast dialed %d times", n)
 	}
+}
+
+// syncTimerChildEnv marks a child test binary started by runSyncTimerChild.
+const syncTimerChildEnv = "SOCKETIO_SYNC_TIMER_CHILD"
+
+// runSyncTimerChild runs the test name in a child test binary with
+// synchronous timer channels. It fails unless the child ran that test and
+// the test passed.
+func runSyncTimerChild(name string) error {
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	command := exec.Command(executable, "-test.run=^"+regexp.QuoteMeta(name)+"$", "-test.count=1")
+	command.Env = append(os.Environ(), syncTimerChildEnv+"=1", "GODEBUG=asynctimerchan=0")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("synchronous timer child %s: %w\n%s", name, err, output)
+	}
+	return childPassed(name, output)
+}
+
+// childPassed checks the verbose output of a child test binary for the
+// result of the test name.
+func childPassed(name string, output []byte) error {
+	return nil
+}
+
+// A child whose pattern matches no test exits successfully without running
+// anything.
+func TestSyncTimerChildFailsWithoutTest(t *testing.T) {
+	require.Error(t, runSyncTimerChild("TestNoSuchTest"), "a child that ran no test passed")
+}
+
+func TestSyncTimerChildRequiresPassResult(t *testing.T) {
+	const name = "TestResubscribeAfterCloseDoesNotDial"
+	for _, output := range []string{
+		"testing: warning: no tests to run\nPASS\n",
+		"=== RUN   " + name + "\n--- SKIP: " + name + " (0.00s)\nPASS\n",
+		"=== RUN   " + name + "Twice\n--- PASS: " + name + "Twice (0.00s)\nPASS\n",
+	} {
+		require.Error(t, childPassed(name, []byte(output)), output)
+	}
+	require.NoError(t, childPassed(name, []byte("=== RUN   "+name+"\n--- PASS: "+name+" (0.01s)\nPASS\n")))
 }
 
 func TestSubscribeWithCanceledContextDoesNotDial(t *testing.T) {

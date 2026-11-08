@@ -93,6 +93,8 @@ func (c *conn) nextQueued() (outboundPayload, bool) {
 	return outboundPayload{}, false
 }
 
+func (c *conn) writeDrained() bool { return isDone(c.seal) }
+
 type queuedPayload struct {
 	payload  outboundPayload
 	sequence uint64

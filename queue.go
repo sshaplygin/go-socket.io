@@ -143,6 +143,8 @@ func (c *connection) nextQueued() (outboundPayload, bool) {
 	return outboundPayload{}, false
 }
 
+func (c *connection) writeDrained() bool { return isDone(c.seal) }
+
 // outboundPayload keeps transport flags out of the shared parser codec.
 type outboundPayload struct {
 	Header     parser.Header

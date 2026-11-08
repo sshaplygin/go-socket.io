@@ -38,7 +38,7 @@ func (c *connection) serveWrite() {
 		}
 		pkg, ok := c.nextQueued()
 		if !ok {
-			if isDone(c.seal) {
+			if c.writeDrained() {
 				// A drained application close lets polling send Engine.IO CLOSE.
 				// Keep the drain timer active until the reader ends: its abort
 				// must still interrupt an engine waiting for the next poll.

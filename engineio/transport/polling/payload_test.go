@@ -21,29 +21,24 @@ func TestPayloadFeedIn(t *testing.T) {
 	p.Pause()
 	p.Resume()
 
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
+	// No read deadline while packets are exchanged: FeedIn and NextReader meet on
+	// channels, so a delay of either goroutine cannot expire the other's call.
+	fed := runPeer(t, p, func() error {
 		for _, test := range payloadVectors {
 			if len(test.packets) != 1 {
 				continue
 			}
-			r := bytes.NewReader(test.data)
-			err := p.FeedIn(r, test.supportBinary)
-			must.NoError(err)
+			if err := p.FeedIn(bytes.NewReader(test.data), test.supportBinary); err != nil {
+				return err
+			}
 		}
-	}()
+		return nil
+	})
 
 	for _, test := range payloadVectors {
 		if len(test.packets) != 1 {
 			continue
 		}
-		err := p.SetReadDeadline(time.Now().Add(time.Second / 10))
-		require.NoError(t, err)
-
 		ft, pt, r, err := p.NextReader()
 		must.NoError(err)
 		should.Equal(test.packets[0].ft, ft)
@@ -56,14 +51,34 @@ func TestPayloadFeedIn(t *testing.T) {
 
 		should.Equal(test.packets[0].data, b)
 	}
+	<-fed
 
+	// Every FeedIn has returned, so nothing can answer this NextReader before its deadline.
 	err := p.SetReadDeadline(time.Now().Add(time.Second / 10))
 	require.NoError(t, err)
 
 	_, _, _, err = p.NextReader()
 	should.Equal("read: timeout", err.Error())
+}
 
-	wg.Wait()
+// runPeer runs peer, the other side of a payload exchange, in a goroutine and returns a
+// channel closed when peer returns. The exchange has no deadline, so a peer error closes
+// p to fail the test goroutine's pending call; Cleanup closes p and waits for peer.
+func runPeer(t *testing.T, p *payload, peer func() error) <-chan struct{} {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := peer(); err != nil {
+			t.Errorf("payload peer: %v", err)
+			_ = p.Close()
+		}
+	}()
+	t.Cleanup(func() {
+		_ = p.Close()
+		<-done
+	})
+	return done
 }
 
 func TestPayloadFlushOutText(t *testing.T) {
@@ -75,16 +90,9 @@ func TestPayloadFlushOutText(t *testing.T) {
 	p.Pause()
 	p.Resume()
 
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
-		should := assert.New(t)
-		must := require.New(t)
-
+	// No write deadline while packets are exchanged: FlushOut and NextWriter meet on
+	// channels, so a delay of either goroutine cannot expire the other's call.
+	flushed := runPeer(t, p, func() error {
 		for _, test := range payloadVectors {
 			if len(test.packets) != 1 {
 				continue
@@ -93,11 +101,13 @@ func TestPayloadFlushOutText(t *testing.T) {
 				continue
 			}
 			buf := bytes.NewBuffer(nil)
-			err := p.FlushOut(buf)
-			must.NoError(err)
+			if err := p.FlushOut(buf); err != nil {
+				return err
+			}
 			should.Equal(test.data, buf.Bytes())
 		}
-	}()
+		return nil
+	})
 
 	for _, test := range payloadVectors {
 		if len(test.packets) != 1 {
@@ -106,9 +116,6 @@ func TestPayloadFlushOutText(t *testing.T) {
 		if test.supportBinary != supportBinary {
 			continue
 		}
-		err := p.SetWriteDeadline(time.Now().Add(time.Second / 10))
-		require.NoError(t, err)
-
 		w, err := p.NextWriter(test.packets[0].ft, test.packets[0].pt)
 		must.NoError(err)
 
@@ -116,14 +123,14 @@ func TestPayloadFlushOutText(t *testing.T) {
 		must.NoError(err)
 		must.Nil(w.Close())
 	}
+	<-flushed
 
+	// Every FlushOut has returned, so nothing can take this writer before its deadline.
 	err := p.SetWriteDeadline(time.Now().Add(time.Second / 10))
 	require.NoError(t, err)
 
 	_, err = p.NextWriter(eioparser.Binary, eioparser.OPEN)
 	should.Equal("write: timeout", err.Error())
-
-	wg.Wait()
 }
 
 func TestPayloadFlushOutBinary(t *testing.T) {
@@ -135,15 +142,9 @@ func TestPayloadFlushOutBinary(t *testing.T) {
 	p.Pause()
 	p.Resume()
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
-		should := assert.New(t)
-		must := require.New(t)
-
+	// No write deadline while packets are exchanged: FlushOut and NextWriter meet on
+	// channels, so a delay of either goroutine cannot expire the other's call.
+	flushed := runPeer(t, p, func() error {
 		for _, test := range payloadVectors {
 			if len(test.packets) != 1 {
 				continue
@@ -153,11 +154,13 @@ func TestPayloadFlushOutBinary(t *testing.T) {
 			}
 
 			buf := bytes.NewBuffer(nil)
-			err := p.FlushOut(buf)
-			must.NoError(err)
+			if err := p.FlushOut(buf); err != nil {
+				return err
+			}
 			should.Equal(test.data, buf.Bytes())
 		}
-	}()
+		return nil
+	})
 
 	for _, test := range payloadVectors {
 		if len(test.packets) != 1 {
@@ -166,9 +169,6 @@ func TestPayloadFlushOutBinary(t *testing.T) {
 		if test.supportBinary != supportBinary {
 			continue
 		}
-
-		err := p.SetWriteDeadline(time.Now().Add(time.Second / 10))
-		must.NoError(err)
 
 		w, err := p.NextWriter(test.packets[0].ft, test.packets[0].pt)
 		must.NoError(err)
@@ -179,14 +179,14 @@ func TestPayloadFlushOutBinary(t *testing.T) {
 		err = w.Close()
 		must.NoError(err)
 	}
+	<-flushed
 
+	// Every FlushOut has returned, so nothing can take this writer before its deadline.
 	err := p.SetWriteDeadline(time.Now().Add(time.Second / 10))
 	must.NoError(err)
 
 	_, err = p.NextWriter(eioparser.Binary, eioparser.OPEN)
 	should.Equal("write: timeout", err.Error())
-
-	wg.Wait()
 }
 
 func TestPayloadWaitNextClose(t *testing.T) {

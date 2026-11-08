@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,13 +32,39 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 		{"silent-websocket", "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			// 400 emits of 256 KB overflow an explicit 64-packet queue; the default is larger.
-			srv := NewServer(WithEngineOptions(
-				engineio.WithPingInterval(2*time.Second),
-				engineio.WithPingTimeout(2*time.Second),
-				engineio.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
-			), WithWriteBufferSize(64))
+			// At most 400 emits of 256 KB overflow an explicit 64-packet queue; the default
+			// is larger. A write blocked by the stalled reader fails at its deadline,
+			// PingInterval + PingTimeout after the last packet read before the write began,
+			// and a silent client times out after that window too. The overflow, which every
+			// subtest awaits for that window, must end the session before its deadlines do.
+			const writeBuffer, pingInterval, pingTimeout = 64, waitFor, waitFor
 			start, done := make(chan struct{}), make(chan struct{})
+			var created atomic.Int64          // MESSAGE packets the session has started to write
+			inbound := make(chan struct{}, 1) // a packet was read after start
+			upgraded := make(chan struct{})
+			srv := NewServer(WithEngineOptions(
+				engineio.WithPingInterval(pingInterval),
+				engineio.WithPingTimeout(pingTimeout),
+				engineio.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
+				engineio.WithHooks(&engineio.Hooks{
+					Packet: func(engineio.Conn, eioparser.PacketType, eioparser.FrameType) {
+						select {
+						case <-start:
+							select {
+							case inbound <- struct{}{}:
+							default:
+							}
+						default:
+						}
+					},
+					PacketCreate: func(_ engineio.Conn, pt eioparser.PacketType, _ eioparser.FrameType) {
+						if pt == eioparser.MESSAGE {
+							created.Add(1)
+						}
+					},
+					Upgrade: func(engineio.Conn, string) { close(upgraded) },
+				}),
+			), WithWriteBufferSize(writeBuffer))
 			connected := make(chan Conn, 1)
 			failures := make(chan error, 8)
 			stop := make(chan struct{})
@@ -49,18 +76,33 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 					case <-stop:
 						return
 					}
-					ticker := time.NewTicker(2 * time.Millisecond)
-					defer ticker.Stop()
+					// Emission follows the session, not a clock. Once the writer is half a
+					// queue behind, as a reader that never reads leaves it, the emits that
+					// overflow the queue wait until a sending client has delivered a packet
+					// since emission began, so the server reads while its writer lags.
 					payload := strings.Repeat("x", 256000)
-					for i := 0; i < 400; i++ {
+					base, behind := created.Load(), false
+					for i := int64(0); i < 400; i++ {
 						select {
 						case <-done:
 							return
 						case <-stop:
 							return
-						case <-ticker.C:
-							c.Emit("large", payload)
+						default:
 						}
+						if !behind && i-(created.Load()-base) >= writeBuffer/2 {
+							behind = true
+							if tc.frame != "" {
+								select {
+								case <-inbound:
+								case <-done:
+									return
+								case <-stop:
+									return
+								}
+							}
+						}
+						c.Emit("large", payload)
 					}
 				}()
 				return nil
@@ -79,7 +121,7 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 			t.Cleanup(func() { close(stop) })
 			wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/?EIO=3&transport=websocket"
 			var poll string
-			client := &http.Client{Timeout: 2 * time.Second}
+			client := &http.Client{Timeout: waitFor}
 			t.Cleanup(client.CloseIdleConnections)
 			get := func(target string) []string {
 				t.Helper()
@@ -141,7 +183,8 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 			}
 			conn := recv(t, connected, "OnConnect")
 			if tc.upgrade {
-				require.Eventually(t, conn.EngineConn().Upgraded, time.Second, time.Millisecond)
+				recv(t, upgraded, "Upgrade hook")
+				require.True(t, conn.EngineConn().Upgraded())
 			}
 			close(start)
 			if tc.frame != "" {
@@ -159,8 +202,12 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 						}
 					}
 				}()
-				err = recv(t, failures, "write buffer overflow")
+			}
+			select {
+			case err = <-failures:
 				require.True(t, errors.Is(err, ErrWriteBufferFull), "unexpected error: %v", err)
+			case <-time.After(pingInterval + pingTimeout):
+				t.Fatal("timed out waiting for write buffer overflow")
 			}
 			// t.Error, not Fatal, so a missing disconnect and a slow Close are both reported.
 			select {

@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -184,8 +183,11 @@ func TestClientCompress(t *testing.T) {
 // writing goroutine is held before it records the frame. The snapshot taken after the ACK
 // must wait for that recording; the write is released only once the snapshot waits.
 func TestClientCompressRecordingWaitsForWrite(t *testing.T) {
-	var armed atomic.Bool
-	var message byte // opcode of the message being written; only the writer uses it
+	// Only the writing goroutine uses message, binaries and held. The frame is selected
+	// by count: an ACK does not establish that the previous frame has been recorded.
+	var message byte // opcode of the data message being written
+	var binaries int // binary messages started
+	var held bool
 	paused := make(chan struct{})
 	release := make(chan struct{})
 	var releaseOnce sync.Once
@@ -195,11 +197,15 @@ func TestClientCompressRecordingWaitsForWrite(t *testing.T) {
 			if len(p) == 0 {
 				return
 			}
-			if op := p[0] & 15; op != 0 {
+			if op := p[0] & 15; op == 1 || op == 2 {
 				message = op
+				if op == 2 {
+					binaries++
+				}
 			}
-			// The final frame of a binary message written after arming.
-			if message == 2 && p[0]&128 != 0 && armed.CompareAndSwap(true, false) {
+			// The final frame of the second binary message, the compressed attachment.
+			if message == 2 && binaries == 2 && p[0]&128 != 0 && !held {
+				held = true
 				close(paused)
 				<-release
 			}
@@ -209,7 +215,6 @@ func TestClientCompressRecordingWaitsForWrite(t *testing.T) {
 	clientCompressScenario(t, true, outgoing, func() {
 		// Runs before the client's Close cleanup, which would wait for the held write.
 		t.Cleanup(releaseWrite)
-		armed.Store(true)
 	})
 	select {
 	case <-paused:

@@ -44,7 +44,7 @@ individual protocol features.
 | `default-http` | `net/http` server with default (permissive) CORS |
 | `dockerize-default-http` | the same server in a Docker image (`make -i`) |
 | `gin-gonic`, `gin-cors` | mounting on gin, with and without CORS middleware; page at `/public/` |
-| `go-echo` | mounting on echo |
+| `go-echo` | mounting on Echo v5 |
 | `iris` | mounting on iris |
 | `gf` | mounting on GoFrame; it serves only the socket endpoint, not the page |
 | `graceful-shutdown` | closing the server on SIGTERM |

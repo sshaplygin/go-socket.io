@@ -35,13 +35,16 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 			// At most 400 emits of 256 KB overflow an explicit 64-packet queue; the default
 			// is larger. A write blocked by the stalled reader fails at its deadline,
 			// PingInterval + PingTimeout after the last packet read before the write began,
-			// and a silent client times out after that window too. The overflow, which every
-			// subtest awaits for that window, must end the session before its deadlines do.
+			// and a silent client times out after that window too. Every subtest awaits the
+			// overflow for the same window, timed from after that deadline was set, so the
+			// deadline can expire first only when the overflow takes about the whole window;
+			// OnError then reports the i/o timeout, which fails the check, never passes it.
 			const writeBuffer, pingInterval, pingTimeout = 64, waitFor, waitFor
 			start, done := make(chan struct{}), make(chan struct{})
 			var created atomic.Int64          // MESSAGE packets the session has started to write
 			inbound := make(chan struct{}, 1) // a packet was read after start
 			var written atomic.Int64          // frames the client has written
+			wrote := make(chan struct{}, 1)   // the client has written a frame
 			// Frames the client wrote between the read that releases the overflow and
 			// the first emit of the overflow; -1 until a sending subtest gets there.
 			var margin atomic.Int64
@@ -83,8 +86,11 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 					}
 					// Emission follows the session, not a clock. Once the writer is half a
 					// queue behind, as a reader that never reads leaves it, the emits that
-					// overflow the queue wait until a sending client has delivered a packet
-					// since emission began, so the server reads while its writer lags.
+					// overflow the queue wait, for a sending client, until the server has
+					// read a packet since emission began and the client has then written one
+					// more frame. The server renews its deadlines after each read, so the
+					// reader has had at least that client send period to reach the renewal
+					// while the writer lags; that it got there is not observed.
 					payload := strings.Repeat("x", 256000)
 					base, behind := created.Load(), false
 					for i := int64(0); i < 400; i++ {
@@ -106,6 +112,17 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 									return
 								}
 								atRead := written.Load()
+								select {
+								case <-wrote: // possibly written before that read
+								default:
+								}
+								select {
+								case <-wrote:
+								case <-done:
+									return
+								case <-stop:
+									return
+								}
 								margin.Store(written.Load() - atRead)
 							}
 						}
@@ -207,6 +224,10 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 								return
 							}
 							written.Add(1)
+							select {
+							case wrote <- struct{}{}:
+							default:
+							}
 						}
 					}
 				}()

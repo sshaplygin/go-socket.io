@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	socketio "github.com/sshaplygin/go-socket.io"
 )
@@ -32,10 +32,9 @@ func run(ctx context.Context, addr string) error {
 	registerChat(server)
 
 	e := echo.New()
-	e.HideBanner = true
 
 	e.Static("/", "../asset")
-	e.Any("/socket.io/", func(context echo.Context) error {
+	e.Any("/socket.io/", func(context *echo.Context) error {
 		server.ServeHTTP(context.Response(), context.Request())
 		return nil
 	})

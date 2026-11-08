@@ -30,7 +30,7 @@ func TestClientCloseAfterEmptyQueueObservation(t *testing.T) {
 				c.mu.Lock()
 				c.queuePreparedLocked(header, false, prepared, nil)
 				c.mu.Unlock()
-				want = append(want, "2[\"last\"]")
+				want = append(want, ev("last"))
 			}
 			if packets != "application" {
 				c.writeControl(parser.Header{Type: parser.Disconnect})
@@ -41,7 +41,7 @@ func TestClientCloseAfterEmptyQueueObservation(t *testing.T) {
 			require.False(t, c.writeDrained(), "Close must not reuse the stale empty observation")
 
 			// The writer must revisit both queues, preserving application/control
-			// ordering even when DISCONNECT was not due at the empty observation.
+			// ordering when DISCONNECT must follow an earlier application packet.
 			c.serveWrite()
 			recv(t, engine.closed, "engine closes after admitted packets")
 			for _, packet := range want {

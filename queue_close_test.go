@@ -26,7 +26,7 @@ func TestServerCloseAfterEmptyQueueObservation(t *testing.T) {
 			var want []string
 			if packets != "disconnect" {
 				c.write(parser.Header{Type: parser.Event}, reflect.ValueOf("last"))
-				want = append(want, "2[\"last\"]")
+				want = append(want, ev("last"))
 			}
 			if packets != "application" {
 				c.write(parser.Header{Type: parser.Disconnect})

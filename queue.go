@@ -143,7 +143,13 @@ func (c *connection) nextQueued() (outboundPayload, bool) {
 	return outboundPayload{}, false
 }
 
-func (c *connection) writeDrained() bool { return isDone(c.seal) }
+// writeDrained rechecks the queue with the seal: Close may have admitted packets
+// since nextQueued observed it empty. Once sealed, no new packets can enter.
+func (c *connection) writeDrained() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return isDone(c.seal) && len(c.drainQueue) == 0
+}
 
 // outboundPayload keeps transport flags out of the shared parser codec.
 type outboundPayload struct {

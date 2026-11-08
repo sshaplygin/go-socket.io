@@ -176,6 +176,28 @@ func TestSyncTimerChildRequiresPassResult(t *testing.T) {
 	require.NoError(t, childPassed(name, []byte("=== RUN   "+name+"\n--- PASS: "+name+" (0.01s)\nPASS\n")))
 }
 
+// Construction subscribes with the WithSubscribeTimeout context, which may
+// end during the first publishing dial. The subscriber step then reports
+// the context error and opens no connection.
+func TestConstructionSubscribeAfterContextEnds(t *testing.T) {
+	s := miniredis.RunT(t)
+	bc := newTestRedisBroadcast(t, s)
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, tc := range []struct {
+		ctx  context.Context
+		want error
+	}{{expired, context.DeadlineExceeded}, {canceled, context.Canceled}} {
+		before := s.TotalConnectionCount()
+		sub, err := bc.subscribe(tc.ctx)
+		require.Nil(t, sub)
+		require.ErrorIs(t, err, tc.want)
+		require.Equal(t, before, s.TotalConnectionCount(), "subscriber connection opened after %v", tc.want)
+	}
+}
+
 func TestSubscribeWithCanceledContextDoesNotDial(t *testing.T) {
 	var dials atomic.Int32
 	dial := func(context.Context) (redis.Conn, error) { dials.Add(1); return nil, io.EOF }

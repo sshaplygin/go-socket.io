@@ -49,14 +49,66 @@ func compressionReceive[T any](t *testing.T, ch <-chan T) T {
 	}
 }
 
+// recordedCompression collects the bytes passed through one direction of a connection.
+// A write is recorded after the network write returns, so the peer can receive the
+// frame and the test can receive the resulting ACK before the append. writes counts the
+// writes between those two points, and snapshot waits until none remains.
 type recordedCompression struct {
 	sync.Mutex
-	data []byte
+	data   []byte
+	writes int
+	idle   chan struct{} // closed when writes drops to zero
+	// Hooks of TestClientCompressRecordingWaitsForWrite; nil elsewhere.
+	afterWrite func(p []byte) // runs between the network write and the append
+	waiting    func()         // runs when snapshot waits for a write
 }
 
 func (r *recordedCompression) append(p []byte) { r.Lock(); r.data = append(r.data, p...); r.Unlock() }
 
-func (r *recordedCompression) bytes() []byte { r.Lock(); defer r.Unlock(); return bytes.Clone(r.data) }
+func (r *recordedCompression) beginWrite() {
+	r.Lock()
+	if r.writes == 0 {
+		r.idle = make(chan struct{})
+	}
+	r.writes++
+	r.Unlock()
+}
+
+func (r *recordedCompression) endWrite(p []byte) {
+	r.Lock()
+	r.data = append(r.data, p...)
+	r.writes--
+	if r.writes == 0 {
+		close(r.idle)
+	}
+	r.Unlock()
+}
+
+// snapshot returns the recorded bytes once every write that has reached the network is
+// recorded. It does not wait for reads: the reading goroutine stays blocked in Read.
+func (r *recordedCompression) snapshot(t *testing.T) []byte {
+	t.Helper()
+	timeout := time.After(3 * time.Second)
+	for {
+		r.Lock()
+		if r.writes == 0 {
+			data := bytes.Clone(r.data)
+			r.Unlock()
+			return data
+		}
+		idle := r.idle
+		r.Unlock()
+		if r.waiting != nil {
+			r.waiting()
+		}
+		select {
+		case <-idle:
+		case <-timeout:
+			t.Fatal("recording of a completed write timed out")
+			return nil
+		}
+	}
+}
 
 type recordingCompressionConn struct {
 	net.Conn
@@ -65,10 +117,15 @@ type recordingCompressionConn struct {
 }
 
 func (c recordingCompressionConn) Write(p []byte) (int, error) {
-	n, err := c.Conn.Write(p)
-	if !c.recordRead {
-		c.record.append(p[:n])
+	if c.recordRead {
+		return c.Conn.Write(p)
 	}
+	c.record.beginWrite()
+	n, err := c.Conn.Write(p)
+	if c.record.afterWrite != nil {
+		c.record.afterWrite(p[:n])
+	}
+	c.record.endWrite(p[:n])
 	return n, err
 }
 
@@ -117,43 +174,97 @@ func compressionWireFlags(t *testing.T, wire []byte) []bool {
 func TestClientCompress(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "off", true: "on"}[enabled], func(t *testing.T) {
-			_, ts := newCompressedServer(t, nil)
-			// Echo ACKs wait for the complete text/binary packet.
-			outgoing := new(recordedCompression)
-			incoming := new(recordedCompression)
-			transportConfig := &websocket.Transport{NetDial: func(network, addr string) (net.Conn, error) {
-				c, err := net.Dial(network, addr)
-				if err != nil {
-					return nil, err
-				}
-				return recordingCompressionConn{Conn: recordingCompressionConn{Conn: c, record: outgoing}, record: incoming, recordRead: true}, nil
-			}}
-			cl, err := client.New(ts.URL, client.WithTransports([]transport.Transport{transportConfig}...), client.WithPerMessageDeflate(enabled), client.WithReconnection(!(true)))
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = cl.Close() })
-			// Install the handler before Connect; it receives binary attachments in order.
-			srv := ts.Config.Handler.(*socketio.Server)
-			srv.OnEvent("/", "echo", func(_ socketio.Conn, value string, b *parser.Buffer) string {
-				require.Equal(t, []byte(value), b.Data)
-				return value
-			})
-			connected := make(chan client.Conn, 1)
-			cl.OnConnect(func(c client.Conn) error { connected <- c; return nil })
-			require.NoError(t, cl.Connect())
-			c := compressionReceive(t, connected)
-			require.Equal(t, false, transportConfig.EnableCompression, "configuration must not be mutated")
-			value := strings.Repeat("client", 1024)
-			for _, flag := range []bool{false, true} {
-				ack := make(chan string, 1)
-				c.Compress(flag).Emit("echo", value, &parser.Buffer{Data: []byte(value)}, func(v string) { ack <- v })
-				require.Equal(t, value, compressionReceive(t, ack))
-			}
-			flags := compressionWireFlags(t, outgoing.bytes())
-			require.Equal(t, []bool{false, false, enabled, enabled}, flags, "flag applies to text and binary attachment")
-			response := incoming.bytes()
-			headerEnd := bytes.Index(response, []byte("\r\n\r\n"))
-			require.GreaterOrEqual(t, headerEnd, 0)
-			require.Equal(t, enabled, bytes.Contains(bytes.ToLower(response[:headerEnd]), []byte("sec-websocket-extensions: permessage-deflate")))
+			clientCompressScenario(t, enabled, new(recordedCompression), nil)
 		})
 	}
+}
+
+// The client writes the last binary attachment, the server receives it and ACKs, and the
+// writing goroutine is held before it records the frame. The snapshot taken after the ACK
+// must wait for that recording; the write is released only once the snapshot waits.
+func TestClientCompressRecordingWaitsForWrite(t *testing.T) {
+	// Only the writing goroutine uses message, binaries and held. The frame is selected
+	// by count: an ACK does not establish that the previous frame has been recorded.
+	var message byte // opcode of the data message being written
+	var binaries int // binary messages started
+	var held bool
+	paused := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseWrite := func() { releaseOnce.Do(func() { close(release) }) }
+	outgoing := &recordedCompression{
+		afterWrite: func(p []byte) {
+			if len(p) == 0 {
+				return
+			}
+			if op := p[0] & 15; op == 1 || op == 2 {
+				message = op
+				if op == 2 {
+					binaries++
+				}
+			}
+			// The final frame of the second binary message, the compressed attachment.
+			if message == 2 && binaries == 2 && p[0]&128 != 0 && !held {
+				held = true
+				close(paused)
+				<-release
+			}
+		},
+		waiting: releaseWrite,
+	}
+	clientCompressScenario(t, true, outgoing, func() {
+		// Runs before the client's Close cleanup, which would wait for the held write.
+		t.Cleanup(releaseWrite)
+	})
+	select {
+	case <-paused:
+	default:
+		t.Fatal("the final binary frame was not held before recording")
+	}
+}
+
+// clientCompressScenario emits two text/binary packets, uncompressed and then compressed,
+// and checks the compression flag of each frame and the negotiated extension. beforeLast,
+// if set, runs after the first ACK.
+func clientCompressScenario(t *testing.T, enabled bool, outgoing *recordedCompression, beforeLast func()) {
+	t.Helper()
+	_, ts := newCompressedServer(t, nil)
+	// Echo ACKs wait for the complete text/binary packet.
+	incoming := new(recordedCompression)
+	transportConfig := &websocket.Transport{NetDial: func(network, addr string) (net.Conn, error) {
+		c, err := net.Dial(network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return recordingCompressionConn{Conn: recordingCompressionConn{Conn: c, record: outgoing}, record: incoming, recordRead: true}, nil
+	}}
+	cl, err := client.New(ts.URL, client.WithTransports([]transport.Transport{transportConfig}...), client.WithPerMessageDeflate(enabled), client.WithReconnection(!(true)))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cl.Close() })
+	// Install the handler before Connect; it receives binary attachments in order.
+	srv := ts.Config.Handler.(*socketio.Server)
+	srv.OnEvent("/", "echo", func(_ socketio.Conn, value string, b *parser.Buffer) string {
+		require.Equal(t, []byte(value), b.Data)
+		return value
+	})
+	connected := make(chan client.Conn, 1)
+	cl.OnConnect(func(c client.Conn) error { connected <- c; return nil })
+	require.NoError(t, cl.Connect())
+	c := compressionReceive(t, connected)
+	require.Equal(t, false, transportConfig.EnableCompression, "configuration must not be mutated")
+	value := strings.Repeat("client", 1024)
+	for _, flag := range []bool{false, true} {
+		if flag && beforeLast != nil {
+			beforeLast()
+		}
+		ack := make(chan string, 1)
+		c.Compress(flag).Emit("echo", value, &parser.Buffer{Data: []byte(value)}, func(v string) { ack <- v })
+		require.Equal(t, value, compressionReceive(t, ack))
+	}
+	flags := compressionWireFlags(t, outgoing.snapshot(t))
+	require.Equal(t, []bool{false, false, enabled, enabled}, flags, "flag applies to text and binary attachment")
+	response := incoming.snapshot(t)
+	headerEnd := bytes.Index(response, []byte("\r\n\r\n"))
+	require.GreaterOrEqual(t, headerEnd, 0)
+	require.Equal(t, enabled, bytes.Contains(bytes.ToLower(response[:headerEnd]), []byte("sec-websocket-extensions: permessage-deflate")))
 }

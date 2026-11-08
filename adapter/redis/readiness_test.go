@@ -3,6 +3,8 @@ package redis
 import (
 	"context"
 	"io"
+	"os"
+	"os/exec"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -55,7 +57,15 @@ func TestCloseCancelsSubscriberReconnect(t *testing.T) {
 	s := miniredis.RunT(t)
 	bc := newTestRedisBroadcast(t, s)
 	entered := make(chan struct{})
-	dial := func(ctx context.Context) (redis.Conn, error) { close(entered); <-ctx.Done(); return nil, ctx.Err() }
+	var dials atomic.Int32
+	var enter sync.Once
+	// A dial after Close must fail the assertion below, not panic the binary.
+	dial := func(ctx context.Context) (redis.Conn, error) {
+		dials.Add(1)
+		enter.Do(func() { close(entered) })
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	bc.dial.Store(&dial)
 	bc.subLock.Lock()
 	_ = bc.sub.Close()
@@ -71,6 +81,55 @@ func TestCloseCancelsSubscriberReconnect(t *testing.T) {
 	case <-closed:
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("Close waits for reconnect dial instead of canceling it")
+	}
+	// The canceled attempt doubles the backoff to 2*redisReconnectMin; wait
+	// past redisReconnectMax for a further attempt.
+	require.Never(t, func() bool { return dials.Load() > 1 }, redisReconnectMax, time.Millisecond,
+		"subscriber dialed again after Close")
+}
+
+// Once done is closed the reconnect loop must not dial again, even when the
+// backoff timer is ready at the same time and transportCtx is not yet
+// canceled (closeTransport closes done before it cancels transportCtx).
+func TestResubscribeAfterCloseDoesNotDial(t *testing.T) {
+	if os.Getenv("SOCKETIO_RESUBSCRIBE_CHILD") != "1" {
+		// With synchronous timer channels (Go 1.23 semantics, selected by an
+		// application's go line) an expired timer is ready in the same select
+		// as done. This module's go 1.22 line selects asynchronous channels for
+		// its own tests, so repeat the check in a child with synchronous ones.
+		command := exec.Command(os.Args[0], "-test.run=^TestResubscribeAfterCloseDoesNotDial$", "-test.count=1")
+		command.Env = append(os.Environ(), "SOCKETIO_RESUBSCRIBE_CHILD=1", "GODEBUG=asynctimerchan=0")
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, "synchronous timer child: %s", output)
+	}
+	var dials atomic.Int32
+	dial := func(context.Context) (redis.Conn, error) { dials.Add(1); return nil, io.EOF }
+	for i := 0; i < 500; i++ {
+		bc := &broadcast{done: make(chan struct{}), transportCtx: context.Background(), pattern: "p#*", reqChannel: "p-request#/#", resChannel: "p-response#/#"}
+		bc.dial.Store(&dial)
+		close(bc.done)
+		// A zero delay keeps the timer ready on every attempt.
+		if sub, _ := bc.resubscribe(0); sub != nil {
+			t.Fatal("closed broadcast resubscribed")
+		}
+	}
+	if n := dials.Load(); n != 0 {
+		t.Fatalf("closed broadcast dialed %d times", n)
+	}
+}
+
+func TestSubscribeWithCanceledContextDoesNotDial(t *testing.T) {
+	var dials atomic.Int32
+	dial := func(context.Context) (redis.Conn, error) { dials.Add(1); return nil, io.EOF }
+	bc := &broadcast{pattern: "p#*", reqChannel: "p-request#/#", resChannel: "p-response#/#"}
+	bc.dial.Store(&dial)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := bc.subscribeChannels(ctx, []interface{}{bc.reqChannel, bc.resChannel}); err != context.Canceled {
+		t.Fatalf("canceled subscription returned %v", err)
+	}
+	if n := dials.Load(); n != 0 {
+		t.Fatalf("canceled subscription dialed %d times", n)
 	}
 }
 

@@ -40,6 +40,9 @@ func (bc *broadcast) subscribe(ctx context.Context) (*redis.PubSubConn, error) {
 	return sub, err
 }
 func (bc *broadcast) subscribeChannels(ctx context.Context, channels []interface{}) (*redis.PubSubConn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	c, err := (*bc.dial.Load())(ctx)
 	if err != nil {
 		return nil, err
@@ -126,6 +129,12 @@ func (bc *broadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.D
 		case <-bc.done:
 			return nil, 0
 		case <-time.After(delay):
+		}
+		// select picks either case when both are ready.
+		select {
+		case <-bc.done:
+			return nil, 0
+		default:
 		}
 
 		channels := []interface{}{bc.reqChannel, bc.resChannel}

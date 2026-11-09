@@ -171,7 +171,7 @@ func TestClientPongFailure(t *testing.T) {
 	rec := logtest.NewRecorder()
 	logtest.SetDefault(t, rec)
 	conn := &brokenConn{first: packet.PING}
-	_, _, err := (&client{conn: conn, close: make(chan struct{})}).NextReader()
+	_, _, err := (&client{conn: conn}).NextReader()
 	require.ErrorIs(t, err, errBroken)
 	require.Equal(t, []packet.Type{packet.PONG}, conn.wrote)
 	for _, m := range rec.Find("") {
@@ -187,7 +187,7 @@ func TestClientPongFailure(t *testing.T) {
 func TestClientReaderCloseRecord(t *testing.T) {
 	rec := logtest.NewRecorder()
 	logtest.SetDefault(t, rec)
-	_, _, err := (&client{conn: &brokenConn{}, close: make(chan struct{})}).NextReader()
+	_, _, err := (&client{conn: &brokenConn{}}).NextReader()
 	require.ErrorIs(t, err, errBroken)
 	require.Len(t, rec.Find("engineio: close reader failed"), 1)
 	for _, m := range rec.Find("") {

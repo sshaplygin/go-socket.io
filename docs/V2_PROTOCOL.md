@@ -27,7 +27,11 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   server does). Each `PONG` also moves the transport read and write deadlines to
   `pingInterval + pingTimeout` from then, which bounds a polling POST body. A `PING` from the
   client is not answered: it closes the session with reason `transport error` and
-  `invalid heartbeat direction`, as on the Node server.
+  `invalid heartbeat direction`, as on the Node server. The Go client (`engineio/client`)
+  sends no `PING`; its `NextReader` answers each `PING` with `PONG`, and when no `PING`
+  arrives within `pingInterval + pingTimeout` of the `OPEN` packet or of the last `PING`, it
+  closes the connection and `NextReader` fails with an error that starts with `ping timeout`,
+  as the Node client closes.
 - Polling payload (Engine.IO v4 framing, ahead of the rest of this section): packets are
   separated by the record separator `0x1e`; binary packets are base64 behind a `b`
   prefix; every body is `text/plain; charset=UTF-8`, and a POST of `application/octet-stream`

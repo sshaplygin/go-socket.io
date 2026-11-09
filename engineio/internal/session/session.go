@@ -259,7 +259,7 @@ func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 			}
 			s.observe(reasonTransportClose, nil) // a failed drain remains a transport error
 
-			if err = s.closeMode(reasonTransportClose, true); err != nil {
+			if err = s.closeMode(reasonTransportClose, true, false); err != nil {
 				s.logger().Debug("engineio: session close failed", "err", err)
 			}
 

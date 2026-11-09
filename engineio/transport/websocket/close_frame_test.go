@@ -176,3 +176,71 @@ func TestServerCloseStalledPeerIsBounded(t *testing.T) {
 		t.Fatal("Close did not release the blocked writer")
 	}
 }
+
+// While a reader consumes the peer's frames, Close does not close the TCP
+// connection before the peer's reply to the close frame has arrived: a reset in
+// answer to the reply makes some clients (ws 1.1.5) report close code 1006.
+func TestServerCloseWaitsForPeerReply(t *testing.T) {
+	for _, idle := range []bool{false, true} {
+		name := "reader running"
+		if idle {
+			name = "no reader"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newCloseFixture(t, &Transport{}, &gorilla.Dialer{})
+			if !idle {
+				go func() {
+					for {
+						if _, _, _, err := f.server.NextReader(); err != nil {
+							return
+						}
+					}
+				}()
+			}
+			entered, release := make(chan struct{}), make(chan struct{})
+			var replied atomic.Bool
+			f.peer.SetCloseHandler(func(code int, _ string) error {
+				close(entered)
+				<-release
+				replied.Store(true)
+				return f.peer.WriteControl(gorilla.CloseMessage, gorilla.FormatCloseMessage(code, ""), time.Now().Add(5*time.Second))
+			})
+			peerDone := make(chan error, 1)
+			go func() { peerDone <- readClose(t, f.peer) }()
+			closed := make(chan error, 1)
+			go func() { closed <- f.server.Close() }()
+
+			<-entered // the peer has the close frame and holds back its reply
+			select {
+			case <-closed:
+				t.Fatal("Close returned before the peer replied")
+			case <-time.After(20 * time.Millisecond):
+			}
+			close(release)
+			require.NoError(t, <-closed)
+			require.True(t, replied.Load())
+			requireCloseCode(t, <-peerDone, gorilla.CloseNormalClosure)
+		})
+	}
+}
+
+// Close can run on a frame writer that failed while it still holds the write
+// lock: the session closes the transport from there (Session.fail). It must not
+// take that lock, which would wait for the very writer that calls it.
+func TestServerCloseFromFailedWriterHoldingWriteLock(t *testing.T) {
+	f := newCloseFixture(t, &Transport{}, &gorilla.Dialer{})
+	require.NoError(t, f.server.SetWriteDeadline(time.Now().Add(300*time.Millisecond)))
+	w, err := f.server.NextWriter(eioparser.String, eioparser.MESSAGE)
+	require.NoError(t, err)
+	chunk := []byte(strings.Repeat("x", 32<<10))
+	for err == nil { // the peer never reads: the write ends with the deadline
+		_, err = w.Write(chunk)
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- f.server.Close() }() // w is not closed: the write lock is held
+	select {
+	case <-closed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Close waits for the write lock of a failed writer")
+	}
+}

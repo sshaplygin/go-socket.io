@@ -49,7 +49,9 @@ const (
 type CloseReason string
 
 const (
-	// ReasonTransportClose means the client sent a CLOSE packet.
+	// ReasonTransportClose means the server ended the session in an orderly way:
+	// it sent a CLOSE packet, or closed its websocket with a close frame of normal
+	// closure, going away or no status. Other close frames are transport errors.
 	ReasonTransportClose CloseReason = "transport close"
 	// ReasonPingTimeout means no packet arrived within PingInterval + PingTimeout.
 	ReasonPingTimeout CloseReason = "ping timeout"

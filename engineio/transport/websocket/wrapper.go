@@ -4,6 +4,7 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -21,20 +22,94 @@ type wrapper struct {
 	readFailed  *atomic.Bool
 	compression bool
 	threshold   int
+
+	// readers counts the readers that consume the peer's frames: a NextReader
+	// call and the message reader it returned until that is closed. Close waits
+	// for the peer's reply to its close frame only while one runs. peerGone
+	// closes when the peer's close frame arrives or a read fails.
+	readers  *atomic.Int32
+	peerGone chan struct{}
+	peerOnce *sync.Once
 }
 
 func newWrapper(conn *websocket.Conn) wrapper {
-	return wrapper{
+	w := wrapper{
 		Conn:        conn,
 		writeLocker: new(sync.Mutex),
 		readLocker:  new(sync.Mutex),
 		writing:     new(atomic.Bool),
 		readLimit:   new(atomic.Int64),
 		readFailed:  new(atomic.Bool),
+		readers:     new(atomic.Int32),
+		peerGone:    make(chan struct{}),
+		peerOnce:    new(sync.Once),
+	}
+	// gorilla's default handler, which replies to the peer's close frame, after
+	// noting the frame.
+	conn.SetCloseHandler(func(code int, _ string) error {
+		w.markPeerGone()
+		msg := websocket.FormatCloseMessage(code, "")
+		_ = conn.WriteControl(websocket.CloseMessage, msg, time.Now().Add(time.Second))
+		return nil
+	})
+	return w
+}
+
+func (w wrapper) markPeerGone() { w.peerOnce.Do(func() { close(w.peerGone) }) }
+
+// awaitPeerClose waits until the peer answers a close frame, a read fails,
+// stop closes or the deadline passes. A running reader receives the answer.
+// With none, awaitPeerClose reads the frames itself under the read lock, so
+// that the reader that calls Close from an event handler is not needed: the
+// reader count is zero then, and a reader that starts waits for the lock.
+func (w wrapper) awaitPeerClose(deadline time.Time, stop <-chan struct{}) {
+	if w.readers.Load() == 0 && w.readLocker.TryLock() {
+		idle := w.readers.Load() == 0
+		if idle {
+			w.discardUntilClosed(deadline)
+		}
+		w.readLocker.Unlock()
+		if idle {
+			return
+		}
+	}
+	timer := time.NewTimer(time.Until(deadline))
+	defer timer.Stop()
+	select {
+	case <-w.peerGone:
+	case <-stop:
+	case <-timer.C:
+	}
+}
+
+// discardUntilClosed reads and drops the peer's frames until its close frame
+// or a read failure. At the deadline, or when Abort closes the connection, the
+// read ends because the connection closes.
+func (w wrapper) discardUntilClosed(deadline time.Time) {
+	timer := time.AfterFunc(time.Until(deadline), func() { _ = w.Conn.Close() })
+	defer timer.Stop()
+	for {
+		_, r, err := w.Conn.NextReader()
+		if err != nil {
+			return
+		}
+		if _, err = io.Copy(io.Discard, r); err != nil {
+			return
+		}
 	}
 }
 
 func (w wrapper) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
+	w.readers.Add(1)
+	typ, r, err := w.nextReader()
+	if err != nil {
+		w.readers.Add(-1)
+		w.markPeerGone()
+	}
+	return typ, r, err
+}
+
+func (w wrapper) nextReader() (eioparser.FrameType, io.ReadCloser, error) {
 	w.readLocker.Lock()
 	defer w.readLocker.Unlock()
 
@@ -56,9 +131,9 @@ func (w wrapper) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 
 	switch typ {
 	case websocket.TextMessage:
-		return eioparser.String, newRcWrapper(w.readLocker, r), nil
+		return eioparser.String, newRcWrapper(w, r), nil
 	case websocket.BinaryMessage:
-		return eioparser.Binary, newRcWrapper(w.readLocker, r), nil
+		return eioparser.Binary, newRcWrapper(w, r), nil
 	}
 
 	return 0, nil, transport.ErrInvalidFrame
@@ -67,11 +142,16 @@ func (w wrapper) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 type rcWrapper struct {
 	io.Reader
 	l *sync.Mutex
+	// release ends the message reader's count in wrapper.readers, once.
+	release func()
 }
 
-func newRcWrapper(l *sync.Mutex, r io.Reader) rcWrapper { return rcWrapper{Reader: r, l: l} }
+func newRcWrapper(w wrapper, r io.Reader) rcWrapper {
+	return rcWrapper{Reader: r, l: w.readLocker, release: sync.OnceFunc(func() { w.readers.Add(-1) })}
+}
 
 func (r rcWrapper) Close() error {
+	defer r.release()
 	r.l.Lock()
 	defer r.l.Unlock()
 

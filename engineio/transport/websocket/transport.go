@@ -96,5 +96,7 @@ func (t *Transport) Accept(w http.ResponseWriter, r *http.Request) (transport.Co
 		return nil, err
 	}
 
-	return newConn(c, *r.URL, r.Header, t), nil
+	conn := newConn(c, *r.URL, r.Header, t)
+	conn.closeFrame = true
+	return conn, nil
 }

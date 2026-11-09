@@ -37,9 +37,10 @@ func requirePeerClose(t *testing.T, ws *gorilla.Conn, code int) {
 }
 
 // dialCloseFramePeer opens a websocket-first session and consumes its OPEN packet.
-func dialCloseFramePeer(t *testing.T, compression bool) *closeFramePeer {
+func dialCloseFramePeer(t *testing.T, compression bool, opts ...Option) *closeFramePeer {
 	t.Helper()
-	p := &closeFramePeer{srv: NewServer(WithPerMessageDeflate(compression), WithCompressionThreshold(1))}
+	opts = append([]Option{WithPerMessageDeflate(compression), WithCompressionThreshold(1)}, opts...)
+	p := &closeFramePeer{srv: NewServer(opts...)}
 	ts := httptest.NewServer(p.srv)
 	t.Cleanup(func() { _ = p.srv.Close(); ts.Close() })
 	accepted := make(chan Conn, 1)
@@ -70,6 +71,14 @@ var closeFrameClosers = map[string]func(p *closeFramePeer) error{
 	"Server.Close": func(p *closeFramePeer) error { return p.srv.Close() },
 }
 
+// closeAsync runs closer while the peer reads: Close waits briefly for the
+// peer's reply to its close frame.
+func closeAsync(closer func(*closeFramePeer) error, p *closeFramePeer) <-chan error {
+	done := make(chan error, 1)
+	go func() { done <- closer(p) }()
+	return done
+}
+
 // A server that closes a websocket session tells the client with a normal
 // closure frame, as engine.io 3.6.2 does, rather than dropping the TCP connection
 // (close code 1006).
@@ -85,8 +94,9 @@ func TestServerCloseSendsNormalClosureFrameToIdleClient(t *testing.T) {
 					_, _, err := p.ws.ReadMessage()
 					require.NoError(t, err)
 				}
-				require.NoError(t, closer(p))
+				closed := closeAsync(closer, p)
 				requirePeerClose(t, p.ws, gorilla.CloseNormalClosure)
+				require.NoError(t, <-closed)
 			})
 		}
 	}
@@ -111,10 +121,18 @@ func TestServerCloseSendsNormalClosureFrameToClientMidWrite(t *testing.T) {
 			_, err = io.ReadFull(r, make([]byte, 4095))
 			require.NoError(t, err)
 
-			require.NoError(t, closer(p))
+			// The application keeps reading the unfinished message.
+			read := make(chan error, 1)
+			go func() { _, err := io.ReadAll(r); read <- err }()
+			closed := closeAsync(closer, p)
 			requirePeerClose(t, p.ws, gorilla.CloseNormalClosure)
-			_, err = io.ReadAll(r)
-			require.Error(t, err, "the unfinished message must not complete")
+			require.NoError(t, <-closed)
+			select {
+			case err := <-read:
+				require.Error(t, err, "the unfinished message must not complete")
+			case <-time.After(10 * time.Second):
+				t.Fatal("the message reader did not end")
+			}
 		})
 	}
 }
@@ -135,14 +153,34 @@ func TestServerCloseSendsNormalClosureFrameAfterUpgrade(t *testing.T) {
 				t.Fatal("the session did not upgrade")
 			}
 			require.Equal(t, "websocket", f.conn.Transport())
-			if name == "Conn.Close" {
-				require.NoError(t, f.conn.Close())
-			} else {
-				require.NoError(t, f.srv.Close())
-			}
+			closed := make(chan error, 1)
+			go func() {
+				if name == "Conn.Close" {
+					closed <- f.conn.Close()
+				} else {
+					closed <- f.srv.Close()
+				}
+			}()
 			requirePeerClose(t, ws, gorilla.CloseNormalClosure)
+			require.NoError(t, <-closed)
 		})
 	}
+}
+
+// The server also closes with the frame when the client sends CLOSE and when
+// the session times out for lack of pings.
+func TestSessionEndsWithNormalClosureFrame(t *testing.T) {
+	t.Run("CLOSE packet", func(t *testing.T) {
+		p := dialCloseFramePeer(t, false)
+		_ = parityReader(p.conn)
+		require.NoError(t, p.ws.WriteMessage(gorilla.TextMessage, []byte("1")))
+		requirePeerClose(t, p.ws, gorilla.CloseNormalClosure)
+	})
+	t.Run("ping timeout", func(t *testing.T) {
+		p := dialCloseFramePeer(t, false, WithPingInterval(20*time.Millisecond), WithPingTimeout(50*time.Millisecond))
+		_ = parityReader(p.conn)
+		requirePeerClose(t, p.ws, gorilla.CloseNormalClosure)
+	})
 }
 
 // Abort stays immediate: the client sees the connection drop (1006) and no frame.

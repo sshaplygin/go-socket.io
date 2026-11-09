@@ -34,24 +34,29 @@ type closingTransport struct {
 // waiting for a poll and while the poll response carrying CLOSE is written; the
 // transport remains closing, and the session live, until that write ends, until
 // Abort or Shutdown, or for at most 30 seconds. Other transports and failed
-// sessions close immediately. The first cause wins.
+// sessions close immediately. A websocket first receives a close frame (see
+// Abort). The first cause wins.
 func (s *Session) Close() error {
 	return s.close(reasonForcedClose)
 }
 
 // Abort closes the transport immediately, interrupting an orderly Close already
-// waiting for a polling request. It preserves the first close cause.
-func (s *Session) Abort() error { return s.closeMode(reasonForcedClose, true) }
+// waiting for a polling request. A websocket is dropped without the close frame
+// that Close and Shutdown send, also while one is being written. It preserves
+// the first close cause.
+func (s *Session) Abort() error { return s.closeMode(reasonForcedClose, true, true) }
 
 // Shutdown closes the transport immediately for server shutdown. It interrupts
 // an orderly Close and preserves a previously observed close cause.
-func (s *Session) Shutdown() error { return s.closeMode(reasonShutdown, true) }
+func (s *Session) Shutdown() error { return s.closeMode(reasonShutdown, true, false) }
 
 func (s *Session) close(reason string) error {
-	return s.closeMode(reason, false)
+	return s.closeMode(reason, false, false)
 }
 
-func (s *Session) closeMode(reason string, abort bool) error {
+// closeMode closes the session. abort ends it without an orderly drain; immediate
+// also drops the transports before anything else, without a close frame.
+func (s *Session) closeMode(reason string, abort, immediate bool) error {
 	s.observe(reason, nil)
 	s.upgradeLocker.Lock()
 	first, opened := !s.closed, s.opened
@@ -62,8 +67,18 @@ func (s *Session) closeMode(reason string, abort bool) error {
 		close(s.stopWrites)
 	}
 	s.upgradeLocker.Unlock()
-	c := s.cause.Load()
 	graceful, canDrain := conn.(interface{ CloseGracefully() error })
+	if immediate {
+		// A transport that drains aborts through abortTransport below. The others
+		// are cut here, ahead of a Close that may be writing a close frame.
+		if !canDrain {
+			abortConn(conn)
+		}
+		if probe != nil {
+			abortConn(probe)
+		}
+	}
+	c := s.cause.Load()
 	orderly := canDrain && !opened.IsZero() && c.reason == reasonForcedClose && !abort
 	if !first {
 		// The first closer owns synchronous Error notification and will close
@@ -140,6 +155,13 @@ func (s *Session) closeMode(reason string, abort bool) error {
 // delivering CLOSE); a connection an upgrade retired is aborted by every close.
 func (s *Session) closeTransport(conn transport.Conn, abort bool) {
 	s.transportOnce.Do(func() {
+		if _, drains := conn.(interface{ CloseGracefully() error }); !drains {
+			if c := s.cause.Load(); c != nil && c.reason == reasonTransportError {
+				// A failed transport has no use for a close frame, and a peer
+				// that stopped reading would delay it.
+				abortConn(conn)
+			}
+		}
 		s.closeErr = conn.Close()
 		if abort {
 			abortConn(conn)

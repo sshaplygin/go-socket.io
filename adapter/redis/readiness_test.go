@@ -63,7 +63,8 @@ func TestCloseCancelsSubscriberReconnect(t *testing.T) {
 	entered := make(chan struct{})
 	var dials atomic.Int32
 	var enter sync.Once
-	// A dial after Close must fail the assertion below, not panic the binary.
+	// Closing entered once keeps a stray later dial from panicking the
+	// binary; such a dial after the require.Never window below goes unseen.
 	dial := func(ctx context.Context) (redis.Conn, error) {
 		dials.Add(1)
 		enter.Do(func() { close(entered) })
@@ -86,8 +87,10 @@ func TestCloseCancelsSubscriberReconnect(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("Close waits for reconnect dial instead of canceling it")
 	}
-	// The canceled attempt doubles the backoff to 2*redisReconnectMin; wait
-	// past redisReconnectMax for a further attempt.
+	// The next backoff timer starts after done is closed, so it is ready in
+	// the same select only if the dispatcher stalls for the backoff; this
+	// catches a stray dial then. TestResubscribeAfterCloseDoesNotDial is the
+	// deterministic check.
 	require.Never(t, func() bool { return dials.Load() > 1 }, redisReconnectMax, time.Millisecond,
 		"subscriber dialed again after Close")
 }

@@ -3144,13 +3144,13 @@ progress in [How to use this plan](#how-to-use-this-plan)). P4–P7 run on one h
 - **Status:** open
 - **Owner:** repository owner
 - **Depends on:** W63–W68
-- **Steps:** the W66 checklist on the exact head to be tagged: a full CI dispatch and the
-  Stress workflow, `make conformance` and `make examples-node` with socket.io-client 1.7.4
-  and 2.5.0, and a fresh-cache module fetch of that commit
-  (`GOMODCACHE=$(mktemp -d) GOFLAGS=-mod=mod go get github.com/sshaplygin/go-socket.io@<SHA>`
-  in a scratch module).
-- **Acceptance:** every check passed on the same SHA; the run links are in the W66 pull
-  request.
+- **Steps:** CONTRIBUTING.md "Before tagging v1", steps 1–4, on the tag candidate, as the
+  W66 checklist lists them. This plan adds only that the consumption check of step 4 uses a
+  fresh cache in a scratch module:
+  `GOMODCACHE=$(mktemp -d) GOFLAGS=-mod=mod go get github.com/sshaplygin/go-socket.io@<SHA>`.
+- **Acceptance:** a successful dispatched CI run whose head SHA is the tag candidate; the
+  Stress run on that SHA inspected and its failures recorded in the W66 pull request; the
+  interoperability checks of step 2 and the fresh-cache fetch pass on that SHA.
 
 #### P5. Tag v1.5.0
 

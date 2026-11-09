@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"regexp"
@@ -503,50 +504,120 @@ func TestNamespaceCloseWaitsForUnsubscribeAcknowledgements(t *testing.T) {
 	}
 }
 
-func TestNamespaceCloseConfirmsRemovalAfterSubscriberReplacement(t *testing.T) {
-	s := miniredis.RunT(t)
-	factory := New(WithAddr(s.Addr()))
-	closing, err := factory("/closing")
-	if err != nil {
-		t.Fatal(err)
+// delayedCloseConn models a server that handles a client disconnect after a
+// delay. Close fails the client side at once, so redigo reports an error to
+// the reader, but the socket stays open until delay has passed and Redis only
+// forgets the connection's subscriptions then.
+type delayedCloseConn struct {
+	net.Conn
+	delay time.Duration
+}
+
+func (c *delayedCloseConn) Close() error {
+	_ = c.Conn.SetDeadline(time.Unix(1, 0))
+	time.AfterFunc(c.delay, func() { _ = c.Conn.Close() })
+	return nil
+}
+
+// useDelayedDisconnect makes every later subscriber connection of owner a
+// delayedCloseConn.
+func useDelayedDisconnect(s *miniredis.Miniredis, owner *broadcast, delay time.Duration) {
+	dial := func(ctx context.Context) (redis.Conn, error) {
+		return redis.Dial("tcp", s.Addr(), redis.DialNetDial(func(network, addr string) (net.Conn, error) {
+			conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			return &delayedCloseConn{Conn: conn, delay: delay}, nil
+		}))
 	}
-	remaining, err := factory("/remaining")
-	if err != nil {
-		t.Fatal(err)
-	}
-	owner := closing.(*broadcast)
-	defer func() { _ = owner.Close(); _ = remaining.(*broadcast).Close() }()
-	sent := make(chan struct{})
-	s.Server().SetPreHook(func(_ *server.Peer, command string, args ...string) bool {
-		if command == "UNSUBSCRIBE" && len(args) > 0 && args[0] == owner.reqChannel {
-			close(sent)
-			return true
-		}
-		return false
-	})
-	done := make(chan error, 1)
-	go func() { done <- owner.Close() }()
-	select {
-	case <-sent:
-	case <-time.After(time.Second):
-		t.Fatal("unsubscribe not sent")
-	}
+	owner.dial.Store(&dial)
+}
+
+// replaceSubscriber closes the subscriber connection of owner and waits for
+// the dispatcher to install its replacement.
+func replaceSubscriber(t *testing.T, owner *broadcast) {
+	t.Helper()
 	owner.subLock.Lock()
-	_ = owner.sub.Close()
+	previous := owner.sub
+	_ = previous.Close()
 	owner.subLock.Unlock()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("replacement did not confirm retired subscription removal")
-	}
-	if got := s.PubSubNumSub(owner.reqChannel)[owner.reqChannel]; got != 0 {
-		t.Fatalf("replacement retained closed namespace: %d", got)
-	}
-	if got := s.PubSubNumSub("socket.io-request#/remaining#")["socket.io-request#/remaining#"]; got != 1 {
-		t.Fatalf("remaining namespace subscriber count %d", got)
+	require.Eventually(t, func() bool {
+		owner.subLock.Lock()
+		defer owner.subLock.Unlock()
+		return owner.sub != previous
+	}, 2*time.Second, time.Millisecond, "subscriber did not reconnect")
+}
+
+// awaitSubscribers waits until Redis counts want subscribers on channel. Redis
+// counts a closed connection until it has handled the disconnect, which is
+// asynchronous to the client's Close.
+func awaitSubscribers(t *testing.T, s *miniredis.Miniredis, channel string, want int, msg string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return s.PubSubNumSub(channel)[channel] == want
+	}, 2*time.Second, time.Millisecond, "%s: want %d subscribers on %s", msg, want, channel)
+}
+
+func TestNamespaceCloseConfirmsRemovalAfterSubscriberReplacement(t *testing.T) {
+	// Redis forgets the subscriptions of a closed connection only once it has
+	// handled the disconnect, which is asynchronous to the client's Close.
+	for _, tc := range []struct {
+		name  string
+		delay time.Duration
+	}{
+		{"prompt server disconnect", 0},
+		{"slow server disconnect", 50 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := miniredis.RunT(t)
+			factory := New(WithAddr(s.Addr()))
+			closing, err := factory("/closing")
+			if err != nil {
+				t.Fatal(err)
+			}
+			remaining, err := factory("/remaining")
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := closing.(*broadcast)
+			defer func() { _ = owner.Close(); _ = remaining.(*broadcast).Close() }()
+			if tc.delay > 0 {
+				useDelayedDisconnect(s, owner, tc.delay)
+				replaceSubscriber(t, owner)
+			}
+			sent := make(chan struct{})
+			s.Server().SetPreHook(func(_ *server.Peer, command string, args ...string) bool {
+				if command == "UNSUBSCRIBE" && len(args) > 0 && args[0] == owner.reqChannel {
+					close(sent)
+					return true
+				}
+				return false
+			})
+			done := make(chan error, 1)
+			go func() { done <- owner.Close() }()
+			select {
+			case <-sent:
+			case <-time.After(time.Second):
+				t.Fatal("unsubscribe not sent")
+			}
+			owner.subLock.Lock()
+			_ = owner.sub.Close()
+			owner.subLock.Unlock()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("replacement did not confirm retired subscription removal")
+			}
+			// The retired connection is counted until Redis handles its
+			// disconnect, so wait for the counts to settle on the replacement's.
+			remainingChannel := "socket.io-request#/remaining#"
+			awaitSubscribers(t, s, owner.reqChannel, 0, "replacement retained closed namespace")
+			awaitSubscribers(t, s, remainingChannel, 1, "remaining namespace subscriber count")
+		})
 	}
 }
 
@@ -560,40 +631,46 @@ func (c *failedUnsubscribeConn) Send(command string, args ...interface{}) error 
 }
 
 func TestNamespaceCloseRecoversFromUnsubscribeWriteFailure(t *testing.T) {
-	s := miniredis.RunT(t)
-	factory := New(WithAddr(s.Addr()))
-	closing, err := factory("/closing")
-	require.NoError(t, err)
-	remaining, err := factory("/remaining")
-	require.NoError(t, err)
-	owner := closing.(*broadcast)
-	t.Cleanup(func() { _ = owner.Close(); _ = remaining.(*broadcast).Close() })
+	for _, tc := range []struct {
+		name  string
+		delay time.Duration
+	}{
+		{"prompt server disconnect", 0},
+		{"slow server disconnect", 50 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := miniredis.RunT(t)
+			factory := New(WithAddr(s.Addr()))
+			closing, err := factory("/closing")
+			require.NoError(t, err)
+			remaining, err := factory("/remaining")
+			require.NoError(t, err)
+			owner := closing.(*broadcast)
+			t.Cleanup(func() { _ = owner.Close(); _ = remaining.(*broadcast).Close() })
 
-	dial := *owner.dial.Load()
-	failUnsubscribe := func(ctx context.Context) (redis.Conn, error) {
-		conn, err := dial(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return &failedUnsubscribeConn{Conn: conn}, nil
+			if tc.delay > 0 {
+				useDelayedDisconnect(s, owner, tc.delay)
+			}
+			dial := *owner.dial.Load()
+			failUnsubscribe := func(ctx context.Context) (redis.Conn, error) {
+				conn, err := dial(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return &failedUnsubscribeConn{Conn: conn}, nil
+			}
+			owner.dial.Store(&failUnsubscribe)
+			replaceSubscriber(t, owner)
+
+			// A failed write must close that transport and await a replacement which
+			// subscribes only the remaining namespace before reporting success.
+			require.NoError(t, owner.Close())
+			// The retired connection is counted until Redis handles its
+			// disconnect, so wait for the counts to settle on the replacement's.
+			awaitSubscribers(t, s, owner.reqChannel, 0, "closed namespace retained")
+			awaitSubscribers(t, s, "socket.io-request#/remaining#", 1, "remaining namespace subscriber count")
+		})
 	}
-	owner.dial.Store(&failUnsubscribe)
-	owner.subLock.Lock()
-	previous := owner.sub
-	_ = previous.Close()
-	owner.subLock.Unlock()
-	require.Eventually(t, func() bool {
-		owner.subLock.Lock()
-		defer owner.subLock.Unlock()
-		return owner.sub != previous
-	}, 2*time.Second, time.Millisecond, "subscriber did not reconnect")
-
-	// A failed write must close that transport and await a replacement which
-	// subscribes only the remaining namespace before reporting success.
-	require.NoError(t, owner.Close())
-	require.Zero(t, s.PubSubNumSub(owner.reqChannel)[owner.reqChannel])
-	channel := "socket.io-request#/remaining#"
-	require.Equal(t, 1, s.PubSubNumSub(channel)[channel])
 }
 
 func TestUnsubscribeAcknowledgementsConfirmOneCommandAtATime(t *testing.T) {

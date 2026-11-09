@@ -106,7 +106,9 @@ func TestResubscribeAfterCloseDoesNotDial(t *testing.T) {
 		// timer is ready in the same select as done. Go 1.23 to 1.26 give
 		// this module's own tests asynchronous channels because of its go
 		// 1.22 line (Go 1.27 removed them, Go 1.22 has only those), so repeat
-		// the check in a child with synchronous ones.
+		// the check in a child with synchronous ones. On Go 1.22 the child
+		// adds nothing: there a missing done re-check is detected only by
+		// chance, and newer Go jobs detect it deterministically.
 		require.NoError(t, runSyncTimerChild(t.Name()))
 	}
 	var dials atomic.Int32

@@ -69,15 +69,20 @@ server->>client: OPEN
 client->>server: dial websocket with sid
 client->>server: PING "probe"
 server->>client: PONG "probe"
+server->>client: NOOP (completes the pending poll)
 client->>client: pause polling
 client->>server: UPGRADE
-server->>server: pause old conn (NOOP if a poll is waiting)
+server->>server: pause old conn (NOOP if a poll is still waiting)
 server->>server: switch session to websocket
 server->>server: close old conn
 ```
 
-  Implemented in `session.Session.upgrading`. If the client never sends `UPGRADE`, the
-  paused polling connection is resumed.
+  Implemented in `session.Session.upgrading`. Polling keeps serving the session until
+  `UPGRADE` arrives, as on the Node server: after the probe the server writes one `NOOP`
+  to the polling connection, which completes the pending poll or, if none is pending, the
+  next one, and only `UPGRADE` pauses polling. If anything else follows the probe, or no
+  packet within `pingTimeout`, the websocket connection is closed and the session stays on
+  polling, which was never paused.
 - Error responses (Engine.IO v4): the server answers a rejected request with the JSON
   body `{"code":N,"message":"..."}` and content type `application/json`:
 

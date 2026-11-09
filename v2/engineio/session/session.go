@@ -589,7 +589,8 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 		return
 	}
 
-	// Pause the old connection.
+	// Only a connection that can be paused, polling, is upgraded from. It keeps
+	// serving the session until UPGRADE; the NOOP completes its pending poll.
 	s.upgradeLocker.RLock()
 	old := s.conn
 	s.upgradeLocker.RUnlock()
@@ -604,15 +605,7 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 		return
 	}
 
-	p.Pause()
 	go s.sendNoop(old)
-
-	// Prepare to resume the connection if upgrade fails.
-	defer func() {
-		if p != nil {
-			p.Resume()
-		}
-	}()
 
 	// Check for upgrade packet from the client.
 	_, pt, r, err = conn.NextReader()
@@ -648,13 +641,15 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 		return
 	}
 
-	// Successful upgrade.
+	// Successful upgrade. As the Node server does, pause the old connection only
+	// now: a poll still waiting is answered with NOOP and the payload stops before
+	// the session moves to conn.
+	p.Pause()
 	if !s.switchTransport(t, conn) {
 		return
 	}
 
-	p = nil
-	if err := s.setDeadline(); err != nil { // PingTimeout now runs on conn
+	if err := s.setDeadline(); err != nil { // the deadlines now apply to conn
 		s.observe(reasonTransportError, err)
 		_ = s.Close()
 	}

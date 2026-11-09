@@ -88,7 +88,8 @@ func runLogTestInSubprocess(t *testing.T) bool {
 	if isLogTestChild(t) {
 		return false
 	}
-	runLogTestChild(t, nil)
+	// The child runs at this pass's GOMAXPROCS, so -cpu reaches the fixture.
+	runLogTestChild(t, nil, "-test.cpu="+strconv.Itoa(runtime.GOMAXPROCS(0)))
 	return true
 }
 

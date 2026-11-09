@@ -108,10 +108,17 @@ func eventPacketHandler(c *connection, event string, header parser.Header) error
 	}
 	args, err := decodeCallbackArgs(c.decoder, types, len(snapshot) > 0 && snapshot[0].Variadic())
 	if err != nil {
+		var typeErr *json.UnmarshalTypeError
+		mismatch := errors.As(err, &typeErr)
+		if mismatch && header.NeedAck {
+			// The attachments are consumed and the connection stays open, so the
+			// peer waiting for its acknowledgement gets the error ACK that typed
+			// acknowledged handlers send for the same failure.
+			writeAckValues(conn, header, eventImpl.AckArgs(eventImpl.Payload{}, &eventImpl.RemoteError{Code: "invalid_payload", Message: err.Error()}))
+		}
 		c.onError(header.Namespace, err)
 		c.log.Debug("socketio: event decode failed", nspAttr(header.Namespace), "event", event, "err", err)
-		var typeErr *json.UnmarshalTypeError
-		if errors.As(err, &typeErr) {
+		if mismatch {
 			return nil
 		}
 		return errDecodeArgs
@@ -298,15 +305,19 @@ func typedEventPacketHandler(c *connection, nc *namespaceConn, name string, head
 		if decodeFailed {
 			ackErr = &eventImpl.RemoteError{Code: "invalid_payload", Message: err.Error()}
 		}
-		values := eventImpl.AckArgs(result, ackErr)
-		args := make([]reflect.Value, len(values))
-		for i, value := range values {
-			args[i] = reflect.ValueOf(value)
-		}
-		nc.writeAck(header, args...)
+		writeAckValues(nc, header, eventImpl.AckArgs(result, ackErr))
 	}
 	if err != nil {
 		c.onError(header.Namespace, err)
 	}
 	return nil
+}
+
+// writeAckValues sends an ACK carrying values for the packet header.
+func writeAckValues(nc *namespaceConn, header parser.Header, values []interface{}) {
+	args := make([]reflect.Value, len(values))
+	for i, value := range values {
+		args[i] = reflect.ValueOf(value)
+	}
+	nc.writeAck(header, args...)
 }

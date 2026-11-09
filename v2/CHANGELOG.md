@@ -184,8 +184,8 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   instead of 502 with the error text. A failed transport accept (502) and a writer without
   `http.Hijacker` (501) stay plain text. New `engineio: request rejected` records:
   `reason="bad eio"` and `"bad handshake method"` from the server; `"flush"` for a poll
-  answered with HTTP 500 (DEBUG once the session or its payload has closed or failed, WARN
-  otherwise) and `"bad method"` from the polling transport, through `logger.Log`.
+  answered with HTTP 500 (DEBUG once the connection has closed or an earlier poll reported
+  the failure that ended the payload, WARN otherwise) and `"bad method"` from the polling transport, through `logger.Log`.
 
 ### Removed
 

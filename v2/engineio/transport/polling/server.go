@@ -21,8 +21,8 @@ type serverConn struct {
 	transport  *Transport
 	maxPayload int
 
-	closed       atomic.Bool           // Close was called: the session or the server ended it
-	flushFail    atomic.Pointer[error] // the first error a poll answered with a 500
+	closed       atomic.Bool // Close was called: the session or the server ended it
+	reported     atomic.Bool // a poll answered the failure that ended the payload with a 500
 	remoteHeader http.Header
 	localAddr    Addr
 	remoteAddr   Addr
@@ -168,16 +168,23 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // flushLevel is the level at which a poll that failed with err is logged: DEBUG when
-// the connection was closed or the payload had failed with the same error before,
-// WARN for the failure that first ends the payload and for anything else.
+// the connection was closed or an earlier poll already reported the failure that
+// ended the payload, WARN for the first report of that failure and for a failure of
+// this poll only, such as an overlapping poll.
 func (c *serverConn) flushLevel(err error) slog.Level {
 	if c.closed.Load() || errors.Is(err, io.EOF) {
 		return slog.LevelDebug
 	}
-	if !c.flushFail.CompareAndSwap(nil, &err) && errors.Is(err, *c.flushFail.Load()) {
-		return slog.LevelDebug
+	// Store with a nil error stores nothing: it returns the failure that ended the
+	// payload, or nil.
+	ended := c.Payload.Store("", nil)
+	if ended == nil || !errors.Is(err, ended) {
+		return slog.LevelWarn // this poll failed alone
 	}
-	return slog.LevelWarn
+	if c.reported.CompareAndSwap(false, true) {
+		return slog.LevelWarn // the first report of the failure that ended the payload
+	}
+	return slog.LevelDebug
 }
 
 // rejected logs r, answered with an error status, through the fallback logger,

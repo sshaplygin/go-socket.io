@@ -83,9 +83,10 @@ server->>server: close old conn
   rejected polling POST (HTTP 400 or 413, above) and a failed poll (HTTP 500) are plain text.
   The server logs each of its rejections, the 501 and 502 included, as
   `engineio: request rejected` with a `reason`. The polling transport logs the same record
-  through `logger.Log` for a failed poll, `reason="flush"`, at DEBUG when the session or its
-  payload has already closed or failed and at WARN otherwise, and for an invalid method,
-  `reason="bad method"`.
+  through `logger.Log` for a failed poll, `reason="flush"`, at DEBUG when the connection has
+  closed or an earlier poll already reported the failure that ended the payload and at WARN
+  otherwise (the first report of that failure, or a failure of one poll such as an
+  overlapping poll), and for an invalid method, `reason="bad method"`.
 
 ## Implemented in `v2/`: Socket.IO protocol v5 wire codec
 

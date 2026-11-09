@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/internal/logtest"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
 )
 
 const rejected = "engineio: request rejected"
@@ -102,6 +104,24 @@ func TestServerFlushLevels(t *testing.T) {
 		require.NoError(t, conn.Close())
 		poll(conn)
 		assert.Equal(t, []string{warn, debug}, levels(rec))
+	})
+
+	// The overlap fails one poll only; the timeout ends the payload, and only its repeat is DEBUG.
+	t.Run("overlap then failure", func(t *testing.T) {
+		rec := logtest.NewRecorder()
+		logtest.SetDefault(t, rec)
+		conn := handshakeConn()
+		done := make(chan struct{})
+		go func() { defer close(done); conn.ServeHTTP(httptest.NewRecorder(), pollRequest(http.MethodGet)) }()
+		w, err := conn.NextWriter(frame.String, packet.MESSAGE) // returns once that poll waits
+		require.NoError(t, err)
+		poll(conn)
+		require.NoError(t, w.Close())
+		<-done
+		expired(conn)
+		poll(conn)
+		poll(conn)
+		assert.Equal(t, []string{warn, warn, debug}, levels(rec))
 	})
 
 	// No poll has reported the read failure; only the close makes the poll DEBUG.

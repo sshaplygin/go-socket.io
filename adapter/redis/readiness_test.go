@@ -153,9 +153,11 @@ func runSyncTimerChild(name string) error {
 }
 
 // syncTimerChildEnviron returns the environment of a child started by
-// runSyncTimerChild from the parent's environ.
+// runSyncTimerChild from the parent's environ. A race-enabled child would
+// otherwise sleep a second before it exits.
 func syncTimerChildEnviron(environ []string) []string {
-	return append(environ[:len(environ):len(environ)], syncTimerChildEnv+"=1", "GODEBUG=asynctimerchan=0")
+	gorace := strings.TrimSpace(lookupLastEnv(environ, "GORACE") + " atexit_sleep_ms=0")
+	return append(environ[:len(environ):len(environ)], syncTimerChildEnv+"=1", "GODEBUG=asynctimerchan=0", "GORACE="+gorace)
 }
 
 // lookupLastEnv returns the value os/exec passes for key: the last one.

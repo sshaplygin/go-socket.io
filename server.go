@@ -170,8 +170,10 @@ func (s *Server) OnError(namespace string, f func(Conn, error)) {
 // decoded from the event arguments. If the client asked for an
 // acknowledgement, the return values are sent back as the ACK payload. A final
 // AckFunc parameter takes ownership of the ACK and suppresses automatic returns;
-// it may be called later, once, from another goroutine. OnEvent replaces every
-// listener of this event (see ServerNamespace.On and Once).
+// it may be called later, once, from another goroutine. If the arguments do not
+// decode into the parameter types, f is not called, the error goes to OnError and
+// a requested acknowledgement is answered with an error ACK. OnEvent replaces
+// every listener of this event (see ServerNamespace.On and Once).
 // f is called on the read goroutine of the connection, so a blocking f delays only
 // that client. OnEvent panics if f is not a func or its first parameter is not Conn.
 func (s *Server) OnEvent(namespace, event string, f interface{}) {

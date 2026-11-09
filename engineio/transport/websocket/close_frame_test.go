@@ -44,7 +44,14 @@ func newCloseFixture(t *testing.T, tran *Transport, dialer *gorilla.Dialer) *clo
 	case <-time.After(5 * time.Second):
 		t.Fatal("no accepted connection")
 	}
-	t.Cleanup(func() { _ = f.server.Close() })
+	t.Cleanup(func() {
+		// Abort cannot wait for a lock that a failed test left held.
+		if aborter, ok := f.server.(interface{ Abort() error }); ok {
+			_ = aborter.Abort()
+			return
+		}
+		_ = f.server.Close()
+	})
 	return f
 }
 
@@ -210,7 +217,11 @@ func TestServerCloseWaitsForPeerReply(t *testing.T) {
 			closed := make(chan error, 1)
 			go func() { closed <- f.server.Close() }()
 
-			<-entered // the peer has the close frame and holds back its reply
+			select { // the peer has the close frame and holds back its reply
+			case <-entered:
+			case <-time.After(10 * time.Second):
+				t.Fatal("the peer received no close frame")
+			}
 			select {
 			case <-closed:
 				t.Fatal("Close returned before the peer replied")

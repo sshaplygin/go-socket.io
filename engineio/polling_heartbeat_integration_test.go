@@ -12,13 +12,16 @@ import (
 )
 
 func TestPingPostReleasesBeforePongPoll(t *testing.T) {
-	s := engineio.NewServer()
+	s, release := newHeldOpenServer(t)
 	ts := httptest.NewServer(s)
 	defer ts.Close()
 	defer func() { _ = s.Close() }()
+	defer release()
+	accepted := make(chan engineio.Conn, 1)
 	go func() {
 		c, e := s.Accept()
 		if e == nil {
+			accepted <- c
 			_, _, _ = c.NextReader()
 		}
 	}()
@@ -27,9 +30,14 @@ func TestPingPostReleasesBeforePongPoll(t *testing.T) {
 	_, err = io.Copy(io.Discard, resp.Body)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
+	// Accept returns once the session is open; Clients() may not list it yet.
+	release()
 	var sid string
-	for id := range s.Clients() {
-		sid = id
+	select {
+	case c := <-accepted:
+		sid = c.ID()
+	case <-time.After(5 * time.Second):
+		t.Fatal("session was not accepted after the handshake")
 	}
 	require.NotEmpty(t, sid)
 	url := ts.URL + "/?EIO=3&transport=polling&b64=1&sid=" + sid

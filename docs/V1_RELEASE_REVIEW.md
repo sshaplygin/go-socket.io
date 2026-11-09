@@ -2912,13 +2912,17 @@ changed to `done — #<PR>` after the merge.
   server session with `ReasonTransportClose`; other statuses and a connection dropped
   without a frame stay `transport error`. Socket.IO `OnDisconnect` then reports
   `transport close` where no DISCONNECT preceded.
-- **Tests:** red→green in `engineio` and the root package; the conformance close tests with
-  both clients.
+- **Tests:** red→green in `engineio` and the root package; a new conformance case, with both
+  pinned clients, in which the JS client closes the engine directly over websocket
+  (`socket.io.engine.close()`, no Socket.IO DISCONNECT) and the server's `OnDisconnect`
+  reports `transport close` (on master: `transport error`).
 - **Benchmarks:** none.
-- **Docs:** `docs/PROTOCOL.md` (the close classification, and that an abrupt drop stays
-  `transport error` where engine.io 3.6.2 reports `transport close`), `docs/PARITY.md`.
+- **Docs:** `docs/PROTOCOL.md` (the close classification, and that an abrupt websocket drop
+  stays `transport error` where engine.io 3.6.2 reports `transport close`), `docs/V1.md`
+  (the paragraph that classifies session close reasons), `docs/PARITY.md`.
 - **Acceptance criteria:** as W63, plus
-  `go test -race -count=100 -shuffle=on -cpu=1,4 ./engineio/...`.
+  `go test -race -count=100 -shuffle=on -cpu=1,4 -timeout 60m -run '<new and changed tests>' <pkgs>`
+  and `make test-stress PKGS='<affected packages>'`.
 - **Definition of done:** standard.
 - **Out of scope:** W65.
 

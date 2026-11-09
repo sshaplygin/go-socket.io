@@ -176,7 +176,8 @@ func TestGoClientReconnect(t *testing.T) {
 			cl.Emit("drop-transport")
 			for i := 0; i < 2; i++ {
 				reason := goClientReceive(t, disconnected, "Node transport disconnect")
-				require.Contains(t, []string{"transport close", "transport error"}, strings.SplitN(reason, ":", 2)[1])
+				// Node closes a websocket with a close frame and a polling session with CLOSE.
+				require.Equal(t, "transport close", strings.SplitN(reason, ":", 2)[1])
 			}
 			require.Equal(t, 1, goClientReceive(t, reconnected, "Node reconnect"))
 			require.NoError(t, goClientReceive(t, reentrant, "Connect inside OnReconnect"))

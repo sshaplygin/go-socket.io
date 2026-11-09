@@ -180,11 +180,11 @@ func (c *serverConn) flushLevel(err error) slog.Level {
 	return slog.LevelWarn
 }
 
-// rejected logs a request answered with an error status through the fallback logger,
+// rejected logs r, answered with an error status, through the fallback logger,
 // which is what the transport can reach.
 func (c *serverConn) rejected(r *http.Request, reason string, level slog.Level, err error) {
 	args := []any{"transport", "polling", "remote_addr", r.RemoteAddr, "reason", reason}
-	if sid := c.url.Query().Get("sid"); sid != "" {
+	if sid := r.URL.Query().Get("sid"); sid != "" {
 		args = append(args, "sid", sid)
 	}
 	if err != nil {

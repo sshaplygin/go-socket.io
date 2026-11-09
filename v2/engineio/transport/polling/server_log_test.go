@@ -21,16 +21,21 @@ func pollRequest(method string) *http.Request {
 	return r
 }
 
+// handshakeConn returns a connection created as Transport.Accept creates it: from the
+// handshake request, which carries no sid.
+func handshakeConn() *serverConn {
+	return newServerConn(Default, httptest.NewRequest(http.MethodGet, "/?transport=polling&EIO=4", nil))
+}
+
 // TestServerBadMethod checks the invalid-method answer: HTTP 400 with the Engine.IO
 // error body code 3, and one request-rejected record.
 func TestServerBadMethod(t *testing.T) {
 	rec := logtest.NewRecorder()
 	logtest.SetDefault(t, rec)
 
-	req := pollRequest(http.MethodPut)
-	conn := newServerConn(Default, req)
+	conn := handshakeConn()
 	w := httptest.NewRecorder()
-	conn.ServeHTTP(w, req)
+	conn.ServeHTTP(w, pollRequest(http.MethodPut))
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.JSONEq(t, `{"code":3,"message":"Bad request"}`, w.Body.String())
@@ -71,7 +76,7 @@ func TestServerFlushLevels(t *testing.T) {
 	t.Run("failure then repeat", func(t *testing.T) {
 		rec := logtest.NewRecorder()
 		logtest.SetDefault(t, rec)
-		conn := newServerConn(Default, pollRequest(http.MethodGet))
+		conn := handshakeConn()
 		expired(conn)
 		poll(conn)
 		poll(conn)
@@ -81,7 +86,7 @@ func TestServerFlushLevels(t *testing.T) {
 	t.Run("closed", func(t *testing.T) {
 		rec := logtest.NewRecorder()
 		logtest.SetDefault(t, rec)
-		conn := newServerConn(Default, pollRequest(http.MethodGet))
+		conn := handshakeConn()
 		require.NoError(t, conn.Close())
 		poll(conn)
 		assert.Equal(t, []string{debug}, levels(rec))
@@ -90,7 +95,7 @@ func TestServerFlushLevels(t *testing.T) {
 	t.Run("failed then closed", func(t *testing.T) {
 		rec := logtest.NewRecorder()
 		logtest.SetDefault(t, rec)
-		conn := newServerConn(Default, pollRequest(http.MethodGet))
+		conn := handshakeConn()
 		expired(conn)
 		poll(conn)
 		require.NoError(t, conn.Close())

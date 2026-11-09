@@ -152,8 +152,10 @@ to do the work. The status of each item is owned by its **Status** line and nowh
    [W55](#w55-scheduled-stress-runs-under-cpu-load) on 2026-10-31; both land before W52.
    W58–W62 record defects found after the review and fixed before the tag. The
    announcement-readiness check of 2026-11-10 added W63–W68, which land before the tag in
-   the order their **Depends on** lines give, with W66 last; the owner-only steps in
-   [Publication and announcement](#publication-and-announcement) follow. Only the owner tags.
+   the order their **Depends on** lines give, with W66 last. Of the owner-only steps in
+   [Publication and announcement](#publication-and-announcement), P1 precedes W67; P4–P7
+   follow W66, in that order, on one head; P2, P3 and P9 can be done at any time; P8 comes
+   after P2, P6 and P7. Only the owner tags.
 6. After the tag: W11–W44, W56–W57 and W69–W72 in numeric order unless **Depends on** says otherwise. Every
    performance item needs W2 merged first. W12 lands before W23. W38 needs the tag.
 

@@ -244,6 +244,8 @@ file the findings, the work plan and its progress. Status values:
   implements the decision (W10 implements D1), the W item's PR is that PR: it appends
   `; in progress — #<PR>` to the D item's Status line as well as setting its own.
 - Deferral of a major: `deferred — <reason> (<date>)`, recorded by the owner (see above).
+- P items: `open` → `done (<date>)`, recorded by the owner; a step the owner decides not
+  to take becomes `not taken — <reason> (<date>)`.
 
 When the fix merges, the [finding catalogue](#finding-catalogue) row of each finding the item
 lists carries `Fixed by #<PR> (W<n>).` (or `(D<n>)` for a D item's PR) at the end of its
@@ -342,6 +344,15 @@ changed to `done — #<PR>` after the merge.
 | [W60](#w60-do-not-dial-the-redis-subscriber-after-close) | Do not dial the Redis subscriber after Close | before tag | C11 | — |
 | [W61](#w61-remove-the-wall-clock-and-ordering-assumptions-from-the-225-fixtures) | Remove the wall-clock and ordering assumptions from the #225 fixtures | before tag | T16 | W55 |
 | [W62](#w62-drain-packets-admitted-before-close-seals) | Drain packets admitted before Close seals | before tag | C12 | — |
+| [P1](#p1-repository-security-settings) | Repository security settings | owner | — | — |
+| [P2](#p2-repository-metadata) | Repository metadata | owner | REL-18 | — |
+| [P3](#p3-leave-the-fork-network) | Leave the fork network | owner | — | — |
+| [P4](#p4-final-head-verification) | Final head verification | owner | — | W63–W68 |
+| [P5](#p5-tag-v150) | Tag v1.5.0 | owner | — | P4 |
+| [P6](#p6-github-release) | GitHub Release | owner | — | P5, W66 |
+| [P7](#p7-module-index) | Module index | owner | — | P5 |
+| [P8](#p8-announcement) | Announcement | owner | — | P2, P3, P6, P7 |
+| [P9](#p9-remote-branch-cleanup) | Remote branch cleanup | owner | — | — |
 
 **Finding coverage.** Every catalogue ID appears in exactly one item or in "Not planned".
 
@@ -2831,6 +2842,116 @@ changed to `done — #<PR>` after the merge.
 - **Acceptance criteria:** as in Tests.
 - **Definition of done:** standard.
 - **Out of scope:** waiting for network I/O in `Close`.
+
+### Publication and announcement
+
+Owner-only steps that take the verified head to a published, findable release and announce
+it. No pull request performs them; the owner records each in its Status line (see Marking
+progress in [How to use this plan](#how-to-use-this-plan)). P4–P7 run on one head, after
+[W66](#w66-refresh-the-release-notes-for-the-final-head); P3 and P9 are optional.
+
+#### P1. Repository security settings
+
+- **Status:** open
+- **Owner:** repository owner
+- **Depends on:** none; done before [W67](#w67-security-policy) merges
+- **Steps:** enable private vulnerability reporting, Dependabot alerts, Dependabot security
+  updates, secret scanning and push protection.
+- **Acceptance:** the GitHub API endpoints report them enabled:
+  `repos/sshaplygin/go-socket.io/private-vulnerability-reporting` (`enabled: true`),
+  `repos/sshaplygin/go-socket.io/vulnerability-alerts` (204),
+  `repos/sshaplygin/go-socket.io/automated-security-fixes` (`enabled: true`), and
+  `security_and_analysis` of `repos/sshaplygin/go-socket.io` (`secret_scanning` and
+  `secret_scanning_push_protection` `enabled`).
+
+#### P2. Repository metadata
+
+- **Status:** open
+- **Owner:** repository owner
+- **Depends on:** none
+- **Steps:** set the description to state that the module is the "maintained successor of
+  the archived googollee/go-socket.io for socket.io-client 1.x/2.x", the homepage to
+  `https://pkg.go.dev/github.com/sshaplygin/go-socket.io`, and topics. REL-18 is closed
+  when P2, P3 (done or not taken), P5, P6 and P7 are done; the owner then appends
+  `Fixed by P2, P3, P5–P7 (<date>).` to its row.
+- **Acceptance:** `gh repo view sshaplygin/go-socket.io --json description,homepageUrl,repositoryTopics`
+  shows the three values.
+
+#### P3. Leave the fork network
+
+- **Status:** open
+- **Owner:** repository owner; the owner decides whether to take this step
+- **Depends on:** none; before P8
+- **Steps:** Settings → Danger Zone → leave the fork network. The step is irreversible;
+  stars, watchers, issues and pull requests do not move (0 stars and 0 forks on
+  2026-11-10).
+- **Acceptance:** `gh api repos/sshaplygin/go-socket.io --jq .fork` prints `false`, or the
+  Status line records the decision not to leave.
+
+#### P4. Final head verification
+
+- **Status:** open
+- **Owner:** repository owner
+- **Depends on:** W63–W68
+- **Steps:** the W66 checklist on the exact head to be tagged: a full CI dispatch and the
+  Stress workflow, `make conformance` and `make examples-node` with socket.io-client 1.7.4
+  and 2.5.0, and a fresh-cache module fetch of that commit
+  (`GOMODCACHE=$(mktemp -d) GOFLAGS=-mod=mod go get github.com/sshaplygin/go-socket.io@<SHA>`
+  in a scratch module).
+- **Acceptance:** every check passed on the same SHA; the run links are in the W66 pull
+  request.
+
+#### P5. Tag v1.5.0
+
+- **Status:** open
+- **Owner:** repository owner only
+- **Depends on:** P4
+- **Steps:** tag `v1.5.0` on the head P4 verified, with the git identity checked as in
+  [W10](#w10-prepare-the-release-commit) (REL-3).
+- **Acceptance:** `git ls-remote --tags origin v1.5.0` names the SHA P4 verified.
+
+#### P6. GitHub Release
+
+- **Status:** open
+- **Owner:** repository owner
+- **Depends on:** P5, W66
+- **Steps:** publish the GitHub Release for `v1.5.0` with the W66 text.
+- **Acceptance:** `gh release view v1.5.0` shows that text, and the release is the latest.
+
+#### P7. Module index
+
+- **Status:** open
+- **Owner:** repository owner
+- **Depends on:** P5
+- **Steps:** in a scratch module with a fresh cache,
+  `go get github.com/sshaplygin/go-socket.io@v1.5.0`; check that
+  `go list -m -versions github.com/sshaplygin/go-socket.io` omits the retracted tags and
+  that `@latest` resolves to `v1.5.0`; request indexing on pkg.go.dev. This is also W10's
+  REL-2 step after the tag.
+- **Acceptance:** the fetch succeeds, `go list -m -versions` lists no retracted version,
+  `go list -m github.com/sshaplygin/go-socket.io@latest` prints `v1.5.0`, and pkg.go.dev
+  shows `v1.5.0`.
+
+#### P8. Announcement
+
+- **Status:** open
+- **Owner:** repository owner
+- **Depends on:** P2, P3, P6, P7
+- **Steps:** an awesome-go pull request in its WebSockets section, meeting that list's
+  requirements; a pull request to the Socket.IO website's list of server implementations;
+  a post stating the scope (socket.io-client 1.x/2.x; v2 for 3.x/4.x is in development).
+- **Acceptance:** the Status line links the two pull requests and the post.
+
+#### P9. Remote branch cleanup
+
+- **Status:** open
+- **Owner:** repository owner; optional
+- **Depends on:** none
+- **Steps:** delete merged or superseded remote branches, `release/v1.5.0` in particular,
+  as in W10's REL-11 step; `git fetch --prune` afterwards. The owner then appends
+  `Fixed by #193 (W10).` to REL-11, as W10 states.
+- **Acceptance:** `git ls-remote --heads origin` lists no merged or superseded branch, or
+  the Status line records that the step was not taken.
 
 ## Release blockers
 

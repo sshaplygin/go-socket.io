@@ -20,6 +20,12 @@ for (const name of ['/', '/chat', '/late']) {
     socket.on('echo', (value, ack) => { socket.emit('reply', value); ack(value); });
     socket.on('binary', (value, ack) => ack(value));
     socket.on('ask', () => socket.emit('question', 'server', value => socket.emit('answer', value)));
+    // Emits num with a string, which a Go handler declared for int cannot decode,
+    // and reports what the server-side ACK callback received.
+    socket.on('ask-mismatch', ack => {
+      const timer = setTimeout(() => ack('callback not called'), 3000);
+      socket.emit('num', 'bad', value => { clearTimeout(timer); ack(value); });
+    });
     socket.on('drop-transport', () => socket.conn.close());
     socket.on('inspect', ack => ack({
       sid, id: socket.id, namespace: socket.nsp.name,

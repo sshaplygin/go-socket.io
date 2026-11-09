@@ -191,11 +191,16 @@ func FuzzRedactHandshake(f *testing.F) {
 		if !bytes.Equal(in, orig) {
 			t.Fatal("input modified")
 		}
+		// src is non-nil exactly when in is one JSON object: null decodes to a nil map.
 		var src map[string]json.RawMessage
 		srcErr := json.Unmarshal(in, &src)
+		isObject := srcErr == nil && src != nil
 		if err != nil {
 			if out != nil {
 				t.Fatalf("error with non-nil result %q", out)
+			}
+			if isObject {
+				t.Fatalf("rejected %q, which is one JSON object: %v", in, err)
 			}
 			return
 		}
@@ -205,7 +210,7 @@ func FuzzRedactHandshake(f *testing.F) {
 			}
 			return
 		}
-		if srcErr != nil {
+		if !isObject {
 			t.Fatalf("accepted %q that is not a JSON object: %v", in, srcErr)
 		}
 		var got map[string]json.RawMessage

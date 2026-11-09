@@ -403,7 +403,9 @@ func (s *Socket) OnDisconnect(f func(Conn, string)) { s.handler.OnDisconnect(f) 
 // OnError sets the namespace's error callback.
 func (s *Socket) OnError(f func(Conn, error)) { s.handler.OnError(f) }
 
-// OnEvent replaces the namespace's handler for event.
+// OnEvent replaces the namespace's handler for event. If the event's arguments
+// do not decode into the parameter types of f, f is not called, the error goes to
+// OnError and a requested acknowledgement is answered with an error ACK.
 func (s *Socket) OnEvent(event string, f interface{}) { s.handler.OnEvent(event, f) }
 
 // Close sends DISCONNECT for this namespace. The last socket closes Engine.IO.

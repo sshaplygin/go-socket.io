@@ -183,12 +183,14 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   client requested an ack and a listener handled the event. Emitting with a trailing
   function argument registers an ack callback. When an event's arguments do not
   decode into an untyped handler's parameter types, for example a string for an
-  `int`, the handler does not run and the connection stays open. If the client
-  requested an ack, the server answers with the error ACK of acknowledged typed
-  descriptors (`NewAckEvent`), `3<id>[{"code":"invalid_payload","message":"decode
-  argument 0: json: cannot unmarshal string into Go value of type int"}]`, so a
-  JavaScript callback is called with that object as its only argument; without an
-  ACK id nothing is sent. The decode error goes to `OnError` in both cases. This
+  `int`, the handler does not run and the connection stays open. This holds for
+  the server and for the Go client alike. If the peer requested an ack, the
+  receiving side answers with the error ACK of acknowledged typed descriptors
+  (`NewAckEvent`), `3<id>[{"code":"invalid_payload","message":"decode argument 0:
+  json: cannot unmarshal string into Go value of type int"}]`, so a JavaScript
+  callback, or the callback of a Go `Emit` with an acknowledgement, is called
+  with that object as its only argument, and `EmitWithAck` returns a
+  `*RemoteError` with code `invalid_payload`; without an ACK id nothing is sent. The decode error goes to `OnError` in both cases. This
   covers a wrong JSON type and a binary attachment where another type is
   expected. A missing argument is zero-filled and extra arguments are ignored, so
   the handler runs and its return value is the ACK. A packet that is not valid

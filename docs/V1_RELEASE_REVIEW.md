@@ -2669,7 +2669,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W57. Synchronize client compression frame recording
 
-- **Status:** in progress — #223
+- **Status:** done — #223
 - **Priority:** after release
 - **Findings:** [T15](#tests-findings)
 - **Depends on:** W55 for the recorded load runs

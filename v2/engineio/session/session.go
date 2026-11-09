@@ -605,6 +605,7 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	}
 
 	p.Pause()
+	go s.sendNoop(old)
 
 	// Prepare to resume the connection if upgrade fails.
 	defer func() {
@@ -660,6 +661,20 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 
 	if closeErr := old.Close(); closeErr != nil {
 		s.logger().Debug("engineio: close connection failed", "err", closeErr)
+	}
+}
+
+// sendNoop writes a NOOP to old, the connection an upgrade replaces. On polling it
+// completes the pending poll, or the next one: the client waits for that poll to end
+// before it pauses polling and sends UPGRADE. It returns at the latest when old is
+// paused or closed, as the upgrade or the session ends; that failure is expected.
+func (s *Session) sendNoop(old transport.Conn) {
+	w, err := old.NextWriter(frame.String, packet.NOOP)
+	if err == nil {
+		err = w.Close()
+	}
+	if err != nil {
+		s.logger().Debug("engineio: upgrade noop failed", "err", err)
 	}
 }
 

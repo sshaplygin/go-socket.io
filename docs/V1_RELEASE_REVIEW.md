@@ -99,6 +99,13 @@ An independent tag-readiness review of `6641d4b` on 2026-10-29 found a second bl
 [B2](#b2-a-partial-polling-post-pins-its-connection), and the before-tag items
 [W47](#w47-bound-polling-request-io-by-the-session-deadlines)–[W53](#w53-skip-argument-decoding-for-events-nobody-can-observe).
 
+An announcement-readiness check of `27fdab8` on 2026-11-10 found no blocker. It added the
+before-tag items
+[W63](#w63-keep-the-end-of-an-engineio-session-out-of-onerror)–[W68](#w68-readme-quick-start),
+the owner-only publication steps
+[P1](#p1-repository-security-settings)–[P9](#p9-remote-branch-cleanup) and the
+after-release items [W69](#w69-scheduled-fuzzing)–[W71](#w71-hostile-client-suite).
+
 ## Scorecard
 
 | Dimension | Score | Verdict | Reason |

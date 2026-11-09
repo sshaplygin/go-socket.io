@@ -7,7 +7,9 @@ These notes concern the independent `v2/` module.
 Package `v2/engineio`, the v2 module. The root `engineio` package of the v1 module is
 described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
 
-- Query parameter `EIO` is not checked; the server behaves as protocol v3 regardless.
+- Query parameter `EIO` must be `4` (Engine.IO v4, ahead of the rest of this section). It is
+  checked before the transport; a missing or other value is HTTP 400 with error code 5. The
+  Go dialer (`engineio/client`) sends `EIO=4`, replacing any value in the URL.
 - Transports: `polling` (XHR only; the `j` JSONP parameter and the `b64` parameter are
   ignored, as in Engine.IO v4) and `websocket` (`gobwas/ws`). Order and upgrade path come from `engineio.Options.Transports`,
   default `[polling, websocket]`.
@@ -27,7 +29,7 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   `payload.ErrTooLarge`, which readers see. The client batches its POSTs up to the
   `maxPayload` of the open packet, and up to its `MaxPayload` (default 1 MiB) while the
   open packet carries none, as this server's does today. Sessions are looked up by `sid`; an unknown `sid` is HTTP 400.
-  The handshake, heartbeat and `EIO` check of this section are still v3 until the
+  The handshake and heartbeat of this section are still v3 until the
   rest of 2.1 lands; the heading of this section flips with that change.
 - WebSocket framing (Engine.IO v4, ahead of the rest of this section): one packet per data
   message. A text message is the type byte and the data; a binary message is the raw data of
@@ -65,8 +67,25 @@ server->>server: close old conn
 
   Implemented in `session.Session.upgrading`. If the client never sends `UPGRADE`, the
   paused polling connection is resumed.
-- Error responses are plain text with HTTP 400 (bad transport, bad sid) or 502
-  (request checker or transport accept failure).
+- Error responses (Engine.IO v4): the server answers a rejected request with the JSON
+  body `{"code":N,"message":"..."}` and content type `application/json`:
+
+  | Code | Message | Status | Cause |
+  | --- | --- | --- | --- |
+  | 0 | `Transport unknown` | 400 | `transport` is not one of `Options.Transports` |
+  | 1 | `Session ID unknown` | 400 | no session has the `sid` |
+  | 2 | `Bad handshake method` | 400 | a handshake (no `sid`) that is neither GET nor an OPTIONS preflight |
+  | 3 | `Bad request` | 400 | a transport change the session cannot make, a failed session start, a polling request that is not GET, POST or OPTIONS |
+  | 4 | `Forbidden` | 403 | `Options.RequestChecker` returned an error |
+  | 5 | `Unsupported protocol version` | 400 | `EIO` is missing or not `4` |
+
+  A failed transport accept (HTTP 502), a writer without `http.Hijacker` (HTTP 501), a
+  rejected polling POST (HTTP 400 or 413, above) and a failed poll (HTTP 500) are plain text.
+  The server logs each of its rejections, the 501 and 502 included, as
+  `engineio: request rejected` with a `reason`. The polling transport logs the same record
+  through `logger.Log` for a failed poll, `reason="flush"`, at DEBUG when the session or its
+  payload has already closed or failed and at WARN otherwise, and for an invalid method,
+  `reason="bad method"`.
 
 ## Implemented in `v2/`: Socket.IO protocol v5 wire codec
 
@@ -113,12 +132,12 @@ Engine.IO v3 → v4:
 
 | Area | v3 (current) | v4 (target) |
 | --- | --- | --- |
-| Query | `EIO` ignored | `EIO=4` required, otherwise HTTP 400 with JSON error code 5 |
+| Query | `EIO` ignored | `EIO=4` required, otherwise HTTP 400 with JSON error code 5 (done, see above) |
 | Handshake | `sid`, `upgrades`, `pingInterval`, `pingTimeout` | plus `maxPayload` |
 | Heartbeat | client sends `2`, server answers `3` | server sends `2` every `pingInterval`, client answers `3` within `pingTimeout` |
 | WebSocket | one packet per frame, binary frames start with a type byte | unchanged; binary frames carry raw bytes (done, see above) |
 | Upgrade | `2probe` / `3probe` / `5` | unchanged, plus server sends `6` (NOOP) into the pending poll |
-| Errors | plain text | JSON `{"code": N, "message": "..."}`, codes 0..5 |
+| Errors | plain text | JSON `{"code": N, "message": "..."}`, codes 0..5 (done, see above) |
 
 Socket.IO v4 → v5:
 

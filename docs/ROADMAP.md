@@ -33,10 +33,12 @@ owning contract and consumer fixtures together.
 | 2E | 2D | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
 | 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 acceptance; publication verification at tag time |
 | 3A | M3 | freeze chat event schema; then server, browser/CLI and load client in separate directories | M4 single-server acceptance |
+| 5L-A | M3 | freeze single-server admin observation, snapshot/watermark types, command capability and command-result contracts, session-store interface and advertised features; pin the UI release and instrumentation fixtures | 5L contract gate |
+| 5L-B | 5L-A | core observers/snapshots; admin wire/auth module; memory-adapter command capability; browser tests against the pinned UI | M3A acceptance |
 | 4A | M4 | freeze codec fixtures and adaptertest cases; then Redis and NATS modules independently | each passes shared conformance suite |
 | 4B | 4A | cluster chat profile; mixed Go/Node Redis tests in separate test directories | M5 cluster acceptance |
-| 5A | M5 | freeze admin snapshot/capability and command-result contracts, and pinned UI fixtures | admin contract gate |
-| 5B | 5A | core observers/snapshots; admin wire/auth module; Redis/NATS capability extensions; browser tests against fixtures | integrate and run M6 acceptance |
+| 5C-A | M5, M3A | freeze the 5C additions to the 5L contracts: the node snapshot/watermark adapter interface, the broker encoding of remote commands and the shared-store implementation contract; 5L-A signatures do not change | 5C contract gate |
+| 5C-B | 5C-A | Redis/NATS capability implementations; cluster statistics and updates; mixed Go/Node fallback; cluster browser tests | integrate and run M6 acceptance |
 | 6A | M6 | benchmark owner freezes versions, workload matrix, resource budgets and result schema | comparison contract and correctness checks pass |
 | 6B | 6A | our-v2, existing-Go and official-Node runners in separate directories; shared load generator owned by integrator | runners produce equivalent traffic/results |
 | 6C | 6B | measurements sequentially on reserved hosts; analysis/report follows complete raw results | M7 reproducibility and report acceptance |
@@ -908,7 +910,7 @@ Each adapter has its own `go.mod` and CI job and is tagged independently
 (`adapters/redis/v2.0.0`, `adapters/nats/v2.0.0`). The root `go.mod` has no Redis or
 NATS dependency; it does carry `vmihailenco/msgpack/v5` (with its `tagparser/v2`), which
 `adapter/codec` imports since 2.2. Both depend on the root module as a normal versioned dependency and on
-`adapter/codec` for the message format. At tag time (M5 is accepted before it): release root `v2.2.0`, containing
+`adapter/codec` for the message format. At tag time (M5 is accepted before it): release root `v2.3.0`, containing
 `adaptertest` and any shared-codec additions, before tagging adapter modules, and verify
 root and adapter consumers/tests against published versions without local replacements.
 In this stage's tests (`adaptertest` and both backend suites) the adapter's request
@@ -1138,10 +1140,11 @@ replay of missed messages and shared history remain outside this acceptance.
 
 ## Stage 5. Socket.IO Admin UI (required final product stage)
 
-Entry: M5. Output: module `github.com/sshaplygin/go-socket.io/v2/contrib/admin/v2`
-with its own CI/release and direct connection from the unchanged official UI.
-Support hosted and self-hosted static UI. Pin an upstream UI release and matching
-instrumentation commit in 5A; record them in the module README. Reference contracts:
+Entry: M3 for 5L, M5 for 5C (see *Split* below). Output: module
+`github.com/sshaplygin/go-socket.io/v2/contrib/admin/v2` with its own CI/release
+and direct connection from the unchanged official UI. Support hosted and
+self-hosted static UI. Pin an upstream UI release and matching instrumentation
+commit in 5L-A; record them in the module README. Reference contracts:
 [typed events](https://github.com/socketio/socket.io-admin-ui/blob/develop/lib/typed-events.ts),
 [instrumentation](https://github.com/socketio/socket.io-admin-ui/blob/develop/lib/index.ts).
 Node is a compatibility-test dependency, not a Go server runtime dependency.
@@ -1164,9 +1167,10 @@ Node is a compatibility-test dependency, not a Go server runtime dependency.
    subsequent updates, send one combined `all_sockets`, then replay only updates
    after each node's watermark through the same ordered admin queue. Internal
    sequence/server IDs stay internal; the official UI wire format is unchanged.
-   No global atomic cluster snapshot is promised. Extend the optional admin adapter
-   capability to carry node snapshots/watermarks; ordinary `FetchSockets` alone
-   cannot supply this synchronization boundary. Overflow or peer loss during initial
+   No global atomic cluster snapshot is promised. Add an optional adapter interface,
+   separate from the command capability of item 4, to carry node
+   snapshots/watermarks; ordinary `FetchSockets` alone cannot supply this
+   synchronization boundary. Overflow or peer loss during initial
    sync aborts it and forces a fresh snapshot rather than presenting partial state
    as complete. Node instrumentation has no such watermark contract: mixed Go/Node
    observation is best-effort during concurrent mutations, with reconciliation
@@ -1197,7 +1201,7 @@ Node is a compatibility-test dependency, not a Go server runtime dependency.
    capability interface for `SocketsJoin`, `SocketsLeave` and `DisconnectSockets`
    rather than breaking the stage 2.2 `Adapter` interface. Implement it for memory,
    Redis and NATS; extend `adaptertest` with remote operations and peer-loss deadlines.
-   Freeze result/error semantics in 5A: success means local application plus broker
+   Freeze result/error semantics in 5L-A: success means local application plus broker
    acceptance for remote commands, not confirmed execution by peers. Return partial
    local results and publication errors without implicit retries. Match Node's
    unacknowledged bulk join/leave/disconnect encoding; deadlines bound publication
@@ -1221,27 +1225,86 @@ Node is a compatibility-test dependency, not a Go server runtime dependency.
    `contrib/admin/README.md` owns installation and configuration. Update the
    `CLAUDE.md` ownership/layout tables and add a README link. Extend the chat compose
    example with a pinned static Admin UI service and authenticated instrumentation
-   on each server. At tag time, release additive core changes as `v2.3.0`, the module as
-   `contrib/admin/v2.0.0`, and compatible adapter updates as minor releases.
+   on each server. Release versions are listed in [Milestones](#milestones).
 
-DoD: event fixtures from the pinned upstream instrumentation match the Go output,
-including positional arguments and date encoding. Browser tests against the actual
-pinned UI cover authentication, reconnect/session reuse, statistics, socket and room
-lists, transport upgrades, binary event display, live updates and administrative
-commands. Tests prove that read-only mode rejects commands, payload redaction holds,
-admin events do not recurse, slow admin consumers do not stall application sockets,
-and shutdown leaks no library-owned goroutines. During initial sync and reconnect,
-continuously connect/disconnect sockets and change rooms on two nodes; assert that
-the UI converges without resurrected sockets, missed removals or duplicate entries.
-Exercise snapshot queue overflow and actual UI reconnect, plus the documented
-mixed-Node fallback after quiescence. Race tests and the expanded `adaptertest` pass for
-all three adapters. Cluster tests cover two Go nodes with Redis and NATS and a mixed
-Go/Node Redis cluster with instrumentation on both nodes: an admin client connected
-to one node sees remote sockets and server statistics and can administer remote
-sockets. Benchmark results and tested upstream versions are recorded in the release
-notes; earlier protocol and observability checks remain green.
+### Split: 5L single server, 5C cluster
 
-Acceptance: owner starts the chat compose stack and opens the unchanged Admin UI.
+The items above are delivered in two parts with separate gates.
+
+**5L** (entry M3, milestone M3A) runs one Go server with the memory adapter and
+needs neither Stage 3 nor Stage 4b. It implements item 1 except the adapter
+snapshot capability, cross-node watermarks, peer-loss abort of initial sync, mixed
+Node observation and node failure detection; the local snapshot and its watermark
+use the same synchronization boundary that 5C later exposes through the adapter.
+It implements item 2 with an in-memory session store behind the frozen
+session-store interface; item 3 in full; item 4 for local sockets, with commands
+acting through the memory adapter's implementation of the optional command
+capability; item 5 in full. For item 6, 5L writes `docs/ADMIN_UI.md` (single-server
+behaviour), `contrib/admin/README.md`, the `CLAUDE.md` rows and the README link, and
+adds `_examples/admin` (own module, built and vetted by the v2 `examples` CI job of
+2.5, whose target 5L extends to include it): one server with the memory
+adapter, a minimal page on `socket.io-client@4` with emit, join-room and leave-room
+controls, and a compose service with the pinned static UI.
+
+5L-A freezes, so that 5C is additive after `contrib/admin/v2.0.0` and root
+`v2.1.0` are tagged:
+
+- the optional command capability (`SocketsJoin`, `SocketsLeave`,
+  `DisconnectSockets`): signatures with `context.Context`, deadline handling and
+  the result/error semantics of item 4 (success means local application plus
+  broker acceptance for remote commands);
+- the session-store interface: context-aware, error-returning, with session expiry,
+  so a shared store can implement it;
+- the root snapshot and watermark types: comparable and monotonic per server
+  instance; the admin module maps them to `serverId`;
+- the exact `supportedFeatures` list advertised with the memory adapter for each
+  mode and the read-only setting, taken from the pinned instrumentation.
+
+**5C** (entry M5 and M3A, milestone M6) adds the rest: node snapshots/watermarks as
+a separate optional adapter interface discovered by type assertion (the 5L command
+capability does not change), its Redis and NATS implementations, remote
+`SocketsJoin`/`SocketsLeave`/`DisconnectSockets` with Node's unacknowledged bulk
+command encoding on the broker, peer-loss abort of initial sync, a shared session
+store, cluster-wide statistics and live updates without duplicates, the mixed
+Go/Node fallback, node failure detection, the cluster section of
+`docs/ADMIN_UI.md` and admin instrumentation in the chat compose stack.
+
+DoD for 5L: event fixtures from the pinned upstream instrumentation match the Go
+output, including positional arguments and date encoding. Browser tests against the
+actual pinned UI cover authentication, reconnect/session reuse, statistics, socket
+and room lists, transport upgrades, binary event display, live updates and
+administrative commands on local sockets. Tests prove that read-only mode rejects
+commands, payload redaction holds, admin events do not recurse, slow admin consumers
+do not stall application sockets, and shutdown leaks no library-owned goroutines.
+During initial sync and reconnect, continuously connect/disconnect sockets and
+change rooms on the server; assert that the UI converges without resurrected
+sockets, missed removals or duplicate entries. Exercise snapshot queue overflow and
+actual UI reconnect. The memory adapter's 2.2 conformance tests gain local
+`SocketsJoin`/`SocketsLeave`/`DisconnectSockets` cases and pass under `-race`; 4A
+moves them into `adaptertest`. Benchmark results for disabled instrumentation,
+production and detailed mode and the tested upstream versions are recorded in the
+M3A release notes; M3 protocol and observability checks remain green.
+
+Acceptance for 5L: owner starts the `_examples/admin` compose stack and opens the
+unchanged Admin UI, both the pinned self-hosted service and the hosted UI. Two tabs
+of the example page appear as live connections; sending events, joining and leaving
+rooms and closing a tab update the corresponding views. The default read-only mode
+rejects commands; with administrative commands enabled, a socket can join/leave a
+room and be disconnected. Restarting the server is visible in the UI, and
+reconnecting the UI refreshes its state.
+
+DoD for 5C: the 5L DoD remains green on each node. Additionally, during initial sync
+and reconnect, continuously connect/disconnect sockets and change rooms on two
+nodes; assert that the UI converges without resurrected sockets, missed removals or
+duplicate entries. Exercise the documented mixed-Node fallback after quiescence.
+Race tests and the expanded `adaptertest` pass for all three adapters. Cluster tests
+cover two Go nodes with Redis and NATS and a mixed Go/Node Redis cluster with
+instrumentation on both nodes: an admin client connected to one node sees remote
+sockets and server statistics and can administer remote sockets. Benchmark results
+and tested upstream versions are recorded in the M6 release notes; earlier protocol
+and observability checks remain green.
+
+Acceptance for 5C: owner starts the chat compose stack and opens the unchanged Admin UI.
 The UI shows both servers and their live connections; sending messages, joining and
 leaving rooms and closing a tab update the corresponding views. With administrative
 commands enabled, a remote socket can join/leave a room and be disconnected. Killing
@@ -1322,12 +1385,14 @@ new revision IDs; release them separately. M7 closes the benchmark scope.
 | --- | --- | --- |
 | M2 | G2, Engine.IO v4, memory adapter and Socket.IO codec integrated; consumer experiments absorbed into their packages | Reviewed `v2-next` snapshot |
 | M3 | Socket.IO runtime, client, observability and conformance | `v2.0.0`, `v2/contrib/otel/v2.0.0` |
-| M4 | Single-server chat | `v2.1.0` |
-| M5 | Broker adapters and cluster chat, including mixed Go/Node Redis | `v2.2.0`, then Redis/NATS module tags |
-| M6 | Admin UI and cluster administration | `v2.3.0`, Admin module tag and adapter minor releases |
+| M3A | Admin UI on a single server (5L) | `v2.1.0` with the additive core changes, `contrib/admin/v2.0.0` |
+| M4 | Single-server chat | `v2.2.0` |
+| M5 | Broker adapters and cluster chat, including mixed Go/Node Redis | `v2.3.0`, then Redis/NATS module tags |
+| M6 | Cluster administration (5C) | `v2.4.0` (`adaptertest` and capability additions), then Admin module and adapter minor releases |
 | M7 | Comparative benchmarks and reproducible artifacts | Report revision |
 
-Acceptance checks run before tagging. Publication checks that require released
+Each milestone takes the next root minor at its tag; the numbers above assume the
+order M3A, M4, M5, M6. Acceptance checks run before tagging. Publication checks that require released
 module versions run at tag time. Tags require the owner's explicit instruction;
 see [CONTRIBUTING.md](../CONTRIBUTING.md#releases). A reviewed M2 snapshot does not
 receive development PRs; topic branches continue to target `master`.

@@ -2986,7 +2986,7 @@ changed to `done — #<PR>` after the merge.
 - **Tests:** none.
 - **Benchmarks:** none.
 - **Docs:** `SECURITY.md`, README, and a `SECURITY.md` row in the documentation ownership
-  table (see Conventions).
+  table (`CLAUDE.md`, section "Documentation").
 - **Acceptance criteria:** P1's endpoints report the settings enabled; a link-check script
   run in the PR, with its output quoted, resolves every link in `SECURITY.md`.
 - **Definition of done:** standard.
@@ -3025,7 +3025,7 @@ changed to `done — #<PR>` after the merge.
   minutes each) and uploads any new failing input as an artifact; a crash fails the job.
 - **Tests:** a dispatched run of the job, linked in the PR.
 - **Benchmarks:** none.
-- **Docs:** the owning CI description (see Conventions).
+- **Docs:** `CLAUDE.md`, section "CI".
 - **Acceptance criteria:** the dispatched run fuzzes every v1 target for its `-fuzztime`;
   `go test ./.github/changes` passes.
 - **Definition of done:** standard.
@@ -3042,7 +3042,7 @@ changed to `done — #<PR>` after the merge.
   each existing finding fixed or suppressed with a reason.
 - **Tests:** none.
 - **Benchmarks:** none.
-- **Docs:** the owning CI description (see Conventions).
+- **Docs:** `CLAUDE.md`, section "CI".
 - **Acceptance criteria:** `make lint` passes with gosec enabled; a CodeQL run on the PR
   head completes and is linked in the PR.
 - **Definition of done:** standard.
@@ -3061,7 +3061,7 @@ changed to `done — #<PR>` after the merge.
 - **Tests:** the suite; its B1, B2 and C8 scenarios fail against the parents of the fixing
   commits of #147, #205 and #209, quoted in the PR.
 - **Benchmarks:** none.
-- **Docs:** the owning CI description (see Conventions).
+- **Docs:** `CLAUDE.md`, section "CI".
 - **Acceptance criteria:** as in Tests, and a dispatched run of the suite passes on the PR
   head.
 - **Definition of done:** standard.

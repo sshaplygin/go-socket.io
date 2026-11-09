@@ -3947,3 +3947,31 @@ Still not repeated: the slow-consumer eviction run, the 20,000-namespace heap (C
 200,000-packet timer figure, full fuzz campaigns, `socket.io-client` 1.7.4 conformance,
 `examples-node`, Go 1.22/1.21 builds, stress, the go1.27 jsonv2 variant, and any Linux,
 Windows or 32-bit runtime.
+
+### Announcement-readiness check on 2026-11-10
+
+Run on 2026-11-10 against `27fdab8`, whose runtime code is equal to `32ce217`. The
+findings it added (C13, interop-12, interop-13, CL-20, T17, T18 and REL-16 to REL-19) are
+in the [finding catalogue](#finding-catalogue); its probes were not retained in the
+repository.
+
+| Check | Result |
+| --- | --- |
+| Local, darwin/arm64, Go 1.25.5 | `make lint` 0 issues; `make vet`, `make sync-check`, `make gates`, `make examples` pass; `make test-race` 16 packages ok; `make cover-check` 94.2% (floor 91.7%), 0 uncovered exported functions; `make vuln` reports only standard library vulnerabilities of the local Go 1.25.5 toolchain (CI scans with the newest Go) |
+| Linux containers (Go 1.27.1, Node 22, Redis 7.4.2 over TCP and a Unix socket) | With socket.io-client 1.7.4 and 2.5.0 each: `make conformance` 20/20 top-level tests (98 PASS lines, no SKIP), `TestRedisMixedCluster` polling and websocket pass, `make examples-node` 7/7 |
+| CI | Push run 42713243264 and dispatched full run 42713256983 on `27fdab8` succeeded (29 jobs); push run 42712155905 on `32ce217` failed in Stress v1 with 9 timeouts across the root, `client`, `engineio` and `engineio/internal/session` packages (issue #225) |
+| Newcomer walkthrough from README at `32ce217` | `go get ...@v1.5.0` fails (tag absent); plain `go get` resolves `v1.4.2` and fails on the module path; a pinned commit installs; first JS ACK round trip about 67 s after opening README; README has no Go code (CL-20) |
+
+Disconnect comparison with socket.io-client 2.5.0 against the fork, upstream `v1.7.0`,
+upstream `v1.4.2` and Node socket.io 2.5.0. Each cell says whether the server's error
+callback fired (`OnError`; the `error` event for Node) and gives, in parentheses, the
+reported error or, where no error fired, the disconnect reason. "Go client close" closes
+the fork's Go client against the fork's server. A dash marks a combination not recorded.
+
+| Scenario | Fork | Upstream `v1.7.0` | Upstream `v1.4.2` | Node socket.io 2.5.0 |
+| --- | --- | --- | --- | --- |
+| Orderly close (upgrade, polling, websocket) | yes (1005 `transport error` over websocket; `transport close: EOF` over polling) | no | yes | no |
+| Abrupt drop, websocket | yes (1006) | yes (1006) | yes | no (`transport close`) |
+| Abrupt drop, polling | yes, immediately (`write: context canceled`) | yes, after 60 s (`write: timeout`) | yes, after 60 s | no (`transport error`) |
+| Server close | no | yes over websocket (`use of closed network connection`), no over polling | — | no |
+| Go client close | yes (1006 over websocket; `transport close: EOF` over polling) | — | — | — |

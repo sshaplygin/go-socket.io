@@ -2,6 +2,7 @@ package engineio_test
 
 import (
 	"bytes"
+	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
@@ -18,9 +19,11 @@ func TestEmptyBinaryPostKeepsSession(t *testing.T) {
 	defer func() { _ = s.Close() }()
 	defer release()
 	done := make(chan string, 1)
+	accepted := make(chan engineio.Conn, 1)
 	go func() {
 		c, err := s.Accept()
 		if err == nil {
+			accepted <- c
 			_, r, readErr := c.NextReader()
 			if readErr != nil {
 				done <- readErr.Error()
@@ -40,9 +43,14 @@ func TestEmptyBinaryPostKeepsSession(t *testing.T) {
 	_, err = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 	require.NoError(t, err)
+	// Accept returns once the session is open; Clients() may not list it yet.
+	release()
 	var sid string
-	for id := range s.Clients() {
-		sid = id
+	select {
+	case c := <-accepted:
+		sid = c.ID()
+	case <-time.After(5 * time.Second):
+		t.Fatal("session was not accepted after the handshake")
 	}
 	require.NotEmpty(t, sid)
 	resp, err = http.Post(ts.URL+"/?EIO=3&transport=polling&sid="+sid, "application/octet-stream", strings.NewReader(""))

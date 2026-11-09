@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -143,12 +144,46 @@ func runSyncTimerChild(name string) error {
 		args = append(args, "-test.gocoverdir="+dir.Value.String())
 	}
 	command := exec.CommandContext(ctx, executable, args...)
-	command.Env = append(os.Environ(), syncTimerChildEnv+"=1", "GODEBUG=asynctimerchan=0")
+	command.Env = syncTimerChildEnviron(os.Environ())
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("synchronous timer child %s: %w\n%s", name, err, output)
 	}
 	return childPassed(name, output)
+}
+
+// syncTimerChildEnviron returns the environment of a child started by
+// runSyncTimerChild from the parent's environ.
+func syncTimerChildEnviron(environ []string) []string {
+	return append(environ[:len(environ):len(environ)], syncTimerChildEnv+"=1", "GODEBUG=asynctimerchan=0")
+}
+
+// lookupLastEnv returns the value os/exec passes for key: the last one.
+func lookupLastEnv(environ []string, key string) string {
+	value := ""
+	for _, kv := range environ {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == key {
+			value = v
+		}
+	}
+	return value
+}
+
+// A race-enabled child otherwise sleeps a second before it exits; the
+// parent's GORACE options still apply.
+func TestSyncTimerChildSkipsRaceExitSleep(t *testing.T) {
+	for _, tc := range []struct {
+		environ []string
+		gorace  string
+	}{
+		{[]string{"PATH=/bin"}, "atexit_sleep_ms=0"},
+		{[]string{"GORACE=halt_on_error=1 log_path=race.log"}, "halt_on_error=1 log_path=race.log atexit_sleep_ms=0"},
+	} {
+		env := syncTimerChildEnviron(tc.environ)
+		require.Equal(t, tc.gorace, lookupLastEnv(env, "GORACE"), tc.environ)
+		require.Equal(t, "asynctimerchan=0", lookupLastEnv(env, "GODEBUG"))
+		require.Equal(t, "1", lookupLastEnv(env, syncTimerChildEnv))
+	}
 }
 
 // childPassed checks the verbose output of a child test binary for the

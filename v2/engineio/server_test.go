@@ -254,7 +254,7 @@ func testEngineUpgrade(t *testing.T, delayedPolling bool) {
 	must.NoError(err)
 
 	query := u.Query()
-	query.Set("EIO", "3")
+	query.Set("EIO", "4")
 	u.RawQuery = query.Encode()
 
 	// Open starts serveGet independently of the polling reader. Holding its
@@ -393,7 +393,7 @@ func TestEngineRejectsTransportDowngrade(t *testing.T) {
 	must.NoError(err)
 
 	query := u.Query()
-	query.Set("EIO", "3")
+	query.Set("EIO", "4")
 	u.RawQuery = query.Encode()
 
 	p, err := polling.Default.Dial(u, nil)

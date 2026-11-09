@@ -63,7 +63,7 @@ func TestOpenAdvertisesMaxPayload(t *testing.T) {
 
 	t.Run("polling limit", func(t *testing.T) {
 		const limit = 1234
-		srv := newServer(&polling.Transport{MaxPayload: limit}, &websocket.Transport{MaxPayload: 99})
+		srv := newServer(&polling.Transport{MaxPayload: limit}, &websocket.Transport{MaxPayload: 999})
 		params := openParams(t, srv, polling.Default)
 		assert.Equal(t, limit, params.MaxPayload)
 		assert.Equal(t, limit, openParams(t, srv, websocket.Default).MaxPayload)

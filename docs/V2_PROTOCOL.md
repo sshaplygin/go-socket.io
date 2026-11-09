@@ -14,7 +14,10 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   ignored, as in Engine.IO v4) and `websocket` (`gobwas/ws`). Order and upgrade path come from `engineio.Options.Transports`,
   default `[polling, websocket]`.
 - Handshake (`OPEN` packet) carries `sid`, `upgrades`, `pingInterval` (default 20 s),
-  `pingTimeout` (default 60 s). There is no `maxPayload`.
+  `pingTimeout` (default 60 s) and `maxPayload`: the POST limit of the polling transport
+  (`polling.Transport.MaxPayload`, default 1 MiB), the value the transport enforces. A server
+  without a polling transport advertises the message limit of its websocket transport, as the
+  single `maxHttpBufferSize` of the Node server bounds both.
 - Heartbeat (Engine.IO v4, ahead of the rest of this section): the server sends `PING` (`2`)
   `pingInterval` after the handshake and `pingInterval` after each `PONG` (`3`), as the Node
   server does, and closes the session with reason `ping timeout` when no `PONG` arrives within
@@ -35,8 +38,8 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   session writers hand over at once. The Go client reads a response (and the open
   response) up to the same `MaxPayload`; a longer one fails the session with
   `payload.ErrTooLarge`, which readers see. The client batches its POSTs up to the
-  `maxPayload` of the open packet, and up to its `MaxPayload` (default 1 MiB) while the
-  open packet carries none, as this server's does today. Sessions are looked up by `sid`; an unknown `sid` is HTTP 400.
+  `maxPayload` of the open packet, and up to its `MaxPayload` (default 1 MiB) when the
+  open packet carries none, as an older server's does. Sessions are looked up by `sid`; an unknown `sid` is HTTP 400.
   The handshake and heartbeat of this section are still v3 until the
   rest of 2.1 lands; the heading of this section flips with that change.
 - WebSocket framing (Engine.IO v4, ahead of the rest of this section): one packet per data

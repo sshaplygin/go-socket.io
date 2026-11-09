@@ -267,7 +267,9 @@ item that implements a D decision also appends `Fixed by #<PR> (D<n>).` to the r
 D item's findings (W10 does this for D1's API-2, REL-7 and CL-10). A finding that is closed
 only by an owner-only step after the merge (W10: REL-2, REL-3 and REL-11) gets no note from
 the item's PR; the owner appends `Fixed by #<PR> (W<n>).` once the step is done, and a
-finding whose optional step is never done keeps no note.
+finding whose optional step is never done keeps no note. A finding that only P items close
+(REL-18) gets `Fixed by P<n>[, P<m>…] (<date>).` from the owner once each P item it names is
+done or not taken; the note lists only the P items actually done.
 
 Apart from its own Status line, its `Fixed by` notes, the Status line and `Fixed by` notes
 of the D item it implements, and `done` updates of items whose PRs
@@ -3117,9 +3119,9 @@ progress in [How to use this plan](#how-to-use-this-plan)). P4–P7 run on one h
 - **Depends on:** none
 - **Steps:** set the description to state that the module is the "maintained successor of
   the archived googollee/go-socket.io for socket.io-client 1.x/2.x", the homepage to
-  `https://pkg.go.dev/github.com/sshaplygin/go-socket.io`, and topics. REL-18 is closed
-  when P2, P3 (done or not taken), P5, P6 and P7 are done; the owner then appends
-  `Fixed by P2, P3, P5–P7 (<date>).` to its row.
+  `https://pkg.go.dev/github.com/sshaplygin/go-socket.io`, and topics. When P2, P3 (done
+  or not taken), P5, P6 and P7 are finished, the owner appends REL-18's note as Marking
+  progress describes.
 - **Acceptance:** `gh repo view sshaplygin/go-socket.io --json description,homepageUrl,repositoryTopics`
   shows the three values.
 
@@ -4012,7 +4014,8 @@ Every finding is listed under the dimension that reported it.
 - The [work plan](#work-plan) maps every ID to exactly one work item, owner decision or
   owner-only publication step, or lists it under "Not planned"; the finding coverage table is in
   [How to use this plan](#how-to-use-this-plan). When a fix merges, the row's
-  Recommendation ends with `Fixed by #<PR> (W<n>).` (or `(D<n>)`), as described in
+  Recommendation ends with `Fixed by #<PR> (W<n>).` (or `(D<n>)`), or for a finding that
+  only owner-only steps close, `Fixed by P<n>[, P<m>…] (<date>).`, as described in
   Marking progress there.
 
 ### Correctness and security findings

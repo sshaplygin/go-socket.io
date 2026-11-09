@@ -20,11 +20,6 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   `github.com/vmihailenco/msgpack/v5` to `v2/go.mod`. Nothing uses the package yet
   (the memory adapter and the broker adapters come later), so the library behaviour is
   unchanged.
-- `_experiments/adapter-rooms`: standalone module (not imported by the v2 module) with
-  22 fixtures captured from the Node in-memory adapter (`socket.io-adapter` 2.5.5) for
-  room membership and recipient selection, a Go fixture validator and a Node script that
-  reproduces the fixtures; preparation for the stage 2.2 memory adapter, no change to the
-  library.
 - v2 API skeleton in the root package (roadmap 2.0): `Event[T]`, `AckEvent[T, R]`,
   `Args2`, `Binary`, `Endpoint`, `ClientRegistration`, raw handlers, `Server`,
   `Namespace`, `Socket`, `Options`, the `Adapter` contract with `AdapterFactory`

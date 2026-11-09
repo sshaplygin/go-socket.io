@@ -125,6 +125,32 @@ func (f *logFixture) upgrade(t *testing.T, conn Conn) {
 		time.Second, time.Millisecond)
 }
 
+// peerCloseAfterUpgrade upgrades a session of PingTimeout 400 ms to websocket, closes the
+// client's side, and reads the session after stall, as a loaded machine would delay it.
+//
+// The websocket is read only by NextReader, which also renews the read deadline. A message
+// is therefore delivered once the handshake's deadline has passed (it shows that the upgrade
+// extended the session), so that the read of the peer's close has a full window of its own
+// rather than what is left of the upgrade's.
+func peerCloseAfterUpgrade(stall time.Duration) func(t *testing.T, f *logFixture) {
+	return func(t *testing.T, f *logFixture) {
+		start, conn := time.Now(), f.accept(t)
+		time.Sleep(200 * time.Millisecond) // of PingTimeout 400 ms
+		f.upgrade(t, conn)
+		time.Sleep(time.Until(start.Add(420 * time.Millisecond))) // past the handshake's deadline
+		f.send(t, eioparser.MESSAGE, "alive")
+		_, r, err := conn.NextReader()
+		require.NoError(t, err)
+		b, err := io.ReadAll(r)
+		require.NoError(t, err)
+		require.Equal(t, "alive", string(b))
+		require.NoError(t, r.Close())
+		require.NoError(t, f.cl.Close())
+		time.Sleep(stall)
+		require.Error(t, readAll(conn))
+	}
+}
+
 func TestSessionCloseRecord(t *testing.T) {
 	cases := []struct {
 		name, sides, reason, transport string // transport, if set, is the one at close
@@ -154,14 +180,10 @@ func TestSessionCloseRecord(t *testing.T) {
 			f.upgrade(t, conn)
 			require.Error(t, readAll(conn))
 		}},
-		{"peer close after upgrade", "P", "transport error", "websocket", func(t *testing.T, f *logFixture) {
-			start, conn := time.Now(), f.accept(t)
-			time.Sleep(200 * time.Millisecond) // of PingTimeout 400 ms
-			f.upgrade(t, conn)
-			time.Sleep(time.Until(start.Add(480 * time.Millisecond))) // past the handshake's deadline
-			require.NoError(t, f.cl.Close())
-			require.Error(t, readAll(conn))
-		}},
+		{"peer close after upgrade", "P", "transport error", "websocket", peerCloseAfterUpgrade(0)},
+		// Nothing reads the websocket between the peer's close and the first NextReader, so a
+		// stall there (scheduler, GC, a loaded runner) must not outlast the read deadline.
+		{"peer close after upgrade, reader stalled", "P", "transport error", "websocket", peerCloseAfterUpgrade(150 * time.Millisecond)},
 		{"Close after a message", "PW", "forced close", "", func(t *testing.T, f *logFixture) {
 			conn := f.accept(t)
 			f.send(t, eioparser.MESSAGE, "hi")

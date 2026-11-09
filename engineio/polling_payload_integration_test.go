@@ -2,7 +2,6 @@ package engineio_test
 
 import (
 	"bytes"
-	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
@@ -13,10 +12,11 @@ import (
 )
 
 func TestEmptyBinaryPostKeepsSession(t *testing.T) {
-	s := engineio.NewServer()
+	s, release := newHeldOpenServer(t)
 	ts := httptest.NewServer(s)
 	defer ts.Close()
 	defer func() { _ = s.Close() }()
+	defer release()
 	done := make(chan string, 1)
 	go func() {
 		c, err := s.Accept()

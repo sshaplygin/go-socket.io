@@ -1,7 +1,6 @@
 package engineio_test
 
 import (
-	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
@@ -12,10 +11,11 @@ import (
 )
 
 func TestPingPostReleasesBeforePongPoll(t *testing.T) {
-	s := engineio.NewServer()
+	s, release := newHeldOpenServer(t)
 	ts := httptest.NewServer(s)
 	defer ts.Close()
 	defer func() { _ = s.Close() }()
+	defer release()
 	go func() {
 		c, e := s.Accept()
 		if e == nil {

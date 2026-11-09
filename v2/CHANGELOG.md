@@ -31,9 +31,9 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   package. Decoders are bounded (message size, nesting depth, binary values) and have fuzz
   targets; the 22 publications captured from Node and the pinned Node oracle are in
   `adapter/codec/testdata`, and the supported ones re-encode to Node's exact bytes. It adds
-  `github.com/vmihailenco/msgpack/v5` to `v2/go.mod`. Nothing uses the package yet
-  (the memory adapter and the broker adapters come later), so the library behaviour is
-  unchanged.
+  `github.com/vmihailenco/msgpack/v5` to `v2/go.mod`. Nothing uses the package yet: its
+  consumers are the broker adapters of stage 4b (the in-memory adapter exchanges no
+  messages), so the library behaviour is unchanged.
 - v2 API skeleton in the root package (roadmap 2.0): `Event[T]`, `AckEvent[T, R]`,
   `Args2`, `Binary`, `Endpoint`, `ClientRegistration`, raw handlers, `Server`,
   `Namespace`, `Socket`, `Options`, the `Adapter` contract with `AdapterFactory`

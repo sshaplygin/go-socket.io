@@ -82,7 +82,8 @@ func TestClientReconnect(t *testing.T) {
 		stop()
 		for i := 0; i < 2; i++ {
 			reason := recv(t, disconnected, "transport disconnect")
-			require.Contains(t, []string{"transport close", "transport error"}, strings.SplitN(reason, ":", 2)[1])
+			// The server closes its websocket sessions with a close frame.
+			require.Equal(t, "transport close", strings.SplitN(reason, ":", 2)[1])
 		}
 		require.False(t, root.Connected())
 		require.False(t, initial["/"].Connected())

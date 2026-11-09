@@ -199,6 +199,8 @@ func (c *client) failure(err error) error {
 	if c.params.PingInterval+c.params.PingTimeout > 0 &&
 		(!read.IsZero() && !now.Before(read) || !write.IsZero() && !now.Before(write)) {
 		reason, err = ReasonPingTimeout, nil
+	} else if peerClosed(err) {
+		reason, err = ReasonTransportClose, io.EOF
 	}
 	// Keep the dialer's existing ping-loop lifecycle: a reader reports the first
 	// cause immediately, while Close or the failed ping ends the engine client.
@@ -208,6 +210,23 @@ func (c *client) failure(err error) error {
 	}
 	c.mu.Unlock()
 	return c.closeError()
+}
+
+// peerClosed reports whether err is the close frame of an orderly websocket
+// close by the peer: normal closure (what this server sends), going away, or a
+// frame without a status, which engine.io 3.6.2 sends. engine.io-client
+// 3.5.6 reports any close of its websocket as "transport close"; other statuses
+// signal a failure of the connection and stay transport errors.
+func peerClosed(err error) bool {
+	var closeErr *websocket.CloseError
+	if !errors.As(err, &closeErr) {
+		return false
+	}
+	switch closeErr.Code {
+	case websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived:
+		return true
+	}
+	return false
 }
 
 func (c *client) NextReader() (eioparser.FrameType, io.ReadCloser, error) {

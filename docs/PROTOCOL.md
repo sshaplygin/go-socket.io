@@ -43,10 +43,22 @@ Package `engineio` of the v1 module at the repository root.
   despite `forceBase64`. Without `b64`, a text message starting with `b` is an
   invalid packet type and closes the session; engine.io 3.6.2 decodes it as base64
   in either mode.
-  As a known limitation, a server-initiated websocket close, such as `Conn.Close`
-  or `Server.Close`, closes the underlying connection without a websocket close
-  control frame, so the client observes close code 1006. The message-limit close
-  below does send a close frame, with code 1009, though a client can still see 1006.
+  A server-initiated websocket close, such as `Conn.Close`, `Server.Close`, a
+  client `CLOSE` packet or a ping timeout, sends a close frame with code 1000 before
+  the TCP connection is closed, as engine.io 3.6.2 does, so the client observes close
+  code 1000. The server then waits up to 250 ms for the client's closing reply, so
+  that the TCP close does not reset it (ws 1.1.5, used by socket.io-client 1.7.4 under
+  Node, reports a reset as 1006 even after it read the frame), and closes the TCP
+  connection. The frame is written with a 500 ms deadline: a peer that has stopped
+  reading or does not reply delays the close by at most that long and then sees the
+  connection drop (1006). `engineio.Abort`, and a session that failed with a transport
+  error, drop the connection without a frame, so the client observes 1006; so can a
+  connection that resets before the client reads the frame, for example when the
+  server still has unread client data. The message-limit close below sends code 1009. The reference
+  clients report the close frame as `transport close`, and so does the Go client for
+  codes 1000 and 1001 and for a frame without a code, which engine.io 3.6.2 sends;
+  other codes, such as 1009 or 1011, remain `transport error`. The frame is sent by
+  server connections only: the Go client closes its websocket without one.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
   to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
   threshold and only for a packet whose compression flag is true. The threshold is

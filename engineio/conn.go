@@ -27,7 +27,9 @@ type Conn interface {
 	// writer to finish the frame and release the transport.
 	NextWriter(fType eioparser.FrameType) (io.WriteCloser, error)
 	// Close closes the session. A polling session first delivers writes it has
-	// already accepted; Abort closes immediately.
+	// already accepted. A websocket session sends a close frame with status 1000
+	// (normal closure) and waits briefly for the client's reply, at most 0.75
+	// seconds in all. Abort closes immediately and sends no frame.
 	Close() error
 	// URL returns the request URL of the current transport.
 	URL() url.URL
@@ -95,7 +97,9 @@ const (
 // non-nil. Unwrap returns Err.
 type CloseError = sessionImpl.CloseError
 
-// Abort immediately closes a server session; custom engines receive ordinary Close.
+// Abort immediately closes a server session; a websocket is dropped without a
+// close frame, so its client sees close code 1006. Custom engines receive
+// ordinary Close.
 func Abort(c Conn) error {
 	if s, ok := c.(*sessionImpl.Session); ok {
 		return s.Abort()

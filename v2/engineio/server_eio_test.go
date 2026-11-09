@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -96,6 +97,39 @@ func TestHandshakeBadUpgrade(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "bad upgrade", got[0]["reason"])
 	assert.Equal(t, slog.LevelWarn.String(), got[0]["level"])
+}
+
+// noDeadlineTransport is polling whose connections refuse a deadline, so no session can start.
+type noDeadlineTransport struct{ transport.Transport }
+
+func (noDeadlineTransport) Accept(http.ResponseWriter, *http.Request) (transport.Conn, error) {
+	return noDeadlineConn{}, nil
+}
+
+type noDeadlineConn struct{ transport.Conn }
+
+func (noDeadlineConn) SetReadDeadline(time.Time) error { return errors.New("no deadline") }
+func (noDeadlineConn) Close() error                    { return nil }
+
+// TestHandshakeInitFailure checks that a session that cannot start is answered with code 3.
+func TestHandshakeInitFailure(t *testing.T) {
+	rec := logtest.NewRecorder()
+	srv := engineio.NewServer(&engineio.Options{
+		Logger:     slog.New(rec),
+		Transports: []transport.Transport{noDeadlineTransport{polling.Default}},
+	})
+	defer func() { _ = srv.Close() }()
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/?transport=polling&EIO=4", nil))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.JSONEq(t, `{"code":3,"message":"Bad request"}`, w.Body.String())
+	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+	assert.Zero(t, srv.Count(), "no session may be created")
+	got := rec.Find("engineio: request rejected")
+	require.Len(t, got, 1)
+	assert.Equal(t, "init", got[0]["reason"])
 }
 
 // TestHandshakeEIO4 checks that EIO=4 opens a session.

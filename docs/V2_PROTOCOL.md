@@ -2,12 +2,12 @@
 
 These notes concern the independent `v2/` module.
 
-## Implemented: Engine.IO protocol v3
+## Implemented: Engine.IO protocol v4
 
 Package `v2/engineio`, the v2 module. The root `engineio` package of the v1 module is
 described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
 
-- Query parameter `EIO` must be `4` (Engine.IO v4, ahead of the rest of this section). It is
+- Query parameter `EIO` must be `4`. It is
   checked before the transport; a missing or other value is HTTP 400 with error code 5. The
   Go dialer (`engineio/client`) sends `EIO=4`, replacing any value in the URL.
 - Transports: `polling` (XHR only; the `j` JSONP parameter and the `b64` parameter are
@@ -18,7 +18,7 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   (`polling.Transport.MaxPayload`, default 1 MiB), the value the transport enforces. A server
   without a polling transport advertises the message limit of its websocket transport, as the
   single `maxHttpBufferSize` of the Node server bounds both.
-- Heartbeat (Engine.IO v4, ahead of the rest of this section): the server sends `PING` (`2`)
+- Heartbeat: the server sends `PING` (`2`)
   `pingInterval` after the handshake and `pingInterval` after each `PONG` (`3`), as the Node
   server does, and closes the session with reason `ping timeout` when no `PONG` arrives within
   `pingTimeout` of a `PING`. The ping timer and the ping timeout run on their own timers, so
@@ -32,7 +32,7 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   arrives within `pingInterval + pingTimeout` of the `OPEN` packet or of the last `PING`, it
   closes the connection and `NextReader` fails with an error that starts with `ping timeout`,
   as the Node client closes.
-- Polling payload (Engine.IO v4 framing, ahead of the rest of this section): packets are
+- Polling payload: packets are
   separated by the record separator `0x1e`; binary packets are base64 behind a `b`
   prefix; every body is `text/plain; charset=UTF-8`, and a POST of `application/octet-stream`
   is HTTP 400. A POST body is read up to the transport's `MaxPayload` (default 1 MiB,
@@ -44,9 +44,7 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   `payload.ErrTooLarge`, which readers see. The client batches its POSTs up to the
   `maxPayload` of the open packet, and up to its `MaxPayload` (default 1 MiB) when the
   open packet carries none, as an older server's does. Sessions are looked up by `sid`; an unknown `sid` is HTTP 400.
-  The handshake and heartbeat of this section are still v3 until the
-  rest of 2.1 lands; the heading of this section flips with that change.
-- WebSocket framing (Engine.IO v4, ahead of the rest of this section): one packet per data
+- WebSocket framing: one packet per data
   message. A text message is the type byte and the data; a binary message is the raw data of
   a MESSAGE packet with no type byte, and the text form `b` + base64 is read as a binary
   MESSAGE. The server hijacks the HTTP/1.1 request (`ws.UpgradeHTTP`); a response writer
@@ -151,20 +149,20 @@ Deliberate differences from the Node.js parser:
 - JSON decoding replaces an unpaired UTF-16 surrogate escape in a string by U+FFFD
   when a value is decoded into a Go string; the raw `Packet.Data` keeps the escape.
 
-## Planned: Engine.IO v4 and Socket.IO v5
+## Protocol changes from v1: Engine.IO v4 and Socket.IO v5
 
 Target of [ROADMAP.md](ROADMAP.md#stage-2-socketio-protocol-v5-over-engineio-protocol-v4-tag-v200).
 
-Engine.IO v3 → v4:
+Engine.IO v3 → v4 (implemented in `v2/engineio`, see above):
 
-| Area | v3 (current) | v4 (target) |
+| Area | v3 (v1, repository root) | v4 (`v2/engineio`) |
 | --- | --- | --- |
-| Query | `EIO` ignored | `EIO=4` required, otherwise HTTP 400 with JSON error code 5 (done, see above) |
+| Query | `EIO` ignored | `EIO=4` required, otherwise HTTP 400 with JSON error code 5 |
 | Handshake | `sid`, `upgrades`, `pingInterval`, `pingTimeout` | plus `maxPayload` |
 | Heartbeat | client sends `2`, server answers `3` | server sends `2` every `pingInterval`, client answers `3` within `pingTimeout` |
-| WebSocket | one packet per frame, binary frames start with a type byte | unchanged; binary frames carry raw bytes (done, see above) |
-| Upgrade | `2probe` / `3probe` / `5` | unchanged, plus server sends `6` (NOOP) into the pending poll |
-| Errors | plain text | JSON `{"code": N, "message": "..."}`, codes 0..5 (done, see above) |
+| WebSocket | one packet per frame, binary frames start with a type byte | unchanged; binary frames carry raw bytes |
+| Upgrade | `2probe` / `3probe` / `5` | unchanged, plus server sends `6` (NOOP) into the pending poll; polling pauses on `5` |
+| Errors | plain text | JSON `{"code": N, "message": "..."}`, codes 0..5 |
 
 Socket.IO v4 → v5:
 

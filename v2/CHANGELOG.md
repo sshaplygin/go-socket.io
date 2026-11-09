@@ -131,8 +131,7 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   message, coded by the prepared v4 codec, now in package `websocket` (`Encode`, `Decode`,
   `Packet`, `ErrTooLarge`, `ErrInvalidPacket`, `ErrInvalidLimit`): a binary message is the raw
   data of a MESSAGE packet, without the type byte of v3, and `b` + base64 text is read as binary.
-  The handshake and heartbeat are still Engine.IO v3; a v3 peer that sends binary
-  over websocket no longer interoperates. A message is limited to `websocket.Transport.MaxPayload`
+  A v3 peer that sends binary over websocket no longer interoperates. A message is limited to `websocket.Transport.MaxPayload`
   (new field, default 1 MiB as for polling), fragments together; the transport answered any
   size before. A peer that violates the protocol is sent a close frame with status 1002, 1007
   (invalid UTF-8) or 1009 (too large), then a TCP half-close and up to one second of draining
@@ -169,8 +168,7 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   POST carry every packet that the session writers hand over at once, a POST up to the
   server's `maxPayload`, or to the client's `MaxPayload` (default 1 MiB) until it is advertised. A client response larger than its `MaxPayload` ends the session with `payload.ErrTooLarge`. Closing a polling client aborts its pending requests.
   `transport.ConnParameters` gains `MaxPayload` (JSON `maxPayload`, omitted when zero).
-  The handshake and heartbeat are still Engine.IO v3 until the rest of 2.1
-  lands; a v3 peer no longer interoperates over polling.
+  A v3 peer no longer interoperates over polling.
 - `payload.New` takes the read and write limits instead of a binary flag, and `FeedIn`
   no longer takes one.
 - `engineio.Server` requires Engine.IO protocol v4 (stage 2.1): a request whose `EIO` query
@@ -188,6 +186,22 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   the failure that ended the payload, WARN otherwise) and `"bad method"` from the polling
   transport, through `logger.Log`. An OPTIONS request without `sid` is answered as a CORS
   preflight and opens no session; before, it created a session and called `ConnInitor`.
+- `engineio` runs the Engine.IO v4 heartbeat and upgrade (stage 2.1), as the Node server and
+  client do. The server sends `PING` `pingInterval` after the handshake and after each `PONG`
+  and closes a session with reason `ping timeout` when no `PONG` follows within `pingTimeout`;
+  it no longer answers a client `PING`, which now closes the session with reason
+  `transport error` (`invalid heartbeat direction`). The transport deadlines are
+  `pingInterval + pingTimeout` from the last `PONG` (they were `pingTimeout` from the last
+  client `PING`). The `engineio/client` dialer answers each server `PING` with `PONG` from
+  `NextReader`, sends none, and closes when no `PING` arrives within
+  `pingInterval + pingTimeout`; `NextReader` then fails with `ping timeout: ...`. Its ping
+  goroutine and the `engineio: ping failed` record are removed. The `OPEN` packet carries
+  `maxPayload`: the polling POST limit (`polling.Transport.MaxPayload`, default 1 MiB), or the
+  websocket message limit on a server without polling. During an upgrade the server writes one
+  `NOOP` to the polling connection after the probe and pauses polling on `UPGRADE` (`5`) instead
+  of after the probe: until `UPGRADE` the session still runs on polling, and a failed upgrade
+  no longer pauses and resumes it. An Engine.IO v3 client, which sends the pings, no longer
+  keeps a session open.
 
 ### Removed
 

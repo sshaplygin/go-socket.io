@@ -171,6 +171,43 @@ func TestMemoryAdapterBroadcastErrorIsBounded(t *testing.T) {
 	}
 }
 
+// TestMemoryAdapterBroadcastErrorKeepsSentinels fails more distinct other causes than
+// the error reports one by one, then ErrSocketClosed twice and ErrWriteBufferFull once:
+// both sentinels stay matchable with errors.Is.
+func TestMemoryAdapterBroadcastErrorKeepsSentinels(t *testing.T) {
+	const others = maxFailureCauses + 4
+	const n = others + 4 // the last delivery succeeds
+	local := newFakeLocal()
+	a := newMemoryAdapter(local)
+	for i := 0; i < n; i++ {
+		sid := SocketID(fmt.Sprintf("s%02d", i))
+		local.setLive(sid, `{}`, true)
+		a.AddAll(sid, []Room{sid})
+	}
+	// The outcome follows the attempt number, not the socket, so the order in which
+	// the adapter selects sockets does not matter.
+	attempt := 0
+	local.onDeliver = func(sid SocketID) {
+		attempt++
+		err := fmt.Errorf("cause %d", attempt)
+		switch {
+		case attempt > others+3:
+			return
+		case attempt > others+2:
+			err = ErrWriteBufferFull
+		case attempt > others:
+			err = ErrSocketClosed
+		}
+		local.mu.Lock()
+		local.fail[sid] = err
+		local.mu.Unlock()
+	}
+	res, err := a.Broadcast(context.Background(), testPacket, BroadcastOptions{})
+	if res.LocalRecipients != 1 || !errors.Is(err, ErrSocketClosed) || !errors.Is(err, ErrWriteBufferFull) {
+		t.Fatalf("result %+v, error %v; want 1 recipient and both sentinels matched", res, err)
+	}
+}
+
 func TestMemoryAdapterBroadcastStopsWhenContextEnds(t *testing.T) {
 	local := newFakeLocal("a", "b", "c")
 	a := newMemoryAdapter(local)

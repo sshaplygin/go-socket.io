@@ -22,7 +22,6 @@ internal tests live beside the implementation they verify.
 | `.github/benchmarks/` | Benchmark comparison and reporting |
 | `.github/stress/` | Summary of the `go test -json` stream of the stress runs under load |
 | `v2/` | Independent API and runtime work; contracts in `docs/API.md` |
-| `v2/_experiments/` | Standalone prototypes, excluded from both runtime modules |
 
 ## Commands
 

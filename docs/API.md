@@ -3,8 +3,9 @@
 The declarations of roadmap stage 2.0: the method-signature inventory and the
 package graph that parallel work (2.1 to 2.4) builds against. The G2 gate (ROADMAP wave
 2A) froze them; [Frozen contract](#frozen-contract) records what is frozen and what is
-explicitly not. The skeleton is declarations only. Every operation that needs the runtime returns
-`socketio.ErrNotImplemented` (`Server.ServeHTTP` answers 501); nothing here works yet. Behaviour is specified in
+explicitly not. Operations that need the runtime return `socketio.ErrNotImplemented`
+until their stage lands (`Server.ServeHTTP` answers 501); `RedactHandshake` (2.2) is
+implemented. Behaviour is specified in
 [ROADMAP.md](ROADMAP.md) (sections 2.0 to 2.4) and, once it exists, in the godoc of each
 declaration. This file lists signatures and does not restate behaviour. A signature
 change updates this file, the fixtures and the owning roadmap section in one PR.
@@ -79,7 +80,7 @@ from the declaration, and `make graph` checks the package graph.
 | `adapter.go` | `LocalSockets` | `Deliver(ctx, SocketID, parser.Packet) error`; `Snapshot(SocketID) (RemoteSocket, bool)` |
 | `adapter.go` | `AdapterFactory` | `func(ctx, nsp *Namespace) (Adapter, error)` |
 | `adapter.go` | `BroadcastOptions` | `{Rooms, Except []Room; Flags BroadcastFlags}` |
-| `adapter.go` | `RedactHandshake` | `RedactHandshake(json.RawMessage) (json.RawMessage, error)`; drops `auth` and the three headers, keeps the rest; the skeleton returns `ErrNotImplemented` |
+| `adapter.go` | `RedactHandshake` | `RedactHandshake(json.RawMessage) (json.RawMessage, error)`; drops `auth` and the three headers (names compared without case), keeps every other member byte for byte; nil yields nil, a value that is not an object an error |
 | `adapter.go` | `BroadcastFlags` | `{Local bool}`; other flags are later additive fields, so literals use field names |
 | `adapter.go` | `RemoteSocket` | `{ID SocketID; Rooms []Room; Handshake, Data json.RawMessage}`; `Handshake` omits `auth` and three headers only (see *Frozen at G2*), `Data` is nil or valid JSON |
 | `options.go` | `Options` | `{Logger *slog.Logger; Engine engineio.Options; Hooks *Hooks; Adapter AdapterFactory; AckTimeout time.Duration; OutboundQueueGroups, OutboundQueueBytes, HandlerQueueEvents, HandlerQueueBytes, MaxPendingAcks, MaxAttachments, MaxEventBytes, MaxConcurrentConnects int; AttachmentTimeout, ConnectTimeout time.Duration}`; defaults and units in the godoc |

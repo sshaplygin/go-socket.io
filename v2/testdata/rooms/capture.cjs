@@ -91,7 +91,7 @@ async function main() {
   await add("explicit-false-volatile-is-forwarded", base, [], ["c"], { volatile: false, compress: true });
   await add("empty-and-unicode-room-names", [connect("a", ["", "комната"]), connect("b", [""])], ["", "комната"]);
   const corpus = { schema: 1, adapter: "2.5.5", parser: "4.2.7", cases };
-  const target = path.join(__dirname, "../testdata/rooms.json");
+  const target = path.join(__dirname, "rooms.json");
   const canonical = JSON.stringify(corpus, null, 2) + "\n";
   if (process.argv.includes("--write")) fs.writeFileSync(target, canonical);
   else assert.equal(fs.readFileSync(target, "utf8"), canonical, "corpus drift; inspect upstream behavior before npm run capture");

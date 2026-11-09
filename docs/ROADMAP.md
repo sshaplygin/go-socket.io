@@ -62,13 +62,14 @@ the Node oracle or script checks of its module that it ran by hand. A module lan
 `master` through a fresh-branch cherry-pick PR of its owned commits (transfer rules in
 issue #2; #44, #45, #54, #55 and #53 landed this way and supersede draft PRs #8, #9, #1, #6 and #7); it is later
 absorbed into live packages by the PR that lands its consumer, and that PR deletes the
-experiment and its `Unreleased` CHANGELOG entry (today `adapter-rooms`; `adapter-wire` went
+experiment and its `Unreleased` CHANGELOG entry (no experiment is open today; `adapter-rooms` went into
+`testdata/rooms` with the 2.2 memory-adapter PR, `adapter-wire`
 with the first 2.2 PR, which created `adapter/codec`, `sio5-codec` was absorbed into `parser/` by 2.3P, and
 `eio4-websocket`, `ws-bench` and the `internal/eio4` entry went with the 2.1 WebSocket PR). M2 acceptance checks the deletions. A draft PR does not satisfy a gate.
 
 | Component (source PR) | Purpose | Consumer | State in `master` and retirement |
 | --- | --- | --- | --- |
-| `_experiments/adapter-rooms` (#9, landed as #45) | Node memory-adapter room corpus | 2.2 conformance | landed, unreleased; absorbed into the 2.2 tests by the PR that adds them, which deletes it |
+| `_experiments/adapter-rooms` (#9, landed as #45) | Node memory-adapter room corpus | 2.2 conformance | absorbed into `testdata/rooms` (`TestMemoryAdapterNodeRooms`) by the 2.2 memory-adapter PR, which deleted the module |
 
 ### 2.0 Generic API and lifecycle contract
 

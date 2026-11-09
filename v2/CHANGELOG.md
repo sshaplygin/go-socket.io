@@ -10,6 +10,24 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
 
 ### Added
 
+- `RedactHandshake` has its body (roadmap 2.2): it drops the top-level `auth` member and the
+  `authorization`, `cookie` and `proxy-authorization` members of `headers` (names compared
+  without case) and keeps every other member byte for byte; nil yields nil and a value that
+  is not one JSON object an error. Before, it returned `ErrNotImplemented`.
+- In-memory adapter (roadmap 2.2), unexported, built from a `LocalSockets` value, with the
+  default `AdapterFactory` over `Namespace.LocalSockets()`: room union with deduplication,
+  `Except` rooms, empty selection of every socket, `LocalRecipients` counting successful
+  `Deliver` calls, a partial result with an error that groups the failed deliveries by cause
+  (count and sample socket IDs per cause; causes past the first 8 other than the two
+  sentinels share one counted group, so the error is bounded however many fail) and matches
+  with `errors.Is` `ErrSocketClosed`, `ErrWriteBufferFull`, a done context, the first 8 other
+  causes and the first cause of the shared group, no publication, no lock held across
+  `Deliver`, owned result slices.
+  `Sockets` and `FetchSockets` list present sockets only and return at once with a nil
+  error; `ServerSideEmit` and `Close` do nothing and return nil. The conformance tests
+  replay the 22 Node cases of `testdata/rooms` (from `socket.io-adapter` 2.5.5, formerly
+  `_experiments/adapter-rooms`). `Options.Adapter == nil` does not select it yet: stage 2.3S
+  wires it with the namespace runtime, so library behaviour is unchanged.
 - `adapter/codec`: encoder and decoder for the messages of the non-sharded Node Redis adapter
   (`@socket.io/redis-adapter@8.3.0`): the MessagePack broadcast `[uid, packet, opts]`, the JSON
   requests (all-rooms, join, leave, disconnect, fetch-sockets, server-side emit) and the
@@ -17,14 +35,9 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   package. Decoders are bounded (message size, nesting depth, binary values) and have fuzz
   targets; the 22 publications captured from Node and the pinned Node oracle are in
   `adapter/codec/testdata`, and the supported ones re-encode to Node's exact bytes. It adds
-  `github.com/vmihailenco/msgpack/v5` to `v2/go.mod`. Nothing uses the package yet
-  (the memory adapter and the broker adapters come later), so the library behaviour is
-  unchanged.
-- `_experiments/adapter-rooms`: standalone module (not imported by the v2 module) with
-  22 fixtures captured from the Node in-memory adapter (`socket.io-adapter` 2.5.5) for
-  room membership and recipient selection, a Go fixture validator and a Node script that
-  reproduces the fixtures; preparation for the stage 2.2 memory adapter, no change to the
-  library.
+  `github.com/vmihailenco/msgpack/v5` to `v2/go.mod`. Nothing uses the package yet: its
+  consumers are the broker adapters of stage 4b (the in-memory adapter exchanges no
+  messages), so the library behaviour is unchanged.
 - v2 API skeleton in the root package (roadmap 2.0): `Event[T]`, `AckEvent[T, R]`,
   `Args2`, `Binary`, `Endpoint`, `ClientRegistration`, raw handlers, `Server`,
   `Namespace`, `Socket`, `Options`, the `Adapter` contract with `AdapterFactory`

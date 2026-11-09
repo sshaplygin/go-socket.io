@@ -229,7 +229,8 @@ func TestServerCloseStalledClientIsBounded(t *testing.T) {
 			closed := make(chan error, 1)
 			go func() { closed <- closer(p) }()
 			select {
-			case <-closed:
+			case err := <-closed:
+				t.Logf("close returned: %v", err)
 			case <-time.After(10 * time.Second):
 				t.Fatal("close is not bounded by a stalled client")
 			}

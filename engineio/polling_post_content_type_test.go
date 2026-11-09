@@ -211,6 +211,7 @@ func TestPollingPostBodyDecodesByContentType(t *testing.T) {
 		{"random bytes as octet-stream", str("application/octet-stream"), "\xff\xfe\x00\x01\x80"},
 		{"not a payload without Content-Type", nil, "not a payload"},
 		{"not a payload as text/plain", str("text/plain; charset=utf-8"), "not a payload"},
+		{"invalid base64 packet without Content-Type", nil, "5:b4!!!"},
 		{"length beyond body without Content-Type", nil, "99:4hello"},
 		{"huge length without Content-Type", nil, "99999999999999999999:4hello"},
 	}

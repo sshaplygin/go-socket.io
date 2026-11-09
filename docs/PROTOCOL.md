@@ -93,18 +93,23 @@ Package `engineio` of the v1 module at the repository root.
   `Forbidden` when `WithRequestChecker` rejects the request (3.6.2 sends the error
   of `allowRequest` as the message). A websocket upgrade request gets the same
   answers, where engine.io 3.6.2 writes a plain-text HTTP 400 and closes the socket. What
-  the polling transport rejects itself stays plain text: HTTP 400 for an unsupported
-  `Content-Type`, a POST the payload cannot take (paused, overlapping, closed, timed out
-  or not decodable) or an invalid method, 413 for the message limit above, 500 for a poll
+  the polling transport rejects itself stays plain text: HTTP 400 for a POST the payload
+  cannot take (paused, overlapping, closed, timed out or not decodable) or an invalid
+  method, 413 for the message limit above, 500 for a poll
   whose response failed before it was started. A POST whose body read the session's
   close interrupted is answered with `Connection: close`.
-  As a known compatibility limitation, a polling POST is accepted only with
-  `Content-Type` `application/octet-stream` (binary payload, parameters ignored) or
-  `text/plain` with `charset=utf-8` (text payload); type and charset are
-  case-insensitive. Any other value, including `text/plain` without a charset and a
-  missing header, is answered HTTP 400. Engine.IO 3.6.2 decodes a body as binary
-  only when `Content-Type` is exactly `application/octet-stream` and as text
-  otherwise.
+  A polling POST body is decoded by its `Content-Type`, as in engine.io 3.6.2:
+  `application/octet-stream` selects the binary payload and every other value, a
+  missing header, `text/plain` with or without a charset, `application/x-www-form-urlencoded`
+  (what `curl -d` sends) and a value that is not a valid media type included, selects the
+  text payload. The charset is not checked. The check on the media type is a Go
+  difference from the reference: it ignores case and parameters, where 3.6.2 compares
+  the whole header value with `application/octet-stream`, so
+  `Application/Octet-Stream` and `application/octet-stream; charset=binary` are binary
+  here and text there. The type never depends on the session's `b64` parameter, and the
+  body is not sniffed: a binary payload sent as text, or a text payload sent as
+  `application/octet-stream`, is not decodable and is answered HTTP 400.
+  The request body limit and the other refusals apply whatever the header says.
 
 ### CORS
 

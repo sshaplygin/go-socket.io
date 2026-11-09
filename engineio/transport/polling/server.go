@@ -199,13 +199,7 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		c.SetHeaders(w, r)
 
-		mime := r.Header.Get("Content-Type")
-		isSupportBinary, err := mimeIsSupportBinary(mime)
-		if err != nil {
-			logger.Log.Debug("engineio: unsupported content type", "err", err)
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
+		isSupportBinary := requestBodyIsBinary(r.Header.Get("Content-Type"))
 
 		body := http.MaxBytesReader(w, r.Body, c.readLimit)
 		if r.ContentLength > c.readLimit {
@@ -227,7 +221,7 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		_, err = w.Write([]byte("ok"))
+		_, err := w.Write([]byte("ok"))
 		if err != nil {
 			logger.Log.Debug("engineio: post answer failed", "err", err)
 		}

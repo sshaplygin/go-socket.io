@@ -549,6 +549,16 @@ func replaceSubscriber(t *testing.T, owner *broadcast) {
 	}, 2*time.Second, time.Millisecond, "subscriber did not reconnect")
 }
 
+// awaitSubscribers waits until Redis counts want subscribers on channel. Redis
+// counts a closed connection until it has handled the disconnect, which is
+// asynchronous to the client's Close.
+func awaitSubscribers(t *testing.T, s *miniredis.Miniredis, channel string, want int, msg string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return s.PubSubNumSub(channel)[channel] == want
+	}, 2*time.Second, time.Millisecond, "%s: want %d subscribers on %s", msg, want, channel)
+}
+
 func TestNamespaceCloseConfirmsRemovalAfterSubscriberReplacement(t *testing.T) {
 	// Redis forgets the subscriptions of a closed connection only once it has
 	// handled the disconnect, which is asynchronous to the client's Close.
@@ -602,12 +612,11 @@ func TestNamespaceCloseConfirmsRemovalAfterSubscriberReplacement(t *testing.T) {
 			case <-time.After(2 * time.Second):
 				t.Fatal("replacement did not confirm retired subscription removal")
 			}
-			if got := s.PubSubNumSub(owner.reqChannel)[owner.reqChannel]; got != 0 {
-				t.Fatalf("replacement retained closed namespace: %d", got)
-			}
-			if got := s.PubSubNumSub("socket.io-request#/remaining#")["socket.io-request#/remaining#"]; got != 1 {
-				t.Fatalf("remaining namespace subscriber count %d", got)
-			}
+			// The retired connection is counted until Redis handles its
+			// disconnect, so wait for the counts to settle on the replacement's.
+			remainingChannel := "socket.io-request#/remaining#"
+			awaitSubscribers(t, s, owner.reqChannel, 0, "replacement retained closed namespace")
+			awaitSubscribers(t, s, remainingChannel, 1, "remaining namespace subscriber count")
 		})
 	}
 }
@@ -656,9 +665,10 @@ func TestNamespaceCloseRecoversFromUnsubscribeWriteFailure(t *testing.T) {
 			// A failed write must close that transport and await a replacement which
 			// subscribes only the remaining namespace before reporting success.
 			require.NoError(t, owner.Close())
-			require.Zero(t, s.PubSubNumSub(owner.reqChannel)[owner.reqChannel])
-			channel := "socket.io-request#/remaining#"
-			require.Equal(t, 1, s.PubSubNumSub(channel)[channel])
+			// The retired connection is counted until Redis handles its
+			// disconnect, so wait for the counts to settle on the replacement's.
+			awaitSubscribers(t, s, owner.reqChannel, 0, "closed namespace retained")
+			awaitSubscribers(t, s, "socket.io-request#/remaining#", 1, "remaining namespace subscriber count")
 		})
 	}
 }

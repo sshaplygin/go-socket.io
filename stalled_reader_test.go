@@ -44,10 +44,6 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 			var created atomic.Int64          // MESSAGE packets the session has started to write
 			inbound := make(chan struct{}, 1) // a packet was read after start
 			frames := newClientFrames()
-			// Frames the client wrote between the read that releases the overflow and
-			// the first emit of the overflow; -1 until a sending subtest gets there.
-			var margin atomic.Int64
-			margin.Store(-1)
 			upgraded := make(chan struct{})
 			srv := NewServer(WithEngineOptions(
 				engineio.WithPingInterval(pingInterval),
@@ -86,10 +82,11 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 					// Emission follows the session, not a clock. Once the writer is half a
 					// queue behind, as a reader that never reads leaves it, the emits that
 					// overflow the queue wait, for a sending client, until the server has
-					// read a packet since emission began and the client has then written one
-					// more frame. The server renews its deadlines after each read, so the
-					// reader has had at least that client send period to reach the renewal
-					// while the writer lags; that it got there is not observed.
+					// read a packet since emission began and the client has then started
+					// another frame. The client starts frames on a 100 ms ticker, so the
+					// overflow follows the read frame by a later frame start, nominally one
+					// send period, in which the reader can reach the deadline renewal after
+					// its read; whether it does is not observed.
 					payload := strings.Repeat("x", 256000)
 					base, behind := created.Load(), false
 					for i := int64(0); i < 400; i++ {
@@ -110,11 +107,9 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 								case <-stop:
 									return
 								}
-								atRead := frames.written.Load()
 								if !frames.afterRead(done, stop) {
 									return
 								}
-								margin.Store(frames.written.Load() - atRead)
 							}
 						}
 						c.Emit("large", payload)
@@ -226,12 +221,6 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 			select {
 			case err = <-failures:
 				require.True(t, errors.Is(err, ErrWriteBufferFull), "unexpected error: %v", err)
-				if tc.frame != "" {
-					// The reader gets at least one client send period to reach the deadline
-					// renewal that follows its read before the overflow closes the session.
-					require.Positive(t, margin.Load(),
-						"frames written between the read and the overflow emits")
-				}
 			case <-time.After(pingInterval + pingTimeout):
 				t.Fatal("timed out waiting for write buffer overflow")
 			}
@@ -285,12 +274,10 @@ func (f *clientFrames) note(step string) {
 	}
 }
 
-// write sends one frame with send and records it.
+// write counts one frame as started, wakes a waiting emitter, then sends the frame with
+// send. Counting before sending means that every frame the server can have read is
+// counted by the time the read is observed.
 func (f *clientFrames) write(send func() error) error {
-	if err := send(); err != nil {
-		return err
-	}
-	f.note("sent")
 	f.written.Add(1)
 	f.note("counted")
 	select {
@@ -298,17 +285,24 @@ func (f *clientFrames) write(send func() error) error {
 	default:
 	}
 	f.note("signalled")
+	if err := send(); err != nil {
+		return err
+	}
+	f.note("sent")
 	return nil
 }
 
-// afterRead is called once the server has read a client frame; it waits for the next
-// frame and reports false if done or stop is closed first.
+// afterRead is called once the server has read a client frame. It returns once the client
+// has started a frame after that point, or false if done or stop is closed first. A
+// wake-up only makes it check the count again, so a stale one cannot end the wait.
 func (f *clientFrames) afterRead(done, stop <-chan struct{}) bool {
-	select {
-	case <-f.wrote: // possibly written before that read
-	default:
+	atRead := f.written.Load()
+	for f.written.Load() <= atRead {
+		if !f.wait(done, stop) {
+			return false
+		}
 	}
-	return f.wait(done, stop)
+	return true
 }
 
 // TestClientFramesAfterRead: afterRead returns only after the client has started a frame

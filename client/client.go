@@ -54,7 +54,10 @@ func (c *Client) OnDisconnect(f func(Conn, string)) { c.manager.OnDisconnect(f) 
 // OnError sets the default namespace's error callback.
 func (c *Client) OnError(f func(Conn, error)) { c.manager.OnError(f) }
 
-// OnEvent replaces the default namespace's handler for event.
+// OnEvent replaces the default namespace's handler for event. If the event's
+// arguments do not decode into the parameter types of f, f is not called, the
+// error goes to OnError and a requested acknowledgement is answered with an
+// error ACK.
 func (c *Client) OnEvent(event string, f interface{}) { c.manager.OnEvent(event, f) }
 
 // OnReconnectAttempt sets the callback before each automatic dial; nil removes it.

@@ -273,13 +273,20 @@ func dispatchTyped(c *conn, nc *namespaceConn, header parser.Header, handler eve
 			writeTypedAck(nc, header, event.AckArgs(reply, err))
 		}
 	} else if handler.WantsAck() && header.NeedAck {
-		writeTypedAck(nc, header, event.AckArgs(event.Payload{}, &event.RemoteError{Code: "invalid_payload", Message: err.Error()}))
+		writeInvalidPayloadAck(nc, header, err)
 	}
 	if err != nil {
 		c.onError(header.Namespace, err)
 	}
 	return nil
 }
+
+// writeInvalidPayloadAck answers a request whose arguments did not decode with
+// the error ACK shared by typed handlers and untyped handlers.
+func writeInvalidPayloadAck(nc *namespaceConn, header parser.Header, err error) {
+	writeTypedAck(nc, header, event.AckArgs(event.Payload{}, &event.RemoteError{Code: "invalid_payload", Message: err.Error()}))
+}
+
 func writeTypedAck(nc *namespaceConn, header parser.Header, args []interface{}) {
 	header.Type = parser.Ack
 	values := make([]reflect.Value, len(args))

@@ -79,7 +79,7 @@ from the declaration, and `make graph` checks the package graph.
 | `adapter.go` | `LocalSockets` | `Deliver(ctx, SocketID, parser.Packet) error`; `Snapshot(SocketID) (RemoteSocket, bool)` |
 | `adapter.go` | `AdapterFactory` | `func(ctx, nsp *Namespace) (Adapter, error)` |
 | `adapter.go` | `BroadcastOptions` | `{Rooms, Except []Room; Flags BroadcastFlags}` |
-| `adapter.go` | `RedactHandshake` | `RedactHandshake(json.RawMessage) (json.RawMessage, error)`; drops `auth` and the three headers, keeps the rest; the skeleton returns `ErrNotImplemented` |
+| `adapter.go` | `RedactHandshake` | `RedactHandshake(json.RawMessage) (json.RawMessage, error)`; drops `auth` and the three headers (names compared without case), keeps every other member byte for byte; nil yields nil, a value that is not an object an error |
 | `adapter.go` | `BroadcastFlags` | `{Local bool}`; other flags are later additive fields, so literals use field names |
 | `adapter.go` | `RemoteSocket` | `{ID SocketID; Rooms []Room; Handshake, Data json.RawMessage}`; `Handshake` omits `auth` and three headers only (see *Frozen at G2*), `Data` is nil or valid JSON |
 | `options.go` | `Options` | `{Logger *slog.Logger; Engine engineio.Options; Hooks *Hooks; Adapter AdapterFactory; AckTimeout time.Duration; OutboundQueueGroups, OutboundQueueBytes, HandlerQueueEvents, HandlerQueueBytes, MaxPendingAcks, MaxAttachments, MaxEventBytes, MaxConcurrentConnects int; AttachmentTimeout, ConnectTimeout time.Duration}`; defaults and units in the godoc |

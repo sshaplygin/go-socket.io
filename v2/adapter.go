@@ -92,7 +92,7 @@ type RemoteSocket struct {
 // one implementation of the RemoteSocket guarantee: the server uses it for local
 // snapshots and an adapter calls it on a Handshake decoded from a peer, because a Node
 // peer sends the omitted values. nil yields nil; h that is not a JSON object yields an
-// error. It lives in the root package, which adapters already import and which the
-// graph allows to call it without an import of adapter/...; the skeleton returns
-// ErrNotImplemented and stage 2.2 writes the body.
-func RedactHandshake(h json.RawMessage) (json.RawMessage, error) { return nil, ErrNotImplemented }
+// error. Kept members are written in source order without whitespace between them, and
+// the result never aliases h. It lives in the root package, which adapters already
+// import and which the graph allows to call it without an import of adapter/....
+func RedactHandshake(h json.RawMessage) (json.RawMessage, error) { return redactHandshake(h) }

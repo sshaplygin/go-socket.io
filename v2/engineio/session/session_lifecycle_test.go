@@ -134,6 +134,7 @@ func newTestSession(t *testing.T, conn transport.Conn, tr string) *Session {
 		Upgrades:     []string{"websocket"},
 	}, nil)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() }) // stops the heartbeat that InitSession starts
 	return s
 }
 
@@ -149,9 +150,9 @@ func TestSessionAccessors(t *testing.T) {
 	require.Nil(t, s.RemoteHeader())
 }
 
-func TestSessionNextReaderAnswersPingAndSkipsUnknown(t *testing.T) {
+func TestSessionNextReaderSkipsControlPackets(t *testing.T) {
 	conn := &scriptConn{reads: []scriptedPacket{
-		{ft: frame.String, pt: packet.PING, data: "probe"},
+		{ft: frame.String, pt: packet.PONG},
 		{ft: frame.String, pt: packet.NOOP},
 		{ft: frame.String, pt: packet.MESSAGE, data: "hello"},
 	}}
@@ -165,7 +166,7 @@ func TestSessionNextReaderAnswersPingAndSkipsUnknown(t *testing.T) {
 	require.Equal(t, "hello", string(b))
 	require.NoError(t, r.Close())
 
-	require.Equal(t, []writtenPacket{{ft: frame.String, pt: packet.PONG, data: "probe"}}, conn.written())
+	require.Empty(t, conn.written(), "the server answers neither PONG nor NOOP")
 	require.False(t, conn.isClosed())
 }
 
@@ -184,16 +185,6 @@ func TestSessionNextReaderErrors(t *testing.T) {
 	s := newTestSession(t, conn, "polling")
 	_, _, err := s.NextReader()
 	require.ErrorIs(t, err, readErr)
-	require.True(t, conn.isClosed())
-
-	writeErr := errors.New("write failed")
-	conn = &scriptConn{
-		reads:     []scriptedPacket{{ft: frame.String, pt: packet.PING, data: "x"}},
-		writerErr: writeErr,
-	}
-	s = newTestSession(t, conn, "polling")
-	_, _, err = s.NextReader()
-	require.ErrorIs(t, err, writeErr, "a failed PONG must end the session")
 	require.True(t, conn.isClosed())
 }
 

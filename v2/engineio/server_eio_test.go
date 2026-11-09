@@ -114,12 +114,8 @@ func (noDeadlineConn) Close() error                    { return nil }
 // TestHandshakeInitFailure checks that a session that cannot start is answered with code 3.
 func TestHandshakeInitFailure(t *testing.T) {
 	rec := logtest.NewRecorder()
-	srv := engineio.NewServer(&engineio.Options{
-		Logger:     slog.New(rec),
-		Transports: []transport.Transport{noDeadlineTransport{polling.Default}},
-	})
+	srv := engineio.NewServer(&engineio.Options{Logger: slog.New(rec), Transports: []transport.Transport{noDeadlineTransport{polling.Default}}})
 	defer func() { _ = srv.Close() }()
-
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/?transport=polling&EIO=4", nil))
 

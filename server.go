@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -74,9 +75,15 @@ func loggerFrom(opts *options) *slog.Logger {
 
 // Close closes engine sessions, waits for OnDisconnect handlers and closes namespace
 // adapters implementing io.Closer. It waits for in-progress namespace construction.
-// The wait is bounded by ten seconds; on timeout it logs remaining connections.
+// The wait is bounded by ten seconds; on timeout it logs remaining connections and
+// shutdown keeps running in the background.
 // A factory configured after Close is not invoked for new namespaces. Serve returns nil.
 // Completed shutdown returns the engine and adapter close errors joined together.
+// A timed-out wait returns an error wrapping context.DeadlineExceeded that states
+// how many connections were still open; when the engine and adapters had closed by
+// then, their errors are joined to it. Callers that treat a timeout as a clean stop
+// can ignore the error with errors.Is(err, context.DeadlineExceeded). Close may be
+// called again to wait once more.
 func (s *Server) Close() error { return s.closeWithTimeout(10 * time.Second) }
 
 func (s *Server) closeWithTimeout(timeout time.Duration) error {
@@ -475,8 +482,21 @@ func (s *Server) waitForConnections(timeout time.Duration) error {
 		case <-changed:
 		case <-timer.C:
 			s.log.Warn("socketio: close timed out", "err", fmt.Errorf("%d connections still open", remaining))
-			return nil
+			return s.timeoutError(timeout, remaining)
 		}
+	}
+}
+
+// timeoutError describes an expired wait. closeErr is read only after closeDone,
+// which publishes it.
+func (s *Server) timeoutError(timeout time.Duration, remaining int) error {
+	select {
+	case <-s.closeDone:
+		return errors.Join(fmt.Errorf("socketio: close timed out after %s with %d connections still open, engine and adapter shutdown finished: %w",
+			timeout, remaining, context.DeadlineExceeded), s.closeErr)
+	default:
+		return fmt.Errorf("socketio: close timed out after %s with %d connections still open, engine and adapter shutdown unfinished: %w",
+			timeout, remaining, context.DeadlineExceeded)
 	}
 }
 

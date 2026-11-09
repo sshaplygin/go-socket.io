@@ -2870,18 +2870,24 @@ changed to `done — #<PR>` after the merge.
 - **Findings:** [C13](#correctness-and-security-findings)
 - **Depends on:** none
 - **Problem:** see C13.
-- **Change:** when a connection's read loop ends because the Engine.IO session ended (an
-  error that matches `*engineio.CloseError` for any reason: transport close, transport
-  error, ping timeout, forced close, server shutdown), neither the server's nor the Go
-  client's `OnError` is called, and nothing is logged as unhandled; `OnDisconnect` receives
-  the reason as today. `OnError` keeps every other report: packet and argument decode
+- **Change:** when a connection's read loop ends because the Engine.IO session ended, for
+  any reason, neither the server's nor the Go client's `OnError` is called, and nothing is
+  logged as unhandled; `OnDisconnect` receives the reason as today. The session end is an
+  error that matches `*engineio.CloseError` on the server (an alias of the session type) and
+  `*engineio/client.CloseError` on the Go client, or the failure of an open frame reader
+  (a transport failure in the middle of a packet), which also ends the session. `OnError` keeps every other report: packet and argument decode
   errors, protocol errors, `ErrWriteBufferFull`, middleware and `OnConnect` errors, and
   errors of a namespace that already left (the purpose of 40dc3e8). No exported API change.
 - **Tests:** red→green in the root package and `client`: with `OnError` registered, a client
   disconnect over polling, websocket and polling-to-websocket upgrade; an abrupt drop
   (websocket without close frame; polling with the connection closed); a ping timeout; and,
-  for the Go client, a server `Close`: `OnError` is not called, and `OnDisconnect` gets the
-  expected reason. Guards that already pass: a decode error and `ErrWriteBufferFull` still
+  for the Go client over each transport, the server's `Server.Close` and
+  `EngineConn().Close()`: `OnError` is not called, and `OnDisconnect` gets the reason
+  observed on master for that case, which the PR measures and records in this item (over
+  polling, `Server.Close` currently yields `transport error`, see interop-14). Two existing
+  tests change their expectation to no `OnError` and `OnDisconnect` with the transport
+  reason: `TestRolesFrameReaderFailureReportedOnce` and `TestClientMidFrameFailure`; no
+  other existing assertion changes. Guards that already pass: a decode error and `ErrWriteBufferFull` still
   reach `OnError`. A conformance case with both pinned JS clients asserts no `OnError` on
   `socket.close()`.
 - **Benchmarks:** none.

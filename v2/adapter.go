@@ -223,26 +223,103 @@ func (a *memoryAdapter) selectLocked(rooms, except []Room) []SocketID {
 // Broadcast delivers pkt to the selected sockets one after another and never
 // publishes. A failed delivery is reported and not retried, and the remaining
 // recipients are still tried; once ctx is done no further delivery starts.
-// LocalRecipients counts the deliveries that succeeded, and the error joins every
-// failure.
+// LocalRecipients counts the deliveries that succeeded. The error reports the
+// failures grouped by cause (see deliveryFailures), so its size does not grow with
+// the number of recipients, and it matches every cause and ctx.Err() with errors.Is.
 func (a *memoryAdapter) Broadcast(ctx context.Context, pkt parser.Packet, opts BroadcastOptions) (BroadcastResult, error) {
 	a.mu.RLock()
 	ids := a.selectLocked(opts.Rooms, opts.Except)
 	a.mu.RUnlock()
 	var res BroadcastResult
-	var errs []error
+	var failures deliveryFailures
+	var stopped error
 	for i, sid := range ids {
 		if err := ctx.Err(); err != nil {
-			errs = append(errs, fmt.Errorf("socketio: broadcast stopped with %d of %d recipients not tried: %w", len(ids)-i, len(ids), err))
+			stopped = fmt.Errorf("socketio: broadcast stopped with %d of %d recipients not tried: %w", len(ids)-i, len(ids), err)
 			break
 		}
 		if err := a.local.Deliver(ctx, sid, pkt); err != nil {
-			errs = append(errs, fmt.Errorf("socketio: broadcast to %q: %w", sid, err))
+			failures.add(sid, err)
 			continue
 		}
 		res.LocalRecipients++
 	}
-	return res, errors.Join(errs...)
+	return res, errors.Join(append(failures.errs(len(ids)), stopped)...)
+}
+
+const (
+	// maxFailureCauses bounds the causes other than the two sentinels that a broadcast
+	// error reports one by one; failures of further causes are counted together under
+	// the first of them.
+	maxFailureCauses = 8
+	// maxFailureSamples bounds the socket IDs a broadcast error names per cause.
+	maxFailureSamples = 3
+)
+
+// deliveryFailures groups the failed deliveries of one broadcast by cause: the two
+// failures of the LocalSockets contract (ErrSocketClosed, ErrWriteBufferFull) by their
+// sentinel, always in a group of their own, any other error by its message. A group
+// keeps its first error, which the reported error wraps, a count and a few socket IDs.
+type deliveryFailures struct {
+	groups   []failureGroup
+	others   int // groups of causes other than the sentinels
+	overflow *failureGroup
+}
+
+type failureGroup struct {
+	cause   string
+	first   error
+	count   int
+	samples []SocketID
+}
+
+func (f *deliveryFailures) add(sid SocketID, err error) {
+	cause, sentinel := err.Error(), true
+	switch {
+	case errors.Is(err, ErrSocketClosed):
+		cause = ErrSocketClosed.Error()
+	case errors.Is(err, ErrWriteBufferFull):
+		cause = ErrWriteBufferFull.Error()
+	default:
+		sentinel = false
+	}
+	var g *failureGroup
+	for i := range f.groups {
+		if f.groups[i].cause == cause {
+			g = &f.groups[i]
+			break
+		}
+	}
+	switch {
+	case g != nil:
+	case sentinel || f.others < maxFailureCauses:
+		if !sentinel {
+			f.others++
+		}
+		f.groups = append(f.groups, failureGroup{cause: cause, first: err})
+		g = &f.groups[len(f.groups)-1]
+	default:
+		if f.overflow == nil {
+			f.overflow = &failureGroup{first: err}
+		}
+		g = f.overflow
+	}
+	g.count++
+	if len(g.samples) < maxFailureSamples {
+		g.samples = append(g.samples, sid)
+	}
+}
+
+// errs returns one error per group, out of total selected recipients.
+func (f *deliveryFailures) errs(total int) []error {
+	out := make([]error, 0, len(f.groups)+1)
+	for _, g := range f.groups {
+		out = append(out, fmt.Errorf("socketio: broadcast: %d of %d recipients failed (for example %q): %w", g.count, total, g.samples, g.first))
+	}
+	if g := f.overflow; g != nil {
+		out = append(out, fmt.Errorf("socketio: broadcast: %d of %d recipients failed with further causes (for example %q): %w", g.count, total, g.samples, g.first))
+	}
+	return out
 }
 
 // Sockets returns the IDs of the selected sockets that are still present, as Node's

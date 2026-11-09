@@ -128,6 +128,49 @@ func TestMemoryAdapterPartialFailure(t *testing.T) {
 	}
 }
 
+// TestMemoryAdapterBroadcastErrorIsBounded fails most of 1000 deliveries, with the two
+// sentinels and 250 distinct other errors, and cancels the context on the way: the
+// error stays small and still matches each sentinel and the context error.
+func TestMemoryAdapterBroadcastErrorIsBounded(t *testing.T) {
+	const n = 1000
+	local := newFakeLocal()
+	a := newMemoryAdapter(local)
+	for i := 0; i < n; i++ {
+		sid := SocketID(fmt.Sprintf("s%04d", i))
+		local.setLive(sid, `{}`, true)
+		a.AddAll(sid, []Room{sid})
+		switch i % 4 {
+		case 0:
+			local.fail[sid] = fmt.Errorf("socket %s gone: %w", sid, ErrSocketClosed)
+		case 1:
+			local.fail[sid] = fmt.Errorf("queue of %s: %w", sid, ErrWriteBufferFull)
+		case 2:
+			local.fail[sid] = fmt.Errorf("transport of %s failed", sid)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	attempts := 0
+	local.onDeliver = func(SocketID) {
+		if attempts++; attempts == n-100 {
+			cancel()
+		}
+	}
+	res, err := a.Broadcast(ctx, testPacket, BroadcastOptions{})
+	if res.LocalRecipients != len(local.deliveredIDs()) || attempts != n-100 {
+		t.Fatalf("result %+v after %d attempts, %d delivered", res, attempts, len(local.deliveredIDs()))
+	}
+	for _, target := range []error{ErrSocketClosed, ErrWriteBufferFull, context.Canceled} {
+		if !errors.Is(err, target) {
+			t.Errorf("error does not match %v", target)
+		}
+	}
+	joined, ok := err.(interface{ Unwrap() []error })
+	if !ok || len(joined.Unwrap()) > 12 || len(err.Error()) > 4096 {
+		t.Errorf("error is not bounded: %d bytes\n%v", len(err.Error()), err)
+	}
+}
+
 func TestMemoryAdapterBroadcastStopsWhenContextEnds(t *testing.T) {
 	local := newFakeLocal("a", "b", "c")
 	a := newMemoryAdapter(local)

@@ -15,8 +15,16 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   default `[polling, websocket]`.
 - Handshake (`OPEN` packet) carries `sid`, `upgrades`, `pingInterval` (default 20 s),
   `pingTimeout` (default 60 s). There is no `maxPayload`.
-- Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`) and extends
-  the read/write deadline by `pingTimeout`.
+- Heartbeat (Engine.IO v4, ahead of the rest of this section): the server sends `PING` (`2`)
+  `pingInterval` after the handshake and `pingInterval` after each `PONG` (`3`), as the Node
+  server does, and closes the session with reason `ping timeout` when no `PONG` arrives within
+  `pingTimeout` of a `PING`. The ping timer and the ping timeout run on their own timers, so
+  they do not wait for the application to call `NextReader`; the `PONG` itself is read by
+  `NextReader`, the session's one reader, which an application must keep calling (a Socket.IO
+  server does). Each `PONG` also moves the transport read and write deadlines to
+  `pingInterval + pingTimeout` from then, which bounds a polling POST body. A `PING` from the
+  client is not answered: it closes the session with reason `transport error` and
+  `invalid heartbeat direction`, as on the Node server.
 - Polling payload (Engine.IO v4 framing, ahead of the rest of this section): packets are
   separated by the record separator `0x1e`; binary packets are base64 behind a `b`
   prefix; every body is `text/plain; charset=UTF-8`, and a POST of `application/octet-stream`

@@ -75,6 +75,9 @@ func TestRootDrainDeadlineAbortsOrderlyEngine(t *testing.T) {
 	require.NoError(t, c.Close())
 	go c.serveWrite()
 	recv(t, tr.entered, "engine orderly close after queue drain")
+	// Simulates this goroutine being descheduled between the signal and the
+	// assertion for longer than the 50 ms drain deadline (a loaded CI host).
+	time.Sleep(120 * time.Millisecond)
 	require.Equal(t, engineio.StateClosing, s.ReadyState())
 	recv(t, tr.closed, "root deadline interrupts engine orderly wait")
 	require.Eventually(t, func() bool { return s.ReadyState() == engineio.StateClosed }, time.Second, time.Millisecond)

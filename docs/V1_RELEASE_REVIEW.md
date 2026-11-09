@@ -372,7 +372,7 @@ changed to `done — #<PR>` after the merge.
 | [P5](#p5-tag-v150) | Tag v1.5.0 | owner | — | P4 |
 | [P6](#p6-github-release) | GitHub Release | owner | — | P5, W66 |
 | [P7](#p7-module-index) | Module index | owner | — | P5 |
-| [P8](#p8-announcement) | Announcement | owner | — | P2, P3, P6, P7 |
+| [P8](#p8-announcement) | Announcement | owner | — | P2, P6, P7 |
 | [P9](#p9-remote-branch-cleanup) | Remote branch cleanup | owner | — | — |
 
 **Finding coverage.** Every catalogue ID appears in exactly one item or in "Not planned".
@@ -3124,13 +3124,18 @@ progress in [How to use this plan](#how-to-use-this-plan)). P4–P7 run on one h
 #### P3. Leave the fork network
 
 - **Status:** open
-- **Owner:** repository owner; the owner decides whether to take this step
-- **Depends on:** none; before P8
-- **Steps:** Settings → Danger Zone → leave the fork network. The step is irreversible;
-  stars, watchers, issues and pull requests do not move (0 stars and 0 forks on
-  2026-11-10).
-- **Acceptance:** `gh api repos/sshaplygin/go-socket.io --jq .fork` prints `false`, or the
-  Status line records the decision not to leave.
+- **Owner:** repository owner; the owner decides whether to request it
+- **Depends on:** none
+- **Steps:** do not use the self-service "Leave fork network" button: a repository detached
+  that way "will not retain any of its issues, pull requests, wikis, stars, watchers,
+  comments, child forks"
+  ([Detaching a fork](https://docs.github.com/en/pull-requests/how-tos/work-with-forks/detaching-a-fork)).
+  On 2026-11-10 the repository has over 200 pull requests and 30 issues; this document
+  cites them as evidence, and the W66 release text lives in one. The only route considered
+  is a GitHub Support request to detach that keeps issues and pull requests, confirmed by
+  Support in writing before it is done; otherwise the step ends `not taken`.
+- **Acceptance:** `gh api repos/sshaplygin/go-socket.io --jq .fork` prints `false` and the
+  issue and pull request counts are unchanged, or the Status line is `not taken`.
 
 #### P4. Final head verification
 
@@ -3180,7 +3185,7 @@ progress in [How to use this plan](#how-to-use-this-plan)). P4–P7 run on one h
 
 - **Status:** open
 - **Owner:** repository owner
-- **Depends on:** P2, P3, P6, P7
+- **Depends on:** P2, P6, P7
 - **Steps:** an awesome-go pull request in its WebSockets section, meeting that list's
   requirements; a pull request to the Socket.IO website's list of server implementations;
   a post stating the scope (socket.io-client 1.x/2.x; v2 for 3.x/4.x is in development).

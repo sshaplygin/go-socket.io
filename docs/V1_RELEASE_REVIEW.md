@@ -19,7 +19,7 @@ The document has three parts:
   then [Release blockers](#release-blockers) through the
   [finding catalogue](#finding-catalogue). They come from the original review and were
   corrected where the follow-up validation and the 2026-10-22 fact-check required it.
-- **[Work plan](#work-plan):** pull-request-sized work items (W1–W61) and owner decisions
+- **[Work plan](#work-plan):** pull-request-sized work items (W1–W62) and owner decisions
   (D1–D6) that cover every catalogue ID except the editorial `CL-14` (not planned), with
   their order, acceptance criteria and status.
 - **[Follow-up validation](#follow-up-validation):** the evidence log, with a status and
@@ -142,7 +142,7 @@ to do the work. The status of each item is owned by its **Status** line and nowh
    which refreshes the release text last. The owner added
    [W54](#w54-bound-the-memory-and-time-cost-of-buffered-polling-requests) (after W47) and
    [W55](#w55-scheduled-stress-runs-under-cpu-load) on 2026-10-31; both land before W52.
-   W58–W61 record defects found after the review and fixed before the tag. Only the owner tags.
+   W58–W62 record defects found after the review and fixed before the tag. Only the owner tags.
 6. After the tag: W11–W44 and W56–W57 in numeric order unless **Depends on** says otherwise. Every
    performance item needs W2 merged first. W12 lands before W23. W38 needs the tag.
 
@@ -341,12 +341,13 @@ changed to `done — #<PR>` after the merge.
 | [W59](#w59-list-a-session-once-its-open-packet-is-delivered) | List a session once its OPEN packet is delivered | before tag | C10 | — |
 | [W60](#w60-do-not-dial-the-redis-subscriber-after-close) | Do not dial the Redis subscriber after Close | before tag | C11 | — |
 | [W61](#w61-remove-the-wall-clock-and-ordering-assumptions-from-the-225-fixtures) | Remove the wall-clock and ordering assumptions from the #225 fixtures | before tag | T16 | W55 |
+| [W62](#w62-drain-packets-admitted-before-close-seals) | Drain packets admitted before Close seals | before tag | C12 | — |
 
 **Finding coverage.** Every catalogue ID appears in exactly one item or in "Not planned".
 
 | Catalogue section | Mapping |
 | --- | --- |
-| Correctness and security | C1 W1 · C2 W14 · C3 W11 · C4 W13 · C5 W6 · C6 W47 · C7 W47 · C8 W53 · C9 W58 · C10 W59 · C11 W60 |
+| Correctness and security | C1 W1 · C2 W14 · C3 W11 · C4 W13 · C5 W6 · C6 W47 · C7 W47 · C8 W53 · C9 W58 · C10 W59 · C11 W60 · C12 W62 |
 | API compatibility | API-1 W8 · API-2 D1 · API-3 W6 · API-4 W7 · API-5 W8 · API-6 W8 · API-7 W8 · API-8 W8 · API-9 D2 · API-10 W10 · API-11 W38 · API-12 D6 · API-13 W8 |
 | Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 · CL-16 W50 · CL-17 W51 · CL-18 W51 · CL-19 W51 |
 | Architecture | ARCH-1 W5 · ARCH-2 D2 · ARCH-3 D3 · ARCH-4 W26 · ARCH-5 D4 · ARCH-6 D5 · ARCH-7 W33 · ARCH-8 W32 · ARCH-9 W14 · ARCH-10 W37 · ARCH-11 D6 · ARCH-12 W28 · ARCH-13 W26 |
@@ -2809,6 +2810,28 @@ changed to `done — #<PR>` after the merge.
 - **Definition of done:** standard.
 - **Out of scope:** library behavior (C10 is W59).
 
+### W62. Drain packets admitted before Close seals
+
+- **Status:** done — #221
+- **Priority:** before tag
+- **Findings:** [C12](#correctness-and-security-findings)
+- **Depends on:** none
+- **Problem:** see C12.
+- **Change:** the Go client and server writers check the seal and their queues together
+  under the queue mutex before finishing the drain. Packets admitted after the writer saw an
+  empty queue and before the seal are written in order before the engine closes. `Close`
+  still returns without waiting for network I/O, with the existing drain deadlines.
+- **Tests:** deterministic regression cases arrange an empty observation, packet admission
+  and sealing in that order and verify the wire packets precede the engine closure: an
+  application packet, DISCONNECT, and an application packet followed by DISCONNECT, on both
+  client and server (six cases, all failing before the fix; they pass `-race -count=50`).
+  The strict polling disconnect-reason assertion is unchanged.
+- **Benchmarks:** none.
+- **Docs:** none.
+- **Acceptance criteria:** as in Tests.
+- **Definition of done:** standard.
+- **Out of scope:** waiting for network I/O in `Close`.
+
 ## Release blockers
 
 ### B1. Permanent session deadlock
@@ -3602,6 +3625,12 @@ Every finding is listed under the dimension that reported it.
   `8ae40be`, measured against `b2f2fb9` with committed benchmarks
   (`BenchmarkPollingEchoLarge` is added by #205), so its figures are not ad hoc; the
   other locations refer to `origin/master` at `5c99b64`.
+- C9 to C12 and T16 were found after the review, in Stress runs, in issue #225 and by
+  reading code, and were fixed before the tag. They are
+  not among the 85 entries and have no row in
+  [Catalogue cross-check](#catalogue-cross-check). Their locations name the file and
+  function that each fixing pull request changed; the rows were written against
+  `origin/master` at `2c4054c`, after the fixes.
 - The [work plan](#work-plan) maps every ID to exactly one work item or owner decision, or
   lists it under "Not planned"; the finding coverage table is in
   [How to use this plan](#how-to-use-this-plan). When a fix merges, the row's
@@ -3623,6 +3652,7 @@ Every finding is listed under the dimension that reported it.
 | C9 | minor | found by code reading; reproduced by the tests of #233 | `server.go` (`waitForConnections`) | `Server.Close` bounds its wait at 10 s; when the wait expired it logged a WARN and returned nil, so a caller could not tell a clean stop from a timeout, and the engine and adapter close errors collected by then were dropped | Return an error wrapping `context.DeadlineExceeded` that states the wait, the open connection count and whether engine and adapter shutdown finished, and join their errors when it did (W58). Fixed by #233 (W58). |
 | C10 | minor | reproduced by the tests of #232 | `engineio/internal/session/session.go` (`Init`) | `Session.Init` wrote the OPEN packet and only then marked the session open: for a few microseconds after the client had received OPEN, `Server.Count()` counted the session while `Server.Clients()` omitted it and `ReadyState()` said `opening`; the window caused the `TestPingPostReleasesBeforePongPoll` stress flake | Mark the session open while `Init` owns the OPEN writer, before the packet is written, so no other packet can precede OPEN and the session is open no later than the client can have it (W59). Fixed by #232 (W59). |
 | C11 | minor | reproduced by the tests of #226 | `adapter/redis/subscription.go` (`resubscribe`) | After the reconnect backoff, `resubscribe` selected on `done` and the timer and dialed without checking `done` again, so the dispatcher could call the dial function after `Close`; the dial's context is canceled by `closeTransport`, so no subscription resulted, but `TestCloseCancelsSubscriberReconnect` panicked with `close of closed channel` in two macOS Stress runs (42466356709, 42523713133) | Re-check `done` after the timer, and return `ctx.Err()` from `subscribeChannels` instead of dialing with a finished context (W60). Fixed by #226 (W60). |
+| C12 | minor | reproduced by the tests of #221 | `io.go` (`serveWrite`), `client/io.go`, `queue.go`, `client/queue.go` | A writer that saw an empty queue just before `Close` queued DISCONNECT and sealed the connection could close Engine.IO without writing the packets admitted in between; the server writer had the same split empty/sealed decision. The release macOS Stress run 41846713434 reported `transport close` instead of `client namespace disconnect` in `TestPollingCloseEndsServerSessions` | Check the seal and the queues together under the queue mutex before finishing the drain, so packets admitted in that window are written in order before the engine closes (W62). Fixed by #221 (W62). |
 
 ### API compatibility findings
 
@@ -3711,10 +3741,10 @@ Every finding is listed under the dimension that reported it.
 | --- | --- | --- | --- | --- | --- |
 | interop-1 | major → minor | confirmed | `engineio/transport/websocket/wrapper.go:39` | WebSocket transport ignores Engine.IO base64 mode; a forceBase64 client is disconnected when it sends binary | In the websocket transport, decode text frames that start with 'b' as base64 binary packets. When the request carries `b64=1`, write binary packets as `b<base64>` text frames, as engine.io 3.6.2 does. Add a forceBase64 case (websocket and upgrade) to testdata/node/client.js. If this is not implemented for v1.5.0, document it in PROTOCOL.md as unsupported. Fixed by #162 (W15). |
 | interop-2 | minor | — | `parser/encoder.go:144` | Every JSON payload and the OPEN packet carry an undocumented trailing newline | Either drop the newline (both the Socket.IO payload and the OPEN packet), or record it in PROTOCOL.md as an intentional difference kept for compatibility with older go-socket.io releases. Fixed by #167 (W16). |
-| interop-3 | minor | — | `engineio/transport/polling/util.go:21` | Polling POST rejects Content-Types that the reference server accepts | Match the reference: treat any non-octet-stream body as text. Otherwise, document the exact accepted media types as a Go-specific restriction in PROTOCOL.md. Documented as a limitation by #167 (W16); fixed by #235. |
+| interop-3 | minor | — | `engineio/transport/polling/util.go:21` | Polling POST rejects Content-Types that the reference server accepts | Match the reference: treat any non-octet-stream body as text. Otherwise, document the exact accepted media types as a Go-specific restriction in PROTOCOL.md. Documented as a limitation by #167 (W16). Fixed by #235. |
 | interop-4 | minor | — | `packets.go:211` | Connect and event middleware rejections are always sent as a string; no counterpart to Node's err.data | Allow an error type (for example one with `Data() any`) whose value becomes the ERROR payload, or document in PROTOCOL.md that ERROR payloads are always `err.Error()` strings. Fixed by #167 (W16). |
-| interop-5 | minor | — | `packets.go:103` | Untyped handler with a mismatched argument type sends no ACK, so the JS callback never fires (undocumented) | Document the behavior next to the ACK rules in V1.md or PROTOCOL.md. Consider sending an error ACK or an ERROR packet so JS callers can detect the failure. Documented as a limitation by #167 (W16); fixed by #234 (server) and #236 (Go client). |
-| interop-6 | nit | — | `engineio/transport/websocket/connect.go:117` | Server-initiated websocket close sends no close frame | Write a CloseMessage (1000) with a short deadline before closing the underlying connection on orderly server closes. Documented as a limitation by #167 (W16); fixed by #238. |
+| interop-5 | minor | — | `packets.go:103` | Untyped handler with a mismatched argument type sends no ACK, so the JS callback never fires (undocumented) | Document the behavior next to the ACK rules in V1.md or PROTOCOL.md. Consider sending an error ACK or an ERROR packet so JS callers can detect the failure. Documented as a limitation by #167 (W16). Fixed by #234 (server) and #236 (Go client). |
+| interop-6 | nit | — | `engineio/transport/websocket/connect.go:117` | Server-initiated websocket close sends no close frame | Write a CloseMessage (1000) with a short deadline before closing the underlying connection on orderly server closes. Documented as a limitation by #167 (W16). Fixed by #238. |
 | interop-7 | nit | — | `docs/PARITY.md:20` | PARITY.md groups heartbeat with raw conformance coverage, but no conformance scenario asserts a periodic ping | Add a short-interval heartbeat scenario (for example `WithPingInterval(200ms)`, then idle for about 1 s and send an ACK) to client.js for both transports, or make the PARITY.md row say which tests own the heartbeat. Fixed by #168 (W17). |
 | interop-8 | nit | — | `internal/conformance/testdata/node/server/redis-cluster.js:199` | Redis mixed-cluster polling scenario idles 30 s after finishing, leaving little margin in runNode's 45 s timeout | Find and remove what keeps the process alive after cleanup, or end the scenario with an explicit `process.exit(process.exitCode \|\| 0)` after cleanup (corrected: the clients are already closed before `io.close()`, `redis-cluster.js:199-200`; see W17). Fixed by #168 (W17). |
 | interop-9 | nit | — | `docs/PROTOCOL.md:60` | Unknown Socket.IO packet type and missing CORS wire description are undocumented differences | Add a CORS bullet (default, WithCORS(false), preflight) and a note on how invalid packets are handled to PROTOCOL.md. Fixed by #148 (W6). |
@@ -3740,7 +3770,7 @@ Every finding is listed under the dimension that reported it.
 | T13 | minor | — | `stalled_reader_test.go`, `engineio/transport/polling/payload_test.go`, `internal/conformance/heartbeat_test.go` | Tests race wall-clock deadlines and fail under load on master and on the PR heads alike: `TestStalledReaderIsDisconnected` (a 2 ms emit ticker against the session's 4 s write deadline, PingInterval 2 s + PingTimeout 2 s from the last inbound packet) failed 8 of 100 subtests on #207's head and 10 of 100 on master, run back to back at load average about 30–42 (#207 review); `TestPayloadFlushOutBinary` (a 100 ms write deadline) failed in a stress run (#206 review); the tagged `TestJSHeartbeat` (200 ms heartbeat, needs Node and Redis) failed 2 of 3 alternating runs on base and head under load (#205 review) | Replace each race with a signal or a configuration-derived bound; W55 covers `STRESS_PKGS` only, so the conformance case is checked by hand (W56). Fixed by #224 (W56). |
 | T14 | minor | — | `engineio/client/log_test.go:232` | Log fixtures share the process-wide `slog` recorder: `TestClientPingFailureRecord` once received an extra DEBUG record from another test's websocket client goroutine in a stress run; the same seed passed twice afterwards | Isolate the fixtures, as W46 did for the upgrade fixtures (W56). Fixed by #224 (W56). |
 | T15 | minor | confirmed in W55 load runs | `client/compression_test.go:66–71,148–152` | `TestClientCompress/on` observed `[false false true]` instead of `[false false true true]` after both ACKs: 2 failures in 160 Ubuntu executions across the first four W55 runs; 0 in 40 on the final head `7fbcceb` (run links and counts in W57). The recorder appends after the network write; an ACK does not establish that the append finished. Fixture ordering is a hypothesis, not evidence of a library compression defect | Reproduce the ordering gap and synchronize the recorded-frame snapshot without weakening its assertions (W57). Fixed by #223 (W57). |
-| T16 | minor | reproduced by the tests of #228, #229 and #230 | `engineio/polling_heartbeat_integration_test.go`, `engineio/polling_payload_integration_test.go`, `engineio/logging_test.go`, `adapter/redis/readiness_test.go` | Fixtures assumed an ordering or a window the library does not guarantee. Failures seen in Stress runs (issue #225), each once: `TestPingPostReleasesBeforePongPoll` read the session ID from `Server.Clients()` right after the handshake GET, which C10 left empty for a few microseconds (1 of 40 Ubuntu executions in each of two runs; `TestEmptyBinaryPostKeepsSession` has the same pattern and was not seen failing); `TestSessionCloseRecord/peer_close_after_upgrade/polling` left about 120 ms between the upgrade and its first read and recorded `ping timeout` instead of `transport error` (1 of 960 executions, macOS); `TestNamespaceCloseConfirmsRemovalAfterSubscriberReplacement` read the server-side subscriber count right after `Close`, before the server had handled the disconnect (1 of 40 Ubuntu executions in each of two runs; `TestNamespaceCloseRecoversFromUnsubscribeWriteFailure` has the same pattern and was not seen failing) | Take the session ID from `Accept`, give the fixture a read window with a delivered message, and wait for the subscriber count with `require.Eventually` (W61). Fixed by #228, #229 and #230 (W61). |
+| T16 | minor | reproduced by the tests of #228, #229 and #230 | `engineio/polling_heartbeat_integration_test.go`, `engineio/polling_payload_integration_test.go`, `engineio/logging_test.go`, `adapter/redis/readiness_test.go` | Fixtures assumed an ordering or a window the library does not guarantee. Failures seen in Stress runs (issue #225): `TestPingPostReleasesBeforePongPoll` read the session ID from `Server.Clients()` right after the handshake GET, which C10 left empty for a few microseconds (1 of 40 Ubuntu executions in each of runs 42196098832, 42528032419 and 42558728920; `TestEmptyBinaryPostKeepsSession` has the same pattern and was not seen failing); `TestSessionCloseRecord/peer_close_after_upgrade/polling` left about 120 ms between the upgrade and its first read and recorded `ping timeout` instead of `transport error` (once in the 960 executions inspected for #229; run 42558728920, macOS, 1 of 40); `TestNamespaceCloseConfirmsRemovalAfterSubscriberReplacement` read the server-side subscriber count right after `Close`, before the server had handled the disconnect (1 of 40 Ubuntu executions in each of runs 42528032419 and 42558736563; `TestNamespaceCloseRecoversFromUnsubscribeWriteFailure` has the same pattern and was not seen failing) | Take the session ID from `Accept`, give the fixture a read window with a delivered message, and wait for the subscriber count with `require.Eventually` (W61). Fixed by #228, #229 and #230 (W61). |
 
 ### Release engineering findings
 

@@ -81,6 +81,10 @@ server->>server: close old conn
 
   A failed transport accept (HTTP 502), a writer without `http.Hijacker` (HTTP 501), a
   rejected polling POST (HTTP 400 or 413, above) and a failed poll (HTTP 500) are plain text.
+  So are the WebSocket transport's own handshake answers: HTTP 403 when `CheckOrigin` refuses
+  the origin, and the answer `gobwas/ws` writes when it rejects the upgrade request, with its
+  own status (for example 400 for a missing or malformed upgrade header, 405 for a method
+  other than GET).
   The server logs each of its rejections, the 501 and 502 included, as
   `engineio: request rejected` with a `reason`. The polling transport logs the same record
   through `logger.Log` for a failed poll, `reason="flush"`, at DEBUG when the connection has

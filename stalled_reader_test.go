@@ -43,8 +43,7 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 			start, done := make(chan struct{}), make(chan struct{})
 			var created atomic.Int64          // MESSAGE packets the session has started to write
 			inbound := make(chan struct{}, 1) // a packet was read after start
-			var written atomic.Int64          // frames the client has written
-			wrote := make(chan struct{}, 1)   // the client has written a frame
+			frames := newClientFrames()
 			// Frames the client wrote between the read that releases the overflow and
 			// the first emit of the overflow; -1 until a sending subtest gets there.
 			var margin atomic.Int64
@@ -111,19 +110,11 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 								case <-stop:
 									return
 								}
-								atRead := written.Load()
-								select {
-								case <-wrote: // possibly written before that read
-								default:
-								}
-								select {
-								case <-wrote:
-								case <-done:
-									return
-								case <-stop:
+								atRead := frames.written.Load()
+								if !frames.afterRead(done, stop) {
 									return
 								}
-								margin.Store(written.Load() - atRead)
+								margin.Store(frames.written.Load() - atRead)
 							}
 						}
 						c.Emit("large", payload)
@@ -220,13 +211,13 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 						case <-stop:
 							return
 						case <-ticker.C:
-							if ws.SetWriteDeadline(time.Now().Add(time.Second)) != nil || ws.WriteMessage(websocket.TextMessage, []byte(tc.frame)) != nil {
+							if frames.write(func() error {
+								if err := ws.SetWriteDeadline(time.Now().Add(time.Second)); err != nil {
+									return err
+								}
+								return ws.WriteMessage(websocket.TextMessage, []byte(tc.frame))
+							}) != nil {
 								return
-							}
-							written.Add(1)
-							select {
-							case wrote <- struct{}{}:
-							default:
 							}
 						}
 					}
@@ -257,6 +248,128 @@ func TestStalledReaderIsDisconnected(t *testing.T) {
 				require.NoError(t, err)
 			case <-time.After(2 * time.Second):
 				t.Error("Server.Close did not finish within two seconds")
+			}
+		})
+	}
+}
+
+// clientFrames counts the frames the stalled-reader client writes and lets the emitter
+// wait, after the server has read one of them, for the next frame. step and wait are seams
+// for TestClientFramesAfterRead: step runs after each step of write, and wait blocks until
+// woken, reporting false once done or stop is closed.
+type clientFrames struct {
+	written atomic.Int64
+	wrote   chan struct{}
+	step    func(string)
+	wait    func(done, stop <-chan struct{}) bool
+}
+
+func newClientFrames() *clientFrames {
+	f := &clientFrames{wrote: make(chan struct{}, 1)}
+	f.wait = func(done, stop <-chan struct{}) bool {
+		select {
+		case <-f.wrote:
+			return true
+		case <-done:
+			return false
+		case <-stop:
+			return false
+		}
+	}
+	return f
+}
+
+func (f *clientFrames) note(step string) {
+	if f.step != nil {
+		f.step(step)
+	}
+}
+
+// write sends one frame with send and records it.
+func (f *clientFrames) write(send func() error) error {
+	if err := send(); err != nil {
+		return err
+	}
+	f.note("sent")
+	f.written.Add(1)
+	f.note("counted")
+	select {
+	case f.wrote <- struct{}{}:
+	default:
+	}
+	f.note("signalled")
+	return nil
+}
+
+// afterRead is called once the server has read a client frame; it waits for the next
+// frame and reports false if done or stop is closed first.
+func (f *clientFrames) afterRead(done, stop <-chan struct{}) bool {
+	select {
+	case <-f.wrote: // possibly written before that read
+	default:
+	}
+	return f.wait(done, stop)
+}
+
+// TestClientFramesAfterRead: afterRead returns only after the client has started a frame
+// after the read it follows, whatever the order of the read, the client's bookkeeping of
+// the read frame and the emitter's wake-ups. The emitter observes the read at the named
+// step of the client's write, or after the write if that step precedes the send.
+func TestClientFramesAfterRead(t *testing.T) {
+	for _, tc := range []struct{ name, observe string }{
+		{"read-observed-before-the-frame-is-counted", "sent"},
+		{"read-observed-before-the-frame-is-signalled", "counted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newClientFrames()
+			waiting, resume := make(chan struct{}), make(chan bool)
+			f.wait = func(_, _ <-chan struct{}) bool {
+				waiting <- struct{}{}
+				return <-resume
+			}
+			returned := make(chan bool, 1)
+			started := false
+			observe := func() { // the emitter sees the read and runs until it waits
+				started = true
+				go func() { returned <- f.afterRead(nil, nil) }()
+				select {
+				case <-waiting:
+				case <-returned:
+					t.Fatal("afterRead returned without waiting")
+				}
+			}
+			sent := false
+			f.step = func(step string) {
+				sent = sent || step == "sent"
+				if sent && !started && step == tc.observe {
+					observe()
+				}
+			}
+			send := func() error { return nil }
+			require.NoError(t, f.write(send)) // the frame the server reads
+			if !started {
+				observe()
+			}
+			readFrames := f.written.Load()
+			// A wake-up with no new frame, as the read frame's own signal can cause.
+			resume <- true
+			select {
+			case <-waiting:
+			case <-returned:
+				t.Fatalf("afterRead returned with %d frames counted, all started before the read", readFrames)
+			}
+			f.step = nil
+			require.NoError(t, f.write(send)) // a frame started after the read
+			resume <- true
+			for {
+				select {
+				case <-waiting:
+					resume <- true
+					continue
+				case ok := <-returned:
+					require.True(t, ok)
+				}
+				break
 			}
 		})
 	}

@@ -3,12 +3,17 @@ package client
 import (
 	"context"
 	"errors"
+	"flag"
 	"io"
 	"log"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -74,6 +79,78 @@ func setDefault(t *testing.T, h slog.Handler) {
 	t.Cleanup(func() { slog.SetDefault(prev); log.SetOutput(prevOut); log.SetFlags(prevFlags) })
 }
 
+// runLogTestInSubprocess runs test t alone in a child process and reports whether it did;
+// the child, where it reports false, runs the body. It keeps the records of goroutines
+// that outlive earlier tests out of the fixture's recorder: closing a client does not join
+// its ping or probe goroutines, so serial tests and restoring slog.Default cannot.
+func runLogTestInSubprocess(t *testing.T) bool {
+	t.Helper()
+	if isLogTestChild(t) {
+		return false
+	}
+	// The child runs at this pass's GOMAXPROCS, so -cpu reaches the fixture.
+	runLogTestChild(t, nil, "-test.cpu="+strconv.Itoa(runtime.GOMAXPROCS(0)))
+	return true
+}
+
+// runLogTestChild runs t's body in a child process with the extra environment and flags,
+// requires it to pass and returns its verbose output.
+func runLogTestChild(t *testing.T, env []string, flags ...string) string {
+	t.Helper()
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	args := append([]string{"-test.run=^" + regexp.QuoteMeta(t.Name()) + "$", "-test.count=1", "-test.timeout=30s", "-test.v"}, flags...)
+	// Under go test -cover the child adds its counters to the directory this binary reads
+	// its own from when it writes the profile.
+	if dir := flag.Lookup("test.gocoverdir"); dir != nil && dir.Value.String() != "" {
+		args = append(args, "-test.gocoverdir="+dir.Value.String())
+	}
+	command := exec.CommandContext(ctx, executable, args...)
+	command.Env = append(append(os.Environ(), env...), logTestChildEnv+"="+t.Name())
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, "isolated log test: %s", output)
+	// A pattern that matched no test would pass vacuously.
+	require.Contains(t, string(output), "--- PASS: "+t.Name()+" ", "isolated log test: %s", output)
+	return string(output)
+}
+
+// logTestChildEnv names, in a child of runLogTestInSubprocess, the test it runs.
+const logTestChildEnv = "SOCKETIO_LOG_TEST_CHILD"
+
+// isLogTestChild reports whether this process is the child that runs t's body.
+func isLogTestChild(t *testing.T) bool { return os.Getenv(logTestChildEnv) == t.Name() }
+
+// TestLogTestChildGOMAXPROCS: the child of runLogTestInSubprocess runs at the parent's
+// GOMAXPROCS, so -cpu reaches the isolated fixtures. A child started without -test.cpu
+// first reports the GOMAXPROCS it defaults to in this environment (the GOMAXPROCS
+// variable, a CPU quota or the CPU count); the parent then switches to another value, so
+// the check fails whenever the child keeps its default.
+func TestLogTestChildGOMAXPROCS(t *testing.T) {
+	const wantEnv, probeEnv = "SOCKETIO_LOG_TEST_WANT_GOMAXPROCS", "SOCKETIO_LOG_TEST_PROBE_GOMAXPROCS"
+	if isLogTestChild(t) && os.Getenv(probeEnv) != "" {
+		t.Logf("default GOMAXPROCS %d", runtime.GOMAXPROCS(0))
+		return
+	}
+	if !isLogTestChild(t) {
+		output := runLogTestChild(t, []string{probeEnv + "=1"})
+		match := regexp.MustCompile(`default GOMAXPROCS (\d+)`).FindStringSubmatch(output)
+		require.NotNil(t, match, "probe output: %s", output)
+		procs := 1
+		if match[1] == "1" {
+			procs = 2
+		}
+		previous := runtime.GOMAXPROCS(procs)
+		t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
+		t.Setenv(wantEnv, strconv.Itoa(procs))
+	}
+	if runLogTestInSubprocess(t) {
+		return
+	}
+	require.Equal(t, os.Getenv(wantEnv), strconv.Itoa(runtime.GOMAXPROCS(0)), "child GOMAXPROCS")
+}
+
 // find returns the records of msg, or all records if msg is empty.
 func (h *recorder) find(msg string) (out []map[string]string) {
 	h.mu.Lock()
@@ -103,6 +180,9 @@ func readAll(conn Conn) error {
 // it returns and the polling client's request failures, which reach its reader, are
 // DEBUG; every message follows the structured log format. Not parallel: it sets slog.Default.
 func TestDialFailureRecords(t *testing.T) {
+	if runLogTestInSubprocess(t) {
+		return
+	}
 	rec := newRecorder()
 	setDefault(t, rec)
 
@@ -140,6 +220,9 @@ func TestDialFailureRecords(t *testing.T) {
 func TestClientPeerCloseRecords(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
+			if runLogTestInSubprocess(t) {
+				return
+			}
 			rec := newRecorder()
 			setDefault(t, rec)
 			srv := engineio.NewServer(engineio.WithPingInterval(50*time.Millisecond), engineio.WithTransports([]transport.Transport{tr}...))
@@ -162,6 +245,9 @@ func TestClientPeerCloseRecords(t *testing.T) {
 		})
 	}
 	t.Run("websocket close frame", func(t *testing.T) {
+		if runLogTestInSubprocess(t) {
+			return
+		}
 		rec := newRecorder()
 		setDefault(t, rec)
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -224,6 +310,9 @@ func (c *brokenConn) Close() error { return nil }
 // fails with errBroken while the client is open) is one WARN record, since no caller
 // receives it. Not parallel: it sets slog.Default.
 func TestClientPingFailureRecord(t *testing.T) {
+	if runLogTestInSubprocess(t) {
+		return
+	}
 	rec := newRecorder()
 	setDefault(t, rec)
 	params := eioparser.ConnParameters{PingInterval: time.Millisecond}
@@ -238,6 +327,9 @@ func TestClientPingFailureRecord(t *testing.T) {
 // NextReader, whose failure NextReader then returns, logs nothing above DEBUG under the
 // logging policy. Not parallel: it sets slog.Default.
 func TestClientReaderCloseRecord(t *testing.T) {
+	if runLogTestInSubprocess(t) {
+		return
+	}
 	rec := newRecorder()
 	setDefault(t, rec)
 	_, _, err := (&client{conn: &brokenConn{}, close: make(chan struct{})}).NextReader()

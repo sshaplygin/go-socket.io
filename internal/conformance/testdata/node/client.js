@@ -11,18 +11,21 @@ if (process.env.CONFORMANCE_CLIENT_VERSION) {
 const base = process.argv[2];
 const transport = process.argv[3];
 const scenario = process.argv[4];
+// The heartbeat scenarios receive the server's ping interval and timeout in milliseconds.
+const pingInterval = Number(process.argv[5]);
+const pingTimeout = Number(process.argv[6]);
 const sockets = [];
 const deadline = setTimeout(() => {
   console.error('conformance scenario timed out');
   process.exit(1);
 }, 30000);
 
-function event(socket, name) {
+function event(socket, name, timeout = 5000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       socket.removeListener(name, done);
       reject(new Error('event timed out: ' + name));
-    }, 5000);
+    }, timeout);
     function done(...args) { clearTimeout(timer); resolve(args); }
     socket.once(name, done);
   });
@@ -173,27 +176,40 @@ async function base64Binary() {
   console.log(version + ' ' + transport + ': forceBase64 binary exchange passed');
 }
 
+// Waits are derived from the heartbeat window, pingInterval + pingTimeout, not fixed sleeps.
 async function heartbeat(suppressPings) {
+  const window = pingInterval + pingTimeout;
+  // A pong follows the previous one by at least an interval, so this many pongs span more
+  // than a window: the server keeps the connection only because the pings renew it.
+  const needed = Math.floor(window / pingInterval) + 1;
   let pongs = 0;
+  let renewed;
   const root = await connect({}, engine => {
-    engine.on('pong', () => { pongs++; });
+    if (suppressPings) {
+      // Before the handshake, so no ping is ever sent, and without the client's own
+      // timeout, so the server owns it.
+      engine.setPing = function () {};
+      engine.onHeartbeat = function () {};
+    }
+    renewed = new Promise((resolve, reject) => {
+      // Each ping waits an interval and its pong at most a timeout, or the client closes.
+      const timer = setTimeout(() => reject(new Error(pongs + ' of ' + needed + ' pongs')), needed * window);
+      engine.on('pong', () => { if (++pongs === needed) { clearTimeout(timer); resolve(); } });
+      engine.on('close', reason => { clearTimeout(timer); reject(new Error('closed after ' + pongs + ' pongs: ' + reason)); });
+    });
+    renewed.catch(() => {}); // awaited only by the heartbeat scenario
   });
   const engine = root.io.engine;
-  assert.strictEqual(engine.pingInterval, 200);
-  assert.strictEqual(engine.pingTimeout, 200);
+  assert.strictEqual(engine.pingInterval, pingInterval);
+  assert.strictEqual(engine.pingTimeout, pingTimeout);
   if (suppressPings) {
-    engine.ping = function () {};
-    clearTimeout(engine.pingIntervalTimer);
-    // Let the server own the timeout rather than racing the client's timer.
-    clearTimeout(engine.pingTimeoutTimer);
-  }
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  if (suppressPings) {
+    // The server closes the connection a window after the last packet it read.
+    if (root.connected) { await event(root, 'disconnect', 3 * window); }
     assert.strictEqual(pongs, 0, 'muted client must not send heartbeat pings');
     assert.strictEqual(root.connected, false, 'server must close the muted client');
   } else {
+    await renewed;
     assert.strictEqual(root.connected, true, 'connection must survive heartbeats');
-    assert(pongs >= 3, 'expected at least three heartbeat pongs, got ' + pongs);
     assert.deepStrictEqual(await ack(root, 'echo', 'after heartbeat'), ['after heartbeat']);
   }
   console.log(version + ' ' + transport + ': ' + scenario + ' passed (' + pongs + ' pongs)');

@@ -2649,7 +2649,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W56. Make the load-sensitive tests deterministic
 
-- **Status:** in progress — #224
+- **Status:** done — #224
 - **Priority:** after release
 - **Findings:** [T13](#tests-findings), [T14](#tests-findings)
 - **Depends on:** W55 for the counts it quotes
@@ -2663,7 +2663,11 @@ changed to `done — #<PR>` after the merge.
   W55 load with each pinned client.
 - **Benchmarks:** none.
 - **Docs:** none.
-- **Acceptance criteria:** as in Tests, with the W55 run linked.
+- **Acceptance criteria:** as in Tests, with the W55 run linked. Met: the local runs are in #224;
+  the three Stress runs on `master` at `06dbc96` ([42598955116](https://github.com/sshaplygin/go-socket.io/actions/runs/42598955116),
+  [42598972346](https://github.com/sshaplygin/go-socket.io/actions/runs/42598972346),
+  [42598989092](https://github.com/sshaplygin/go-socket.io/actions/runs/42598989092)) each passed on Ubuntu and macOS:
+  63041 test runs per job, 0 failed, 0 unfinished, 0 race reports.
 - **Definition of done:** standard.
 - **Out of scope:** library behavior.
 

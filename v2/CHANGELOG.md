@@ -10,6 +10,20 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
 
 ### Added
 
+- `RedactHandshake` has its body (roadmap 2.2): it drops the top-level `auth` member and the
+  `authorization`, `cookie` and `proxy-authorization` members of `headers` (names compared
+  without case) and keeps every other member byte for byte; nil yields nil and a value that
+  is not one JSON object an error. Before, it returned `ErrNotImplemented`.
+- In-memory adapter (roadmap 2.2), unexported, built from a `LocalSockets` value, with the
+  default `AdapterFactory` over `Namespace.LocalSockets()`: room union with deduplication,
+  `Except` rooms, empty selection of every socket, `LocalRecipients` counting successful
+  `Deliver` calls, a partial result with every delivery error joined (`ErrSocketClosed`,
+  `ErrWriteBufferFull`), no publication, no lock held across `Deliver`, owned result slices.
+  `Sockets` and `FetchSockets` list present sockets only and return at once with a nil
+  error; `ServerSideEmit` and `Close` do nothing and return nil. The conformance tests
+  replay the 22 Node cases of `testdata/rooms` (from `socket.io-adapter` 2.5.5, formerly
+  `_experiments/adapter-rooms`). `Options.Adapter == nil` does not select it yet: stage 2.3S
+  wires it with the namespace runtime, so library behaviour is unchanged.
 - `adapter/codec`: encoder and decoder for the messages of the non-sharded Node Redis adapter
   (`@socket.io/redis-adapter@8.3.0`): the MessagePack broadcast `[uid, packet, opts]`, the JSON
   requests (all-rooms, join, leave, disconnect, fetch-sockets, server-side emit) and the

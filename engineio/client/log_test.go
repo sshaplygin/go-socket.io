@@ -92,7 +92,9 @@ func runLogTestInSubprocess(t *testing.T) bool {
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	args := []string{"-test.run=^" + regexp.QuoteMeta(t.Name()) + "$", "-test.count=1", "-test.timeout=30s", "-test.v"}
+	// The child runs at this pass's GOMAXPROCS, so -cpu reaches the fixture.
+	args := []string{"-test.run=^" + regexp.QuoteMeta(t.Name()) + "$", "-test.count=1", "-test.timeout=30s", "-test.v",
+		"-test.cpu=" + strconv.Itoa(runtime.GOMAXPROCS(0))}
 	// Under go test -cover the child adds its counters to the directory this binary reads
 	// its own from when it writes the profile.
 	if dir := flag.Lookup("test.gocoverdir"); dir != nil && dir.Value.String() != "" {

@@ -19,8 +19,10 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   `Except` rooms, empty selection of every socket, `LocalRecipients` counting successful
   `Deliver` calls, a partial result with an error that groups the failed deliveries by cause
   (count and sample socket IDs per cause; causes past the first 8 other than the two
-  sentinels share one counted group, so the error is bounded however many fail) and matches each cause
-  (`ErrSocketClosed`, `ErrWriteBufferFull`) and a done context with `errors.Is`, no publication, no lock held across `Deliver`, owned result slices.
+  sentinels share one counted group, so the error is bounded however many fail) and matches
+  with `errors.Is` `ErrSocketClosed`, `ErrWriteBufferFull`, a done context, the first 8 other
+  causes and the first cause of the shared group, no publication, no lock held across
+  `Deliver`, owned result slices.
   `Sockets` and `FetchSockets` list present sockets only and return at once with a nil
   error; `ServerSideEmit` and `Close` do nothing and return nil. The conformance tests
   replay the 22 Node cases of `testdata/rooms` (from `socket.io-adapter` 2.5.5, formerly

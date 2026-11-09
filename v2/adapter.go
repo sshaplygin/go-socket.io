@@ -225,7 +225,10 @@ func (a *memoryAdapter) selectLocked(rooms, except []Room) []SocketID {
 // recipients are still tried; once ctx is done no further delivery starts.
 // LocalRecipients counts the deliveries that succeeded. The error reports the
 // failures grouped by cause (see deliveryFailures), so its size does not grow with
-// the number of recipients, and it matches every cause and ctx.Err() with errors.Is.
+// the number of recipients. It matches with errors.Is ErrSocketClosed,
+// ErrWriteBufferFull, ctx.Err() when ctx ended the broadcast, the first
+// maxFailureCauses other causes and the first of the causes after them; those later
+// causes are otherwise only counted.
 func (a *memoryAdapter) Broadcast(ctx context.Context, pkt parser.Packet, opts BroadcastOptions) (BroadcastResult, error) {
 	a.mu.RLock()
 	ids := a.selectLocked(opts.Rooms, opts.Except)

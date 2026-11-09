@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,5 +102,17 @@ func TestServerFlushLevels(t *testing.T) {
 		require.NoError(t, conn.Close())
 		poll(conn)
 		assert.Equal(t, []string{warn, debug}, levels(rec))
+	})
+
+	// No poll has reported the read failure; only the close makes the poll DEBUG.
+	t.Run("read failure then closed", func(t *testing.T) {
+		rec := logtest.NewRecorder()
+		logtest.SetDefault(t, rec)
+		conn := handshakeConn()
+		require.NoError(t, conn.SetReadDeadline(time.Now().Add(-time.Second)))
+		require.Error(t, conn.FeedIn(strings.NewReader("4hello")))
+		require.NoError(t, conn.Close())
+		poll(conn)
+		assert.Equal(t, []string{debug}, levels(rec))
 	})
 }

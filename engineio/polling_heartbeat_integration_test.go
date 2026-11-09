@@ -30,7 +30,7 @@ func TestPingPostReleasesBeforePongPoll(t *testing.T) {
 	_, err = io.Copy(io.Discard, resp.Body)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
-	// Accept returns once the session is open; Clients() may not list it yet.
+	// Accept returns once the handshake has finished.
 	release()
 	var sid string
 	select {

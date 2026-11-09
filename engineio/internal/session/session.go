@@ -337,6 +337,13 @@ func (s *Session) NextWriterCompress(typ eioparser.FrameType, compress bool) (io
 	return &frameWriter{WriteCloser: w, s: s}, nil
 }
 
+// Init performs the handshake: it writes the OPEN packet and marks the session
+// open. It returns io.ErrClosedPipe if the session closed meanwhile.
+//
+// The session is marked open once Init owns the OPEN writer and before the
+// packet is written, so it is open, and listed by Server.Clients, no later than
+// the client can have received OPEN. The writer is held across the mark, so no
+// other packet can precede OPEN; upgradeLocker is never held across a write.
 func (s *Session) Init() error {
 	w, err := s.nextWriter(eioparser.String, eioparser.OPEN)
 	if err != nil {
@@ -347,6 +354,17 @@ func (s *Session) Init() error {
 
 		return err
 	}
+
+	// The open record is logged under the lock: close reads opened under it, so a
+	// concurrent close cannot log the session's close record before its open record.
+	// A session closed in the meantime stays closed; the OPEN packet is still
+	// completed so that the writer is released, and Init reports the close below.
+	s.upgradeLocker.Lock()
+	if !s.closed {
+		s.opened = time.Now()
+		s.logger().Debug("engineio: session open", "remote_addr", fmt.Sprint(s.conn.RemoteAddr()))
+	}
+	s.upgradeLocker.Unlock()
 
 	if _, err := s.params.WriteTo(w); err != nil {
 		_ = s.fail(err)
@@ -370,14 +388,8 @@ func (s *Session) Init() error {
 		return err
 	}
 
-	// The open record is logged under the lock: close reads opened under it, so a
-	// concurrent close cannot log the session's close record before its open record.
-	s.upgradeLocker.Lock()
-	defer s.upgradeLocker.Unlock()
-	if !s.closed {
-		s.opened = time.Now()
-		s.logger().Debug("engineio: session open", "remote_addr", fmt.Sprint(s.conn.RemoteAddr()))
-	}
+	s.upgradeLocker.RLock()
+	defer s.upgradeLocker.RUnlock()
 	if s.closed {
 		return io.ErrClosedPipe
 	}

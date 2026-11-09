@@ -43,7 +43,7 @@ func TestEmptyBinaryPostKeepsSession(t *testing.T) {
 	_, err = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 	require.NoError(t, err)
-	// Accept returns once the session is open; Clients() may not list it yet.
+	// Accept returns once the handshake has finished.
 	release()
 	var sid string
 	select {

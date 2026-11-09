@@ -255,7 +255,10 @@ func (s *Server) Count() int {
 }
 
 // Clients returns a snapshot of open or closing sessions keyed by session ID.
-// Count includes every registered session until Remove, regardless of state.
+// A session is open from the start of its OPEN packet's delivery, so one whose
+// client has received that packet is listed. A session that is still opening,
+// or already closed, is not. Count includes every registered session until
+// Remove, regardless of state.
 func (s *Server) Clients() map[string]Conn {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()

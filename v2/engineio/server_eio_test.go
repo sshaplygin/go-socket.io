@@ -143,8 +143,8 @@ func TestHandshakeEIO4(t *testing.T) {
 	assert.Equal(t, 1, srv.Count())
 }
 
-// TestHandshakePreflight checks that an OPTIONS request without a sid is not
-// answered as a bad handshake method.
+// TestHandshakePreflight checks that an OPTIONS request without a sid is answered as a
+// CORS preflight, not as a bad handshake method, and opens no session.
 func TestHandshakePreflight(t *testing.T) {
 	srv := engineio.NewServer(nil)
 	defer func() { _ = srv.Close() }()
@@ -152,6 +152,8 @@ func TestHandshakePreflight(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest(http.MethodOptions, "/?transport=polling&EIO=4", nil))
 	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "Content-Type", w.Header().Get("Access-Control-Allow-Headers"))
+	assert.Zero(t, srv.Count(), "a preflight opens no session")
 }
 
 // openPolling performs a polling handshake with EIO=4 against url, checks that it is

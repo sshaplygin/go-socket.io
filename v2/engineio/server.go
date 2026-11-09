@@ -144,8 +144,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// A handshake is a GET. An OPTIONS preflight keeps reaching the transport,
-		// which answers it with the CORS headers.
+		// A handshake is a GET. An OPTIONS preflight reaches the transport, which
+		// answers it with the CORS headers, and opens no session.
 		if r.Method != http.MethodGet && r.Method != http.MethodOptions {
 			internal.WriteError(w, http.StatusBadRequest, internal.CodeBadHandshake)
 			s.reject(reqTransport, r.RemoteAddr, "bad handshake method", nil)
@@ -155,6 +155,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		transportConn, err := srvTransport.Accept(w, r)
 		if err != nil {
 			s.acceptFailed(w, r, reqTransport, err, "transport accept err: ")
+			return
+		}
+		if r.Method == http.MethodOptions {
+			if handler, ok := transportConn.(http.Handler); ok {
+				handler.ServeHTTP(w, r)
+			}
+			_ = transportConn.Close()
 			return
 		}
 

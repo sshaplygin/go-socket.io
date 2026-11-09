@@ -139,8 +139,10 @@ func TestServerFlushLevels(t *testing.T) {
 		expired(conn)
 		_, err = conn.NextWriter(frame.String, packet.MESSAGE)
 		require.ErrorContains(t, err, "timeout", "the write timeout ends the payload")
-		poll(conn) // overlaps the first poll
-		go func() { _ = w.Close() }() // wakes the first poll, which reports the timeout
+		// This poll overlaps the first one; closing w then wakes the first poll,
+		// which reports the timeout.
+		poll(conn)
+		go func() { _ = w.Close() }()
 		<-first
 		poll(conn)
 		assert.Equal(t, []string{warn, warn, debug}, levels(rec))

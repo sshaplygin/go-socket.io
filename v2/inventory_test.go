@@ -47,7 +47,9 @@ func TestInventoryListsEveryExportedSignature(t *testing.T) {
 					check(d.Name.Name)
 					continue
 				}
-				check(receiverName(d.Recv.List[0].Type) + "." + d.Name.Name)
+				if recv := receiverName(d.Recv.List[0].Type); ast.IsExported(recv) {
+					check(recv + "." + d.Name.Name)
+				}
 			case *ast.GenDecl:
 				for _, spec := range d.Specs {
 					switch s := spec.(type) {
@@ -188,7 +190,11 @@ func TestInventoryResultTypesMatchDeclarations(t *testing.T) {
 				}
 				key := d.Name.Name
 				if d.Recv != nil {
-					key = receiverName(d.Recv.List[0].Type) + "." + key
+					recv := receiverName(d.Recv.List[0].Type)
+					if !ast.IsExported(recv) {
+						continue
+					}
+					key = recv + "." + key
 				}
 				sig := inventoryRow(doc, key)
 				if sig == "" {

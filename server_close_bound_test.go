@@ -1,6 +1,7 @@
 package socketio
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -18,5 +19,5 @@ func TestServerCloseBound(t *testing.T) {
 	closed := make(chan error, 1)
 	go func() { closed <- s.closeWithTimeout(100 * time.Millisecond) }()
 	recv(t, entered, "blocked OnDisconnect")
-	require.NoError(t, recv(t, closed, "bounded Close"))
+	require.ErrorIs(t, recv(t, closed, "bounded Close"), context.DeadlineExceeded)
 }

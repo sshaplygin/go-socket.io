@@ -3,8 +3,9 @@
 The declarations of roadmap stage 2.0: the method-signature inventory and the
 package graph that parallel work (2.1 to 2.4) builds against. The G2 gate (ROADMAP wave
 2A) froze them; [Frozen contract](#frozen-contract) records what is frozen and what is
-explicitly not. The skeleton is declarations only. Every operation that needs the runtime returns
-`socketio.ErrNotImplemented` (`Server.ServeHTTP` answers 501); nothing here works yet. Behaviour is specified in
+explicitly not. Operations that need the runtime return `socketio.ErrNotImplemented`
+until their stage lands (`Server.ServeHTTP` answers 501); `RedactHandshake` (2.2) is
+implemented. Behaviour is specified in
 [ROADMAP.md](ROADMAP.md) (sections 2.0 to 2.4) and, once it exists, in the godoc of each
 declaration. This file lists signatures and does not restate behaviour. A signature
 change updates this file, the fixtures and the owning roadmap section in one PR.

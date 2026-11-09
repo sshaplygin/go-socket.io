@@ -95,7 +95,10 @@ Package `engineio` of the v1 module at the repository root.
   the polling connection is paused only on `5`, then the session switches to the
   websocket and closes the polling connection. A failed probe, or one without `5`
   within `WithUpgradeTimeout`, closes the probe connection and leaves polling
-  unpaused. Implemented in the private server session upgrade state machine (`engineio/internal/session/upgrade.go`).
+  unpaused. A session closed while a probe is in progress (`Conn.Close`,
+  `Server.Close`, `Abort`) drops the probe connection at once, without the close frame
+  and without waiting for a reply that an established websocket receives, so the probing
+  client observes 1006 on it. Implemented in the private server session upgrade state machine (`engineio/internal/session/upgrade.go`).
 - Requests the server rejects before a transport handles them are answered with JSON
   `{"code":<n>,"message":"<text>"}`, as engine.io 3.6.2 answers a request that is not a
   websocket upgrade: HTTP 400 with code 0 `Transport unknown`, 1 `Session ID unknown`, 2

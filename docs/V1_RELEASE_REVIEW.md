@@ -2987,7 +2987,8 @@ changed to `done — #<PR>` after the merge.
 - **Benchmarks:** none.
 - **Docs:** `SECURITY.md`, README, and a `SECURITY.md` row in the documentation ownership
   table (see Conventions).
-- **Acceptance criteria:** P1's acceptance holds; every link in `SECURITY.md` resolves.
+- **Acceptance criteria:** P1's endpoints report the settings enabled; a link-check script
+  run in the PR, with its output quoted, resolves every link in `SECURITY.md`.
 - **Definition of done:** standard.
 - **Out of scope:** the repository settings themselves (P1).
 
@@ -3003,11 +3004,13 @@ changed to `done — #<PR>` after the merge.
   compilable by an example test or a consumer fixture, and the line that the module is the
   maintained successor of the archived `googollee/go-socket.io` for socket.io-client
   1.x/2.x.
-- **Tests:** the snippet's twin, an example test or a consumer fixture.
+- **Tests:** a test run by `make gates` (for example `TestREADMEQuickStart` in
+  `internal/parity`) extracts the Go block between marker comments in README.md and
+  compares it byte for byte with a compiled example file.
 - **Benchmarks:** none.
 - **Docs:** README.
-- **Acceptance criteria:** the snippet's twin compiles in `make gates` or `make test`;
-  README text and the test agree.
+- **Acceptance criteria:** `make gates` passes and fails when the README block and the
+  example file differ by one byte (shown once in the PR).
 - **Definition of done:** standard.
 - **Out of scope:** a Go client snippet.
 

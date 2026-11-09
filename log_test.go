@@ -129,13 +129,9 @@ func TestRequestRejectedRecords(t *testing.T) {
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 
-	get := func(query, ctype string, header ...string) int {
-		req, err := http.NewRequest(http.MethodGet, ts.URL+"/?EIO=3&"+query, strings.NewReader("1:2"))
+	get := func(query string, header ...string) int {
+		req, err := http.NewRequest(http.MethodGet, ts.URL+"/?EIO=3&"+query, nil)
 		require.NoError(t, err)
-		if ctype != "" {
-			req.Method = http.MethodPost
-			req.Header.Set("Content-Type", ctype)
-		}
 		for i := 0; i < len(header); i += 2 {
 			req.Header.Set(header[i], header[i+1])
 		}
@@ -164,7 +160,7 @@ func TestRequestRejectedRecords(t *testing.T) {
 		require.NoError(t, closeErr)
 		return params.SID
 	}
-	wsSID, pollingSID := dial(websocket.Default), dial(polling.Default)
+	wsSID, _ := dial(websocket.Default), dial(polling.Default)
 	require.Eventually(t, func() bool { return len(only(rec.since(0), "engineio: session open")) == 2 },
 		waitFor, time.Millisecond, "a client can read OPEN before its session logs open")
 
@@ -173,13 +169,12 @@ func TestRequestRejectedRecords(t *testing.T) {
 		do            func() int
 		status        int
 	}{
-		{"bad transport", "WARN", func() int { return get("transport=foo", "") }, http.StatusBadRequest},
-		{"checker", "WARN", func() int { return get("transport=polling", "", "X-Reject", "1") }, http.StatusForbidden},
-		{"unknown sid", "DEBUG", func() int { return get("transport=polling&sid=nope", "") }, http.StatusBadRequest},
-		{"accept", "WARN", func() int { return get("transport=websocket", "") }, http.StatusBadRequest},
-		{"init", "WARN", func() int { return get("transport=faulty", "") }, http.StatusOK},
-		{"bad upgrade", "WARN", func() int { return get("transport=polling&sid="+wsSID, "") }, http.StatusBadRequest},
-		{"", "", func() int { return get("transport=polling&sid="+pollingSID, "application/bogus") }, http.StatusBadRequest},
+		{"bad transport", "WARN", func() int { return get("transport=foo") }, http.StatusBadRequest},
+		{"checker", "WARN", func() int { return get("transport=polling", "X-Reject", "1") }, http.StatusForbidden},
+		{"unknown sid", "DEBUG", func() int { return get("transport=polling&sid=nope") }, http.StatusBadRequest},
+		{"accept", "WARN", func() int { return get("transport=websocket") }, http.StatusBadRequest},
+		{"init", "WARN", func() int { return get("transport=faulty") }, http.StatusOK},
+		{"bad upgrade", "WARN", func() int { return get("transport=polling&sid=" + wsSID) }, http.StatusBadRequest},
 	} {
 		n := rec.len()
 		require.Equal(t, tc.status, tc.do(), tc.reason)

@@ -26,7 +26,7 @@ func TestWebsocketWithoutHijacker(t *testing.T) {
 	defer func() { _ = srv.Close() }()
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/engine.io/?transport=websocket&EIO=3", nil)
+	r := httptest.NewRequest(http.MethodGet, "/engine.io/?transport=websocket&EIO=4", nil)
 	r.Header.Set("Connection", "Upgrade")
 	r.Header.Set("Upgrade", "websocket")
 	require.NotPanics(t, func() { srv.ServeHTTP(plainWriter{w}, r) })
@@ -49,7 +49,7 @@ func TestUpgradeWithoutHijacker(t *testing.T) {
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/?transport=polling&EIO=3")
+	resp, err := http.Get(ts.URL + "/?transport=polling&EIO=4")
 	require.NoError(t, err)
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
@@ -58,7 +58,7 @@ func TestUpgradeWithoutHijacker(t *testing.T) {
 	require.NotNil(t, m, "no sid in %q", body)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/?transport=websocket&EIO=3&sid="+string(m[1]), nil)
+	r := httptest.NewRequest(http.MethodGet, "/?transport=websocket&EIO=4&sid="+string(m[1]), nil)
 	require.NotPanics(t, func() { srv.ServeHTTP(plainWriter{w}, r) })
 
 	assert.Equal(t, http.StatusNotImplemented, w.Code)

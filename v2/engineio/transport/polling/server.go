@@ -1,13 +1,17 @@
 package polling
 
 import (
+	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
+	"github.com/sshaplygin/go-socket.io/v2/engineio/internal"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/v2/logger"
 )
@@ -17,6 +21,8 @@ type serverConn struct {
 	transport  *Transport
 	maxPayload int
 
+	closed       atomic.Bool // Close was called: the session or the server ended it
+	reported     atomic.Bool // a poll answered the failure that ended the payload with a 500
 	remoteHeader http.Header
 	localAddr    Addr
 	remoteAddr   Addr
@@ -40,6 +46,13 @@ func newServerConn(t *Transport, r *http.Request) *serverConn {
 		remoteAddr:   Addr{r.RemoteAddr},
 		url:          *r.URL,
 	}
+}
+
+// Close closes the payload and records that the connection was closed, which
+// lowers the log level of the polls that fail afterwards.
+func (c *serverConn) Close() error {
+	c.closed.Store(true)
+	return c.Payload.Close()
 }
 
 func (c *serverConn) URL() url.URL {
@@ -110,6 +123,7 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				logger.Log.Debug("engineio: poll response failed after it was started", "err", err)
 				return
 			}
+			c.rejected(r, "flush", c.flushLevel(err), err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
@@ -148,8 +162,42 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 	default:
-		http.Error(w, "invalid method", http.StatusBadRequest)
+		c.rejected(r, "bad method", slog.LevelWarn, nil)
+		internal.WriteError(w, http.StatusBadRequest, internal.CodeBadRequest)
 	}
+}
+
+// flushLevel is the level at which a poll that failed with err is logged: DEBUG when
+// the connection was closed or an earlier poll already reported the failure that
+// ended the payload, WARN for the first report of that failure and for a failure of
+// this poll only, such as an overlapping poll.
+func (c *serverConn) flushLevel(err error) slog.Level {
+	if c.closed.Load() || errors.Is(err, io.EOF) {
+		return slog.LevelDebug
+	}
+	// Store with a nil error stores nothing: it returns the failure that ended the
+	// payload, or nil.
+	ended := c.Payload.Store("", nil)
+	if ended == nil || !errors.Is(err, ended) {
+		return slog.LevelWarn // this poll failed alone
+	}
+	if c.reported.CompareAndSwap(false, true) {
+		return slog.LevelWarn // the first report of the failure that ended the payload
+	}
+	return slog.LevelDebug
+}
+
+// rejected logs r, answered with an error status, through the fallback logger,
+// which is what the transport can reach.
+func (c *serverConn) rejected(r *http.Request, reason string, level slog.Level, err error) {
+	args := []any{"transport", "polling", "remote_addr", r.RemoteAddr, "reason", reason}
+	if sid := r.URL.Query().Get("sid"); sid != "" {
+		args = append(args, "sid", sid)
+	}
+	if err != nil {
+		args = append(args, "err", err)
+	}
+	logger.Log.Log(context.Background(), level, "engineio: request rejected", args...)
 }
 
 // postStatus maps an error of FeedIn to the status of the POST it answers.

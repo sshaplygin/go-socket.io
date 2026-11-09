@@ -131,7 +131,7 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   message, coded by the prepared v4 codec, now in package `websocket` (`Encode`, `Decode`,
   `Packet`, `ErrTooLarge`, `ErrInvalidPacket`, `ErrInvalidLimit`): a binary message is the raw
   data of a MESSAGE packet, without the type byte of v3, and `b` + base64 text is read as binary.
-  The handshake, heartbeat and `EIO` check are still Engine.IO v3, so a v3 peer that sends binary
+  The handshake and heartbeat are still Engine.IO v3; a v3 peer that sends binary
   over websocket no longer interoperates. A message is limited to `websocket.Transport.MaxPayload`
   (new field, default 1 MiB as for polling), fragments together; the transport answered any
   size before. A peer that violates the protocol is sent a close frame with status 1002, 1007
@@ -169,10 +169,25 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   POST carry every packet that the session writers hand over at once, a POST up to the
   server's `maxPayload`, or to the client's `MaxPayload` (default 1 MiB) until it is advertised. A client response larger than its `MaxPayload` ends the session with `payload.ErrTooLarge`. Closing a polling client aborts its pending requests.
   `transport.ConnParameters` gains `MaxPayload` (JSON `maxPayload`, omitted when zero).
-  The handshake, heartbeat and `EIO` check are still Engine.IO v3 until the rest of 2.1
-  lands, so a v3 peer no longer interoperates over polling.
+  The handshake and heartbeat are still Engine.IO v3 until the rest of 2.1
+  lands; a v3 peer no longer interoperates over polling.
 - `payload.New` takes the read and write limits instead of a binary flag, and `FeedIn`
   no longer takes one.
+- `engineio.Server` requires Engine.IO protocol v4 (stage 2.1): a request whose `EIO` query
+  parameter is missing or not `4` is HTTP 400 with
+  `{"code":5,"message":"Unsupported protocol version"}`, checked before the transport, and the
+  `engineio/client` dialer sends `EIO=4` (it sent `EIO=3`). Rejections carry the JSON error body
+  `{"code":N,"message":"..."}` of the Engine.IO v4 specification instead of plain text: unknown
+  transport 0, unknown `sid` 1, a handshake that is neither GET nor an OPTIONS preflight 2 (such
+  a request reached the transport before), a transport change the session cannot make, a failed
+  session start or an invalid polling method 3, and a `RequestChecker` error 4 with HTTP 403
+  instead of 502 with the error text. A failed transport accept (502) and a writer without
+  `http.Hijacker` (501) stay plain text. New `engineio: request rejected` records:
+  `reason="bad eio"` and `"bad handshake method"` from the server; `"flush"` for a poll
+  answered with HTTP 500 (DEBUG once the connection has closed or an earlier poll reported
+  the failure that ended the payload, WARN otherwise) and `"bad method"` from the polling
+  transport, through `logger.Log`. An OPTIONS request without `sid` is answered as a CORS
+  preflight and opens no session; before, it created a session and called `ConnInitor`.
 
 ### Removed
 

@@ -4309,7 +4309,8 @@ repository.
 Disconnect comparison with socket.io-client 2.5.0 against the fork, upstream `v1.7.0`,
 upstream `v1.4.2` and Node socket.io 2.5.0. Each cell says whether the server's error
 callback fired (`OnError`; the `error` event for Node) and gives, in parentheses, the
-reported error or, where no error fired, the disconnect reason. "Go client close" closes
+reported error or, where no error fired, the disconnect reason. "Server disconnect" is the
+server's Socket.IO `Conn.Close` (Node: `socket.disconnect(true)`). "Go client close" closes
 the fork's Go client against the fork's server. A dash marks a combination not recorded.
 
 | Scenario | Fork | Upstream `v1.7.0` | Upstream `v1.4.2` | Node socket.io 2.5.0 |
@@ -4317,7 +4318,8 @@ the fork's Go client against the fork's server. A dash marks a combination not r
 | Orderly close (upgrade, polling, websocket) | yes (1005 `transport error` over websocket; `transport close: EOF` over polling) | no | yes | no |
 | Abrupt drop, websocket | yes (1006) | yes (1006) | yes | no (`transport close`) |
 | Abrupt drop, polling | yes, immediately (`write: context canceled`) | yes, after 60 s (`write: timeout`) | yes, after 60 s | no (`transport error`) |
-| Server close | no | yes over websocket (`use of closed network connection`), no over polling | yes over websocket (`use of closed network connection`), no over polling | no |
+| Server disconnect | no | yes over websocket (`use of closed network connection`), no over polling | yes over websocket (`use of closed network connection`), no over polling | no |
+| `Server.Close` | yes (`server shutting down`; Go client probe below) | — | — | — |
 | Go client close | yes (1006 over websocket; `transport close: EOF` over polling) | — | — | — |
 
 Go client probe on `27fdab8` (darwin/arm64, Go 1.25.5; `httptest` server, Go client with

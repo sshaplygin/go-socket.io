@@ -97,8 +97,10 @@ server->>server: close old conn
   | 4 | `Forbidden` | 403 | `Options.RequestChecker` returned an error |
   | 5 | `Unsupported protocol version` | 400 | `EIO` is missing or not `4` |
 
-  An OPTIONS request without `sid` is answered by the transport as a CORS preflight (the
-  polling transport: HTTP 200 with the CORS headers) and opens no session.
+  An OPTIONS request without `sid` opens no session. Only the polling transport answers it
+  as a CORS preflight (HTTP 200 with the CORS headers). On the websocket transport it gets
+  the WebSocket transport's rejection of a request that is not an upgrade (HTTP 405 from
+  `gobwas/ws`, below) and is logged with `reason="accept"`.
   A failed transport accept (HTTP 502), a writer without `http.Hijacker` (HTTP 501), a
   rejected polling POST (HTTP 400 or 413, above) and a failed poll (HTTP 500) are plain text.
   So are the WebSocket transport's own handshake answers: HTTP 403 when `CheckOrigin` refuses

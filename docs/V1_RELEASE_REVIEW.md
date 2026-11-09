@@ -19,7 +19,7 @@ The document has three parts:
   then [Release blockers](#release-blockers) through the
   [finding catalogue](#finding-catalogue). They come from the original review and were
   corrected where the follow-up validation and the 2026-10-22 fact-check required it.
-- **[Work plan](#work-plan):** pull-request-sized work items (W1–W71), owner decisions
+- **[Work plan](#work-plan):** pull-request-sized work items (W1–W72), owner decisions
   (D1–D6) and owner-only publication steps (P1–P9) that cover every catalogue ID except the editorial `CL-14` (not planned), with
   their order, acceptance criteria and status.
 - **[Follow-up validation](#follow-up-validation):** the evidence log, with a status and
@@ -104,7 +104,7 @@ before-tag items
 [W63](#w63-keep-the-end-of-an-engineio-session-out-of-onerror)–[W68](#w68-readme-quick-start),
 the owner-only publication steps
 [P1](#p1-repository-security-settings)–[P9](#p9-remote-branch-cleanup) and the
-after-release items [W69](#w69-scheduled-fuzzing)–[W71](#w71-hostile-client-suite).
+after-release items [W69](#w69-scheduled-fuzzing)–[W72](#w72-close-polling-sessions-with-a-close-packet-on-server-shutdown).
 
 ## Scorecard
 
@@ -154,7 +154,7 @@ to do the work. The status of each item is owned by its **Status** line and nowh
    announcement-readiness check of 2026-11-10 added W63–W68, which land before the tag in
    the order their **Depends on** lines give, with W66 last; the owner-only steps in
    [Publication and announcement](#publication-and-announcement) follow. Only the owner tags.
-6. After the tag: W11–W44, W56–W57 and W69–W71 in numeric order unless **Depends on** says otherwise. Every
+6. After the tag: W11–W44, W56–W57 and W69–W72 in numeric order unless **Depends on** says otherwise. Every
    performance item needs W2 merged first. W12 lands before W23. W38 needs the tag.
 
 A major (M1–M7) that is not fixed before the tag is deferred only in writing: the owner
@@ -273,7 +273,7 @@ have already merged, the item's PR changes no part of this document. Apart from 
 lines and the `Fixed by` notes, do not rewrite the review's findings, the Backlog or the Follow-up
 validation evidence log when an item is done; they record the state at `7311fbe`. This
 progress tracking is not a v1 changelog: after the tag, the owner decides whether the
-remaining items (W11–W44, W56–W57 and W69–W71) move to GitHub issues, and this document then keeps only the
+remaining items (W11–W44, W56–W57 and W69–W72) move to GitHub issues, and this document then keeps only the
 findings and the evidence.
 
 **Standard definition of done** (every item refers to it): the PR is squash-merged by the
@@ -364,6 +364,7 @@ changed to `done — #<PR>` after the merge.
 | [W69](#w69-scheduled-fuzzing) | Scheduled fuzzing | after release | T17 | — |
 | [W70](#w70-static-security-analysis) | Static security analysis | after release | REL-19 | — |
 | [W71](#w71-hostile-client-suite) | Hostile-client suite | after release | T18 | — |
+| [W72](#w72-close-polling-sessions-with-a-close-packet-on-server-shutdown) | Close polling sessions with a CLOSE packet on server shutdown | after release | interop-14 | W63 |
 | [P1](#p1-repository-security-settings) | Repository security settings | owner | — | — |
 | [P2](#p2-repository-metadata) | Repository metadata | owner | REL-18 | — |
 | [P3](#p3-leave-the-fork-network) | Leave the fork network | owner | — | — |
@@ -383,7 +384,7 @@ changed to `done — #<PR>` after the merge.
 | Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 · CL-16 W50 · CL-17 W51 · CL-18 W51 · CL-19 W51 · CL-20 W68 |
 | Architecture | ARCH-1 W5 · ARCH-2 D2 · ARCH-3 D3 · ARCH-4 W26 · ARCH-5 D4 · ARCH-6 D5 · ARCH-7 W33 · ARCH-8 W32 · ARCH-9 W14 · ARCH-10 W37 · ARCH-11 D6 · ARCH-12 W28 · ARCH-13 W26 |
 | Performance | PERF-1 W3 · PERF-2 W18 · PERF-3 W4 · PERF-4 W19 · PERF-5 W20 · PERF-6 W21 · PERF-7 W22 · PERF-8 W23 · PERF-9 W24 · PERF-10 W2 · PERF-11 W25 · PERF-12 W21 · PERF-13 W26 · PERF-14 W50 · PERF-15 W23 · PERF-16 W54 |
-| Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 · interop-10 W49 · interop-11 W51 · interop-12 W64 · interop-13 W65 |
+| Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 · interop-10 W49 · interop-11 W51 · interop-12 W64 · interop-13 W65 · interop-14 W72 |
 | Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 · T11 W48 · T12 W55 · T13 W56 · T14 W56 · T15 W57 · T16 W61 · T17 W69 · T18 W71 |
 | Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 · REL-13 W42 · REL-14 W52 · REL-15 W52 · REL-16 W66 · REL-17 W67 · REL-18 P2 · REL-19 W70 |
 
@@ -3056,6 +3057,26 @@ changed to `done — #<PR>` after the merge.
 - **Definition of done:** standard.
 - **Out of scope:** throughput load testing.
 
+### W72. Close polling sessions with a CLOSE packet on server shutdown
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [interop-14](#interoperability-findings)
+- **Depends on:** W63
+- **Problem:** see interop-14.
+- **Change:** on `Server.Close`, a polling session's pending GET is answered with a CLOSE
+  packet (`1`) instead of HTTP 500, as engine.io 3.6.2 does, so a client reports
+  `transport close`. The shutdown bound of `Server.Close` is unchanged.
+- **Tests:** red→green in `engineio` and `client`: a polling Go client with a pending GET
+  sees `transport close` after `Server.Close`.
+- **Benchmarks:** none.
+- **Docs:** `docs/PROTOCOL.md`: W63's PR, which measures this reason, lists the difference
+  there; this item removes it.
+- **Acceptance criteria:** as in Tests, with `make test-race` and `make conformance` with both
+  clients passing.
+- **Definition of done:** standard.
+- **Out of scope:** websocket sessions (#238 already sends a close frame).
+
 ### Publication and announcement
 
 Owner-only steps that take the verified head to a published, findable release and announce
@@ -3965,7 +3986,7 @@ Every finding is listed under the dimension that reported it.
   [Catalogue cross-check](#catalogue-cross-check). Their locations name the files, and the
   function where the fixing pull request changed one; the rows were written against
   `origin/master` at `2c4054c`, after the fixes.
-- C13, interop-12, interop-13, CL-20, T17, T18 and REL-16 to REL-19 were found by the
+- C13, interop-12 to interop-14, CL-20, T17, T18 and REL-16 to REL-19 were found by the
   announcement-readiness check of 2026-11-10 (see
   [Announcement-readiness check on 2026-11-10](#announcement-readiness-check-on-2026-11-10)). They are
   not among the 85 entries and have no row in
@@ -4094,6 +4115,7 @@ Every finding is listed under the dimension that reported it.
 | interop-11 | minor | — | `docs/PROTOCOL.md:49` | PROTOCOL.md (lines 49 and 61) says an oversize websocket message closes with 1009; ws 7.5.13 saw 1006 in 7 of 18 closes (13 of 18 in the rerun quoted in #204, at load average 37–52), the reference 1009 in 12 of 12 | Say that a client can see 1006 when the connection resets (W51). Fixed by #204 (W51). |
 | interop-12 | minor | — | `engineio/internal/session/close.go` (`fail`) | The server records a peer websocket close frame with status 1000, 1001 or 1005 as `transport error`; engine.io 3.6.2 reports `transport close`, and the fork's own engine client already maps these statuses to `transport close` (`engineio/client/client.go:220`, #238) | Classify those close frames as `transport close` (W64). |
 | interop-13 | minor | — | `engineio/transport/websocket/transport.go:100`, `engineio/transport/websocket/connect.go:178` | The Go client's websocket `Close` sends no close frame (the frame is written only for server connections), so the server sees 1006, the same as a crashed peer | Send a close frame with status 1000 from the dial side (W65). |
+| interop-14 | minor | reproduced by the Go client probe in [Announcement-readiness check on 2026-11-10](#announcement-readiness-check-on-2026-11-10) | `socketio.Server.Close`, polling transport | On `Server.Close` the server answers a polling client's pending GET with HTTP 500, so the client reports `transport error`; engine.io 3.6.2 sends a CLOSE packet | Answer the pending GET with a CLOSE packet; until then list the difference in PROTOCOL.md (W72). |
 
 ### Tests findings
 
@@ -4301,7 +4323,7 @@ Windows or 32-bit runtime.
 ### Announcement-readiness check on 2026-11-10
 
 Run on 2026-11-10 against `27fdab8`, whose runtime code is equal to `32ce217`. The
-findings it added (C13, interop-12, interop-13, CL-20, T17, T18 and REL-16 to REL-19) are
+findings it added (C13, interop-12 to interop-14, CL-20, T17, T18 and REL-16 to REL-19) are
 in the [finding catalogue](#finding-catalogue); its probes were not retained in the
 repository.
 

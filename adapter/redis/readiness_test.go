@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -131,12 +132,25 @@ const syncTimerChildEnv = "SOCKETIO_SYNC_TIMER_CHILD"
 // synchronous timer channels. It fails unless the child ran that test and
 // the test passed.
 func runSyncTimerChild(name string) error {
-	executable, err := os.Executable()
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	command, err := syncTimerChildCommand(ctx, name)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("synchronous timer child %s: %w\n%s", name, err, output)
+	}
+	return childPassed(name, output)
+}
+
+// syncTimerChildCommand builds the command runSyncTimerChild runs.
+func syncTimerChildCommand(ctx context.Context, name string) (*exec.Cmd, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
 	args := []string{"-test.run=^" + regexp.QuoteMeta(name) + "$", "-test.count=1", "-test.timeout=30s", "-test.v"}
 	// Under go test -cover the child adds its counters to the directory this
 	// binary reads its own from when it writes the profile.
@@ -145,23 +159,25 @@ func runSyncTimerChild(name string) error {
 	}
 	command := exec.CommandContext(ctx, executable, args...)
 	command.Env = syncTimerChildEnviron(os.Environ())
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("synchronous timer child %s: %w\n%s", name, err, output)
-	}
-	return childPassed(name, output)
+	return command, nil
 }
 
 // syncTimerChildEnviron returns the environment of a child started by
-// runSyncTimerChild from the parent's environ. A race-enabled child would
-// otherwise sleep a second before it exits.
+// runSyncTimerChild from the parent's environ.
 func syncTimerChildEnviron(environ []string) []string {
-	gorace := strings.TrimSpace(lookupLastEnv(environ, "GORACE") + " atexit_sleep_ms=0")
+	return childEnviron(environ, runtime.GOOS == "windows")
+}
+
+// childEnviron builds the child environment; foldCase matches keys as
+// os/exec does on Windows. A race-enabled child would otherwise sleep a
+// second before it exits.
+func childEnviron(environ []string, foldCase bool) []string {
+	gorace := strings.TrimSpace(lookupLastEnv(environ, "GORACE", foldCase) + " atexit_sleep_ms=0")
 	return append(environ[:len(environ):len(environ)], syncTimerChildEnv+"=1", "GODEBUG=asynctimerchan=0", "GORACE="+gorace)
 }
 
 // lookupLastEnv returns the value os/exec passes for key: the last one.
-func lookupLastEnv(environ []string, key string) string {
+func lookupLastEnv(environ []string, key string, foldCase bool) string {
 	value := ""
 	for _, kv := range environ {
 		if k, v, ok := strings.Cut(kv, "="); ok && k == key {
@@ -171,20 +187,60 @@ func lookupLastEnv(environ []string, key string) string {
 	return value
 }
 
-// A race-enabled child otherwise sleeps a second before it exits; the
-// parent's GORACE options still apply.
-func TestSyncTimerChildSkipsRaceExitSleep(t *testing.T) {
+// lastGodebug returns the value of the last key setting in a GODEBUG value,
+// the one the runtime applies.
+func lastGodebug(godebug, key string) string {
+	value := ""
+	for _, setting := range strings.Split(godebug, ",") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(setting), "="); ok && k == key {
+			value = v
+		}
+	}
+	return value
+}
+
+// The child must run with synchronous timer channels, without the race exit
+// sleep and marked as the child; otherwise TestResubscribeAfterCloseDoesNotDial
+// silently falls back to its in-process check.
+func TestSyncTimerChildCommandEnvironment(t *testing.T) {
+	command, err := syncTimerChildCommand(context.Background(), "TestResubscribeAfterCloseDoesNotDial")
+	require.NoError(t, err)
+	fold := runtime.GOOS == "windows"
+	require.Equal(t, "0", lastGodebug(lookupLastEnv(command.Env, "GODEBUG", fold), "asynctimerchan"), command.Env)
+	require.True(t, strings.HasSuffix(lookupLastEnv(command.Env, "GORACE", fold), "atexit_sleep_ms=0"), command.Env)
+	require.Equal(t, "1", lookupLastEnv(command.Env, syncTimerChildEnv, fold), command.Env)
+	require.Equal(t, syncTimerChildEnviron(os.Environ()), command.Env)
+}
+
+// The child keeps the parent's GODEBUG and GORACE settings, overriding only
+// asynctimerchan and atexit_sleep_ms. On Windows os/exec treats keys that
+// differ only in case as one variable.
+func TestSyncTimerChildEnvironMergesParentSettings(t *testing.T) {
 	for _, tc := range []struct {
-		environ []string
-		gorace  string
+		environ          []string
+		foldCase         bool
+		godebug, gorace  string
+		preservedEntries []string
 	}{
-		{[]string{"PATH=/bin"}, "atexit_sleep_ms=0"},
-		{[]string{"GORACE=halt_on_error=1 log_path=race.log"}, "halt_on_error=1 log_path=race.log atexit_sleep_ms=0"},
+		{[]string{"PATH=/bin"}, false, "asynctimerchan=0", "atexit_sleep_ms=0", nil},
+		{
+			[]string{"GODEBUG=asynctimerchan=1,gctrace=0", "GORACE=halt_on_error=1 log_path=race.log"}, false,
+			"gctrace=0,asynctimerchan=0", "halt_on_error=1 log_path=race.log atexit_sleep_ms=0", nil,
+		},
+		{
+			[]string{"godebug=gctrace=0", "Gorace=halt_on_error=1"}, true,
+			"gctrace=0,asynctimerchan=0", "halt_on_error=1 atexit_sleep_ms=0", nil,
+		},
+		{
+			[]string{"godebug=gctrace=0", "Gorace=halt_on_error=1"}, false,
+			"asynctimerchan=0", "atexit_sleep_ms=0", []string{"godebug=gctrace=0", "Gorace=halt_on_error=1"},
+		},
 	} {
-		env := syncTimerChildEnviron(tc.environ)
-		require.Equal(t, tc.gorace, lookupLastEnv(env, "GORACE"), tc.environ)
-		require.Equal(t, "asynctimerchan=0", lookupLastEnv(env, "GODEBUG"))
-		require.Equal(t, "1", lookupLastEnv(env, syncTimerChildEnv))
+		env := childEnviron(tc.environ, tc.foldCase)
+		require.Equal(t, tc.godebug, lookupLastEnv(env, "GODEBUG", tc.foldCase), tc.environ)
+		require.Equal(t, tc.gorace, lookupLastEnv(env, "GORACE", tc.foldCase), tc.environ)
+		require.Equal(t, "1", lookupLastEnv(env, syncTimerChildEnv, tc.foldCase), tc.environ)
+		require.Subset(t, env, tc.preservedEntries)
 	}
 }
 

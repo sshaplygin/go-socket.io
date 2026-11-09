@@ -56,3 +56,26 @@ func TestSessionUpgradeAnswersPollWithNoop(t *testing.T) {
 	<-done
 	require.Equal(t, "websocket", s.Transport())
 }
+
+// TestSessionUpgradePausesOnUpgradePacket: the old transport is paused when UPGRADE
+// (`5`) arrives, as the Node server pauses only then, not when the probe is answered.
+func TestSessionUpgradePausesOnUpgradePacket(t *testing.T) {
+	old := pausablePeer{newPeerConn()}
+	s := newTestSession(t, old, "polling")
+	next := newPeerConn()
+	done := make(chan struct{})
+	go func() { defer close(done); s.upgrading("websocket", next) }()
+
+	probe(t, next)
+	require.Equal(t, packet.NOOP, old.receive(t).pt)
+	old.mu.Lock()
+	paused := old.paused
+	old.mu.Unlock()
+	require.Zero(t, paused, "the probe does not pause the old transport")
+
+	next.send(t, packet.UPGRADE)
+	<-done
+	require.Equal(t, "websocket", s.Transport())
+	require.Equal(t, 1, old.paused)
+	require.Equal(t, 0, old.resumed)
+}

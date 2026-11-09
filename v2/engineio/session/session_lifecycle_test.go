@@ -242,26 +242,25 @@ func TestSessionUpgrade(t *testing.T) {
 }
 
 func TestSessionUpgradeFailures(t *testing.T) {
+	// The old transport is paused only on UPGRADE, so a failed upgrade neither
+	// pauses nor resumes it.
 	cases := map[string]struct {
-		reads      []scriptedPacket
-		oldPauser  bool
-		wantResume int
+		reads     []scriptedPacket
+		oldPauser bool
 	}{
 		"no probe":         {reads: nil, oldPauser: true},
 		"not a ping":       {reads: []scriptedPacket{{ft: frame.String, pt: packet.MESSAGE}}, oldPauser: true},
 		"old not pausable": {reads: []scriptedPacket{{ft: frame.String, pt: packet.PING, data: "probe"}}},
 		"no upgrade packet": {
-			reads:      []scriptedPacket{{ft: frame.String, pt: packet.PING, data: "probe"}},
-			oldPauser:  true,
-			wantResume: 1,
+			reads:     []scriptedPacket{{ft: frame.String, pt: packet.PING, data: "probe"}},
+			oldPauser: true,
 		},
 		"wrong packet after probe": {
 			reads: []scriptedPacket{
 				{ft: frame.String, pt: packet.PING, data: "probe"},
 				{ft: frame.String, pt: packet.MESSAGE},
 			},
-			oldPauser:  true,
-			wantResume: 1,
+			oldPauser: true,
 		},
 	}
 	for name, tc := range cases {
@@ -278,7 +277,10 @@ func TestSessionUpgradeFailures(t *testing.T) {
 
 			require.Equal(t, "polling", s.Transport(), "a failed upgrade keeps the old transport")
 			require.True(t, next.isClosed(), "the candidate connection is closed")
-			require.Equal(t, tc.wantResume, p.resumed)
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			require.Zero(t, p.paused)
+			require.Zero(t, p.resumed)
 		})
 	}
 }

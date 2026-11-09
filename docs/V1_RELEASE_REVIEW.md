@@ -3096,7 +3096,10 @@ changed to `done — #<PR>` after the merge.
 Owner-only steps that take the verified head to a published, findable release and announce
 it. No pull request performs them; the owner records each in its Status line (see Marking
 progress in [How to use this plan](#how-to-use-this-plan)). P4–P7 run on one head, after
-[W66](#w66-refresh-the-release-notes-for-the-final-head); P3 and P9 are optional.
+[W66](#w66-refresh-the-release-notes-for-the-final-head); P3 and P9 are optional. P5 and
+P7 carry out W10's owner steps for REL-3 (git identity) and REL-2 (fresh-cache fetch after
+the tag), and P9 its optional REL-11 step; when one of them is done, the owner appends
+`Fixed by #193 (W10).` to that finding's row, as W10 states.
 
 #### P1. Repository security settings
 
@@ -3179,8 +3182,7 @@ progress in [How to use this plan](#how-to-use-this-plan)). P4–P7 run on one h
 - **Steps:** in a scratch module with a fresh cache,
   `go get github.com/sshaplygin/go-socket.io@v1.5.0`; check that
   `go list -m -versions github.com/sshaplygin/go-socket.io` omits the retracted tags and
-  that `@latest` resolves to `v1.5.0`; request indexing on pkg.go.dev. This is also W10's
-  REL-2 step after the tag.
+  that `@latest` resolves to `v1.5.0`; request indexing on pkg.go.dev.
 - **Acceptance:** the fetch succeeds, `go list -m -versions` lists no retracted version,
   `go list -m github.com/sshaplygin/go-socket.io@latest` prints `v1.5.0`, and pkg.go.dev
   shows `v1.5.0`.
@@ -3201,8 +3203,7 @@ progress in [How to use this plan](#how-to-use-this-plan)). P4–P7 run on one h
 - **Owner:** repository owner; optional
 - **Depends on:** none
 - **Steps:** delete merged or superseded remote branches, `release/v1.5.0` in particular,
-  as in W10's REL-11 step; `git fetch --prune` afterwards. The owner then appends
-  `Fixed by #193 (W10).` to REL-11, as W10 states.
+  as in W10's REL-11 step; `git fetch --prune` afterwards.
 - **Acceptance:** `git ls-remote --heads origin` lists no merged or superseded branch, or
   the Status line records that the step was not taken.
 

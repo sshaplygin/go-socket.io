@@ -172,15 +172,24 @@ func syncTimerChildEnviron(environ []string) []string {
 // os/exec does on Windows. A race-enabled child would otherwise sleep a
 // second before it exits.
 func childEnviron(environ []string, foldCase bool) []string {
+	godebug := []string{}
+	for _, setting := range strings.Split(lookupLastEnv(environ, "GODEBUG", foldCase), ",") {
+		setting = strings.TrimSpace(setting)
+		if k, _, _ := strings.Cut(setting, "="); setting != "" && k != "asynctimerchan" {
+			godebug = append(godebug, setting)
+		}
+	}
+	godebug = append(godebug, "asynctimerchan=0")
 	gorace := strings.TrimSpace(lookupLastEnv(environ, "GORACE", foldCase) + " atexit_sleep_ms=0")
-	return append(environ[:len(environ):len(environ)], syncTimerChildEnv+"=1", "GODEBUG=asynctimerchan=0", "GORACE="+gorace)
+	return append(environ[:len(environ):len(environ)],
+		syncTimerChildEnv+"=1", "GODEBUG="+strings.Join(godebug, ","), "GORACE="+gorace)
 }
 
 // lookupLastEnv returns the value os/exec passes for key: the last one.
 func lookupLastEnv(environ []string, key string, foldCase bool) string {
 	value := ""
 	for _, kv := range environ {
-		if k, v, ok := strings.Cut(kv, "="); ok && k == key {
+		if k, v, ok := strings.Cut(kv, "="); ok && (k == key || foldCase && strings.EqualFold(k, key)) {
 			value = v
 		}
 	}

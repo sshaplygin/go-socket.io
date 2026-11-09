@@ -39,8 +39,8 @@ type CompressWriter interface {
 type ReadyState string
 
 const (
-	StateOpening ReadyState = "opening" // The OPEN packet has not been written.
-	StateOpen    ReadyState = "open"    // The OPEN packet is written; no close has started.
+	StateOpening ReadyState = "opening" // The handshake has not started: the OPEN packet is not yet being written.
+	StateOpen    ReadyState = "open"    // The OPEN packet is being or has been written; no close has started.
 	StateClosing ReadyState = "closing" // A close has started; the transport is not closed yet.
 	StateClosed  ReadyState = "closed"  // The transport connection is closed.
 )

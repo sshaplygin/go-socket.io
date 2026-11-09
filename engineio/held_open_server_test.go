@@ -21,14 +21,12 @@ const heldOpenWait = 10 * time.Second
 // newHeldOpenServer returns a server whose polling sessions finish their
 // handshake only when release is called.
 //
-// The server writes the OPEN packet to the client first and only then marks the
-// session open, so for a short time after the client has the handshake
-// response Server.Count reports the session while Server.Clients and
-// Server.Accept do not. The window is a few microseconds and a test that
-// samples Clients right after the handshake GET fails about once in several
-// hundred runs. This server makes the window last until release: the OPEN
-// packet is delivered immediately, but the session's Init does not return, and
-// Accept does not hand out the connection, before release is called.
+// The server marks the session open before it delivers the OPEN packet, so
+// from the moment the client has the handshake response Server.Clients lists the
+// session. Accept does not hand it out until the session's Init returns, which
+// is a few microseconds after delivery. This server makes that window last
+// until release: the OPEN packet is delivered immediately, but Init does not
+// return, and Accept does not hand out the connection, before release is called.
 //
 // release is idempotent. Tests defer it so that Server.Close never waits for a
 // handshake that is still held.

@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -205,6 +207,30 @@ func TestMemoryAdapterBroadcastErrorKeepsSentinels(t *testing.T) {
 	res, err := a.Broadcast(context.Background(), testPacket, BroadcastOptions{})
 	if res.LocalRecipients != 1 || !errors.Is(err, ErrSocketClosed) || !errors.Is(err, ErrWriteBufferFull) {
 		t.Fatalf("result %+v, error %v; want 1 recipient and both sentinels matched", res, err)
+	}
+	// Each part reports its count; the causes past the cap share one counted part.
+	parts, counts := map[string]int{}, map[string]int{}
+	for _, part := range err.(interface{ Unwrap() []error }).Unwrap() {
+		var c int
+		if _, scanErr := fmt.Sscanf(part.Error(), "socketio: broadcast: %d of", &c); scanErr != nil {
+			t.Fatalf("part %q has no count: %v", part, scanErr)
+		}
+		kind := "other"
+		switch {
+		case errors.Is(part, ErrSocketClosed):
+			kind = "closed"
+		case errors.Is(part, ErrWriteBufferFull):
+			kind = "full"
+		case strings.Contains(part.Error(), "further causes"):
+			kind = "further"
+		}
+		parts[kind]++
+		counts[kind] += c
+	}
+	wantParts := map[string]int{"other": maxFailureCauses, "further": 1, "closed": 1, "full": 1}
+	wantCounts := map[string]int{"other": maxFailureCauses, "further": others - maxFailureCauses, "closed": 2, "full": 1}
+	if !maps.Equal(parts, wantParts) || !maps.Equal(counts, wantCounts) {
+		t.Errorf("parts %v with counts %v, want %v with %v:\n%v", parts, counts, wantParts, wantCounts, err)
 	}
 }
 

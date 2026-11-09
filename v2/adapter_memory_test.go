@@ -189,6 +189,30 @@ func TestMemoryAdapterRedactedSnapshot(t *testing.T) {
 	}
 }
 
+// TestMemoryAdapterQueriesIgnoreContext pins ROADMAP 2.2 Queries: with no peer expected,
+// Sockets and FetchSockets return the local data and a nil error at once, also for a
+// ctx that is already done.
+func TestMemoryAdapterQueriesIgnoreContext(t *testing.T) {
+	local := newFakeLocal("a", "b")
+	a := newMemoryAdapter(local)
+	a.AddAll("a", []Room{"a", "red"})
+	a.AddAll("b", []Room{"b"})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	ids, idsErr := a.Sockets(ctx, nil)
+	snaps, snapsErr := a.FetchSockets(ctx, BroadcastOptions{})
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Errorf("queries took %v with a done context, want at once", elapsed)
+	}
+	if idsErr != nil || !slices.Equal(sorted(ids), []SocketID{"a", "b"}) {
+		t.Errorf("Sockets = %v, %v; want [a b] and nil", ids, idsErr)
+	}
+	if snapsErr != nil || len(snaps) != 2 {
+		t.Errorf("FetchSockets = %d sockets, %v; want 2 and nil", len(snaps), snapsErr)
+	}
+}
+
 func TestMemoryAdapterOwnedCopies(t *testing.T) {
 	local := newFakeLocal("a")
 	a := newMemoryAdapter(local)

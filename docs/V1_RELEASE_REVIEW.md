@@ -19,8 +19,8 @@ The document has three parts:
   then [Release blockers](#release-blockers) through the
   [finding catalogue](#finding-catalogue). They come from the original review and were
   corrected where the follow-up validation and the 2026-10-22 fact-check required it.
-- **[Work plan](#work-plan):** pull-request-sized work items (W1–W62) and owner decisions
-  (D1–D6) that cover every catalogue ID except the editorial `CL-14` (not planned), with
+- **[Work plan](#work-plan):** pull-request-sized work items (W1–W71), owner decisions
+  (D1–D6) and owner-only publication steps (P1–P9) that cover every catalogue ID except the editorial `CL-14` (not planned), with
   their order, acceptance criteria and status.
 - **[Follow-up validation](#follow-up-validation):** the evidence log, with a status and
   the evidence for each finding from the follow-up and the fact-check.
@@ -115,7 +115,8 @@ An independent tag-readiness review of `6641d4b` on 2026-10-29 found a second bl
 ## Work plan
 
 This plan turns every finding in the [finding catalogue](#finding-catalogue), except
-`CL-14` (not planned), into work items of pull-request size. Facts about each defect are owned by the section the item
+`CL-14` (not planned), into work items of pull-request size or, for REL-18, owner-only
+steps. Facts about each defect are owned by the section the item
 links to (B1, B2, M1–M7, Decisions, Backlog, catalogue); an item repeats only what is needed
 to do the work. The status of each item is owned by its **Status** line and nowhere else.
 
@@ -142,8 +143,11 @@ to do the work. The status of each item is owned by its **Status** line and nowh
    which refreshes the release text last. The owner added
    [W54](#w54-bound-the-memory-and-time-cost-of-buffered-polling-requests) (after W47) and
    [W55](#w55-scheduled-stress-runs-under-cpu-load) on 2026-10-31; both land before W52.
-   W58–W62 record defects found after the review and fixed before the tag. Only the owner tags.
-6. After the tag: W11–W44 and W56–W57 in numeric order unless **Depends on** says otherwise. Every
+   W58–W62 record defects found after the review and fixed before the tag. The
+   announcement-readiness check of 2026-11-10 added W63–W68, which land before the tag in
+   the order their **Depends on** lines give, with W66 last; the owner-only steps in
+   [Publication and announcement](#publication-and-announcement) follow. Only the owner tags.
+6. After the tag: W11–W44, W56–W57 and W69–W71 in numeric order unless **Depends on** says otherwise. Every
    performance item needs W2 merged first. W12 lands before W23. W38 needs the tag.
 
 A major (M1–M7) that is not fixed before the tag is deferred only in writing: the owner
@@ -262,7 +266,7 @@ have already merged, the item's PR changes no part of this document. Apart from 
 lines and the `Fixed by` notes, do not rewrite the review's findings, the Backlog or the Follow-up
 validation evidence log when an item is done; they record the state at `7311fbe`. This
 progress tracking is not a v1 changelog: after the tag, the owner decides whether the
-remaining items (W11–W44 and W56–W57) move to GitHub issues, and this document then keeps only the
+remaining items (W11–W44, W56–W57 and W69–W71) move to GitHub issues, and this document then keeps only the
 findings and the evidence.
 
 **Standard definition of done** (every item refers to it): the PR is squash-merged by the
@@ -344,6 +348,15 @@ changed to `done — #<PR>` after the merge.
 | [W60](#w60-do-not-dial-the-redis-subscriber-after-close) | Do not dial the Redis subscriber after Close | before tag | C11 | — |
 | [W61](#w61-remove-the-wall-clock-and-ordering-assumptions-from-the-225-fixtures) | Remove the wall-clock and ordering assumptions from the #225 fixtures | before tag | T16 | W55 |
 | [W62](#w62-drain-packets-admitted-before-close-seals) | Drain packets admitted before Close seals | before tag | C12 | — |
+| [W63](#w63-keep-the-end-of-an-engineio-session-out-of-onerror) | Keep the end of an Engine.IO session out of OnError | before tag | C13 | — |
+| [W64](#w64-report-a-peer-websocket-close-frame-as-transport-close) | Report a peer websocket close frame as transport close | before tag | interop-12 | — |
+| [W65](#w65-send-a-websocket-close-frame-from-the-go-client) | Send a websocket close frame from the Go client | before tag | interop-13 | W64 |
+| [W66](#w66-refresh-the-release-notes-for-the-final-head) | Refresh the release notes for the final head | before tag | REL-16 | W63–W65, W67, W68 |
+| [W67](#w67-security-policy) | Security policy | before tag | REL-17 | P1 |
+| [W68](#w68-readme-quick-start) | README quick start | before tag | CL-20 | — |
+| [W69](#w69-scheduled-fuzzing) | Scheduled fuzzing | after release | T17 | — |
+| [W70](#w70-static-security-analysis) | Static security analysis | after release | REL-19 | — |
+| [W71](#w71-hostile-client-suite) | Hostile-client suite | after release | T18 | — |
 | [P1](#p1-repository-security-settings) | Repository security settings | owner | — | — |
 | [P2](#p2-repository-metadata) | Repository metadata | owner | REL-18 | — |
 | [P3](#p3-leave-the-fork-network) | Leave the fork network | owner | — | — |
@@ -358,14 +371,14 @@ changed to `done — #<PR>` after the merge.
 
 | Catalogue section | Mapping |
 | --- | --- |
-| Correctness and security | C1 W1 · C2 W14 · C3 W11 · C4 W13 · C5 W6 · C6 W47 · C7 W47 · C8 W53 · C9 W58 · C10 W59 · C11 W60 · C12 W62 |
+| Correctness and security | C1 W1 · C2 W14 · C3 W11 · C4 W13 · C5 W6 · C6 W47 · C7 W47 · C8 W53 · C9 W58 · C10 W59 · C11 W60 · C12 W62 · C13 W63 |
 | API compatibility | API-1 W8 · API-2 D1 · API-3 W6 · API-4 W7 · API-5 W8 · API-6 W8 · API-7 W8 · API-8 W8 · API-9 D2 · API-10 W10 · API-11 W38 · API-12 D6 · API-13 W8 |
-| Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 · CL-16 W50 · CL-17 W51 · CL-18 W51 · CL-19 W51 |
+| Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 · CL-16 W50 · CL-17 W51 · CL-18 W51 · CL-19 W51 · CL-20 W68 |
 | Architecture | ARCH-1 W5 · ARCH-2 D2 · ARCH-3 D3 · ARCH-4 W26 · ARCH-5 D4 · ARCH-6 D5 · ARCH-7 W33 · ARCH-8 W32 · ARCH-9 W14 · ARCH-10 W37 · ARCH-11 D6 · ARCH-12 W28 · ARCH-13 W26 |
 | Performance | PERF-1 W3 · PERF-2 W18 · PERF-3 W4 · PERF-4 W19 · PERF-5 W20 · PERF-6 W21 · PERF-7 W22 · PERF-8 W23 · PERF-9 W24 · PERF-10 W2 · PERF-11 W25 · PERF-12 W21 · PERF-13 W26 · PERF-14 W50 · PERF-15 W23 · PERF-16 W54 |
-| Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 · interop-10 W49 · interop-11 W51 |
-| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 · T11 W48 · T12 W55 · T13 W56 · T14 W56 · T15 W57 · T16 W61 |
-| Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 · REL-13 W42 · REL-14 W52 · REL-15 W52 |
+| Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 · interop-10 W49 · interop-11 W51 · interop-12 W64 · interop-13 W65 |
+| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 · T11 W48 · T12 W55 · T13 W56 · T14 W56 · T15 W57 · T16 W61 · T17 W69 · T18 W71 |
+| Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 · REL-13 W42 · REL-14 W52 · REL-15 W52 · REL-16 W66 · REL-17 W67 · REL-18 P2 · REL-19 W70 |
 
 **Not planned.**
 
@@ -2843,6 +2856,193 @@ changed to `done — #<PR>` after the merge.
 - **Definition of done:** standard.
 - **Out of scope:** waiting for network I/O in `Close`.
 
+### W63. Keep the end of an Engine.IO session out of OnError
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [C13](#correctness-and-security-findings)
+- **Depends on:** none
+- **Problem:** see C13.
+- **Change:** when a connection's read loop ends because the Engine.IO session ended (an
+  error that matches `*engineio.CloseError` for any reason: transport close, transport
+  error, ping timeout, forced close, server shutdown), neither the server's nor the Go
+  client's `OnError` is called, and nothing is logged as unhandled; `OnDisconnect` receives
+  the reason as today. `OnError` keeps every other report: packet and argument decode
+  errors, protocol errors, `ErrWriteBufferFull`, middleware and `OnConnect` errors, and
+  errors of a namespace that already left (the purpose of 40dc3e8). No exported API change.
+- **Tests:** red→green in the root package and `client`: with `OnError` registered, a client
+  disconnect over polling, websocket and polling-to-websocket upgrade; an abrupt drop
+  (websocket without close frame; polling with the connection closed); a ping timeout; and,
+  for the Go client, a server `Close`: `OnError` is not called, and `OnDisconnect` gets the
+  expected reason. Guards that already pass: a decode error and `ErrWriteBufferFull` still
+  reach `OnError`. A conformance case with both pinned JS clients asserts no `OnError` on
+  `socket.close()`.
+- **Benchmarks:** none.
+- **Docs:** `docs/V1.md` (OnError section: the end of a session is reported to
+  `OnDisconnect` only; a migration table row for v1.4.2 and v1.7.0 users who handled
+  transport errors in `OnError`), the `OnError` godoc, `docs/PARITY.md`.
+- **Acceptance criteria:** the new tests fail on the test-only commit; `make test-race`,
+  `make gates`, `make cover-check` and `make conformance` with both clients pass;
+  `make test-stress PKGS='. ./client'` passes.
+- **Definition of done:** standard.
+- **Out of scope:** W64, W65; any exported error sentinel.
+
+### W64. Report a peer websocket close frame as transport close
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [interop-12](#interoperability-findings)
+- **Depends on:** none
+- **Problem:** see interop-12.
+- **Change:** a close frame from the peer with status 1000, 1001 or none (1005) ends the
+  server session with `ReasonTransportClose`; other statuses and a connection dropped
+  without a frame stay `transport error`. Socket.IO `OnDisconnect` then reports
+  `transport close` where no DISCONNECT preceded.
+- **Tests:** red→green in `engineio` and the root package; the conformance close tests with
+  both clients.
+- **Benchmarks:** none.
+- **Docs:** `docs/PROTOCOL.md` (the close classification, and that an abrupt drop stays
+  `transport error` where engine.io 3.6.2 reports `transport close`), `docs/PARITY.md`.
+- **Acceptance criteria:** as W63, plus
+  `go test -race -count=100 -shuffle=on -cpu=1,4 ./engineio/...`.
+- **Definition of done:** standard.
+- **Out of scope:** W65.
+
+### W65. Send a websocket close frame from the Go client
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [interop-13](#interoperability-findings)
+- **Depends on:** W64
+- **Problem:** see interop-13.
+- **Change:** the dial-side websocket `Close` writes a close frame with status 1000 with a
+  bounded write deadline and waits a bounded time for the peer's reply, as the server does
+  since #238; `Abort` still closes without a frame; no lock is held across the write that
+  could re-create the #147 cycle. With W64 the server reports `transport close` for an
+  orderly Go client close that no DISCONNECT packet preceded. `client.Client.Close` still
+  returns without waiting for delivery (the W50 contract is unchanged).
+- **Tests:** red→green in `engineio/transport/websocket`, `engineio/client` and `client`;
+  tests that bound `Close` against a stalled peer.
+- **Benchmarks:** none.
+- **Docs:** `docs/PROTOCOL.md`, the client godoc.
+- **Acceptance criteria:** as W64.
+- **Definition of done:** standard.
+- **Out of scope:** making `Close` wait for delivery.
+
+### W66. Refresh the release notes for the final head
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [REL-16](#release-engineering-findings)
+- **Depends on:** W63–W65, W67, W68
+- **Problem:** see REL-16.
+- **Change:** as in [W52](#w52-refresh-the-release-notes-and-the-tag-checklist): after
+  W63–W65, W67 and W68 merge, a PR sets this item's Status, and its description carries the
+  release text rewritten against `79b5996..<head>` and the owner checklist (P4–P7). The text
+  covers every user-visible change of #223–#238 and of W63–W68 and removes the statements
+  those changes contradict. That description replaces the text in #218 as the source of the
+  GitHub release notes.
+- **Tests:** none.
+- **Benchmarks:** none.
+- **Docs:** the release text.
+- **Acceptance criteria:** every user-visible PR merged after `79b5996` appears in the text
+  or is listed as internal.
+- **Definition of done:** standard; the owner accepts the text. Only the owner tags.
+- **Out of scope:** the tag and the GitHub Release (P5, P6).
+
+### W67. Security policy
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [REL-17](#release-engineering-findings)
+- **Depends on:** [P1](#p1-repository-security-settings)
+- **Problem:** see REL-17.
+- **Change:** `SECURITY.md` states the supported versions (the latest v1.5.x; v2 is
+  unreleased), reporting through GitHub private vulnerability reporting with a fallback
+  contact the owner chooses, response targets, and the scope (denial of service by a remote
+  client is in scope). README links it. The owner enables the settings in P1 before this
+  merges.
+- **Tests:** none.
+- **Benchmarks:** none.
+- **Docs:** `SECURITY.md`, README, and a `SECURITY.md` row in the documentation ownership
+  table (see Conventions).
+- **Acceptance criteria:** P1's acceptance holds; every link in `SECURITY.md` resolves.
+- **Definition of done:** standard.
+- **Out of scope:** the repository settings themselves (P1).
+
+### W68. README quick start
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [CL-20](#clarity-findings)
+- **Depends on:** none
+- **Problem:** see CL-20.
+- **Change:** a server snippet of about 15 lines in README (`net/http`, an event with an
+  ACK, a room broadcast, `go server.Serve()` before listening, `Close` on exit), kept
+  compilable by an example test or a consumer fixture, and the line that the module is the
+  maintained successor of the archived `googollee/go-socket.io` for socket.io-client
+  1.x/2.x.
+- **Tests:** the snippet's twin, an example test or a consumer fixture.
+- **Benchmarks:** none.
+- **Docs:** README.
+- **Acceptance criteria:** the snippet's twin compiles in `make gates` or `make test`;
+  README text and the test agree.
+- **Definition of done:** standard.
+- **Out of scope:** a Go client snippet.
+
+### W69. Scheduled fuzzing
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [T17](#tests-findings)
+- **Depends on:** none
+- **Problem:** see T17.
+- **Change:** a scheduled workflow job runs each v1 fuzz target with `-fuzztime` (5–10
+  minutes each) and uploads any new failing input as an artifact; a crash fails the job.
+- **Tests:** a dispatched run of the job, linked in the PR.
+- **Benchmarks:** none.
+- **Docs:** the owning CI description (see Conventions).
+- **Acceptance criteria:** the dispatched run fuzzes every v1 target for its `-fuzztime`;
+  `go test ./.github/changes` passes.
+- **Definition of done:** standard.
+- **Out of scope:** new fuzz targets.
+
+### W70. Static security analysis
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [REL-19](#release-engineering-findings)
+- **Depends on:** none
+- **Problem:** see REL-19.
+- **Change:** CodeQL for Go on push and schedule, and gosec enabled in golangci-lint with
+  each existing finding fixed or suppressed with a reason.
+- **Tests:** none.
+- **Benchmarks:** none.
+- **Docs:** the owning CI description (see Conventions).
+- **Acceptance criteria:** `make lint` passes with gosec enabled; a CodeQL run on the PR
+  head completes and is linked in the PR.
+- **Definition of done:** standard.
+- **Out of scope:** the v2 module.
+
+### W71. Hostile-client suite
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [T18](#tests-findings)
+- **Depends on:** none
+- **Problem:** see T18.
+- **Change:** a scheduled suite of adversarial clients (non-reading, partial requests,
+  oversized and deeply nested arguments, reconnect storms, slow polling) asserting bounded
+  memory, goroutines and shutdown time; B1, B2 and C8 reproductions included.
+- **Tests:** the suite; its B1, B2 and C8 scenarios fail against the parents of the fixing
+  commits of #147, #205 and #209, quoted in the PR.
+- **Benchmarks:** none.
+- **Docs:** the owning CI description (see Conventions).
+- **Acceptance criteria:** as in Tests, and a dispatched run of the suite passes on the PR
+  head.
+- **Definition of done:** standard.
+- **Out of scope:** throughput load testing.
+
 ### Publication and announcement
 
 Owner-only steps that take the verified head to a published, findable release and announce
@@ -3758,8 +3958,8 @@ Every finding is listed under the dimension that reported it.
   not among the 85 entries and have no row in
   [Catalogue cross-check](#catalogue-cross-check); their locations refer to `origin/master`
   at `27fdab8`.
-- The [work plan](#work-plan) maps every ID to exactly one work item or owner decision, or
-  lists it under "Not planned"; the finding coverage table is in
+- The [work plan](#work-plan) maps every ID to exactly one work item, owner decision or
+  owner-only publication step, or lists it under "Not planned"; the finding coverage table is in
   [How to use this plan](#how-to-use-this-plan). When a fix merges, the row's
   Recommendation ends with `Fixed by #<PR> (W<n>).` (or `(D<n>)`), as described in
   Marking progress there.

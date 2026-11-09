@@ -127,12 +127,24 @@ func (f *logFixture) upgrade(t *testing.T, conn Conn) {
 
 // peerCloseAfterUpgrade upgrades a session of PingTimeout 400 ms to websocket, closes the
 // client's side, and reads the session after stall, as a loaded machine would delay it.
+//
+// The websocket is read only by NextReader, which also renews the read deadline. A message
+// is therefore delivered once the handshake's deadline has passed (it shows that the upgrade
+// extended the session), so that the read of the peer's close has a full window of its own
+// rather than what is left of the upgrade's.
 func peerCloseAfterUpgrade(stall time.Duration) func(t *testing.T, f *logFixture) {
 	return func(t *testing.T, f *logFixture) {
 		start, conn := time.Now(), f.accept(t)
 		time.Sleep(200 * time.Millisecond) // of PingTimeout 400 ms
 		f.upgrade(t, conn)
-		time.Sleep(time.Until(start.Add(480 * time.Millisecond))) // past the handshake's deadline
+		time.Sleep(time.Until(start.Add(420 * time.Millisecond))) // past the handshake's deadline
+		f.send(t, eioparser.MESSAGE, "alive")
+		_, r, err := conn.NextReader()
+		require.NoError(t, err)
+		b, err := io.ReadAll(r)
+		require.NoError(t, err)
+		require.Equal(t, "alive", string(b))
+		require.NoError(t, r.Close())
 		require.NoError(t, f.cl.Close())
 		time.Sleep(stall)
 		require.Error(t, readAll(conn))

@@ -88,25 +88,31 @@ func runLogTestInSubprocess(t *testing.T) bool {
 	if isLogTestChild(t) {
 		return false
 	}
+	runLogTestChild(t, nil)
+	return true
+}
+
+// runLogTestChild runs t's body in a child process with the extra environment and flags,
+// requires it to pass and returns its verbose output.
+func runLogTestChild(t *testing.T, env []string, flags ...string) string {
+	t.Helper()
 	executable, err := os.Executable()
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	// The child runs at this pass's GOMAXPROCS, so -cpu reaches the fixture.
-	args := []string{"-test.run=^" + regexp.QuoteMeta(t.Name()) + "$", "-test.count=1", "-test.timeout=30s", "-test.v",
-		"-test.cpu=" + strconv.Itoa(runtime.GOMAXPROCS(0))}
+	args := append([]string{"-test.run=^" + regexp.QuoteMeta(t.Name()) + "$", "-test.count=1", "-test.timeout=30s", "-test.v"}, flags...)
 	// Under go test -cover the child adds its counters to the directory this binary reads
 	// its own from when it writes the profile.
 	if dir := flag.Lookup("test.gocoverdir"); dir != nil && dir.Value.String() != "" {
 		args = append(args, "-test.gocoverdir="+dir.Value.String())
 	}
 	command := exec.CommandContext(ctx, executable, args...)
-	command.Env = append(os.Environ(), logTestChildEnv+"="+t.Name())
+	command.Env = append(append(os.Environ(), env...), logTestChildEnv+"="+t.Name())
 	output, err := command.CombinedOutput()
 	require.NoError(t, err, "isolated log test: %s", output)
 	// A pattern that matched no test would pass vacuously.
 	require.Contains(t, string(output), "--- PASS: "+t.Name()+" ", "isolated log test: %s", output)
-	return true
+	return string(output)
 }
 
 // logTestChildEnv names, in a child of runLogTestInSubprocess, the test it runs.
@@ -116,13 +122,22 @@ const logTestChildEnv = "SOCKETIO_LOG_TEST_CHILD"
 func isLogTestChild(t *testing.T) bool { return os.Getenv(logTestChildEnv) == t.Name() }
 
 // TestLogTestChildGOMAXPROCS: the child of runLogTestInSubprocess runs at the parent's
-// GOMAXPROCS, so -cpu reaches the isolated fixtures. The parent switches to a value that
-// differs from the child's default, the CPU count, on any host with more than one CPU.
+// GOMAXPROCS, so -cpu reaches the isolated fixtures. A child started without -test.cpu
+// first reports the GOMAXPROCS it defaults to in this environment (the GOMAXPROCS
+// variable, a CPU quota or the CPU count); the parent then switches to another value, so
+// the check fails whenever the child keeps its default.
 func TestLogTestChildGOMAXPROCS(t *testing.T) {
-	const wantEnv = "SOCKETIO_LOG_TEST_WANT_GOMAXPROCS"
+	const wantEnv, probeEnv = "SOCKETIO_LOG_TEST_WANT_GOMAXPROCS", "SOCKETIO_LOG_TEST_PROBE_GOMAXPROCS"
+	if isLogTestChild(t) && os.Getenv(probeEnv) != "" {
+		t.Logf("default GOMAXPROCS %d", runtime.GOMAXPROCS(0))
+		return
+	}
 	if !isLogTestChild(t) {
+		output := runLogTestChild(t, []string{probeEnv + "=1"})
+		match := regexp.MustCompile(`default GOMAXPROCS (\d+)`).FindStringSubmatch(output)
+		require.NotNil(t, match, "probe output: %s", output)
 		procs := 1
-		if runtime.NumCPU() == 1 {
+		if match[1] == "1" {
 			procs = 2
 		}
 		previous := runtime.GOMAXPROCS(procs)

@@ -171,7 +171,8 @@ func TestServerCloseStalledPeerIsBounded(t *testing.T) {
 	closed := make(chan error, 1)
 	go func() { closed <- f.server.Close() }()
 	select {
-	case <-closed:
+	case err := <-closed:
+		t.Logf("Close returned: %v", err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("Close is not bounded by a stalled peer")
 	}
@@ -223,8 +224,8 @@ func TestServerCloseWaitsForPeerReply(t *testing.T) {
 				t.Fatal("the peer received no close frame")
 			}
 			select {
-			case <-closed:
-				t.Fatal("Close returned before the peer replied")
+			case err := <-closed:
+				t.Fatalf("Close returned before the peer replied (err=%v)", err)
 			case <-time.After(20 * time.Millisecond):
 			}
 			close(release)
@@ -250,7 +251,8 @@ func TestServerCloseFromFailedWriterHoldingWriteLock(t *testing.T) {
 	closed := make(chan error, 1)
 	go func() { closed <- f.server.Close() }() // w is not closed: the write lock is held
 	select {
-	case <-closed:
+	case err := <-closed:
+		t.Logf("Close returned: %v", err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("Close waits for the write lock of a failed writer")
 	}

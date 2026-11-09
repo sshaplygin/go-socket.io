@@ -4317,5 +4317,5 @@ the fork's Go client against the fork's server. A dash marks a combination not r
 | Orderly close (upgrade, polling, websocket) | yes (1005 `transport error` over websocket; `transport close: EOF` over polling) | no | yes | no |
 | Abrupt drop, websocket | yes (1006) | yes (1006) | yes | no (`transport close`) |
 | Abrupt drop, polling | yes, immediately (`write: context canceled`) | yes, after 60 s (`write: timeout`) | yes, after 60 s | no (`transport error`) |
-| Server close | no | yes over websocket (`use of closed network connection`), no over polling | — | no |
+| Server close | no | yes over websocket (`use of closed network connection`), no over polling | yes over websocket (`use of closed network connection`), no over polling | no |
 | Go client close | yes (1006 over websocket; `transport close: EOF` over polling) | — | — | — |

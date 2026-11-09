@@ -174,7 +174,7 @@ func TestRequestRejectedRecords(t *testing.T) {
 		{"unknown sid", "DEBUG", func() int { return get("transport=polling&sid=nope") }, http.StatusBadRequest},
 		{"accept", "WARN", func() int { return get("transport=websocket") }, http.StatusBadRequest},
 		{"init", "WARN", func() int { return get("transport=faulty") }, http.StatusOK},
-		{"bad upgrade", "WARN", func() int { return get("transport=polling&sid="+wsSID) }, http.StatusBadRequest},
+		{"bad upgrade", "WARN", func() int { return get("transport=polling&sid=" + wsSID) }, http.StatusBadRequest},
 	} {
 		n := rec.len()
 		require.Equal(t, tc.status, tc.do(), tc.reason)

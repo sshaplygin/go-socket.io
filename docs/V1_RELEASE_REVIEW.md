@@ -2933,9 +2933,12 @@ changed to `done — #<PR>` after the merge.
 - **Findings:** [interop-13](#interoperability-findings)
 - **Depends on:** W64
 - **Problem:** see interop-13.
-- **Change:** the dial-side websocket `Close` writes a close frame with status 1000 with a
-  bounded write deadline and waits a bounded time for the peer's reply, as the server does
-  since #238; `Abort` still closes without a frame; no lock is held across the write that
+- **Change:** an orderly `Close` of an open dial-side websocket transport writes a close
+  frame with status 1000 within a 500 ms write deadline and waits up to 250 ms for the
+  peer's reply, the server's `closeFrameTimeout` and `closeReplyTimeout` since #238. After
+  the client's own transport error or ping timeout, and for an abandoned or failed upgrade
+  probe, the connection is aborted without a frame, as the server does; `Abort` still
+  closes without a frame; no lock is held across the write that
   could re-create the #147 cycle. With W64 the server reports `transport close` for an
   orderly Go client close that no DISCONNECT packet preceded. `client.Client.Close` still
   returns without waiting for delivery (the W50 contract is unchanged).

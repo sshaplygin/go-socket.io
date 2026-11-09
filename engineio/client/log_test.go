@@ -12,6 +12,8 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -83,8 +85,7 @@ func setDefault(t *testing.T, h slog.Handler) {
 // its ping or probe goroutines, so serial tests and restoring slog.Default cannot.
 func runLogTestInSubprocess(t *testing.T) bool {
 	t.Helper()
-	const childEnv = "SOCKETIO_LOG_TEST_CHILD"
-	if os.Getenv(childEnv) == t.Name() {
+	if isLogTestChild(t) {
 		return false
 	}
 	executable, err := os.Executable()
@@ -98,12 +99,38 @@ func runLogTestInSubprocess(t *testing.T) bool {
 		args = append(args, "-test.gocoverdir="+dir.Value.String())
 	}
 	command := exec.CommandContext(ctx, executable, args...)
-	command.Env = append(os.Environ(), childEnv+"="+t.Name())
+	command.Env = append(os.Environ(), logTestChildEnv+"="+t.Name())
 	output, err := command.CombinedOutput()
 	require.NoError(t, err, "isolated log test: %s", output)
 	// A pattern that matched no test would pass vacuously.
 	require.Contains(t, string(output), "--- PASS: "+t.Name()+" ", "isolated log test: %s", output)
 	return true
+}
+
+// logTestChildEnv names, in a child of runLogTestInSubprocess, the test it runs.
+const logTestChildEnv = "SOCKETIO_LOG_TEST_CHILD"
+
+// isLogTestChild reports whether this process is the child that runs t's body.
+func isLogTestChild(t *testing.T) bool { return os.Getenv(logTestChildEnv) == t.Name() }
+
+// TestLogTestChildGOMAXPROCS: the child of runLogTestInSubprocess runs at the parent's
+// GOMAXPROCS, so -cpu reaches the isolated fixtures. The parent switches to a value that
+// differs from the child's default, the CPU count, on any host with more than one CPU.
+func TestLogTestChildGOMAXPROCS(t *testing.T) {
+	const wantEnv = "SOCKETIO_LOG_TEST_WANT_GOMAXPROCS"
+	if !isLogTestChild(t) {
+		procs := 1
+		if runtime.NumCPU() == 1 {
+			procs = 2
+		}
+		previous := runtime.GOMAXPROCS(procs)
+		t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
+		t.Setenv(wantEnv, strconv.Itoa(procs))
+	}
+	if runLogTestInSubprocess(t) {
+		return
+	}
+	require.Equal(t, os.Getenv(wantEnv), strconv.Itoa(runtime.GOMAXPROCS(0)), "child GOMAXPROCS")
 }
 
 // find returns the records of msg, or all records if msg is empty.

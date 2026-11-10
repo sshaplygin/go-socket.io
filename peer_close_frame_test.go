@@ -1,6 +1,7 @@
 package socketio
 
 import (
+	"io"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -10,21 +11,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// peerCloseFrames are client close frames; the first three are orderly.
+var peerCloseFrames = []struct {
+	name    string
+	payload []byte
+	want    string
+}{
+	{"normal closure", gorilla.FormatCloseMessage(gorilla.CloseNormalClosure, ""), "transport close"},
+	{"going away", gorilla.FormatCloseMessage(gorilla.CloseGoingAway, ""), "transport close"},
+	{"no status", nil, "transport close"},
+	{"internal error", gorilla.FormatCloseMessage(gorilla.CloseInternalServerErr, ""), "transport error"},
+}
+
 // A client that closes its websocket with a close frame, and sends no Socket.IO
 // DISCONNECT before it, is reported to OnDisconnect as "transport close" for
 // status 1000, 1001 or none (1005), as socket.io 2.5.0 reports it, and as
 // "transport error" for a status that signals a failure.
 func TestOnDisconnectPeerCloseFrame(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		payload []byte
-		want    string
-	}{
-		{"normal closure", gorilla.FormatCloseMessage(gorilla.CloseNormalClosure, ""), "transport close"},
-		{"going away", gorilla.FormatCloseMessage(gorilla.CloseGoingAway, ""), "transport close"},
-		{"no status", nil, "transport close"},
-		{"internal error", gorilla.FormatCloseMessage(gorilla.CloseInternalServerErr, ""), "transport error"},
-	} {
+	for _, tc := range peerCloseFrames {
 		t.Run(tc.name, func(t *testing.T) {
 			disconnected := make(chan string, 1)
 			s := NewServer()
@@ -50,9 +54,8 @@ func TestOnDisconnectPeerCloseFrame(t *testing.T) {
 	}
 }
 
-// The reason is the same while the server emits to the connection: an Emit
-// whose write fails after the reply to the client's close frame does not make
-// it a transport error.
+// The reason is the same while the server emits: an Emit whose write fails after
+// the reply to the client's close frame does not make it a transport error.
 func TestOnDisconnectPeerCloseFrameWhileEmitting(t *testing.T) {
 	const sessions = 200
 	stops, disconnected := make(chan chan struct{}, 1), make(chan string, 1)
@@ -75,9 +78,7 @@ func TestOnDisconnectPeerCloseFrameWhileEmitting(t *testing.T) {
 	s.OnError("/", func(Conn, error) {})
 	go func() { _ = s.Serve() }()
 	ts := httptest.NewServer(s)
-	defer ts.Close()
-	defer func() { _ = s.Close() }()
-	payloads := [][]byte{gorilla.FormatCloseMessage(gorilla.CloseNormalClosure, ""), gorilla.FormatCloseMessage(gorilla.CloseGoingAway, ""), nil}
+	defer func() { _ = s.Close(); ts.Close() }()
 	reasons := map[string]int{}
 	for i := 0; i < sessions; i++ {
 		stop := make(chan struct{})
@@ -88,12 +89,8 @@ func TestOnDisconnectPeerCloseFrameWhileEmitting(t *testing.T) {
 			_, _, err = c.ReadMessage()
 			require.NoError(t, err)
 		}
-		go func() {
-			for err == nil {
-				_, _, err = c.NextReader()
-			}
-		}()
-		require.NoError(t, c.WriteControl(gorilla.CloseMessage, payloads[i%3], time.Now().Add(time.Second)))
+		go func() { _, _ = io.Copy(io.Discard, c.UnderlyingConn()) }()
+		require.NoError(t, c.WriteControl(gorilla.CloseMessage, peerCloseFrames[i%3].payload, time.Now().Add(time.Second)))
 		reasons[recv(t, disconnected, "OnDisconnect reason")]++
 		close(stop)
 		_ = c.Close()

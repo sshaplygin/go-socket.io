@@ -12,16 +12,24 @@ import (
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
-// orderlyClosePayloads are the close frames with status 1000, 1001 and none.
-var orderlyClosePayloads = [][]byte{
-	gorilla.FormatCloseMessage(gorilla.CloseNormalClosure, ""),
-	gorilla.FormatCloseMessage(gorilla.CloseGoingAway, ""), nil,
-}
-
 func peerCloseFrame(payload []byte) func(*gorilla.Conn) error {
 	return func(ws *gorilla.Conn) error {
 		return ws.WriteControl(gorilla.CloseMessage, payload, time.Now().Add(time.Second))
 	}
+}
+
+// peerCloses are the ways a client ends its websocket; the first three are orderly.
+var peerCloses = []struct {
+	name   string
+	close  func(*gorilla.Conn) error
+	reason CloseReason
+}{
+	{"normal closure", peerCloseFrame(gorilla.FormatCloseMessage(gorilla.CloseNormalClosure, "")), ReasonTransportClose},
+	{"going away", peerCloseFrame(gorilla.FormatCloseMessage(gorilla.CloseGoingAway, "")), ReasonTransportClose},
+	{"no status", peerCloseFrame(nil), ReasonTransportClose},
+	{"internal error", peerCloseFrame(gorilla.FormatCloseMessage(gorilla.CloseInternalServerErr, "")), ReasonTransportError},
+	{"policy violation", peerCloseFrame(gorilla.FormatCloseMessage(gorilla.ClosePolicyViolation, "")), ReasonTransportError},
+	{"dropped", func(ws *gorilla.Conn) error { return ws.UnderlyingConn().Close() }, ReasonTransportError},
 }
 
 // A close frame from the client with status 1000, 1001 or none (1005) ends the
@@ -29,18 +37,7 @@ func peerCloseFrame(payload []byte) func(*gorilla.Conn) error {
 // packets, in the middle of a MESSAGE or a PING and after an upgrade. Other
 // statuses and a connection dropped without a frame stay "transport error".
 func TestPeerCloseFrameReason(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		close  func(*gorilla.Conn) error
-		reason CloseReason
-	}{
-		{"normal closure", peerCloseFrame(gorilla.FormatCloseMessage(gorilla.CloseNormalClosure, "")), ReasonTransportClose},
-		{"going away", peerCloseFrame(gorilla.FormatCloseMessage(gorilla.CloseGoingAway, "")), ReasonTransportClose},
-		{"no status", peerCloseFrame(nil), ReasonTransportClose},
-		{"internal error", peerCloseFrame(gorilla.FormatCloseMessage(gorilla.CloseInternalServerErr, "")), ReasonTransportError},
-		{"policy violation", peerCloseFrame(gorilla.FormatCloseMessage(gorilla.ClosePolicyViolation, "")), ReasonTransportError},
-		{"dropped", func(ws *gorilla.Conn) error { return ws.UnderlyingConn().Close() }, ReasonTransportError},
-	} {
+	for _, tc := range peerCloses {
 		for _, at := range []string{"idle", "mid-message", "mid-ping", "upgraded"} {
 			t.Run(tc.name+"/"+at, func(t *testing.T) {
 				var conn Conn
@@ -85,9 +82,8 @@ func TestPeerCloseFrameReason(t *testing.T) {
 	}
 }
 
-// A server write that fails because the peer's close frame was answered first
-// (websocket.ErrCloseSent) does not turn the orderly close into a transport
-// error: the reason is the same with a writer running on another goroutine.
+// The reason is the same with a writer running on another goroutine, whose write
+// can fail with websocket.ErrCloseSent once the peer's close frame is answered.
 func TestPeerCloseFrameReasonWhileWriting(t *testing.T) {
 	const sessions = 300
 	reasons := map[CloseReason]int{}
@@ -96,11 +92,7 @@ func TestPeerCloseFrameReasonWhileWriting(t *testing.T) {
 		writing := make(chan struct{})
 		go func() {
 			defer close(writing)
-			for {
-				w, err := p.conn.NextWriter(eioparser.String)
-				if err != nil {
-					return
-				}
+			for w, err := p.conn.NextWriter(eioparser.String); err == nil; w, err = p.conn.NextWriter(eioparser.String) {
 				if _, err = w.Write([]byte("tick")); w.Close() != nil || err != nil {
 					return
 				}
@@ -108,12 +100,8 @@ func TestPeerCloseFrameReasonWhileWriting(t *testing.T) {
 		}()
 		_, _, err := p.ws.ReadMessage() // the writer is running
 		require.NoError(t, err)
-		go func() {
-			for err == nil {
-				_, _, err = p.ws.NextReader()
-			}
-		}()
-		require.NoError(t, peerCloseFrame(orderlyClosePayloads[i%3])(p.ws))
+		go func() { _, _ = io.Copy(io.Discard, p.ws.UnderlyingConn()) }()
+		require.NoError(t, peerCloses[i%3].close(p.ws))
 		var closed *CloseError
 		require.ErrorAs(t, readAll(p.conn), &closed)
 		<-writing

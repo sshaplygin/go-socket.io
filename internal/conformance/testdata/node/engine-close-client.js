@@ -16,30 +16,21 @@ const socket = io(base, {
   forceNode: true, forceNew: true, reconnection: false, timeout: 5000
 });
 
-function once(emitter, name, timeout = 5000) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('event timed out: ' + name)), timeout);
-    emitter.once(name, (...args) => { clearTimeout(timer); resolve(args); });
-  });
-}
+const once = (emitter, name) => new Promise(resolve => emitter.once(name, resolve));
 
 const deadline = setTimeout(() => { console.error('engine close scenario timed out'); process.exit(1); }, 20000);
 
 (async () => {
-  try {
-    const engine = socket.io.engine;
-    const upgraded = mode === 'upgrade' ? once(engine, 'upgrade') : null;
-    await once(socket, 'connect');
-    if (upgraded) { await upgraded; }
-    assert.strictEqual(engine.transport.name, 'websocket');
-    // Wait for the server's reply to the close frame, so that the server has
-    // read the frame before this process exits.
-    const ws = engine.transport.ws;
-    const closed = new Promise(resolve => ws.addEventListener('close', resolve));
-    engine.close();
-    const event = await closed;
-    console.log(version + ' ' + mode + ': engine closed, close code ' + event.code);
-  } finally {
-    clearTimeout(deadline);
-  }
+  const engine = socket.io.engine;
+  const upgraded = mode === 'upgrade' ? once(engine, 'upgrade') : null;
+  await once(socket, 'connect');
+  if (upgraded) { await upgraded; }
+  assert.strictEqual(engine.transport.name, 'websocket');
+  // The server's reply shows that it read the frame before this process exits.
+  const ws = engine.transport.ws;
+  const closed = new Promise(resolve => ws.addEventListener('close', resolve));
+  engine.close();
+  const event = await closed;
+  clearTimeout(deadline);
+  console.log(version + ' ' + mode + ': engine closed, close code ' + event.code);
 })().catch(error => { console.error(error.stack || error); process.exit(1); });

@@ -2,6 +2,7 @@ package engineio
 
 import (
 	"io"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -84,29 +85,38 @@ func TestPeerCloseFrameReason(t *testing.T) {
 
 // The reason is the same with a writer running on another goroutine, whose write
 // can fail with websocket.ErrCloseSent once the peer's close frame is answered.
+// One server serves every session, so that repeated runs do not exhaust ports.
 func TestPeerCloseFrameReasonWhileWriting(t *testing.T) {
 	const sessions = 200
+	srv := NewServer()
+	ts := httptest.NewServer(srv)
+	defer func() { _ = srv.Close(); ts.Close() }()
 	reasons := map[CloseReason]int{}
 	for i := 0; i < sessions; i++ {
-		p := dialCloseFramePeer(t, false)
+		ws, _, err := gorilla.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/?EIO=3&transport=websocket", nil)
+		require.NoError(t, err)
+		conn, err := srv.Accept()
+		require.NoError(t, err)
 		writing := make(chan struct{})
 		go func() {
 			defer close(writing)
-			for w, err := p.conn.NextWriter(eioparser.String); err == nil; w, err = p.conn.NextWriter(eioparser.String) {
+			for w, err := conn.NextWriter(eioparser.String); err == nil; w, err = conn.NextWriter(eioparser.String) {
 				if _, err = w.Write([]byte("tick")); w.Close() != nil || err != nil {
 					return
 				}
 			}
 		}()
-		_, _, err := p.ws.ReadMessage() // the writer is running
-		require.NoError(t, err)
-		go func() { _, _ = io.Copy(io.Discard, p.ws.UnderlyingConn()) }()
-		require.NoError(t, peerCloses[i%3].close(p.ws))
+		for k := 0; k < 2; k++ { // OPEN and a tick: the writer is running
+			_, _, err = ws.ReadMessage()
+			require.NoError(t, err)
+		}
+		go func() { _, _ = io.Copy(io.Discard, ws.UnderlyingConn()) }()
+		require.NoError(t, peerCloses[i%3].close(ws))
 		var closed *CloseError
-		require.ErrorAs(t, readAll(p.conn), &closed)
+		require.ErrorAs(t, readAll(conn), &closed)
 		<-writing
 		reasons[closed.Reason]++
-		_ = p.srv.Close()
+		_ = ws.Close()
 	}
 	require.Equal(t, map[CloseReason]int{ReasonTransportClose: sessions}, reasons)
 }

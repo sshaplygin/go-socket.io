@@ -89,8 +89,10 @@ server->>server: close old conn
   the next poll; then the `NOOP`s stop. The probe and `UPGRADE` must both arrive within
   `pingTimeout` of the moment the server accepts the websocket connection: that one read
   deadline is set before the probe is read and is not extended by it. If anything else
-  follows the probe, the deadline passes, or the session closes first, the websocket
-  connection is closed and the session stays on polling, which was never paused.
+  follows the probe or the deadline passes, the upgrade fails: the websocket connection is
+  closed and the session stays on polling, which was never paused. If the session closes
+  during the upgrade (for example on a ping timeout), the session ends with both its polling
+  connection and the websocket connection closed, and it is not switched.
 - Error responses (Engine.IO v4): the server answers a rejected request with the JSON
   body `{"code":N,"message":"..."}` and content type `application/json`:
 

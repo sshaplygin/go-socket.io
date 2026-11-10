@@ -26,7 +26,7 @@ func peerCloseFrame(payload []byte) func(*gorilla.Conn) error {
 
 // A close frame from the client with status 1000, 1001 or none (1005) ends the
 // session with "transport close", as engine.io 3.6.2 reports it: between
-// messages, in the middle of one and after an upgrade from polling. Other
+// packets, in the middle of a MESSAGE or a PING and after an upgrade. Other
 // statuses and a connection dropped without a frame stay "transport error".
 func TestPeerCloseFrameReason(t *testing.T) {
 	for _, tc := range []struct {
@@ -41,7 +41,7 @@ func TestPeerCloseFrameReason(t *testing.T) {
 		{"policy violation", peerCloseFrame(gorilla.FormatCloseMessage(gorilla.ClosePolicyViolation, "")), ReasonTransportError},
 		{"dropped", func(ws *gorilla.Conn) error { return ws.UnderlyingConn().Close() }, ReasonTransportError},
 	} {
-		for _, at := range []string{"idle", "mid-message", "upgraded"} {
+		for _, at := range []string{"idle", "mid-message", "mid-ping", "upgraded"} {
 			t.Run(tc.name+"/"+at, func(t *testing.T) {
 				var conn Conn
 				var ws *gorilla.Conn
@@ -55,15 +55,17 @@ func TestPeerCloseFrameReason(t *testing.T) {
 					conn, ws = p.conn, p.ws
 				}
 				var r io.ReadCloser
-				if at == "mid-message" {
+				if packet, ok := map[string]string{"mid-message": "4", "mid-ping": "2"}[at]; ok {
 					w, err := ws.NextWriter(gorilla.TextMessage)
 					require.NoError(t, err)
 					// One byte more than the 4096-byte write buffer flushes a
 					// nonfinal fragment; the frame that follows it is the close.
-					_, err = w.Write([]byte("4" + strings.Repeat("x", 4096)))
+					_, err = w.Write([]byte(packet + strings.Repeat("x", 4096)))
 					require.NoError(t, err)
-					_, r, err = conn.NextReader()
-					require.NoError(t, err)
+					if packet == "4" {
+						_, r, err = conn.NextReader()
+						require.NoError(t, err)
+					}
 				}
 				require.NoError(t, tc.close(ws))
 				if r != nil {

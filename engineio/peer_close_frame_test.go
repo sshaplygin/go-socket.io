@@ -3,6 +3,7 @@ package engineio
 import (
 	"io"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -87,6 +88,9 @@ func TestPeerCloseFrameReason(t *testing.T) {
 // can fail with websocket.ErrCloseSent once the peer's close frame is answered.
 // One server serves every session, so that repeated runs do not exhaust ports.
 func TestPeerCloseFrameReasonWhileWriting(t *testing.T) {
+	if runtime.GOMAXPROCS(0) < 2 {
+		t.Skip("the write must run in parallel with the reader that receives the close frame")
+	}
 	const sessions = 200
 	srv := NewServer()
 	ts := httptest.NewServer(srv)

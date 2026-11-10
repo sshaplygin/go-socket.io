@@ -3,12 +3,15 @@ package socketio
 import (
 	"io"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	gorilla "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sshaplygin/go-socket.io/engineio"
 )
 
 // peerCloseFrames are client close frames; the first three are orderly.
@@ -54,20 +57,17 @@ func TestOnDisconnectPeerCloseFrame(t *testing.T) {
 // The reason is the same while the server emits: an Emit whose write fails after
 // the reply to the client's close frame does not make it a transport error.
 func TestOnDisconnectPeerCloseFrameWhileEmitting(t *testing.T) {
+	if runtime.GOMAXPROCS(0) < 2 {
+		t.Skip("the write must run in parallel with the reader that receives the close frame")
+	}
 	const sessions = 200
-	stops, disconnected := make(chan chan struct{}, 1), make(chan string, 1)
+	disconnected := make(chan string, 1)
 	s := NewServer(WithWriteBufferSize(1 << 20)) // no queue overflow when the client lags
 	s.OnConnect("/", func(c Conn) error {
-		stop := <-stops
 		go func() {
-			for j := 0; j < 2000; j++ { // bounded: no backlog delays OnDisconnect
-				select {
-				case <-stop:
-					return
-				default:
-					c.Emit("tick", j)
-					time.Sleep(20 * time.Microsecond)
-				}
+			for j := 0; j < 2000 && c.EngineConn().ReadyState() == engineio.StateOpen; j++ { // no backlog
+				c.Emit("tick", j)
+				time.Sleep(20 * time.Microsecond)
 			}
 		}()
 		return nil
@@ -79,8 +79,6 @@ func TestOnDisconnectPeerCloseFrameWhileEmitting(t *testing.T) {
 	defer func() { _ = s.Close(); ts.Close() }()
 	reasons := map[string]int{}
 	for i := 0; i < sessions; i++ {
-		stop := make(chan struct{})
-		stops <- stop
 		c, _, err := gorilla.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/?EIO=3&transport=websocket", nil)
 		require.NoError(t, err)
 		for k := 0; k < 3; k++ { // OPEN, CONNECT and a tick: the emitter is running
@@ -90,7 +88,6 @@ func TestOnDisconnectPeerCloseFrameWhileEmitting(t *testing.T) {
 		go func() { _, _ = io.Copy(io.Discard, c.UnderlyingConn()) }()
 		require.NoError(t, c.WriteControl(gorilla.CloseMessage, peerCloseFrames[i%3].payload, time.Now().Add(time.Second)))
 		reasons[recv(t, disconnected, "OnDisconnect reason")]++
-		close(stop)
 		_ = c.Close()
 	}
 	require.Equal(t, map[string]int{"transport close": sessions}, reasons)

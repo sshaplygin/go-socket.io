@@ -56,7 +56,10 @@ func (n *ServerNamespace) OnDisconnect(f func(Conn, string)) { n.registration().
 
 // OnError sets the namespace's error handler. Root connect and connection-middleware
 // failures pass a nil Conn; errors for other unjoined namespaces pass an inactive
-// Conn. A panic in the error handler is recovered and logged at WARN.
+// Conn. A panic in the error handler is recovered and logged at WARN. The end of the
+// Engine.IO session, by a disconnect, a transport failure, a ping timeout, a close or
+// a message-size limit, is not an error: OnDisconnect reports it, and a message past
+// the limit is also logged at WARN.
 func (n *ServerNamespace) OnError(f func(Conn, error)) { n.registration().OnError(f) }
 
 // OnEvent replaces every listener of the event; handler semantics are those of Server.OnEvent.

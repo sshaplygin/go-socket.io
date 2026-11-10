@@ -59,6 +59,11 @@ Package `engineio` of the v1 module at the repository root.
   codes 1000 and 1001 and for a frame without a code, which engine.io 3.6.2 sends;
   other codes, such as 1009 or 1011, remain `transport error`. The frame is sent by
   server connections only: the Go client closes its websocket without one.
+- `Server.Close` answers a polling session's pending poll with HTTP 500, and a poll
+  that arrives after the close with HTTP 400, so a polling client reports `transport
+  error` (in the Go client, `OnDisconnect` reason `transport error`); engine.io 3.6.2
+  answers the poll with `CLOSE` (`1`), and its clients report `transport close`. A
+  websocket session receives the close frame above.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
   to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
   threshold and only for a packet whose compression flag is true. The threshold is
@@ -73,6 +78,8 @@ Package `engineio` of the v1 module at the repository root.
   message closes the connection with close code 1009. A client can see 1006 instead
   when the connection resets before it reads the close frame. With permessage-deflate,
   the same limit applies to inflated bytes; rejection does not buffer the full message.
+  The session ends with `OnDisconnect` reason `transport error` and a WARN record
+  `socketio: message too large` of the server's logger; `OnError` is not called.
 - The Go client limits incoming websocket messages (inflated bytes) and whole decoded
   polling response bodies, OPEN included, to 1 MiB by default. The configurable
   limit also applies to reconnects and candidate upgrade transports before probe I/O.

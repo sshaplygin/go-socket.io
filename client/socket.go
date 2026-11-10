@@ -400,7 +400,8 @@ func (s *Socket) OnConnect(f func(Conn) error) {
 // OnDisconnect sets the namespace's disconnect callback.
 func (s *Socket) OnDisconnect(f func(Conn, string)) { s.handler.OnDisconnect(f) }
 
-// OnError sets the namespace's error callback.
+// OnError sets the namespace's error callback. The end of the Engine.IO session is
+// not an error; see Client.OnError.
 func (s *Socket) OnError(f func(Conn, error)) { s.handler.OnError(f) }
 
 // OnEvent replaces the namespace's handler for event. If the event's arguments

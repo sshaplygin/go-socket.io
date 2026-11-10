@@ -167,12 +167,25 @@ func closeRecord(t *testing.T, rec *logtest.Recorder) map[string]string {
 	return got[0]
 }
 
+// heartbeats are the PingInterval and PingTimeout pairs of the heartbeat tests. With the
+// interval above the timeout, a PONG that left the ping timeout armed, or a transport
+// deadline of PingTimeout alone, would close the session before the next PING.
+var heartbeats = map[string][2]time.Duration{
+	"interval below timeout": {20 * time.Millisecond, 300 * time.Millisecond},
+	"interval above timeout": {120 * time.Millisecond, 60 * time.Millisecond},
+}
+
 // TestSessionHeartbeat: the server sends PING (`2`, no data) PingInterval after the
 // handshake and again PingInterval after each PONG; while PONGs answer, the session
 // stays open past several PingTimeouts. When a PING goes unanswered for PingTimeout,
 // the session closes with reason "ping timeout".
 func TestSessionHeartbeat(t *testing.T) {
-	const interval, timeout = 20 * time.Millisecond, 300 * time.Millisecond
+	for name, hb := range heartbeats {
+		t.Run(name, func(t *testing.T) { testSessionHeartbeat(t, hb[0], hb[1]) })
+	}
+}
+
+func testSessionHeartbeat(t *testing.T, interval, timeout time.Duration) {
 	rec := logtest.NewRecorder()
 	conn := newPeerConn()
 	s := openSession(t, conn, interval, timeout, rec)

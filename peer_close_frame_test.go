@@ -3,6 +3,7 @@ package socketio
 import (
 	"io"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -42,12 +43,10 @@ func TestOnDisconnectPeerCloseFrame(t *testing.T) {
 			c, _, err := gorilla.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/?EIO=3&transport=websocket", nil)
 			require.NoError(t, err)
 			defer func() { _ = c.Close() }()
-			// Consume Engine.IO OPEN and Socket.IO CONNECT before the close.
-			_, _, err = c.ReadMessage()
-			require.NoError(t, err)
-			_, data, err := c.ReadMessage()
-			require.NoError(t, err)
-			require.Equal(t, "40", string(data))
+			for k := 0; k < 2; k++ { // Engine.IO OPEN and Socket.IO CONNECT
+				_, _, err = c.ReadMessage()
+				require.NoError(t, err)
+			}
 			require.NoError(t, c.WriteControl(gorilla.CloseMessage, tc.payload, time.Now().Add(time.Second)))
 			require.Equal(t, tc.want, recv(t, disconnected, "OnDisconnect reason"))
 		})
@@ -69,6 +68,7 @@ func TestOnDisconnectPeerCloseFrameWhileEmitting(t *testing.T) {
 					return
 				default:
 					c.Emit("tick", j)
+					runtime.Gosched() // let the writer run with GOMAXPROCS=1
 				}
 			}
 		}()

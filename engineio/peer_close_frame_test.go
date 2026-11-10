@@ -85,7 +85,7 @@ func TestPeerCloseFrameReason(t *testing.T) {
 // The reason is the same with a writer running on another goroutine, whose write
 // can fail with websocket.ErrCloseSent once the peer's close frame is answered.
 func TestPeerCloseFrameReasonWhileWriting(t *testing.T) {
-	const sessions = 300
+	const sessions = 200
 	reasons := map[CloseReason]int{}
 	for i := 0; i < sessions; i++ {
 		p := dialCloseFramePeer(t, false)

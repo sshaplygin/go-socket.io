@@ -2885,22 +2885,22 @@ changed to `done — #<PR>` after the merge.
   the session type, and `*engineio/client.CloseError`); (2) a read error of an obtained
   frame reader (a transport failure in the middle of a frame); (3) a message-size limit
   violation enforced by the engine or transport, which ends the session. Errors from
-  decoding a complete frame (Socket.IO packet header, arguments, attachments, ACK
-  handling), `ErrWriteBufferFull`, middleware and `OnConnect` errors, and errors of a
-  namespace that already left (the purpose of 40dc3e8) still reach `OnError` as today. A
-  limit violation is then reported through `OnDisconnect` with `transport error` and a log
-  record: the PR checks on master which record exists for the server and the Go client
-  limit and adds a WARN record where none exists. No exported API change.
+  decoding a complete frame (Socket.IO packet header, arguments, attachments, ACK handling),
+  `ErrWriteBufferFull`, middleware and `OnConnect` errors, and errors of a namespace that
+  already left (the purpose of 40dc3e8) still reach `OnError` as today. A limit violation is
+  then reported through `OnDisconnect` with `transport error` and a log record: the PR
+  checks on master which record exists for the server and the Go client limit and adds a
+  WARN record where none exists. No exported API change.
 - **Tests:** red→green in the root package and `client`: with `OnError` registered, a client
   disconnect over polling, websocket and polling-to-websocket upgrade; an abrupt drop
   (websocket without close frame; polling with the connection closed); a ping timeout; and,
   for the Go client over each transport, the server's `Server.Close` and
-  `EngineConn().Close()`: `OnError` is not called, and `OnDisconnect` gets the reason in
-  the Go client probe table of
-  [Announcement-readiness check on 2026-11-10](#announcement-readiness-check-on-2026-11-10)
-  (polling `Server.Close`: `transport error`, see interop-14); the PR quotes the reasons
-  in its description and asserts them in the tests. Existing tests whose expectation
-  changes (found by a trial implementation on `27fdab8`): `TestRolesFrameReaderFailureReportedOnce`,
+  `EngineConn().Close()`: `OnError` is not called, and `OnDisconnect` gets the reason in the
+  Go client probe table of [Announcement-readiness check on
+  2026-11-10](#announcement-readiness-check-on-2026-11-10) (polling `Server.Close`:
+  `transport error`, see interop-14); the PR quotes the reasons in its description and
+  asserts them in the tests. Existing tests whose expectation changes (found by a trial
+  implementation on `27fdab8`): `TestRolesFrameReaderFailureReportedOnce`,
   `TestClientMidFrameFailure`,
   `TestUnhandledErrorRecords/mid-frame_failure_reaches_OnError_unchanged`,
   `TestUnhandledErrorRecords/peer_close_reaches_OnError_as_io.EOF`,
@@ -2909,17 +2909,17 @@ changed to `done — #<PR>` after the merge.
   `TestClientMessageLimitOption/{polling,websocket}/512`. Each changes to no `OnError` call
   for the session end and the `OnDisconnect` reason it now observes ("reports once" tests:
   zero `OnError` reports, one disconnect). The PR description lists every test it changes
-  with the rule clause that applies; a changed test outside this list is a finding. Guards that already pass: a decode error and
-  `ErrWriteBufferFull` still reach `OnError`. A conformance case with both pinned JS clients
-  asserts no `OnError` on `socket.close()`.
+  with the rule clause that applies; a changed test outside this list is a finding. Guards
+  that already pass: a decode error and `ErrWriteBufferFull` still reach `OnError`. A
+  conformance case with both pinned JS clients asserts no `OnError` on `socket.close()`.
 - **Benchmarks:** none.
 - **Docs:** `docs/V1.md` (OnError section: the end of a session is reported to
   `OnDisconnect` only; a migration table row for v1.4.2 and v1.7.0 users who handled
   transport errors in `OnError`), the `OnError` godoc, `docs/PARITY.md`, and
-  `docs/PROTOCOL.md` (the interop-14 difference: a polling client reports
-  `transport error` after `Server.Close`, HTTP 500, until W72); for the message-size
-  limit, `docs/V1.md` "Client limits" and the server limit options, and a migration row for
-  users who saw the limit through `OnError`.
+  `docs/PROTOCOL.md` (the interop-14 difference: a polling client reports `transport error`
+  after `Server.Close`, HTTP 500, until W72); for the message-size limit, `docs/V1.md`
+  "Client limits", `docs/PROTOCOL.md` "Message limit" for the server, and a migration row
+  for users who saw the limit through `OnError`.
 - **Acceptance criteria:** the new tests fail on the test-only commit; `make test-race`,
   `make gates`, `make cover-check` and `make conformance` with both clients pass;
   `make test-stress PKGS='. ./client'` passes.

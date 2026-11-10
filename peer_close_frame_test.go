@@ -60,13 +60,13 @@ func TestOnDisconnectPeerCloseFrameWhileEmitting(t *testing.T) {
 	s.OnConnect("/", func(c Conn) error {
 		stop := <-stops
 		go func() {
-			for j := 0; ; j++ {
+			for j := 0; j < 2000; j++ { // bounded: no backlog delays OnDisconnect
 				select {
 				case <-stop:
 					return
 				default:
 					c.Emit("tick", j)
-					time.Sleep(20 * time.Microsecond) // no backlog with GOMAXPROCS=1
+					time.Sleep(20 * time.Microsecond)
 				}
 			}
 		}()

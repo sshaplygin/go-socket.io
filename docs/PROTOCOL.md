@@ -54,7 +54,10 @@ Package `engineio` of the v1 module at the repository root.
   connection drop (1006). `engineio.Abort`, and a session that failed with a transport
   error, drop the connection without a frame, so the client observes 1006; so can a
   connection that resets before the client reads the frame, for example when the
-  server still has unread client data. The message-limit close below sends code 1009. The reference
+  server still has unread client data. An upgrade probe the session has not
+  switched to is not an established connection and is the exception: a session
+  closed while it is a probe drops it without a frame (1006), see the upgrade
+  bullet below. The message-limit close below sends code 1009. The reference
   clients report the close frame as `transport close`, and so does the Go client for
   codes 1000 and 1001 and for a frame without a code, which engine.io 3.6.2 sends;
   other codes, such as 1009 or 1011, remain `transport error`. The frame is sent by
@@ -95,7 +98,17 @@ Package `engineio` of the v1 module at the repository root.
   the polling connection is paused only on `5`, then the session switches to the
   websocket and closes the polling connection. A failed probe, or one without `5`
   within `WithUpgradeTimeout`, closes the probe connection and leaves polling
-  unpaused. Implemented in the private server session upgrade state machine (`engineio/internal/session/upgrade.go`).
+  unpaused; that close of an expired or failed probe, made while the session stays
+  open, is an ordinary websocket close with the 1000 frame described above. A session
+  closed while a probe is in progress (`Conn.Close`, `Server.Close`, `Abort`) drops
+  the probe connection at once, from the moment the probe is accepted until the
+  server switches to it after the client's `5`, without the close frame and without
+  waiting for a reply that an established websocket receives, so the probing client
+  observes 1006 on it. From the switch on, the websocket is the session's connection
+  and closes as described above (1000 for `Conn.Close` and `Server.Close`), also
+  while the server finishes the upgrade by closing the polling connection. When the
+  expiry of a probe and the close of the session coincide, the client observes
+  whichever came first: 1000 from the expiry, 1006 from the close. Implemented in the private server session upgrade state machine (`engineio/internal/session/upgrade.go`).
 - Requests the server rejects before a transport handles them are answered with JSON
   `{"code":<n>,"message":"<text>"}`, as engine.io 3.6.2 answers a request that is not a
   websocket upgrade: HTTP 400 with code 0 `Transport unknown`, 1 `Session ID unknown`, 2

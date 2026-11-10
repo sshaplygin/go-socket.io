@@ -103,9 +103,17 @@ type peerWriter struct {
 
 func (w *peerWriter) Write(p []byte) (int, error) { return w.buf.Write(p) }
 
+// Close records the packet. While out has room it is recorded even if the connection
+// closed meanwhile, so a test never loses a packet the session wrote before the close.
 func (w *peerWriter) Close() error {
+	p := writtenPacket{ft: w.ft, pt: w.pt, data: w.buf.String()}
 	select {
-	case w.c.out <- writtenPacket{ft: w.ft, pt: w.pt, data: w.buf.String()}:
+	case w.c.out <- p:
+		return nil
+	default:
+	}
+	select {
+	case w.c.out <- p:
 		return nil
 	case <-w.c.done:
 		return io.EOF
@@ -249,13 +257,21 @@ func TestSessionRejectsClientPing(t *testing.T) {
 // TestSessionCloseStopsHeartbeat: once the session is closed it sends no PING and its
 // timers do not close it a second time. Close races the ping timeout here; either way
 // there is exactly one close record.
+//
+// Only that observable effect is pinned. Close stops both timers, but a timer callback
+// that still runs finds the session closed and does nothing (ping checks closed, a
+// second close logs nothing), so a timer left armed is not visible from outside; the
+// Stop calls release the timers early and are not what keeps the session quiet.
 func TestSessionCloseStopsHeartbeat(t *testing.T) {
 	t.Run("before the first PING", func(t *testing.T) {
+		const interval = 5 * time.Millisecond
 		rec := logtest.NewRecorder()
 		conn := newPeerConn()
-		s := openSession(t, conn, 5*time.Millisecond, 5*time.Millisecond, rec)
+		s := openSession(t, conn, interval, interval, rec)
 		require.NoError(t, s.Close())
-		time.Sleep(50 * time.Millisecond) // ten intervals: no PING may follow the close
+		// A negative check needs a wait: a PING the heartbeat still sent would arrive
+		// one interval after the close; ten intervals leave room for scheduling.
+		time.Sleep(10 * interval)
 		select {
 		case p := <-conn.out:
 			t.Fatalf("closed session wrote %v", p)
@@ -265,10 +281,13 @@ func TestSessionCloseStopsHeartbeat(t *testing.T) {
 	})
 
 	t.Run("concurrent with the ping timeout", func(t *testing.T) {
+		const timeout = time.Millisecond
 		rec := logtest.NewRecorder()
 		conn := newPeerConn()
-		s := openSession(t, conn, time.Millisecond, time.Millisecond, rec)
-		time.Sleep(2 * time.Millisecond) // the closes meet the PING and its timeout
+		s := openSession(t, conn, time.Millisecond, timeout, rec)
+		// The PING is written after its timeout is armed: the closes below start
+		// within one timeout of it firing.
+		require.Equal(t, packet.PING, conn.receive(t).pt)
 		var wg sync.WaitGroup
 		for i := 0; i < 4; i++ {
 			wg.Add(1)
@@ -276,7 +295,9 @@ func TestSessionCloseStopsHeartbeat(t *testing.T) {
 		}
 		wg.Wait()
 		conn.waitClosed(t)
-		time.Sleep(20 * time.Millisecond) // a late timer would add a second record
+		// A negative check: a timer that outlived Close would fire within one timeout
+		// and add a second record; twenty timeouts leave room for scheduling.
+		time.Sleep(20 * timeout)
 		reason := closeRecord(t, rec)["reason"]
 		require.Contains(t, []string{"ping timeout", "forced close"}, reason)
 	})

@@ -71,7 +71,7 @@ server->>client: OPEN
 client->>server: dial websocket with sid
 client->>server: PING "probe"
 server->>client: PONG "probe"
-server->>client: NOOP (completes the pending poll)
+server->>client: NOOP into each poll until UPGRADE
 client->>client: pause polling
 client->>server: UPGRADE
 server->>server: pause old conn (NOOP if a poll is still waiting)
@@ -80,9 +80,13 @@ server->>server: close old conn
 ```
 
   Implemented in `session.Session.upgrading`. Polling keeps serving the session until
-  `UPGRADE` arrives, as on the Node server: after the probe the server writes one `NOOP`
-  to the polling connection, which completes the pending poll or, if none is pending, the
-  next one, and only `UPGRADE` pauses polling. If anything else follows the probe, or no
+  `UPGRADE` arrives, as on the Node server: from the probe until `UPGRADE`, a failed upgrade
+  or the close of the session, the server answers every poll with `NOOP`, at most one per
+  100 ms, so the client's pending poll completes and the client can pause polling; only
+  `UPGRADE` pauses polling. The Node server checks every 100 ms whether a poll is pending;
+  here a `NOOP` waits for the next poll and answers it at once, the following one comes at
+  least 100 ms later. After a failed upgrade a `NOOP` that was already waiting still answers
+  the next poll; then the `NOOP`s stop. If anything else follows the probe, or no
   packet within `pingTimeout`, the websocket connection is closed and the session stays on
   polling, which was never paused.
 - Error responses (Engine.IO v4): the server answers a rejected request with the JSON
@@ -163,7 +167,7 @@ Engine.IO v3 → v4 (implemented in `v2/engineio`, see above):
 | Handshake | `sid`, `upgrades`, `pingInterval`, `pingTimeout` | plus `maxPayload` |
 | Heartbeat | client sends `2`, server answers `3` | server sends `2` every `pingInterval`, client answers `3` within `pingTimeout` |
 | WebSocket | one packet per frame, binary frames start with a type byte | unchanged; binary frames carry raw bytes |
-| Upgrade | `2probe` / `3probe` / `5` | unchanged, plus server sends `6` (NOOP) into the pending poll; polling pauses on `5` |
+| Upgrade | `2probe` / `3probe` / `5` | unchanged, plus server answers the polls with `6` (NOOP) until `5`; polling pauses on `5` |
 | Errors | plain text | JSON `{"code": N, "message": "..."}`, codes 0..5 |
 
 Socket.IO v4 → v5:

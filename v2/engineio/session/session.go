@@ -610,7 +610,9 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 		return
 	}
 
-	go s.sendNoop(old)
+	stopNoops := make(chan struct{})
+	defer close(stopNoops)
+	go s.sendNoops(old, stopNoops)
 
 	// Check for upgrade packet from the client.
 	_, pt, r, err = conn.NextReader()
@@ -664,17 +666,34 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	}
 }
 
-// sendNoop writes a NOOP to old, the connection an upgrade replaces. On polling it
-// completes the pending poll, or the next one: the client waits for that poll to end
-// before it pauses polling and sends UPGRADE. It returns at the latest when old is
-// paused or closed, as the upgrade or the session ends; that failure is expected.
-func (s *Session) sendNoop(old transport.Conn) {
-	w, err := old.NextWriter(frame.String, packet.NOOP)
-	if err == nil {
-		err = w.Close()
-	}
-	if err != nil {
-		s.logger().Debug("engineio: upgrade noop failed", "err", err)
+// noopInterval is the least time between two NOOPs of an upgrade: the Node server
+// checks for a pending poll every 100 ms.
+const noopInterval = 100 * time.Millisecond
+
+// sendNoops answers the polls of old, the connection an upgrade replaces, with NOOP
+// until stop is closed: the client waits for its pending poll to end before it pauses
+// polling and sends UPGRADE. Each NOOP waits for a poll, so a poll that arrives while
+// one waits is answered at once, and the next NOOP follows at least noopInterval
+// later, as on the Node server. After stop a NOOP already waiting still answers the
+// next poll, unless UPGRADE paused old or the session closed it, which fail it; that
+// failure is expected.
+func (s *Session) sendNoops(old transport.Conn, stop <-chan struct{}) {
+	for {
+		w, err := old.NextWriter(frame.String, packet.NOOP)
+		if err == nil {
+			err = w.Close()
+		}
+		if err != nil {
+			s.logger().Debug("engineio: upgrade noop failed", "err", err)
+			return
+		}
+		pace := time.NewTimer(noopInterval)
+		select {
+		case <-stop:
+			pace.Stop()
+			return
+		case <-pace.C:
+		}
 	}
 }
 

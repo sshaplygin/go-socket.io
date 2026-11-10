@@ -210,9 +210,9 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   `pingInterval + pingTimeout`; `NextReader` then fails with `ping timeout: ...`. Its ping
   goroutine and the `engineio: ping failed` record are removed. The `OPEN` packet carries
   `maxPayload`: the polling POST limit (`polling.Transport.MaxPayload`, default 1 MiB), or the
-  websocket message limit on a server without polling. During an upgrade the server writes one
-  `NOOP` to the polling connection after the probe and pauses polling on `UPGRADE` (`5`) instead
-  of after the probe: until `UPGRADE` the session still runs on polling, and a failed upgrade
+  websocket message limit on a server without polling. During an upgrade the server answers the
+  polls with `NOOP` (at most one per 100 ms) from the probe until `UPGRADE`, a failed upgrade or
+  the close, and pauses polling on `UPGRADE` (`5`) instead of after the probe: until `UPGRADE` the session still runs on polling, and a failed upgrade
   no longer pauses and resumes it. An Engine.IO v3 client, which sends the pings, no longer
   keeps a session open.
 

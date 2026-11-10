@@ -31,7 +31,7 @@ type wrapper struct {
 	peerGone chan struct{}
 	peerOnce *sync.Once
 	// peerClosed is set when the peer's close frame has status 1000, 1001 or
-	// none (1005), before the read that received the frame returns.
+	// none (1005), before the reply is written and the read returns.
 	peerClosed *atomic.Bool
 }
 

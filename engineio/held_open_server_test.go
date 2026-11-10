@@ -28,18 +28,20 @@ const heldOpenWait = 10 * time.Second
 // until release: the OPEN packet is delivered immediately, but Init does not
 // return, and Accept does not hand out the connection, before release is called.
 //
+// opts configure the server after its transports.
+//
 // release is idempotent. Tests defer it so that Server.Close never waits for a
 // handshake that is still held.
-func newHeldOpenServer(t *testing.T) (s *engineio.Server, release func()) {
+func newHeldOpenServer(t *testing.T, opts ...engineio.Option) (s *engineio.Server, release func()) {
 	t.Helper()
 	gate := make(chan struct{})
 	var once sync.Once
 	release = func() { once.Do(func() { close(gate) }) }
 	t.Cleanup(release)
-	s = engineio.NewServer(engineio.WithTransports(
+	s = engineio.NewServer(append([]engineio.Option{engineio.WithTransports(
 		&heldOpenTransport{Transport: &polling.Transport{}, gate: gate},
 		websocket.Default,
-	))
+	)}, opts...)...)
 	return s, release
 }
 

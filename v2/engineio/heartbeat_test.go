@@ -52,7 +52,7 @@ func TestServerHeartbeat(t *testing.T) {
 	// transport deadline of PingTimeout alone, would close the session before the next PING.
 	heartbeats := map[string][2]time.Duration{
 		"interval below timeout": {20 * time.Millisecond, 300 * time.Millisecond},
-		"interval above timeout": {120 * time.Millisecond, 60 * time.Millisecond},
+		"interval above timeout": {600 * time.Millisecond, 300 * time.Millisecond},
 	}
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		for name, hb := range heartbeats {

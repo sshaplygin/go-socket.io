@@ -1,0 +1,76 @@
+package engineio
+
+import (
+	"io"
+	"strings"
+	"testing"
+	"time"
+
+	gorilla "github.com/gorilla/websocket"
+	"github.com/stretchr/testify/require"
+)
+
+func peerCloseFrame(payload []byte) func(*gorilla.Conn) error {
+	return func(ws *gorilla.Conn) error {
+		return ws.WriteControl(gorilla.CloseMessage, payload, time.Now().Add(time.Second))
+	}
+}
+
+// A close frame from the client with status 1000, 1001 or none (1005) ends the
+// session with "transport close", as engine.io 3.6.2 reports it: between
+// messages, in the middle of one and after an upgrade from polling. Other
+// statuses and a connection dropped without a frame stay "transport error".
+func TestPeerCloseFrameReason(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		close  func(*gorilla.Conn) error
+		reason CloseReason
+	}{
+		{"normal closure", peerCloseFrame(gorilla.FormatCloseMessage(gorilla.CloseNormalClosure, "")), ReasonTransportClose},
+		{"going away", peerCloseFrame(gorilla.FormatCloseMessage(gorilla.CloseGoingAway, "")), ReasonTransportClose},
+		{"no status", peerCloseFrame(nil), ReasonTransportClose},
+		{"internal error", peerCloseFrame(gorilla.FormatCloseMessage(gorilla.CloseInternalServerErr, "")), ReasonTransportError},
+		{"policy violation", peerCloseFrame(gorilla.FormatCloseMessage(gorilla.ClosePolicyViolation, "")), ReasonTransportError},
+		{"dropped", func(ws *gorilla.Conn) error { return ws.UnderlyingConn().Close() }, ReasonTransportError},
+	} {
+		for _, at := range []string{"idle", "mid-message", "upgraded"} {
+			t.Run(tc.name+"/"+at, func(t *testing.T) {
+				var conn Conn
+				var ws *gorilla.Conn
+				if at == "upgraded" {
+					f := newParityWire(t, nil)
+					conn, ws = f.conn, f.probe(t)
+					require.NoError(t, ws.WriteMessage(gorilla.TextMessage, []byte("5")))
+					require.Eventually(t, conn.Upgraded, 5*time.Second, time.Millisecond)
+				} else {
+					p := dialCloseFramePeer(t, false)
+					conn, ws = p.conn, p.ws
+				}
+				var r io.ReadCloser
+				if at == "mid-message" {
+					w, err := ws.NextWriter(gorilla.TextMessage)
+					require.NoError(t, err)
+					// One byte more than the 4096-byte write buffer flushes a
+					// nonfinal fragment; the frame that follows it is the close.
+					_, err = w.Write([]byte("4" + strings.Repeat("x", 4096)))
+					require.NoError(t, err)
+					_, r, err = conn.NextReader()
+					require.NoError(t, err)
+				}
+				require.NoError(t, tc.close(ws))
+				if r != nil {
+					_, err := io.Copy(io.Discard, r)
+					require.Error(t, err)
+					_ = r.Close()
+				}
+				err := readAll(conn)
+				var closed *CloseError
+				require.ErrorAs(t, err, &closed)
+				require.Equal(t, tc.reason, closed.Reason, "%v", err)
+				if tc.reason == ReasonTransportClose {
+					require.ErrorIs(t, err, io.EOF)
+				}
+			})
+		}
+	}
+}

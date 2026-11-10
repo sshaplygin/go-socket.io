@@ -596,10 +596,10 @@ func TestBackpressureLibraryPacketOverflow(t *testing.T) {
 	}
 }
 
-// writeFault fails the Write or the Close of every frame writer once armed.
+// writeFault, once armed, fails the Close of every frame writer and its Write with err.
 type writeFault struct {
 	*fakeConn
-	close bool
+	err   error
 	armed *atomic.Bool
 }
 
@@ -608,30 +608,24 @@ func (f writeFault) NextWriter(ft eioparser.FrameType) (io.WriteCloser, error) {
 	if err != nil || !f.armed.Load() {
 		return w, err
 	}
-	return failingFrame{w, f.close}, nil
+	return failingFrame{w, f.err}, nil
 }
 
 type failingFrame struct {
 	io.WriteCloser
-	close bool
+	err error
 }
 
-func (w failingFrame) Write(p []byte) (int, error) {
-	if w.close {
-		return len(p), nil
-	}
-	return 0, io.ErrClosedPipe
-}
-
-func (w failingFrame) Close() error { return io.ErrClosedPipe }
+func (w failingFrame) Write(p []byte) (int, error) { return len(p), w.err }
+func (w failingFrame) Close() error                { return io.ErrClosedPipe }
 
 // A transport failure while writing an emit ends the session: OnDisconnect reports it
 // and OnError is not called.
 func TestWriteFailureEndsSession(t *testing.T) {
-	for _, mode := range []string{"NextWriter", "frame Write", "frame Close"} {
+	for mode, err := range map[string]error{"NextWriter": nil, "frame Write": io.ErrUnexpectedEOF, "frame Close": nil} {
 		t.Run(mode, func(t *testing.T) {
 			p, armed := newPeer(t, 'C', hooks{}), new(atomic.Bool)
-			fault := writeFault{p.fc, mode == "frame Close", armed}
+			fault := writeFault{p.fc, err, armed}
 			p.cl.dial = func(string) (engineclient.Conn, error) { return fault, nil }
 			p.connect(t)
 			armed.Store(mode != "NextWriter")

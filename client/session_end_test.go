@@ -57,7 +57,7 @@ func TestServerSessionEndSkipsOnError(t *testing.T) {
 				// The client reports a read failure to OnError before OnDisconnect.
 				require.Equal(t, reason, recv(t, clientReasons, "client OnDisconnect"))
 				require.NoError(t, srv.Close()) // waits for the server connection
-				require.Empty(t, drainAll(errs), "OnError was called")
+				require.Zero(t, len(errs), "OnError was called")
 			})
 		}
 	}

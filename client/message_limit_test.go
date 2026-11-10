@@ -62,8 +62,9 @@ func TestClientMessageLimitOption(t *testing.T) {
 				case reason := <-reasons:
 					require.Equal(t, int64(512), limit, "unexpected disconnect: %s", reason)
 					require.Equal(t, "transport error", reason)
-					require.Empty(t, drainAll(failures), "the limit reached OnError") // reported before OnDisconnect
-					require.Equal(t, []string{"socketio: message too large"}, drainAll(warns))
+					require.Zero(t, len(failures), "the limit reached OnError") // reported before OnDisconnect
+					require.Equal(t, "socketio: message too large", <-warns)
+					require.Zero(t, len(warns), "a second WARN record")
 				case err := <-failures:
 					t.Fatalf("OnError: %v", err)
 				case <-time.After(3 * time.Second):
@@ -72,11 +73,4 @@ func TestClientMessageLimitOption(t *testing.T) {
 			})
 		}
 	}
-}
-
-func drainAll[T any](ch chan T) (got []T) {
-	for len(ch) > 0 {
-		got = append(got, <-ch)
-	}
-	return got
 }

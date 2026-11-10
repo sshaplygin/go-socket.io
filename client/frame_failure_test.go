@@ -70,7 +70,7 @@ func TestClientMidFrameFailure(t *testing.T) {
 				want = "ping timeout"
 			}
 			require.Equal(t, want, recv(t, reasons, "mid-frame disconnect cause"))
-			require.Empty(t, drainAll(failures), "the session end reached OnError") // reported before OnDisconnect
+			require.Zero(t, len(failures), "the session end reached OnError") // reported before OnDisconnect
 		})
 	}
 }

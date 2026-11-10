@@ -3169,9 +3169,11 @@ the tag), and P9 its optional REL-11 step; when one of them is done, the owner a
 - **Status:** open
 - **Owner:** repository owner
 - **Depends on:** W63–W68
-- **Steps:** CONTRIBUTING.md "Before tagging v1", steps 1–4, on the tag candidate, as the
-  W66 checklist lists them. This plan adds only that the consumption check of step 4 uses a
-  fresh cache in a scratch module:
+- **Steps:** CONTRIBUTING.md "Before tagging v1", steps 1–3 and the verification parts of
+  step 4 (the version in the README install command and pkg.go.dev links, module
+  consumption under the fork's path), on the tag candidate, as the W66 checklist lists
+  them; creating the tag is P5. This plan adds only that the consumption check uses a fresh
+  cache in a scratch module:
   `GOMODCACHE=$(mktemp -d) GOFLAGS=-mod=mod go get github.com/sshaplygin/go-socket.io@<SHA>`.
 - **Acceptance:** a successful dispatched CI run whose head SHA is the tag candidate; the
   Stress run on that SHA inspected and its failures recorded in the W66 pull request; the

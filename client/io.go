@@ -153,7 +153,11 @@ func (c *conn) serveWrite() {
 			}
 		}
 		if err != nil {
-			c.report(pkg.Header.Namespace, err, c.writer.failed)
+			// A failure of NextWriter or of the frame writer ends the session, which
+			// OnDisconnect reports; OnError receives only errors raised before the transport.
+			if !expected(err, c.writer.failed) {
+				c.report(pkg.Header.Namespace, err, nil)
+			}
 			if c.writer.failed != nil {
 				c.stop()
 			} else {

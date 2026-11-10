@@ -342,3 +342,23 @@ func TestUpgradeTimeoutRacesSessionClose(t *testing.T) {
 		})
 	}
 }
+
+// A second probe is rejected without protocol I/O as long as the first upgrade
+// goroutine has not returned, also after it switched the session to its probe:
+// s.probe names the first probe until then.
+func TestSessionRejectsSecondProbeAfterSwitchUntilUpgradeReturns(t *testing.T) {
+	w := newUpgradeWindow(t, "switched")
+	second := newClosingConn()
+	w.s.Upgrade("websocket", second)
+	select {
+	case <-second.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a second probe was not closed")
+	}
+	select {
+	case <-second.entered:
+		t.Fatal("a second probe entered protocol I/O")
+	default:
+	}
+	w.open()
+}

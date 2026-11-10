@@ -252,7 +252,7 @@ func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 				return err
 			}()
 
-			if s.fail(err) != nil {
+			if s.failConn(conn, err) != nil {
 				if closeErr := s.Close(); closeErr != nil {
 					s.logger().Debug("engineio: session close failed", "err", closeErr)
 				}
@@ -261,7 +261,7 @@ func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 			}
 		case eioparser.CLOSE:
 			// unlocks the wrapped connection's FrameReader
-			if err = s.fail(r.Close()); err != nil {
+			if err = s.failConn(conn, r.Close()); err != nil {
 				s.logger().Debug("engineio: close reader failed", "err", err)
 			}
 			s.observe(reasonTransportClose, nil) // a failed drain remains a transport error
@@ -283,13 +283,13 @@ func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 			if pt < eioparser.OPEN || pt > eioparser.NOOP {
 				// Drain through the bounded reader before recording the parse
 				// error so an inflated-size failure keeps its transport cause.
-				if s.fail(r.Close()) == nil {
+				if s.failConn(conn, r.Close()) == nil {
 					_ = s.fail(fmt.Errorf("invalid Engine.IO packet type %d", pt))
 				}
 				_ = s.Close()
 				return 0, nil, s.readerCloseError()
 			}
-			if err = s.fail(r.Close()); err != nil {
+			if err = s.failConn(conn, r.Close()); err != nil {
 				s.logger().Debug("engineio: close reader failed", "err", err)
 				_ = s.Close()
 				return 0, nil, s.readerCloseError()

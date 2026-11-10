@@ -99,6 +99,10 @@ func (c *client) Close() error {
 	return c.conn.Close()
 }
 
+// NextReader returns the next MESSAGE and answers each PING read before it with PONG;
+// it is the client's only reader. A caller that does not call it for longer than
+// pingInterval + pingTimeout, or holds a reader open that long, misses PINGs: the
+// client then closes, as on a silent server, and NextReader fails with "ping timeout".
 func (c *client) NextReader() (frame.Type, io.ReadCloser, error) {
 	for {
 		ft, pt, r, err := c.conn.NextReader()

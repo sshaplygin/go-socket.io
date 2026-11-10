@@ -191,9 +191,14 @@ func (w frameWriter) Write(p []byte) (int, error) {
 
 func (w frameWriter) Close() error { return w.s.fail(w.WriteCloser.Close()) }
 
-// NextReader attempts to obtain a ReadCloser from the session's connection.
-// When finished writing, the caller MUST Close the ReadCloser to unlock the
-// connection's FramerReader.
+// NextReader returns the next MESSAGE of the session. When finished reading, the
+// caller MUST Close the ReadCloser to unlock the connection's FrameReader.
+//
+// NextReader is the session's only reader: it consumes the PONGs that answer the
+// heartbeat's PINGs, and the CLOSE and client PING packets that end the session. The
+// PINGs and the ping timeout run on timers, so a caller that stops calling NextReader,
+// or holds a reader open, for longer than PingTimeout after a PING ends the session
+// with reason "ping timeout" (engineio.Conn.NextReader states the caller's contract).
 func (s *Session) NextReader() (frame.Type, io.ReadCloser, error) {
 	for {
 		ft, pt, r, err := s.nextReader()

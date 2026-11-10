@@ -21,10 +21,10 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
 - Heartbeat: the server sends `PING` (`2`)
   `pingInterval` after the handshake and `pingInterval` after each `PONG` (`3`), as the Node
   server does, and closes the session with reason `ping timeout` when no `PONG` arrives within
-  `pingTimeout` of a `PING`. The ping timer and the ping timeout run on their own timers, so
-  they do not wait for the application to call `NextReader`; the `PONG` itself is read by
-  `NextReader`, the session's one reader, which an application must keep calling (a Socket.IO
-  server does). Each `PONG` also moves the transport read and write deadlines to
+  `pingTimeout` of a `PING`. Control packets are processed by the connection's reader, so the
+  heartbeat holds only while the application keeps reading; the contract is the godoc of
+  `engineio.Conn.NextReader` and [ROADMAP.md](ROADMAP.md#20-generic-api-and-lifecycle-contract)
+  (2.0). Each `PONG` also moves the transport read and write deadlines to
   `pingInterval + pingTimeout` from then, which bounds a polling POST body. A `PING` from the
   client is not answered: it closes the session with reason `transport error` and
   `invalid heartbeat direction`, as on the Node server. The Go client (`engineio/client`)

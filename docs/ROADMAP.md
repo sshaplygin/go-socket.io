@@ -108,7 +108,13 @@ Lifecycle contract, implemented in 2.1/2.3 and instrumented in 2.4:
   Session close/server shutdown cancel it; namespace sockets derive cancellable
   children. Returning from polling/upgrade `ServeHTTP` must not cancel the session.
 - One reader per Engine.IO session handles protocol control and ack completion
-  independently of user handlers. A bounded worker queue per namespace socket runs
+  independently of user handlers. That reader belongs to the Socket.IO layer (2.3S on
+  the server, 2.3C in the client): it keeps calling `engineio.Conn.NextReader`, which
+  processes PING and PONG inside the call (no reader goroutine in `engineio`), never
+  runs user code inline and never blocks on a full handler queue (overflow follows the
+  2.3 *Resource limits*). A reader that stalls longer than `pingTimeout` after a PING
+  (server) or `pingInterval + pingTimeout` (client) ends the session with
+  `ping timeout`. A bounded worker queue per namespace socket runs
   user events sequentially in receive order; namespace auth/middleware also run off
   the reader with a bounded connect deadline. A blocked handler cannot stop heartbeat
   or ack processing; `EmitWithAck` inside a handler is supported. No ordering is
@@ -458,6 +464,10 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   emit with `ErrTooManyPendingAcks`; queue overflow closes the affected session (outbound)
   or namespace socket (handler queue), completes pending operations and reports the
   reason once. Outbound limits apply across all namespaces sharing a transport.
+  The reader of 2.3S and 2.3C is the one reader of 2.0: it keeps calling
+  `engineio.Conn.NextReader`, closes each reader before the next call, never runs user
+  code inline and never blocks on a full handler queue; a full queue is an overflow
+  under the policy above. Its tests show heartbeat progress while handlers block.
   Add fuzz/regression tests for invalid placeholders, incomplete binary messages,
   argument arity and limits; verify memory remains bounded with a stalled peer.
   Returned errors distinguish oversized messages, too many attachments and queue

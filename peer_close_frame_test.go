@@ -49,3 +49,54 @@ func TestOnDisconnectPeerCloseFrame(t *testing.T) {
 		})
 	}
 }
+
+// The reason is the same while the server emits to the connection: an Emit
+// whose write fails after the reply to the client's close frame does not make
+// it a transport error.
+func TestOnDisconnectPeerCloseFrameWhileEmitting(t *testing.T) {
+	const sessions = 200
+	stops, disconnected := make(chan chan struct{}, 1), make(chan string, 1)
+	s := NewServer(WithWriteBufferSize(1 << 20)) // no queue overflow when the client lags
+	s.OnConnect("/", func(c Conn) error {
+		stop := <-stops
+		go func() {
+			for j := 0; ; j++ {
+				select {
+				case <-stop:
+					return
+				default:
+					c.Emit("tick", j)
+				}
+			}
+		}()
+		return nil
+	})
+	s.OnDisconnect("/", func(_ Conn, reason string) { disconnected <- reason })
+	s.OnError("/", func(Conn, error) {})
+	go func() { _ = s.Serve() }()
+	ts := httptest.NewServer(s)
+	defer ts.Close()
+	defer func() { _ = s.Close() }()
+	payloads := [][]byte{gorilla.FormatCloseMessage(gorilla.CloseNormalClosure, ""), gorilla.FormatCloseMessage(gorilla.CloseGoingAway, ""), nil}
+	reasons := map[string]int{}
+	for i := 0; i < sessions; i++ {
+		stop := make(chan struct{})
+		stops <- stop
+		c, _, err := gorilla.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/?EIO=3&transport=websocket", nil)
+		require.NoError(t, err)
+		for k := 0; k < 3; k++ { // OPEN, CONNECT and a tick: the emitter is running
+			_, _, err = c.ReadMessage()
+			require.NoError(t, err)
+		}
+		go func() {
+			for err == nil {
+				_, _, err = c.NextReader()
+			}
+		}()
+		require.NoError(t, c.WriteControl(gorilla.CloseMessage, payloads[i%3], time.Now().Add(time.Second)))
+		reasons[recv(t, disconnected, "OnDisconnect reason")]++
+		close(stop)
+		_ = c.Close()
+	}
+	require.Equal(t, map[string]int{"transport close": sessions}, reasons)
+}

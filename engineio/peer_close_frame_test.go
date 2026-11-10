@@ -8,7 +8,15 @@ import (
 
 	gorilla "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
+
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
+
+// orderlyClosePayloads are the close frames with status 1000, 1001 and none.
+var orderlyClosePayloads = [][]byte{
+	gorilla.FormatCloseMessage(gorilla.CloseNormalClosure, ""),
+	gorilla.FormatCloseMessage(gorilla.CloseGoingAway, ""), nil,
+}
 
 func peerCloseFrame(payload []byte) func(*gorilla.Conn) error {
 	return func(ws *gorilla.Conn) error {
@@ -73,4 +81,42 @@ func TestPeerCloseFrameReason(t *testing.T) {
 			})
 		}
 	}
+}
+
+// A server write that fails because the peer's close frame was answered first
+// (websocket.ErrCloseSent) does not turn the orderly close into a transport
+// error: the reason is the same with a writer running on another goroutine.
+func TestPeerCloseFrameReasonWhileWriting(t *testing.T) {
+	const sessions = 300
+	reasons := map[CloseReason]int{}
+	for i := 0; i < sessions; i++ {
+		p := dialCloseFramePeer(t, false)
+		writing := make(chan struct{})
+		go func() {
+			defer close(writing)
+			for {
+				w, err := p.conn.NextWriter(eioparser.String)
+				if err != nil {
+					return
+				}
+				if _, err = w.Write([]byte("tick")); w.Close() != nil || err != nil {
+					return
+				}
+			}
+		}()
+		_, _, err := p.ws.ReadMessage() // the writer is running
+		require.NoError(t, err)
+		go func() {
+			for err == nil {
+				_, _, err = p.ws.NextReader()
+			}
+		}()
+		require.NoError(t, peerCloseFrame(orderlyClosePayloads[i%3])(p.ws))
+		var closed *CloseError
+		require.ErrorAs(t, readAll(p.conn), &closed)
+		<-writing
+		reasons[closed.Reason]++
+		_ = p.srv.Close()
+	}
+	require.Equal(t, map[CloseReason]int{ReasonTransportClose: sessions}, reasons)
 }

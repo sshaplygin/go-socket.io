@@ -45,6 +45,8 @@ type Session struct {
 	pingTimer *time.Timer
 	pongTimer *time.Timer // nil while no PING waits for its PONG
 
+	candidate transport.Conn // the connection of a running upgrade; Close closes it
+
 	cause    atomic.Pointer[closeCause] // the first close cause observed
 	deadline atomic.Int64               // UnixNano of the deadline setDeadline set on conn
 }
@@ -137,13 +139,20 @@ func (s *Session) close(reason string) error {
 		s.logger().Debug("engineio: session close", args...)
 	}
 	s.closed = true
-	conn := s.conn
+	conn, candidate := s.conn, s.candidate
+	s.candidate = nil
 	if s.pingTimer != nil {
 		s.pingTimer.Stop()
 	}
 	s.stopPongTimer()
 	s.upgradeLocker.Unlock()
 
+	// An upgrade waiting on its connection ends with it, without switching.
+	if candidate != nil {
+		if err := candidate.Close(); err != nil {
+			s.logger().Debug("engineio: close connection failed", "err", err)
+		}
+	}
 	return conn.Close()
 }
 
@@ -484,6 +493,11 @@ func (s *Session) setDeadline() error {
 }
 
 func (s *Session) upgrading(t string, conn transport.Conn) {
+	if !s.trackCandidate(conn) {
+		return
+	}
+	defer s.untrackCandidate(conn)
+
 	// Read a ping from the client.
 	err := conn.SetReadDeadline(time.Now().Add(s.params.PingTimeout))
 	if err != nil {
@@ -716,9 +730,36 @@ func (s *Session) switchTransport(t string, conn transport.Conn) bool {
 	}
 	s.conn = conn
 	s.transport = t
+	s.candidate = nil
 	s.log.Store(s.baseLog.With("transport", t))
 	s.upgradeLocker.Unlock()
 	return true
+}
+
+// trackCandidate records conn as the connection of the running upgrade, so that Close
+// closes it. On a closed session it closes conn and reports false.
+func (s *Session) trackCandidate(conn transport.Conn) bool {
+	s.upgradeLocker.Lock()
+	closed := s.closed
+	if !closed {
+		s.candidate = conn
+	}
+	s.upgradeLocker.Unlock()
+	if closed {
+		if err := conn.Close(); err != nil {
+			s.logger().Debug("engineio: close connection failed", "err", err)
+		}
+	}
+	return !closed
+}
+
+// untrackCandidate forgets conn when the upgrade ends without switching to it.
+func (s *Session) untrackCandidate(conn transport.Conn) {
+	s.upgradeLocker.Lock()
+	if s.candidate == conn {
+		s.candidate = nil
+	}
+	s.upgradeLocker.Unlock()
 }
 
 // replaced reports whether conn is no longer the session's connection

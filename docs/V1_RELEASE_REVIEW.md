@@ -19,8 +19,8 @@ The document has three parts:
   then [Release blockers](#release-blockers) through the
   [finding catalogue](#finding-catalogue). They come from the original review and were
   corrected where the follow-up validation and the 2026-10-22 fact-check required it.
-- **[Work plan](#work-plan):** pull-request-sized work items (W1–W62) and owner decisions
-  (D1–D6) that cover every catalogue ID except the editorial `CL-14` (not planned), with
+- **[Work plan](#work-plan):** pull-request-sized work items (W1–W72), owner decisions
+  (D1–D6) and owner-only publication steps (P1–P9) that cover every catalogue ID except the editorial `CL-14` (not planned), with
   their order, acceptance criteria and status.
 - **[Follow-up validation](#follow-up-validation):** the evidence log, with a status and
   the evidence for each finding from the follow-up and the fact-check.
@@ -99,6 +99,13 @@ An independent tag-readiness review of `6641d4b` on 2026-10-29 found a second bl
 [B2](#b2-a-partial-polling-post-pins-its-connection), and the before-tag items
 [W47](#w47-bound-polling-request-io-by-the-session-deadlines)–[W53](#w53-skip-argument-decoding-for-events-nobody-can-observe).
 
+An announcement-readiness check of `27fdab8` on 2026-11-10 found no blocker. It added the
+before-tag items
+[W63](#w63-keep-the-end-of-an-engineio-session-out-of-onerror)–[W68](#w68-readme-quick-start),
+the owner-only publication steps
+[P1](#p1-repository-security-settings)–[P9](#p9-remote-branch-cleanup) and the
+after-release items [W69](#w69-scheduled-fuzzing)–[W72](#w72-close-polling-sessions-with-a-close-packet-on-server-shutdown).
+
 ## Scorecard
 
 | Dimension | Score | Verdict | Reason |
@@ -115,7 +122,8 @@ An independent tag-readiness review of `6641d4b` on 2026-10-29 found a second bl
 ## Work plan
 
 This plan turns every finding in the [finding catalogue](#finding-catalogue), except
-`CL-14` (not planned), into work items of pull-request size. Facts about each defect are owned by the section the item
+`CL-14` (not planned), into work items of pull-request size or, for REL-18, owner-only
+steps. Facts about each defect are owned by the section the item
 links to (B1, B2, M1–M7, Decisions, Backlog, catalogue); an item repeats only what is needed
 to do the work. The status of each item is owned by its **Status** line and nowhere else.
 
@@ -142,8 +150,13 @@ to do the work. The status of each item is owned by its **Status** line and nowh
    which refreshes the release text last. The owner added
    [W54](#w54-bound-the-memory-and-time-cost-of-buffered-polling-requests) (after W47) and
    [W55](#w55-scheduled-stress-runs-under-cpu-load) on 2026-10-31; both land before W52.
-   W58–W62 record defects found after the review and fixed before the tag. Only the owner tags.
-6. After the tag: W11–W44 and W56–W57 in numeric order unless **Depends on** says otherwise. Every
+   W58–W62 record defects found after the review and fixed before the tag. The
+   announcement-readiness check of 2026-11-10 added W63–W68, which land before the tag in
+   the order their **Depends on** lines give, with W66 last. Of the owner-only steps in
+   [Publication and announcement](#publication-and-announcement), P1 precedes W67; P4–P7
+   follow W66, in that order, on one head; P2, P3 and P9 can be done at any time; P8 comes
+   after P2, P6 and P7. Only the owner tags.
+6. After the tag: W11–W44, W56–W57 and W69–W72 in numeric order unless **Depends on** says otherwise. Every
    performance item needs W2 merged first. W12 lands before W23. W38 needs the tag.
 
 A major (M1–M7) that is not fixed before the tag is deferred only in writing: the owner
@@ -244,6 +257,8 @@ file the findings, the work plan and its progress. Status values:
   implements the decision (W10 implements D1), the W item's PR is that PR: it appends
   `; in progress — #<PR>` to the D item's Status line as well as setting its own.
 - Deferral of a major: `deferred — <reason> (<date>)`, recorded by the owner (see above).
+- P items: `open` → `done (<date>)`, recorded by the owner; a step the owner decides not
+  to take becomes `not taken — <reason> (<date>)`.
 
 When the fix merges, the [finding catalogue](#finding-catalogue) row of each finding the item
 lists carries `Fixed by #<PR> (W<n>).` (or `(D<n>)` for a D item's PR) at the end of its
@@ -252,7 +267,9 @@ item that implements a D decision also appends `Fixed by #<PR> (D<n>).` to the r
 D item's findings (W10 does this for D1's API-2, REL-7 and CL-10). A finding that is closed
 only by an owner-only step after the merge (W10: REL-2, REL-3 and REL-11) gets no note from
 the item's PR; the owner appends `Fixed by #<PR> (W<n>).` once the step is done, and a
-finding whose optional step is never done keeps no note.
+finding whose optional step is never done keeps no note. A finding that only P items close
+(REL-18) gets `Fixed by P<n>[, P<m>…] (<date>).` from the owner once each P item it names is
+done or not taken; the note lists only the P items actually done.
 
 Apart from its own Status line, its `Fixed by` notes, the Status line and `Fixed by` notes
 of the D item it implements, and `done` updates of items whose PRs
@@ -260,7 +277,7 @@ have already merged, the item's PR changes no part of this document. Apart from 
 lines and the `Fixed by` notes, do not rewrite the review's findings, the Backlog or the Follow-up
 validation evidence log when an item is done; they record the state at `7311fbe`. This
 progress tracking is not a v1 changelog: after the tag, the owner decides whether the
-remaining items (W11–W44 and W56–W57) move to GitHub issues, and this document then keeps only the
+remaining items (W11–W44, W56–W57 and W69–W72) move to GitHub issues, and this document then keeps only the
 findings and the evidence.
 
 **Standard definition of done** (every item refers to it): the PR is squash-merged by the
@@ -342,19 +359,38 @@ changed to `done — #<PR>` after the merge.
 | [W60](#w60-do-not-dial-the-redis-subscriber-after-close) | Do not dial the Redis subscriber after Close | before tag | C11 | — |
 | [W61](#w61-remove-the-wall-clock-and-ordering-assumptions-from-the-225-fixtures) | Remove the wall-clock and ordering assumptions from the #225 fixtures | before tag | T16 | W55 |
 | [W62](#w62-drain-packets-admitted-before-close-seals) | Drain packets admitted before Close seals | before tag | C12 | — |
+| [W63](#w63-keep-the-end-of-an-engineio-session-out-of-onerror) | Keep the end of an Engine.IO session out of OnError | before tag | C13 | — |
+| [W64](#w64-report-a-peer-websocket-close-frame-as-transport-close) | Report a peer websocket close frame as transport close | before tag | interop-12 | — |
+| [W65](#w65-send-a-websocket-close-frame-from-the-go-client) | Send a websocket close frame from the Go client | before tag | interop-13 | W64 |
+| [W66](#w66-refresh-the-release-notes-for-the-final-head) | Refresh the release notes for the final head | before tag | REL-16 | W63–W65, W67, W68 |
+| [W67](#w67-security-policy) | Security policy | before tag | REL-17 | P1 |
+| [W68](#w68-readme-quick-start) | README quick start | before tag | CL-20 | — |
+| [W69](#w69-scheduled-fuzzing) | Scheduled fuzzing | after release | T17 | — |
+| [W70](#w70-static-security-analysis) | Static security analysis | after release | REL-19 | — |
+| [W71](#w71-hostile-client-suite) | Hostile-client suite | after release | T18 | — |
+| [W72](#w72-close-polling-sessions-with-a-close-packet-on-server-shutdown) | Close polling sessions with a CLOSE packet on server shutdown | after release | interop-14 | W63 |
+| [P1](#p1-repository-security-settings) | Repository security settings | owner | — | — |
+| [P2](#p2-repository-metadata) | Repository metadata | owner | REL-18 | — |
+| [P3](#p3-leave-the-fork-network) | Leave the fork network | owner | — | — |
+| [P4](#p4-final-head-verification) | Final head verification | owner | — | W63–W68 |
+| [P5](#p5-tag-v150) | Tag v1.5.0 | owner | — | P4 |
+| [P6](#p6-github-release) | GitHub Release | owner | — | P5, W66 |
+| [P7](#p7-module-index) | Module index | owner | — | P5 |
+| [P8](#p8-announcement) | Announcement | owner | — | P2, P6, P7 |
+| [P9](#p9-remote-branch-cleanup) | Remote branch cleanup | owner | — | — |
 
 **Finding coverage.** Every catalogue ID appears in exactly one item or in "Not planned".
 
 | Catalogue section | Mapping |
 | --- | --- |
-| Correctness and security | C1 W1 · C2 W14 · C3 W11 · C4 W13 · C5 W6 · C6 W47 · C7 W47 · C8 W53 · C9 W58 · C10 W59 · C11 W60 · C12 W62 |
+| Correctness and security | C1 W1 · C2 W14 · C3 W11 · C4 W13 · C5 W6 · C6 W47 · C7 W47 · C8 W53 · C9 W58 · C10 W59 · C11 W60 · C12 W62 · C13 W63 |
 | API compatibility | API-1 W8 · API-2 D1 · API-3 W6 · API-4 W7 · API-5 W8 · API-6 W8 · API-7 W8 · API-8 W8 · API-9 D2 · API-10 W10 · API-11 W38 · API-12 D6 · API-13 W8 |
-| Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 · CL-16 W50 · CL-17 W51 · CL-18 W51 · CL-19 W51 |
+| Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 · CL-16 W50 · CL-17 W51 · CL-18 W51 · CL-19 W51 · CL-20 W68 |
 | Architecture | ARCH-1 W5 · ARCH-2 D2 · ARCH-3 D3 · ARCH-4 W26 · ARCH-5 D4 · ARCH-6 D5 · ARCH-7 W33 · ARCH-8 W32 · ARCH-9 W14 · ARCH-10 W37 · ARCH-11 D6 · ARCH-12 W28 · ARCH-13 W26 |
 | Performance | PERF-1 W3 · PERF-2 W18 · PERF-3 W4 · PERF-4 W19 · PERF-5 W20 · PERF-6 W21 · PERF-7 W22 · PERF-8 W23 · PERF-9 W24 · PERF-10 W2 · PERF-11 W25 · PERF-12 W21 · PERF-13 W26 · PERF-14 W50 · PERF-15 W23 · PERF-16 W54 |
-| Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 · interop-10 W49 · interop-11 W51 |
-| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 · T11 W48 · T12 W55 · T13 W56 · T14 W56 · T15 W57 · T16 W61 |
-| Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 · REL-13 W42 · REL-14 W52 · REL-15 W52 |
+| Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 · interop-10 W49 · interop-11 W51 · interop-12 W64 · interop-13 W65 · interop-14 W72 |
+| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 · T11 W48 · T12 W55 · T13 W56 · T14 W56 · T15 W57 · T16 W61 · T17 W69 · T18 W71 |
+| Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 · REL-13 W42 · REL-14 W52 · REL-15 W52 · REL-16 W66 · REL-17 W67 · REL-18 P2 · REL-19 W70 |
 
 **Not planned.**
 
@@ -2832,6 +2868,367 @@ changed to `done — #<PR>` after the merge.
 - **Definition of done:** standard.
 - **Out of scope:** waiting for network I/O in `Close`.
 
+### W63. Keep the end of an Engine.IO session out of OnError
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [C13](#correctness-and-security-findings)
+- **Depends on:** none
+- **Problem:** see C13.
+- **Change:** when a connection's read loop ends because the Engine.IO session ended, for
+  any reason, neither the server's nor the Go client's `OnError` is called, and nothing is
+  logged as unhandled; `OnDisconnect` receives the reason as today. Rule: an error is a
+  session end, and is not passed to `OnError` (server or Go client), when it comes from the
+  transport rather than from decoding a frame that was read in full: (1) any error returned
+  by the engine connection's `NextReader`, of any type, including a bare `io.EOF` from a
+  custom `engineio.Conn` and both `CloseError` types (`*engineio.CloseError`, an alias of
+  the session type, and `*engineio/client.CloseError`); (2) a read error of an obtained
+  frame reader (a transport failure in the middle of a frame); (3) a message-size limit
+  violation enforced by the engine or transport, which ends the session. Errors from
+  decoding a complete frame (Socket.IO packet header, arguments, attachments, ACK handling),
+  `ErrWriteBufferFull`, middleware and `OnConnect` errors, and errors of a namespace that
+  already left (the purpose of 40dc3e8) still reach `OnError` as today. A limit violation is
+  then reported through `OnDisconnect` with `transport error` and a log record: the PR
+  checks on master which record exists for the server and the Go client limit and adds a
+  WARN record where none exists. No exported API change.
+- **Tests:** red→green in the root package and `client`: with `OnError` registered, a client
+  disconnect over polling, websocket and polling-to-websocket upgrade; an abrupt drop
+  (websocket without close frame; polling with the connection closed); a ping timeout; and,
+  for the Go client over each transport, the server's `Server.Close` and
+  `EngineConn().Close()`: `OnError` is not called, and `OnDisconnect` gets the reason in the
+  Go client probe table of [Announcement-readiness check on
+  2026-11-10](#announcement-readiness-check-on-2026-11-10) (polling `Server.Close`:
+  `transport error`, see interop-14); the PR quotes the reasons in its description and
+  asserts them in the tests. Existing tests whose expectation changes (found by a trial
+  implementation on `27fdab8`): `TestRolesFrameReaderFailureReportedOnce`,
+  `TestClientMidFrameFailure`,
+  `TestUnhandledErrorRecords/mid-frame_failure_reaches_OnError_unchanged`,
+  `TestUnhandledErrorRecords/peer_close_reaches_OnError_as_io.EOF`,
+  `TestBackpressurePeerCloseReportsOnce`, `TestConnectionBackpressurePeerCloseReportsOnce`,
+  `TestBackpressureLibraryCloseDiscards/S` and `/C`, and `client`
+  `TestClientMessageLimitOption/{polling,websocket}/512`. Each changes to no `OnError` call
+  for the session end and the `OnDisconnect` reason it now observes ("reports once" tests:
+  zero `OnError` reports, one disconnect). The PR description lists every test it changes
+  with the rule clause that applies; a changed test outside this list is a finding. Guards
+  that already pass: a decode error and `ErrWriteBufferFull` still reach `OnError`. A
+  conformance case with both pinned JS clients asserts no `OnError` on `socket.close()`.
+- **Benchmarks:** none.
+- **Docs:** `docs/V1.md` (OnError section: the end of a session is reported to
+  `OnDisconnect` only; a migration table row for v1.4.2 and v1.7.0 users who handled
+  transport errors in `OnError`), the `OnError` godoc, `docs/PARITY.md`, and
+  `docs/PROTOCOL.md` (the interop-14 difference: a polling client reports `transport error`
+  after `Server.Close`, HTTP 500, until W72); for the message-size limit, `docs/V1.md`
+  "Client limits", `docs/PROTOCOL.md` "Message limit" for the server, and a migration row
+  for users who saw the limit through `OnError`.
+- **Acceptance criteria:** the new tests fail on the test-only commit; `make test-race`,
+  `make gates`, `make cover-check` and `make conformance` with both clients pass;
+  `make test-stress PKGS='. ./client'` passes.
+- **Definition of done:** standard.
+- **Out of scope:** W64, W65; any exported error sentinel.
+
+### W64. Report a peer websocket close frame as transport close
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [interop-12](#interoperability-findings)
+- **Depends on:** none
+- **Problem:** see interop-12.
+- **Change:** a close frame from the peer with status 1000, 1001 or none (1005) ends the
+  server session with `ReasonTransportClose`; other statuses and a connection dropped
+  without a frame stay `transport error`. Socket.IO `OnDisconnect` then reports
+  `transport close` where no DISCONNECT preceded.
+- **Tests:** red→green in `engineio` and the root package; a new conformance case, with both
+  pinned clients, in which the JS client closes the engine directly over websocket
+  (`socket.io.engine.close()`, no Socket.IO DISCONNECT) and the server's `OnDisconnect`
+  reports `transport close` (on master: `transport error`).
+- **Benchmarks:** none.
+- **Docs:** `docs/PROTOCOL.md` (the close classification, and that an abrupt websocket drop
+  stays `transport error` where engine.io 3.6.2 reports `transport close`), `docs/V1.md`
+  (the paragraph that classifies session close reasons), `docs/PARITY.md`.
+- **Acceptance criteria:** as W63, plus
+  `go test -race -count=100 -shuffle=on -cpu=1,4 -timeout 60m -run '<new and changed tests>' <pkgs>`
+  and `make test-stress PKGS='<affected packages>'`.
+- **Definition of done:** standard.
+- **Out of scope:** W65.
+
+### W65. Send a websocket close frame from the Go client
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [interop-13](#interoperability-findings)
+- **Depends on:** W64
+- **Problem:** see interop-13.
+- **Change:** the dial side mirrors the server since #238 (`docs/PROTOCOL.md`, websocket
+  close): an orderly `Close` of an open websocket transport and the client's own ping
+  timeout write a close frame with status 1000 within a 500 ms write deadline and wait up
+  to 250 ms for the peer's reply (`closeFrameTimeout`, `closeReplyTimeout`). After a
+  transport error, and for a failed or abandoned upgrade probe, the connection is aborted
+  without a frame; `Abort` still closes without a frame. No lock is held across the write
+  that could re-create the #147 cycle. With W64 the server reports `transport close` for an
+  orderly Go client close that no DISCONNECT packet preceded. `client.Client.Close` still
+  returns without waiting for delivery (the W50 contract is unchanged).
+- **Tests:** red→green in `engineio/transport/websocket`, `engineio/client` and `client`;
+  tests that bound `Close` against a stalled peer.
+- **Benchmarks:** none.
+- **Docs:** `docs/PROTOCOL.md`, the client godoc.
+- **Acceptance criteria:** as W64.
+- **Definition of done:** standard.
+- **Out of scope:** making `Close` wait for delivery.
+
+### W66. Refresh the release notes for the final head
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [REL-16](#release-engineering-findings)
+- **Depends on:** W63–W65, W67, W68
+- **Problem:** see REL-16.
+- **Change:** as in [W52](#w52-refresh-the-release-notes-and-the-tag-checklist): after
+  W63–W65, W67 and W68 merge, a PR sets this item's Status, and its description carries the
+  release text rewritten against `79b5996..<head>` and the owner checklist (P4–P7). The text
+  covers every user-visible change of #223–#238 and of W63–W68 and removes the statements
+  those changes contradict. That description replaces the text in #218 as the source of the
+  GitHub release notes.
+- **Tests:** none.
+- **Benchmarks:** none.
+- **Docs:** the release text.
+- **Acceptance criteria:** every user-visible PR merged after `79b5996` appears in the text
+  or is listed as internal.
+- **Definition of done:** standard; the owner accepts the text. Only the owner tags.
+- **Out of scope:** the tag and the GitHub Release (P5, P6).
+
+### W67. Security policy
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [REL-17](#release-engineering-findings)
+- **Depends on:** [P1](#p1-repository-security-settings)
+- **Problem:** see REL-17.
+- **Change:** `SECURITY.md` states the supported versions (the latest v1.5.x; v2 is
+  unreleased), reporting through GitHub private vulnerability reporting with a fallback
+  contact the owner chooses, response targets, and the scope (denial of service by a remote
+  client is in scope). README links it. The owner enables the settings in P1 before this
+  merges.
+- **Tests:** none.
+- **Benchmarks:** none.
+- **Docs:** `SECURITY.md`, README, and a `SECURITY.md` row in the documentation ownership
+  table (`CLAUDE.md`, section "Documentation").
+- **Acceptance criteria:** P1's endpoints report the settings enabled; a link-check script
+  run in the PR, with its output quoted, resolves every link in `SECURITY.md`.
+- **Definition of done:** standard.
+- **Out of scope:** the repository settings themselves (P1).
+
+### W68. README quick start
+
+- **Status:** open
+- **Priority:** before tag
+- **Findings:** [CL-20](#clarity-findings)
+- **Depends on:** none
+- **Problem:** see CL-20.
+- **Change:** a server snippet of about 15 lines in README (`net/http`, an event with an
+  ACK, a room broadcast, `go server.Serve()` before listening, `Close` on exit), kept
+  compilable by an example test or a consumer fixture, and the line that the module is the
+  maintained successor of the archived `googollee/go-socket.io` for socket.io-client
+  1.x/2.x.
+- **Tests:** a test run by `make gates` (for example `TestREADMEQuickStart` in
+  `internal/parity`) extracts the Go block between marker comments in README.md and
+  compares it byte for byte with a compiled example file.
+- **Benchmarks:** none.
+- **Docs:** README.
+- **Acceptance criteria:** `make gates` passes and fails when the README block and the
+  example file differ by one byte (shown once in the PR).
+- **Definition of done:** standard.
+- **Out of scope:** a Go client snippet.
+
+### W69. Scheduled fuzzing
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [T17](#tests-findings)
+- **Depends on:** none
+- **Problem:** see T17.
+- **Change:** a scheduled workflow job runs each v1 fuzz target with `-fuzztime` (5–10
+  minutes each) and uploads any new failing input as an artifact; a crash fails the job.
+- **Tests:** a dispatched run of the job, linked in the PR.
+- **Benchmarks:** none.
+- **Docs:** `CLAUDE.md`, section "CI".
+- **Acceptance criteria:** the dispatched run fuzzes every v1 target for its `-fuzztime`;
+  `go test ./.github/changes` passes.
+- **Definition of done:** standard.
+- **Out of scope:** new fuzz targets.
+
+### W70. Static security analysis
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [REL-19](#release-engineering-findings)
+- **Depends on:** none
+- **Problem:** see REL-19.
+- **Change:** CodeQL for Go on push and schedule, and gosec enabled in golangci-lint with
+  each existing finding fixed or suppressed with a reason.
+- **Tests:** none.
+- **Benchmarks:** none.
+- **Docs:** `CLAUDE.md`, section "CI".
+- **Acceptance criteria:** `make lint` passes with gosec enabled; a CodeQL run on the PR
+  head completes and is linked in the PR.
+- **Definition of done:** standard.
+- **Out of scope:** the v2 module.
+
+### W71. Hostile-client suite
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [T18](#tests-findings)
+- **Depends on:** none
+- **Problem:** see T18.
+- **Change:** a scheduled suite of adversarial clients (non-reading, partial requests,
+  oversized and deeply nested arguments, reconnect storms, slow polling) asserting bounded
+  memory, goroutines and shutdown time; B1, B2 and C8 reproductions included.
+- **Tests:** the suite; its B1, B2 and C8 scenarios fail against the parents of the fixing
+  commits of #147, #205 and #209, quoted in the PR.
+- **Benchmarks:** none.
+- **Docs:** `CLAUDE.md`, section "CI".
+- **Acceptance criteria:** as in Tests, and a dispatched run of the suite passes on the PR
+  head.
+- **Definition of done:** standard.
+- **Out of scope:** throughput load testing.
+
+### W72. Close polling sessions with a CLOSE packet on server shutdown
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [interop-14](#interoperability-findings)
+- **Depends on:** W63
+- **Problem:** see interop-14.
+- **Change:** on `Server.Close`, a polling session's pending GET is answered with a CLOSE
+  packet (`1`) instead of HTTP 500, as engine.io 3.6.2 does, so a client reports
+  `transport close`. The shutdown bound of `Server.Close` is unchanged.
+- **Tests:** red→green in `engineio` and `client`: a polling Go client with a pending GET
+  sees `transport close` after `Server.Close`.
+- **Benchmarks:** none.
+- **Docs:** `docs/PROTOCOL.md`: W63 adds the interop-14 difference; this item removes it.
+- **Acceptance criteria:** as in Tests, with `make test-race` and `make conformance` with both
+  clients passing.
+- **Definition of done:** standard.
+- **Out of scope:** websocket sessions (#238 already sends a close frame).
+
+### Publication and announcement
+
+Owner-only steps that take the verified head to a published, findable release and announce
+it. No pull request performs them; the owner records each in its Status line (see Marking
+progress in [How to use this plan](#how-to-use-this-plan)). P4–P7 run on one head, after
+[W66](#w66-refresh-the-release-notes-for-the-final-head); P3 and P9 are optional. P5 and
+P7 carry out W10's owner steps for REL-3 (git identity) and REL-2 (fresh-cache fetch after
+the tag), and P9 its optional REL-11 step; when one of them is done, the owner appends
+`Fixed by #193 (W10).` to that finding's row, as W10 states.
+
+#### P1. Repository security settings
+
+- **Status:** open
+- **Owner:** repository owner
+- **Depends on:** none; done before [W67](#w67-security-policy) merges
+- **Steps:** enable private vulnerability reporting, Dependabot alerts, Dependabot security
+  updates, secret scanning and push protection.
+- **Acceptance:** the GitHub API endpoints report them enabled:
+  `repos/sshaplygin/go-socket.io/private-vulnerability-reporting` (`enabled: true`),
+  `repos/sshaplygin/go-socket.io/vulnerability-alerts` (204),
+  `repos/sshaplygin/go-socket.io/automated-security-fixes` (`enabled: true`), and
+  `security_and_analysis` of `repos/sshaplygin/go-socket.io` (`secret_scanning` and
+  `secret_scanning_push_protection` `enabled`).
+
+#### P2. Repository metadata
+
+- **Status:** open
+- **Owner:** repository owner
+- **Depends on:** none
+- **Steps:** set the description to state that the module is the "maintained successor of
+  the archived googollee/go-socket.io for socket.io-client 1.x/2.x", the homepage to
+  `https://pkg.go.dev/github.com/sshaplygin/go-socket.io`, and topics. When P2, P3 (done
+  or not taken), P5, P6 and P7 are finished, the owner appends REL-18's note as Marking
+  progress describes.
+- **Acceptance:** `gh repo view sshaplygin/go-socket.io --json description,homepageUrl,repositoryTopics`
+  shows the three values.
+
+#### P3. Leave the fork network
+
+- **Status:** open
+- **Owner:** repository owner; the owner decides whether to request it
+- **Depends on:** none
+- **Steps:** do not use the self-service "Leave fork network" button: a repository detached
+  that way "will not retain any of its issues, pull requests, wikis, stars, watchers,
+  comments, child forks"
+  ([Detaching a fork](https://docs.github.com/en/pull-requests/how-tos/work-with-forks/detaching-a-fork)).
+  On 2026-11-10 the repository has over 200 pull requests and 30 issues; this document
+  cites them as evidence, and the W66 release text lives in one. The only route considered
+  is a GitHub Support request to detach that keeps issues and pull requests, confirmed by
+  Support in writing before it is done; otherwise the step ends `not taken`.
+- **Acceptance:** `gh api repos/sshaplygin/go-socket.io --jq .fork` prints `false` and the
+  issue and pull request counts are unchanged, or the Status line is `not taken`.
+
+#### P4. Final head verification
+
+- **Status:** open
+- **Owner:** repository owner
+- **Depends on:** W63–W68
+- **Steps:** CONTRIBUTING.md "Before tagging v1", steps 1–3 and the verification parts of
+  step 4 (the version in the README install command and pkg.go.dev links, module
+  consumption under the fork's path), on the tag candidate, as the W66 checklist lists
+  them; creating the tag is P5. This plan adds only that the consumption check uses a fresh
+  cache in a scratch module:
+  `GOMODCACHE=$(mktemp -d) GOFLAGS=-mod=mod go get github.com/sshaplygin/go-socket.io@<SHA>`.
+- **Acceptance:** a successful dispatched CI run whose head SHA is the tag candidate; the
+  Stress run on that SHA inspected and its failures recorded in the W66 pull request; the
+  interoperability checks of step 2 and the fresh-cache fetch pass on that SHA.
+
+#### P5. Tag v1.5.0
+
+- **Status:** open
+- **Owner:** repository owner only
+- **Depends on:** P4
+- **Steps:** tag `v1.5.0` on the head P4 verified, with the git identity checked as in
+  [W10](#w10-prepare-the-release-commit) (REL-3).
+- **Acceptance:** `git ls-remote --tags origin v1.5.0` names the SHA P4 verified.
+
+#### P6. GitHub Release
+
+- **Status:** open
+- **Owner:** repository owner
+- **Depends on:** P5, W66
+- **Steps:** publish the GitHub Release for `v1.5.0` with the W66 text.
+- **Acceptance:** `gh release view v1.5.0` shows that text, and the release is the latest.
+
+#### P7. Module index
+
+- **Status:** open
+- **Owner:** repository owner
+- **Depends on:** P5
+- **Steps:** in a scratch module with a fresh cache,
+  `go get github.com/sshaplygin/go-socket.io@v1.5.0`; check that
+  `go list -m -versions github.com/sshaplygin/go-socket.io` omits the retracted tags and
+  that `@latest` resolves to `v1.5.0`; request indexing on pkg.go.dev.
+- **Acceptance:** the fetch succeeds, `go list -m -versions` lists no retracted version,
+  `go list -m github.com/sshaplygin/go-socket.io@latest` prints `v1.5.0`, and pkg.go.dev
+  shows `v1.5.0`.
+
+#### P8. Announcement
+
+- **Status:** open
+- **Owner:** repository owner
+- **Depends on:** P2, P6, P7
+- **Steps:** an awesome-go pull request in its WebSockets section, meeting that list's
+  requirements; a pull request to the Socket.IO website's list of server implementations;
+  a post stating the scope (socket.io-client 1.x/2.x; v2 for 3.x/4.x is in development).
+- **Acceptance:** the Status line links the two pull requests and the post.
+
+#### P9. Remote branch cleanup
+
+- **Status:** open
+- **Owner:** repository owner; optional
+- **Depends on:** none
+- **Steps:** delete merged or superseded remote branches, `release/v1.5.0` in particular,
+  as in W10's REL-11 step; `git fetch --prune` afterwards.
+- **Acceptance:** `git ls-remote --heads origin` lists no merged or superseded branch, or
+  the Status line records that the step was not taken.
+
 ## Release blockers
 
 ### B1. Permanent session deadlock
@@ -3631,10 +4028,17 @@ Every finding is listed under the dimension that reported it.
   [Catalogue cross-check](#catalogue-cross-check). Their locations name the files, and the
   function where the fixing pull request changed one; the rows were written against
   `origin/master` at `2c4054c`, after the fixes.
-- The [work plan](#work-plan) maps every ID to exactly one work item or owner decision, or
-  lists it under "Not planned"; the finding coverage table is in
+- C13, interop-12 to interop-14, CL-20, T17, T18 and REL-16 to REL-19 were found by the
+  announcement-readiness check of 2026-11-10 (see
+  [Announcement-readiness check on 2026-11-10](#announcement-readiness-check-on-2026-11-10)). They are
+  not among the 85 entries and have no row in
+  [Catalogue cross-check](#catalogue-cross-check); their locations refer to `origin/master`
+  at `27fdab8`.
+- The [work plan](#work-plan) maps every ID to exactly one work item, owner decision or
+  owner-only publication step, or lists it under "Not planned"; the finding coverage table is in
   [How to use this plan](#how-to-use-this-plan). When a fix merges, the row's
-  Recommendation ends with `Fixed by #<PR> (W<n>).` (or `(D<n>)`), as described in
+  Recommendation ends with `Fixed by #<PR> (W<n>).` (or `(D<n>)`), or for a finding that
+  only owner-only steps close, `Fixed by P<n>[, P<m>…] (<date>).`, as described in
   Marking progress there.
 
 ### Correctness and security findings
@@ -3653,6 +4057,7 @@ Every finding is listed under the dimension that reported it.
 | C10 | minor | reproduced by the tests of #232 | `engineio/internal/session/session.go` (`Init`) | `Session.Init` wrote the OPEN packet and only then marked the session open: for a few microseconds after the client had received OPEN, `Server.Count()` counted the session while `Server.Clients()` omitted it and `ReadyState()` said `opening`; the window caused the `TestPingPostReleasesBeforePongPoll` stress flake | Mark the session open while `Init` owns the OPEN writer, before the packet is written, so no other packet can precede OPEN and the session is open no later than the client can have it (W59). Fixed by #232 (W59). |
 | C11 | minor | reproduced by the tests of #226 | `adapter/redis/subscription.go` (`resubscribe`) | After the reconnect backoff, `resubscribe` selected on `done` and the timer and dialed without checking `done` again, so the dispatcher could call the dial function after `Close`; the dial's context is canceled by `closeTransport`, so no subscription resulted, but `TestCloseCancelsSubscriberReconnect` panicked with `close of closed channel` in two macOS Stress runs (42466356709, 42523713133) | Re-check `done` after the timer, and return `ctx.Err()` from `subscribeChannels` instead of dialing with a finished context (W60). Fixed by #226 (W60). |
 | C12 | minor | reproduced by the tests of #221 | `io.go` (`serveWrite`), `client/io.go`, `queue.go`, `client/queue.go` | A writer that saw an empty queue just before `Close` queued DISCONNECT and sealed the connection could close Engine.IO without writing the packets admitted in between; the server writer had the same split empty/sealed decision. The release macOS Stress run 41846713434 failed in `TestPollingCloseEndsServerSessions`, which expected `client namespace disconnect` and observed `transport close`, a result this race can produce (#221 states no more than that) | Check the seal and the queues together under the queue mutex before finishing the drain, so packets admitted in that window are written in order before the engine closes (W62). Fixed by #221 (W62). |
+| C13 | major | the triggers named here reproduced by the disconnect comparison (server) and the Go client probe (server and Go client) in [Announcement-readiness check on 2026-11-10](#announcement-readiness-check-on-2026-11-10); W63's red tests are the re-check for the other session ends, such as a ping timeout | `connection.go` (`errConn`, `report`), `io.go:128`, `client/io.go:207`, `client/connection_errors.go` (`errConn`, `report`) | The server's root-namespace `OnError` is called with `next reader: engineio: session closed: <reason>[: err]` when the session ends by an orderly client disconnect (websocket close frame 1005; polling `transport close: EOF`), an abrupt drop, `Server.Close` (`server shutting down`) or an engine close (`forced close`); it is not called for Socket.IO `Conn.Close`. The Go client's `OnError` is called after the server's `Server.Close` and `EngineConn().Close()`, not after `Conn.Close`. Regression from upstream `v1.7.0`, which skipped the callback after a client DISCONNECT (`server.go:251-254` there); introduced by 40dc3e8, whose `errConn` builds a substitute connection for a namespace that already left. The Node reference socket.io 2.5.0 emits no `error` for any disconnect; the reason goes to `disconnect` only | Report the end of an Engine.IO session to `OnDisconnect` only and keep every other `OnError` report (W63). |
 
 ### API compatibility findings
 
@@ -3695,6 +4100,7 @@ Every finding is listed under the dimension that reported it.
 | CL-17 | minor | — | `server.go:138` | `Server.OnDisconnect` godoc says application closes report `forced close`; `Conn.Close` and `Conn.Disconnect` report `server namespace disconnect` | Correct the godoc (W51). Fixed by #204 (W51). |
 | CL-18 | minor | — | `adapter/redis/adapter.go:198` | The Redis adapter logs through `slog.Default()` and ignores `socketio.WithLogger`, but the logger package doc, `engineio/options.go:60` and V1.md:457 do not list it | Name the Redis adapter in those lists (W51). Fixed by #204 (W51). |
 | CL-19 | minor | — | `docs/V1.md:346` | The migration guide covers upstream v1.4.2 and v1.7.0 only; users of the intermediate releases v1.4.3 to v1.6.3 have no stated baseline | State a checked baseline for each intermediate release (W51). Fixed by #204 (W51). |
+| CL-20 | minor | — | `README.md`, `doc.go` | README.md has no Go code (only the `go get` command); the first runnable snippet is in `doc.go`. A newcomer evaluation needed `doc.go` and the examples to write a server | Add a compiled server quick start to README (W68). |
 
 ### Architecture findings
 
@@ -3750,6 +4156,9 @@ Every finding is listed under the dimension that reported it.
 | interop-9 | nit | — | `docs/PROTOCOL.md:60` | Unknown Socket.IO packet type and missing CORS wire description are undocumented differences | Add a CORS bullet (default, WithCORS(false), preflight) and a note on how invalid packets are handled to PROTOCOL.md. Fixed by #148 (W6). |
 | interop-10 | major | not re-checked; W49's red test is the re-check | `connection.go:20` | The default outbound queue of 64 packets closes a JS client that receives a burst of more than 64 queued packets, deterministically over polling: with 2.5.0 and 1.7.4, a handler that emitted N events and then an ACK delivered 0–2 of N for N ≥ 64, and a raw polling probe without the ACK delivered all of 64 and none of 65; Socket.IO 2.5.0 delivered 3000/3000 | Raise the default and record the bound as a difference in PROTOCOL.md (W49). Fixed by #207 (W49). |
 | interop-11 | minor | — | `docs/PROTOCOL.md:49` | PROTOCOL.md (lines 49 and 61) says an oversize websocket message closes with 1009; ws 7.5.13 saw 1006 in 7 of 18 closes (13 of 18 in the rerun quoted in #204, at load average 37–52), the reference 1009 in 12 of 12 | Say that a client can see 1006 when the connection resets (W51). Fixed by #204 (W51). |
+| interop-12 | minor | — | `engineio/internal/session/close.go` (`fail`) | The server records a peer websocket close frame with status 1000, 1001 or 1005 as `transport error`; engine.io 3.6.2 reports `transport close`, and the fork's own engine client already maps these statuses to `transport close` (`engineio/client/client.go:220`, #238) | Classify those close frames as `transport close` (W64). |
+| interop-13 | minor | — | `engineio/transport/websocket/transport.go:100`, `engineio/transport/websocket/connect.go:178` | The Go client's websocket `Close` sends no close frame (the frame is written only for server connections), so the server sees 1006, the same as a crashed peer | Send a close frame with status 1000 from the dial side (W65). |
+| interop-14 | minor | reproduced by the Go client probe in [Announcement-readiness check on 2026-11-10](#announcement-readiness-check-on-2026-11-10) | `socketio.Server.Close`, polling transport | On `Server.Close` the server answers a polling client's pending GET with HTTP 500, so the client reports `transport error`; engine.io 3.6.2 sends a CLOSE packet | Answer the pending GET with a CLOSE packet (W72); W63 lists the difference in PROTOCOL.md and W72 removes it. |
 
 ### Tests findings
 
@@ -3771,6 +4180,8 @@ Every finding is listed under the dimension that reported it.
 | T14 | minor | — | `engineio/client/log_test.go:232` | Log fixtures share the process-wide `slog` recorder: `TestClientPingFailureRecord` once received an extra DEBUG record from another test's websocket client goroutine in a stress run; the same seed passed twice afterwards | Isolate the fixtures, as W46 did for the upgrade fixtures (W56). Fixed by #224 (W56). |
 | T15 | minor | confirmed in W55 load runs | `client/compression_test.go:66–71,148–152` | `TestClientCompress/on` observed `[false false true]` instead of `[false false true true]` after both ACKs: 2 failures in 160 Ubuntu executions across the first four W55 runs; 0 in 40 on the final head `7fbcceb` (run links and counts in W57). The recorder appends after the network write; an ACK does not establish that the append finished. Fixture ordering is a hypothesis, not evidence of a library compression defect | Reproduce the ordering gap and synchronize the recorded-frame snapshot without weakening its assertions (W57). Fixed by #223 (W57). |
 | T16 | minor | reproduced by the tests of #228, #229 and #230 | `engineio/polling_heartbeat_integration_test.go`, `engineio/polling_payload_integration_test.go`, `engineio/logging_test.go`, `adapter/redis/readiness_test.go` | Fixtures assumed an ordering or a window the library does not guarantee. Failures seen in Stress runs (issue #225): `TestPingPostReleasesBeforePongPoll` read the session ID from `Server.Clients()` right after the handshake GET, which C10 left empty for a few microseconds (1 of 40 Ubuntu executions in each of runs 42196098832, 42528032419 and 42558728920; `TestEmptyBinaryPostKeepsSession` has the same pattern and was not seen failing); `TestSessionCloseRecord/peer_close_after_upgrade/polling` read the peer's close about 480 ms after accept, about 120 ms before the read deadline that the upgrade set (about 600 ms after accept), so a stall of that length recorded `ping timeout` instead of `transport error` (once in the 960 executions inspected for #229; run 42558728920, macOS, 1 of 40); `TestNamespaceCloseConfirmsRemovalAfterSubscriberReplacement` read the server-side subscriber count right after `Close`, before the server had handled the disconnect (1 of 40 Ubuntu executions in each of runs 42528032419 and 42558736563; `TestNamespaceCloseRecoversFromUnsubscribeWriteFailure` has the same pattern and was not seen failing) | Take the session ID from `Accept`, give the fixture a read window with a delivered message, and wait for the subscriber count with `require.Eventually` (W61). Fixed by #228, #229 and #230 (W61). |
+| T17 | minor | — | `.github/workflows/ci.yaml` | The v1 fuzz targets (`parser`, `engineio/parser`, `adapter/redis`) run only their seed corpus in CI; no job fuzzes | Fuzz each target on a schedule (W69). |
+| T18 | minor | — | — | Denial-of-service defects B1, B2 and C8 were found by manual review; there is no scheduled suite of hostile-client scenarios | Add a scheduled hostile-client suite (W71). |
 
 ### Release engineering findings
 
@@ -3791,6 +4202,10 @@ Every finding is listed under the dimension that reported it.
 | REL-13 | minor | — | `.github/workflows/benchmarks.yml` | A sub-benchmark whose `b.N=1` probe fails in a later `-count` repetition prints `--- FAIL` but `go test` exits 0, so the Benchmarks workflow can lose samples without failing | Fail the step on `--- FAIL` in the raw output (W42). Found in the review of #153. Fixed by #198 (W42). |
 | REL-14 | minor | — | PR #193 description | The release notes predate later pull requests and omit user-visible changes such as `WithSubscribeTimeout`, base64 over websocket and duplicate session ID rejection | Rewrite the release text against the final head (W52). Fixed by #218 (W52). |
 | REL-15 | minor | — | PR #193 description | The owner checklist says to tag the merge commit of #193 (`4265692`), which leaves out every later fix | Tag the verified head (W52). Fixed by #218 (W52). |
+| REL-16 | major | not re-checked; W66's acceptance is the re-check | PR #218 description | The release text predates #223–#238 and states as current differences behavior those PRs changed (websocket close codes, untyped-handler ACKs) | Rewrite the release text against the final head (W66). |
+| REL-17 | major | confirmed snapshot (GitHub API, 2026-11-10) | repository settings; `SECURITY.md` (absent) | No security policy: no SECURITY.md; private vulnerability reporting, Dependabot alerts and security updates, secret scanning and push protection are disabled (GitHub API, 2026-11-10) | Enable the settings and publish a security policy (W67 and P1). |
+| REL-18 | minor | — | repository settings, module proxy | Repository presentation: GitHub lists the repository as a fork of the archived `googollee/go-socket.io`; the description is upstream's; there is no GitHub Release; the module proxy resolves `@latest` to `v1.4.2`, which the `retract` directive in `go.mod` hides only once a tagged version carries it | P2, P3, P5–P7. |
+| REL-19 | minor | — | `.golangci.yml`, `.github/workflows/` | No static security analysis: golangci-lint uses the standard set without gosec, and no CodeQL analysis exists | Enable gosec and add CodeQL (W70). |
 
 ## Follow-up validation
 
@@ -3947,3 +4362,43 @@ Still not repeated: the slow-consumer eviction run, the 20,000-namespace heap (C
 200,000-packet timer figure, full fuzz campaigns, `socket.io-client` 1.7.4 conformance,
 `examples-node`, Go 1.22/1.21 builds, stress, the go1.27 jsonv2 variant, and any Linux,
 Windows or 32-bit runtime.
+
+### Announcement-readiness check on 2026-11-10
+
+Run on 2026-11-10 against `27fdab8`, whose runtime code is equal to `32ce217`. The
+findings it added (C13, interop-12 to interop-14, CL-20, T17, T18 and REL-16 to REL-19) are
+in the [finding catalogue](#finding-catalogue); its probes were not retained in the
+repository.
+
+| Check | Result |
+| --- | --- |
+| Local, darwin/arm64, Go 1.25.5 | `make lint` 0 issues; `make vet`, `make sync-check`, `make gates`, `make examples` pass; `make test-race` 16 packages ok; `make cover-check` 94.2% (floor 91.7%), 0 uncovered exported functions; `make vuln` reports only standard library vulnerabilities of the local Go 1.25.5 toolchain (CI scans with the newest Go) |
+| Linux containers (Go 1.27.1, Node 22, a Redis container with TCP and a Unix socket) | With socket.io-client 1.7.4 and 2.5.0 each: `make conformance` 20/20 top-level tests (98 PASS lines, no SKIP), `TestRedisMixedCluster` polling and websocket pass, `make examples-node` 7/7 |
+| CI | Push run 42713243264 (21 jobs) and dispatched full run 42713256983 (29 jobs) on `27fdab8` succeeded. Push run 42712155905 on `32ce217` failed in the Stress v1 job: five top-level tests failed (9 `--- FAIL` lines with subtests) in the root, `client` and `engineio` packages — `TestPollingPartialPostEndsSession`, `TestPollingStalledGetIsReleased` (a goroutine-leak check), `TestClientConnectTimeout`, `TestEngineSocketEvents`, `TestSessionCloseRecord` — mostly deadline expiries; `engineio/internal/session` passed (issue #225; `gh run view 42712155905 --log-failed`) |
+| Newcomer walkthrough from README at `32ce217` | `go get ...@v1.5.0` fails (tag absent); plain `go get` resolves `v1.4.2` and fails on the module path; a pinned commit installs; first JS ACK round trip about 67 s after opening README; README has no Go code (CL-20) |
+
+Disconnect comparison with socket.io-client 2.5.0 against the fork, upstream `v1.7.0`,
+upstream `v1.4.2` and Node socket.io 2.5.0. Each cell says whether the server's error
+callback fired (`OnError`; the `error` event for Node) and gives, in parentheses, the
+reported error or, where no error fired, the disconnect reason. "Server disconnect" is the
+server's Socket.IO `Conn.Close` (Node: `socket.disconnect(true)`). "Go client close" closes
+the fork's Go client against the fork's server. A dash marks a combination not recorded.
+
+| Scenario | Fork | Upstream `v1.7.0` | Upstream `v1.4.2` | Node socket.io 2.5.0 |
+| --- | --- | --- | --- | --- |
+| Orderly close (upgrade, polling, websocket) | yes (1005 `transport error` over websocket; `transport close: EOF` over polling) | no | yes | no |
+| Abrupt drop, websocket | yes (1006) | yes (1006) | yes | no (`transport close`) |
+| Abrupt drop, polling | yes, immediately (`write: context canceled`) | yes, after 60 s (`write: timeout`) | yes, after 60 s | no (`transport error`) |
+| Server disconnect | no | yes over websocket (`use of closed network connection`), no over polling | yes over websocket (`use of closed network connection`), no over polling | no |
+| `Server.Close` | yes (`server shutting down`; Go client probe below) | — | — | — |
+| Go client close | yes (1006 over websocket; `transport close: EOF` over polling) | — | — | — |
+
+Go client probe on `27fdab8` (darwin/arm64, Go 1.25.5; `httptest` server, Go client with
+reconnection off, root-namespace handlers; two runs, identical results). The server makes
+the call in the first column; cells give the reason in parentheses.
+
+| Server call | Server `OnError` | Go client `OnError` | Go client `OnDisconnect` |
+| --- | --- | --- | --- |
+| `Conn.Close` | no | no | `io server disconnect` |
+| `Server.Close` | yes (`server shutting down`) | yes: websocket `transport close: EOF`; polling `transport error: get: invalid request: 500 Internal Server Error(500)` | websocket `transport close`; polling `transport error` |
+| `EngineConn().Close()` | yes (`forced close`) | yes (`transport close: EOF`) | `transport close` |

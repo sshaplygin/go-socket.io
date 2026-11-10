@@ -158,7 +158,8 @@ func (s *Session) Transport() string {
 // frameReader and frameWriter observe the failures of a frame; io.EOF ends a frame.
 type frameReader struct {
 	io.ReadCloser
-	s *Session
+	s    *Session
+	conn transport.Conn // the connection the frame is read from
 }
 
 func (r frameReader) Read(p []byte) (int, error) {
@@ -166,10 +167,15 @@ func (r frameReader) Read(p []byte) (int, error) {
 	if err == io.EOF {
 		return n, err
 	}
-	return n, r.s.failRead(err)
+	return n, r.fail(err)
 }
 
-func (r frameReader) Close() error { return r.s.failRead(r.ReadCloser.Close()) }
+func (r frameReader) Close() error { return r.fail(r.ReadCloser.Close()) }
+
+func (r frameReader) fail(err error) error {
+	r.s.observePeerClose(r.conn, err)
+	return r.s.failRead(err)
+}
 
 type frameWriter struct {
 	io.WriteCloser
@@ -196,7 +202,7 @@ func (w *frameWriter) Close() error {
 // connection's FramerReader.
 func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 	for {
-		ft, pt, r, err := s.nextReader()
+		ft, pt, r, conn, err := s.nextReader()
 		if err != nil {
 			_ = s.fail(err)
 			if closeErr := s.Close(); closeErr != nil {
@@ -268,7 +274,7 @@ func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 		case eioparser.MESSAGE:
 			// Caller must Close the ReadCloser to unlock the connection's
 			// FrameReader when finished reading.
-			return eioparser.FrameType(ft), frameReader{r, s}, nil
+			return eioparser.FrameType(ft), frameReader{r, s, conn}, nil
 
 		default:
 			// Known control packets can be ignored here, but an invalid wire
@@ -419,13 +425,14 @@ func (s *Session) readerCloseError() error {
 	return fmt.Errorf("next reader: %w", s.closeError())
 }
 
-func (s *Session) nextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
+// nextReader returns the next packet and the connection it was read from.
+func (s *Session) nextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, transport.Conn, error) {
 	for {
 		s.upgradeLocker.RLock()
 		conn, closed := s.conn, s.closed
 		s.upgradeLocker.RUnlock()
 		if closed {
-			return 0, 0, nil, s.closeError()
+			return 0, 0, nil, nil, s.closeError()
 		}
 
 		ft, pt, r, err := conn.NextReader()
@@ -438,9 +445,10 @@ func (s *Session) nextReader() (eioparser.FrameType, eioparser.PacketType, io.Re
 				// closed this one while we waited on it; read from the new one.
 				continue
 			}
-			return 0, 0, nil, err
+			s.observePeerClose(conn, err)
+			return 0, 0, nil, nil, err
 		}
-		return ft, pt, r, nil
+		return ft, pt, r, conn, nil
 	}
 }
 

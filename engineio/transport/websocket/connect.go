@@ -210,6 +210,12 @@ func (c *conn) Abort() error {
 	return nil
 }
 
+// PeerClosed reports whether the peer sent a close frame with status 1000
+// (normal closure), 1001 (going away) or none (1005): an orderly close, which
+// the session reports as "transport close". It is set before the read that
+// received the frame returns its error.
+func (c *conn) PeerClosed() bool { return c.ws.peerClosed.Load() }
+
 func (c *conn) markClosed() {
 	c.closedOnce.Do(func() { close(c.closed) })
 }

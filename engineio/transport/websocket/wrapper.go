@@ -30,6 +30,9 @@ type wrapper struct {
 	readers  *atomic.Int32
 	peerGone chan struct{}
 	peerOnce *sync.Once
+	// peerClosed is set when the peer's close frame has status 1000, 1001 or
+	// none (1005), before the read that received the frame returns.
+	peerClosed *atomic.Bool
 }
 
 func newWrapper(conn *websocket.Conn) wrapper {
@@ -43,10 +46,15 @@ func newWrapper(conn *websocket.Conn) wrapper {
 		readers:     new(atomic.Int32),
 		peerGone:    make(chan struct{}),
 		peerOnce:    new(sync.Once),
+		peerClosed:  new(atomic.Bool),
 	}
 	// gorilla's default handler, which replies to the peer's close frame, after
-	// noting the frame.
+	// noting the frame and whether its status marks an orderly close.
 	conn.SetCloseHandler(func(code int, _ string) error {
+		switch code {
+		case websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived:
+			w.peerClosed.Store(true)
+		}
 		w.markPeerGone()
 		msg := websocket.FormatCloseMessage(code, "")
 		_ = conn.WriteControl(websocket.CloseMessage, msg, time.Now().Add(time.Second))

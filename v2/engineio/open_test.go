@@ -84,6 +84,12 @@ func TestOpenAdvertisesMaxPayload(t *testing.T) {
 		assert.Equal(t, http.StatusRequestEntityTooLarge, post(limit+1))
 	})
 
+	t.Run("polling after websocket", func(t *testing.T) {
+		srv := newServer(&websocket.Transport{MaxPayload: 2222}, &polling.Transport{MaxPayload: 3333})
+		assert.Equal(t, 3333, openParams(t, srv, websocket.Default).MaxPayload,
+			"the polling limit is advertised whatever the transport order")
+	})
+
 	t.Run("websocket only", func(t *testing.T) {
 		srv := newServer(&websocket.Transport{MaxPayload: 4321})
 		assert.Equal(t, 4321, openParams(t, srv, websocket.Default).MaxPayload)

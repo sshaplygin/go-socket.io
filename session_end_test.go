@@ -1,10 +1,12 @@
 package socketio
 
 import (
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
@@ -47,12 +50,7 @@ func TestSessionEndSkipsOnError(t *testing.T) {
 			ws, _, err := gorilla.DefaultDialer.Dial("ws"+strings.TrimPrefix(d.ts.URL, "http")+"/socket.io/?EIO=3&transport=websocket", nil)
 			require.NoError(t, err)
 			c := recv(t, d.conns, "OnConnect")
-			// Drop after the CONNECT packet, so that the server is not writing.
-			for msg := ""; msg != "40"; {
-				_, b, err := ws.ReadMessage()
-				require.NoError(t, err)
-				msg = string(b)
-			}
+			// The server can still be writing CONNECT: the drop fails a read or a write.
 			require.NoError(t, ws.NetConn().Close()) // no close frame
 			return c
 		}},
@@ -105,6 +103,54 @@ func TestMessageLimitEndsSession(t *testing.T) {
 			require.Len(t, warns, 1)
 			require.Equal(t, "socketio: message too large", warns[0]["msg"])
 			require.Equal(t, c.ID(), warns[0]["sid"])
+		})
+	}
+}
+
+// writeFault fails the Write or the Close of every frame writer once armed.
+type writeFault struct {
+	*fakeConn
+	close bool
+	armed *atomic.Bool
+}
+
+func (f writeFault) NextWriter(ft eioparser.FrameType) (io.WriteCloser, error) {
+	w, err := f.fakeConn.NextWriter(ft)
+	if err != nil || !f.armed.Load() {
+		return w, err
+	}
+	return failingFrame{w, f.close}, nil
+}
+
+type failingFrame struct {
+	io.WriteCloser
+	close bool
+}
+
+func (w failingFrame) Write(p []byte) (int, error) {
+	if w.close {
+		return len(p), nil
+	}
+	return 0, io.ErrClosedPipe
+}
+
+func (w failingFrame) Close() error { return io.ErrClosedPipe }
+
+// A transport failure while writing an emit ends the session: OnDisconnect reports it
+// and OnError is not called.
+func TestWriteFailureEndsSession(t *testing.T) {
+	for _, mode := range []string{"NextWriter", "frame Write", "frame Close"} {
+		t.Run(mode, func(t *testing.T) {
+			p, armed := newPeer(t, 'S', hooks{}), new(atomic.Bool)
+			p.srv.serveConn(writeFault{p.fc, mode == "frame Close", armed})
+			p.nc = recv(t, p.conns, "root OnConnect")
+			require.Equal(t, "0", recv(t, p.fc.out, "root CONNECT"))
+			armed.Store(mode != "NextWriter")
+			p.fc.failWrite.Store(mode == "NextWriter")
+			p.nc.Emit("big", strings.Repeat("x", 1<<16))
+			p.disconnected(t, "/")
+			require.Equal(t, "forced close", recv(t, p.reasons, "OnDisconnect reason"))
+			require.Empty(t, drain(p.errs), "OnError was called")
 		})
 	}
 }

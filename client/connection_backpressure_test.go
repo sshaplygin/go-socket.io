@@ -446,15 +446,16 @@ func TestBackpressureConnectFailureDiscards(t *testing.T) {
 			disconnect: func(Conn) { reportsAtDisconnect <- len(p.errs) },
 		})
 
-		p.fc.failWrite.Store(true) // the first event from OnConnect fails to encode
+		p.fc.failWrite.Store(true) // NextWriter fails for the first event from OnConnect
 		// Connect returns after OPEN, before the server's root CONNECT.
 		require.NoError(t, p.cl.Connect())
 		p.send(t, "0")
 
 		recv(t, p.fc.closed, "engine.io close of the failed connection")
 		p.disconnected(t, "/")
-		require.Equal(t, 1, recv(t, reportsAtDisconnect, "OnDisconnect"), "reports before OnDisconnect")
-		require.Len(t, drain(p.errs), 1, "connect error reports")
+		require.Equal(t, "forced close", recv(t, p.reasons, "OnDisconnect reason"))
+		require.Equal(t, 0, recv(t, reportsAtDisconnect, "OnDisconnect"), "the write failure ended the session")
+		require.Empty(t, drain(p.errs), "OnError was called")
 		require.Empty(t, drain(p.fc.out), "a packet was written")
 	})
 }
@@ -592,5 +593,53 @@ func TestBackpressureLibraryPacketOverflow(t *testing.T) {
 		recv(t, p.fc.closed, "engine.io close on overflow")
 		p.overflowReported(t, "/")
 		p.disconnected(t, tc.nsps...) // the read goroutine ran them, so it did not block
+	}
+}
+
+// writeFault fails the Write or the Close of every frame writer once armed.
+type writeFault struct {
+	*fakeConn
+	close bool
+	armed *atomic.Bool
+}
+
+func (f writeFault) NextWriter(ft eioparser.FrameType) (io.WriteCloser, error) {
+	w, err := f.fakeConn.NextWriter(ft)
+	if err != nil || !f.armed.Load() {
+		return w, err
+	}
+	return failingFrame{w, f.close}, nil
+}
+
+type failingFrame struct {
+	io.WriteCloser
+	close bool
+}
+
+func (w failingFrame) Write(p []byte) (int, error) {
+	if w.close {
+		return len(p), nil
+	}
+	return 0, io.ErrClosedPipe
+}
+
+func (w failingFrame) Close() error { return io.ErrClosedPipe }
+
+// A transport failure while writing an emit ends the session: OnDisconnect reports it
+// and OnError is not called.
+func TestWriteFailureEndsSession(t *testing.T) {
+	for _, mode := range []string{"NextWriter", "frame Write", "frame Close"} {
+		t.Run(mode, func(t *testing.T) {
+			p, armed := newPeer(t, 'C', hooks{}), new(atomic.Bool)
+			fault := writeFault{p.fc, mode == "frame Close", armed}
+			p.cl.dial = func(string) (engineclient.Conn, error) { return fault, nil }
+			p.connect(t)
+			armed.Store(mode != "NextWriter")
+			p.fc.failWrite.Store(mode == "NextWriter")
+			p.emit("big", strings.Repeat("x", 1<<16))
+			p.disconnected(t, "/")
+			require.Equal(t, "forced close", recv(t, p.reasons, "OnDisconnect reason"))
+			require.Empty(t, drain(p.errs), "OnError was called")
+		})
 	}
 }

@@ -4376,7 +4376,7 @@ the fork's Go client against the fork's server. A dash marks a combination not r
 | Go client close | yes (1006 over websocket; `transport close: EOF` over polling) | — | — | — |
 
 Go client probe on `27fdab8` (darwin/arm64, Go 1.25.5; `httptest` server, Go client with
-reconnection off, root-namespace handlers; three runs, identical results). The server makes
+reconnection off, root-namespace handlers; two runs, identical results). The server makes
 the call in the first column; cells give the reason in parentheses.
 
 | Server call | Server `OnError` | Go client `OnError` | Go client `OnDisconnect` |

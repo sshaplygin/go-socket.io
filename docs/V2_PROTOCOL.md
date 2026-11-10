@@ -86,9 +86,11 @@ server->>server: close old conn
   `UPGRADE` pauses polling. The Node server checks every 100 ms whether a poll is pending;
   here a `NOOP` waits for the next poll and answers it at once, the following one comes at
   least 100 ms later. After a failed upgrade a `NOOP` that was already waiting still answers
-  the next poll; then the `NOOP`s stop. If anything else follows the probe, or no
-  packet within `pingTimeout`, the websocket connection is closed and the session stays on
-  polling, which was never paused.
+  the next poll; then the `NOOP`s stop. The probe and `UPGRADE` must both arrive within
+  `pingTimeout` of the moment the server accepts the websocket connection: that one read
+  deadline is set before the probe is read and is not extended by it. If anything else
+  follows the probe, the deadline passes, or the session closes first, the websocket
+  connection is closed and the session stays on polling, which was never paused.
 - Error responses (Engine.IO v4): the server answers a rejected request with the JSON
   body `{"code":N,"message":"..."}` and content type `application/json`:
 

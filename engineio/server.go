@@ -3,6 +3,7 @@ package engineio
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -334,6 +335,13 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 	go func(newSession *sessionImpl.Session) {
 		if err := newSession.Init(); err != nil {
 			s.Remove(newSession.ID())
+			if errors.Is(err, sessionImpl.ErrClosedDuringInit) {
+				// Opened and closed by someone else while its handshake was
+				// being written: not a refused request. The session's own
+				// close record has the reason.
+				s.log.Debug("engineio: session closed during handshake", "sid", newSession.ID(), "transport", reqTransport)
+				return
+			}
 			s.connectionError(r, 3, err)
 			s.reject(reqTransport, fmt.Sprint(conn.RemoteAddr()), "init", err)
 

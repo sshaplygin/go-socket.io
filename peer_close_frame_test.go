@@ -3,7 +3,6 @@ package socketio
 import (
 	"io"
 	"net/http/httptest"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -67,7 +66,7 @@ func TestOnDisconnectPeerCloseFrameWhileEmitting(t *testing.T) {
 					return
 				default:
 					c.Emit("tick", j)
-					runtime.Gosched() // let the writer run with GOMAXPROCS=1
+					time.Sleep(20 * time.Microsecond) // no backlog with GOMAXPROCS=1
 				}
 			}
 		}()

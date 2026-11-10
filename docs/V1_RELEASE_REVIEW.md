@@ -2888,9 +2888,11 @@ changed to `done — #<PR>` after the merge.
   disconnect over polling, websocket and polling-to-websocket upgrade; an abrupt drop
   (websocket without close frame; polling with the connection closed); a ping timeout; and,
   for the Go client over each transport, the server's `Server.Close` and
-  `EngineConn().Close()`: `OnError` is not called, and `OnDisconnect` gets the reason
-  observed on master for that case, which the PR measures and records in this item (over
-  polling, `Server.Close` currently yields `transport error`, see interop-14). Two existing
+  `EngineConn().Close()`: `OnError` is not called, and `OnDisconnect` gets the reason in
+  the Go client probe table of
+  [Announcement-readiness check on 2026-11-10](#announcement-readiness-check-on-2026-11-10)
+  (polling `Server.Close`: `transport error`, see interop-14); the PR quotes the reasons
+  in its description and asserts them in the tests. Two existing
   tests change their expectation to no `OnError` and `OnDisconnect` with the transport
   reason: `TestRolesFrameReaderFailureReportedOnce` and `TestClientMidFrameFailure`; no
   other existing assertion changes. Guards that already pass: a decode error and

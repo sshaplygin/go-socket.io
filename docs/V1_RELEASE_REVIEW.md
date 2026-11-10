@@ -2901,7 +2901,9 @@ changed to `done — #<PR>` after the merge.
 - **Benchmarks:** none.
 - **Docs:** `docs/V1.md` (OnError section: the end of a session is reported to
   `OnDisconnect` only; a migration table row for v1.4.2 and v1.7.0 users who handled
-  transport errors in `OnError`), the `OnError` godoc, `docs/PARITY.md`.
+  transport errors in `OnError`), the `OnError` godoc, `docs/PARITY.md`, and
+  `docs/PROTOCOL.md` (the interop-14 difference: a polling client reports
+  `transport error` after `Server.Close`, HTTP 500, until W72).
 - **Acceptance criteria:** the new tests fail on the test-only commit; `make test-race`,
   `make gates`, `make cover-check` and `make conformance` with both clients pass;
   `make test-stress PKGS='. ./client'` passes.
@@ -3087,8 +3089,7 @@ changed to `done — #<PR>` after the merge.
 - **Tests:** red→green in `engineio` and `client`: a polling Go client with a pending GET
   sees `transport close` after `Server.Close`.
 - **Benchmarks:** none.
-- **Docs:** `docs/PROTOCOL.md`: W63's PR, which measures this reason, lists the difference
-  there; this item removes it.
+- **Docs:** `docs/PROTOCOL.md`: W63 adds the interop-14 difference; this item removes it.
 - **Acceptance criteria:** as in Tests, with `make test-race` and `make conformance` with both
   clients passing.
 - **Definition of done:** standard.
@@ -4139,7 +4140,7 @@ Every finding is listed under the dimension that reported it.
 | interop-11 | minor | — | `docs/PROTOCOL.md:49` | PROTOCOL.md (lines 49 and 61) says an oversize websocket message closes with 1009; ws 7.5.13 saw 1006 in 7 of 18 closes (13 of 18 in the rerun quoted in #204, at load average 37–52), the reference 1009 in 12 of 12 | Say that a client can see 1006 when the connection resets (W51). Fixed by #204 (W51). |
 | interop-12 | minor | — | `engineio/internal/session/close.go` (`fail`) | The server records a peer websocket close frame with status 1000, 1001 or 1005 as `transport error`; engine.io 3.6.2 reports `transport close`, and the fork's own engine client already maps these statuses to `transport close` (`engineio/client/client.go:220`, #238) | Classify those close frames as `transport close` (W64). |
 | interop-13 | minor | — | `engineio/transport/websocket/transport.go:100`, `engineio/transport/websocket/connect.go:178` | The Go client's websocket `Close` sends no close frame (the frame is written only for server connections), so the server sees 1006, the same as a crashed peer | Send a close frame with status 1000 from the dial side (W65). |
-| interop-14 | minor | reproduced by the Go client probe in [Announcement-readiness check on 2026-11-10](#announcement-readiness-check-on-2026-11-10) | `socketio.Server.Close`, polling transport | On `Server.Close` the server answers a polling client's pending GET with HTTP 500, so the client reports `transport error`; engine.io 3.6.2 sends a CLOSE packet | Answer the pending GET with a CLOSE packet; until then list the difference in PROTOCOL.md (W72). |
+| interop-14 | minor | reproduced by the Go client probe in [Announcement-readiness check on 2026-11-10](#announcement-readiness-check-on-2026-11-10) | `socketio.Server.Close`, polling transport | On `Server.Close` the server answers a polling client's pending GET with HTTP 500, so the client reports `transport error`; engine.io 3.6.2 sends a CLOSE packet | Answer the pending GET with a CLOSE packet (W72); W63 lists the difference in PROTOCOL.md and W72 removes it. |
 
 ### Tests findings
 

@@ -201,12 +201,13 @@ type peer struct {
 	errs    chan nsErr
 	nilErrs chan error
 	discs   chan string
+	reasons chan string // of OnDisconnect, while it has room
 	extra   map[string]Conn
 	nsps    []string
 }
 
 func newPeer(t *testing.T, side byte, h hooks, nsps ...string) *peer {
-	p := &peer{fc: newFakeConn(t), conns: make(chan Conn, 8), errs: make(chan nsErr, 128), nilErrs: make(chan error, 8), discs: make(chan string, 8), extra: make(map[string]Conn), nsps: nsps}
+	p := &peer{fc: newFakeConn(t), conns: make(chan Conn, 8), errs: make(chan nsErr, 128), nilErrs: make(chan error, 8), discs: make(chan string, 8), reasons: make(chan string, 8), extra: make(map[string]Conn), nsps: nsps}
 	cl, err := newTestManager(t, "http://127.0.0.1/")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
@@ -222,7 +223,11 @@ func newPeer(t *testing.T, side byte, h hooks, nsps ...string) *peer {
 			}
 			return nil
 		})
-		nh.OnDisconnect(func(c Conn, _ string) {
+		nh.OnDisconnect(func(c Conn, reason string) {
+			select {
+			case p.reasons <- reason:
+			default:
+			}
 			p.discs <- c.Namespace()
 			if h.disconnect != nil {
 				h.disconnect(c)
@@ -373,18 +378,19 @@ func TestBackpressureDrainDeadline(t *testing.T) {
 func TestBackpressureLibraryCloseDiscards(t *testing.T) {
 	triggers := []struct {
 		name    string
-		reports int // to root OnError
+		reports int    // to root OnError
+		reason  string // of OnDisconnect, when set
 		run     func(t *testing.T, p *peer)
 	}{
-		{"read error", 1, func(t *testing.T, p *peer) { p.send(t, "x") }},
-		{"engine.io close", 1, func(_ *testing.T, p *peer) { close(p.fc.peerGone) }},
-		{"dispatch error", 1, func(t *testing.T, p *peer) { p.send(t, `2["boom"]`) }},
-		{"read failure during a draining Close", 0, func(t *testing.T, p *peer) {
+		{"read error", 1, "", func(t *testing.T, p *peer) { p.send(t, "x") }},
+		{"engine.io close", 0, "forced close", func(_ *testing.T, p *peer) { close(p.fc.peerGone) }},
+		{"dispatch error", 1, "", func(t *testing.T, p *peer) { p.send(t, `2["boom"]`) }},
+		{"read failure during a draining Close", 0, "", func(t *testing.T, p *peer) {
 			require.NoError(t, p.Close())
 			require.False(t, isDone(p.fc.closed), "the drain ended early")
 			close(p.fc.peerGone)
 		}},
-		{"write failure during a draining Close", 0, func(t *testing.T, p *peer) {
+		{"write failure during a draining Close", 0, "", func(t *testing.T, p *peer) {
 			require.NoError(t, p.Close())
 			p.fc.failWrite.Store(true)
 			p.fc.release <- struct{}{}
@@ -401,6 +407,9 @@ func TestBackpressureLibraryCloseDiscards(t *testing.T) {
 				tr.run(t, p)
 				recv(t, p.fc.closed, "engine.io close with the writer blocked")
 				p.disconnected(t, "/")
+				if tr.reason != "" {
+					require.Equal(t, tr.reason, recv(t, p.reasons, "OnDisconnect reason"))
+				}
 				require.Empty(t, drain(p.fc.out), "a packet was written")
 				errs := drain(p.errs)
 				require.Len(t, errs, tr.reports, "reports")

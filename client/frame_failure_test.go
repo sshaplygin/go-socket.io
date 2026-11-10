@@ -1,7 +1,6 @@
 package client_test
 
 import (
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -66,19 +65,12 @@ func TestClientMidFrameFailure(t *testing.T) {
 			require.NoError(t, cl.Connect())
 			recv(t, ready, "CONNECT before fragmented event")
 			once.Do(func() { close(start) })
-			failure := recv(t, failures, "original frame error")
 			want := "transport error"
 			if mode == "timeout" {
 				want = "ping timeout"
-				var timeout net.Error
-				require.ErrorAs(t, failure, &timeout)
-				require.True(t, timeout.Timeout())
-			} else {
-				var closed *gorilla.CloseError
-				require.ErrorAs(t, failure, &closed)
-				require.Equal(t, gorilla.CloseAbnormalClosure, closed.Code)
 			}
 			require.Equal(t, want, recv(t, reasons, "mid-frame disconnect cause"))
+			require.Empty(t, drainAll(failures), "the session end reached OnError") // reported before OnDisconnect
 		})
 	}
 }

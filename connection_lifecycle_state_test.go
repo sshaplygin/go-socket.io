@@ -3,7 +3,6 @@ package socketio
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"sync"
 	"testing"
@@ -42,10 +41,11 @@ type connectionPeer struct {
 	errs       chan nsErr
 	nilErrs    chan error
 	discs      chan string
+	reasons    chan string // of OnDisconnect, while it has room
 }
 
 func newConnectionPeer(t *testing.T, _ byte, h connectionHooks, nsps ...string) *connectionPeer {
-	p := &connectionPeer{fc: newFakeConn(t), handlers: newNamespaceRegistry(), conns: make(chan Conn, 8), errs: make(chan nsErr, 128), nilErrs: make(chan error, 8), discs: make(chan string, 8)}
+	p := &connectionPeer{fc: newFakeConn(t), handlers: newNamespaceRegistry(), conns: make(chan Conn, 8), errs: make(chan nsErr, 128), nilErrs: make(chan error, 8), discs: make(chan string, 8), reasons: make(chan string, 8)}
 	p.limits.writeBufferSize, p.limits.drainTimeout = defaultWriteBufferSize, defaultDrainTimeout
 	if h.setup != nil {
 		h.setup(p)
@@ -59,7 +59,11 @@ func newConnectionPeer(t *testing.T, _ byte, h connectionHooks, nsps ...string) 
 			}
 			return nil
 		})
-		nh.OnDisconnect(func(c Conn, _ string) {
+		nh.OnDisconnect(func(c Conn, reason string) {
+			select {
+			case p.reasons <- reason:
+			default:
+			}
 			p.discs <- c.Namespace()
 			if h.disconnect != nil {
 				h.disconnect(c)
@@ -250,13 +254,13 @@ func TestConnectionBackpressurePeerCloseReportsOnce(t *testing.T) {
 	closeAtEnd(t, p.fc, (p.conn()).done)
 	p.stall(t, p.nc, 0)
 	close(p.fc.peerGone)
-	require.ErrorIs(t, recv(t, p.errs, "read error report").err, io.EOF)
 	recv(t, f.entered, "engine Close entered")
 	recv(t, f.writeFailed, "writer observed engine close")
 	recv(t, p.conn().discard, "library close discards queue")
-	require.Empty(t, p.errs, "writer failure during read finalization must not report again")
 	release()
 	p.disconnected(t, "/")
+	require.Equal(t, "forced close", recv(t, p.reasons, "OnDisconnect reason"))
+	require.Empty(t, drain(p.errs), "the session end or the writer failure during read finalization was reported")
 }
 
 func TestConnectionBackpressureOverflowInOnConnect(t *testing.T) {

@@ -215,9 +215,24 @@ async function heartbeat(suppressPings) {
   console.log(version + ' ' + transport + ': ' + scenario + ' passed (' + pongs + ' pongs)');
 }
 
+// The application closes its socket after an exchange; the Go test checks the server side.
+async function close() {
+  let upgraded;
+  const root = await connect({}, engine => {
+    if (transport === 'upgrade') { upgraded = event(engine, 'upgrade'); }
+  });
+  if (upgraded) { await upgraded; }
+  assert.deepStrictEqual(await ack(root, 'echo', 'before close'), ['before close']);
+  const disconnected = event(root, 'disconnect');
+  root.close();
+  assert.deepStrictEqual(await disconnected, ['io client disconnect']);
+  console.log(version + ' ' + transport + ': socket.close() passed');
+}
+
 (async () => {
   try {
-    if (scenario === 'heartbeat' || scenario === 'heartbeat-timeout') { await heartbeat(scenario === 'heartbeat-timeout'); }
+    if (scenario === 'close') { await close(); }
+    else if (scenario === 'heartbeat' || scenario === 'heartbeat-timeout') { await heartbeat(scenario === 'heartbeat-timeout'); }
     else if (transport === 'upgrade') { await upgrade(); }
     else { await basic(); await reconnect(); }
     // A scenario argument selects a different run, such as the W17 heartbeat

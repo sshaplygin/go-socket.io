@@ -45,23 +45,22 @@ func (c *conn) errConn(nsp string) (nc *namespaceConn) {
 // session: OnDisconnect reports it and no OnError; a message-size limit is logged.
 func (c *conn) onError(namespace string, err error) {
 	if !expected(err, c.reader.failed) {
-		c.report(namespace, err, nil)
+		c.report(namespace, err)
 	} else if tooLarge(err) {
 		c.log.Warn("socketio: message too large", "err", err)
 	}
 }
 
 // report delivers err to OnError of namespace and waits for it, unless a close started.
-// Without OnError, err is logged as unhandled unless it is the frame failure failed.
-func (c *conn) report(namespace string, err, failed error) {
+// Without OnError, err is logged as unhandled. Callers report no transport failure: the
+// end of the session reaches OnDisconnect only.
+func (c *conn) report(namespace string, err error) {
 	if isDone(c.closing) {
 		return
 	}
 	msg := newErrorMessage(namespace, err)
 	if msg.conn = c.errConn(namespace); msg.conn == nil {
-		if !expected(err, failed) {
-			c.unhandled(namespace, err)
-		}
+		c.unhandled(namespace, err)
 		return
 	}
 	select {

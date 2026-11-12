@@ -390,7 +390,7 @@ func (s *Socket) OnConnect(f func(Conn) error) {
 	if queue {
 		current.queueReadTask(func() {
 			if err := m.deliverConnect(current, s); err != nil {
-				current.report(s.namespace, err, nil)
+				current.report(s.namespace, err)
 				current.stop()
 			}
 		})

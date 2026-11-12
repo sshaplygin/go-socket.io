@@ -91,7 +91,8 @@ func TestMessageLimitEndsSession(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/%s/typed=%t", role, tr.Name(), typed), func(t *testing.T) {
 					rec := newAttrRecorder()
 					setDefault(t, rec) // the Engine.IO client logs through slog.Default
-					eopts := append(shortPingOptions(), engineio.WithLogger(slog.New(rec)))
+					// A heartbeat that a loaded host keeps, so only the limit ends the session.
+					eopts := append(shortPingOptions(), engineio.WithLogger(slog.New(rec)), engineio.WithPingInterval(time.Second), engineio.WithPingTimeout(5*time.Second))
 					copts := []client.Option{client.WithTransports(tr), client.WithReconnection(false)}
 					if role == "server" {
 						eopts = append(eopts, engineio.WithMaxHTTPBufferSize(512))

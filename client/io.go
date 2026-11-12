@@ -4,9 +4,6 @@ import (
 	"cmp"
 	"errors"
 	"io"
-	"net/http"
-
-	"github.com/gorilla/websocket"
 
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
@@ -85,13 +82,6 @@ func (f frameIO) Write(p []byte) (int, error) {
 // expected tells whether err is the frame failure failed, which the decoder or encoder
 // returned: an error that follows a frame failure the parser ignored is not.
 func expected(err, failed error) bool { return failed != nil && errors.Is(err, failed) }
-
-// tooLarge tells whether err is the message-size limit of a built-in transport: an
-// HTTP body or a websocket message past the configured maximum.
-func tooLarge(err error) bool {
-	var body *http.MaxBytesError
-	return errors.As(err, &body) || errors.Is(err, websocket.ErrReadLimit)
-}
 
 func (c *conn) serveError() {
 	defer close(c.errorStopped)

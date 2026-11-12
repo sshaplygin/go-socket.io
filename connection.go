@@ -235,12 +235,10 @@ func (c *connection) errConn(nsp string) (nc *namespaceConn) {
 
 // onError reports err of the packet being read (see report). A failure of the engine
 // connection's NextReader or of a frame reader, which the decoder returned, ends the
-// session: OnDisconnect reports it and no OnError; a message-size limit is logged.
+// session: OnDisconnect reports it and OnError does not.
 func (c *connection) onError(namespace string, err error) {
 	if !expected(err, c.reader.failure()) {
 		c.report(namespace, err)
-	} else if tooLarge(err) {
-		c.log.Warn("socketio: message too large", "err", err)
 	}
 }
 

@@ -82,21 +82,23 @@ func TestSessionEndSkipsOnError(t *testing.T) {
 type limitNotice struct{ File parser.Buffer }
 
 // A binary attachment past the limit of the receiving role ends its session with transport
-// error and one WARN record, whether a reflected or a typed handler decodes it; OnError is
-// not called.
+// error and one WARN record of its Engine.IO layer, whether a reflected or a typed handler
+// decodes it; OnError is not called.
 func TestMessageLimitEndsSession(t *testing.T) {
 	for _, role := range []string{"server", "client"} {
 		for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 			for _, typed := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/%s/typed=%t", role, tr.Name(), typed), func(t *testing.T) {
-					rec, eopts := newAttrRecorder(), shortPingOptions()
-					copts := []client.Option{client.WithTransports(tr), client.WithReconnection(false), client.WithLogger(slog.New(rec))}
+					rec := newAttrRecorder()
+					setDefault(t, rec) // the Engine.IO client logs through slog.Default
+					eopts := append(shortPingOptions(), engineio.WithLogger(slog.New(rec)))
+					copts := []client.Option{client.WithTransports(tr), client.WithReconnection(false)}
 					if role == "server" {
 						eopts = append(eopts, engineio.WithMaxHTTPBufferSize(512))
 					} else {
 						copts = append(copts, client.WithMaxMessageSize(512))
 					}
-					srv := NewServer(WithLogger(slog.New(rec)), WithEngineOptions(eopts...))
+					srv := NewServer(WithEngineOptions(eopts...))
 					conns, errs, reasons := make(chan Conn, 1), make(chan error, 8), make(chan string, 1)
 					srv.OnConnect("/", func(c Conn) error { conns <- c; return nil })
 					srv.OnError("/", func(_ Conn, err error) { errs <- err })
@@ -132,9 +134,11 @@ func TestMessageLimitEndsSession(t *testing.T) {
 						recv(t, serverCompletion(srv, c.ID()), "the end of the connection")
 					} // a Go client reports to OnError before OnDisconnect
 					require.Zero(t, len(errs), "OnError was called")
-					tooLarge := func() []map[string]string { return only(rec.since(0), "socketio: message too large") }
+					tooLarge := func() []map[string]string { return only(rec.since(0), "engineio: message too large") }
 					require.Eventually(t, func() bool { return len(tooLarge()) > 0 }, waitFor, time.Millisecond)
 					require.Len(t, tooLarge(), 1, "one record per violation")
+					require.Equal(t, tr.Name(), tooLarge()[0]["transport"])
+					require.Contains(t, tooLarge()[0]["err"], "limit 512 bytes")
 				})
 			}
 		}

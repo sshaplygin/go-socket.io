@@ -78,8 +78,10 @@ Package `engineio` of the v1 module at the repository root.
   message closes the connection with close code 1009. A client can see 1006 instead
   when the connection resets before it reads the close frame. With permessage-deflate,
   the same limit applies to inflated bytes; rejection does not buffer the full message.
-  The session ends with `OnDisconnect` reason `transport error` and a WARN record
-  `socketio: message too large` of the server's logger; `OnError` is not called.
+  The session ends with `OnDisconnect` reason `transport error`; `OnError` is not
+  called. For the built-in transports the session logs `engineio: message too large`
+  at WARN through `engineio.WithLogger`, with `sid`, `transport` and an `err` that
+  states the limit. A custom transport that enforces its own limit reports it itself.
 - The Go client limits incoming websocket messages (inflated bytes) and whole decoded
   polling response bodies, OPEN included, to 1 MiB by default. The configurable
   limit also applies to reconnects and candidate upgrade transports before probe I/O.

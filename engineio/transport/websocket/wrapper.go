@@ -115,11 +115,11 @@ func (w wrapper) nextReader() (eioparser.FrameType, io.ReadCloser, error) {
 
 	// Only one goroutine advances the websocket message reader.
 	if w.readFailed.Load() {
-		return 0, nil, websocket.ErrReadLimit
+		return 0, nil, readLimit(websocket.ErrReadLimit, w.readLimit.Load())
 	}
 	typ, r, err := w.Conn.NextReader()
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, readLimit(err, w.readLimit.Load())
 	}
 
 	if limit := w.readLimit.Load(); limit > 0 {
@@ -127,7 +127,7 @@ func (w wrapper) nextReader() (eioparser.FrameType, io.ReadCloser, error) {
 	}
 	// Gorilla returns its inflater to a pool at EOF. A later drain must not
 	// read that released inflater again (which would return ErrClosedPipe).
-	r = &messageReader{Reader: r}
+	r = &messageReader{Reader: r, limit: w.readLimit.Load()}
 
 	switch typ {
 	case websocket.TextMessage:

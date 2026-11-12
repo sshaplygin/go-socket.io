@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -134,12 +135,16 @@ func (c *client) terminate(reason CloseReason, err error) error {
 		c.mu.Lock()
 		// Only Close of a session that has not failed or been closed by the server tells it.
 		orderly := reason == ReasonForcedClose && c.cause == nil
-		if c.cause == nil {
+		first, name := c.cause == nil, c.transport
+		if first {
 			c.cause = &CloseError{Reason: reason, Err: err}
 		}
 		conn, probe := c.conn, c.probe
 		close(c.close)
 		c.mu.Unlock()
+		if first && reason == ReasonTransportError {
+			logTooLarge(name, err)
+		}
 		if probe != nil {
 			_ = probe.Close()
 		}
@@ -205,11 +210,24 @@ func (c *client) failure(err error) error {
 	// Keep the dialer's existing ping-loop lifecycle: a reader reports the first
 	// cause immediately, while Close or the failed ping ends the engine client.
 	c.mu.Lock()
-	if c.cause == nil {
+	first, name := c.cause == nil, c.transport
+	if first {
 		c.cause = &CloseError{Reason: reason, Err: err}
 	}
 	c.mu.Unlock()
+	if first && reason == ReasonTransportError {
+		logTooLarge(name, err)
+	}
 	return c.closeError()
+}
+
+// logTooLarge logs a message past the limit of a built-in transport, the first cause
+// of the connection's end, which is not otherwise logged above DEBUG.
+func logTooLarge(transport string, err error) {
+	var limit *http.MaxBytesError
+	if errors.As(err, &limit) {
+		logger.Log.Warn("engineio: message too large", "transport", transport, "err", fmt.Errorf("limit %d bytes: %w", limit.Limit, err))
+	}
 }
 
 // peerClosed reports whether err is the close frame of an orderly websocket

@@ -57,10 +57,14 @@ func shortPingOptions() []engineio.Option {
 	return []engineio.Option{engineio.WithPingTimeout(500 * time.Millisecond), engineio.WithPingInterval(200 * time.Millisecond), engineio.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))}
 }
 
-// newTestServer starts srv behind httptest with shortPingOptions.
-func newTestServer(t *testing.T, setup func(*socketio.Server)) *httptest.Server {
+// steadyPing is a heartbeat that a loaded host keeps, for tests in which only the call
+// under test may end the session.
+var steadyPing = []engineio.Option{engineio.WithPingInterval(time.Second), engineio.WithPingTimeout(5 * time.Second)}
+
+// newTestServer starts srv behind httptest with shortPingOptions, then opts.
+func newTestServer(t *testing.T, setup func(*socketio.Server), opts ...engineio.Option) *httptest.Server {
 	t.Helper()
-	srv := socketio.NewServer(socketio.WithEngineOptions(shortPingOptions()...))
+	srv := socketio.NewServer(socketio.WithEngineOptions(append(shortPingOptions(), opts...)...))
 	setup(srv)
 	go func() { _ = srv.Serve() }()
 	ts := httptest.NewServer(srv)

@@ -22,7 +22,7 @@ func TestClientMessageLimitOption(t *testing.T) {
 				ts := newTestServer(t, func(s *socketio.Server) {
 					s.OnConnect("/", func(socketio.Conn) error { return nil })
 					s.OnEvent("/", "request", func(c socketio.Conn) { c.Emit("reply", payload) })
-				})
+				}, steadyPing...)
 				c, err := client.New(ts.URL, client.WithTransports(tr), client.WithReconnection(false), client.WithMaxMessageSize(1), client.WithMaxMessageSize(limit))
 				require.NoError(t, err)
 				defer func() { _ = c.Close() }()

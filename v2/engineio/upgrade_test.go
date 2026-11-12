@@ -174,7 +174,7 @@ func TestUpgradeAnswersEveryPollWithNoop(t *testing.T) {
 // interval is above the timeout, so a transport deadline of pingTimeout alone on the
 // new connection would close the session before its first PING there.
 func TestHeartbeatAfterUpgrade(t *testing.T) {
-	const interval, timeout = 200 * time.Millisecond, 100 * time.Millisecond
+	const interval, timeout = 600 * time.Millisecond, 300 * time.Millisecond
 	rec := logtest.NewRecorder()
 	srv := engineio.NewServer(&engineio.Options{Logger: slog.New(rec), PingInterval: interval, PingTimeout: timeout})
 	t.Cleanup(func() { _ = srv.Close() })

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +27,8 @@ type peerConn struct {
 	out  chan writtenPacket
 	done chan struct{}
 	once sync.Once
+
+	deadline atomic.Int64 // UnixNano of the last read deadline set on the connection
 }
 
 func newPeerConn() *peerConn {
@@ -56,6 +59,11 @@ func (c *peerConn) NextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, er
 
 func (c *peerConn) Close() error {
 	c.once.Do(func() { close(c.done) })
+	return nil
+}
+
+func (c *peerConn) SetReadDeadline(t time.Time) error {
+	c.deadline.Store(t.UnixNano())
 	return nil
 }
 
@@ -214,6 +222,28 @@ func testSessionHeartbeat(t *testing.T, interval, timeout time.Duration) {
 	require.GreaterOrEqual(t, time.Since(lastPong), interval+timeout)
 	require.Error(t, waitErr(t, errs))
 	require.Equal(t, "ping timeout", closeRecord(t, rec)["reason"])
+}
+
+// TestSessionLatePingKeepsPongWindow: a PONG has PingTimeout from its PING even when the
+// PING leaves late. The test plays a ping timer that fires after the deadline set by New
+// has passed; the PING moves the deadline, so its PONG is read and the heartbeat goes on.
+func TestSessionLatePingKeepsPongWindow(t *testing.T) {
+	const interval, timeout = 20 * time.Millisecond, 100 * time.Millisecond
+	rec := logtest.NewRecorder()
+	conn := newPeerConn()
+	s := openSession(t, conn, interval, timeout, rec)
+	s.upgradeLocker.Lock()
+	s.pingTimer.Stop() // the test fires the ping timer itself
+	s.upgradeLocker.Unlock()
+	readUntilError(s)
+	time.Sleep(interval + timeout) // the deadline set by New has passed
+	before := time.Now()
+	s.ping()
+	require.Equal(t, packet.PING, conn.receive(t).pt)
+	require.GreaterOrEqual(t, time.Unix(0, conn.deadline.Load()).Sub(before), timeout)
+	conn.send(t, packet.PONG)
+	require.Equal(t, packet.PING, conn.receive(t).pt, "the PONG scheduled the next PING")
+	require.Empty(t, rec.Find("engineio: session close"))
 }
 
 // TestSessionPingTimeoutWithoutReader: the heartbeat does not depend on the application

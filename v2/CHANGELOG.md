@@ -204,8 +204,8 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   and closes a session with reason `ping timeout` when no `PONG` follows within `pingTimeout`;
   it no longer answers a client `PING`, which now closes the session with reason
   `transport error` (`invalid heartbeat direction`). The transport deadlines are
-  `pingInterval + pingTimeout` from the last `PONG` (they were `pingTimeout` from the last
-  client `PING`). The `engineio/client` dialer answers each server `PING` with `PONG` from
+  `pingInterval + pingTimeout` from the last `PING` or `PONG` (they were `pingTimeout` from
+  the last client `PING`). The `engineio/client` dialer answers each server `PING` with `PONG` from
   `NextReader`, sends none, and closes when no `PING` arrives within
   `pingInterval + pingTimeout`; `NextReader` then fails with `ping timeout: ...`. Its ping
   goroutine and the `engineio: ping failed` record are removed. The `OPEN` packet carries

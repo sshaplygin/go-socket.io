@@ -364,7 +364,9 @@ func (s *Session) InitSession() error {
 // ping sends a PING and arms the timer that closes the session unless a PONG
 // answers within PingTimeout. It runs when pingTimer fires. The timer is armed
 // before the write, so a write that blocks, as on a polling session whose client
-// stopped polling, ends with the session.
+// stopped polling, ends with the session. The transport deadline is moved before
+// the write too: measured from the previous PONG alone, it would expire before this
+// PING's timeout whenever pingTimer fired late, and cut off a PONG that is in time.
 func (s *Session) ping() {
 	s.upgradeLocker.Lock()
 	if s.closed {
@@ -386,7 +388,11 @@ func (s *Session) ping() {
 	s.pongTimer = t
 	s.upgradeLocker.Unlock()
 
-	w, err := s.nextWriter(frame.String, packet.PING)
+	err := s.setDeadline()
+	var w io.WriteCloser
+	if err == nil {
+		w, err = s.nextWriter(frame.String, packet.PING)
+	}
 	if err == nil {
 		err = w.Close()
 	}
@@ -474,9 +480,12 @@ func (s *Session) nextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, err
 }
 
 // setDeadline sets the read and write deadlines of the connection to PingInterval
-// plus PingTimeout from now: the latest time the PONG to the next PING can arrive.
-// It bounds transport operations, such as the body read of a polling POST, that
-// the ping timeout itself cannot interrupt.
+// plus PingTimeout from now. It runs when the session is created, when a PING is
+// sent, after each PONG and after an upgrade, so the deadline expires no earlier
+// than PingInterval after the ping timeout of the outstanding PING, however late
+// pingTimer fired. The deadline is a backstop for transport operations the ping
+// timeout cannot interrupt, such as the body read of a polling POST or a blocked
+// write.
 func (s *Session) setDeadline() error {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()

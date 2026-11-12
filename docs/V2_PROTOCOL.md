@@ -24,8 +24,11 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   `pingTimeout` of a `PING`. Control packets are processed by the connection's reader, so the
   heartbeat holds only while the application keeps reading; the contract is the godoc of
   `engineio.Conn.NextReader` and [ROADMAP.md](ROADMAP.md#20-generic-api-and-lifecycle-contract)
-  (2.0). Each `PONG` also moves the transport read and write deadlines to
-  `pingInterval + pingTimeout` from then, which bounds a polling POST body. A `PING` from the
+  (2.0). The transport read and write deadlines are a backstop for operations the ping
+  timeout cannot interrupt, such as a polling POST body read or a blocked write: each `PING`
+  and each `PONG` moves them to `pingInterval + pingTimeout` from then, so they expire no
+  earlier than `pingInterval` after the ping timeout of the outstanding `PING`, however late
+  that `PING` was sent. A `PING` from the
   client is not answered: it closes the session with reason `transport error` and
   `invalid heartbeat direction`, as on the Node server. The Go client (`engineio/client`)
   sends no `PING`; its `NextReader` answers each `PING` with `PONG`, and when no `PING`

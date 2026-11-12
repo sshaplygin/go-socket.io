@@ -344,8 +344,17 @@ func (s *Session) NextWriterCompress(typ eioparser.FrameType, compress bool) (io
 	return &frameWriter{WriteCloser: w, s: s, conn: conn}, nil
 }
 
+// ErrClosedDuringInit is what Init returns for a session that something other
+// than the handshake itself closed before the handshake ended: Close, Abort,
+// Shutdown, or a transport failure another goroutine had already observed. The
+// session was not refused; it opened, or was about to, and ended, and its own
+// close record says why. It matches io.ErrClosedPipe.
+var ErrClosedDuringInit = fmt.Errorf("session closed during handshake: %w", io.ErrClosedPipe)
+
 // Init performs the handshake: it writes the OPEN packet and marks the session
-// open. It returns io.ErrClosedPipe if the session closed meanwhile.
+// open. It returns ErrClosedDuringInit if the session was closed meanwhile by
+// anyone but Init. If the OPEN packet could not be written on a session that
+// was still open, Init closes the session and returns that failure.
 //
 // The session is marked open once Init owns the OPEN writer and before the
 // packet is written, so it is open, and listed by Server.Clients, no later than
@@ -354,12 +363,7 @@ func (s *Session) NextWriterCompress(typ eioparser.FrameType, compress bool) (io
 func (s *Session) Init() error {
 	w, err := s.nextWriter(eioparser.String, eioparser.OPEN)
 	if err != nil {
-		_ = s.fail(err)
-		if closeErr := s.Close(); closeErr != nil {
-			s.logger().Debug("engineio: session close failed", "err", closeErr)
-		}
-
-		return err
+		return s.initFailed(err, nil)
 	}
 
 	// The open record is logged under the lock: close reads opened under it, so a
@@ -374,33 +378,42 @@ func (s *Session) Init() error {
 	s.upgradeLocker.Unlock()
 
 	if _, err := s.params.WriteTo(w); err != nil {
-		_ = s.fail(err)
-		if closeErr := w.Close(); closeErr != nil {
-			s.logger().Debug("engineio: close writer failed", "err", closeErr)
-		}
-
-		if closeErr := s.Close(); closeErr != nil {
-			s.logger().Debug("engineio: session close failed", "err", closeErr)
-		}
-
-		return err
+		return s.initFailed(err, w)
 	}
 
 	if err := w.Close(); err != nil {
-		_ = s.fail(err)
-		if closeErr := s.Close(); closeErr != nil {
-			s.logger().Debug("engineio: session close failed", "err", closeErr)
-		}
-
-		return err
+		return s.initFailed(err, nil)
 	}
 
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
 	if s.closed {
-		return io.ErrClosedPipe
+		return ErrClosedDuringInit
 	}
 	return nil
+}
+
+// initFailed ends a session whose OPEN packet could not be written and returns
+// what Init reports; w, if not nil, still holds the packet's writer and is
+// closed first. A close cause recorded before err is why the write failed: the
+// session was closed by someone else, and Init returns ErrClosedDuringInit
+// with err attached. Without one, err is the handshake's own failure and is
+// returned as it is.
+func (s *Session) initFailed(err error, w io.WriteCloser) error {
+	closedByOther := s.cause.Load() != nil
+	_ = s.fail(err)
+	if w != nil {
+		if closeErr := w.Close(); closeErr != nil {
+			s.logger().Debug("engineio: close writer failed", "err", closeErr)
+		}
+	}
+	if closeErr := s.Close(); closeErr != nil {
+		s.logger().Debug("engineio: session close failed", "err", closeErr)
+	}
+	if closedByOther {
+		return fmt.Errorf("%w: %w", ErrClosedDuringInit, err)
+	}
+	return err
 }
 
 func (s *Session) ServeHTTP(w http.ResponseWriter, r *http.Request) {

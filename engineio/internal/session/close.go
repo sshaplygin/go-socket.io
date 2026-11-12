@@ -73,21 +73,30 @@ func (s *Session) closeMode(reason string, abort, immediate bool) error {
 	first, opened := !s.closed, s.opened
 	s.closed = true
 	conn, probe := s.conn, s.probe
+	if probe == conn {
+		// The upgrade has switched to the probe, which stays named s.probe until
+		// the upgrade goroutine returns (it still runs Hooks.Upgrade and closes the
+		// polling connection). It is the session's transport now and closes as one.
+		probe = nil
+	}
 	if first {
 		s.closing.Store(&closingTransport{conn: conn})
 		close(s.stopWrites)
 	}
 	s.upgradeLocker.Unlock()
 	graceful, canDrain := conn.(interface{ CloseGracefully() error })
-	if immediate {
+	if immediate && !canDrain {
 		// A transport that drains aborts through abortTransport below. The others
 		// are cut here, ahead of a Close that may be writing a close frame.
-		if !canDrain {
-			abortConn(conn)
-		}
-		if probe != nil {
-			abortConn(probe)
-		}
+		abortConn(conn)
+	}
+	if probe != nil {
+		// An upgrade candidate, one the session has not switched to, is not an
+		// established transport: it is dropped without a close frame in every mode,
+		// and the closer does not wait for its peer. The upgrade goroutine may still
+		// be configuring the probe, and a close that announced itself would read
+		// the peer's frames from it.
+		abortConn(probe)
 	}
 	c := s.cause.Load()
 	orderly := canDrain && !opened.IsZero() && c.reason == reasonForcedClose && !abort

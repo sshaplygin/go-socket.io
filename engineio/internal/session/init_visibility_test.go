@@ -125,7 +125,7 @@ func TestSessionCloseDuringInitAfterOpenDelivered(t *testing.T) {
 	require.True(t, c.isClosed())
 	require.Equal(t, StateClosed, s.ReadyState())
 	c.unblock()
-	require.ErrorIs(t, awaitInit(t, initErr), io.ErrClosedPipe)
+	require.ErrorIs(t, awaitInit(t, initErr), ErrClosedDuringInit)
 	require.Equal(t, StateClosed, s.ReadyState())
 	require.Equal(t, ReasonForcedClose, s.closeError().Reason)
 }

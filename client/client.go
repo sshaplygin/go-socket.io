@@ -37,7 +37,9 @@ func (c *Client) Connect() error { return c.manager.Connect() }
 // Close disconnects all namespace sockets and returns without waiting for the
 // network. Queued packets and each namespace DISCONNECT are written in the
 // background, bounded by WithCloseTimeout; over polling, the Engine.IO CLOSE
-// packet follows them within a further 2 s. A program that exits right after
+// packet follows them within a further 2 s; over websocket, a close frame
+// (status 1000) follows them, and writing it and waiting for the server's reply
+// take at most a further 0.75 s. A program that exits right after
 // Close can lose them; to make sure its last events arrived, it waits for their
 // ACKs before exiting.
 func (c *Client) Close() error { return c.manager.Close() }

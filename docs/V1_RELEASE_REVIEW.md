@@ -2928,7 +2928,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W64. Report a peer websocket close frame as transport close
 
-- **Status:** in progress — #246
+- **Status:** done — #246
 - **Priority:** before tag
 - **Findings:** [interop-12](#interoperability-findings)
 - **Depends on:** none
@@ -2953,7 +2953,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W65. Send a websocket close frame from the Go client
 
-- **Status:** open
+- **Status:** in progress — #PR
 - **Priority:** before tag
 - **Findings:** [interop-13](#interoperability-findings)
 - **Depends on:** W64
@@ -4157,7 +4157,7 @@ Every finding is listed under the dimension that reported it.
 | interop-10 | major | not re-checked; W49's red test is the re-check | `connection.go:20` | The default outbound queue of 64 packets closes a JS client that receives a burst of more than 64 queued packets, deterministically over polling: with 2.5.0 and 1.7.4, a handler that emitted N events and then an ACK delivered 0–2 of N for N ≥ 64, and a raw polling probe without the ACK delivered all of 64 and none of 65; Socket.IO 2.5.0 delivered 3000/3000 | Raise the default and record the bound as a difference in PROTOCOL.md (W49). Fixed by #207 (W49). |
 | interop-11 | minor | — | `docs/PROTOCOL.md:49` | PROTOCOL.md (lines 49 and 61) says an oversize websocket message closes with 1009; ws 7.5.13 saw 1006 in 7 of 18 closes (13 of 18 in the rerun quoted in #204, at load average 37–52), the reference 1009 in 12 of 12 | Say that a client can see 1006 when the connection resets (W51). Fixed by #204 (W51). |
 | interop-12 | minor | — | `engineio/internal/session/close.go` (`fail`) | The server records a peer websocket close frame with status 1000, 1001 or 1005 as `transport error`; engine.io 3.6.2 reports `transport close`, and the fork's own engine client already maps these statuses to `transport close` (`engineio/client/client.go:220`, #238) | Classify those close frames as `transport close` (W64). Fixed by #246 (W64). |
-| interop-13 | minor | — | `engineio/transport/websocket/transport.go:100`, `engineio/transport/websocket/connect.go:178` | The Go client's websocket `Close` sends no close frame (the frame is written only for server connections), so the server sees 1006, the same as a crashed peer | Send a close frame with status 1000 from the dial side (W65). |
+| interop-13 | minor | — | `engineio/transport/websocket/transport.go:100`, `engineio/transport/websocket/connect.go:178` | The Go client's websocket `Close` sends no close frame (the frame is written only for server connections), so the server sees 1006, the same as a crashed peer | Send a close frame with status 1000 from the dial side (W65). Fixed by #PR (W65). |
 | interop-14 | minor | reproduced by the Go client probe in [Announcement-readiness check on 2026-11-10](#announcement-readiness-check-on-2026-11-10) | `socketio.Server.Close`, polling transport | On `Server.Close` the server answers a polling client's pending GET with HTTP 500, so the client reports `transport error`; engine.io 3.6.2 sends a CLOSE packet | Answer the pending GET with a CLOSE packet (W72); W63 lists the difference in PROTOCOL.md and W72 removes it. |
 
 ### Tests findings

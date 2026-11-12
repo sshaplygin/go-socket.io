@@ -277,6 +277,9 @@ func dispatchTyped(c *conn, nc *namespaceConn, header parser.Header, handler eve
 	}
 	if err != nil {
 		c.onError(header.Namespace, err)
+		if expected(err, c.reader.failed) {
+			return err // the session ended: stop reading, as untyped handlers do
+		}
 	}
 	return nil
 }

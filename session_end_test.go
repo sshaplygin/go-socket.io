@@ -1,6 +1,8 @@
 package socketio
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,6 +21,7 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
+	"github.com/sshaplygin/go-socket.io/parser"
 )
 
 // goClientClose connects a Go client over trs, waits for its final transport and closes it.
@@ -76,34 +79,65 @@ func TestSessionEndSkipsOnError(t *testing.T) {
 	}
 }
 
-// A message past the server's limit ends the session with transport error and a WARN
-// record instead of an OnError call.
+type limitNotice struct{ File parser.Buffer }
+
+// A binary attachment past the limit of the receiving role ends its session with transport
+// error and one WARN record, whether a reflected or a typed handler decodes it; OnError is
+// not called.
 func TestMessageLimitEndsSession(t *testing.T) {
-	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
-		t.Run(tr.Name(), func(t *testing.T) {
-			rec := newAttrRecorder()
-			srv := NewServer(WithLogger(slog.New(rec)), WithEngineOptions(append(shortPingOptions(), engineio.WithMaxHTTPBufferSize(512))...))
-			conns, errs, reasons := make(chan Conn, 1), make(chan error, 8), make(chan string, 1)
-			srv.OnConnect("/", func(c Conn) error { conns <- c; return nil })
-			srv.OnError("/", func(_ Conn, err error) { errs <- err })
-			srv.OnDisconnect("/", func(_ Conn, reason string) { reasons <- reason })
-			go func() { _ = srv.Serve() }()
-			ts := httptest.NewServer(srv)
-			t.Cleanup(func() { _ = srv.Close(); ts.Close() })
-			cl, err := client.New(ts.URL, client.WithTransports(tr), client.WithReconnection(false))
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = cl.Close() })
-			require.NoError(t, cl.Connect())
-			c := recv(t, conns, "OnConnect")
-			cl.Emit("big", strings.Repeat("x", 2048))
-			require.Equal(t, "transport error", recv(t, reasons, "OnDisconnect"))
-			recv(t, serverCompletion(srv, c.ID()), "the end of the connection")
-			require.Empty(t, drain(errs), "OnError was called")
-			warns := loud(rec.since(0), "")
-			require.Len(t, warns, 1)
-			require.Equal(t, "socketio: message too large", warns[0]["msg"])
-			require.Equal(t, c.ID(), warns[0]["sid"])
-		})
+	for _, role := range []string{"server", "client"} {
+		for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
+			for _, typed := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/typed=%t", role, tr.Name(), typed), func(t *testing.T) {
+					rec, eopts := newAttrRecorder(), shortPingOptions()
+					copts := []client.Option{client.WithTransports(tr), client.WithReconnection(false), client.WithLogger(slog.New(rec))}
+					if role == "server" {
+						eopts = append(eopts, engineio.WithMaxHTTPBufferSize(512))
+					} else {
+						copts = append(copts, client.WithMaxMessageSize(512))
+					}
+					srv := NewServer(WithLogger(slog.New(rec)), WithEngineOptions(eopts...))
+					conns, errs, reasons := make(chan Conn, 1), make(chan error, 8), make(chan string, 1)
+					srv.OnConnect("/", func(c Conn) error { conns <- c; return nil })
+					srv.OnError("/", func(_ Conn, err error) { errs <- err })
+					go func() { _ = srv.Serve() }()
+					ts := httptest.NewServer(srv)
+					t.Cleanup(func() { _ = srv.Close(); ts.Close() })
+					cl, err := client.New(ts.URL, copts...)
+					require.NoError(t, err)
+					t.Cleanup(func() { _ = cl.Close() })
+					cl.OnError(func(_ client.Conn, err error) { errs <- err })
+					if typed {
+						notice := NewEvent[limitNotice]("big")
+						require.NoError(t, notice.Handle(srv.Of("/"), func(context.Context, Conn, limitNotice) error { return nil }))
+						require.NoError(t, notice.HandleClient(cl, func(context.Context, Endpoint, limitNotice) error { return nil }))
+					} else {
+						srv.OnEvent("/", "big", func(Conn, parser.Buffer) {})
+						cl.OnEvent("big", func(client.Conn, parser.Buffer) {})
+					}
+					if role == "server" {
+						srv.OnDisconnect("/", func(_ Conn, reason string) { reasons <- reason })
+					} else {
+						cl.OnDisconnect(func(_ client.Conn, reason string) { reasons <- reason })
+					}
+					require.NoError(t, cl.Connect())
+					c, big := recv(t, conns, "OnConnect"), &parser.Buffer{Data: make([]byte, 2048)}
+					if role == "server" {
+						cl.Emit("big", big)
+					} else {
+						c.Emit("big", big)
+					}
+					require.Equal(t, "transport error", recv(t, reasons, "OnDisconnect"))
+					if role == "server" {
+						recv(t, serverCompletion(srv, c.ID()), "the end of the connection")
+					} // a Go client reports to OnError before OnDisconnect
+					require.Zero(t, len(errs), "OnError was called")
+					tooLarge := func() []map[string]string { return only(rec.since(0), "socketio: message too large") }
+					require.Eventually(t, func() bool { return len(tooLarge()) > 0 }, waitFor, time.Millisecond)
+					require.Len(t, tooLarge(), 1, "one record per violation")
+				})
+			}
+		}
 	}
 }
 

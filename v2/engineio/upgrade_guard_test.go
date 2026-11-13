@@ -302,7 +302,7 @@ func TestUpgradeGuardRejectedAccept(t *testing.T) {
 // TestUpgradeTimeout: a probe that is answered but never followed by UPGRADE closes the
 // websocket connection at UpgradeTimeout from its accept, where the window was the 60 s
 // default pingTimeout. The session stays on polling, unpaused: it serves the next poll,
-// and a later upgrade completes.
+// and a later upgrade completes and outlives the upgrade window.
 func TestUpgradeTimeout(t *testing.T) {
 	// The close may come up to margin after the timeout: room for scheduling under -race.
 	const timeout, margin = 300 * time.Millisecond, time.Second
@@ -320,12 +320,7 @@ func TestUpgradeTimeout(t *testing.T) {
 	require.GreaterOrEqual(t, elapsed, timeout)
 	require.Less(t, elapsed, timeout+margin)
 
-	go func() {
-		if w, err := conn.NextWriter(frame.String); err == nil {
-			_, _ = w.Write([]byte("after the timeout"))
-			_ = w.Close()
-		}
-	}()
+	writeLater(conn, "after the timeout")
 	pt, data := readPacket(t, p)
 	require.Equal(t, packet.MESSAGE, pt)
 	require.Equal(t, "after the timeout", data)
@@ -334,6 +329,24 @@ func TestUpgradeTimeout(t *testing.T) {
 	ws, err = f.dial(t, conn.ID(), nil)
 	require.NoError(t, err)
 	upgradeTo(t, ws, conn)
+
+	// The switch replaces the upgrade deadline of the websocket connection with that of
+	// the heartbeat: once the upgrade window has passed, the session still writes there.
+	time.Sleep(timeout)
+	writeLater(conn, "after the switch")
+	pt, data = readPacket(t, ws)
+	require.Equal(t, packet.MESSAGE, pt)
+	require.Equal(t, "after the switch", data)
+}
+
+// writeLater writes a MESSAGE with data to conn from another goroutine.
+func writeLater(conn engineio.Conn, data string) {
+	go func() {
+		if w, err := conn.NextWriter(frame.String); err == nil {
+			_, _ = w.Write([]byte(data))
+			_ = w.Close()
+		}
+	}()
 }
 
 // TestUpgradeTimeoutNegative: Normalize rejects a negative UpgradeTimeout, and NewServer

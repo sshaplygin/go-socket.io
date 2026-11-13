@@ -61,18 +61,16 @@ Package `engineio` of the v1 module at the repository root.
   clients report the close frame as `transport close`, and so does the Go client for
   codes 1000 and 1001 and for a frame without a code, which engine.io 3.6.2 sends;
   other codes, such as 1009 or 1011, remain `transport error`.
-- The Go client closes its websocket the same way: its Engine.IO `Close` of an
-  open websocket, also after the client's own ping timeout, sends a close frame with code 1000
-  within the 500 ms write deadline and waits up to 250 ms for the server's reply,
-  so that the server reports `transport close` (next bullet). The reference
-  clients also close their websocket with a frame (socket.io-client 1.7.4 with
-  1000, 2.5.0 without a code). After a transport error, and after a failed
+- The Go client's Engine.IO `Close` of an open websocket, also after the client's
+  own ping timeout, sends a close frame with code 1000, with the write deadline and
+  the reply wait of the server's close above, so that the server reports
+  `transport close` (next bullet). After a transport error and after a failed
   handshake, the Go client drops the connection without a frame (1006). It also
   drops an upgrade probe it has not switched to without a frame: one that failed,
-  expired or was still in progress at `Close`. That is the client's own rule;
-  the server closes an expired or failed probe of a session that stays open with
-  the 1000 frame (upgrade bullet below). `client.Client.Close` does not wait for
-  the frame: the Engine.IO close runs in the background.
+  expired or was still in progress at `Close`. That is the client's own rule; the
+  server closes an expired or failed probe of a session that stays open with the
+  1000 frame (upgrade bullet below). `client.Client.Close` does not wait for the
+  frame: the Engine.IO close runs in the background.
 - A websocket close frame from the client with code 1000 or 1001, or without a code
   (1005, which socket.io-client 2.5.0 sends when its engine closes), ends the session
   with `transport close`, as a `CLOSE` packet does. Any other code, such as 1008 or

@@ -3140,9 +3140,15 @@ changed to `done — #<PR>` after the merge.
   status 2.
 - **Definition of done:** standard.
 - **Out of scope:** `v2/_examples` and `v2/engineio/_examples`, which are not linted and
-  are replaced in v2 stage 2.5D. Two known gaps of the rule: a `Fatal` or `Panic` method
-  promoted through an embedded `*log.Logger` is not reported, and golangci-lint runs
-  without build tags, so the `conformance`-tagged tests are not linted.
+  are replaced in v2 stage 2.5D. Known gaps of the rule:
+  - golangci-lint checks only files in the default build: not the `conformance`-tagged
+    tests, nor the `parser` files built only with `GOEXPERIMENT=jsonv2`
+    (`json_mode_v2.go`, `json_mode_v2_pre127.go`, `json_methods_v2.go` and its test) or
+    before Go 1.24 (`json_zero_go122.go`). Of these library files, only `internal/parity`
+    `TestLibraryDoesNotTerminateProcess` checks for `Fatal*` and `Exit`; nothing checks
+    for `log.Panic*`;
+  - a `Fatal` or `Panic` method promoted through an embedded `*log.Logger` is not
+    reported.
 
 ### Publication and announcement
 

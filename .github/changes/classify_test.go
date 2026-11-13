@@ -269,6 +269,8 @@ func TestClassify(t *testing.T) {
 			want: with(map[string]string{"gates_v1": "true"})},
 		{name: "Markdown read by the v2 gates", edit: map[string]string{"docs/API.md": "# API\n\nmore\n"},
 			want: with(map[string]string{"gates_v2": "true"})},
+		{name: "README read by the quick start gate", edit: map[string]string{"README.md": "# m\n\nmore\n"},
+			want: with(map[string]string{"gates_v1": "true"})},
 		{name: "README and a Go comment", edit: map[string]string{
 			"README.md":        "# m\n\nmore\n",
 			"parser/parser.go": "package parser\n\n// Parse parses a string.\nfunc Parse(s string) int {\n\treturn len(s)\n}\n",

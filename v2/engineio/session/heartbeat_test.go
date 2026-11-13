@@ -225,18 +225,22 @@ func testSessionHeartbeat(t *testing.T, interval, timeout time.Duration) {
 }
 
 // TestSessionLatePingKeepsPongWindow: a PONG has PingTimeout from its PING even when the
-// PING leaves late. The test plays a ping timer that fires after the deadline set by New
+// PING leaves late. The test plays a ping timer that fires after the transport deadline
 // has passed; the PING moves the deadline, so its PONG is read and the heartbeat goes on.
+// The session opens with an interval of an hour, so its own ping timer cannot fire before
+// the test stops it; the test then sets the 20 ms interval and the deadline New sets.
 func TestSessionLatePingKeepsPongWindow(t *testing.T) {
 	const interval, timeout = 20 * time.Millisecond, 100 * time.Millisecond
 	rec := logtest.NewRecorder()
 	conn := newPeerConn()
-	s := openSession(t, conn, interval, timeout, rec)
+	s := openSession(t, conn, time.Hour, timeout, rec)
 	s.upgradeLocker.Lock()
 	s.pingTimer.Stop() // the test fires the ping timer itself
+	s.params.PingInterval = interval
 	s.upgradeLocker.Unlock()
+	require.NoError(t, s.setDeadline())
 	readUntilError(s)
-	time.Sleep(interval + timeout) // the deadline set by New has passed
+	time.Sleep(interval + timeout) // the deadline set above has passed
 	before := time.Now()
 	s.ping()
 	require.Equal(t, packet.PING, conn.receive(t).pt)

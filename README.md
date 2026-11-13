@@ -79,7 +79,7 @@ func run() error {
 ```
 <!-- quickstart:end -->
 
-A JavaScript client of `http://localhost:8000` that calls
+A JavaScript client connected to `http://localhost:8000` that calls
 `socket.emit("join", "Ann", ack => console.log(ack))` receives `joined` with `Ann` and the
 ACK `welcome, Ann`.
 

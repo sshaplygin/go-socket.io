@@ -15,14 +15,14 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
-func receive(t *testing.T, ch <-chan int, what string) int {
+func receive[T any](t *testing.T, ch <-chan T, what string) T {
 	t.Helper()
 	select {
 	case v := <-ch:
 		return v
 	case <-time.After(10 * time.Second):
 		t.Fatalf("timed out waiting for the %s", what)
-		return 0
+		return *new(T)
 	}
 }
 
@@ -34,20 +34,23 @@ func TestClientWebsocketCloseFrame(t *testing.T) {
 	for _, tc := range []struct {
 		name, probeReply string
 		send             []string      // the messages of the session; an empty one has no packet type
+		dialFails        bool          // Dial returns an error; nothing is closed after it
 		reason           CloseReason   // read before Close when set
 		upgrade          time.Duration // UpgradeTimeout; zero does not probe
 		hold             bool          // a writer holds the switch until the probe expires
-		session, probe   int           // expected close codes; zero: not checked
+		probeAtClose     bool          // the probe is still open when Close runs
+		session, probe   int           // expected close codes; zero: no probe
 	}{
 		{name: "ping timeout", send: []string{`0{"sid":"s","upgrades":[],"pingInterval":50,"pingTimeout":50}`}, reason: ReasonPingTimeout, session: normal},
 		{name: "transport error", send: []string{open, ""}, reason: ReasonTransportError, session: dropped},
-		{name: "failed handshake", send: []string{"4x"}, session: dropped},
+		{name: "failed handshake", send: []string{"4x"}, dialFails: true, session: dropped},
 		{name: "failed probe", send: []string{open}, upgrade: 10 * time.Second, probeReply: "3wrong", session: normal, probe: dropped},
-		{name: "probe at close", send: []string{open}, upgrade: 10 * time.Second, session: normal, probe: dropped},
+		{name: "probe at close", send: []string{open}, upgrade: 10 * time.Second, probeAtClose: true, session: normal, probe: dropped},
 		{name: "probe expired before the switch", send: []string{open}, upgrade: 300 * time.Millisecond, probeReply: "3probe", hold: true, session: normal, probe: dropped},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			sessions, probes, held := make(chan int, 1), make(chan int, 2), make(chan struct{})
+			// probing signals the probe's 2probe; sessions and probes carry close codes.
+			sessions, probes, probing, held := make(chan int, 1), make(chan int, 1), make(chan struct{}, 1), make(chan struct{})
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				ws, err := (&gorilla.Upgrader{}).Upgrade(w, r, nil)
 				if err != nil {
@@ -61,15 +64,10 @@ func TestClientWebsocketCloseFrame(t *testing.T) {
 						_ = ws.WriteMessage(gorilla.TextMessage, []byte(m))
 					}
 				}
-				for {
-					_, data, err := ws.ReadMessage()
-					if closed := (&gorilla.CloseError{Code: dropped}); err != nil { // dropped: a reset
-						errors.As(err, &closed)
-						codes <- closed.Code
-						return
-					}
-					if string(data) == "2probe" {
-						codes <- 0
+				for err == nil {
+					var data []byte
+					if _, data, err = ws.ReadMessage(); string(data) == "2probe" {
+						probing <- struct{}{}
 						if tc.hold {
 							<-held
 						}
@@ -78,6 +76,11 @@ func TestClientWebsocketCloseFrame(t *testing.T) {
 						}
 					}
 				}
+				code, closed := dropped, (*gorilla.CloseError)(nil) // dropped: no close frame, or a reset
+				if errors.As(err, &closed) {
+					code = closed.Code
+				}
+				codes <- code
 			}))
 			defer ts.Close()
 
@@ -87,32 +90,28 @@ func TestClientWebsocketCloseFrame(t *testing.T) {
 				dialer.Upgrade, dialer.UpgradeTimeout = true, tc.upgrade
 			}
 			cl, err := dialer.Dial(ts.URL, nil)
-			if tc.send[0] == "4x" {
-				require.Error(t, err)
-				require.Equal(t, tc.session, receive(t, sessions, "session close"))
-				return
-			}
-			require.NoError(t, err)
-			if tc.reason != "" {
-				var closed *CloseError
-				require.ErrorAs(t, readAll(cl), &closed)
-				require.Equal(t, tc.reason, closed.Reason)
-			}
-			if tc.probe != 0 {
-				receive(t, probes, "probe")
+			if require.Equal(t, tc.dialFails, err != nil, "%v", err); !tc.dialFails {
+				if tc.reason != "" {
+					var closed *CloseError
+					require.ErrorAs(t, readAll(cl), &closed)
+					require.Equal(t, tc.reason, closed.Reason)
+				}
+				if tc.probe != 0 {
+					receive(t, probing, "probe")
+				}
 				if tc.hold {
 					w, err := cl.NextWriter(eioparser.String)
 					require.NoError(t, err)
 					defer func() { _ = w.Close() }()
 					close(held)
 				}
-				if tc.name != "probe at close" {
+				if tc.probe != 0 && !tc.probeAtClose {
 					require.Equal(t, tc.probe, receive(t, probes, "probe close"))
 				}
+				_ = cl.Close()
 			}
-			_ = cl.Close()
 			require.Equal(t, tc.session, receive(t, sessions, "session close"))
-			if tc.name == "probe at close" {
+			if tc.probeAtClose {
 				require.Equal(t, tc.probe, receive(t, probes, "probe close"))
 			}
 		})

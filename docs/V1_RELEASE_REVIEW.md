@@ -19,7 +19,7 @@ The document has three parts:
   then [Release blockers](#release-blockers) through the
   [finding catalogue](#finding-catalogue). They come from the original review and were
   corrected where the follow-up validation and the 2026-10-22 fact-check required it.
-- **[Work plan](#work-plan):** pull-request-sized work items (W1–W72), owner decisions
+- **[Work plan](#work-plan):** pull-request-sized work items (W1–W73), owner decisions
   (D1–D6) and owner-only publication steps (P1–P9) that cover every catalogue ID except the editorial `CL-14` (not planned), with
   their order, acceptance criteria and status.
 - **[Follow-up validation](#follow-up-validation):** the evidence log, with a status and
@@ -105,6 +105,7 @@ before-tag items
 the owner-only publication steps
 [P1](#p1-repository-security-settings)–[P9](#p9-remote-branch-cleanup) and the
 after-release items [W69](#w69-scheduled-fuzzing)–[W72](#w72-close-polling-sessions-with-a-close-packet-on-server-shutdown).
+The owner added the before-tag item [W73](#w73-forbid-fatal-exits-by-lint) on 2026-11-13.
 
 ## Scorecard
 
@@ -152,7 +153,8 @@ to do the work. The status of each item is owned by its **Status** line and nowh
    [W55](#w55-scheduled-stress-runs-under-cpu-load) on 2026-10-31; both land before W52.
    W58–W62 record defects found after the review and fixed before the tag. The
    announcement-readiness check of 2026-11-10 added W63–W68, which land before the tag in
-   the order their **Depends on** lines give, with W66 last. Of the owner-only steps in
+   the order their **Depends on** lines give, with W66 last. The owner added W73 on
+   2026-11-13; it lands before W66. Of the owner-only steps in
    [Publication and announcement](#publication-and-announcement), P1 precedes W67; P4–P7
    follow W66, in that order, on one head; P2, P3 and P9 can be done at any time; P8 comes
    after P2, P6 and P7. Only the owner tags.
@@ -362,17 +364,18 @@ changed to `done — #<PR>` after the merge.
 | [W63](#w63-keep-the-end-of-an-engineio-session-out-of-onerror) | Keep the end of an Engine.IO session out of OnError | before tag | C13 | — |
 | [W64](#w64-report-a-peer-websocket-close-frame-as-transport-close) | Report a peer websocket close frame as transport close | before tag | interop-12 | — |
 | [W65](#w65-send-a-websocket-close-frame-from-the-go-client) | Send a websocket close frame from the Go client | before tag | interop-13 | W64 |
-| [W66](#w66-refresh-the-release-notes-for-the-final-head) | Refresh the release notes for the final head | before tag | REL-16 | W63–W65, W67, W68 |
+| [W66](#w66-refresh-the-release-notes-for-the-final-head) | Refresh the release notes for the final head | before tag | REL-16 | W63–W65, W67, W68, W73 |
 | [W67](#w67-security-policy) | Security policy | before tag | REL-17 | P1 |
 | [W68](#w68-readme-quick-start) | README quick start | before tag | CL-20 | — |
 | [W69](#w69-scheduled-fuzzing) | Scheduled fuzzing | after release | T17 | — |
 | [W70](#w70-static-security-analysis) | Static security analysis | after release | REL-19 | — |
 | [W71](#w71-hostile-client-suite) | Hostile-client suite | after release | T18 | — |
 | [W72](#w72-close-polling-sessions-with-a-close-packet-on-server-shutdown) | Close polling sessions with a CLOSE packet on server shutdown | after release | interop-14 | W63 |
+| [W73](#w73-forbid-fatal-exits-by-lint) | Forbid fatal exits by lint | before tag | CL-21 | — |
 | [P1](#p1-repository-security-settings) | Repository security settings | owner | — | — |
 | [P2](#p2-repository-metadata) | Repository metadata | owner | REL-18 | — |
 | [P3](#p3-leave-the-fork-network) | Leave the fork network | owner | — | — |
-| [P4](#p4-final-head-verification) | Final head verification | owner | — | W63–W68 |
+| [P4](#p4-final-head-verification) | Final head verification | owner | — | W63–W68, W73 |
 | [P5](#p5-tag-v150) | Tag v1.5.0 | owner | — | P4 |
 | [P6](#p6-github-release) | GitHub Release | owner | — | P5, W66 |
 | [P7](#p7-module-index) | Module index | owner | — | P5 |
@@ -385,7 +388,7 @@ changed to `done — #<PR>` after the merge.
 | --- | --- |
 | Correctness and security | C1 W1 · C2 W14 · C3 W11 · C4 W13 · C5 W6 · C6 W47 · C7 W47 · C8 W53 · C9 W58 · C10 W59 · C11 W60 · C12 W62 · C13 W63 |
 | API compatibility | API-1 W8 · API-2 D1 · API-3 W6 · API-4 W7 · API-5 W8 · API-6 W8 · API-7 W8 · API-8 W8 · API-9 D2 · API-10 W10 · API-11 W38 · API-12 D6 · API-13 W8 |
-| Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 · CL-16 W50 · CL-17 W51 · CL-18 W51 · CL-19 W51 · CL-20 W68 |
+| Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 · CL-16 W50 · CL-17 W51 · CL-18 W51 · CL-19 W51 · CL-20 W68 · CL-21 W73 |
 | Architecture | ARCH-1 W5 · ARCH-2 D2 · ARCH-3 D3 · ARCH-4 W26 · ARCH-5 D4 · ARCH-6 D5 · ARCH-7 W33 · ARCH-8 W32 · ARCH-9 W14 · ARCH-10 W37 · ARCH-11 D6 · ARCH-12 W28 · ARCH-13 W26 |
 | Performance | PERF-1 W3 · PERF-2 W18 · PERF-3 W4 · PERF-4 W19 · PERF-5 W20 · PERF-6 W21 · PERF-7 W22 · PERF-8 W23 · PERF-9 W24 · PERF-10 W2 · PERF-11 W25 · PERF-12 W21 · PERF-13 W26 · PERF-14 W50 · PERF-15 W23 · PERF-16 W54 |
 | Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 · interop-10 W49 · interop-11 W51 · interop-12 W64 · interop-13 W65 · interop-14 W72 |
@@ -2980,12 +2983,12 @@ changed to `done — #<PR>` after the merge.
 - **Status:** open
 - **Priority:** before tag
 - **Findings:** [REL-16](#release-engineering-findings)
-- **Depends on:** W63–W65, W67, W68
+- **Depends on:** W63–W65, W67, W68, W73
 - **Problem:** see REL-16.
 - **Change:** as in [W52](#w52-refresh-the-release-notes-and-the-tag-checklist): after
-  W63–W65, W67 and W68 merge, a PR sets this item's Status, and its description carries the
+  W63–W65, W67, W68 and W73 merge, a PR sets this item's Status, and its description carries the
   release text rewritten against `79b5996..<head>` and the owner checklist (P4–P7). The text
-  covers every user-visible change of #223–#238 and of W63–W68 and removes the statements
+  covers every user-visible change of #223–#238, of W63–W68 and of W73 and removes the statements
   those changes contradict. That description replaces the text in #218 as the source of the
   GitHub release notes.
 - **Tests:** none.
@@ -3111,6 +3114,33 @@ changed to `done — #<PR>` after the merge.
 - **Definition of done:** standard.
 - **Out of scope:** websocket sessions (#238 already sends a close frame).
 
+### W73. Forbid fatal exits by lint
+
+- **Status:** in progress — #PR
+- **Priority:** before tag
+- **Findings:** [CL-21](#clarity-findings)
+- **Depends on:** none
+- **Problem:** see CL-21.
+- **Change:** the owner decided on 2026-11-13 that examples, README snippets and library
+  code never terminate the process: no `log.Fatal*`, `log.Panic*` or `os.Exit`; a failing
+  example `main` panics with the error. `.golangci.yml` and `v2/.golangci.yml` enable
+  forbidigo for these functions and the `*log.Logger` methods, excluding the `.github` CI
+  tools and `os.Exit` in `TestMain`. `make lint` and the CI lint-v1 job also lint every
+  `_examples/*/` module, `./_examples/client`, `./engineio/_examples` and the README
+  quick-start fixture. Every v1 example `main` panics instead of calling `os.Exit(1)`.
+- **Tests:** none; the lint run is the check.
+- **Benchmarks:** none.
+- **Docs:** `CLAUDE.md` (Conventions), `_examples/README.md` (exit status).
+- **Acceptance criteria:** `make lint`, `make -C v2 lint` and `make examples` pass; in a
+  scratch copy, `log.Fatal`, `log.Fatalf`, `log.Panicln`, `log.New(...).Fatal` and
+  `os.Exit(1)` in a library file, an example `main` and the quick-start fixture are each
+  reported, while `t.Fatal` in a test and `os.Exit` in `.github/changes` are not (shown
+  once in the PR); an example started on a busy port panics with the error and exits with
+  status 2.
+- **Definition of done:** standard.
+- **Out of scope:** `v2/_examples` and `v2/engineio/_examples`, which are not linted and
+  are replaced in v2 stage 2.5D.
+
 ### Publication and announcement
 
 Owner-only steps that take the verified head to a published, findable release and announce
@@ -3168,7 +3198,7 @@ the tag), and P9 its optional REL-11 step; when one of them is done, the owner a
 
 - **Status:** open
 - **Owner:** repository owner
-- **Depends on:** W63–W68
+- **Depends on:** W63–W68, W73
 - **Steps:** CONTRIBUTING.md "Before tagging v1", steps 1–3 and the verification parts of
   step 4 (the version in the README install command and pkg.go.dev links, module
   consumption under the fork's path), on the tag candidate, as the W66 checklist lists
@@ -4034,6 +4064,9 @@ Every finding is listed under the dimension that reported it.
   not among the 85 entries and have no row in
   [Catalogue cross-check](#catalogue-cross-check); their locations refer to `origin/master`
   at `27fdab8`.
+- CL-21 records an owner decision of 2026-11-13. It is not among the 85 entries and has no
+  row in [Catalogue cross-check](#catalogue-cross-check); its location refers to
+  `origin/master` at `0b0f023`.
 - The [work plan](#work-plan) maps every ID to exactly one work item, owner decision or
   owner-only publication step, or lists it under "Not planned"; the finding coverage table is in
   [How to use this plan](#how-to-use-this-plan). When a fix merges, the row's
@@ -4101,6 +4134,7 @@ Every finding is listed under the dimension that reported it.
 | CL-18 | minor | — | `adapter/redis/adapter.go:198` | The Redis adapter logs through `slog.Default()` and ignores `socketio.WithLogger`, but the logger package doc, `engineio/options.go:60` and V1.md:457 do not list it | Name the Redis adapter in those lists (W51). Fixed by #204 (W51). |
 | CL-19 | minor | — | `docs/V1.md:346` | The migration guide covers upstream v1.4.2 and v1.7.0 only; users of the intermediate releases v1.4.3 to v1.6.3 have no stated baseline | State a checked baseline for each intermediate release (W51). Fixed by #204 (W51). |
 | CL-20 | minor | — | `README.md`, `doc.go` | README.md has no Go code (only the `go get` command); the first runnable snippet is in `doc.go`. A newcomer evaluation needed `doc.go` and the examples to write a server | Add a compiled server quick start to README (W68). Fixed by #253 (W68). |
+| CL-21 | minor | — | `_examples/*/main.go`, `.golangci.yml` | Every v1 example `main` ended with `os.Exit(1)`, and no lint rule forbade `log.Fatal`, `log.Panic` or `os.Exit`; golangci-lint did not lint the example modules, `_examples/client`, `engineio/_examples` or the README quick-start fixture | Forbid these calls with golangci-lint in both modules, lint those packages, and make a failing example `main` panic with the error (W73). Fixed by #PR (W73). |
 
 ### Architecture findings
 

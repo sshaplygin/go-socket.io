@@ -14,6 +14,10 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   `authorization`, `cookie` and `proxy-authorization` members of `headers` (names compared
   without case) and keeps every other member byte for byte; nil yields nil and a value that
   is not one JSON object an error. Before, it returned `ErrNotImplemented`.
+- `engineio.Options.UpgradeTimeout` (roadmap 2.1): the probe and `UPGRADE` of a websocket
+  upgrade must arrive within it of the accept of the websocket connection. Zero means 10 s,
+  the `upgradeTimeout` of the Node server; `Normalize` rejects a negative value and
+  `NewServer` treats it as zero.
 - In-memory adapter (roadmap 2.2), unexported, built from a `LocalSockets` value, with the
   default `AdapterFactory` over `Namespace.LocalSockets()`: room union with deduplication,
   `Except` rooms, empty selection of every socket, `LocalRecipients` counting successful
@@ -215,6 +219,17 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   the close, and pauses polling on `UPGRADE` (`5`) instead of after the probe: until `UPGRADE` the session still runs on polling, and a failed upgrade
   no longer pauses and resumes it. An Engine.IO v3 client, which sends the pings, no longer
   keeps a session open.
+- `engineio.Server` upgrades a session at most once (roadmap 2.1): it reserves the upgrade
+  before the websocket transport hijacks the request. A websocket request with the `sid` of a
+  session that is upgrading is answered before the hijack with HTTP 400,
+  `{"code":3,"message":"Bad request"}` and one `engineio: request rejected` record with
+  `reason="bad upgrade"`. Before, it got a second 101 and its probe was answered; its
+  `UPGRADE` switched the session again and left the connection switched out first open.
+- A websocket request with the `sid` of a session that was upgraded or opened on websocket
+  gets the same code-3 answer and record; before, it got an empty HTTP 200.
+- The probe and `UPGRADE` of an upgrade must arrive within `Options.UpgradeTimeout`, 10 s by
+  default, of the accept of the websocket connection; the window was `pingTimeout`, 60 s by
+  default. On expiry the websocket connection is closed and the session stays on polling.
 
 ### Removed
 

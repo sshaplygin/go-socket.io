@@ -90,12 +90,24 @@ server->>server: close old conn
   here a `NOOP` waits for the next poll and answers it at once, the following one comes at
   least 100 ms later. After a failed upgrade a `NOOP` that was already waiting still answers
   the next poll; then the `NOOP`s stop. The probe and `UPGRADE` must both arrive within
-  `pingTimeout` of the moment the server accepts the websocket connection: that one read
-  deadline is set before the probe is read and is not extended by it. If anything else
-  follows the probe or the deadline passes, the upgrade fails: the websocket connection is
-  closed and the session stays on polling, which was never paused. If the session closes
-  during the upgrade (for example on a ping timeout), the session ends with both its polling
-  connection and the websocket connection closed, and it is not switched.
+  `engineio.Options.UpgradeTimeout` (default 10 s, the `upgradeTimeout` of the Node server)
+  of the moment the server accepts the websocket connection: one deadline, set before the
+  probe is read, bounds the probe, its answer and `UPGRADE`, and the probe does not extend it.
+  If anything else follows the probe or the deadline passes, the upgrade fails: the websocket
+  connection is closed and the session stays on polling, which was never paused. If the
+  session closes during the upgrade (for example on a ping timeout), the session ends with
+  both its polling connection and the websocket connection closed, and it is not switched.
+
+  A session upgrades at most once. The server reserves the upgrade before the websocket
+  transport hijacks the request, and returns the reservation when the upgrade does not switch
+  the session: a refused handshake (origin check, malformed upgrade request, no
+  `http.Hijacker`), a failed probe or an expired `UpgradeTimeout`; the client may then try
+  again. A websocket request with the `sid` of a session that is upgrading, or already on
+  websocket (upgraded, or opened there), is rejected before the hijack with HTTP 400 and code
+  3, logged as `engineio: request rejected` with `reason="bad upgrade"`. The Node server
+  differs in both cases: while a session is upgrading or upgraded it completes the WebSocket
+  handshake (101) and then closes the new connection, and it treats a second websocket of a
+  session opened on websocket as an upgrade candidate (`_maybeUpgrade`).
 - Error responses (Engine.IO v4): the server answers a rejected request with the JSON
   body `{"code":N,"message":"..."}` and content type `application/json`:
 
@@ -104,7 +116,7 @@ server->>server: close old conn
   | 0 | `Transport unknown` | 400 | `transport` is not one of `Options.Transports` |
   | 1 | `Session ID unknown` | 400 | no session has the `sid` |
   | 2 | `Bad handshake method` | 400 | a handshake (no `sid`) that is neither GET nor an OPTIONS preflight |
-  | 3 | `Bad request` | 400 | a transport change the session cannot make, a failed session start, a polling request that is not GET, POST or OPTIONS |
+  | 3 | `Bad request` | 400 | a transport change the session cannot make, a websocket request for a session that is upgrading or already on websocket, a failed session start, a polling request that is not GET, POST or OPTIONS |
   | 4 | `Forbidden` | 403 | `Options.RequestChecker` returned an error |
   | 5 | `Unsupported protocol version` | 400 | `EIO` is missing or not `4` |
 

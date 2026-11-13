@@ -20,6 +20,10 @@ type Conn interface {
 	Upgraded() bool
 	NextReader() (eioparser.FrameType, io.ReadCloser, error)
 	NextWriter(fType eioparser.FrameType) (io.WriteCloser, error)
+	// Close ends the session. An open websocket gets a close frame with status
+	// 1000, also after a ping timeout, within a 500 ms write deadline and a wait
+	// of up to 250 ms for the server's reply; after a transport error it is
+	// dropped without one. An upgrade probe not yet switched to is dropped.
 	Close() error
 	URL() url.URL
 	LocalAddr() net.Addr

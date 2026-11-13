@@ -60,13 +60,22 @@ Package `engineio` of the v1 module at the repository root.
   bullet below. The message-limit close below sends code 1009. The reference
   clients report the close frame as `transport close`, and so does the Go client for
   codes 1000 and 1001 and for a frame without a code, which engine.io 3.6.2 sends;
-  other codes, such as 1009 or 1011, remain `transport error`. The frame is sent by
-  server connections only: the Go client closes its websocket without one.
+  other codes, such as 1009 or 1011, remain `transport error`.
 - `Server.Close` answers a polling session's pending poll with HTTP 500, and a poll
   that arrives after the close with HTTP 400, so a polling client reports `transport
   error` (in the Go client, `OnDisconnect` reason `transport error`); engine.io 3.6.2
   answers the poll with `CLOSE` (`1`), and its clients report `transport close`. A
   websocket session receives the server's close frame with code 1000 instead.
+- The Go client's Engine.IO `Close` of an open websocket, also after the client's
+  own ping timeout, sends a close frame with code 1000, with the write deadline and
+  the reply wait of the server's close above, so that the server reports
+  `transport close` (next bullet). After a transport error and after a failed
+  handshake, the Go client drops the connection without a frame (1006). It also
+  drops an upgrade probe it has not switched to without a frame: one that failed,
+  expired or was still in progress at `Close`. That is the client's own rule; the
+  server closes an expired or failed probe of a session that stays open with the
+  1000 frame (upgrade bullet below). `client.Client.Close` does not wait for the
+  frame: the Engine.IO close runs in the background.
 - A websocket close frame from the client with code 1000 or 1001, or without a code
   (1005, which socket.io-client 2.5.0 sends when its engine closes), ends the session
   with `transport close`, as a `CLOSE` packet does. Any other code, such as 1008 or

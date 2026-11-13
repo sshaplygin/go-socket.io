@@ -30,10 +30,6 @@ type conn struct {
 	url          url.URL
 	remoteHeader http.Header
 
-	// closeFrame makes Close announce the close with a normal closure frame
-	// first. Accept sets it on server connections.
-	closeFrame bool
-
 	closed     chan struct{}
 	closedOnce sync.Once
 	closeOnce  sync.Once
@@ -157,11 +153,12 @@ func (c *conn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Close closes the connection. A server connection first writes a close frame
-// with the normal closure status (1000), so that the peer can tell an orderly
-// stop from a dropped connection, as engine.io's websocket transport does. Only
-// the first call closes the underlying websocket and reports its error; later
-// calls return nil.
+// Close closes the connection. It first writes a close frame with the normal
+// closure status (1000), on server (Accept) and client (Dial) connections, so
+// that the peer can tell an orderly stop from a dropped connection, as the
+// websocket transports of engine.io and engine.io-client do. Only the first
+// call closes the underlying websocket and reports its error; later calls
+// return nil.
 //
 // Close then waits up to closeReplyTimeout for the peer's reply to its frame
 // before it closes the TCP connection, reading the peer's frames itself when no
@@ -182,13 +179,10 @@ func (c *conn) Close() error {
 		if c.aborted.Load() {
 			return
 		}
-		announced := false
-		if c.closeFrame {
-			msg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
-			if c.ws.WriteControl(websocket.CloseMessage, msg, time.Now().Add(closeFrameTimeout)) == nil {
-				announced = true
-				c.ws.awaitPeerClose(time.Now().Add(closeReplyTimeout), c.abort)
-			}
+		msg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
+		announced := c.ws.WriteControl(websocket.CloseMessage, msg, time.Now().Add(closeFrameTimeout)) == nil
+		if announced {
+			c.ws.awaitPeerClose(time.Now().Add(closeReplyTimeout), c.abort)
 		}
 		err = c.ws.Close()
 		// An Abort, or the end of the wait for an unresponsive peer, has closed

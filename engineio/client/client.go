@@ -142,11 +142,12 @@ func (c *client) terminate(reason CloseReason, err error) error {
 		if c.cause == nil {
 			c.cause = &CloseError{Reason: reason, Err: err}
 		}
+		failed := c.cause.Reason == ReasonTransportError
 		conn, probe := c.conn, c.probe
 		close(c.close)
 		c.mu.Unlock()
-		if probe != nil {
-			_ = probe.Close()
+		if probe != nil && probe != conn {
+			_ = abortConn(probe)
 		}
 		// Context-aware pauses are canceled and resumed by probe rollback.
 		// Legacy transports still need Resume before Close can finish.
@@ -159,9 +160,23 @@ func (c *client) terminate(reason CloseReason, err error) error {
 			go c.sendClose(conn, polling)
 			return
 		}
-		result = conn.Close()
+		if failed {
+			result = abortConn(conn)
+		} else {
+			result = conn.Close()
+		}
 	})
 	return result
+}
+
+// abortConn drops conn without a websocket close frame, after a transport error
+// and for an upgrade probe the client has not switched to; Close of an open
+// websocket sends one. Transports without Abort, such as polling, are closed.
+func abortConn(conn transport.Conn) error {
+	if a, ok := conn.(interface{ Abort() error }); ok {
+		return a.Abort()
+	}
+	return conn.Close()
 }
 
 // sendClose queues CLOSE behind the writes already admitted, lets the in-flight
@@ -580,7 +595,7 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 		cancel()
 		p.mu.Unlock()
 		if conn != nil {
-			_ = conn.Close()
+			_ = abortConn(conn)
 		}
 		if committing {
 			_ = c.terminate(ReasonTransportError, err)
@@ -605,7 +620,7 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 		close(finished)
 		if !switched {
 			if probe != nil {
-				_ = probe.Close()
+				_ = abortConn(probe)
 			}
 			if pause != nil {
 				cancel()
@@ -717,7 +732,7 @@ func (c *client) dialProbe(p *clientProbe, u url.URL, header http.Header, candid
 		if p.done || p.err != nil {
 			p.mu.Unlock()
 			if conn != nil {
-				_ = conn.Close()
+				_ = abortConn(conn)
 			}
 			return
 		}

@@ -125,7 +125,7 @@ func (f *logFixture) upgrade(t *testing.T, conn Conn) {
 		time.Second, time.Millisecond)
 }
 
-// peerCloseAfterUpgrade upgrades a session of PingTimeout 400 ms to websocket, closes the
+// peerCloseAfterUpgrade upgrades a session of PingTimeout 400 ms to websocket, drops the
 // client's side, and reads the session after stall, as a loaded machine would delay it.
 //
 // The websocket is read only by NextReader, which also renews the read deadline. A message
@@ -145,7 +145,7 @@ func peerCloseAfterUpgrade(stall time.Duration) func(t *testing.T, f *logFixture
 		require.NoError(t, err)
 		require.Equal(t, "alive", string(b))
 		require.NoError(t, r.Close())
-		require.NoError(t, f.cl.Close())
+		require.NoError(t, f.cl.(interface{ Abort() error }).Abort()) // no close frame
 		time.Sleep(stall)
 		require.Error(t, readAll(conn))
 	}
@@ -169,7 +169,7 @@ func TestSessionCloseRecord(t *testing.T) {
 		}},
 		{"peer close", "W", "transport error", "", func(t *testing.T, f *logFixture) {
 			conn := f.accept(t)
-			require.NoError(t, f.cl.Close())
+			require.NoError(t, f.cl.(interface{ Abort() error }).Abort()) // Close sends a close frame
 			require.Error(t, readAll(conn))
 		}},
 		{"ping timeout", "PW", "ping timeout", "", func(t *testing.T, f *logFixture) {

@@ -34,7 +34,7 @@ make test-race          # tests with the race detector
 make test-jsonv2        # parser and Socket.IO roles with GOEXPERIMENT=jsonv2
 make test-stress        # concurrent packages, shuffled and repeated
 make test-stress-load   # the stress packages repeated under CPU load; writes stress.json and stress-summary.md
-make lint               # formatting, vet and golangci-lint
+make lint               # formatting, vet and golangci-lint, example modules and quick-start fixture included
 make vet                # Linux/macOS/Windows, conformance and example packages
 make gates              # architecture, lifecycle and public consumer fixtures
 make cover-check        # statement coverage floor and uncovered public functions
@@ -125,7 +125,11 @@ workflow exercises the report action with the collected benchmark samples.
 ## Conventions
 
 - Use `gofmt -s`, wrap errors with `%w`, and return errors to callers. Library
-  packages must not terminate the process. Executable entry points own exit status.
+  packages must not terminate the process. Library code, examples and README snippets
+  never call `log.Fatal*`, `log.Panic*` or `os.Exit`: a failing example `main` panics
+  with the error (`panic(err)`). golangci-lint (forbidigo) enforces this in both
+  modules; the `.github` CI tools, which report through their exit status, and
+  `TestMain`'s `os.Exit` are the exceptions.
 - Root, client and Engine.IO test packages fail when library goroutines remain
   after cleanup; fixtures must close clients and unblock callbacks.
 - Reproduce a bug with a behavioral test; verify concurrency changes with `-race`.

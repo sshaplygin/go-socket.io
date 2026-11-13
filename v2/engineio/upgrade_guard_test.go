@@ -303,9 +303,9 @@ func TestUpgradeGuardRejectedAccept(t *testing.T) {
 	}
 }
 
-// TestUpgradeTimeout: a probe that is answered but never followed by UPGRADE closes the
-// websocket connection at UpgradeTimeout from its accept, where the window was the 60 s
-// default pingTimeout. The session stays on polling, unpaused: it serves the next poll,
+// TestUpgradeTimeout: an upgrade that never sends the probe, and one whose probe is
+// answered but never followed by UPGRADE, are closed at UpgradeTimeout from the accept of
+// their websocket connection, where the window was the 60 s default pingTimeout. The session stays on polling, unpaused: it serves the next poll,
 // and a later upgrade completes and outlives the upgrade window.
 func TestUpgradeTimeout(t *testing.T) {
 	// The close may come up to margin after the timeout: room for scheduling under -race.
@@ -314,21 +314,27 @@ func TestUpgradeTimeout(t *testing.T) {
 	p := dialRaw(t, polling.Default, f.url)
 	conn := f.accept(t)
 
-	start := time.Now()
-	ws, err := f.dial(t, conn.ID(), nil)
-	require.NoError(t, err)
-	sendProbe(t, ws)
-	_, err = nextType(ws, 5*time.Second)
-	elapsed := time.Since(start)
-	require.Error(t, err, "the server closes the websocket connection")
-	require.GreaterOrEqual(t, elapsed, timeout)
-	require.Less(t, elapsed, timeout+margin)
+	// Each attempt is closed at the timeout from its accept: one that sends no probe, then
+	// one whose probe is answered but not followed by UPGRADE.
+	for _, probe := range []bool{false, true} {
+		start := time.Now()
+		ws, err := f.dial(t, conn.ID(), nil)
+		require.NoError(t, err)
+		if probe {
+			sendProbe(t, ws)
+		}
+		_, err = nextType(ws, 5*time.Second)
+		elapsed := time.Since(start)
+		require.Error(t, err, "the server closes the websocket connection")
+		require.GreaterOrEqual(t, elapsed, timeout)
+		require.Less(t, elapsed, timeout+margin)
+	}
 
 	// A failed upgrade returns the reservation before the server closes the connection, so
 	// a retry right after the close is accepted, however late the rest of the failed
 	// upgrade ends: here after the expired window, then after a packet other than the
 	// probe, which fails the upgrade at once.
-	ws, err = f.dial(t, conn.ID(), nil)
+	ws, err := f.dial(t, conn.ID(), nil)
 	require.NoError(t, err)
 	writePacket(t, ws, packet.MESSAGE, "not a probe")
 	_, err = nextType(ws, 5*time.Second)

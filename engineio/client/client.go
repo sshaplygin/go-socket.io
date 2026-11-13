@@ -135,16 +135,15 @@ func (c *client) terminate(reason CloseReason, err error) error {
 		c.mu.Lock()
 		// Only Close of a session that has not failed or been closed by the server tells it.
 		orderly := reason == ReasonForcedClose && c.cause == nil
-		first, name := c.cause == nil, c.transport
-		if first {
+		// A message past the read limit reaches failure only: the transport errors
+		// terminate receives come from an upgrade probe that passed its exchange,
+		// where the probe's own limit applies (see probeTransport).
+		if c.cause == nil {
 			c.cause = &CloseError{Reason: reason, Err: err}
 		}
 		conn, probe := c.conn, c.probe
 		close(c.close)
 		c.mu.Unlock()
-		if first && reason == ReasonTransportError {
-			logTooLarge(name, err)
-		}
 		if probe != nil {
 			_ = probe.Close()
 		}

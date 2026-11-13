@@ -35,7 +35,7 @@ type Session struct {
 
 	context interface{}
 
-	upgradeLocker sync.RWMutex // guards conn, transport, closed, opened and the heartbeat timers
+	upgradeLocker sync.RWMutex // guards conn, transport, closed, opened, the upgrade and heartbeat fields
 	closed        bool         // set by Close; a closed session is never upgraded
 	opened        time.Time    // set by InitSession; a session never opened logs no close
 
@@ -46,6 +46,12 @@ type Session struct {
 	pongTimer *time.Timer // nil while no PING waits for its PONG
 
 	candidate transport.Conn // the connection of a running upgrade; Close closes it
+
+	// The upgrade reservation, taken by internal.ReserveUpgrade before the connection of
+	// an upgrade is accepted, so that at most one upgrade runs. It is returned when the
+	// upgrade does not switch the session, and kept when it does.
+	upgradeReserved bool
+	upgradeTimeout  time.Duration // bounds the probe and UPGRADE of the reserved upgrade
 
 	cause    atomic.Pointer[closeCause] // the first close cause observed
 	deadline atomic.Int64               // UnixNano of the deadline setDeadline set on conn
@@ -71,6 +77,11 @@ type closeCause struct {
 
 func init() {
 	internal.Shutdown = func(s io.Closer) error { return s.(*Session).close(reasonShutdown) }
+	internal.ReserveUpgrade = func(s io.Closer, timeout time.Duration) bool {
+		return s.(*Session).reserveUpgrade(timeout)
+	}
+	internal.ReleaseUpgrade = func(s io.Closer) { s.(*Session).releaseUpgrade() }
+	internal.Closed = func(s io.Closer) bool { return s.(*Session).isClosed() }
 }
 
 // New creates a session over conn. log receives errors the session cannot
@@ -315,6 +326,12 @@ func (s *Session) NextWriter(typ frame.Type) (io.WriteCloser, error) {
 	return frameWriter{w, s}, nil
 }
 
+// Upgrade moves the session to conn, a connection of the named transport, once the
+// client has sent the probe and UPGRADE on it within the upgrade window: the timeout
+// engineio.Server reserved the upgrade with, 10 s otherwise. The window starts now, so
+// conn must have just been accepted. Only one upgrade of a session may run at a time:
+// engineio.Server ensures it with the reservation; another caller must not start one
+// before the previous upgrade has ended.
 func (s *Session) Upgrade(transport string, conn transport.Conn) {
 	go s.upgrading(transport, conn)
 }
@@ -505,27 +522,25 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	if !s.trackCandidate(conn) {
 		return
 	}
-	defer s.untrackCandidate(conn)
+	defer s.untrackCandidate(conn) // on failure: return the reservation, then close conn
+
+	// The probe and UPGRADE must both arrive within the timeout of the accept of conn,
+	// which happens right before Upgrade starts this goroutine. When it expires, expire
+	// fails the upgrade as the deferred call does, as Node's upgradeTimeout does; closing
+	// conn ends the read or write the upgrade waits on.
+	s.upgradeLocker.RLock()
+	timeout := s.upgradeTimeout
+	s.upgradeLocker.RUnlock()
+	if timeout <= 0 { // an upgrade started without the reservation
+		timeout = internal.DefaultUpgradeTimeout
+	}
+	expire := time.AfterFunc(timeout, func() { s.untrackCandidate(conn) })
+	defer expire.Stop()
 
 	// Read a ping from the client.
-	err := conn.SetReadDeadline(time.Now().Add(s.params.PingTimeout))
-	if err != nil {
-		s.logger().Debug("engineio: upgrade probe failed", "err", err)
-
-		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Debug("engineio: close connection failed", "err", closeErr)
-		}
-
-		return
-	}
-
 	ft, pt, r, err := conn.NextReader()
 	if err != nil {
 		s.logger().Debug("engineio: upgrade probe failed", "err", err)
-
-		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Debug("engineio: close connection failed", "err", closeErr)
-		}
 
 		return
 	}
@@ -535,40 +550,17 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 			s.logger().Debug("engineio: close reader failed", "err", err)
 		}
 
-		if err := conn.Close(); err != nil {
-			s.logger().Debug("engineio: close connection failed", "err", err)
-		}
-
 		return
 	}
 	// Wait to close the reader until after data is read and echoed in the reply.
 
 	// Sent a pong in reply.
-	err = conn.SetWriteDeadline(time.Now().Add(s.params.PingTimeout))
-	if err != nil {
-		s.logger().Debug("engineio: upgrade probe failed", "err", err)
-
-		if closeErr := r.Close(); closeErr != nil {
-			s.logger().Debug("engineio: close reader failed", "err", closeErr)
-		}
-
-		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Debug("engineio: close connection failed", "err", closeErr)
-		}
-
-		return
-	}
-
 	w, err := conn.NextWriter(ft, packet.PONG)
 	if err != nil {
 		s.logger().Debug("engineio: upgrade probe failed", "err", err)
 
 		if closeErr := r.Close(); closeErr != nil {
 			s.logger().Debug("engineio: close reader failed", "err", closeErr)
-		}
-
-		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Debug("engineio: close connection failed", "err", closeErr)
 		}
 
 		return
@@ -586,10 +578,6 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 			s.logger().Debug("engineio: close reader failed", "err", closeErr)
 		}
 
-		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Debug("engineio: close connection failed", "err", closeErr)
-		}
-
 		return
 	}
 
@@ -600,19 +588,11 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 			s.logger().Debug("engineio: close writer failed", "err", closeErr)
 		}
 
-		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Debug("engineio: close connection failed", "err", closeErr)
-		}
-
 		return
 	}
 
 	if err = w.Close(); err != nil {
 		s.logger().Debug("engineio: close writer failed", "err", err)
-
-		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Debug("engineio: close connection failed", "err", closeErr)
-		}
 
 		return
 	}
@@ -626,10 +606,6 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	p, ok := old.(Pauser)
 	if !ok {
 		// old transport doesn't support upgrading
-		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Debug("engineio: close connection failed", "err", closeErr)
-		}
-
 		return
 	}
 
@@ -642,10 +618,6 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	if err != nil {
 		s.logger().Debug("engineio: upgrade probe failed", "err", err)
 
-		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Debug("engineio: close connection failed", "err", closeErr)
-		}
-
 		return
 	}
 
@@ -654,26 +626,22 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 			s.logger().Debug("engineio: close reader failed", "err", closeErr)
 		}
 
-		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Debug("engineio: close connection failed", "err", closeErr)
-		}
-
 		return
 	}
 
 	if err = r.Close(); err != nil {
 		s.logger().Debug("engineio: close reader failed", "err", err)
 
-		if closeErr := conn.Close(); closeErr != nil {
-			s.logger().Debug("engineio: close connection failed", "err", closeErr)
-		}
-
 		return
 	}
 
-	// Successful upgrade. As the Node server does, pause the old connection only
-	// now: a poll still waiting is answered with NOOP and the payload stops before
-	// the session moves to conn.
+	// Successful upgrade, unless the window has expired: Stop fails once expire has
+	// fired. As the Node server does, pause the old connection only now: a poll still
+	// waiting is answered with NOOP and the payload stops before the session moves to
+	// conn.
+	if !expire.Stop() {
+		return
+	}
 	p.Pause()
 	if !s.switchTransport(t, conn) {
 		return
@@ -762,12 +730,49 @@ func (s *Session) trackCandidate(conn transport.Conn) bool {
 	return !closed
 }
 
-// untrackCandidate forgets conn when the upgrade ends without switching to it.
+// untrackCandidate fails an upgrade that has not switched to conn: it returns the
+// upgrade reservation and then closes conn, so a client that sees the close can upgrade
+// again at once. It runs when the upgrade ends and when its window expires; only the
+// first call finds conn as the candidate. After a switch the reservation is kept, and
+// once the session is closed Close has closed conn.
 func (s *Session) untrackCandidate(conn transport.Conn) {
 	s.upgradeLocker.Lock()
-	if s.candidate == conn {
+	failed := s.candidate == conn
+	if failed {
 		s.candidate = nil
+		s.upgradeReserved = false
 	}
+	s.upgradeLocker.Unlock()
+	if failed {
+		if err := conn.Close(); err != nil {
+			s.logger().Debug("engineio: close connection failed", "err", err)
+		}
+	}
+}
+
+// reserveUpgrade takes the upgrade reservation for an upgrade bounded by timeout, unless
+// the session is closed or an upgrade holds the reservation or has switched the session.
+func (s *Session) reserveUpgrade(timeout time.Duration) bool {
+	s.upgradeLocker.Lock()
+	defer s.upgradeLocker.Unlock()
+	if s.closed || s.upgradeReserved {
+		return false
+	}
+	s.upgradeReserved, s.upgradeTimeout = true, timeout
+	return true
+}
+
+// isClosed reports whether Close has run.
+func (s *Session) isClosed() bool {
+	s.upgradeLocker.RLock()
+	defer s.upgradeLocker.RUnlock()
+	return s.closed
+}
+
+// releaseUpgrade returns the upgrade reservation of an upgrade that never started.
+func (s *Session) releaseUpgrade() {
+	s.upgradeLocker.Lock()
+	s.upgradeReserved = false
 	s.upgradeLocker.Unlock()
 }
 

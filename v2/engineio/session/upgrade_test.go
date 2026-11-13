@@ -107,3 +107,15 @@ func TestSessionPingTimeoutDuringUpgrade(t *testing.T) {
 	require.Equal(t, "polling", s.Transport())
 	require.Equal(t, "ping timeout", closeRecord(t, rec)["reason"])
 }
+
+// TestSessionUpgradeDefaultWindow: an upgrade started without the reservation of
+// engineio.Server, so without a timeout, gets the 10 s default window instead of an
+// expired one: its probe is answered and UPGRADE switches the session.
+func TestSessionUpgradeDefaultWindow(t *testing.T) {
+	s := newTestSession(t, pausablePeer{newPeerConn()}, "polling")
+	next := newPeerConn()
+	s.Upgrade("websocket", next)
+	probe(t, next)
+	next.send(t, packet.UPGRADE)
+	require.Eventually(t, func() bool { return s.Transport() == "websocket" }, 5*time.Second, time.Millisecond)
+}

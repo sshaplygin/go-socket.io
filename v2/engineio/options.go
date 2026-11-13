@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/sshaplygin/go-socket.io/v2/engineio/internal"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/session"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/transport/polling"
@@ -17,6 +18,13 @@ import (
 type Options struct {
 	PingTimeout  time.Duration
 	PingInterval time.Duration
+
+	// UpgradeTimeout bounds an upgrade: the probe and UPGRADE must both arrive within it
+	// of the accept of the upgrade's websocket connection. When it expires that
+	// connection is closed and the session stays on polling. Zero means 10 s, the
+	// upgradeTimeout of the Node server; Normalize rejects a negative value and NewServer
+	// treats it as zero.
+	UpgradeTimeout time.Duration
 
 	Transports         []transport.Transport
 	SessionIDGenerator session.IDGenerator
@@ -49,11 +57,15 @@ type Options struct {
 	PayloadPreviewBytes int
 }
 
-// Normalize validates the observer fields of a copy of the options. It does not
-// invoke user callbacks, resolve loggers or change the application default logger.
+// Normalize validates a copy of the options: the observer fields and UpgradeTimeout,
+// which must not be negative. It fills no default, does not invoke user callbacks,
+// resolve loggers or change the application default logger.
 func (c Options) Normalize() (Options, error) {
 	if c.PayloadPreviewBytes < 0 || c.PayloadPreviewBytes > 256 {
 		return Options{}, fmt.Errorf("engineio: PayloadPreviewBytes %d outside 0..256", c.PayloadPreviewBytes)
+	}
+	if c.UpgradeTimeout < 0 {
+		return Options{}, fmt.Errorf("engineio: negative UpgradeTimeout %v", c.UpgradeTimeout)
 	}
 	return c, nil
 }
@@ -97,6 +109,13 @@ func (c *Options) getPingInterval() time.Duration {
 		return c.PingInterval
 	}
 	return time.Second * 20
+}
+
+func (c *Options) getUpgradeTimeout() time.Duration {
+	if c != nil && c.UpgradeTimeout > 0 {
+		return c.UpgradeTimeout
+	}
+	return internal.DefaultUpgradeTimeout
 }
 
 func (c *Options) getTransport() []transport.Transport {

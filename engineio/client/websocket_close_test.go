@@ -4,27 +4,41 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
 	gorilla "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
-	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
-func receive[T any](t *testing.T, ch <-chan T, what string) T {
+func receive[T any](t *testing.T, ch <-chan T, what string) (v T) {
 	t.Helper()
 	select {
-	case v := <-ch:
-		return v
+	case v = <-ch:
 	case <-time.After(10 * time.Second):
 		t.Fatalf("timed out waiting for the %s", what)
-		return *new(T)
 	}
+	return v
 }
+
+// timerOnly dials probes that ignore deadlines, so only the probe timer ends an unanswered probe.
+type timerOnly struct{ *websocket.Transport }
+type timerOnlyConn struct{ transport.Conn }
+
+func (t timerOnly) Dial(u *url.URL, h http.Header) (transport.Conn, error) {
+	c, err := t.Transport.Dial(u, h)
+	if err != nil {
+		return nil, err
+	}
+	return timerOnlyConn{c}, nil
+}
+func (timerOnlyConn) SetReadDeadline(time.Time) error  { return nil }
+func (timerOnlyConn) SetWriteDeadline(time.Time) error { return nil }
+func (c timerOnlyConn) Abort() error                   { return c.Conn.(interface{ Abort() error }).Abort() }
 
 // Close after the client's own ping timeout sends a normal closure frame, as an
 // orderly Close does (TestGoClientCloseIsTransportClose). After a transport error,
@@ -37,7 +51,6 @@ func TestClientWebsocketCloseFrame(t *testing.T) {
 		dialFails        bool          // Dial returns an error; nothing is closed after it
 		reason           CloseReason   // read before Close when set
 		upgrade          time.Duration // UpgradeTimeout; zero does not probe
-		hold             bool          // a writer holds the switch until the probe expires
 		probeAtClose     bool          // the probe is still open when Close runs
 		session, probe   int           // expected close codes; zero: no probe
 	}{
@@ -46,11 +59,10 @@ func TestClientWebsocketCloseFrame(t *testing.T) {
 		{name: "failed handshake", send: []string{"4x"}, dialFails: true, session: dropped},
 		{name: "failed probe", send: []string{open}, upgrade: 10 * time.Second, probeReply: "3wrong", session: normal, probe: dropped},
 		{name: "probe at close", send: []string{open}, upgrade: 10 * time.Second, probeAtClose: true, session: normal, probe: dropped},
-		{name: "probe expired before the switch", send: []string{open}, upgrade: 300 * time.Millisecond, probeReply: "3probe", hold: true, session: normal, probe: dropped},
+		{name: "expired probe", send: []string{open}, upgrade: 300 * time.Millisecond, session: normal, probe: dropped},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			// probing signals the probe's 2probe; sessions and probes carry close codes.
-			sessions, probes, probing, held := make(chan int, 1), make(chan int, 1), make(chan struct{}, 1), make(chan struct{})
+			sessions, probes, probing := make(chan int, 1), make(chan int, 1), make(chan struct{}, 1) // close codes; the probe's 2probe
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				ws, err := (&gorilla.Upgrader{}).Upgrade(w, r, nil)
 				if err != nil {
@@ -68,9 +80,6 @@ func TestClientWebsocketCloseFrame(t *testing.T) {
 					var data []byte
 					if _, data, err = ws.ReadMessage(); string(data) == "2probe" {
 						probing <- struct{}{}
-						if tc.hold {
-							<-held
-						}
 						if tc.probeReply != "" {
 							_ = ws.WriteMessage(gorilla.TextMessage, []byte(tc.probeReply))
 						}
@@ -83,11 +92,9 @@ func TestClientWebsocketCloseFrame(t *testing.T) {
 				codes <- code
 			}))
 			defer ts.Close()
-
-			dialer := &Dialer{Transports: []transport.Transport{websocket.Default}}
-			if tc.upgrade > 0 {
-				dialer.Transports = append(dialer.Transports, websocket.Default)
-				dialer.Upgrade, dialer.UpgradeTimeout = true, tc.upgrade
+			dialer := &Dialer{Transports: []transport.Transport{websocket.Default}, Upgrade: tc.upgrade > 0, UpgradeTimeout: tc.upgrade}
+			if dialer.Upgrade {
+				dialer.Transports = append(dialer.Transports, timerOnly{websocket.Default})
 			}
 			cl, err := dialer.Dial(ts.URL, nil)
 			if require.Equal(t, tc.dialFails, err != nil, "%v", err); !tc.dialFails {
@@ -96,16 +103,9 @@ func TestClientWebsocketCloseFrame(t *testing.T) {
 					require.ErrorAs(t, readAll(cl), &closed)
 					require.Equal(t, tc.reason, closed.Reason)
 				}
-				if tc.probe != 0 {
+				if tc.probeAtClose {
 					receive(t, probing, "probe")
-				}
-				if tc.hold {
-					w, err := cl.NextWriter(eioparser.String)
-					require.NoError(t, err)
-					defer func() { _ = w.Close() }()
-					close(held)
-				}
-				if tc.probe != 0 && !tc.probeAtClose {
+				} else if tc.probe != 0 {
 					require.Equal(t, tc.probe, receive(t, probes, "probe close"))
 				}
 				_ = cl.Close()

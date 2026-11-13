@@ -108,11 +108,14 @@ func TestSessionCloseRecord(t *testing.T) {
 			f.upgrade(t, conn)
 			require.Error(t, readAll(conn))
 		}},
+		// The close record of a peer close after an upgrade names websocket, the transport
+		// the session ends on. Whether the switch moves the transport deadline is not
+		// observable through the reason: each PING moves the deadline to pingInterval +
+		// pingTimeout from then, so the ping timeout of an unanswered PING ends the
+		// session before a deadline could turn a peer close into "ping timeout".
 		{"peer close after upgrade", "P", "transport error", "websocket", func(t *testing.T, f *logFixture) {
-			start, conn := time.Now(), f.accept(t)
-			time.Sleep(200 * time.Millisecond) // of PingTimeout 400 ms
+			conn := f.accept(t)
 			f.upgrade(t, conn)
-			time.Sleep(time.Until(start.Add(480 * time.Millisecond))) // past the handshake's deadline
 			require.NoError(t, f.cl.Close())
 			require.Error(t, readAll(conn))
 		}},

@@ -271,10 +271,10 @@ func TestClassify(t *testing.T) {
 			want: with(map[string]string{"gates_v2": "true"})},
 		{name: "README read by the quick start gate", edit: map[string]string{"README.md": "# m\n\nmore\n"},
 			want: with(map[string]string{"gates_v1": "true"})},
-		{name: "README and a Go comment", edit: map[string]string{
-			"README.md":        "# m\n\nmore\n",
+		{name: "Markdown and a Go comment", edit: map[string]string{
+			"docs/guide.md":    "# Guide\n\nmore\n",
 			"parser/parser.go": "package parser\n\n// Parse parses a string.\nfunc Parse(s string) int {\n\treturn len(s)\n}\n",
-		}, want: with(map[string]string{"v1": "true", "gates_v1": "true"})},
+		}, want: lintV1},
 		{name: "module file", edit: map[string]string{"go.mod": "module example.com/m\n\ngo 1.23\n"},
 			want: merge(fullV1, map[string]string{"bench_v1": "./...", "changed": "true"})},
 		{name: "build constraint", edit: map[string]string{

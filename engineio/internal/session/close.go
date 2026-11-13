@@ -12,15 +12,6 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
-// logTooLarge logs a message past the limit of a built-in transport, which ends the
-// session with a transport error and no other WARN record.
-func logTooLarge(log *slog.Logger, err error) {
-	var limit *http.MaxBytesError
-	if errors.As(err, &limit) {
-		log.Warn("engineio: message too large", "err", fmt.Errorf("limit %d bytes: %w", limit.Limit, err))
-	}
-}
-
 // The reasons of the "engineio: session close" record.
 const (
 	reasonTransportClose = string(ReasonTransportClose)
@@ -131,7 +122,6 @@ func (s *Session) closeMode(reason string, abort, immediate bool) error {
 			args = append(args, "err", c.err)
 		}
 		s.logger().Debug("engineio: session close", args...)
-		logTooLarge(s.logger(), c.err)
 	}
 	if probe != nil {
 		_ = probe.Close()
@@ -244,8 +234,24 @@ func (s *Session) fail(err error) error {
 // errors (see fail). It takes no lock: conn is the connection of the failing
 // reader or writer, never s.conn.
 func (s *Session) observePeerClose(conn transport.Conn, err error) {
+	s.observeTooLarge(conn, err)
 	if peer, ok := conn.(interface{ PeerClosed() bool }); ok && err != nil && peer.PeerClosed() {
 		s.observe(reasonTransportClose, nil)
+	}
+}
+
+// observeTooLarge logs a message past the read limit of a built-in transport, once per
+// session, from the first failed read or write of conn that sees it. The websocket
+// transport records the violation (ReadLimitError), so the record does not depend on
+// which failure becomes the close cause, such as a write that fails on the transport's
+// own 1009 close frame before the reader returns; a polling read returns it as err.
+func (s *Session) observeTooLarge(conn transport.Conn, err error) {
+	if limited, ok := conn.(interface{ ReadLimitError() error }); ok && err != nil && limited.ReadLimitError() != nil {
+		err = limited.ReadLimitError()
+	}
+	var limit *http.MaxBytesError
+	if errors.As(err, &limit) && s.tooLarge.CompareAndSwap(false, true) {
+		s.logger().Warn("engineio: message too large", "err", fmt.Errorf("limit %d bytes: %w", limit.Limit, err))
 	}
 }
 

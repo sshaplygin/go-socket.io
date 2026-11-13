@@ -12,8 +12,8 @@ import (
 
 type messageReader struct {
 	io.Reader
-	err   error
-	limit int64 // of the connection, for readLimit
+	err error
+	w   wrapper // for limitError
 }
 
 func (r *messageReader) Read(p []byte) (int, error) {
@@ -21,7 +21,7 @@ func (r *messageReader) Read(p []byte) (int, error) {
 		return 0, r.err
 	}
 	n, err := r.Reader.Read(p)
-	r.err = readLimit(err, r.limit)
+	r.err = r.w.limitError(err)
 	return n, r.err
 }
 
@@ -40,10 +40,12 @@ func (e readLimitError) As(target any) bool {
 	return ok
 }
 
-// readLimit returns err as a readLimitError when it is websocket.ErrReadLimit.
-func readLimit(err error, limit int64) error {
+// limitError returns err as a readLimitError when it is websocket.ErrReadLimit, and
+// records the violation for ReadLimitError.
+func (w wrapper) limitError(err error) error {
 	if errors.Is(err, websocket.ErrReadLimit) {
-		return readLimitError{limit}
+		w.readFailed.Store(true)
+		return readLimitError{w.readLimit.Load()}
 	}
 	return err
 }

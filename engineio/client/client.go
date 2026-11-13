@@ -39,6 +39,7 @@ type client struct {
 	close          chan struct{}
 	closeOnce      sync.Once
 	writers        atomic.Int64
+	tooLarge       atomic.Bool // the read-limit record was logged
 	mu             sync.RWMutex
 	initOnce       sync.Once
 	writeGate      chan struct{}
@@ -195,6 +196,7 @@ func (c *client) connection() transport.Conn {
 }
 
 func (c *client) failure(err error) error {
+	c.observeTooLarge(err)
 	c.mu.RLock()
 	read, write := c.readDeadline, c.writeDeadline
 	c.mu.RUnlock()
@@ -209,23 +211,27 @@ func (c *client) failure(err error) error {
 	// Keep the dialer's existing ping-loop lifecycle: a reader reports the first
 	// cause immediately, while Close or the failed ping ends the engine client.
 	c.mu.Lock()
-	first, name := c.cause == nil, c.transport
-	if first {
+	if c.cause == nil {
 		c.cause = &CloseError{Reason: reason, Err: err}
 	}
 	c.mu.Unlock()
-	if first && reason == ReasonTransportError {
-		logTooLarge(name, err)
-	}
 	return c.closeError()
 }
 
-// logTooLarge logs a message past the limit of a built-in transport, the first cause
-// of the connection's end, which is not otherwise logged above DEBUG.
-func logTooLarge(transport string, err error) {
+// observeTooLarge logs a message past the read limit of a built-in transport, once per
+// connection, from the first failed read or write that sees it: the websocket
+// transport records the violation (ReadLimitError) before a write can fail on its 1009
+// close frame, and the polling transport returns *http.MaxBytesError to the reader.
+func (c *client) observeTooLarge(err error) {
+	c.mu.RLock()
+	conn, name := c.conn, c.transport
+	c.mu.RUnlock()
+	if limited, ok := conn.(interface{ ReadLimitError() error }); ok && limited.ReadLimitError() != nil {
+		err = limited.ReadLimitError()
+	}
 	var limit *http.MaxBytesError
-	if errors.As(err, &limit) {
-		logger.Log.Warn("engineio: message too large", "transport", transport, "err", fmt.Errorf("limit %d bytes: %w", limit.Limit, err))
+	if errors.As(err, &limit) && c.tooLarge.CompareAndSwap(false, true) {
+		logger.Log.Warn("engineio: message too large", "transport", name, "err", fmt.Errorf("limit %d bytes: %w", limit.Limit, err))
 	}
 }
 

@@ -217,6 +217,17 @@ func (c *conn) Abort() error {
 // error, so a write that the reply makes fail also observes it.
 func (c *conn) PeerClosed() bool { return c.ws.peerClosed.Load() }
 
+// ReadLimitError returns the read-limit error once a message passed the limit, else
+// nil. A limit on inflated bytes is recorded before the 1009 close frame is written,
+// and gorilla's limit on wire bytes when the read returns, so the session can log the
+// violation from whichever failed read or write sees it first.
+func (c *conn) ReadLimitError() error {
+	if c.ws.readFailed.Load() {
+		return readLimitError{c.ws.readLimit.Load()}
+	}
+	return nil
+}
+
 func (c *conn) markClosed() {
 	c.closedOnce.Do(func() { close(c.closed) })
 }

@@ -4,9 +4,9 @@ A [Socket.IO](https://socket.io) server and Go client with namespaces, rooms, ac
 broadcast and a Redis adapter for multi-instance deployments. Engine.IO is included as
 the `engineio` sub-package and can be used on its own.
 
-This is a maintained fork of `googollee/go-socket.io`. Applications moving from upstream
-v1.4.2 or v1.7.0 should follow the
-[migration guide](docs/V1.md#migrating-from-googolleego-socketio).
+This module is the maintained successor of the archived `googollee/go-socket.io` for
+`socket.io-client` 1.x and 2.x. Applications moving from upstream v1.4.2 or v1.7.0 should
+follow the [migration guide](docs/V1.md#migrating-from-googolleego-socketio).
 
 ![Build Status](https://github.com/sshaplygin/go-socket.io/workflows/CI/badge.svg)
 [![GoDoc](https://pkg.go.dev/badge/github.com/sshaplygin/go-socket.io.svg)](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0)
@@ -32,6 +32,43 @@ go get github.com/sshaplygin/go-socket.io@v1.5.0
 ```
 
 Go 1.22 or later is required.
+
+## Quick start
+
+A server whose `join` handler adds the socket to a room, broadcasts `joined` to that room
+and returns the ACK:
+
+<!-- quickstart:begin -->
+```go
+package main
+
+import (
+	"log"
+	"net/http"
+
+	socketio "github.com/sshaplygin/go-socket.io"
+)
+
+func main() {
+	server := socketio.NewServer()
+	server.OnEvent("/", "join", func(s socketio.Conn, room string) string {
+		s.Join(room)
+		server.BroadcastToRoom("/", room, "joined", s.ID())
+		return "welcome to " + room // sent as the ACK
+	})
+	go server.Serve()
+
+	http.Handle("/socket.io/", server)
+	err := http.ListenAndServe(":8000", nil)
+	server.Close()
+	log.Fatal(err)
+}
+```
+<!-- quickstart:end -->
+
+A `socket.io-client` 1.x or 2.x client of `http://localhost:8000` that calls
+`socket.emit("join", "lobby", ack => console.log(ack))` receives `joined` with its own ID
+and the ACK `welcome to lobby`.
 
 ## Examples
 

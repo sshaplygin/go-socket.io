@@ -241,10 +241,11 @@ func (s *Session) observePeerClose(conn transport.Conn, err error) {
 }
 
 // observeTooLarge logs a message past the read limit of a built-in transport, once per
-// session, from the first failed read or write of conn that sees it. The websocket
-// transport records the violation (ReadLimitError), so the record does not depend on
-// which failure becomes the close cause, such as a write that fails on the transport's
-// own 1009 close frame before the reader returns; a polling read returns it as err.
+// session, from the first failed read or write of conn that sees it. Both built-in
+// server transports, websocket and the polling server connection, report the violation
+// through ReadLimitError, so the record does not depend on which failure becomes the
+// close cause, such as a write that fails on the transport's own 1009 close frame before
+// the reader returns. A streamed polling read also returns it as err.
 func (s *Session) observeTooLarge(conn transport.Conn, err error) {
 	if limited, ok := conn.(interface{ ReadLimitError() error }); ok && err != nil && limited.ReadLimitError() != nil {
 		err = limited.ReadLimitError()

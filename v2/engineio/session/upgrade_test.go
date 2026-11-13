@@ -1,13 +1,16 @@
 package session
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/internal/logtest"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
 )
 
 // pausablePeer is a peerConn that counts Pause and Resume, as the polling transport
@@ -78,4 +81,29 @@ func TestSessionUpgradePausesOnUpgradePacket(t *testing.T) {
 	require.Equal(t, "websocket", s.Transport())
 	require.Equal(t, 1, old.paused)
 	require.Equal(t, 0, old.resumed)
+}
+
+// TestSessionPingTimeoutDuringUpgrade: a ping timeout between the probe and UPGRADE
+// closes the session once, closes the websocket candidate that waits for UPGRADE, and
+// the session is not switched to it. The upgrade starts before the heartbeat here, so
+// the probe is answered before the timeout can fire.
+func TestSessionPingTimeoutDuringUpgrade(t *testing.T) {
+	rec := logtest.NewRecorder()
+	old := pausablePeer{newPeerConn()}
+	s, err := New(old, "sid1", "polling", transport.ConnParameters{
+		PingInterval: 5 * time.Millisecond, PingTimeout: 10 * time.Millisecond,
+	}, slog.New(rec))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+	next := newPeerConn()
+	done := make(chan struct{})
+	go func() { defer close(done); s.upgrading("websocket", next) }()
+	probe(t, next)
+
+	go func() { _ = s.InitSession() }() // starts the heartbeat; nobody answers its PING
+	next.waitClosed(t)
+	<-done
+	old.waitClosed(t)
+	require.Equal(t, "polling", s.Transport())
+	require.Equal(t, "ping timeout", closeRecord(t, rec)["reason"])
 }

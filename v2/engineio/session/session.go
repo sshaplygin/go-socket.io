@@ -45,6 +45,8 @@ type Session struct {
 	pingTimer *time.Timer
 	pongTimer *time.Timer // nil while no PING waits for its PONG
 
+	candidate transport.Conn // the connection of a running upgrade; Close closes it
+
 	cause    atomic.Pointer[closeCause] // the first close cause observed
 	deadline atomic.Int64               // UnixNano of the deadline setDeadline set on conn
 }
@@ -137,13 +139,20 @@ func (s *Session) close(reason string) error {
 		s.logger().Debug("engineio: session close", args...)
 	}
 	s.closed = true
-	conn := s.conn
+	conn, candidate := s.conn, s.candidate
+	s.candidate = nil
 	if s.pingTimer != nil {
 		s.pingTimer.Stop()
 	}
 	s.stopPongTimer()
 	s.upgradeLocker.Unlock()
 
+	// An upgrade waiting on its connection ends with it, without switching.
+	if candidate != nil {
+		if err := candidate.Close(); err != nil {
+			s.logger().Debug("engineio: close connection failed", "err", err)
+		}
+	}
 	return conn.Close()
 }
 
@@ -191,9 +200,14 @@ func (w frameWriter) Write(p []byte) (int, error) {
 
 func (w frameWriter) Close() error { return w.s.fail(w.WriteCloser.Close()) }
 
-// NextReader attempts to obtain a ReadCloser from the session's connection.
-// When finished writing, the caller MUST Close the ReadCloser to unlock the
-// connection's FramerReader.
+// NextReader returns the next MESSAGE of the session. When finished reading, the
+// caller MUST Close the ReadCloser to unlock the connection's FrameReader.
+//
+// NextReader is the session's only reader: it consumes the PONGs that answer the
+// heartbeat's PINGs, and the CLOSE and client PING packets that end the session. The
+// PINGs and the ping timeout run on timers, so a caller that stops calling NextReader,
+// or holds a reader open, for longer than PingTimeout after a PING ends the session
+// with reason "ping timeout" (engineio.Conn.NextReader states the caller's contract).
 func (s *Session) NextReader() (frame.Type, io.ReadCloser, error) {
 	for {
 		ft, pt, r, err := s.nextReader()
@@ -350,7 +364,9 @@ func (s *Session) InitSession() error {
 // ping sends a PING and arms the timer that closes the session unless a PONG
 // answers within PingTimeout. It runs when pingTimer fires. The timer is armed
 // before the write, so a write that blocks, as on a polling session whose client
-// stopped polling, ends with the session.
+// stopped polling, ends with the session. The transport deadline is moved before
+// the write too: measured from the previous PONG alone, it would expire before this
+// PING's timeout whenever pingTimer fired late, and cut off a PONG that is in time.
 func (s *Session) ping() {
 	s.upgradeLocker.Lock()
 	if s.closed {
@@ -372,7 +388,11 @@ func (s *Session) ping() {
 	s.pongTimer = t
 	s.upgradeLocker.Unlock()
 
-	w, err := s.nextWriter(frame.String, packet.PING)
+	err := s.setDeadline()
+	var w io.WriteCloser
+	if err == nil {
+		w, err = s.nextWriter(frame.String, packet.PING)
+	}
 	if err == nil {
 		err = w.Close()
 	}
@@ -460,9 +480,12 @@ func (s *Session) nextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, err
 }
 
 // setDeadline sets the read and write deadlines of the connection to PingInterval
-// plus PingTimeout from now: the latest time the PONG to the next PING can arrive.
-// It bounds transport operations, such as the body read of a polling POST, that
-// the ping timeout itself cannot interrupt.
+// plus PingTimeout from now. It runs when the session is created, when a PING is
+// sent, after each PONG and after an upgrade, so the deadline expires no earlier
+// than PingInterval after the ping timeout of the outstanding PING, however late
+// pingTimer fired. The deadline is a backstop for transport operations the ping
+// timeout cannot interrupt, such as the body read of a polling POST or a blocked
+// write.
 func (s *Session) setDeadline() error {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
@@ -479,6 +502,11 @@ func (s *Session) setDeadline() error {
 }
 
 func (s *Session) upgrading(t string, conn transport.Conn) {
+	if !s.trackCandidate(conn) {
+		return
+	}
+	defer s.untrackCandidate(conn)
+
 	// Read a ping from the client.
 	err := conn.SetReadDeadline(time.Now().Add(s.params.PingTimeout))
 	if err != nil {
@@ -605,7 +633,9 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 		return
 	}
 
-	go s.sendNoop(old)
+	stopNoops := make(chan struct{})
+	defer close(stopNoops)
+	go s.sendNoops(old, stopNoops)
 
 	// Check for upgrade packet from the client.
 	_, pt, r, err = conn.NextReader()
@@ -659,17 +689,34 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	}
 }
 
-// sendNoop writes a NOOP to old, the connection an upgrade replaces. On polling it
-// completes the pending poll, or the next one: the client waits for that poll to end
-// before it pauses polling and sends UPGRADE. It returns at the latest when old is
-// paused or closed, as the upgrade or the session ends; that failure is expected.
-func (s *Session) sendNoop(old transport.Conn) {
-	w, err := old.NextWriter(frame.String, packet.NOOP)
-	if err == nil {
-		err = w.Close()
-	}
-	if err != nil {
-		s.logger().Debug("engineio: upgrade noop failed", "err", err)
+// noopInterval is the least time between two NOOPs of an upgrade: the Node server
+// checks for a pending poll every 100 ms.
+const noopInterval = 100 * time.Millisecond
+
+// sendNoops answers the polls of old, the connection an upgrade replaces, with NOOP
+// until stop is closed: the client waits for its pending poll to end before it pauses
+// polling and sends UPGRADE. Each NOOP waits for a poll, so a poll that arrives while
+// one waits is answered at once, and the next NOOP follows at least noopInterval
+// later, as on the Node server. After stop a NOOP already waiting still answers the
+// next poll, unless UPGRADE paused old or the session closed it, which fail it; that
+// failure is expected.
+func (s *Session) sendNoops(old transport.Conn, stop <-chan struct{}) {
+	for {
+		w, err := old.NextWriter(frame.String, packet.NOOP)
+		if err == nil {
+			err = w.Close()
+		}
+		if err != nil {
+			s.logger().Debug("engineio: upgrade noop failed", "err", err)
+			return
+		}
+		pace := time.NewTimer(noopInterval)
+		select {
+		case <-stop:
+			pace.Stop()
+			return
+		case <-pace.C:
+		}
 	}
 }
 
@@ -692,9 +739,36 @@ func (s *Session) switchTransport(t string, conn transport.Conn) bool {
 	}
 	s.conn = conn
 	s.transport = t
+	s.candidate = nil
 	s.log.Store(s.baseLog.With("transport", t))
 	s.upgradeLocker.Unlock()
 	return true
+}
+
+// trackCandidate records conn as the connection of the running upgrade, so that Close
+// closes it. On a closed session it closes conn and reports false.
+func (s *Session) trackCandidate(conn transport.Conn) bool {
+	s.upgradeLocker.Lock()
+	closed := s.closed
+	if !closed {
+		s.candidate = conn
+	}
+	s.upgradeLocker.Unlock()
+	if closed {
+		if err := conn.Close(); err != nil {
+			s.logger().Debug("engineio: close connection failed", "err", err)
+		}
+	}
+	return !closed
+}
+
+// untrackCandidate forgets conn when the upgrade ends without switching to it.
+func (s *Session) untrackCandidate(conn transport.Conn) {
+	s.upgradeLocker.Lock()
+	if s.candidate == conn {
+		s.candidate = nil
+	}
+	s.upgradeLocker.Unlock()
 }
 
 // replaced reports whether conn is no longer the session's connection

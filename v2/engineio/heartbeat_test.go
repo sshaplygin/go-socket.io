@@ -48,48 +48,59 @@ func dialRaw(t *testing.T, tr transport.Transport, rawURL string) transport.Conn
 // answers with PONG (`3`) keeps the session open past several PingTimeouts, and the
 // first unanswered PING closes it with reason "ping timeout" after PingTimeout.
 func TestServerHeartbeat(t *testing.T) {
-	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
-		t.Run(tr.Name(), func(t *testing.T) {
-			const interval, timeout = 20 * time.Millisecond, 300 * time.Millisecond
-			rec := logtest.NewRecorder()
-			srv := engineio.NewServer(&engineio.Options{
-				Logger: slog.New(rec), PingInterval: interval, PingTimeout: timeout,
-			})
-			t.Cleanup(func() { _ = srv.Close() })
-			ts := httptest.NewServer(srv)
-			t.Cleanup(ts.Close)
-
-			cl := dialRaw(t, tr, ts.URL)
-			conn, err := srv.Accept()
-			require.NoError(t, err)
-			go func() { _ = readAll(conn) }()
-
-			for i := 0; i < 3; i++ {
-				require.NoError(t, cl.SetReadDeadline(time.Now().Add(5*time.Second)))
-				ft, pt, r, err := cl.NextReader()
-				require.NoError(t, err)
-				data, err := io.ReadAll(r)
-				require.NoError(t, err)
-				require.NoError(t, r.Close())
-				require.Equal(t, frame.String, ft)
-				require.Equal(t, packet.PING, pt)
-				require.Empty(t, data)
-
-				w, err := cl.NextWriter(frame.String, packet.PONG)
-				require.NoError(t, err)
-				require.NoError(t, w.Close())
-			}
-			require.Empty(t, rec.Find("engineio: session close"), "answered PINGs keep the session open")
-			require.Equal(t, 1, srv.Count())
-
-			require.NoError(t, cl.SetReadDeadline(time.Now().Add(5*time.Second)))
-			_, pt, r, err := cl.NextReader()
-			require.NoError(t, err)
-			require.Equal(t, packet.PING, pt)
-			require.NoError(t, r.Close())
-			require.Eventually(t, func() bool { return len(rec.Find("engineio: session close")) == 1 },
-				5*time.Second, time.Millisecond)
-			require.Equal(t, "ping timeout", rec.Find("engineio: session close")[0]["reason"])
-		})
+	// With the interval above the timeout, a PONG that left the ping timeout armed, or a
+	// transport deadline of PingTimeout alone, would close the session before the next PING.
+	heartbeats := map[string][2]time.Duration{
+		"interval below timeout": {20 * time.Millisecond, 300 * time.Millisecond},
+		"interval above timeout": {600 * time.Millisecond, 300 * time.Millisecond},
 	}
+	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
+		for name, hb := range heartbeats {
+			t.Run(tr.Name()+"/"+name, func(t *testing.T) { testServerHeartbeat(t, tr, hb[0], hb[1]) })
+		}
+	}
+}
+
+func testServerHeartbeat(t *testing.T, tr transport.Transport, interval, timeout time.Duration) {
+	rec := logtest.NewRecorder()
+	srv := engineio.NewServer(&engineio.Options{
+		Logger: slog.New(rec), PingInterval: interval, PingTimeout: timeout,
+	})
+	t.Cleanup(func() { _ = srv.Close() })
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+
+	cl := dialRaw(t, tr, ts.URL)
+	conn, err := srv.Accept()
+	require.NoError(t, err)
+	go func() { _ = readAll(conn) }()
+
+	start := time.Now()
+	for i := 0; i < 3; i++ {
+		require.NoError(t, cl.SetReadDeadline(time.Now().Add(5*time.Second)))
+		ft, pt, r, err := cl.NextReader()
+		require.NoError(t, err)
+		data, err := io.ReadAll(r)
+		require.NoError(t, err)
+		require.NoError(t, r.Close())
+		require.Equal(t, frame.String, ft)
+		require.Equal(t, packet.PING, pt)
+		require.Empty(t, data)
+
+		w, err := cl.NextWriter(frame.String, packet.PONG)
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+	}
+	require.GreaterOrEqual(t, time.Since(start), 2*interval)
+	require.Empty(t, rec.Find("engineio: session close"), "answered PINGs keep the session open")
+	require.Equal(t, 1, srv.Count())
+
+	require.NoError(t, cl.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, pt, r, err := cl.NextReader()
+	require.NoError(t, err)
+	require.Equal(t, packet.PING, pt)
+	require.NoError(t, r.Close())
+	require.Eventually(t, func() bool { return len(rec.Find("engineio: session close")) == 1 },
+		5*time.Second, time.Millisecond)
+	require.Equal(t, "ping timeout", rec.Find("engineio: session close")[0]["reason"])
 }

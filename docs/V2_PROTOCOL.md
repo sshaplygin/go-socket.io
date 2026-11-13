@@ -21,11 +21,14 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
 - Heartbeat: the server sends `PING` (`2`)
   `pingInterval` after the handshake and `pingInterval` after each `PONG` (`3`), as the Node
   server does, and closes the session with reason `ping timeout` when no `PONG` arrives within
-  `pingTimeout` of a `PING`. The ping timer and the ping timeout run on their own timers, so
-  they do not wait for the application to call `NextReader`; the `PONG` itself is read by
-  `NextReader`, the session's one reader, which an application must keep calling (a Socket.IO
-  server does). Each `PONG` also moves the transport read and write deadlines to
-  `pingInterval + pingTimeout` from then, which bounds a polling POST body. A `PING` from the
+  `pingTimeout` of a `PING`. Control packets are processed by the connection's reader, so the
+  heartbeat holds only while the application keeps reading; the contract is the godoc of
+  `engineio.Conn.NextReader` and [ROADMAP.md](ROADMAP.md#20-generic-api-and-lifecycle-contract)
+  (2.0). The transport read and write deadlines are a backstop for operations the ping
+  timeout cannot interrupt, such as a polling POST body read or a blocked write: each `PING`
+  and each `PONG` moves them to `pingInterval + pingTimeout` from then, so they expire no
+  earlier than `pingInterval` after the ping timeout of the outstanding `PING`, however late
+  that `PING` was sent. A `PING` from the
   client is not answered: it closes the session with reason `transport error` and
   `invalid heartbeat direction`, as on the Node server. The Go client (`engineio/client`)
   sends no `PING`; its `NextReader` answers each `PING` with `PONG`, and when no `PING`
@@ -71,7 +74,7 @@ server->>client: OPEN
 client->>server: dial websocket with sid
 client->>server: PING "probe"
 server->>client: PONG "probe"
-server->>client: NOOP (completes the pending poll)
+server->>client: NOOP into each poll until UPGRADE
 client->>client: pause polling
 client->>server: UPGRADE
 server->>server: pause old conn (NOOP if a poll is still waiting)
@@ -80,11 +83,19 @@ server->>server: close old conn
 ```
 
   Implemented in `session.Session.upgrading`. Polling keeps serving the session until
-  `UPGRADE` arrives, as on the Node server: after the probe the server writes one `NOOP`
-  to the polling connection, which completes the pending poll or, if none is pending, the
-  next one, and only `UPGRADE` pauses polling. If anything else follows the probe, or no
-  packet within `pingTimeout`, the websocket connection is closed and the session stays on
-  polling, which was never paused.
+  `UPGRADE` arrives, as on the Node server: from the probe until `UPGRADE`, a failed upgrade
+  or the close of the session, the server answers every poll with `NOOP`, at most one per
+  100 ms, so the client's pending poll completes and the client can pause polling; only
+  `UPGRADE` pauses polling. The Node server checks every 100 ms whether a poll is pending;
+  here a `NOOP` waits for the next poll and answers it at once, the following one comes at
+  least 100 ms later. After a failed upgrade a `NOOP` that was already waiting still answers
+  the next poll; then the `NOOP`s stop. The probe and `UPGRADE` must both arrive within
+  `pingTimeout` of the moment the server accepts the websocket connection: that one read
+  deadline is set before the probe is read and is not extended by it. If anything else
+  follows the probe or the deadline passes, the upgrade fails: the websocket connection is
+  closed and the session stays on polling, which was never paused. If the session closes
+  during the upgrade (for example on a ping timeout), the session ends with both its polling
+  connection and the websocket connection closed, and it is not switched.
 - Error responses (Engine.IO v4): the server answers a rejected request with the JSON
   body `{"code":N,"message":"..."}` and content type `application/json`:
 
@@ -163,7 +174,7 @@ Engine.IO v3 → v4 (implemented in `v2/engineio`, see above):
 | Handshake | `sid`, `upgrades`, `pingInterval`, `pingTimeout` | plus `maxPayload` |
 | Heartbeat | client sends `2`, server answers `3` | server sends `2` every `pingInterval`, client answers `3` within `pingTimeout` |
 | WebSocket | one packet per frame, binary frames start with a type byte | unchanged; binary frames carry raw bytes |
-| Upgrade | `2probe` / `3probe` / `5` | unchanged, plus server sends `6` (NOOP) into the pending poll; polling pauses on `5` |
+| Upgrade | `2probe` / `3probe` / `5` | unchanged, plus server answers the polls with `6` (NOOP) until `5`; polling pauses on `5` |
 | Errors | plain text | JSON `{"code": N, "message": "..."}`, codes 0..5 |
 
 Socket.IO v4 → v5:

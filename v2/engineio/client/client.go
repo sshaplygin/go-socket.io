@@ -99,6 +99,10 @@ func (c *client) Close() error {
 	return c.conn.Close()
 }
 
+// NextReader returns the next MESSAGE and answers each PING read before it with PONG;
+// it is the client's only reader. A caller that does not call it for longer than
+// pingInterval + pingTimeout, or holds a reader open that long, misses PINGs: the
+// client then closes, as on a silent server, and NextReader fails with "ping timeout".
 func (c *client) NextReader() (frame.Type, io.ReadCloser, error) {
 	for {
 		ft, pt, r, err := c.conn.NextReader()
@@ -108,7 +112,8 @@ func (c *client) NextReader() (frame.Type, io.ReadCloser, error) {
 
 		switch pt {
 		case packet.PING:
-			// Answer with PONG, as the Node client does; a failure reaches the reader.
+			// Answer with PONG, as the Node client does. A failure closes the client, as
+			// engine.io-client closes on a transport error, and reaches the reader.
 			if err = r.Close(); err != nil {
 				logger.Log.Debug("engineio: close reader failed", "err", err)
 			}
@@ -118,6 +123,9 @@ func (c *client) NextReader() (frame.Type, io.ReadCloser, error) {
 				err = w.Close()
 			}
 			if err != nil {
+				if closeErr := c.Close(); closeErr != nil {
+					logger.Log.Debug("engineio: close connection failed", "err", closeErr)
+				}
 				return 0, nil, c.readErr(err)
 			}
 			continue

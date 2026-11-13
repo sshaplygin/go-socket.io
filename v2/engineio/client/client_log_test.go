@@ -135,6 +135,7 @@ type brokenConn struct {
 	first packet.Type
 	reads int
 	wrote []packet.Type
+	close int // calls of Close
 }
 
 var errBroken = errors.New("broken")
@@ -160,20 +161,27 @@ func (c *brokenConn) NextWriter(_ frame.Type, pt packet.Type) (io.WriteCloser, e
 	return nil, errBroken
 }
 
-func (c *brokenConn) Close() error { return nil }
+func (c *brokenConn) Close() error { c.close++; return nil }
 
 // TestClientPongFailure: the client answers a server PING with PONG from NextReader;
-// when the PONG cannot be written, NextReader returns that failure, so nothing is
-// logged above DEBUG. Not parallel: it sets slog.Default.
+// when the PONG cannot be written, the client closes (its connection is closed and its
+// heartbeat timer stopped) and NextReader returns that failure, as later calls do, so
+// nothing is logged above DEBUG. Not parallel: it sets slog.Default.
 //
 // Covers the 1.L Levels rule on the engine.io client; no 1L-T case.
 func TestClientPongFailure(t *testing.T) {
 	rec := logtest.NewRecorder()
 	logtest.SetDefault(t, rec)
 	conn := &brokenConn{first: packet.PING}
-	_, _, err := (&client{conn: conn}).NextReader()
+	cl := &client{conn: conn, params: transport.ConnParameters{PingInterval: time.Hour}}
+	cl.startHeartbeat()
+	_, _, err := cl.NextReader()
 	require.ErrorIs(t, err, errBroken)
 	require.Equal(t, []packet.Type{packet.PONG}, conn.wrote)
+	require.Equal(t, 1, conn.close, "a failed PONG closes the client")
+	require.False(t, cl.pingTimer.Stop(), "the heartbeat timer was stopped")
+	_, _, err = cl.NextReader()
+	require.ErrorIs(t, err, errBroken)
 	for _, m := range rec.Find("") {
 		assert.Equal(t, slog.LevelDebug.String(), m["level"], "%v", m)
 	}

@@ -308,26 +308,28 @@ func TestUpgradeGuardRejectedAccept(t *testing.T) {
 // their websocket connection, where the window was the 60 s default pingTimeout. The session stays on polling, unpaused: it serves the next poll,
 // and a later upgrade completes and outlives the upgrade window.
 func TestUpgradeTimeout(t *testing.T) {
-	// The close may come up to margin after the timeout: room for scheduling under -race.
-	const timeout, margin = 300 * time.Millisecond, time.Second
+	const timeout = time.Second
 	f := newGuardFixture(t, &engineio.Options{UpgradeTimeout: timeout})
 	p := dialRaw(t, polling.Default, f.url)
 	conn := f.accept(t)
 
 	// Each attempt is closed at the timeout from its accept: one that sends no probe, then
-	// one whose probe is answered but not followed by UPGRADE.
-	for _, probe := range []bool{false, true} {
+	// one whose probe comes late, at 70% of the window, is answered and is not followed by
+	// UPGRADE. The close must come before 135% of the window: 35% for scheduling under
+	// -race, and 35% short of a window measured from the late probe (170%).
+	for _, probeAt := range []time.Duration{-1, timeout * 7 / 10} {
 		start := time.Now()
 		ws, err := f.dial(t, conn.ID(), nil)
 		require.NoError(t, err)
-		if probe {
+		if probeAt >= 0 {
+			time.Sleep(time.Until(start.Add(probeAt)))
 			sendProbe(t, ws)
 		}
 		_, err = nextType(ws, 5*time.Second)
 		elapsed := time.Since(start)
 		require.Error(t, err, "the server closes the websocket connection")
 		require.GreaterOrEqual(t, elapsed, timeout)
-		require.Less(t, elapsed, timeout+margin)
+		require.Less(t, elapsed, timeout*135/100)
 	}
 
 	// A failed upgrade returns the reservation before the server closes the connection, so

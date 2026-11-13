@@ -36,8 +36,10 @@ func TestREADMEQuickStart(t *testing.T) {
 	// A Windows checkout may convert both files to CRLF; compare them with LF line endings.
 	text := strings.ReplaceAll(string(readme), "\r\n", "\n")
 	code := strings.ReplaceAll(string(source), "\r\n", "\n")
-	if strings.Count(text, quickStartBegin) != 1 || strings.Count(text, quickStartEnd) != 1 {
-		t.Fatalf("README.md must contain exactly one %q ... %q block", quickStartBegin, quickStartEnd)
+	for _, marker := range []string{"<!-- quickstart:begin -->", "<!-- quickstart:end -->", quickStartBegin, quickStartEnd} {
+		if strings.Count(text, marker) != 1 {
+			t.Fatalf("README.md must contain %q exactly once, in one %q ... %q block", marker, quickStartBegin, quickStartEnd)
+		}
 	}
 	_, block, _ := strings.Cut(text, quickStartBegin)
 	block, _, _ = strings.Cut(block, quickStartEnd)

@@ -71,13 +71,14 @@ bench:
 
 .PHONY: lint
 lint: vet lint-go
+	gofmt -s -l . | tee /dev/stderr | test -z "$$(cat)"
 
 # golangci-lint of the root module, the packages that ./... skips (the Go client example,
 # the Engine.IO example, the README quick-start fixture and the .github tools) and every
-# example module with the root configuration. The CI lint job runs this target.
+# example module with the root configuration. The CI lint job runs this target after its
+# own Format step.
 .PHONY: lint-go
 lint-go:
-	gofmt -s -l . | tee /dev/stderr | test -z "$$(cat)"
 	golangci-lint run ./... ./_examples/client ./engineio/_examples ./internal/parity/testdata/quickstart \
 		./.github/architecture ./.github/changes ./.github/stress
 	@set -e; for d in $(EXAMPLES); do echo "==> golangci-lint $$d"; \

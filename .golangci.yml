@@ -7,7 +7,24 @@ run:
 linters:
   # Default set: errcheck, govet, ineffassign, staticcheck, unused.
   default: standard
+  enable:
+    - forbidigo
   settings:
+    # Examples, README snippets and library code never terminate the process: a library
+    # returns the error, and a failing example main panics with it, which runs deferred
+    # cleanup and can be recovered, instead of exiting past it.
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^log\.(Logger\.)?Fatal(f|ln)?$
+          pkg: ^log$
+          msg: return the error; a failing main panics
+        - pattern: ^log\.(Logger\.)?Panic(f|ln)?$
+          pkg: ^log$
+          msg: return the error; a failing main panics with panic(err)
+        - pattern: ^os\.Exit$
+          pkg: ^os$
+          msg: return the error; a failing main panics
     staticcheck:
       # golangci-lint's default staticcheck selection, minus QF1008
       # (redundant embedded-field selectors), which is a style preference:
@@ -17,6 +34,17 @@ linters:
         - -ST1003
         - -ST1016
         - -QF1008
+  exclusions:
+    rules:
+      # The CI tools under .github are neither examples nor library code: they report
+      # failures to the workflow through their exit status.
+      - path: (^|/)\.github/(architecture|changes|coverage|stress)/
+        linters: [forbidigo]
+      # TestMain owns the exit status of a test binary: the goroutine-leak gates set it
+      # after m.Run returns, and a helper subprocess exits before running tests.
+      - path: _test\.go$
+        text: os\.Exit
+        linters: [forbidigo]
 
 formatters:
   enable:

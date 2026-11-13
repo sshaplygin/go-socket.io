@@ -274,9 +274,11 @@ func TestUpgradeGuardBusySession(t *testing.T) {
 	}
 }
 
-// TestUpgradeGuardClosedSession: a websocket request with the sid of a session that is
-// closed but still registered gets the answer of an unknown sid, as on the Node server,
-// which deletes a closed client: HTTP 400, code 1 and one "unknown sid" record.
+// TestUpgradeGuardClosedSession: a request the session would not serve, with the sid of a
+// session that is closed but still registered, gets the answer of an unknown sid, as on
+// the Node server, which deletes a closed client: HTTP 400, code 1 and an "unknown sid"
+// record. Here a websocket request for a session closed on polling, then a polling
+// request for a session closed on websocket.
 func TestUpgradeGuardClosedSession(t *testing.T) {
 	f := newGuardFixture(t, &engineio.Options{})
 	dialRaw(t, polling.Default, f.url)
@@ -287,6 +289,18 @@ func TestUpgradeGuardClosedSession(t *testing.T) {
 	_, err := f.dial(t, conn.ID(), nil)
 	requireRefused(t, err, unknownSID)
 	f.requireRejected(t, "unknown sid")
+
+	_, err = f.dial(t, "", nil)
+	require.NoError(t, err)
+	conn = f.accept(t)
+	require.NoError(t, conn.Close())
+	w := httptest.NewRecorder()
+	f.srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/?EIO=4&transport=polling&sid="+conn.ID(), nil))
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.JSONEq(t, unknownSID, w.Body.String())
+	got := f.rec.Find("engineio: request rejected")
+	require.Len(t, got, 2)
+	require.Equal(t, "unknown sid", got[1]["reason"])
 }
 
 // TestUpgradeGuardRejectedAccept: an upgrade request the transport refuses to accept,

@@ -117,9 +117,9 @@ server->>server: close old conn
   | Code | Message | Status | Cause |
   | --- | --- | --- | --- |
   | 0 | `Transport unknown` | 400 | `transport` is not one of `Options.Transports` |
-  | 1 | `Session ID unknown` | 400 | no session has the `sid`, or a websocket request names a session that is closed but still registered (the Node server deletes a closed client) |
+  | 1 | `Session ID unknown` | 400 | no session has the `sid`, or the session is closed but still registered and the request is one it would not serve: a websocket request, or a request on another transport than the session's (the Node server deletes a closed client) |
   | 2 | `Bad handshake method` | 400 | a handshake (no `sid`) that is neither GET nor an OPTIONS preflight |
-  | 3 | `Bad request` | 400 | a transport change the session cannot make, a websocket request for a session that is upgrading or already on websocket, a failed session start, a polling request that is not GET, POST or OPTIONS |
+  | 3 | `Bad request` | 400 | for an open session, a transport change it cannot make or a websocket request while it is upgrading or already on websocket; a failed session start; a polling request that is not GET, POST or OPTIONS |
   | 4 | `Forbidden` | 403 | `Options.RequestChecker` returned an error |
   | 5 | `Unsupported protocol version` | 400 | `EIO` is missing or not `4` |
 

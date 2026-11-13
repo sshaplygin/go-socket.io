@@ -3116,7 +3116,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W73. Forbid fatal exits by lint
 
-- **Status:** in progress — #PR
+- **Status:** in progress — #254
 - **Priority:** before tag
 - **Findings:** [CL-21](#clarity-findings)
 - **Depends on:** none
@@ -4143,7 +4143,7 @@ Every finding is listed under the dimension that reported it.
 | CL-18 | minor | — | `adapter/redis/adapter.go:198` | The Redis adapter logs through `slog.Default()` and ignores `socketio.WithLogger`, but the logger package doc, `engineio/options.go:60` and V1.md:457 do not list it | Name the Redis adapter in those lists (W51). Fixed by #204 (W51). |
 | CL-19 | minor | — | `docs/V1.md:346` | The migration guide covers upstream v1.4.2 and v1.7.0 only; users of the intermediate releases v1.4.3 to v1.6.3 have no stated baseline | State a checked baseline for each intermediate release (W51). Fixed by #204 (W51). |
 | CL-20 | minor | — | `README.md`, `doc.go` | README.md has no Go code (only the `go get` command); the first runnable snippet is in `doc.go`. A newcomer evaluation needed `doc.go` and the examples to write a server | Add a compiled server quick start to README (W68). Fixed by #253 (W68). |
-| CL-21 | minor | — | `_examples/*/main.go`, `.golangci.yml` | Every v1 example `main` ended with `os.Exit(1)`, and no lint rule forbade `log.Fatal`, `log.Panic` or `os.Exit`; golangci-lint did not lint the example modules, `_examples/client`, `engineio/_examples` or the README quick-start fixture | Forbid these calls with golangci-lint in both modules, lint those packages, and make a failing example `main` panic with the error (W73). Fixed by #PR (W73). |
+| CL-21 | minor | — | `_examples/*/main.go`, `.golangci.yml` | Every v1 example `main` ended with `os.Exit(1)`, and no lint rule forbade `log.Fatal`, `log.Panic` or `os.Exit`; golangci-lint did not lint the example modules, `_examples/client`, `engineio/_examples` or the README quick-start fixture | Forbid these calls with golangci-lint in both modules, lint those packages, and make a failing example `main` panic with the error (W73). Fixed by #254 (W73). |
 
 ### Architecture findings
 

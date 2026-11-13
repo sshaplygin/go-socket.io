@@ -193,7 +193,7 @@ and updating imports to the v2 layout; do not repeat completed codec work.
 | Prepared component | Evidence | Remaining 2.1 integration |
 | --- | --- | --- |
 | `engineio/payload` (moved from `internal/eio4`) | polling codec, bounded `DecodeReader`, exact-wire `EncodeBatch`, fixtures/fuzz tests and pinned Node oracles | integrated by the polling transport (PR B): POST limits and status mapping, client batching, cancellation and deadlines, pause/upgrade lifecycle; the open packet advertises `maxPayload`, the polling POST limit (PR D1) |
-| `engineio/transport/websocket` (moved from `internal/eio4` and `_experiments/eio4-websocket`) | complete-message EIO4 codec with binary/text fixtures and parser oracle; gobwas framing (masking, fragments, UTF-8, control frames, message limits, close statuses) with a pinned `ws` peer oracle | integrated by the WebSocket transport (PR C): `FrameReader`/`FrameWriter` over the codec, `ws.Dialer`, deadlines and buffer options kept; the `maxPayload` of the open packet, the v4 heartbeat and the upgrade lifecycle (PR D1); the upgrade guard and `UpgradeTimeout` (PR E1). Open: limits and timeouts as options (PR E2), fuzzing (PR E3) |
+| `engineio/transport/websocket` (moved from `internal/eio4` and `_experiments/eio4-websocket`) | complete-message EIO4 codec with binary/text fixtures and parser oracle; gobwas framing (masking, fragments, UTF-8, control frames, message limits, close statuses) with a pinned `ws` peer oracle | integrated by the WebSocket transport (PR C): `FrameReader`/`FrameWriter` over the codec, `ws.Dialer`, deadlines and buffer options kept; the `maxPayload` of the open packet, the v4 heartbeat and the upgrade lifecycle (PR D1); the upgrade guard and `UpgradeTimeout` (PR E1). Open: limits and timeouts as options (PRs E2a, E2b), fuzzing (PR E3) |
 
 Preparation policy remains explicit: polling reads are byte-bounded before
 buffering, then decoded as a complete batch without an additional packet-count cap.
@@ -227,7 +227,7 @@ peer against the WebSocket transport when its dependencies are installed.
   (`engineio/client`) uses `ws.Dialer`. `gorilla/websocket` removed from `go.mod`. Decisions: `permessage-deflate` is not
   negotiated; `Transport.Proxy` is kept as an `http` CONNECT wrapper around `NetDial` (other proxy
   schemes fail the dial); `Transport.MaxPayload` (default 1 MiB, as polling) bounds one message,
-  fragments together; from PR E2 `engineio.Options.MaxPayload`, when set, overrides it on the server, and otherwise the field keeps applying, always on the client; the connection's `ServeHTTP` returns at
+  fragments together; from PR E2a `engineio.Options.MaxPayload`, when set, overrides it on the server, and otherwise the field keeps applying, always on the client; the connection's `ServeHTTP` returns at
   once, because the upgrade hijacked the connection. Both `engineio.Server` and
   `socketio.Server` assert `var _ http.Handler`; a wrapped `ResponseWriter` without
   `http.Hijacker` is answered with HTTP 501 and an `engineio: request rejected` line with
@@ -236,7 +236,7 @@ peer against the WebSocket transport when its dependencies are installed.
 - `BenchmarkIdleConnections` (10k websocket connections, RSS and goroutines) recorded
   in `CHANGELOG.md` before and after the swap (both recorded there, with the commands, from
   `engineio/idle_bench_test.go`).
-- Limits, timeouts and fuzzing land in three PRs, E1 → E2 → E3. Node engine.io 6.x is the
+- Limits, timeouts and fuzzing land in four PRs, E1 → E2a → E2b → E3. Node engine.io 6.x is the
   reference where it has an equivalent; V2_PROTOCOL records each difference and each limit
   Node does not have. Rules shared by every new option: a field of a transport
   (`polling.Transport`, `websocket.Transport`) applies on the side that uses that transport,
@@ -246,7 +246,7 @@ peer against the WebSocket transport when its dependencies are installed.
   negative value (it fills no default); `NewServer`, which returns no error, treats a negative
   value as zero. Each PR lists its fields in API.md, its additions under CHANGELOG *Added* and
   every behaviour change under *Changed*, and corrects the godoc, V2_PROTOCOL and PARITY text
-  it makes false (for E1 the upgrade window and the code-3 cause; for E2 the heartbeat
+  it makes false (for E1 the upgrade window and the code-3 cause; for E2b the heartbeat
   paragraph, whose deadline then bounds reads only).
   - **E1, upgrade guard and timeout.** The session keeps an upgrade reservation under its
     lock; `engineio.Server` takes it atomically before the transport accepts (hijacks) a
@@ -273,7 +273,13 @@ peer against the WebSocket transport when its dependencies are installed.
     expired `UpgradeTimeout`; an answered probe without `UPGRADE` closes the websocket
     connection at `UpgradeTimeout`; `NewServer` with a negative `UpgradeTimeout` behaves as
     with zero and `Normalize` rejects it.
-  - **E2, limits and timeouts as options.**
+  - **E2, limits and timeouts as options**, in two PRs. **E2a** takes `Options.MaxPayload`,
+    the private transport copies (with the `MaxPayload` override and the `CheckOrigin`
+    fallback) and `client.Dialer.HandshakeTimeout`, with the acceptance clauses for those.
+    **E2b** takes `WriteTimeout` (transports, `Options`, the copies), the heartbeat deadline
+    that bounds reads only and the close classification, with the acceptance clauses for the
+    write timeout, the 101 bound, the stalled peer, the classification, the read-deadline
+    backstop and the write benchmark.
     - `Options.MaxPayload` over the existing transport `MaxPayload` fields (default 1 MiB;
       Node's `maxHttpBufferSize` is 1e6 bytes, a recorded difference). It bounds a polling
       POST in wire bytes and one websocket message in data bytes, fragments together, which is

@@ -466,7 +466,10 @@ func TestNamespaceRecords(t *testing.T) {
 func TestPingTimeoutRecords(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
-			opts := []engineio.Option{engineio.WithPingInterval(time.Millisecond), engineio.WithPingTimeout(100 * time.Millisecond)}
+			// The heartbeat window starts at session creation, so it also bounds the handshake,
+			// the polling response flush after the handler returns included; 1 s still leaves
+			// waitFor room for the close records.
+			opts := []engineio.Option{engineio.WithPingInterval(time.Millisecond), engineio.WithPingTimeout(time.Second)}
 			rec, opts := captureLogs(t, opts)
 			srv := NewServer(WithEngineOptions(opts...), WithLogger(slog.New(rec)))
 			connected := make(chan Conn, 1)

@@ -205,8 +205,11 @@ func TestSessionCloseRecord(t *testing.T) {
 			tr := map[rune]string{'P': "polling", 'W': "websocket"}[side]
 			t.Run(tc.name+"/"+tr, func(t *testing.T) {
 				rec := newRecorder()
+				// The window starts at session creation, so it also bounds the handshake: the OPEN
+				// write and, over polling, the response flush. "transport error" stays at 400 ms
+				// because peerCloseAfterUpgrade's sleeps are timed against it.
 				opts := []Option{WithLogger(slog.New(rec)), WithPingInterval(time.Millisecond)}
-				opts = append(opts, WithPingTimeout(map[string]time.Duration{"ping timeout": 100 * time.Millisecond, "transport error": 400 * time.Millisecond}[tc.reason]))
+				opts = append(opts, WithPingTimeout(map[string]time.Duration{"ping timeout": time.Second, "transport error": 400 * time.Millisecond}[tc.reason]))
 				f := &logFixture{srv: NewServer(opts...)}
 				ts := httptest.NewServer(f.srv)
 				t.Cleanup(ts.Close)

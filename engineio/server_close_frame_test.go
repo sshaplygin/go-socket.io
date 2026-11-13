@@ -177,7 +177,9 @@ func TestSessionEndsWithNormalClosureFrame(t *testing.T) {
 		requirePeerClose(t, p.ws, gorilla.CloseNormalClosure)
 	})
 	t.Run("ping timeout", func(t *testing.T) {
-		p := dialCloseFramePeer(t, false, WithPingInterval(20*time.Millisecond), WithPingTimeout(50*time.Millisecond))
+		// The heartbeat window starts at session creation and also bounds the OPEN write
+		// that dialCloseFramePeer reads, so it must outlast a loaded scheduler.
+		p := dialCloseFramePeer(t, false, WithPingInterval(20*time.Millisecond), WithPingTimeout(time.Second))
 		_ = parityReader(p.conn)
 		requirePeerClose(t, p.ws, gorilla.CloseNormalClosure)
 	})

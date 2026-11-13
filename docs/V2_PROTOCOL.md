@@ -104,9 +104,10 @@ server->>server: close old conn
   `http.Hijacker`), a failed probe or an expired `UpgradeTimeout`. The server returns it before
   it closes the websocket connection, except when the transport has already closed the
   connection on a read error (a peer close or a protocol violation); a client that sees the
-  server close the connection of a failed upgrade may try again at once. A websocket request with the `sid` of a session that is upgrading, or already on
-  websocket (upgraded, or opened there), is rejected before the hijack with HTTP 400 and code
-  3, logged as `engineio: request rejected` with `reason="bad upgrade"`. The Node server
+  server close the connection of a failed upgrade may try again at once. A websocket request
+  with the `sid` of a session that is upgrading, or already on websocket (upgraded, or opened
+  there), is rejected before the hijack with HTTP 400 and code 3, logged as
+  `engineio: request rejected` with `reason="bad upgrade"`. The Node server
   differs in both cases: while a session is upgrading or upgraded it completes the WebSocket
   handshake (101) and then closes the new connection, and it treats a second websocket of a
   session opened on websocket as an upgrade candidate (`_maybeUpgrade`).

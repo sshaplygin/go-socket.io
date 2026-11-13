@@ -193,7 +193,7 @@ and updating imports to the v2 layout; do not repeat completed codec work.
 | Prepared component | Evidence | Remaining 2.1 integration |
 | --- | --- | --- |
 | `engineio/payload` (moved from `internal/eio4`) | polling codec, bounded `DecodeReader`, exact-wire `EncodeBatch`, fixtures/fuzz tests and pinned Node oracles | integrated by the polling transport (PR B): POST limits and status mapping, client batching, cancellation and deadlines, pause/upgrade lifecycle; the open packet advertises `maxPayload`, the polling POST limit (PR D1) |
-| `engineio/transport/websocket` (moved from `internal/eio4` and `_experiments/eio4-websocket`) | complete-message EIO4 codec with binary/text fixtures and parser oracle; gobwas framing (masking, fragments, UTF-8, control frames, message limits, close statuses) with a pinned `ws` peer oracle | integrated by the WebSocket transport (PR C): `FrameReader`/`FrameWriter` over the codec, `ws.Dialer`, deadlines and buffer options kept; the `maxPayload` of the open packet, the v4 heartbeat and the upgrade lifecycle (PR D1). Open: limits and timeouts as options (PR E); PR E also defines a second concurrent upgrade of one session (two websocket requests with the same `sid`, which D1 does not guard), rejecting or serialising it with a test |
+| `engineio/transport/websocket` (moved from `internal/eio4` and `_experiments/eio4-websocket`) | complete-message EIO4 codec with binary/text fixtures and parser oracle; gobwas framing (masking, fragments, UTF-8, control frames, message limits, close statuses) with a pinned `ws` peer oracle | integrated by the WebSocket transport (PR C): `FrameReader`/`FrameWriter` over the codec, `ws.Dialer`, deadlines and buffer options kept; the `maxPayload` of the open packet, the v4 heartbeat and the upgrade lifecycle (PR D1). Open: a second concurrent upgrade of one session and the upgrade timeout (PR E1), limits and timeouts as options (PR E2), fuzzing (PR E3) |
 
 Preparation policy remains explicit: polling reads are byte-bounded before
 buffering, then decoded as a complete batch without an additional packet-count cap.
@@ -227,7 +227,7 @@ peer against the WebSocket transport when its dependencies are installed.
   (`engineio/client`) uses `ws.Dialer`. `gorilla/websocket` removed from `go.mod`. Decisions: `permessage-deflate` is not
   negotiated; `Transport.Proxy` is kept as an `http` CONNECT wrapper around `NetDial` (other proxy
   schemes fail the dial); `Transport.MaxPayload` (default 1 MiB, as polling) bounds one message,
-  fragments together, until the limits options of PR E; the connection's `ServeHTTP` returns at
+  fragments together; from PR E2 `engineio.Options.MaxPayload`, when set, overrides it on the server, and otherwise the field keeps applying, always on the client; the connection's `ServeHTTP` returns at
   once, because the upgrade hijacked the connection. Both `engineio.Server` and
   `socketio.Server` assert `var _ http.Handler`; a wrapped `ResponseWriter` without
   `http.Hijacker` is answered with HTTP 501 and an `engineio: request rejected` line with
@@ -236,11 +236,114 @@ peer against the WebSocket transport when its dependencies are installed.
 - `BenchmarkIdleConnections` (10k websocket connections, RSS and goroutines) recorded
   in `CHANGELOG.md` before and after the swap (both recorded there, with the commands, from
   `engineio/idle_bench_test.go`).
-- Bound decoded message size across polling and fragmented websocket frames, not
-  just individual frame size. Initial configurable defaults: message limit 1 MiB,
-  handshake and upgrade timeout 10 s each, write timeout 10 s. Preserve protocol
-  control processing during handler load. Fuzz malformed payloads, frame boundaries
-  and upgrade/close sequences; keep reproducing inputs as regression fixtures.
+- Limits, timeouts and fuzzing land in three PRs, E1 → E2 → E3. Node engine.io 6.x is the
+  reference where it has an equivalent; V2_PROTOCOL records each difference and each limit
+  Node does not have. Rules shared by every new option: a field of a transport
+  (`polling.Transport`, `websocket.Transport`) applies on the side that uses that transport,
+  and its zero means the default; an `engineio.Options` field, when non-zero, overrides the
+  transport field on the server without changing the shared `polling.Default` and
+  `websocket.Default`, and its zero keeps the transport's value. `Normalize` only rejects a
+  negative value (it fills no default); `NewServer`, which returns no error, treats a negative
+  value as zero. Each PR lists its fields in API.md, its additions under CHANGELOG *Added* and
+  every behaviour change under *Changed*, and corrects the godoc, V2_PROTOCOL and PARITY text
+  it makes false (for E1 the upgrade window and the code-3 cause; for E2 the heartbeat
+  paragraph, whose deadline then bounds reads only).
+  - **E1, upgrade guard and timeout.** The session keeps an upgrade reservation under its
+    lock; `engineio.Server` takes it atomically before the transport accepts (hijacks) a
+    websocket request for an existing `sid`, and releases it when the upgrade does not switch
+    the session, including a rejected accept (origin check, handshake error, no hijacker) and
+    an expired upgrade timeout. A websocket request with the `sid` of a session that is
+    upgrading or already on websocket (upgraded, or opened there) is rejected before the
+    hijack with HTTP 400, JSON code 3 and one `engineio: request rejected` record with
+    `reason="bad upgrade"`. This replaces today's answers, each a behaviour change: while the
+    session is upgrading, a second 101 and a concurrent probe; when it is upgraded or was
+    opened on websocket, an empty HTTP 200. Node answers 101 and then closes the new
+    connection while the session is upgrading or upgraded, and treats a second websocket of a
+    session opened on websocket as an upgrade candidate (`_maybeUpgrade`); V2_PROTOCOL records
+    both differences. `Options.UpgradeTimeout` (zero means 10 s, Node's `upgradeTimeout`)
+    bounds the probe and `UPGRADE` together from the accept of the websocket connection,
+    replacing the reuse of `pingTimeout` (a behaviour change: the window was `pingTimeout`, 60
+    s by default); on expiry the websocket connection is closed and the session stays on
+    polling, unpaused. Acceptance, `-race` tests at `engineio.Server` level, each checking at
+    cleanup that every connection is closed and no library goroutine remains: two concurrent
+    upgrades of one `sid` switch the session once and reject the other with code 3; a
+    websocket request with the `sid` of an upgraded session, and of a session opened on
+    websocket, gets code 3 and one `bad upgrade` record, while an opening websocket request
+    without `sid` still succeeds; an upgrade completes after a rejected accept and after an
+    expired `UpgradeTimeout`; an answered probe without `UPGRADE` closes the websocket
+    connection at `UpgradeTimeout`; `NewServer` with a negative `UpgradeTimeout` behaves as
+    with zero and `Normalize` rejects it.
+  - **E2, limits and timeouts as options.**
+    - `Options.MaxPayload` over the existing transport `MaxPayload` fields (default 1 MiB;
+      Node's `maxHttpBufferSize` is 1e6 bytes, a recorded difference). It bounds a polling
+      POST in wire bytes and one websocket message in data bytes, fragments together, which is
+      Node's `ws` unit; the godoc of `websocket.Transport.MaxPayload` and
+      `transport/parameters.go` say so. The OPEN packet advertises the limit the polling
+      transport enforces.
+    - `WriteTimeout`, new on both transports and in `Options` (default 10 s; Node's server has
+      none; a negative transport value means none, the only way to disable it). The transport
+      arms a deadline for each network write and clears it afterwards: a websocket message,
+      under the connection's write lock, on both sides; the 101 response of
+      `websocket.Transport.Accept` (through `HTTPUpgrader.Timeout`); a polling response body,
+      around the write, on the server only (the godoc of `polling.Transport.WriteTimeout` says
+      so). A deadline set through `transport.Conn.SetWriteDeadline` stays, and the earlier of
+      the two applies. The Go polling client's POST stays bounded by its `http.Client`, as
+      today; the Go websocket client gains the per-message deadline, a behaviour change. The
+      wait for the next poll is not a write and is not bounded by it; the session's heartbeat
+      deadline governs reads only. An expired write closes the session with reason `transport
+      error`; an expired read deadline stays `ping timeout`. A peer that stops reading thus
+      ends the session within `WriteTimeout`, also when PING and other writers are queued
+      behind the stalled write. A Go client whose PONG write stalls already closes at its own
+      `pingInterval + pingTimeout` timer.
+    - Mechanism: `NewServer` keeps private copies of the configured `*polling.Transport` and
+      `*websocket.Transport` values with the `Options` overrides applied; changing a transport
+      struct, or `polling.Default.CheckOrigin` (the polling fallback, resolved into the copy),
+      after `NewServer` has no effect on that server, a behaviour change; other
+      `transport.Transport` implementations are used as given.
+    - `client.Dialer.HandshakeTimeout` (zero means 10 s, negative means none) bounds, per
+      transport tried, the dial, the websocket handshake and the wait for OPEN, a behaviour
+      change. Today the websocket handshake is bounded only by
+      `websocket.Transport.HandshakeTimeout` (zero by default, no bound), the websocket OPEN
+      read has no bound, and the polling OPEN is bounded only by the `http.Client` timeout (1
+      min for `polling.Default`, none for a custom client without one). Those bounds keep
+      their meaning and apply together with `Dialer.HandshakeTimeout`; the shorter wins. The
+      `Dialer` dials a private copy of a `*websocket.Transport` whose `HandshakeTimeout` is
+      the shorter bound, and bounds the wait for OPEN with the connection's read deadline; for
+      other `transport.Transport` implementations only the wait for OPEN is bounded. On the
+      server, the 2.4E handshake result `timeout` is an expired `WriteTimeout` on the 101 or
+      the OPEN write. The server has no handshake option: net/http has read the request before
+      the transport sees it (the application's `http.Server.ReadHeaderTimeout` bounds that),
+      and the 101 response is a write bounded by `WriteTimeout`.
+    Acceptance, `-race`: an `engineio.Server` test with `Options.MaxPayload` set and different
+    transport fields checks the advertised `maxPayload`, a polling POST 413 and a websocket
+    close 1009 at the `Options` limit, on a session opened on websocket and after an upgrade;
+    a test with a non-default transport field and zero `Options.MaxPayload` checks the
+    transport value applies; `NewServer` with negative values behaves as with zeros and
+    `Normalize` rejects them; on each transport, a peer that stops reading (a websocket peer,
+    a polling client that stops reading a GET response) ends the session within `WriteTimeout`
+    plus a stated margin with writers queued behind the stalled write, and a negative
+    transport `WriteTimeout` disables it; a polling client that delays its next GET beyond
+    `WriteTimeout`, within the heartbeat, still receives the queued packet; a transport-level
+    test with a connection whose `Write` blocks shows the 101 bounded; a server that accepts
+    TCP but never answers the websocket handshake, and one that never sends OPEN on each
+    transport, fail `Dial` at `HandshakeTimeout` with an error identified by `errors.Is`; a
+    websocket server that stops reading ends the Go client within `WriteTimeout` plus a
+    margin; at `engineio.Server` level an expired write deadline closes the session as
+    `transport error`, and at session level (a connection that fails after the read deadline
+    while no PING is outstanding) a read failure after the deadline is `ping timeout`; the
+    read-deadline backstop is pinned at transport level (a polling POST body that stalls past
+    the read deadline fails and releases its handler, as
+    `TestServerPostStalledBodyHitsReadDeadline` does, and a websocket counterpart). A
+    websocket write benchmark shows the cost of the per-write deadline, base and head.
+  - **E3, fuzzing.** Fuzz targets `FuzzServerPost` (`transport/polling`: POST body to decoded
+    packets), `FuzzNextReader` (`transport/websocket`: frames to messages to packets) and,
+    after E1, `FuzzUpgradeSequence` (`engineio/session`: probe, upgrade, close and data
+    packets in any order). Properties: a body or message above the limit is rejected before it
+    is buffered whole; decoded packets re-encode to the same wire form or the input is
+    rejected; every sequence ends with at most one switch, the session closed, every
+    connection closed and no goroutine left. Each target has a committed seed corpus, and
+    every reproducing input found is committed under `testdata/fuzz/<FuzzName>/`, so `go test`
+    replays it. The PR reports the `-fuzztime` each target ran locally.
 
 ### 2.2 Adapter interface and memory implementation
 

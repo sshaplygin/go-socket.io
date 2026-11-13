@@ -124,13 +124,14 @@ workflow exercises the report action with the collected benchmark samples.
 
 ## Conventions
 
-- Use `gofmt -s`, wrap errors with `%w`, and return errors to callers. Library
-  packages must not terminate the process. Library code, examples and README snippets
-  never call `log.Fatal*`, `log.Panic*` or `os.Exit`: a failing example `main` panics
-  with the error (`panic(err)`). golangci-lint (forbidigo) enforces this in both
-  modules; the exceptions are the `.github` CI tools, which report through their exit
-  status, and `os.Exit` in the `TestMain` functions that set a test binary's exit status,
-  whose files the configuration names.
+- Use `gofmt -s`, wrap errors with `%w`, and return errors to callers. Library code,
+  examples and README snippets never terminate the process: no `log.Fatal*`,
+  `log.Panic*` or `os.Exit`; a failing example `main` panics with the error
+  (`panic(err)`). golangci-lint (forbidigo) enforces this in every package that
+  `make lint` and `make -C v2 lint` lint; `v2/_examples` and `v2/engineio/_examples`
+  are not linted yet. The exceptions are the `.github` CI tools, which report through
+  their exit status, and `os.Exit` in the `TestMain` functions that set a test binary's
+  exit status, whose files the configuration names.
 - Root, client and Engine.IO test packages fail when library goroutines remain
   after cleanup; fixtures must close clients and unblock callbacks.
 - Reproduce a bug with a behavioral test; verify concurrency changes with `-race`.

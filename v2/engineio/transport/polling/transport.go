@@ -72,8 +72,8 @@ func dial(client *http.Client, url *url.URL, requestHeader http.Header, maxPaylo
 	// Engine.IO v4 polling bodies are always text; binary packets are base64.
 	req.Header.Set("Content-Type", contentType)
 
-	// Until the server advertises its maxPayload, which this repo's server does
-	// not yet, the POSTs are bound by the transport's limit.
+	// Until the open packet advertises the server's maxPayload, the POSTs are
+	// bound by the transport's limit.
 	if maxPayload <= 0 {
 		maxPayload = payload.DefaultMaxPayload
 	}

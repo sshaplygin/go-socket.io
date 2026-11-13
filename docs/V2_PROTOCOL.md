@@ -2,22 +2,40 @@
 
 These notes concern the independent `v2/` module.
 
-## Implemented: Engine.IO protocol v3
+## Implemented: Engine.IO protocol v4
 
 Package `v2/engineio`, the v2 module. The root `engineio` package of the v1 module is
 described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
 
-- Query parameter `EIO` must be `4` (Engine.IO v4, ahead of the rest of this section). It is
+- Query parameter `EIO` must be `4`. It is
   checked before the transport; a missing or other value is HTTP 400 with error code 5. The
   Go dialer (`engineio/client`) sends `EIO=4`, replacing any value in the URL.
 - Transports: `polling` (XHR only; the `j` JSONP parameter and the `b64` parameter are
   ignored, as in Engine.IO v4) and `websocket` (`gobwas/ws`). Order and upgrade path come from `engineio.Options.Transports`,
   default `[polling, websocket]`.
 - Handshake (`OPEN` packet) carries `sid`, `upgrades`, `pingInterval` (default 20 s),
-  `pingTimeout` (default 60 s). There is no `maxPayload`.
-- Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`) and extends
-  the read/write deadline by `pingTimeout`.
-- Polling payload (Engine.IO v4 framing, ahead of the rest of this section): packets are
+  `pingTimeout` (default 60 s) and `maxPayload`: the POST limit of the polling transport
+  (`polling.Transport.MaxPayload`, default 1 MiB), the value the transport enforces. A server
+  without a polling transport advertises the message limit of its websocket transport, as the
+  single `maxHttpBufferSize` of the Node server bounds both.
+- Heartbeat: the server sends `PING` (`2`)
+  `pingInterval` after the handshake and `pingInterval` after each `PONG` (`3`), as the Node
+  server does, and closes the session with reason `ping timeout` when no `PONG` arrives within
+  `pingTimeout` of a `PING`. Control packets are processed by the connection's reader, so the
+  heartbeat holds only while the application keeps reading; the contract is the godoc of
+  `engineio.Conn.NextReader` and [ROADMAP.md](ROADMAP.md#20-generic-api-and-lifecycle-contract)
+  (2.0). The transport read and write deadlines are a backstop for operations the ping
+  timeout cannot interrupt, such as a polling POST body read or a blocked write: each `PING`
+  and each `PONG` moves them to `pingInterval + pingTimeout` from then, so they expire no
+  earlier than `pingInterval` after the ping timeout of the outstanding `PING`, however late
+  that `PING` was sent. A `PING` from the
+  client is not answered: it closes the session with reason `transport error` and
+  `invalid heartbeat direction`, as on the Node server. The Go client (`engineio/client`)
+  sends no `PING`; its `NextReader` answers each `PING` with `PONG`, and when no `PING`
+  arrives within `pingInterval + pingTimeout` of the `OPEN` packet or of the last `PING`, it
+  closes the connection and `NextReader` fails with an error that starts with `ping timeout`,
+  as the Node client closes.
+- Polling payload: packets are
   separated by the record separator `0x1e`; binary packets are base64 behind a `b`
   prefix; every body is `text/plain; charset=UTF-8`, and a POST of `application/octet-stream`
   is HTTP 400. A POST body is read up to the transport's `MaxPayload` (default 1 MiB,
@@ -27,11 +45,9 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   session writers hand over at once. The Go client reads a response (and the open
   response) up to the same `MaxPayload`; a longer one fails the session with
   `payload.ErrTooLarge`, which readers see. The client batches its POSTs up to the
-  `maxPayload` of the open packet, and up to its `MaxPayload` (default 1 MiB) while the
-  open packet carries none, as this server's does today. Sessions are looked up by `sid`; an unknown `sid` is HTTP 400.
-  The handshake and heartbeat of this section are still v3 until the
-  rest of 2.1 lands; the heading of this section flips with that change.
-- WebSocket framing (Engine.IO v4, ahead of the rest of this section): one packet per data
+  `maxPayload` of the open packet, and up to its `MaxPayload` (default 1 MiB) when the
+  open packet carries none, as an older server's does. Sessions are looked up by `sid`; an unknown `sid` is HTTP 400.
+- WebSocket framing: one packet per data
   message. A text message is the type byte and the data; a binary message is the raw data of
   a MESSAGE packet with no type byte, and the text form `b` + base64 is read as a binary
   MESSAGE. The server hijacks the HTTP/1.1 request (`ws.UpgradeHTTP`); a response writer
@@ -58,15 +74,28 @@ server->>client: OPEN
 client->>server: dial websocket with sid
 client->>server: PING "probe"
 server->>client: PONG "probe"
+server->>client: NOOP into each poll until UPGRADE
 client->>client: pause polling
 client->>server: UPGRADE
-server->>server: pause old conn (NOOP if a poll is waiting)
+server->>server: pause old conn (NOOP if a poll is still waiting)
 server->>server: switch session to websocket
 server->>server: close old conn
 ```
 
-  Implemented in `session.Session.upgrading`. If the client never sends `UPGRADE`, the
-  paused polling connection is resumed.
+  Implemented in `session.Session.upgrading`. Polling keeps serving the session until
+  `UPGRADE` arrives, as on the Node server: from the probe until `UPGRADE`, a failed upgrade
+  or the close of the session, the server answers every poll with `NOOP`, at most one per
+  100 ms, so the client's pending poll completes and the client can pause polling; only
+  `UPGRADE` pauses polling. The Node server checks every 100 ms whether a poll is pending;
+  here a `NOOP` waits for the next poll and answers it at once, the following one comes at
+  least 100 ms later. After a failed upgrade a `NOOP` that was already waiting still answers
+  the next poll; then the `NOOP`s stop. The probe and `UPGRADE` must both arrive within
+  `pingTimeout` of the moment the server accepts the websocket connection: that one read
+  deadline is set before the probe is read and is not extended by it. If anything else
+  follows the probe or the deadline passes, the upgrade fails: the websocket connection is
+  closed and the session stays on polling, which was never paused. If the session closes
+  during the upgrade (for example on a ping timeout), the session ends with both its polling
+  connection and the websocket connection closed, and it is not switched.
 - Error responses (Engine.IO v4): the server answers a rejected request with the JSON
   body `{"code":N,"message":"..."}` and content type `application/json`:
 
@@ -79,8 +108,10 @@ server->>server: close old conn
   | 4 | `Forbidden` | 403 | `Options.RequestChecker` returned an error |
   | 5 | `Unsupported protocol version` | 400 | `EIO` is missing or not `4` |
 
-  An OPTIONS request without `sid` is answered by the transport as a CORS preflight (the
-  polling transport: HTTP 200 with the CORS headers) and opens no session.
+  An OPTIONS request without `sid` opens no session. Only the polling transport answers it
+  as a CORS preflight (HTTP 200 with the CORS headers). On the websocket transport it gets
+  the WebSocket transport's rejection of a request that is not an upgrade (HTTP 405 from
+  `gobwas/ws`, below) and is logged with `reason="accept"`.
   A failed transport accept (HTTP 502), a writer without `http.Hijacker` (HTTP 501), a
   rejected polling POST (HTTP 400 or 413, above) and a failed poll (HTTP 500) are plain text.
   So are the WebSocket transport's own handshake answers: HTTP 403 when `CheckOrigin` refuses
@@ -131,20 +162,20 @@ Deliberate differences from the Node.js parser:
 - JSON decoding replaces an unpaired UTF-16 surrogate escape in a string by U+FFFD
   when a value is decoded into a Go string; the raw `Packet.Data` keeps the escape.
 
-## Planned: Engine.IO v4 and Socket.IO v5
+## Protocol changes from v1: Engine.IO v4 and Socket.IO v5
 
 Target of [ROADMAP.md](ROADMAP.md#stage-2-socketio-protocol-v5-over-engineio-protocol-v4-tag-v200).
 
-Engine.IO v3 → v4:
+Engine.IO v3 → v4 (implemented in `v2/engineio`, see above):
 
-| Area | v3 (current) | v4 (target) |
+| Area | v3 (v1, repository root) | v4 (`v2/engineio`) |
 | --- | --- | --- |
-| Query | `EIO` ignored | `EIO=4` required, otherwise HTTP 400 with JSON error code 5 (done, see above) |
+| Query | `EIO` ignored | `EIO=4` required, otherwise HTTP 400 with JSON error code 5 |
 | Handshake | `sid`, `upgrades`, `pingInterval`, `pingTimeout` | plus `maxPayload` |
 | Heartbeat | client sends `2`, server answers `3` | server sends `2` every `pingInterval`, client answers `3` within `pingTimeout` |
-| WebSocket | one packet per frame, binary frames start with a type byte | unchanged; binary frames carry raw bytes (done, see above) |
-| Upgrade | `2probe` / `3probe` / `5` | unchanged, plus server sends `6` (NOOP) into the pending poll |
-| Errors | plain text | JSON `{"code": N, "message": "..."}`, codes 0..5 (done, see above) |
+| WebSocket | one packet per frame, binary frames start with a type byte | unchanged; binary frames carry raw bytes |
+| Upgrade | `2probe` / `3probe` / `5` | unchanged, plus server answers the polls with `6` (NOOP) until `5`; polling pauses on `5` |
+| Errors | plain text | JSON `{"code": N, "message": "..."}`, codes 0..5 |
 
 Socket.IO v4 → v5:
 

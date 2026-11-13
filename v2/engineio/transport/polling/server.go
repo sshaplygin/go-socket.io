@@ -172,7 +172,8 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // ended the payload, WARN for the first report of that failure and for a failure of
 // this poll only, such as an overlapping poll.
 func (c *serverConn) flushLevel(err error) slog.Level {
-	if c.closed.Load() || errors.Is(err, io.EOF) {
+	// A payload ends with io.EOF only through Close, which sets closed first.
+	if c.closed.Load() {
 		return slog.LevelDebug
 	}
 	// Store with a nil error stores nothing: it returns the failure that ended the

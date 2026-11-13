@@ -73,9 +73,9 @@ func TestDialFailureRecords(t *testing.T) {
 
 // TestClientPeerCloseRecords closes the accepted session of a Dialer client
 // that does not close itself, or has a websocket peer send a close frame after OPEN,
-// reads the client until NextReader fails and waits for its ping to fail, with
-// slog.Default recording: the 1.L Levels rule makes a ping failure after a peer close
-// expected closure, so no record is above DEBUG. Not parallel.
+// and reads the client until NextReader fails, with slog.Default recording: the
+// failure reaches the reader, so the 1.L Levels rule allows no record above DEBUG.
+// Not parallel.
 //
 // Covers the 1.L Levels rule on the engine.io client (P, W); no 1L-T case.
 func TestClientPeerCloseRecords(t *testing.T) {
@@ -95,8 +95,6 @@ func TestClientPeerCloseRecords(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, conn.Close())
 			require.Error(t, readAll(cl))
-			require.Eventually(t, func() bool { return len(rec.Find("engineio: ping failed")) > 0 },
-				5*time.Second, time.Millisecond)
 			for _, m := range rec.Find("") {
 				assert.Equal(t, slog.LevelDebug.String(), m["level"], "%v", m)
 			}
@@ -122,19 +120,22 @@ func TestClientPeerCloseRecords(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = cl.Close() }()
 		require.Error(t, readAll(cl))
-		require.Eventually(t, func() bool { return len(rec.Find("engineio: ping failed")) > 0 },
-			5*time.Second, time.Millisecond)
 		for _, m := range rec.Find("") {
 			assert.Equal(t, slog.LevelDebug.String(), m["level"], "%v", m)
 		}
 	})
 }
 
-// brokenConn is a transport.Conn whose first reader is a PONG that fails to close with
-// errBroken, the failure its next NextReader returns, as transports keep read failures.
+// brokenConn is a transport.Conn whose first reader is a packet of type first (PONG
+// by default) that fails to close with errBroken, the failure its next NextReader
+// returns, as transports keep read failures. Its NextWriter records the packet type
+// and fails with errBroken.
 type brokenConn struct {
 	transport.Conn
+	first packet.Type
 	reads int
+	wrote []packet.Type
+	close int // calls of Close
 }
 
 var errBroken = errors.New("broken")
@@ -145,33 +146,45 @@ func (brokenReader) Close() error { return errBroken }
 
 func (c *brokenConn) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
 	if c.reads++; c.reads == 1 {
-		return frame.String, packet.PONG, brokenReader{strings.NewReader("")}, nil
+		if c.first == 0 {
+			c.first = packet.PONG
+		}
+		return frame.String, c.first, brokenReader{strings.NewReader("")}, nil
 	}
 	return 0, 0, nil, errBroken
 }
 
 func (c *brokenConn) SetReadDeadline(time.Time) error { return nil }
 
-func (c *brokenConn) NextWriter(frame.Type, packet.Type) (io.WriteCloser, error) {
+func (c *brokenConn) NextWriter(_ frame.Type, pt packet.Type) (io.WriteCloser, error) {
+	c.wrote = append(c.wrote, pt)
 	return nil, errBroken
 }
 
-func (c *brokenConn) Close() error { return nil }
+func (c *brokenConn) Close() error { c.close++; return nil }
 
-// TestClientPingFailureRecord: a ping failure that is not expected closure (NextWriter
-// fails with errBroken while the client is open) is one WARN record, since no caller
-// receives it. Not parallel: it sets slog.Default.
+// TestClientPongFailure: the client answers a server PING with PONG from NextReader;
+// when the PONG cannot be written, the client closes (its connection is closed and its
+// heartbeat timer stopped) and NextReader returns that failure, as later calls do, so
+// nothing is logged above DEBUG. Not parallel: it sets slog.Default.
 //
 // Covers the 1.L Levels rule on the engine.io client; no 1L-T case.
-func TestClientPingFailureRecord(t *testing.T) {
+func TestClientPongFailure(t *testing.T) {
 	rec := logtest.NewRecorder()
 	logtest.SetDefault(t, rec)
-	params := transport.ConnParameters{PingInterval: time.Millisecond}
-	(&client{conn: &brokenConn{}, params: params, close: make(chan struct{})}).serve()
-	recs := rec.Find("engineio: ping failed")
-	require.Len(t, recs, 1)
-	assert.Equal(t, slog.LevelWarn.String(), recs[0]["level"])
-	assert.Equal(t, errBroken.Error(), recs[0]["err"])
+	conn := &brokenConn{first: packet.PING}
+	cl := &client{conn: conn, params: transport.ConnParameters{PingInterval: time.Hour}}
+	cl.startHeartbeat()
+	_, _, err := cl.NextReader()
+	require.ErrorIs(t, err, errBroken)
+	require.Equal(t, []packet.Type{packet.PONG}, conn.wrote)
+	require.Equal(t, 1, conn.close, "a failed PONG closes the client")
+	require.False(t, cl.pingTimer.Stop(), "the heartbeat timer was stopped")
+	_, _, err = cl.NextReader()
+	require.ErrorIs(t, err, errBroken)
+	for _, m := range rec.Find("") {
+		assert.Equal(t, slog.LevelDebug.String(), m["level"], "%v", m)
+	}
 }
 
 // TestClientReaderCloseRecord: a failing reader Close in the engine.io client's
@@ -182,7 +195,7 @@ func TestClientPingFailureRecord(t *testing.T) {
 func TestClientReaderCloseRecord(t *testing.T) {
 	rec := logtest.NewRecorder()
 	logtest.SetDefault(t, rec)
-	_, _, err := (&client{conn: &brokenConn{}, close: make(chan struct{})}).NextReader()
+	_, _, err := (&client{conn: &brokenConn{}}).NextReader()
 	require.ErrorIs(t, err, errBroken)
 	require.Len(t, rec.Find("engineio: close reader failed"), 1)
 	for _, m := range rec.Find("") {

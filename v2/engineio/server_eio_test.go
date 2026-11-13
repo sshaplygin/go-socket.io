@@ -172,3 +172,53 @@ func openPolling(t *testing.T, url string) string {
 	require.NotNil(t, m, "no sid in %q", body)
 	return string(m[1])
 }
+
+// TestBadEIOKeepsLiveSession: a request that carries the sid of a live session but a
+// missing or other EIO is rejected like a handshake (HTTP 400, code 5, one record with
+// reason "bad eio"); the session stays registered and still serves the next request.
+func TestBadEIOKeepsLiveSession(t *testing.T) {
+	rec := logtest.NewRecorder()
+	srv := engineio.NewServer(&engineio.Options{Logger: slog.New(rec)})
+	defer func() { _ = srv.Close() }()
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	sid := openPolling(t, ts.URL)
+	conn, err := srv.Accept()
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	for _, eio := range []string{"", "&EIO=3"} {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/?transport=polling&sid="+sid+eio, nil))
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.JSONEq(t, `{"code":5,"message":"Unsupported protocol version"}`, w.Body.String())
+		assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+	}
+	got := rec.Find("engineio: request rejected")
+	require.Len(t, got, 2, "one record per rejected request")
+	for _, m := range got {
+		assert.Equal(t, "bad eio", m["reason"])
+	}
+	assert.Equal(t, 1, srv.Count(), "the session stays registered")
+
+	// The POST returns once the reader has taken its packet.
+	status := make(chan int, 1)
+	go func() {
+		resp, err := http.Post(ts.URL+"/?transport=polling&EIO=4&sid="+sid, "text/plain; charset=UTF-8",
+			strings.NewReader("4hello"))
+		if err != nil {
+			status <- 0
+			return
+		}
+		_ = resp.Body.Close()
+		status <- resp.StatusCode
+	}()
+	_, r, err := conn.NextReader()
+	require.NoError(t, err)
+	b, err := io.ReadAll(r)
+	require.NoError(t, err)
+	require.NoError(t, r.Close())
+	assert.Equal(t, "hello", string(b), "the session is still served")
+	assert.Equal(t, http.StatusOK, <-status)
+}

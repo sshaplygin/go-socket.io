@@ -139,6 +139,9 @@ func TestSessionCloseRecord(t *testing.T) {
 				rec := logtest.NewRecorder()
 				opts := &engineio.Options{Logger: slog.New(rec)}
 				opts.PingTimeout = map[string]time.Duration{"ping timeout": 100 * time.Millisecond, "transport error": 400 * time.Millisecond}[tc.reason]
+				if tc.reason == "ping timeout" {
+					opts.PingInterval = 100 * time.Millisecond // the server's PING goes unanswered
+				}
 				f := &logFixture{srv: engineio.NewServer(opts)}
 				ts := httptest.NewServer(f.srv)
 				t.Cleanup(ts.Close)

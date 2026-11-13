@@ -48,7 +48,7 @@ support isolated development; integration and release gates exercise real peers.
 
 ## Stage 2. Socket.IO protocol v5 over Engine.IO protocol v4 (tag `v2.0.0`)
 
-Protocol deltas are listed in [V2_PROTOCOL.md](V2_PROTOCOL.md#planned-engineio-v4-and-socketio-v5).
+Protocol deltas are listed in [V2_PROTOCOL.md](V2_PROTOCOL.md#protocol-changes-from-v1-engineio-v4-and-socketio-v5).
 Stage 2 applies to `v2/` (paths relative to that directory). New code for the `Socket` model goes to
 the root files `server.go`, `namespace.go`, `socket.go`, `packet_handlers.go`,
 `event.go`, `options.go`, `errors.go` and `adapter.go`; the client goes to `client/`.
@@ -108,7 +108,13 @@ Lifecycle contract, implemented in 2.1/2.3 and instrumented in 2.4:
   Session close/server shutdown cancel it; namespace sockets derive cancellable
   children. Returning from polling/upgrade `ServeHTTP` must not cancel the session.
 - One reader per Engine.IO session handles protocol control and ack completion
-  independently of user handlers. A bounded worker queue per namespace socket runs
+  independently of user handlers. That reader belongs to the Socket.IO layer (2.3S on
+  the server, 2.3C in the client): it keeps calling `engineio.Conn.NextReader`, which
+  processes PING and PONG inside the call (no reader goroutine in `engineio`), never
+  runs user code inline and never blocks on a full handler queue (overflow follows the
+  2.3 *Resource limits*). A reader that stalls longer than `pingTimeout` after a PING
+  (server) or `pingInterval + pingTimeout` (client) ends the session with
+  `ping timeout`. A bounded worker queue per namespace socket runs
   user events sequentially in receive order; namespace auth/middleware also run off
   the reader with a bounded connect deadline. A blocked handler cannot stop heartbeat
   or ack processing; `EmitWithAck` inside a handler is supported. No ordering is
@@ -186,8 +192,8 @@ and updating imports to the v2 layout; do not repeat completed codec work.
 
 | Prepared component | Evidence | Remaining 2.1 integration |
 | --- | --- | --- |
-| `engineio/payload` (moved from `internal/eio4`) | polling codec, bounded `DecodeReader`, exact-wire `EncodeBatch`, fixtures/fuzz tests and pinned Node oracles | integrated by the polling transport (PR B): POST limits and status mapping, client batching, cancellation and deadlines, pause/upgrade lifecycle. Open: the open packet does not advertise `maxPayload` until the session work (PR D1) |
-| `engineio/transport/websocket` (moved from `internal/eio4` and `_experiments/eio4-websocket`) | complete-message EIO4 codec with binary/text fixtures and parser oracle; gobwas framing (masking, fragments, UTF-8, control frames, message limits, close statuses) with a pinned `ws` peer oracle | integrated by the WebSocket transport (PR C): `FrameReader`/`FrameWriter` over the codec, `ws.Dialer`, deadlines and buffer options kept. Open: the `maxPayload` of the open packet, heartbeat and upgrade lifecycle (PR D1); limits and timeouts as options (PR E) |
+| `engineio/payload` (moved from `internal/eio4`) | polling codec, bounded `DecodeReader`, exact-wire `EncodeBatch`, fixtures/fuzz tests and pinned Node oracles | integrated by the polling transport (PR B): POST limits and status mapping, client batching, cancellation and deadlines, pause/upgrade lifecycle; the open packet advertises `maxPayload`, the polling POST limit (PR D1) |
+| `engineio/transport/websocket` (moved from `internal/eio4` and `_experiments/eio4-websocket`) | complete-message EIO4 codec with binary/text fixtures and parser oracle; gobwas framing (masking, fragments, UTF-8, control frames, message limits, close statuses) with a pinned `ws` peer oracle | integrated by the WebSocket transport (PR C): `FrameReader`/`FrameWriter` over the codec, `ws.Dialer`, deadlines and buffer options kept; the `maxPayload` of the open packet, the v4 heartbeat and the upgrade lifecycle (PR D1). Open: limits and timeouts as options (PR E); PR E also defines a second concurrent upgrade of one session (two websocket requests with the same `sid`, which D1 does not guard), rejecting or serialising it with a test |
 
 Preparation policy remains explicit: polling reads are byte-bounded before
 buffering, then decoded as a complete batch without an additional packet-count cap.
@@ -205,12 +211,9 @@ peer against the WebSocket transport when its dependencies are installed.
 - Replace the legacy `engineio/payload`/`pauser` transport integration using these
   codecs; complete the session lifecycle work rather than rewriting codecs again.
 - `engineio/session`: server ping ticker and `pingTimeout` to await each pong. Add
-  `maxPayload` and noop on upgrade. Backlog, owned by the 2.1 owner: the session pauses
-  polling at `3probe`; move the pause to `5`, as the engine.io server
-  pauses only on `5`, and in the same change rewrites the v2 upgrade note of
-  `docs/V2_PROTOCOL.md` (*Implemented: Engine.IO protocol v3*, "If the client never sends
-  `UPGRADE`, the paused polling connection is resumed", `:68-69` at `2667c25`), which
-  stops being true then. `engineio/client`: the client uses `pingInterval+pingTimeout` to detect a missing server ping, and
+  `maxPayload` and noop on upgrade. The session pauses polling on `5`, as the engine.io
+  server does, not at `3probe` (done in PR D1, with the upgrade note of
+  [V2_PROTOCOL.md](V2_PROTOCOL.md#implemented-engineio-protocol-v4)). `engineio/client`: the client uses `pingInterval+pingTimeout` to detect a missing server ping, and
   `dialer.go` sends `EIO=4` instead of the fixed `EIO=3`. `engineio/server.go`: `EIO` check, JSON errors.
   The polling GET 500 and invalid-method 400 answers, unlogged in v1, log
   `engineio: request rejected` with reasons `flush` and `bad method`; `flush` logs
@@ -461,6 +464,10 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   emit with `ErrTooManyPendingAcks`; queue overflow closes the affected session (outbound)
   or namespace socket (handler queue), completes pending operations and reports the
   reason once. Outbound limits apply across all namespaces sharing a transport.
+  The reader of 2.3S and 2.3C is the one reader of 2.0: it keeps calling
+  `engineio.Conn.NextReader`, closes each reader before the next call, never runs user
+  code inline and never blocks on a full handler queue; a full queue is an overflow
+  under the policy above. Its tests show heartbeat progress while handlers block.
   Add fuzz/regression tests for invalid placeholders, incomplete binary messages,
   argument arity and limits; verify memory remains bounded with a stalled peer.
   Returned errors distinguish oversized messages, too many attachments and queue

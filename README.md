@@ -4,9 +4,9 @@ A [Socket.IO](https://socket.io) server and Go client with namespaces, rooms, ac
 broadcast and a Redis adapter for multi-instance deployments. Engine.IO is included as
 the `engineio` sub-package and can be used on its own.
 
-This is a maintained fork of `googollee/go-socket.io`. Applications moving from upstream
-v1.4.2 or v1.7.0 should follow the
-[migration guide](docs/V1.md#migrating-from-googolleego-socketio).
+This module is a maintained successor of the archived `googollee/go-socket.io` for
+`socket.io-client` 1.x and 2.x. Applications moving from upstream v1.4.2 or v1.7.0 should
+follow the [migration guide](docs/V1.md#migrating-from-googolleego-socketio).
 
 ![Build Status](https://github.com/sshaplygin/go-socket.io/workflows/CI/badge.svg)
 [![GoDoc](https://pkg.go.dev/badge/github.com/sshaplygin/go-socket.io.svg)](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0)
@@ -25,13 +25,61 @@ V1 protocol details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Install
 
-Install the maintained fork directly:
+Install the module:
 
 ```sh
 go get github.com/sshaplygin/go-socket.io@v1.5.0
 ```
 
 Go 1.22 or later is required.
+
+## Quick start
+
+A server whose `join` handler adds the socket to the `lobby` room, broadcasts the client's
+name to that room as `joined` and returns the ACK:
+
+<!-- quickstart:begin -->
+```go
+package main
+
+import (
+	"log"
+	"net/http"
+
+	socketio "github.com/sshaplygin/go-socket.io"
+)
+
+func main() {
+	if err := run(); err != nil {
+		panic(err)
+	}
+}
+
+func run() error {
+	server := socketio.NewServer()
+	defer func() { _ = server.Close() }()
+	root := server.Of("/")
+	root.OnEvent("join", func(s socketio.Conn, name string) string {
+		s.Join("lobby")
+		if err := root.To("lobby").Emit("joined", name); err != nil {
+			log.Print(err)
+		}
+		return "welcome, " + name // sent as the ACK when the client asks for one
+	})
+	go func() {
+		if err := server.Serve(); err != nil {
+			log.Print(err)
+		}
+	}()
+	http.Handle("/socket.io/", server)
+	return http.ListenAndServe(":8000", nil)
+}
+```
+<!-- quickstart:end -->
+
+A JavaScript client connected to `http://localhost:8000` that calls
+`socket.emit("join", "Ann", ack => console.log(ack))` receives `joined` with `Ann` and the
+ACK `welcome, Ann`.
 
 ## Examples
 

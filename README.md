@@ -4,7 +4,7 @@ A [Socket.IO](https://socket.io) server and Go client with namespaces, rooms, ac
 broadcast and a Redis adapter for multi-instance deployments. Engine.IO is included as
 the `engineio` sub-package and can be used on its own.
 
-This module is the maintained successor of the archived `googollee/go-socket.io` for
+This module is a maintained successor of the archived `googollee/go-socket.io` for
 `socket.io-client` 1.x and 2.x. Applications moving from upstream v1.4.2 or v1.7.0 should
 follow the [migration guide](docs/V1.md#migrating-from-googolleego-socketio).
 

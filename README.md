@@ -59,11 +59,15 @@ func main() {
 		}
 		return "welcome to " + room // sent as the ACK
 	})
-	go server.Serve()
+	go func() {
+		if err := server.Serve(); err != nil {
+			log.Fatal(err)
+		}
+	}()
 
 	http.Handle("/socket.io/", server)
 	err := http.ListenAndServe(":8000", nil)
-	server.Close()
+	_ = server.Close()
 	log.Fatal(err)
 }
 ```

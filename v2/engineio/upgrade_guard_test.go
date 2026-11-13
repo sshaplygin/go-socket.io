@@ -164,8 +164,12 @@ func requireBadUpgrade(t *testing.T, err error) {
 }
 
 // requireRejected checks that the server logged exactly one rejected request, for reason.
+// It waits for the record: a handshake error reaches the client from the transport,
+// before the server returns the reservation and logs.
 func (f *guardFixture) requireRejected(t *testing.T, reason string) {
 	t.Helper()
+	require.Eventually(t, func() bool { return len(f.rec.Find("engineio: request rejected")) > 0 },
+		5*time.Second, time.Millisecond)
 	got := f.rec.Find("engineio: request rejected")
 	require.Len(t, got, 1)
 	require.Equal(t, reason, got[0]["reason"])

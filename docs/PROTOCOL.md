@@ -66,7 +66,15 @@ Package `engineio` of the v1 module at the repository root.
   that arrives after the close with HTTP 400, so a polling client reports `transport
   error` (in the Go client, `OnDisconnect` reason `transport error`); engine.io 3.6.2
   answers the poll with `CLOSE` (`1`), and its clients report `transport close`. A
-  websocket session receives the close frame above.
+  websocket session receives the server's close frame with code 1000 instead.
+- A websocket close frame from the client with code 1000 or 1001, or without a code
+  (1005, which socket.io-client 2.5.0 sends when its engine closes), ends the session
+  with `transport close`, as a `CLOSE` packet does. Any other code, such as 1008 or
+  1011, and a connection dropped without a frame (1006) end it with
+  `transport error`. engine.io 3.6.2 reports every websocket close as
+  `transport close`, whatever its code and also for a dropped connection; this server
+  keeps `transport error` for those, so that a failed or crashed peer stays distinct
+  from an orderly close.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
   to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
   threshold and only for a packet whose compression flag is true. The threshold is

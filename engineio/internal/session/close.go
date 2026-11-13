@@ -235,6 +235,26 @@ func (s *Session) fail(err error) error {
 	return err
 }
 
+// observePeerClose observes "transport close" when a read or write of conn
+// failed with err after the peer's orderly websocket close frame (status 1000,
+// 1001 or none), which engine.io reports as a close. The websocket transport
+// notes the frame before the read returns and before it replies to the frame,
+// so a write that fails because of that reply (websocket.ErrCloseSent) sees it
+// too. Other statuses and a connection dropped without a frame remain transport
+// errors (see fail). It takes no lock: conn is the connection of the failing
+// reader or writer, never s.conn.
+func (s *Session) observePeerClose(conn transport.Conn, err error) {
+	if peer, ok := conn.(interface{ PeerClosed() bool }); ok && err != nil && peer.PeerClosed() {
+		s.observe(reasonTransportClose, nil)
+	}
+}
+
+// failConn is fail for an error of an I/O on conn (see observePeerClose).
+func (s *Session) failConn(conn transport.Conn, err error) error {
+	s.observePeerClose(conn, err)
+	return s.fail(err)
+}
+
 // failRead is fail for an open frame reader. A read that fails while the
 // session closes on Close failed because of that close; like readerCloseError
 // for NextReader, it returns (the frame's own error) only once the close has

@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/v2/engineio/internal"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/session"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/transport/websocket"
 )
 
@@ -26,6 +28,7 @@ const protocolVersion = "4"
 type Server struct {
 	pingInterval time.Duration
 	pingTimeout  time.Duration
+	maxPayload   int // advertised in the OPEN packet
 
 	transports *transport.Manager
 	sessions   *session.Manager
@@ -42,10 +45,12 @@ type Server struct {
 
 // NewServer returns a server.
 func NewServer(opts *Options) *Server {
+	transports := opts.getTransport()
 	return &Server{
-		transports:     transport.NewManager(opts.getTransport()),
+		transports:     transport.NewManager(transports),
 		pingInterval:   opts.getPingInterval(),
 		pingTimeout:    opts.getPingTimeout(),
+		maxPayload:     advertisedMaxPayload(transports),
 		requestChecker: opts.getRequestChecker(),
 		connInitor:     opts.getConnInitor(),
 		sessions:       session.NewManager(opts.getSessionIDGenerator()),
@@ -215,6 +220,7 @@ func (s *Server) newSession(_ context.Context, conn transport.Conn, reqTransport
 		PingInterval: s.pingInterval,
 		PingTimeout:  s.pingTimeout,
 		Upgrades:     s.transports.UpgradeFrom(reqTransport),
+		MaxPayload:   s.maxPayload,
 	}
 
 	sid := s.sessions.NewID()
@@ -246,6 +252,33 @@ func (s *Server) newSession(_ context.Context, conn transport.Conn, reqTransport
 	}(newSession)
 
 	return newSession, nil
+}
+
+// advertisedMaxPayload is the maxPayload of the OPEN packet: the POST limit of the
+// polling transport, which a client uses to batch its POSTs. Without a polling
+// transport it is the message limit of the websocket transport, as the single
+// maxHttpBufferSize of the Node server bounds both; payload.DefaultMaxPayload when
+// neither is configured. The defaults are those the transports apply.
+func advertisedMaxPayload(transports []transport.Transport) int {
+	limit := 0
+	for _, t := range transports {
+		switch t := t.(type) {
+		case *polling.Transport:
+			return orDefault(t.MaxPayload)
+		case *websocket.Transport:
+			if limit == 0 {
+				limit = orDefault(t.MaxPayload)
+			}
+		}
+	}
+	return orDefault(limit)
+}
+
+func orDefault(limit int) int {
+	if limit <= 0 {
+		return payload.DefaultMaxPayload
+	}
+	return limit
 }
 
 // acceptFailed answers a request whose transport refused to accept it. A

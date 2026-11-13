@@ -1,21 +1,16 @@
 package client
 
 import (
-	"context"
-	"errors"
+	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
-	"github.com/gobwas/ws/wsutil"
-
 	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
-	"github.com/sshaplygin/go-socket.io/v2/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/v2/logger"
 )
@@ -30,8 +25,50 @@ type client struct {
 	params    transport.ConnParameters
 	transport string
 	context   interface{}
-	close     chan struct{}
 	closeOnce sync.Once
+
+	// pingTimer closes the client when no PING arrives within pingInterval +
+	// pingTimeout, as the Node client does; each PING restarts it.
+	mu        sync.Mutex // guards pingTimer, closed and timedOut
+	pingTimer *time.Timer
+	closed    bool
+	timedOut  bool // pingTimer closed the client
+}
+
+// startHeartbeat starts the ping timeout once the OPEN packet is read.
+func (c *client) startHeartbeat() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pingTimer = time.AfterFunc(c.params.PingInterval+c.params.PingTimeout, c.pingTimedOut)
+}
+
+func (c *client) pingTimedOut() {
+	c.mu.Lock()
+	c.timedOut = !c.closed
+	c.mu.Unlock()
+	if err := c.Close(); err != nil {
+		logger.Log.Debug("engineio: close connection failed", "err", err)
+	}
+}
+
+// restartHeartbeat restarts the ping timeout after a PING, unless the client is closed.
+func (c *client) restartHeartbeat() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.closed && c.pingTimer != nil {
+		c.pingTimer.Reset(c.params.PingInterval + c.params.PingTimeout)
+	}
+}
+
+// readErr returns err, the failure of a read, marked as a ping timeout when the
+// missing PING closed the client.
+func (c *client) readErr(err error) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.timedOut {
+		return fmt.Errorf("ping timeout: %w", err)
+	}
+	return err
 }
 
 func (c *client) SetContext(v interface{}) {
@@ -52,7 +89,12 @@ func (c *client) Transport() string {
 
 func (c *client) Close() error {
 	c.closeOnce.Do(func() {
-		close(c.close)
+		c.mu.Lock()
+		c.closed = true
+		if c.pingTimer != nil {
+			c.pingTimer.Stop()
+		}
+		c.mu.Unlock()
 	})
 	return c.conn.Close()
 }
@@ -61,14 +103,24 @@ func (c *client) NextReader() (frame.Type, io.ReadCloser, error) {
 	for {
 		ft, pt, r, err := c.conn.NextReader()
 		if err != nil {
-			return 0, nil, err
+			return 0, nil, c.readErr(err)
 		}
 
 		switch pt {
-		case packet.PONG:
-			if err = c.conn.SetReadDeadline(time.Now().Add(c.params.PingInterval + c.params.PingTimeout)); err != nil {
-				return 0, nil, err
+		case packet.PING:
+			// Answer with PONG, as the Node client does; a failure reaches the reader.
+			if err = r.Close(); err != nil {
+				logger.Log.Debug("engineio: close reader failed", "err", err)
 			}
+			c.restartHeartbeat()
+			w, err := c.conn.NextWriter(frame.String, packet.PONG)
+			if err == nil {
+				err = w.Close()
+			}
+			if err != nil {
+				return 0, nil, c.readErr(err)
+			}
+			continue
 
 		case packet.CLOSE:
 			if err = c.Close(); err != nil {
@@ -106,61 +158,4 @@ func (c *client) RemoteAddr() net.Addr {
 
 func (c *client) RemoteHeader() http.Header {
 	return c.conn.RemoteHeader()
-}
-
-func (c *client) serve() {
-	defer func() {
-		if closeErr := c.conn.Close(); closeErr != nil {
-			logger.Log.Debug("engineio: close connection failed", "err", closeErr)
-		}
-	}()
-
-	for {
-		select {
-		case <-c.close:
-			return
-		case <-time.After(c.params.PingInterval):
-		}
-
-		w, err := c.conn.NextWriter(frame.String, packet.PING)
-		if err != nil {
-			c.pingFailed(err)
-
-			return
-		}
-
-		if err = w.Close(); err != nil {
-			c.pingFailed(err)
-
-			return
-		}
-
-		if err = c.conn.SetWriteDeadline(time.Now().Add(c.params.PingInterval + c.params.PingTimeout)); err != nil {
-			c.pingFailed(err)
-		}
-	}
-}
-
-// pingFailed logs a failure of the ping loop. By the 1.L Levels rule it is DEBUG when
-// it is expected closure: a Close the client started, io.EOF or a closed connection, a
-// *net.OpError (a peer close, reset or passed deadline), a websocket close frame from
-// the peer (a wsutil.ClosedError; later writes fail with net.ErrClosed), or a polling *payload.OpError that is not temporary (the transport stores a request
-// failure and closes itself before a writer sees it, or the deadline passed). It is WARN
-// otherwise: no caller receives it.
-func (c *client) pingFailed(err error) {
-	level := slog.LevelWarn
-	var netErr *net.OpError
-	var payloadErr *payload.OpError
-	var closedErr wsutil.ClosedError
-	select {
-	case <-c.close:
-		level = slog.LevelDebug
-	default:
-		if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.As(err, &netErr) ||
-			errors.As(err, &closedErr) ||
-			(errors.As(err, &payloadErr) && !payloadErr.Temporary()) {
-			level = slog.LevelDebug
-		}
-	}
-	logger.Log.Log(context.Background(), level, "engineio: ping failed", "err", err)
 }

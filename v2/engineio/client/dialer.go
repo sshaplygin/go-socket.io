@@ -98,10 +98,9 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (engineio.Conn, 
 			conn:      conn,
 			params:    params,
 			transport: t.Name(),
-			close:     make(chan struct{}),
 		}
 
-		go ret.serve()
+		ret.startHeartbeat()
 
 		return ret, nil
 	}

@@ -124,6 +124,34 @@ func TestServerFlushLevels(t *testing.T) {
 		assert.Equal(t, []string{warn, warn, debug}, levels(rec))
 	})
 
+	// A poll that fails alone while a stored failure waits for its first report is WARN
+	// and leaves that report WARN: here an overlapping poll arrives after a write timeout
+	// ended the payload and before a poll reported it.
+	t.Run("stored failure then overlap", func(t *testing.T) {
+		rec := logtest.NewRecorder()
+		logtest.SetDefault(t, rec)
+		conn := handshakeConn()
+		t.Cleanup(func() { _ = conn.Close() })
+		first := make(chan struct{})
+		go func() { defer close(first); poll(conn) }()
+		w, err := conn.NextWriter(frame.String, packet.MESSAGE) // returns once that poll waits
+		require.NoError(t, err)
+		expired(conn)
+		_, err = conn.NextWriter(frame.String, packet.MESSAGE)
+		require.ErrorContains(t, err, "timeout", "the write timeout ends the payload")
+		// This poll overlaps the first one; closing w then wakes the first poll,
+		// which reports the timeout.
+		poll(conn)
+		go func() { _ = w.Close() }()
+		<-first
+		poll(conn)
+		assert.Equal(t, []string{warn, warn, debug}, levels(rec))
+		errs := rec.Find(rejected)
+		assert.Contains(t, errs[0]["err"], "overlap")
+		assert.Contains(t, errs[1]["err"], "timeout")
+		assert.Contains(t, errs[2]["err"], "timeout")
+	})
+
 	// No poll has reported the read failure; only the close makes the poll DEBUG.
 	t.Run("read failure then closed", func(t *testing.T) {
 		rec := logtest.NewRecorder()

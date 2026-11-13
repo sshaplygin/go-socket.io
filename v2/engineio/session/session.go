@@ -81,6 +81,7 @@ func init() {
 		return s.(*Session).reserveUpgrade(timeout)
 	}
 	internal.ReleaseUpgrade = func(s io.Closer) { s.(*Session).releaseUpgrade() }
+	internal.Closed = func(s io.Closer) bool { return s.(*Session).isClosed() }
 }
 
 // New creates a session over conn. log receives errors the session cannot
@@ -759,6 +760,13 @@ func (s *Session) reserveUpgrade(timeout time.Duration) bool {
 	}
 	s.upgradeReserved, s.upgradeTimeout = true, timeout
 	return true
+}
+
+// isClosed reports whether Close has run.
+func (s *Session) isClosed() bool {
+	s.upgradeLocker.RLock()
+	defer s.upgradeLocker.RUnlock()
+	return s.closed
 }
 
 // releaseUpgrade returns the upgrade reservation of an upgrade that never started.

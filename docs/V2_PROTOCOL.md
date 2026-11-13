@@ -116,7 +116,7 @@ server->>server: close old conn
   | Code | Message | Status | Cause |
   | --- | --- | --- | --- |
   | 0 | `Transport unknown` | 400 | `transport` is not one of `Options.Transports` |
-  | 1 | `Session ID unknown` | 400 | no session has the `sid` |
+  | 1 | `Session ID unknown` | 400 | no session has the `sid`, or a websocket request names a session that is closed but still registered (the Node server deletes a closed client) |
   | 2 | `Bad handshake method` | 400 | a handshake (no `sid`) that is neither GET nor an OPTIONS preflight |
   | 3 | `Bad request` | 400 | a transport change the session cannot make, a websocket request for a session that is upgrading or already on websocket, a failed session start, a polling request that is not GET, POST or OPTIONS |
   | 4 | `Forbidden` | 403 | `Options.RequestChecker` returned an error |

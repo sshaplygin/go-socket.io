@@ -150,17 +150,20 @@ func (f *guardFixture) dial(t *testing.T, sid string, header http.Header) (trans
 	return ws, err
 }
 
-// requireBadUpgrade checks that a websocket request was answered without the hijack,
-// with HTTP 400 and the Engine.IO error code 3.
-func requireBadUpgrade(t *testing.T, err error) {
+// badRequest and unknownSID are Engine.IO error bodies of HTTP 400 answers.
+const badRequest, unknownSID = `{"code":3,"message":"Bad request"}`, `{"code":1,"message":"Session ID unknown"}`
+
+// requireRefused checks that a websocket request was answered without the hijack, with
+// HTTP 400 and the Engine.IO error body.
+func requireRefused(t *testing.T, err error, body string) {
 	t.Helper()
 	var de websocket.DialError
 	require.ErrorAs(t, err, &de)
 	require.NotNil(t, de.Response, "no HTTP answer: %v", err)
-	body, err := io.ReadAll(de.Response.Body)
+	got, err := io.ReadAll(de.Response.Body)
 	require.NoError(t, err)
-	require.Equal(t, http.StatusBadRequest, de.Response.StatusCode, "body %q", body)
-	require.JSONEq(t, `{"code":3,"message":"Bad request"}`, string(body))
+	require.Equal(t, http.StatusBadRequest, de.Response.StatusCode, "body %q", got)
+	require.JSONEq(t, body, string(got))
 }
 
 // requireRejected checks that the server logged exactly one rejected request, for reason.
@@ -219,7 +222,7 @@ func TestUpgradeGuardConcurrentUpgrades(t *testing.T) {
 	}
 	for i := 0; i < 2; i++ {
 		if err := <-dials; err != nil {
-			requireBadUpgrade(t, err)
+			requireRefused(t, err, badRequest)
 		}
 	}
 	for _, ws := range accepted {
@@ -255,11 +258,26 @@ func TestUpgradeGuardBusySession(t *testing.T) {
 			}
 
 			_, err := f.dial(t, conn.ID(), nil)
-			requireBadUpgrade(t, err)
+			requireRefused(t, err, badRequest)
 			f.requireRejected(t, "bad upgrade")
 			require.Equal(t, "websocket", conn.(*session.Session).Transport())
 		})
 	}
+}
+
+// TestUpgradeGuardClosedSession: a websocket request with the sid of a session that is
+// closed but still registered gets the answer of an unknown sid, as on the Node server,
+// which deletes a closed client: HTTP 400, code 1 and one "unknown sid" record.
+func TestUpgradeGuardClosedSession(t *testing.T) {
+	f := newGuardFixture(t, &engineio.Options{})
+	dialRaw(t, polling.Default, f.url)
+	conn := f.accept(t)
+	require.NoError(t, conn.Close())
+	require.Equal(t, 1, f.srv.Count(), "the closed session is still registered")
+
+	_, err := f.dial(t, conn.ID(), nil)
+	requireRefused(t, err, unknownSID)
+	f.requireRejected(t, "unknown sid")
 }
 
 // TestUpgradeGuardRejectedAccept: an upgrade request the transport refuses to accept,

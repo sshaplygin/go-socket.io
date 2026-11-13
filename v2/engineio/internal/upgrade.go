@@ -16,6 +16,10 @@ const DefaultUpgradeTimeout = 10 * time.Second
 // the accept. Package session sets it; engineio.Server calls it.
 var ReserveUpgrade func(session io.Closer, timeout time.Duration) bool
 
+// Closed reports whether session, a *session.Session, has been closed. Package session
+// sets it; engineio.Server calls it.
+var Closed func(session io.Closer) bool
+
 // ReleaseUpgrade returns the reservation of an upgrade whose connection was not
 // accepted. Package session sets it; engineio.Server calls it.
 var ReleaseUpgrade func(session io.Closer)

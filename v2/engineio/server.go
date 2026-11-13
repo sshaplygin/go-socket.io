@@ -192,9 +192,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Anything else is an upgrade. It is reserved before the transport accepts (hijacks)
-	// the request, so that a session upgrades once; a request for a session already on
-	// reqTransport, or whose upgrade is reserved or done, is rejected without the hijack.
+	// Anything else is an upgrade. A closed session cannot make one: as the Node server,
+	// which deletes a closed client, the server answers as for an unknown sid.
+	if internal.Closed(reqSession) {
+		internal.WriteError(w, http.StatusBadRequest, internal.CodeUnknownSID)
+		s.reject(reqTransport, r.RemoteAddr, "unknown sid", nil)
+		return
+	}
+
+	// The upgrade is reserved before the transport accepts (hijacks) the request, so that a
+	// session upgrades once; a request for a session already on reqTransport, or whose
+	// upgrade is reserved or done, is rejected without the hijack.
 	if current == reqTransport || !s.canUpgrade(current, reqTransport) ||
 		!internal.ReserveUpgrade(reqSession, s.upgradeTimeout) {
 		internal.WriteError(w, http.StatusBadRequest, internal.CodeBadRequest)

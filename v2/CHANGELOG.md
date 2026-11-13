@@ -227,6 +227,10 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   `UPGRADE` switched the session again and left the connection switched out first open.
 - A websocket request with the `sid` of a session that was upgraded or opened on websocket
   gets the same code-3 answer and record; before, it got an empty HTTP 200.
+- A websocket request with the `sid` of a session that is closed but still registered is
+  answered with HTTP 400, `{"code":1,"message":"Session ID unknown"}` and one
+  `engineio: request rejected` record with `reason="unknown sid"` (DEBUG), as the Node server,
+  which deletes a closed client, answers; before, it got 101 and the connection was closed.
 - The probe and `UPGRADE` of an upgrade must arrive within `Options.UpgradeTimeout`, 10 s by
   default, of the accept of the websocket connection; the window was `pingTimeout`, 60 s by
   default. On expiry the websocket connection is closed and the session stays on polling.

@@ -66,7 +66,7 @@ func run() error {
 		if err := root.To("lobby").Emit("joined", name); err != nil {
 			log.Print(err)
 		}
-		return "welcome, " + name // sent as the ACK
+		return "welcome, " + name // sent as the ACK when the client asks for one
 	})
 	go func() {
 		if err := server.Serve(); err != nil {

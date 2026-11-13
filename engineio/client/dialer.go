@@ -66,8 +66,8 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 	}
 
 	for _, i := range order {
-		if conn != nil {
-			if closeErr := conn.Close(); closeErr != nil {
+		if conn != nil { // the previous attempt failed
+			if closeErr := abortConn(conn); closeErr != nil {
 				logger.Log.Debug("engineio: close connection failed", "err", closeErr)
 			}
 		}
@@ -155,7 +155,7 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 		return ret, nil
 	}
 	if conn != nil {
-		_ = conn.Close()
+		_ = abortConn(conn)
 	}
 	return nil, err
 }

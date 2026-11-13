@@ -34,7 +34,7 @@ make test-race          # tests with the race detector
 make test-jsonv2        # parser and Socket.IO roles with GOEXPERIMENT=jsonv2
 make test-stress        # concurrent packages, shuffled and repeated
 make test-stress-load   # the stress packages repeated under CPU load; writes stress.json and stress-summary.md
-make lint               # formatting, vet and golangci-lint
+make lint               # formatting, vet and golangci-lint, example modules and quick-start fixture included
 make vet                # Linux/macOS/Windows, conformance and example packages
 make gates              # architecture, lifecycle and public consumer fixtures
 make cover-check        # statement coverage floor and uncovered public functions
@@ -124,8 +124,16 @@ workflow exercises the report action with the collected benchmark samples.
 
 ## Conventions
 
-- Use `gofmt -s`, wrap errors with `%w`, and return errors to callers. Library
-  packages must not terminate the process. Executable entry points own exit status.
+- Use `gofmt -s`, wrap errors with `%w`, and return errors to callers. Library code,
+  examples and README snippets never terminate the process: no `log.Fatal*`,
+  `log.Panic*` or `os.Exit`; a failing example `main` panics with the error
+  (`panic(err)`). golangci-lint (forbidigo) enforces this in the default-build files of
+  the packages that `make lint` and `make -C v2 lint` lint; `v2/_examples`,
+  `v2/engineio/_examples` and the other gaps listed in W73 of
+  [docs/V1_RELEASE_REVIEW.md](docs/V1_RELEASE_REVIEW.md#w73-forbid-fatal-exits-by-lint)
+  are not covered. The exceptions are the `.github` CI tools, which report through
+  their exit status, and `os.Exit` in the `TestMain` functions that set a test binary's
+  exit status, whose files the configuration names.
 - Root, client and Engine.IO test packages fail when library goroutines remain
   after cleanup; fixtures must close clients and unblock callbacks.
 - Reproduce a bug with a behavioral test; verify concurrency changes with `-race`.

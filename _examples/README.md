@@ -70,7 +70,7 @@ All server examples accept `-addr` (default `:8000`, except the Unix Redis examp
 at `:8080`); pprof also accepts `-debug-addr` (default `:8001`). The examples own their HTTP servers, report service failures back to
 `run`, close Socket.IO, drain active HTTP requests with a five-second shutdown
 bound, and wait for serving goroutines before returning. Startup or serving
-errors produce a nonzero exit status after cleanup.
+errors make `main` panic with the error after cleanup, which exits with status 2.
 SIGINT/SIGTERM follows
 the same cleanup; `graceful-shutdown` keeps its three-second signal delay but stops
 immediately on a service failure. GoFrame is mounted as an HTTP handler because

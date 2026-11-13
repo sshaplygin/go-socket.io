@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
 	"sync"
 	"time"
 
@@ -21,8 +20,7 @@ func main() {
 	message := flag.String("message", "hello from the Go client", "message to send")
 	flag.Parse()
 	if err := run(*addr, *name, *message); err != nil {
-		log.Print(err)
-		os.Exit(1)
+		panic(err)
 	}
 }
 

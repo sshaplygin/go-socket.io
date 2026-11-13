@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	"net/http"
 	"net/http/pprof"
 	_ "net/http/pprof"
@@ -29,9 +28,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, *addr, *debugAddr); err != nil {
-		log.Print(err)
-		stop()
-		os.Exit(1)
+		panic(err)
 	}
 }
 

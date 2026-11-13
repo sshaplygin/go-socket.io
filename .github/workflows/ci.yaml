@@ -245,11 +245,12 @@ jobs:
       - name: API and statement coverage
         if: needs.changes.outputs.v1_packages != ''
         run: make cover-check
+      - name: Install golangci-lint
+        # golangci-lint-action lints one working directory; make lint-go also lints each example
+        # module, the underscore packages of the root module and the quick-start fixture.
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.15.0
-          args: ./... ./.github/architecture ./.github/changes ./.github/stress
+        run: make lint-go
       - name: govulncheck
         # setup-go reads a manifest that can lag behind go.dev, so scan with the newest
         # published release; the go command downloads that toolchain via the module proxy.

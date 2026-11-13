@@ -110,7 +110,10 @@ server->>server: close old conn
   `engineio: request rejected` with `reason="bad upgrade"`. The Node server
   differs in both cases: while a session is upgrading or upgraded it completes the WebSocket
   handshake (101) and then closes the new connection, and it treats a second websocket of a
-  session opened on websocket as an upgrade candidate (`_maybeUpgrade`).
+  session opened on websocket as an upgrade candidate (`_maybeUpgrade`). A request for a
+  closed session gets code 1 instead (error table below). The server checks for a closed
+  session before it takes the reservation, in a separate step, so a session that closes
+  while its request is being handled may still get code 3.
 - Error responses (Engine.IO v4): the server answers a rejected request with the JSON
   body `{"code":N,"message":"..."}` and content type `application/json`:
 

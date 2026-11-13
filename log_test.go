@@ -466,7 +466,12 @@ func TestNamespaceRecords(t *testing.T) {
 func TestPingTimeoutRecords(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
-			opts := []engineio.Option{engineio.WithPingInterval(time.Millisecond), engineio.WithPingTimeout(100 * time.Millisecond)}
+			// The heartbeat window starts when the session is created, so it also bounds the
+			// handshake: the OPEN write and, over polling, the response flush after the handler
+			// returns. A window a loaded scheduler can outlast turns the handshake into EOF or an
+			// init rejection. One second is ten times the old window and leaves waitFor four
+			// seconds for the close records.
+			opts := []engineio.Option{engineio.WithPingInterval(time.Millisecond), engineio.WithPingTimeout(time.Second)}
 			rec, opts := captureLogs(t, opts)
 			srv := NewServer(WithEngineOptions(opts...), WithLogger(slog.New(rec)))
 			connected := make(chan Conn, 1)

@@ -35,8 +35,8 @@ Go 1.22 or later is required.
 
 ## Quick start
 
-A server whose `join` handler adds the socket to the `lobby` room, broadcasts the name the
-client sent to that room as `joined` and returns the ACK:
+A server whose `join` handler adds the socket to the `lobby` room, broadcasts the client's
+name to that room as `joined` and returns the ACK:
 
 <!-- quickstart:begin -->
 ```go

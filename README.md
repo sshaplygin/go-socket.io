@@ -73,7 +73,7 @@ func main() {
 ```
 <!-- quickstart:end -->
 
-A `socket.io-client` 1.x or 2.x client of `http://localhost:8000` that calls
+A JavaScript client of `http://localhost:8000` that calls
 `socket.emit("join", "Ann", ack => console.log(ack))` receives `joined` with `Ann` and the
 ACK `welcome, Ann`.
 

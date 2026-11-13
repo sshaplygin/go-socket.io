@@ -91,18 +91,20 @@ server->>server: close old conn
   least 100 ms later. After a failed upgrade a `NOOP` that was already waiting still answers
   the next poll; then the `NOOP`s stop. The probe and `UPGRADE` must both arrive within
   `engineio.Options.UpgradeTimeout` (default 10 s, the `upgradeTimeout` of the Node server)
-  of the moment the server accepts the websocket connection: one deadline, set before the
-  probe is read, bounds the probe, its answer and `UPGRADE`, and the probe does not extend it.
-  If anything else follows the probe or the deadline passes, the upgrade fails: the websocket
-  connection is closed and the session stays on polling, which was never paused. If the
+  of the moment the server accepts the websocket connection: one timer, started then, bounds
+  the probe, its answer and `UPGRADE`, and the probe does not extend it. If anything else
+  follows the probe or the timer expires, the upgrade fails: the websocket connection is
+  closed and the session stays on polling, which was never paused. If the
   session closes during the upgrade (for example on a ping timeout), the session ends with
   both its polling connection and the websocket connection closed, and it is not switched.
 
   A session upgrades at most once. The server reserves the upgrade before the websocket
   transport hijacks the request, and returns the reservation when the upgrade does not switch
   the session: a refused handshake (origin check, malformed upgrade request, no
-  `http.Hijacker`), a failed probe or an expired `UpgradeTimeout`; the client may then try
-  again. A websocket request with the `sid` of a session that is upgrading, or already on
+  `http.Hijacker`), a failed probe or an expired `UpgradeTimeout`. The server returns it before
+  it closes the websocket connection, except when the transport has already closed the
+  connection on a read error (a peer close or a protocol violation); a client that sees the
+  server close the connection of a failed upgrade may try again at once. A websocket request with the `sid` of a session that is upgrading, or already on
   websocket (upgraded, or opened there), is rejected before the hijack with HTTP 400 and code
   3, logged as `engineio: request rejected` with `reason="bad upgrade"`. The Node server
   differs in both cases: while a session is upgrading or upgraded it completes the WebSocket

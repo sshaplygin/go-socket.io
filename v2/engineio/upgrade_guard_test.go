@@ -324,14 +324,23 @@ func TestUpgradeTimeout(t *testing.T) {
 	require.GreaterOrEqual(t, elapsed, timeout)
 	require.Less(t, elapsed, timeout+margin)
 
+	// A failed upgrade returns the reservation before the server closes the connection, so
+	// a retry right after the close is accepted, however late the rest of the failed
+	// upgrade ends: here after the expired window, then after a packet other than the
+	// probe, which fails the upgrade at once.
+	ws, err = f.dial(t, conn.ID(), nil)
+	require.NoError(t, err)
+	writePacket(t, ws, packet.MESSAGE, "not a probe")
+	_, err = nextType(ws, 5*time.Second)
+	require.Error(t, err, "the server closes the websocket connection")
+	ws, err = f.dial(t, conn.ID(), nil)
+	require.NoError(t, err)
+
 	writeLater(conn, "after the timeout")
 	pt, data := readPacket(t, p)
 	require.Equal(t, packet.MESSAGE, pt)
 	require.Equal(t, "after the timeout", data)
 	require.Equal(t, "polling", conn.(*session.Session).Transport())
-
-	ws, err = f.dial(t, conn.ID(), nil)
-	require.NoError(t, err)
 	upgradeTo(t, ws, conn)
 
 	// The switch replaces the upgrade deadline of the websocket connection with that of

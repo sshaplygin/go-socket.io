@@ -332,7 +332,9 @@ func TestUpgradeTimeout(t *testing.T) {
 
 	// The switch replaces the upgrade deadline of the websocket connection with that of
 	// the heartbeat: once the upgrade window has passed, the session still writes there.
-	time.Sleep(timeout)
+	// The wait is twice the window, so that the runtime has expired a deadline left on
+	// the connection before the write.
+	time.Sleep(2 * timeout)
 	writeLater(conn, "after the switch")
 	pt, data = readPacket(t, ws)
 	require.Equal(t, packet.MESSAGE, pt)

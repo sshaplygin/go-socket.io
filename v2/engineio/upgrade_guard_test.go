@@ -237,13 +237,22 @@ func TestUpgradeGuardConcurrentUpgrades(t *testing.T) {
 	f.requireRejected(t, "bad upgrade")
 }
 
+// namedWebsocket is a transport of another type registered under the name "websocket".
+type namedWebsocket struct{ *websocket.Transport }
+
 // TestUpgradeGuardBusySession: a websocket request with the sid of a session already on
 // websocket, upgraded or opened there, is answered before the hijack with HTTP 400, code
-// 3 and one "bad upgrade" record. An opening websocket request, without sid, succeeds.
+// 3 and one "bad upgrade" record, also when the transport named "websocket" is not a
+// *websocket.Transport. An opening websocket request, without sid, succeeds.
 func TestUpgradeGuardBusySession(t *testing.T) {
-	for _, name := range []string{"upgraded", "opened on websocket"} {
+	const other = "opened on another transport named websocket"
+	for _, name := range []string{"upgraded", "opened on websocket", other} {
 		t.Run(name, func(t *testing.T) {
-			f := newGuardFixture(t, &engineio.Options{})
+			opts := &engineio.Options{}
+			if name == other {
+				opts.Transports = []transport.Transport{polling.Default, namedWebsocket{websocket.Default}}
+			}
+			f := newGuardFixture(t, opts)
 			var conn engineio.Conn
 			if name == "upgraded" {
 				dialRaw(t, polling.Default, f.url)

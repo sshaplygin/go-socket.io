@@ -184,10 +184,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A request of the session's transport is served by the session, except a websocket
-	// request: it would be a second connection of the session.
+	// A request of the session's transport is served by the session, except a request of
+	// the transport named "websocket": it would be a second connection of the session.
 	current := reqSession.Transport()
-	if _, ws := srvTransport.(*websocket.Transport); current == reqTransport && !ws {
+	if current == reqTransport && reqTransport != "websocket" {
 		reqSession.ServeHTTP(w, r)
 		return
 	}

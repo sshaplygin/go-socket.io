@@ -3019,7 +3019,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W68. README quick start
 
-- **Status:** in progress — #PR
+- **Status:** in progress — #253
 - **Priority:** before tag
 - **Findings:** [CL-20](#clarity-findings)
 - **Depends on:** none
@@ -4100,7 +4100,7 @@ Every finding is listed under the dimension that reported it.
 | CL-17 | minor | — | `server.go:138` | `Server.OnDisconnect` godoc says application closes report `forced close`; `Conn.Close` and `Conn.Disconnect` report `server namespace disconnect` | Correct the godoc (W51). Fixed by #204 (W51). |
 | CL-18 | minor | — | `adapter/redis/adapter.go:198` | The Redis adapter logs through `slog.Default()` and ignores `socketio.WithLogger`, but the logger package doc, `engineio/options.go:60` and V1.md:457 do not list it | Name the Redis adapter in those lists (W51). Fixed by #204 (W51). |
 | CL-19 | minor | — | `docs/V1.md:346` | The migration guide covers upstream v1.4.2 and v1.7.0 only; users of the intermediate releases v1.4.3 to v1.6.3 have no stated baseline | State a checked baseline for each intermediate release (W51). Fixed by #204 (W51). |
-| CL-20 | minor | — | `README.md`, `doc.go` | README.md has no Go code (only the `go get` command); the first runnable snippet is in `doc.go`. A newcomer evaluation needed `doc.go` and the examples to write a server | Add a compiled server quick start to README (W68). Fixed by #PR (W68). |
+| CL-20 | minor | — | `README.md`, `doc.go` | README.md has no Go code (only the `go get` command); the first runnable snippet is in `doc.go`. A newcomer evaluation needed `doc.go` and the examples to write a server | Add a compiled server quick start to README (W68). Fixed by #253 (W68). |
 
 ### Architecture findings
 

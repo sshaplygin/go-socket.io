@@ -45,6 +45,11 @@ linters:
       - path: _test\.go$
         text: os\.Exit
         linters: [forbidigo]
+      # Every example module carries an identical lifecycle.go; graceful-shutdown calls
+      # its serveAfter only.
+      - path: _examples/graceful-shutdown/lifecycle\.go$
+        text: func serve is unused
+        linters: [unused]
 
 formatters:
   enable:

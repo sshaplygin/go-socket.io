@@ -3125,7 +3125,8 @@ changed to `done — #<PR>` after the merge.
   code never terminate the process: no `log.Fatal*`, `log.Panic*` or `os.Exit`; a failing
   example `main` panics with the error. `.golangci.yml` and `v2/.golangci.yml` enable
   forbidigo for these functions and the `*log.Logger` methods, excluding the `.github` CI
-  tools and `os.Exit` in `TestMain`. `make lint` and the CI lint-v1 job also lint every
+  tools and `os.Exit` in the `TestMain` functions that set a test binary's exit status
+  (named by file). `make lint` and the CI lint-v1 job also lint every
   `_examples/*/` module, `./_examples/client`, `./engineio/_examples` and the README
   quick-start fixture. Every v1 example `main` panics instead of calling `os.Exit(1)`.
 - **Tests:** none; the lint run is the check.

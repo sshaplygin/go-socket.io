@@ -40,9 +40,10 @@ linters:
       # failures to the workflow through their exit status.
       - path: (^|/)\.github/(architecture|changes|coverage|stress)/
         linters: [forbidigo]
-      # TestMain owns the exit status of a test binary: the goroutine-leak gates set it
-      # after m.Run returns, and a helper subprocess exits before running tests.
-      - path: _test\.go$
+      # These TestMain functions own the exit status of their test binary: the goroutine-leak
+      # gates set it after m.Run returns, and a helper subprocess exits before running tests.
+      # os.Exit in any other test file is reported.
+      - path: ^((client/|engineio/)?main_test|logger/logger_test|engineio/(parser|transport/polling)/payload_vectors_test)\.go$
         text: os\.Exit
         linters: [forbidigo]
       # Every example module carries an identical lifecycle.go; graceful-shutdown calls

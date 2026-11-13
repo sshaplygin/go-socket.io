@@ -40,9 +40,9 @@ linters:
         - -QF1008
   exclusions:
     rules:
-      # TestMain owns the exit status of a test binary; a helper subprocess exits before
-      # running tests.
-      - path: _test\.go$
+      # This TestMain owns the exit status of its test binary: a helper subprocess exits
+      # before running tests. os.Exit in any other test file is reported.
+      - path: ^logger/logger_test\.go$
         text: os\.Exit
         linters: [forbidigo]
 

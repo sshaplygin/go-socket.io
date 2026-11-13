@@ -45,15 +45,13 @@ package main
 import (
 	"log"
 	"net/http"
-	"os"
 
 	socketio "github.com/sshaplygin/go-socket.io"
 )
 
 func main() {
 	if err := run(); err != nil {
-		log.Print(err)
-		os.Exit(1)
+		panic(err)
 	}
 }
 

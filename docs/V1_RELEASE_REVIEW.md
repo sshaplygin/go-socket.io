@@ -3140,7 +3140,9 @@ changed to `done — #<PR>` after the merge.
   status 2.
 - **Definition of done:** standard.
 - **Out of scope:** `v2/_examples` and `v2/engineio/_examples`, which are not linted and
-  are replaced in v2 stage 2.5D.
+  are replaced in v2 stage 2.5D. Two known gaps of the rule: a `Fatal` or `Panic` method
+  promoted through an embedded `*log.Logger` is not reported, and golangci-lint runs
+  without build tags, so the `conformance`-tagged tests are not linted.
 
 ### Publication and announcement
 

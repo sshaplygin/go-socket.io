@@ -346,8 +346,8 @@ func TestUpgradeGuardRejectedAccept(t *testing.T) {
 
 // TestUpgradeTimeout: an upgrade that never sends the probe, and one whose probe is
 // answered but never followed by UPGRADE, are closed at UpgradeTimeout from the accept of
-// their websocket connection, where the window was the 60 s default pingTimeout. The session stays on polling, unpaused: it serves the next poll,
-// and a later upgrade completes and outlives the upgrade window.
+// their websocket connection. The session stays on polling, unpaused: it serves the next
+// poll, and a later upgrade completes and outlives the upgrade window.
 func TestUpgradeTimeout(t *testing.T) {
 	const timeout = time.Second
 	f := newGuardFixture(t, &engineio.Options{UpgradeTimeout: timeout})
@@ -392,10 +392,10 @@ func TestUpgradeTimeout(t *testing.T) {
 	require.Equal(t, "polling", conn.(*session.Session).Transport())
 	upgradeTo(t, ws, conn)
 
-	// The switch replaces the upgrade deadline of the websocket connection with that of
-	// the heartbeat: once the upgrade window has passed, the session still writes there.
-	// The wait is twice the window, so that the runtime has expired a deadline left on
-	// the connection before the write.
+	// The switch cancels the window timer and gives the connection the heartbeat's
+	// deadline: once the window has passed, the session still writes there. The wait is
+	// twice the window, so that a timer or deadline left on the connection would have
+	// fired before the write.
 	time.Sleep(2 * timeout)
 	writeLater(conn, "after the switch")
 	pt, data = readPacket(t, ws)
@@ -414,8 +414,8 @@ func writeLater(conn engineio.Conn, data string) {
 }
 
 // TestUpgradeTimeoutNegative: Normalize rejects a negative UpgradeTimeout, and NewServer
-// treats it as zero, 10 s: the upgrade completes, where a deadline in the past would
-// fail its probe at once.
+// treats it as zero, 10 s: the upgrade completes, where a window that is already over
+// would close the connection before the probe.
 func TestUpgradeTimeoutNegative(t *testing.T) {
 	_, err := engineio.Options{UpgradeTimeout: -time.Second}.Normalize()
 	require.Error(t, err)

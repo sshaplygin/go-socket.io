@@ -25,7 +25,7 @@ V1 protocol details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Install
 
-Install the maintained fork directly:
+Install the module:
 
 ```sh
 go get github.com/sshaplygin/go-socket.io@v1.5.0

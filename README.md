@@ -35,8 +35,8 @@ Go 1.22 or later is required.
 
 ## Quick start
 
-A server whose `join` handler adds the socket to a room, broadcasts `joined` to that room
-and returns the ACK:
+A server whose `join` handler adds the socket to the `lobby` room, broadcasts the name the
+client sent to that room as `joined` and returns the ACK:
 
 <!-- quickstart:begin -->
 ```go
@@ -52,12 +52,12 @@ import (
 func main() {
 	server := socketio.NewServer()
 	root := server.Of("/")
-	root.OnEvent("join", func(s socketio.Conn, room string) string {
-		s.Join(room)
-		if err := root.To(room).Emit("joined", s.ID()); err != nil {
+	root.OnEvent("join", func(s socketio.Conn, name string) string {
+		s.Join("lobby")
+		if err := root.To("lobby").Emit("joined", name); err != nil {
 			log.Print(err)
 		}
-		return "welcome to " + room // sent as the ACK
+		return "welcome, " + name // sent as the ACK
 	})
 	go func() {
 		if err := server.Serve(); err != nil {
@@ -74,8 +74,8 @@ func main() {
 <!-- quickstart:end -->
 
 A `socket.io-client` 1.x or 2.x client of `http://localhost:8000` that calls
-`socket.emit("join", "lobby", ack => console.log(ack))` receives `joined` with its own ID
-and the ACK `welcome to lobby`.
+`socket.emit("join", "Ann", ack => console.log(ack))` receives `joined` with `Ann` and the
+ACK `welcome, Ann`.
 
 ## Examples
 

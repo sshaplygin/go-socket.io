@@ -10,12 +10,12 @@ import (
 func main() {
 	server := socketio.NewServer()
 	root := server.Of("/")
-	root.OnEvent("join", func(s socketio.Conn, room string) string {
-		s.Join(room)
-		if err := root.To(room).Emit("joined", s.ID()); err != nil {
+	root.OnEvent("join", func(s socketio.Conn, name string) string {
+		s.Join("lobby")
+		if err := root.To("lobby").Emit("joined", name); err != nil {
 			log.Print(err)
 		}
-		return "welcome to " + room // sent as the ACK
+		return "welcome, " + name // sent as the ACK
 	})
 	go func() {
 		if err := server.Serve(); err != nil {

@@ -26,9 +26,10 @@ const protocolVersion = "4"
 
 // Server is instance of server
 type Server struct {
-	pingInterval time.Duration
-	pingTimeout  time.Duration
-	maxPayload   int // advertised in the OPEN packet
+	pingInterval   time.Duration
+	pingTimeout    time.Duration
+	upgradeTimeout time.Duration
+	maxPayload     int // advertised in the OPEN packet
 
 	transports *transport.Manager
 	sessions   *session.Manager
@@ -50,6 +51,7 @@ func NewServer(opts *Options) *Server {
 		transports:     transport.NewManager(transports),
 		pingInterval:   opts.getPingInterval(),
 		pingTimeout:    opts.getPingTimeout(),
+		upgradeTimeout: opts.getUpgradeTimeout(),
 		maxPayload:     advertisedMaxPayload(transports),
 		requestChecker: opts.getRequestChecker(),
 		connInitor:     opts.getConnInitor(),
@@ -178,31 +180,40 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.connInitor(r, reqSession)
-	}
-
-	// try upgrade current connection
-	if current := reqSession.Transport(); current != reqTransport {
-		if !s.canUpgrade(current, reqTransport) {
-			internal.WriteError(w, http.StatusBadRequest, internal.CodeBadRequest)
-			s.reject(reqTransport, r.RemoteAddr, "bad upgrade", nil)
-			return
-		}
-
-		transportConn, err := srvTransport.Accept(w, r)
-		if err != nil {
-			s.acceptFailed(w, r, reqTransport, err, "")
-			return
-		}
-
-		reqSession.Upgrade(reqTransport, transportConn)
-
-		if handler, ok := transportConn.(http.Handler); ok {
-			handler.ServeHTTP(w, r)
-		}
+		reqSession.ServeHTTP(w, r)
 		return
 	}
 
-	reqSession.ServeHTTP(w, r)
+	// A request of the session's transport is served by the session, except a websocket
+	// request: it would be a second connection of the session.
+	current := reqSession.Transport()
+	if _, ws := srvTransport.(*websocket.Transport); current == reqTransport && !ws {
+		reqSession.ServeHTTP(w, r)
+		return
+	}
+
+	// Anything else is an upgrade. It is reserved before the transport accepts (hijacks)
+	// the request, so that a session upgrades once; a request for a session already on
+	// reqTransport, or whose upgrade is reserved or done, is rejected without the hijack.
+	if current == reqTransport || !s.canUpgrade(current, reqTransport) ||
+		!internal.ReserveUpgrade(reqSession, s.upgradeTimeout) {
+		internal.WriteError(w, http.StatusBadRequest, internal.CodeBadRequest)
+		s.reject(reqTransport, r.RemoteAddr, "bad upgrade", nil)
+		return
+	}
+
+	transportConn, err := srvTransport.Accept(w, r)
+	if err != nil {
+		internal.ReleaseUpgrade(reqSession)
+		s.acceptFailed(w, r, reqTransport, err, "")
+		return
+	}
+
+	reqSession.Upgrade(reqTransport, transportConn)
+
+	if handler, ok := transportConn.(http.Handler); ok {
+		handler.ServeHTTP(w, r)
+	}
 }
 
 // Count counts connected

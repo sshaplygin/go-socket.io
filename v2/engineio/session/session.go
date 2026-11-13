@@ -35,7 +35,7 @@ type Session struct {
 
 	context interface{}
 
-	upgradeLocker sync.RWMutex // guards conn, transport, closed, opened and the heartbeat timers
+	upgradeLocker sync.RWMutex // guards conn, transport, closed, opened, the upgrade and heartbeat fields
 	closed        bool         // set by Close; a closed session is never upgraded
 	opened        time.Time    // set by InitSession; a session never opened logs no close
 
@@ -46,6 +46,12 @@ type Session struct {
 	pongTimer *time.Timer // nil while no PING waits for its PONG
 
 	candidate transport.Conn // the connection of a running upgrade; Close closes it
+
+	// The upgrade reservation, taken by internal.ReserveUpgrade before the connection of
+	// an upgrade is accepted, so that at most one upgrade runs. It is returned when the
+	// upgrade does not switch the session, and kept when it does.
+	upgradeReserved bool
+	upgradeTimeout  time.Duration // bounds the probe and UPGRADE of the reserved upgrade
 
 	cause    atomic.Pointer[closeCause] // the first close cause observed
 	deadline atomic.Int64               // UnixNano of the deadline setDeadline set on conn
@@ -71,6 +77,10 @@ type closeCause struct {
 
 func init() {
 	internal.Shutdown = func(s io.Closer) error { return s.(*Session).close(reasonShutdown) }
+	internal.ReserveUpgrade = func(s io.Closer, timeout time.Duration) bool {
+		return s.(*Session).reserveUpgrade(timeout)
+	}
+	internal.ReleaseUpgrade = func(s io.Closer) { s.(*Session).releaseUpgrade() }
 }
 
 // New creates a session over conn. log receives errors the session cannot
@@ -315,6 +325,9 @@ func (s *Session) NextWriter(typ frame.Type) (io.WriteCloser, error) {
 	return frameWriter{w, s}, nil
 }
 
+// Upgrade moves the session to conn, a connection of the named transport, once the
+// client has sent the probe and UPGRADE on it. The caller has just accepted conn under
+// the session's upgrade reservation (internal.ReserveUpgrade).
 func (s *Session) Upgrade(transport string, conn transport.Conn) {
 	go s.upgrading(transport, conn)
 }
@@ -507,8 +520,14 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	}
 	defer s.untrackCandidate(conn)
 
+	// The probe and UPGRADE must both arrive within upgradeTimeout of the accept of conn,
+	// which happens right before Upgrade starts this goroutine.
+	s.upgradeLocker.RLock()
+	deadline := time.Now().Add(s.upgradeTimeout)
+	s.upgradeLocker.RUnlock()
+
 	// Read a ping from the client.
-	err := conn.SetReadDeadline(time.Now().Add(s.params.PingTimeout))
+	err := conn.SetReadDeadline(deadline)
 	if err != nil {
 		s.logger().Debug("engineio: upgrade probe failed", "err", err)
 
@@ -544,7 +563,7 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	// Wait to close the reader until after data is read and echoed in the reply.
 
 	// Sent a pong in reply.
-	err = conn.SetWriteDeadline(time.Now().Add(s.params.PingTimeout))
+	err = conn.SetWriteDeadline(deadline)
 	if err != nil {
 		s.logger().Debug("engineio: upgrade probe failed", "err", err)
 
@@ -762,12 +781,34 @@ func (s *Session) trackCandidate(conn transport.Conn) bool {
 	return !closed
 }
 
-// untrackCandidate forgets conn when the upgrade ends without switching to it.
+// untrackCandidate forgets conn and returns the upgrade reservation when the upgrade
+// ends without switching to conn. After a switch, or once the session is closed,
+// candidate is no longer conn and the reservation is kept.
 func (s *Session) untrackCandidate(conn transport.Conn) {
 	s.upgradeLocker.Lock()
 	if s.candidate == conn {
 		s.candidate = nil
+		s.upgradeReserved = false
 	}
+	s.upgradeLocker.Unlock()
+}
+
+// reserveUpgrade takes the upgrade reservation for an upgrade bounded by timeout, unless
+// the session is closed or an upgrade holds the reservation or has switched the session.
+func (s *Session) reserveUpgrade(timeout time.Duration) bool {
+	s.upgradeLocker.Lock()
+	defer s.upgradeLocker.Unlock()
+	if s.closed || s.upgradeReserved {
+		return false
+	}
+	s.upgradeReserved, s.upgradeTimeout = true, timeout
+	return true
+}
+
+// releaseUpgrade returns the upgrade reservation of an upgrade that never started.
+func (s *Session) releaseUpgrade() {
+	s.upgradeLocker.Lock()
+	s.upgradeReserved = false
 	s.upgradeLocker.Unlock()
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/v2/engineio"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/internal/logtest"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/packet"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/session"
@@ -255,4 +256,101 @@ func TestUpgradeGuardBusySession(t *testing.T) {
 			require.Equal(t, "websocket", conn.(*session.Session).Transport())
 		})
 	}
+}
+
+// TestUpgradeGuardRejectedAccept: an upgrade request the transport refuses to accept,
+// for its origin, as a malformed handshake or for a writer without http.Hijacker,
+// returns the reservation, so the next upgrade of the session completes.
+func TestUpgradeGuardRejectedAccept(t *testing.T) {
+	for _, tc := range []struct {
+		name, reason string
+		status       int
+		send         func(t *testing.T, f *guardFixture, sid string) int
+	}{
+		{"origin", "accept", http.StatusForbidden, func(t *testing.T, f *guardFixture, sid string) int {
+			_, err := f.dial(t, sid, http.Header{"Origin": {"http://elsewhere.example"}})
+			var de websocket.DialError
+			require.ErrorAs(t, err, &de)
+			return de.Response.StatusCode
+		}},
+		{"handshake", "accept", http.StatusBadRequest, func(t *testing.T, f *guardFixture, sid string) int {
+			resp, err := http.Get(f.url + "/?EIO=4&transport=websocket&sid=" + sid) // no upgrade headers
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+			return resp.StatusCode
+		}},
+		{"no hijacker", "no hijacker", http.StatusNotImplemented, func(t *testing.T, f *guardFixture, sid string) int {
+			w := httptest.NewRecorder()
+			f.srv.ServeHTTP(plainWriter{w}, httptest.NewRequest(http.MethodGet, "/?EIO=4&transport=websocket&sid="+sid, nil))
+			return w.Code
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newGuardFixture(t, &engineio.Options{})
+			dialRaw(t, polling.Default, f.url)
+			conn := f.accept(t)
+			require.Equal(t, tc.status, tc.send(t, f, conn.ID()))
+			f.requireRejected(t, tc.reason)
+
+			ws, err := f.dial(t, conn.ID(), nil)
+			require.NoError(t, err)
+			upgradeTo(t, ws, conn)
+		})
+	}
+}
+
+// TestUpgradeTimeout: a probe that is answered but never followed by UPGRADE closes the
+// websocket connection at UpgradeTimeout from its accept, where the window was the 60 s
+// default pingTimeout. The session stays on polling, unpaused: it serves the next poll,
+// and a later upgrade completes.
+func TestUpgradeTimeout(t *testing.T) {
+	// The close may come up to margin after the timeout: room for scheduling under -race.
+	const timeout, margin = 300 * time.Millisecond, time.Second
+	f := newGuardFixture(t, &engineio.Options{UpgradeTimeout: timeout})
+	p := dialRaw(t, polling.Default, f.url)
+	conn := f.accept(t)
+
+	start := time.Now()
+	ws, err := f.dial(t, conn.ID(), nil)
+	require.NoError(t, err)
+	sendProbe(t, ws)
+	_, err = nextType(ws, 5*time.Second)
+	elapsed := time.Since(start)
+	require.Error(t, err, "the server closes the websocket connection")
+	require.GreaterOrEqual(t, elapsed, timeout)
+	require.Less(t, elapsed, timeout+margin)
+
+	go func() {
+		if w, err := conn.NextWriter(frame.String); err == nil {
+			_, _ = w.Write([]byte("after the timeout"))
+			_ = w.Close()
+		}
+	}()
+	pt, data := readPacket(t, p)
+	require.Equal(t, packet.MESSAGE, pt)
+	require.Equal(t, "after the timeout", data)
+	require.Equal(t, "polling", conn.(*session.Session).Transport())
+
+	ws, err = f.dial(t, conn.ID(), nil)
+	require.NoError(t, err)
+	upgradeTo(t, ws, conn)
+}
+
+// TestUpgradeTimeoutNegative: Normalize rejects a negative UpgradeTimeout, and NewServer
+// treats it as zero, 10 s: the upgrade completes, where a deadline in the past would
+// fail its probe at once.
+func TestUpgradeTimeoutNegative(t *testing.T) {
+	_, err := engineio.Options{UpgradeTimeout: -time.Second}.Normalize()
+	require.Error(t, err)
+	valid := engineio.Options{UpgradeTimeout: time.Second}
+	got, err := valid.Normalize()
+	require.NoError(t, err)
+	require.Equal(t, valid, got)
+
+	f := newGuardFixture(t, &engineio.Options{UpgradeTimeout: -time.Second})
+	dialRaw(t, polling.Default, f.url)
+	conn := f.accept(t)
+	ws, err := f.dial(t, conn.ID(), nil)
+	require.NoError(t, err)
+	upgradeTo(t, ws, conn)
 }

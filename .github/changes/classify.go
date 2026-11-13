@@ -26,6 +26,7 @@ const (
 var gateInputs = map[string]string{
 	"docs/ARCHITECTURE.md": v1,
 	"docs/API.md":          v2,
+	"README.md":            v1,
 }
 
 // copies are example files that make examples compares byte for byte with one master copy,

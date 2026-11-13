@@ -85,7 +85,8 @@ modules fully. Pull requests and pushes use Linux; scheduled and manual runs
 also test on macOS and Windows.
 
 Markdown files consumed by checks select their gate jobs: the v1 architecture
-contract and v2 API inventory. Other Markdown does not select runtime tests.
+contract and README quick start, and the v2 API inventory. Other Markdown does
+not select runtime tests.
 Gate tests run in their own job when selected package tests do not already cover
 them. The architecture check runs both in the gate job and alongside selected
 v1 package tests. The `ci-ok` job aggregates all checks and fails if any selected

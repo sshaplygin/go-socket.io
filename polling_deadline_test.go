@@ -36,6 +36,8 @@ type deadlineConfig struct {
 	failWrites   bool          // every poll response write fails with a temporary error
 	failBody     bool          // every POST body read fails with a temporary error
 	blockWrites  bool          // every poll response write blocks until a past write deadline
+	limit        int64         // WithMaxHTTPBufferSize; the default when 0
+	engineLog    slog.Handler  // the engine's records; discarded when nil
 }
 
 // deadlineServer serves a root namespace that reports its connection, every
@@ -118,12 +120,15 @@ func newDeadlineServer(t *testing.T, cfg deadlineConfig) *deadlineServer {
 	if cfg.heartbeat == 0 {
 		cfg.heartbeat = time.Second
 	}
-	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	quiet, engineLog := slog.New(slog.NewTextHandler(io.Discard, nil)), slog.New(slog.NewTextHandler(io.Discard, nil))
+	if cfg.engineLog != nil {
+		engineLog = slog.New(cfg.engineLog)
+	}
 	d := &deadlineServer{cfg: cfg, conns: make(chan Conn, 1), ticks: make(chan struct{}, 8),
 		posts: make(chan struct{}, 8), writes: make(chan struct{}, 8), reasons: make(chan string, 1)}
-	d.srv = NewServer(WithLogger(quiet), WithEngineOptions(engineio.WithLogger(quiet),
+	d.srv = NewServer(WithLogger(quiet), WithEngineOptions(engineio.WithLogger(engineLog),
 		engineio.WithPingInterval(cfg.heartbeat), engineio.WithPingTimeout(cfg.heartbeat),
-		engineio.WithHTTPCompression(false)))
+		engineio.WithHTTPCompression(false), engineio.WithMaxHTTPBufferSize(cfg.limit)))
 	d.srv.OnConnect("/", func(c Conn) error { d.conns <- c; return nil })
 	d.srv.OnEvent("/", "tick", func(Conn) { d.ticks <- struct{}{} })
 	d.srv.OnDisconnect("/", func(_ Conn, reason string) { d.reasons <- reason })

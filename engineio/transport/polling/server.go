@@ -28,6 +28,7 @@ type serverConn struct {
 	writableMu   sync.Mutex
 	pollWaiting  bool
 	noCompress   atomic.Bool
+	tooLarge     atomic.Pointer[http.MaxBytesError] // see ReadLimitError
 	cookie       atomic.Pointer[http.Cookie]
 
 	// pollMu guards poll, held by a GET handler from its flushOut to the end of its
@@ -231,7 +232,18 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ReadLimitError returns the limit error once a POST passed the limit, whether it
+// declared its length or not, else nil. The reader's error is an *OpError, which does
+// not unwrap, so the session recognises the violation through this method.
+func (c *serverConn) ReadLimitError() error {
+	if err := c.tooLarge.Load(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (c *serverConn) rejectLargeBody(w http.ResponseWriter, err *http.MaxBytesError) {
+	c.tooLarge.Store(err)
 	_ = c.payload.Store("read", err)
 	_ = c.Close()
 	http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)

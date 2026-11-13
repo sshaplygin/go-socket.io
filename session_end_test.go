@@ -224,3 +224,26 @@ func TestTypedDispatchStopsAtSessionEnd(t *testing.T) {
 	}
 	require.Empty(t, drain(p.errs), "OnError was called")
 }
+
+// A polling POST that declares a body past the limit, as the JavaScript clients and
+// browsers send it, is refused before it is read and is recorded like a streamed one.
+func TestDeclaredLengthPastLimitEndsSession(t *testing.T) {
+	rec := newAttrRecorder()
+	d := newDeadlineServer(t, deadlineConfig{limit: 512, engineLog: rec})
+	errs := make(chan error, 1)
+	d.srv.OnError("/", func(_ Conn, err error) { errs <- err })
+	sid, c := d.open(t)
+	body := "4" + strings.Repeat("x", 4096)
+	resp, err := d.ts.Client().Post(d.url("&sid="+sid), "text/plain;charset=UTF-8", strings.NewReader(fmt.Sprintf("%d:%s", len(body), body)))
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
+	require.Equal(t, "transport error", recv(t, d.reasons, "OnDisconnect"))
+	recv(t, serverCompletion(d.srv, c.ID()), "the end of the connection")
+	require.Zero(t, len(errs), "OnError was called")
+	require.Eventually(t, func() bool { return len(only(rec.since(0), "engineio: message too large")) > 0 }, waitFor, time.Millisecond)
+	got := only(rec.since(0), "engineio: message too large")
+	require.Len(t, got, 1)
+	require.Equal(t, map[string]string{"sid": sid, "transport": "polling"}, map[string]string{"sid": got[0]["sid"], "transport": got[0]["transport"]})
+	require.Contains(t, got[0]["err"], "limit 512 bytes")
+}

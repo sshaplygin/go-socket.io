@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+// DefaultUpgradeTimeout is the upgrade window when none is configured: the
+// upgradeTimeout of the Node server.
+const DefaultUpgradeTimeout = 10 * time.Second
+
 // ReserveUpgrade takes the upgrade reservation of session, a *session.Session, before
 // the connection of the upgrade is accepted. It reports false when the session is
 // closed, or when an upgrade holds the reservation or has already switched the

@@ -326,8 +326,11 @@ func (s *Session) NextWriter(typ frame.Type) (io.WriteCloser, error) {
 }
 
 // Upgrade moves the session to conn, a connection of the named transport, once the
-// client has sent the probe and UPGRADE on it. The caller has just accepted conn under
-// the session's upgrade reservation (internal.ReserveUpgrade).
+// client has sent the probe and UPGRADE on it within the upgrade window: the timeout
+// engineio.Server reserved the upgrade with, 10 s otherwise. The window starts now, so
+// conn must have just been accepted. Only one upgrade of a session may run at a time:
+// engineio.Server ensures it with the reservation; another caller must not start one
+// before the previous upgrade has ended.
 func (s *Session) Upgrade(transport string, conn transport.Conn) {
 	go s.upgrading(transport, conn)
 }
@@ -523,8 +526,12 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	// The probe and UPGRADE must both arrive within upgradeTimeout of the accept of conn,
 	// which happens right before Upgrade starts this goroutine.
 	s.upgradeLocker.RLock()
-	deadline := time.Now().Add(s.upgradeTimeout)
+	timeout := s.upgradeTimeout
 	s.upgradeLocker.RUnlock()
+	if timeout <= 0 { // an upgrade started without the reservation
+		timeout = internal.DefaultUpgradeTimeout
+	}
+	deadline := time.Now().Add(timeout)
 
 	// Read a ping from the client.
 	err := conn.SetReadDeadline(deadline)

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/sshaplygin/go-socket.io/v2/engineio/internal"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/session"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/transport/polling"
@@ -114,7 +115,7 @@ func (c *Options) getUpgradeTimeout() time.Duration {
 	if c != nil && c.UpgradeTimeout > 0 {
 		return c.UpgradeTimeout
 	}
-	return 10 * time.Second
+	return internal.DefaultUpgradeTimeout
 }
 
 func (c *Options) getTransport() []transport.Transport {

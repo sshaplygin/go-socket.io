@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,12 +11,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+	"github.com/sshaplygin/go-socket.io/internal/event"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -636,4 +639,43 @@ func TestWriteFailureEndsSession(t *testing.T) {
 			require.Empty(t, drain(p.errs), "OnError was called")
 		})
 	}
+}
+
+// attachFault turns the frame "!" into a binary frame whose read fails.
+type attachFault struct{ *fakeConn }
+
+func (c attachFault) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
+	ft, r, err := c.fakeConn.NextReader()
+	if err != nil {
+		return ft, r, err
+	}
+	if b, _ := io.ReadAll(r); string(b) != "!" {
+		return ft, io.NopCloser(strings.NewReader(string(b))), nil
+	}
+	return eioparser.Binary, io.NopCloser(iotest.ErrReader(io.ErrUnexpectedEOF)), nil
+}
+
+// A typed handler whose attachment read fails ends the read loop, as a reflected one
+// does: no later event is dispatched.
+func TestTypedDispatchStopsAtSessionEnd(t *testing.T) {
+	after := make(chan struct{}, 1)
+	p := newPeer(t, 'C', hooks{events: map[string]interface{}{"after": func(Conn) { after <- struct{}{} }}})
+	typed := event.NewHandler(event.SchemaOf[[]byte](), false, func(context.Context, event.Endpoint, event.Payload) (event.Payload, error) {
+		return event.Payload{}, nil
+	})
+	require.NoError(t, p.cl.Socket("/").RegisterEvent("bin", typed))
+	p.cl.dial = func(string) (engineclient.Conn, error) { return attachFault{p.fc}, nil }
+	p.connect(t)
+	p.send(t, `51-["bin",{"_placeholder":true,"num":0}]`)
+	p.send(t, "!")
+	select { // a read loop that did not stop takes this frame
+	case p.fc.reads <- ev("after"):
+	case <-p.fc.closed:
+	}
+	select {
+	case <-after:
+		t.Fatal("an event was dispatched after the session ended")
+	case <-p.conn().done:
+	}
+	require.Empty(t, drain(p.errs), "OnError was called")
 }

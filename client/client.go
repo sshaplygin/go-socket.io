@@ -53,7 +53,9 @@ func (c *Client) OnConnect(f func(Conn) error) { c.manager.OnConnect(f) }
 // OnDisconnect sets the default namespace's disconnect callback.
 func (c *Client) OnDisconnect(f func(Conn, string)) { c.manager.OnDisconnect(f) }
 
-// OnError sets the default namespace's error callback.
+// OnError sets the default namespace's error callback. The end of the Engine.IO
+// session, by a disconnect, a transport failure, a ping timeout, a close or a
+// message-size limit, is not an error: OnDisconnect reports it.
 func (c *Client) OnError(f func(Conn, error)) { c.manager.OnError(f) }
 
 // OnEvent replaces the default namespace's handler for event. If the event's

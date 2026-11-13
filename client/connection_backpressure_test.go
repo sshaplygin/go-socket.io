@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,12 +11,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
+	"github.com/sshaplygin/go-socket.io/internal/event"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -201,12 +204,13 @@ type peer struct {
 	errs    chan nsErr
 	nilErrs chan error
 	discs   chan string
+	reasons chan string // of OnDisconnect, while it has room
 	extra   map[string]Conn
 	nsps    []string
 }
 
 func newPeer(t *testing.T, side byte, h hooks, nsps ...string) *peer {
-	p := &peer{fc: newFakeConn(t), conns: make(chan Conn, 8), errs: make(chan nsErr, 128), nilErrs: make(chan error, 8), discs: make(chan string, 8), extra: make(map[string]Conn), nsps: nsps}
+	p := &peer{fc: newFakeConn(t), conns: make(chan Conn, 8), errs: make(chan nsErr, 128), nilErrs: make(chan error, 8), discs: make(chan string, 8), reasons: make(chan string, 8), extra: make(map[string]Conn), nsps: nsps}
 	cl, err := newTestManager(t, "http://127.0.0.1/")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cl.Close() })
@@ -222,7 +226,11 @@ func newPeer(t *testing.T, side byte, h hooks, nsps ...string) *peer {
 			}
 			return nil
 		})
-		nh.OnDisconnect(func(c Conn, _ string) {
+		nh.OnDisconnect(func(c Conn, reason string) {
+			select {
+			case p.reasons <- reason:
+			default:
+			}
 			p.discs <- c.Namespace()
 			if h.disconnect != nil {
 				h.disconnect(c)
@@ -373,18 +381,19 @@ func TestBackpressureDrainDeadline(t *testing.T) {
 func TestBackpressureLibraryCloseDiscards(t *testing.T) {
 	triggers := []struct {
 		name    string
-		reports int // to root OnError
+		reports int    // to root OnError
+		reason  string // of OnDisconnect, when set
 		run     func(t *testing.T, p *peer)
 	}{
-		{"read error", 1, func(t *testing.T, p *peer) { p.send(t, "x") }},
-		{"engine.io close", 1, func(_ *testing.T, p *peer) { close(p.fc.peerGone) }},
-		{"dispatch error", 1, func(t *testing.T, p *peer) { p.send(t, `2["boom"]`) }},
-		{"read failure during a draining Close", 0, func(t *testing.T, p *peer) {
+		{"read error", 1, "", func(t *testing.T, p *peer) { p.send(t, "x") }},
+		{"engine.io close", 0, "forced close", func(_ *testing.T, p *peer) { close(p.fc.peerGone) }},
+		{"dispatch error", 1, "", func(t *testing.T, p *peer) { p.send(t, `2["boom"]`) }},
+		{"read failure during a draining Close", 0, "", func(t *testing.T, p *peer) {
 			require.NoError(t, p.Close())
 			require.False(t, isDone(p.fc.closed), "the drain ended early")
 			close(p.fc.peerGone)
 		}},
-		{"write failure during a draining Close", 0, func(t *testing.T, p *peer) {
+		{"write failure during a draining Close", 0, "", func(t *testing.T, p *peer) {
 			require.NoError(t, p.Close())
 			p.fc.failWrite.Store(true)
 			p.fc.release <- struct{}{}
@@ -401,6 +410,9 @@ func TestBackpressureLibraryCloseDiscards(t *testing.T) {
 				tr.run(t, p)
 				recv(t, p.fc.closed, "engine.io close with the writer blocked")
 				p.disconnected(t, "/")
+				if tr.reason != "" {
+					require.Equal(t, tr.reason, recv(t, p.reasons, "OnDisconnect reason"))
+				}
 				require.Empty(t, drain(p.fc.out), "a packet was written")
 				errs := drain(p.errs)
 				require.Len(t, errs, tr.reports, "reports")
@@ -437,15 +449,16 @@ func TestBackpressureConnectFailureDiscards(t *testing.T) {
 			disconnect: func(Conn) { reportsAtDisconnect <- len(p.errs) },
 		})
 
-		p.fc.failWrite.Store(true) // the first event from OnConnect fails to encode
+		p.fc.failWrite.Store(true) // NextWriter fails for the first event from OnConnect
 		// Connect returns after OPEN, before the server's root CONNECT.
 		require.NoError(t, p.cl.Connect())
 		p.send(t, "0")
 
 		recv(t, p.fc.closed, "engine.io close of the failed connection")
 		p.disconnected(t, "/")
-		require.Equal(t, 1, recv(t, reportsAtDisconnect, "OnDisconnect"), "reports before OnDisconnect")
-		require.Len(t, drain(p.errs), 1, "connect error reports")
+		require.Equal(t, "forced close", recv(t, p.reasons, "OnDisconnect reason"))
+		require.Equal(t, 0, recv(t, reportsAtDisconnect, "OnDisconnect"), "the write failure ended the session")
+		require.Empty(t, drain(p.errs), "OnError was called")
 		require.Empty(t, drain(p.fc.out), "a packet was written")
 	})
 }
@@ -584,4 +597,85 @@ func TestBackpressureLibraryPacketOverflow(t *testing.T) {
 		p.overflowReported(t, "/")
 		p.disconnected(t, tc.nsps...) // the read goroutine ran them, so it did not block
 	}
+}
+
+// writeFault, once armed, fails the Close of every frame writer and its Write with err.
+type writeFault struct {
+	*fakeConn
+	err   error
+	armed *atomic.Bool
+}
+
+func (f writeFault) NextWriter(ft eioparser.FrameType) (io.WriteCloser, error) {
+	w, err := f.fakeConn.NextWriter(ft)
+	if err != nil || !f.armed.Load() {
+		return w, err
+	}
+	return failingFrame{w, f.err}, nil
+}
+
+type failingFrame struct {
+	io.WriteCloser
+	err error
+}
+
+func (w failingFrame) Write(p []byte) (int, error) { return len(p), w.err }
+func (w failingFrame) Close() error                { return io.ErrClosedPipe }
+
+// A transport failure while writing an emit ends the session: OnDisconnect reports it
+// and OnError is not called.
+func TestWriteFailureEndsSession(t *testing.T) {
+	for mode, err := range map[string]error{"NextWriter": nil, "frame Write": io.ErrUnexpectedEOF, "frame Close": nil} {
+		t.Run(mode, func(t *testing.T) {
+			p, armed := newPeer(t, 'C', hooks{}), new(atomic.Bool)
+			fault := writeFault{p.fc, err, armed}
+			p.cl.dial = func(string) (engineclient.Conn, error) { return fault, nil }
+			p.connect(t)
+			armed.Store(mode != "NextWriter")
+			p.fc.failWrite.Store(mode == "NextWriter")
+			p.emit("big", strings.Repeat("x", 1<<16))
+			p.disconnected(t, "/")
+			require.Equal(t, "forced close", recv(t, p.reasons, "OnDisconnect reason"))
+			require.Empty(t, drain(p.errs), "OnError was called")
+		})
+	}
+}
+
+// attachFault turns the frame "!" into a binary frame whose read fails.
+type attachFault struct{ *fakeConn }
+
+func (c attachFault) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
+	ft, r, err := c.fakeConn.NextReader()
+	if err != nil {
+		return ft, r, err
+	}
+	if b, _ := io.ReadAll(r); string(b) != "!" {
+		return ft, io.NopCloser(strings.NewReader(string(b))), nil
+	}
+	return eioparser.Binary, io.NopCloser(iotest.ErrReader(io.ErrUnexpectedEOF)), nil
+}
+
+// A typed handler whose attachment read fails ends the read loop, as a reflected one
+// does: no later event is dispatched.
+func TestTypedDispatchStopsAtSessionEnd(t *testing.T) {
+	after := make(chan struct{}, 1)
+	p := newPeer(t, 'C', hooks{events: map[string]interface{}{"after": func(Conn) { after <- struct{}{} }}})
+	typed := event.NewHandler(event.SchemaOf[[]byte](), false, func(context.Context, event.Endpoint, event.Payload) (event.Payload, error) {
+		return event.Payload{}, nil
+	})
+	require.NoError(t, p.cl.Socket("/").RegisterEvent("bin", typed))
+	p.cl.dial = func(string) (engineclient.Conn, error) { return attachFault{p.fc}, nil }
+	p.connect(t)
+	p.send(t, `51-["bin",{"_placeholder":true,"num":0}]`)
+	p.send(t, "!")
+	select { // a read loop that did not stop takes this frame
+	case p.fc.reads <- ev("after"):
+	case <-p.fc.closed:
+	}
+	select {
+	case <-after:
+		t.Fatal("an event was dispatched after the session ended")
+	case <-p.conn().done:
+	}
+	require.Empty(t, drain(p.errs), "OnError was called")
 }

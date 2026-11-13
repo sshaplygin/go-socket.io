@@ -309,6 +309,9 @@ func typedEventPacketHandler(c *connection, nc *namespaceConn, name string, head
 	}
 	if err != nil {
 		c.onError(header.Namespace, err)
+		if expected(err, c.reader.failure()) {
+			return err // the session ended: stop reading, as untyped handlers do
+		}
 	}
 	return nil
 }

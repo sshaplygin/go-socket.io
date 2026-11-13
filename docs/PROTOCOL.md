@@ -61,6 +61,11 @@ Package `engineio` of the v1 module at the repository root.
   clients report the close frame as `transport close`, and so does the Go client for
   codes 1000 and 1001 and for a frame without a code, which engine.io 3.6.2 sends;
   other codes, such as 1009 or 1011, remain `transport error`.
+- `Server.Close` answers a polling session's pending poll with HTTP 500, and a poll
+  that arrives after the close with HTTP 400, so a polling client reports `transport
+  error` (in the Go client, `OnDisconnect` reason `transport error`); engine.io 3.6.2
+  answers the poll with `CLOSE` (`1`), and its clients report `transport close`. A
+  websocket session receives the server's close frame with code 1000 instead.
 - The Go client's Engine.IO `Close` of an open websocket, also after the client's
   own ping timeout, sends a close frame with code 1000, with the write deadline and
   the reply wait of the server's close above, so that the server reports
@@ -93,6 +98,10 @@ Package `engineio` of the v1 module at the repository root.
   message closes the connection with close code 1009. A client can see 1006 instead
   when the connection resets before it reads the close frame. With permessage-deflate,
   the same limit applies to inflated bytes; rejection does not buffer the full message.
+  The session ends with `OnDisconnect` reason `transport error`; `OnError` is not
+  called. For the built-in transports the session logs `engineio: message too large`
+  at WARN through `engineio.WithLogger`, with `sid`, `transport` and an `err` that
+  states the limit. A custom transport that enforces its own limit reports it itself.
 - The Go client limits incoming websocket messages (inflated bytes) and whole decoded
   polling response bodies, OPEN included, to 1 MiB by default. The configurable
   limit also applies to reconnects and candidate upgrade transports before probe I/O.

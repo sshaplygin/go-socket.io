@@ -276,13 +276,19 @@ func TestUnhandledErrorRecords(t *testing.T) {
 		nsps  []string // of the expected "socketio: unhandled error" WARNs
 		run   func(t *testing.T, p *peer)
 	}{
-		{name: "peer close reaches OnError as io.EOF", keep: true, run: func(t *testing.T, p *peer) {
+		{name: "peer close does not reach OnError", keep: true, run: func(t *testing.T, p *peer) {
 			close(p.fc.peerGone)
-			require.True(t, recv(t, p.errs, "the report").err == io.EOF)
+			require.Equal(t, "forced close", recv(t, p.reasons, "OnDisconnect reason"))
+			recv(t, p.completion(), "the close")
+			require.Empty(t, drain(p.errs), "OnError was called")
 		}},
 		{name: "peer close", run: func(t *testing.T, p *peer) { close(p.fc.peerGone) }},
-		{name: "mid-frame failure reaches OnError unchanged", keep: true, fault: faultConn{readErr: failed},
-			run: func(t *testing.T, p *peer) { require.True(t, recv(t, p.errs, "the report").err == failed) }},
+		{name: "mid-frame failure does not reach OnError", keep: true, fault: faultConn{readErr: failed},
+			run: func(t *testing.T, p *peer) {
+				require.Equal(t, "forced close", recv(t, p.reasons, "OnDisconnect reason"))
+				recv(t, p.completion(), "the close")
+				require.Empty(t, drain(p.errs), "OnError was called")
+			}},
 		{name: "handler panic with OnError", keep: true, h: hooks{events: boom}, run: func(t *testing.T, p *peer) {
 			p.send(t, ev("boom"))
 			recv(t, p.errs, "the report")

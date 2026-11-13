@@ -56,10 +56,11 @@ type Session struct {
 	transportClosed bool         // set after the transport's Close returns
 	upgraded        bool         // set when switchTransport commits an upgrade
 
-	cause   atomic.Pointer[closeCause]       // the first close cause observed
-	closing atomic.Pointer[closingTransport] // immutable connection snapshot once closed
-	retired atomic.Pointer[closingTransport] // the connection an upgrade replaced
-	writers atomic.Int64                     // open frame writers returned to callers
+	cause    atomic.Pointer[closeCause]       // the first close cause observed
+	closing  atomic.Pointer[closingTransport] // immutable connection snapshot once closed
+	retired  atomic.Pointer[closingTransport] // the connection an upgrade replaced
+	writers  atomic.Int64                     // open frame writers returned to callers
+	tooLarge atomic.Bool                      // the read-limit record was logged
 }
 
 // Done closes when session shutdown starts, before an orderly transport drain.

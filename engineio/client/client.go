@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -38,6 +39,7 @@ type client struct {
 	close          chan struct{}
 	closeOnce      sync.Once
 	writers        atomic.Int64
+	tooLarge       atomic.Bool // the read-limit record was logged
 	mu             sync.RWMutex
 	initOnce       sync.Once
 	writeGate      chan struct{}
@@ -134,6 +136,9 @@ func (c *client) terminate(reason CloseReason, err error) error {
 		c.mu.Lock()
 		// Only Close of a session that has not failed or been closed by the server tells it.
 		orderly := reason == ReasonForcedClose && c.cause == nil
+		// A message past the read limit reaches failure only: the transport errors
+		// terminate receives come from an upgrade probe that passed its exchange,
+		// where the probe's own limit applies (see probeTransport).
 		if c.cause == nil {
 			c.cause = &CloseError{Reason: reason, Err: err}
 		}
@@ -206,6 +211,7 @@ func (c *client) connection() transport.Conn {
 }
 
 func (c *client) failure(err error) error {
+	c.observeTooLarge(err)
 	c.mu.RLock()
 	read, write := c.readDeadline, c.writeDeadline
 	c.mu.RUnlock()
@@ -225,6 +231,23 @@ func (c *client) failure(err error) error {
 	}
 	c.mu.Unlock()
 	return c.closeError()
+}
+
+// observeTooLarge logs a message past the read limit of a built-in transport, once per
+// connection, from the first failed read or write that sees it: the websocket
+// transport records the violation (ReadLimitError) before a write can fail on its 1009
+// close frame, and the polling transport returns *http.MaxBytesError to the reader.
+func (c *client) observeTooLarge(err error) {
+	c.mu.RLock()
+	conn, name := c.conn, c.transport
+	c.mu.RUnlock()
+	if limited, ok := conn.(interface{ ReadLimitError() error }); ok && limited.ReadLimitError() != nil {
+		err = limited.ReadLimitError()
+	}
+	var limit *http.MaxBytesError
+	if errors.As(err, &limit) && c.tooLarge.CompareAndSwap(false, true) {
+		logger.Log.Warn("engineio: message too large", "transport", name, "err", fmt.Errorf("limit %d bytes: %w", limit.Limit, err))
+	}
 }
 
 // peerClosed reports whether err is the close frame of an orderly websocket

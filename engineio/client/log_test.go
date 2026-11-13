@@ -339,3 +339,28 @@ func TestClientReaderCloseRecord(t *testing.T) {
 		assert.Equal(t, slog.LevelDebug.String(), m["level"], "%v", m)
 	}
 }
+
+// limitConn has passed its read limit, so its writes fail as after the transport's 1009
+// close frame.
+type limitConn struct{ brokenConn }
+
+func (*limitConn) ReadLimitError() error { return &http.MaxBytesError{Limit: 512} }
+
+// A write that fails before the reader reports the limit still yields exactly one record.
+// Not parallel: it sets slog.Default.
+func TestClientTooLargeRecordedWhenAWriteFailsFirst(t *testing.T) {
+	if runLogTestInSubprocess(t) {
+		return
+	}
+	rec := newRecorder()
+	setDefault(t, rec)
+	c := &client{conn: &limitConn{}, close: make(chan struct{}), transport: "websocket"}
+	_, err := c.NextWriter(eioparser.String)
+	require.Error(t, err)
+	_, _, err = c.NextReader()
+	require.Error(t, err)
+	got := rec.find("engineio: message too large")
+	require.Len(t, got, 1)
+	require.Equal(t, "limit 512 bytes: http: request body too large", got[0]["err"])
+	require.Equal(t, "websocket", got[0]["transport"])
+}

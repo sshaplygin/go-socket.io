@@ -2,8 +2,10 @@ package session
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"time"
 
@@ -232,8 +234,25 @@ func (s *Session) fail(err error) error {
 // errors (see fail). It takes no lock: conn is the connection of the failing
 // reader or writer, never s.conn.
 func (s *Session) observePeerClose(conn transport.Conn, err error) {
+	s.observeTooLarge(conn, err)
 	if peer, ok := conn.(interface{ PeerClosed() bool }); ok && err != nil && peer.PeerClosed() {
 		s.observe(reasonTransportClose, nil)
+	}
+}
+
+// observeTooLarge logs a message past the read limit of a built-in transport, once per
+// session, from the first failed read or write of conn that sees it. Both built-in
+// server transports, websocket and the polling server connection, report the violation
+// through ReadLimitError, so the record does not depend on which failure becomes the
+// close cause, such as a write that fails on the transport's own 1009 close frame before
+// the reader returns. A streamed polling read also returns it as err.
+func (s *Session) observeTooLarge(conn transport.Conn, err error) {
+	if limited, ok := conn.(interface{ ReadLimitError() error }); ok && err != nil && limited.ReadLimitError() != nil {
+		err = limited.ReadLimitError()
+	}
+	var limit *http.MaxBytesError
+	if errors.As(err, &limit) && s.tooLarge.CompareAndSwap(false, true) {
+		s.logger().Warn("engineio: message too large", "err", fmt.Errorf("limit %d bytes: %w", limit.Limit, err))
 	}
 }
 

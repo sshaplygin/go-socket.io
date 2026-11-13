@@ -13,6 +13,7 @@ import (
 	"time"
 )
 
+// A message past the limit ends the session with transport error, not an OnError call.
 func TestClientMessageLimitOption(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		for _, limit := range []int64{512, 4096, 0, -1} {
@@ -21,11 +22,11 @@ func TestClientMessageLimitOption(t *testing.T) {
 				ts := newTestServer(t, func(s *socketio.Server) {
 					s.OnConnect("/", func(socketio.Conn) error { return nil })
 					s.OnEvent("/", "request", func(c socketio.Conn) { c.Emit("reply", payload) })
-				})
+				}, steadyPing...)
 				c, err := client.New(ts.URL, client.WithTransports(tr), client.WithReconnection(false), client.WithMaxMessageSize(1), client.WithMaxMessageSize(limit))
 				require.NoError(t, err)
 				defer func() { _ = c.Close() }()
-				replies := make(chan string, 1)
+				replies, reasons := make(chan string, 1), make(chan string, 1)
 				failures := make(chan error, 8)
 				c.OnEvent("reply", func(_ client.Conn, s string) { replies <- s })
 				c.OnError(func(_ client.Conn, err error) {
@@ -34,16 +35,21 @@ func TestClientMessageLimitOption(t *testing.T) {
 					default:
 					}
 				})
+				c.OnDisconnect(func(_ client.Conn, reason string) { reasons <- reason })
 				require.NoError(t, c.Connect())
 				c.Emit("request")
 				select {
 				case s := <-replies:
 					require.NotEqual(t, int64(512), limit)
 					require.Equal(t, payload, s)
+				case reason := <-reasons:
+					require.Equal(t, int64(512), limit, "unexpected disconnect: %s", reason)
+					require.Equal(t, "transport error", reason)
+					require.Zero(t, len(failures), "the limit reached OnError") // reported before OnDisconnect
 				case err := <-failures:
-					require.Equal(t, int64(512), limit, "unexpected error: %v", err)
+					t.Fatalf("OnError: %v", err)
 				case <-time.After(3 * time.Second):
-					t.Fatal("neither event nor size-limit error delivered")
+					t.Fatal("neither event nor size-limit disconnect delivered")
 				}
 			})
 		}

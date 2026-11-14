@@ -34,6 +34,12 @@ type clientState struct {
 	closingAll      bool
 	rootReady       bool
 	buffered        int
+	// ended is the last connection whose end connectionEnded has handled.
+	ended *conn
+	// Test hooks, nil outside tests: testHookClosing runs after a close stopped
+	// the client and before it closes the connection, testHookJoinWaits when
+	// Connect waits for that close.
+	testHookClosing, testHookJoinWaits func()
 }
 
 func (m *clientState) connect(c *manager) (result error) {
@@ -49,7 +55,18 @@ func (m *clientState) open(c *manager, retry *reconnectRun, number int, join *So
 		m.mu.Unlock()
 		return io.ErrClosedPipe
 	}
-	live := m.conn != nil && !isDone(m.conn.closing)
+	// Client.Close, or the Close of the last Socket, has stopped the client and
+	// is about to close its connection. Connect follows that close and dials.
+	for retry == nil && m.stopped && m.conn != nil && !isDone(m.conn.closing) {
+		closing := m.conn.closing
+		m.mu.Unlock()
+		if m.testHookJoinWaits != nil {
+			m.testHookJoinWaits()
+		}
+		<-closing
+		m.mu.Lock()
+	}
+	live := m.conn != nil && !isDone(m.conn.closing) && !m.stopped
 	if join != nil {
 		if !join.active {
 			if join.namespace == rootNamespace && live {
@@ -59,12 +76,16 @@ func (m *clientState) open(c *manager, retry *reconnectRun, number int, join *So
 			join.active = true
 			join.connected, join.requested, join.nc = false, false, nil
 			join.connectPending, join.connectQueued = false, false
-			if live && !m.stopped { // as in Socket: no CONNECT to a closing connection
+			if live {
 				join.requested = true
 				m.conn.writeControl(socketConnectHeader(join))
 			}
 		}
-		if live || m.retry != nil {
+		// The connection has ended and connectionEnded has not yet decided on
+		// its recovery: the reconnection it starts restores this Socket too.
+		recovering := m.conn != nil && !live && m.ended != m.conn && !m.stopped &&
+			m.attempt == nil && !c.options.DisableReconnection
+		if live || m.retry != nil || recovering {
 			m.mu.Unlock()
 			return nil
 		}

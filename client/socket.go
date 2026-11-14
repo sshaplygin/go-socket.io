@@ -428,14 +428,23 @@ func (s *Socket) Close() error {
 // "io server disconnect") or that Close closed, as socket.connect() does in
 // socket.io-client 2.x. On an open Engine.IO connection it sends the namespace
 // CONNECT and returns; OnConnect runs when the server accepts it. While the
-// Client is reconnecting, the namespace joins the restored connection. When the
-// Client has no connection, as after Client.Close or after the last namespace
-// closed, Connect dials one as Client.Connect does and returns its error, but
-// only this Socket joins it; other closed Sockets stay closed.
+// Client is reconnecting, or after its connection ended with reconnection
+// enabled, Connect dials nothing and the namespace joins the connection the
+// reconnection restores. When the Client has no connection, as after
+// Client.Close or after the last namespace closed, Connect dials one as
+// Client.Connect does and returns its error, but only this Socket joins it; other
+// closed Sockets stay closed. A Connect that runs while Client.Close or the
+// Close of the last namespace is closing the connection waits for that close and
+// then dials.
 //
 // A connected or joining Socket is left as it is, so concurrent calls send one
 // CONNECT. A namespace the server rejected (OnError receives the server's
 // message) counts as joining: Close followed by Connect sends a new CONNECT.
+// A server sends the CONNECT reply of a namespace socket before its DISCONNECT,
+// so a DISCONNECT that arrives while the Socket waits for that reply ends the
+// namespace socket that Close ended, for example when the server disconnected
+// it while Close and Connect were on their way: the Socket keeps waiting, gets
+// no OnDisconnect for it and joins with the reply.
 // Events emitted while the Socket is closed are buffered as before its first
 // CONNECT and sent once the server accepts it; the buffer is shared with the
 // Client's other namespaces (see WithWriteBufferSize).
@@ -526,6 +535,13 @@ func (m *clientState) namespaceDisconnected(current *conn, namespace string) err
 		m.mu.Unlock()
 		return nil
 	}
+	if namespace != rootNamespace && socket.active && socket.requested && !socket.connected && socket.nc == nil {
+		// A server sends a namespace socket's CONNECT reply before its DISCONNECT,
+		// so this DISCONNECT ends an earlier namespace socket: one that the
+		// server disconnected while Close and Connect were on their way.
+		m.mu.Unlock()
+		return nil
+	}
 	m.mu.Unlock()
 	return m.closeSocket(socket, "io server disconnect", true, current, nil)
 }
@@ -560,21 +576,8 @@ func (m *clientState) detachSocket(s *Socket, reason string, closeLast bool, exp
 		m.mu.Unlock()
 		return nil, nil
 	}
-	s.cancelBufferedTypedLocked()
-	current, nc, connected := m.conn, s.nc, s.connected
-	s.active, s.connected, s.connectPending = false, false, false
-	s.nc = nil
-	claimed := false
-	if current != nil && !isDone(current.closing) {
-		var pending *namespaceConn
-		pending, claimed = current.claim(s.namespace)
-		if nc == nil {
-			nc = pending
-		}
-		if s.requested && reason == "io client disconnect" {
-			current.writeControl(parser.Header{Type: parser.Disconnect, Namespace: s.namespace})
-		}
-	}
+	current := m.conn
+	notify := m.detachLocked(s, reason)
 	last := true
 	for _, other := range m.order {
 		last = last && !other.active
@@ -591,15 +594,38 @@ func (m *clientState) detachSocket(s *Socket, reason string, closeLast bool, exp
 	// Mark the old engine closing before application callbacks can Connect again.
 	// Its namespace has already been claimed, so Close cannot repeat this callback.
 	if last && closeLast && current != nil {
+		if m.testHookClosing != nil {
+			m.testHookClosing()
+		}
 		closeErr = current.Close()
 	}
-	var notify func()
-	if connected && claimed {
-		if f := s.handler.DisconnectHandler(); f != nil {
-			notify = func() { f(nc, reason) }
+	return notify, closeErr
+}
+
+// detachLocked closes the active Socket s on the current connection and returns
+// the OnDisconnect call it is owed, if any. The caller holds m.mu.
+func (m *clientState) detachLocked(s *Socket, reason string) func() {
+	s.cancelBufferedTypedLocked()
+	current, nc, connected := m.conn, s.nc, s.connected
+	s.active, s.connected, s.connectPending = false, false, false
+	s.nc = nil
+	claimed := false
+	if current != nil && !isDone(current.closing) {
+		var pending *namespaceConn
+		pending, claimed = current.claim(s.namespace)
+		if nc == nil {
+			nc = pending
+		}
+		if s.requested && reason == "io client disconnect" {
+			current.writeControl(parser.Header{Type: parser.Disconnect, Namespace: s.namespace})
 		}
 	}
-	return notify, closeErr
+	if connected && claimed {
+		if f := s.handler.DisconnectHandler(); f != nil {
+			return func() { f(nc, reason) }
+		}
+	}
+	return nil
 }
 
 func (m *clientState) closeAll(expected ...*namespaceConn) error {
@@ -619,18 +645,24 @@ func (m *clientState) closeAll(expected ...*namespaceConn) error {
 	if m.attempt != nil {
 		m.attempt.cancel()
 	}
-	sockets := append([]*Socket(nil), m.order...)
+	// Detach every Socket under the lock that stops the client, so that a
+	// Connect that follows cannot see a Socket this close detaches later.
 	current := m.conn
-	m.mu.Unlock()
 	var callbacks []func()
-	for _, socket := range sockets {
-		notify, _ := m.detachSocket(socket, "io client disconnect", false, current, nil)
-		if notify != nil {
+	for _, socket := range m.order {
+		if !socket.active {
+			continue
+		}
+		if notify := m.detachLocked(socket, "io client disconnect"); notify != nil {
 			callbacks = append(callbacks, notify)
 		}
 	}
+	m.mu.Unlock()
 	var err error
 	if current != nil {
+		if m.testHookClosing != nil {
+			m.testHookClosing()
+		}
 		err = current.Close()
 	}
 	for _, notify := range callbacks {

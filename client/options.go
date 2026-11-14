@@ -87,8 +87,7 @@ func WithLogger(value *slog.Logger) Option {
 }
 
 // WithReconnection enables automatic engine recovery; the default is true. It
-// redials after an open connection ends; a failed Client.Connect returns its error
-// and is not retried, whereas socket.io-client 2.x also retries the first attempt.
+// redials after an open connection ends, not after a failed Client.Connect.
 func WithReconnection(value bool) Option {
 	return func(config *options) { config.DisableReconnection = !value }
 }

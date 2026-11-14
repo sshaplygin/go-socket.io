@@ -35,7 +35,9 @@ func New(addr string, opts ...Option) (*Client, error) {
 // results are closed. Automatic reconnection starts only after a connection has
 // opened, so the Client does not retry a failed Connect itself, unlike
 // socket.io-client 2.x. While a connection is open or being established, Connect
-// dials nothing and does not reopen closed namespaces; see Socket.Connect.
+// dials nothing and does not reopen closed namespaces; see Socket.Connect. A
+// Connect that runs while Close is closing the connection waits for that close
+// and then dials.
 func (c *Client) Connect() error { return c.manager.Connect() }
 
 // Close disconnects all namespace sockets and returns without waiting for the

@@ -28,6 +28,7 @@ func (m *clientState) connectionEnded(previous *conn) {
 	<-previous.writeStopped
 	<-previous.errorStopped
 	m.mu.Lock()
+	m.ended = previous
 	if m.conn != previous || m.stopped || m.attempt != nil || m.retry != nil || m.client.options.DisableReconnection {
 		m.mu.Unlock()
 		return

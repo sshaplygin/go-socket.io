@@ -233,6 +233,12 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   namespace CONNECT that arrives while the client's root namespace is disconnected
   until the root namespace connects, which does not happen again on that
   connection; this server accepts it.
+- A server's DISCONNECT for a namespace can cross the client's `1/<nsp>` and
+  `0/<nsp>` of a rejoin. Servers send the CONNECT reply of a namespace socket
+  before its DISCONNECT, so the Go client takes a DISCONNECT that arrives before
+  the reply as the end of the earlier namespace socket and joins with the reply.
+  socket.io-client 2.5.0 and 1.7.4 report it as `io server disconnect` and ignore
+  the reply, while the server keeps the namespace socket it created.
 - A CONNECT to a namespace without a registered handler is answered with an ERROR packet
   (`4/<nsp>,"Invalid namespace"`) and the connection stays open.
 - Binary attachments are replaced by `{"_placeholder":true,"num":N}` and sent as

@@ -28,7 +28,7 @@ Supported wire behavior and differences are specified in
 | Local room unions, exclusions and lock release during delivery | `adapter` tests |
 | Redis publication, queries, remote operations, timeouts, subscription readiness and reconnection | `adapter/redis` tests; mixed Go/Node cluster tests with real Redis |
 | Go client reconnect, pre-connect buffering, namespace lifecycle and transport selection | `client` integration tests and private manager tests |
-| Go client namespace rejoin on an open connection (`socket.connect()` in `socket.io-client`) | `client` `TestSocketConnectRejoinsNamespace`, `TestSocketConnectRootNamespace`, `TestSocketConnectConcurrentCallsSendOneConnect` and `TestSocketConnectWhileReconnecting`, `internal/conformance` `TestGoClientNamespaceRejoin` against the Node server |
+| Go client namespace rejoin on an open connection (`socket.connect()` in `socket.io-client`) | `client` `TestSocketConnectRejoinsNamespace`, `TestSocketConnectRootNamespace`, `TestSocketConnectConcurrentCallsSendOneConnect`, `TestSocketConnectWhileReconnecting`, `TestSocketConnectBeforeReconnectionStarts`, `TestSocketConnectWaitsForClose` and `TestSocketConnectAfterCrossingDisconnect`; `internal/conformance` `TestGoClientNamespaceRejoin` and `TestGoClientCrossingDisconnect` against the Node server |
 | Public consumer contracts, independent client/server roles and package privacy | `internal/parity` compilation fixtures and `.github/architecture` tests |
 | Runnable chat, ACK, binary, namespaces and middleware examples | `make examples` and `make examples-node` |
 

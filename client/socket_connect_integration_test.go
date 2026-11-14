@@ -244,3 +244,46 @@ func TestSocketConnectAfterClientClose(t *testing.T) {
 	require.False(t, root.Connected())
 	require.Empty(t, connects, "the closed root Socket stays closed")
 }
+
+// A server DISCONNECT that crosses Close and Connect does not undo the rejoin:
+// the client stays joined to the namespace socket the server created for it.
+func TestSocketConnectAfterCrossingDisconnect(t *testing.T) {
+	for _, tr := range []struct {
+		name      string
+		transport transport.Transport
+	}{{"polling", polling.Default}, {"websocket", websocket.Default}} {
+		t.Run(tr.name, func(t *testing.T) {
+			url, serverConnects, received := rejoinServer(t)
+			cl, err := client.New(url, client.WithTransports(tr.transport))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = cl.Close() })
+			connects, disconnects := make(chan string, 8), make(chan string, 8)
+			root, chat := cl.Socket("/"), cl.Socket("/chat")
+			for _, s := range []*client.Socket{root, chat} {
+				s.OnConnect(func(c client.Conn) error { connects <- c.Namespace(); return nil })
+				s.OnDisconnect(func(c client.Conn, reason string) { disconnects <- c.Namespace() + ":" + reason })
+			}
+			require.NoError(t, cl.Connect())
+			recv(t, connects, "first OnConnect")
+			recv(t, connects, "second OnConnect")
+			recv(t, serverConnects, "first server OnConnect")
+			recv(t, serverConnects, "second server OnConnect")
+
+			chat.Emit("kick")
+			require.NoError(t, chat.Close())
+			require.NoError(t, chat.Connect())
+			require.Equal(t, "/chat", recv(t, connects, "OnConnect after Socket.Connect"))
+			require.Equal(t, "/chat", recv(t, serverConnects, "server OnConnect after Socket.Connect").Namespace())
+			acks := make(chan string, 1)
+			chat.Emit("echo", "rejoined", func(value string) { acks <- value })
+			require.Equal(t, "rejoined", recv(t, acks, "ACK after the rejoin"))
+			require.Equal(t, "/chat:rejoined", recv(t, received, "event after the rejoin"))
+			require.True(t, chat.Connected())
+			// Whether the kick crosses Close depends on timing; the result does not.
+			require.Contains(t, []string{"/chat:io client disconnect", "/chat:io server disconnect"}, recv(t, disconnects, "chat disconnect"))
+			require.Empty(t, disconnects)
+			require.Empty(t, connects)
+			require.Empty(t, serverConnects)
+		})
+	}
+}

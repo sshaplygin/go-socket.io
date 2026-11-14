@@ -9,7 +9,7 @@ require (
 
 require (
 	github.com/gorilla/websocket v1.5.3 // indirect
-	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 )
 
 replace github.com/sshaplygin/go-socket.io => ../../

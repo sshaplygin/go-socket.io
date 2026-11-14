@@ -38,8 +38,9 @@ Each server Socket.IO connection has up to five workers: a header reader, a
 read dispatcher, a writer, an observer that cancels typed handlers when the
 engine closes, and an error worker that starts on the first `OnError` delivery
 or outbound queue overflow. The writer drains one ordered outbound queue whose
-capacity is the write buffer size. Engine.IO removes a closed session from its
-registry in the session's close path, without a per-session watcher. Incoming
+capacity is the write buffer size. When a session's close finishes, Engine.IO
+removes it from the registry behind `Count` and sid lookup and from the shutdown
+set, in the session's close path, without a per-session watcher. Incoming
 event handlers run on the dispatcher; blocking one stalls that connection and
 also blocks the header reader's handoff of the next packet. A client connection
 starts its error worker with the connection.

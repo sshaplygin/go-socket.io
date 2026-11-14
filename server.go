@@ -343,7 +343,9 @@ func (s *Server) Rooms(namespace string) []string {
 	return nil
 }
 
-// Count number of connections.
+// Count returns the number of Engine.IO sessions registered with the server,
+// as engineio.Server.Count: a connection whose transport has ended is no longer
+// counted, also while its OnDisconnect handlers run.
 func (s *Server) Count() int {
 	return s.engine.Count()
 }

@@ -251,7 +251,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reqSession.ServeHTTP(w, r)
 }
 
-// Count counts connected
+// Count returns the number of registered sessions, whatever their state. A
+// session is registered from its handshake until its close has finished, by
+// whichever path it ends: a client CLOSE, a transport error, a ping timeout,
+// Conn.Close, Abort or Server.Close. A polling session closed by Conn.Close
+// finishes once its CLOSE packet is delivered or the delivery is abandoned.
+// The server then forgets the session's ID: a later request carrying it is
+// answered as for an unknown session. Remove unregisters a session earlier.
 func (s *Server) Count() int {
 	return s.sessions.Count()
 }
@@ -259,8 +265,8 @@ func (s *Server) Count() int {
 // Clients returns a snapshot of open or closing sessions keyed by session ID.
 // A session is open from the start of its OPEN packet's delivery, so one whose
 // client has received that packet is listed. A session that is still opening,
-// or already closed, is not. Count includes every registered session until
-// Remove, regardless of state.
+// or already closed, is not. Count also includes registered sessions that are
+// opening, or closed and still finishing their close.
 func (s *Server) Clients() map[string]Conn {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
@@ -274,7 +280,9 @@ func (s *Server) Clients() map[string]Conn {
 }
 
 // Remove unregisters a session without closing it. Server.Close still closes
-// the session if its transport remains open.
+// the session if its transport remains open. A session unregisters itself when
+// it ends, so ending sessions need no Remove call; for an unknown sid, including
+// that of an ended session, Remove does nothing.
 func (s *Server) Remove(sid string) {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
@@ -305,10 +313,15 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 	newSession.SetRequest(r)
 	s.installHooks(newSession, r, reqTransport != "websocket")
 
+	// The ended session leaves the shutdown snapshot and the registry. A session
+	// refused as a duplicate also runs this, so only this session's entries go.
 	newSession.SetCloseCallback(func() {
 		s.lifecycle.Lock()
 		if s.live[sid] == newSession {
 			delete(s.live, sid)
+		}
+		if registered, ok := s.sessions.Get(sid); ok && registered == newSession {
+			s.sessions.Remove(sid)
 		}
 		s.lifecycle.Unlock()
 	})

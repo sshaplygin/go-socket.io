@@ -49,3 +49,18 @@ func TestSuccessfulSessionRemovedAfterPeerClose(t *testing.T) {
 	require.NoError(t, c.conn.Close())
 	require.Eventually(t, func() bool { return s.Engine().Count() == 0 }, time.Second, time.Millisecond)
 }
+
+// A connection whose Engine.IO session has ended is no longer counted when its
+// OnDisconnect handler runs, as engine.io 3.6.2 has already dropped the client
+// from clientsCount when socket.io 2.5.0 emits "disconnect" for "transport close".
+func TestCountExcludesEndedSessionInOnDisconnect(t *testing.T) {
+	counts := make(chan [2]int, 1)
+	s, url := defectServer(t, func(s *Server) {
+		s.OnDisconnect("/", func(Conn, string) { counts <- [2]int{s.Count(), s.Engine().Count()} })
+	})
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	require.Equal(t, 1, s.Count())
+	require.NoError(t, c.conn.Close())
+	require.Equal(t, [2]int{0, 0}, recv(t, counts, "OnDisconnect"))
+}

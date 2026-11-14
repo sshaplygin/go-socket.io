@@ -98,16 +98,18 @@ func TestServerKeepsTransportCopies(t *testing.T) {
 
 // TestServerResolvesCheckOriginFallback: a polling transport without CheckOrigin uses
 // polling.Default.CheckOrigin as it was at NewServer, so the CORS header it allowed is
-// still sent after polling.Default.CheckOrigin is cleared. Not parallel: it sets
+// still sent after polling.Default.CheckOrigin is cleared, here while the handshake runs,
+// so that -race reports a read of polling.Default at request time. Not parallel: it sets
 // polling.Default.CheckOrigin.
 func TestServerResolvesCheckOriginFallback(t *testing.T) {
 	prev := polling.Default.CheckOrigin
 	t.Cleanup(func() { polling.Default.CheckOrigin = prev })
 	polling.Default.CheckOrigin = func(*http.Request) bool { return true }
 	f := newGuardFixture(t, &engineio.Options{Transports: []transport.Transport{&polling.Transport{}}})
-	polling.Default.CheckOrigin = nil
-
+	cleared := make(chan struct{})
+	go func() { polling.Default.CheckOrigin = nil; close(cleared) }()
 	resp, _ := openPollingParams(t, f.url, http.Header{"Origin": {"http://example.com"}})
+	<-cleared
 	require.Equal(t, "http://example.com", resp.Header.Get("Access-Control-Allow-Origin"))
 }
 

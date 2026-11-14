@@ -14,6 +14,7 @@ import (
 	"github.com/gobwas/ws/wsutil"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sshaplygin/go-socket.io/v2/engineio"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/transport/websocket"
@@ -113,4 +114,59 @@ func TestDialHandshakeTimeout(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDialHandshakeTimeoutPerTransport: each transport tried has its own HandshakeTimeout.
+// The websocket attempt times out against a server that never answers its handshake, and
+// Dial then succeeds over polling.
+func TestDialHandshakeTimeoutPerTransport(t *testing.T) {
+	srv := engineio.NewServer(&engineio.Options{Transports: []transport.Transport{polling.Default}})
+	held := make(chan struct{})
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("transport") != "websocket" {
+			srv.ServeHTTP(w, r)
+		} else if c, _, err := w.(http.Hijacker).Hijack(); err == nil {
+			<-held
+			_ = c.Close()
+		}
+	}))
+	t.Cleanup(ts.Close)
+	t.Cleanup(func() { _ = srv.Close() })
+	t.Cleanup(func() { close(held) })
+
+	d := &Dialer{Transports: []transport.Transport{polling.Default, websocket.Default}, HandshakeTimeout: 200 * time.Millisecond}
+	cl, err := d.Dial(ts.URL, nil)
+	require.NoError(t, err)
+	require.NoError(t, cl.Close())
+}
+
+// TestDialNegativeHandshakeTimeout: a negative HandshakeTimeout means no bound; Dial waits
+// for an OPEN packet that the server sends 300 ms after the upgrade.
+func TestDialNegativeHandshakeTimeout(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if c, _, _, err := ws.UpgradeHTTP(r, w); err == nil {
+			time.Sleep(300 * time.Millisecond)
+			_ = wsutil.WriteServerText(c, []byte(`0{"sid":"s","upgrades":[],"pingInterval":25000,"pingTimeout":20000}`))
+			_, _ = io.Copy(io.Discard, c)
+			_ = c.Close()
+		}
+	}))
+	t.Cleanup(ts.Close)
+	cl, err := (&Dialer{Transports: []transport.Transport{websocket.Default}, HandshakeTimeout: -1}).Dial(ts.URL, nil)
+	require.NoError(t, err)
+	require.NoError(t, cl.Close())
+}
+
+// TestDialTransportHandshakeTimeoutShorter: a websocket.Transport whose HandshakeTimeout is
+// shorter than the Dialer's fails at its own bound. The listener never accepts, so the
+// connection completes in its backlog and the handshake is never answered.
+func TestDialTransportHandshakeTimeoutShorter(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close() })
+	tr := &websocket.Transport{HandshakeTimeout: 100 * time.Millisecond}
+	start := time.Now()
+	_, err = (&Dialer{Transports: []transport.Transport{tr}, HandshakeTimeout: 5 * time.Second}).Dial("http://"+l.Addr().String(), nil)
+	require.Error(t, err)
+	require.Less(t, time.Since(start), time.Second)
 }

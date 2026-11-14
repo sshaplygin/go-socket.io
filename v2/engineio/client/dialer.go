@@ -70,7 +70,8 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (engineio.Conn, 
 			deadline = time.Now().Add(timeout)
 		}
 
-		conn, err = withHandshakeTimeout(t, timeout).Dial(u, requestHeader)
+		attempt := *u // a transport's Dial rewrites the scheme and the query of its URL
+		conn, err = withHandshakeTimeout(t, timeout).Dial(&attempt, requestHeader)
 		if err != nil {
 			err = timedOut(err, deadline)
 			dialFailed(i, t.Name(), err)

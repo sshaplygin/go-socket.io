@@ -1,6 +1,8 @@
 package socketio
 
 import (
+	"io"
+	"log/slog"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -85,7 +87,13 @@ func TestReusedIDWaitsForPreviousConnection(t *testing.T) {
 			connected := make(chan Conn, 2)
 			connectedAfterPrevious := make(chan bool, 2)
 			events := make(chan string, 1)
-			s := NewServer(WithEngineOptions(append(shortPingOptions(), engineio.WithSessionIDGenerator(constantID("dup")))...))
+			// The clients close their sessions, so a heartbeat window far above the
+			// test's waits keeps a loaded machine from ending the second session.
+			s := NewServer(WithEngineOptions(
+				engineio.WithPingInterval(time.Second), engineio.WithPingTimeout(time.Minute),
+				engineio.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
+				engineio.WithSessionIDGenerator(constantID("dup")),
+			))
 			s.OnConnect("/", func(c Conn) error {
 				c.Join("room")
 				connectedAfterPrevious <- previousDone.Load()

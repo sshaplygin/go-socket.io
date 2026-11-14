@@ -40,7 +40,11 @@ engine closes, and an error worker that starts on the first `OnError` delivery
 or outbound queue overflow. The writer drains one ordered outbound queue whose
 capacity is the write buffer size. When a session's close finishes, Engine.IO
 removes it from the registry behind `Count` and sid lookup and from the shutdown
-set, in the session's close path, without a per-session watcher. Incoming
+set, in the session's close path, without a per-session watcher; removals
+check that the entry is still that session, because an ended session's ID can
+be issued again. The Socket.IO server does not remove sessions by ID: it starts
+a connection whose ID is still held by a connection running its disconnect
+handlers only after releasing that connection. Incoming
 event handlers run on the dispatcher; blocking one stalls that connection and
 also blocks the header reader's handoff of the next packet. A client connection
 starts its error worker with the connection.

@@ -57,6 +57,7 @@ type goClientMetadata struct {
 	SID, ID, Namespace, Transport, Query, NamespaceQuery, Header, URL string
 	Connected                                                         []string
 	Disconnected                                                      [][]string
+	Received                                                          [][]string
 }
 
 func TestGoClientConformance(t *testing.T) {

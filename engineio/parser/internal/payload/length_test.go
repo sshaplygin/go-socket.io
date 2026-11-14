@@ -3,6 +3,7 @@ package payload
 import (
 	"bufio"
 	"bytes"
+	"math"
 	"testing"
 	"testing/quick"
 
@@ -105,6 +106,13 @@ func TestReadBytesLen(t *testing.T) {
 		{[]byte{2, 3, 4, 6, 1, 0xff}, true, 23461},
 		{[]byte{2, 3, 4, 6, 1}, false, 0},
 		{[]byte{2, 254, 4, 6, 1}, false, 0},
+		// A digit byte is 0-9: 10 is the first invalid value.
+		{[]byte{1, 10, 0xff}, false, 0},
+		{[]byte{10, 0xff}, false, 0},
+		// The length is an int64: the largest one is read, the next value overflows.
+		{[]byte{9, 2, 2, 3, 3, 7, 2, 0, 3, 6, 8, 5, 4, 7, 7, 5, 8, 0, 7, 0xff}, true, math.MaxInt64},
+		{[]byte{9, 2, 2, 3, 3, 7, 2, 0, 3, 6, 8, 5, 4, 7, 7, 5, 8, 0, 8, 0xff}, false, 0},
+		{[]byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff}, false, 0},
 	}
 	for _, test := range payloadVectors {
 		r := bufio.NewReader(bytes.NewReader(test.data))
@@ -134,6 +142,10 @@ func TestReadStringLen(t *testing.T) {
 		{[]byte("23461:"), true, 23461},
 		{[]byte("23461"), false, 0},
 		{[]byte("234ab"), false, 0},
+		{[]byte("1/:"), false, 0},
+		{[]byte("9223372036854775807:"), true, math.MaxInt64},
+		{[]byte("9223372036854775808:"), false, 0},
+		{[]byte("10000000000000000000:"), false, 0},
 	}
 	for _, test := range payloadVectors {
 		r := bufio.NewReader(bytes.NewReader(test.data))

@@ -44,6 +44,8 @@ type Server struct {
 	active        map[*connection]struct{}
 	activeChanged chan struct{}
 	closeTimer    func(time.Duration) *time.Timer // tests set it; nil means time.NewTimer
+	// holders maps a session ID to its newest active connection; guarded by activeMu.
+	holders map[string]*connection
 
 	limits connLimits
 	log    *slog.Logger
@@ -58,6 +60,7 @@ func NewServer(opts ...Option) *Server {
 		creating:      make(map[string]chan struct{}),
 		adapter:       config.Adapter,
 		active:        make(map[*connection]struct{}),
+		holders:       make(map[string]*connection),
 		activeChanged: make(chan struct{}),
 		closeDone:     make(chan struct{}),
 		engine:        engineio.NewServer(config.EngineOptions...),
@@ -344,7 +347,9 @@ func (s *Server) Rooms(namespace string) []string {
 	return nil
 }
 
-// Count number of connections.
+// Count returns the number of Engine.IO sessions registered with the server,
+// as engineio.Server.Count: a connection whose transport has ended is no longer
+// counted, also while its OnDisconnect handlers run.
 func (s *Server) Count() int {
 	return s.engine.Count()
 }
@@ -352,8 +357,9 @@ func (s *Server) Count() int {
 // Engine returns the engine.io server created by NewServer; never nil.
 func (s *Server) Engine() *engineio.Server { return s.engine }
 
-// Remove unregisters an Engine.IO session without closing its transport.
-// Server.Close still closes unregistered sessions that remain open.
+// Remove unregisters an Engine.IO session without closing its transport, as
+// engineio.Server.Remove. Server.Close still closes unregistered sessions that
+// remain open. A session unregisters itself when its close finishes.
 func (s *Server) Remove(sid string) {
 	s.engine.Remove(sid)
 }
@@ -463,6 +469,10 @@ func (s *Server) releaseConnection(c *connection) {
 	c.Wait()
 	s.activeMu.Lock()
 	delete(s.active, c)
+	if s.holders[c.ID()] == c {
+		delete(s.holders, c.ID())
+	}
+	close(c.released)
 	close(s.activeChanged)
 	s.activeChanged = make(chan struct{})
 	s.activeMu.Unlock()
@@ -519,15 +529,25 @@ func (s *Server) serveConn(conn engineio.Conn) {
 		return
 	}
 	s.active[c] = struct{}{}
+	// An ended engine session's ID can be issued again while the connection that
+	// held it still runs its disconnect handlers. Socket.IO names sockets and
+	// rooms after the ID, so a connection waits for the previous holder of its
+	// ID to be released before it connects.
+	previous := s.holders[c.ID()]
+	s.holders[c.ID()] = c
 	s.activeMu.Unlock()
+	if previous != nil {
+		<-previous.released
+	}
+	// Every exit of Start and Read closes the engine session, which then leaves
+	// the engine's registry by itself. A removal by ID here could hit a newer
+	// session that was issued the same ID meanwhile.
 	if !c.Start(s.resolveNamespace) {
-		s.engine.Remove(conn.ID())
 		s.releaseConnection(c)
 		return
 	}
 	go func() {
 		defer s.releaseConnection(c)
 		c.Read()
-		s.engine.Remove(c.Conn.ID())
 	}()
 }

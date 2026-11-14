@@ -85,7 +85,9 @@ func TestDialHandshakeTimeout(t *testing.T) {
 			}
 			<-r.Context().Done()
 		}))
-		t.Cleanup(ts.Close)
+		// Closing the server side first ends a request still waiting, so that a Dial the
+		// bound fails to stop does not hold the cleanup.
+		t.Cleanup(func() { ts.CloseClientConnections(); ts.Close() })
 		return ts.URL
 	}
 	for _, tc := range []struct {

@@ -105,6 +105,14 @@ func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (engineio.Conn, 
 		return ret, nil
 	}
 
+	// The loop closes a failed connection before the next attempt; the last one is
+	// closed here.
+	if conn != nil {
+		if closeErr := conn.Close(); closeErr != nil {
+			logger.Log.Debug("engineio: close connection failed", "err", closeErr)
+		}
+	}
+
 	return nil, err
 }
 

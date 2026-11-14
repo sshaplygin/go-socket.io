@@ -22,9 +22,19 @@ import (
 func differentialGoServer(t *testing.T, configure ...func(*socketio.Server)) *httptest.Server {
 	t.Helper()
 	s := socketio.NewServer()
-	for _, name := range []string{"/", "/chat"} {
+	for _, name := range []string{"/", "/chat", "/welcome"} {
 		n := s.Of(name)
-		n.OnConnect(func(socketio.Conn) error { return nil })
+		n.OnConnect(func(c socketio.Conn) error {
+			if name == "/welcome" || c.Handshake().Query.Get("welcome") == "1" {
+				c.Join("lobby")
+				_ = n.Emit("welcome", "all")
+				_ = n.To(c.ID()).Emit("welcome", "self")
+				_ = n.To("lobby").Emit("welcome", "lobby")
+				_ = c.Broadcast().Emit("welcome", "others")
+				c.Emit("welcome", "direct")
+			}
+			return nil
+		})
 		n.OnEvent("echo", func(_ socketio.Conn, value string) string { return value })
 		n.OnEvent("identity", func(c socketio.Conn) string { return c.ID() })
 		n.OnEvent("metadata", differentialMetadata)
@@ -191,7 +201,7 @@ func normalizeDifferential(t *testing.T, transcript []interface{}) {
 }
 
 func TestDifferential(t *testing.T) {
-	for _, scenario := range []string{"connect-root", "namespace", "middleware-reject", "ack-both-ways", "binary", "non-ascii", "rooms", "server-disconnect", "handshake-data", "rejected-handshake", "cors", "open-packet"} {
+	for _, scenario := range []string{"connect-root", "namespace", "middleware-reject", "ack-both-ways", "binary", "non-ascii", "rooms", "server-disconnect", "handshake-data", "rejected-handshake", "cors", "open-packet", "connect-broadcast"} {
 		for _, transport := range []string{"polling", "websocket"} {
 			t.Run(scenario+"-"+transport, func(t *testing.T) {
 				goServer := differentialGoServer(t)

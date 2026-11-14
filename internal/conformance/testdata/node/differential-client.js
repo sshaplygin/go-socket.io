@@ -173,6 +173,15 @@ async function run() {
       socket.emit(name);
       await disconnected;
     }
+  } else if (scenario === 'connect-broadcast') {
+    // The connection handlers of joiner and its /welcome socket broadcast while
+    // they connect; root is a peer already in the root namespace. Each ACK follows
+    // the packets queued before it on that socket.
+    const joiner = await connect({query: {welcome: '1'}});
+    const welcome = await namespace(joiner, '/welcome');
+    for (const socket of [joiner, welcome, root]) await ack(socket, 'echo', 'barrier');
+    welcome.disconnect();
+    joiner.disconnect();
   } else if (scenario === 'handshake-data') {
     // Preserve raw timestamps for the Go comparison's validation/normalization.
     await new Promise(resolve => root.emit('metadata', (...values) => {

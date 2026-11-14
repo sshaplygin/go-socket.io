@@ -253,7 +253,8 @@ func TestRemoveBeforeSessionEnds(t *testing.T) {
 
 	p.send(t, "1")
 	select {
-	case <-done:
+	case err := <-done:
+		require.Error(t, err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("the removed session did not end")
 	}
@@ -262,7 +263,8 @@ func TestRemoveBeforeSessionEnds(t *testing.T) {
 
 	other.send(t, "1")
 	select {
-	case <-otherDone:
+	case err := <-otherDone:
+		require.Error(t, err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("the session did not end")
 	}
@@ -318,7 +320,8 @@ func TestEndedSessionReleasesItsID(t *testing.T) {
 	done := readUntilEnd(firstConn)
 	first.send(t, "1")
 	select {
-	case <-done:
+	case err := <-done:
+		require.Error(t, err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("the session did not end")
 	}

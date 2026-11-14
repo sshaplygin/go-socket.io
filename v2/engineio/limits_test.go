@@ -95,3 +95,57 @@ func TestServerKeepsTransportCopies(t *testing.T) {
 	go func() { _ = readAll(opened) }()
 	requireTooBig(t, c, 301)
 }
+
+// TestOptionsMaxPayload: a positive Options.MaxPayload is the limit the server advertises
+// in OPEN and enforces over the limits of its transports: a polling POST over it is
+// answered 413, and a websocket message over it closes the connection with status 1009,
+// on a session opened on websocket and after an upgrade. Zero or a negative value keeps
+// the transport limits.
+func TestOptionsMaxPayload(t *testing.T) {
+	for _, tc := range []struct {
+		name                     string
+		option, polling, message int
+	}{
+		{"options", 300, 300, 300},
+		{"zero", 0, 5000, 6000},
+		{"negative", -1, 5000, 6000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newGuardFixture(t, &engineio.Options{MaxPayload: tc.option, Transports: []transport.Transport{
+				&polling.Transport{MaxPayload: 5000}, &websocket.Transport{MaxPayload: 6000},
+			}})
+			_, params := openPollingParams(t, f.url, nil)
+			require.Equal(t, tc.polling, params.MaxPayload)
+			polled := f.accept(t)
+			go func() { _ = readAll(polled) }()
+			require.Equal(t, http.StatusRequestEntityTooLarge, postSize(t, f.url, params.SID, tc.polling+1))
+			require.Equal(t, http.StatusOK, postSize(t, f.url, params.SID, tc.polling))
+
+			opened, err := f.dial(t, "", nil)
+			require.NoError(t, err)
+			openedConn := f.accept(t)
+			go func() { _ = readAll(openedConn) }()
+			requireTooBig(t, opened, tc.message+1)
+
+			dialRaw(t, polling.Default, f.url)
+			conn := f.accept(t)
+			go func() { _ = readAll(conn) }()
+			upgraded, err := f.dial(t, conn.ID(), nil)
+			require.NoError(t, err)
+			upgradeTo(t, upgraded, conn)
+			requireTooBig(t, upgraded, tc.message+1)
+		})
+	}
+}
+
+// TestMaxPayloadNormalize: Normalize rejects a negative MaxPayload and returns valid
+// options unchanged. NewServer treats a negative value as zero, which
+// TestOptionsMaxPayload checks.
+func TestMaxPayloadNormalize(t *testing.T) {
+	_, err := engineio.Options{MaxPayload: -1}.Normalize()
+	require.Error(t, err)
+	valid := engineio.Options{MaxPayload: 1}
+	got, err := valid.Normalize()
+	require.NoError(t, err)
+	require.Equal(t, valid, got)
+}

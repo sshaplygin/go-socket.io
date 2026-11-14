@@ -277,7 +277,11 @@ func TestConnectionBackpressureOverflowInOnConnect(t *testing.T) {
 		p.connect(t)
 		require.True(t, isDone(p.conn().done), "serveConn did not close the connection itself")
 		recv(t, p.fc.closed, "engine.io close of the failed connection")
-		p.disconnected(t, "/")
+		if connectErr == nil {
+			p.disconnected(t, "/")
+		} else {
+			p.disconnected(t) // OnConnect rejected the socket: it never connected
+		}
 		want := []error{ErrWriteBufferFull}
 		if connectErr != nil {
 			want = []error{connectErr, ErrWriteBufferFull}

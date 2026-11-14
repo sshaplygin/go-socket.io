@@ -137,7 +137,7 @@ func (c *connection) connect() error {
 	}
 	c.namespaces.Set(rootNamespace, root)
 	c.mu.Unlock()
-	err := rootHandler.Connect(root)
+	err := rootHandler.Connect(root, root.enter)
 	root.connectReturned(err)
 	if err != nil {
 		if isDone(c.closing) {

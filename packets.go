@@ -217,7 +217,7 @@ func connectNamespace(c *connection, header parser.Header) error {
 	if !c.register(header.Namespace, nc) {
 		return nil
 	}
-	err := handler.Connect(nc)
+	err := handler.Connect(nc, nc.enter)
 	nc.connectReturned(err)
 	c.connectRecord(header.Namespace, err)
 	if err != nil {

@@ -259,7 +259,12 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
 - The reference server queues outbound packets without a bound. This server bounds
   the queue per connection with `WithWriteBufferSize` (1024 packets by default), so a
   burst that must be queued at once, such as one handler's emits over polling, has to
-  fit the bound. `ErrWriteBufferFull` documents the overflow behavior.
+  fit the bound. `ErrWriteBufferFull` documents the overflow behavior. As in the
+  reference, broadcasts that select a socket reach it from the time its connection
+  handler (`OnConnect`) starts and are written after its CONNECT. Unlike the
+  reference's synchronous listener, `OnConnect` may block; packets addressed to the
+  socket meanwhile, broadcasts from other sockets included, wait for it to return
+  and count toward the bound.
 
 A Socket.IO packet may contain at most 10 binary attachments. Encoding counts
 only attachments referenced by the encoded JSON and rejects a larger packet

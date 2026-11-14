@@ -132,7 +132,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.engine.ServeHTTP(w, r)
 }
 
-// OnConnect set a handler function f to handle open event for namespace.
+// OnConnect sets the namespace's connect handler. f runs once the namespace
+// middleware (ServerNamespace.Use) has accepted the socket. By then the socket has
+// joined its ID room and is listed by Sockets and SocketIDs, as in the reference's
+// connection listener, so a broadcast that selects it reaches it, whether issued
+// by f or by another goroutine while f runs. Those packets and the Emits of f wait
+// in the connection's write queue (see WithWriteBufferSize) and are written after
+// CONNECT once f returns nil. If f returns an error, the socket receives an ERROR
+// packet instead, the waiting packets are discarded, the socket leaves its rooms
+// and the namespace, and it gets neither disconnecting nor OnDisconnect.
 func (s *Server) OnConnect(namespace string, f func(Conn) error) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -149,7 +157,9 @@ func (s *Server) OnConnect(namespace string, f func(Conn) error) {
 // close (EngineConn().Close or engineio.Abort), a parser failure, a handler panic
 // or a queue overflow. Rooms have been left before it runs;
 // OnEvent(namespace, "disconnecting", func(Conn, string)) observes the same
-// reason while the rooms are still joined.
+// reason while the rooms are still joined. Both run once for each socket whose
+// OnConnect returned nil, also when a close started while OnConnect ran; a socket
+// rejected by middleware or OnConnect gets neither.
 func (s *Server) OnDisconnect(namespace string, f func(Conn, string)) {
 	h := s.getNamespace(namespace)
 	if h == nil {

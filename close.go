@@ -130,7 +130,7 @@ func (c *connection) disconnect(ncs []*namespaceConn) {
 		nc.outMu.Lock()
 		rejected := nc.connectErr != nil
 		nc.outMu.Unlock()
-		if c.draining && rejected {
+		if rejected { // OnConnect returned an error: no connected lifecycle to end
 			nc.reject()
 			c.mu.Lock()
 			c.disconnecting--

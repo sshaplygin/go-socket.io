@@ -44,7 +44,7 @@ func (c *Client) Connect() error { return c.manager.Connect() }
 // ACKs before exiting.
 func (c *Client) Close() error { return c.manager.Close() }
 
-// Emit sends through the namespace selected by the address passed to New.
+// Emit is Socket.Emit on the namespace selected by the address passed to New.
 func (c *Client) Emit(event string, args ...interface{}) { c.manager.Emit(event, args...) }
 
 // OnConnect sets the default namespace's connection callback.

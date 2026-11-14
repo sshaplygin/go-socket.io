@@ -170,3 +170,20 @@ func TestDialTransportHandshakeTimeoutShorter(t *testing.T) {
 	require.Error(t, err)
 	require.Less(t, time.Since(start), time.Second)
 }
+
+// TestDialHandshakeDeadline: for the wait for OPEN, a zero HandshakeTimeout arms a read
+// deadline 10 s ahead and a positive one a deadline at its value; a negative one arms none.
+func TestDialHandshakeDeadline(t *testing.T) {
+	for _, tc := range []struct{ timeout, ahead time.Duration }{{0, 10 * time.Second}, {time.Minute, time.Minute}, {-1, 0}} {
+		r := &deadlineRecorder{}
+		start := time.Now()
+		_, err := (&Dialer{Transports: []transport.Transport{r}, HandshakeTimeout: tc.timeout}).Dial("http://x", nil)
+		require.NoError(t, err)
+		if tc.ahead == 0 {
+			require.Empty(t, r.set, "HandshakeTimeout %v", tc.timeout)
+			continue
+		}
+		require.Len(t, r.set, 2, "HandshakeTimeout %v: armed, then cleared after OPEN", tc.timeout)
+		require.WithinDuration(t, start.Add(tc.ahead), r.set[0], time.Second)
+	}
+}

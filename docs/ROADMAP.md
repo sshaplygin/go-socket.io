@@ -28,10 +28,10 @@ owning contract and consumer fixtures together.
 | --- | --- | --- | --- |
 | 2A | API design | Generic API and lifecycle contract with compile fixtures | G2: `make g2` |
 | 2B | G2 and owner authorization to continue v2 | 2.1 Engine.IO (`engineio/`); 2.2 memory adapter (root `adapter.go`, against the frozen `LocalSockets`, no edit of `namespace.go`); 2.3P Socket.IO codec (`parser/`) | all three integrate against frozen contracts |
-| 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets`); 2.3C client (`client/`) | typed Go/Node tests and lifecycle tests (including `TestNamespaceReadiness`, 2.3S) pass; dispatch baseline recorded |
+| 2C | 2B | 2.3S server/namespace runtime (root socket files, including the body of `Namespace.LocalSockets` and the server declarations of 2.3 *v1 continuity*); 2.3C client (`client/`, with the names and reconnection of 2.3 *v1 continuity*) | typed Go/Node tests, lifecycle tests (including `TestNamespaceReadiness`, 2.3S) and the *v1 continuity* acceptance pass; dispatch baseline recorded |
 | 2D | 2C | one owner propagates instance loggers across runtime packages | logger precedence/isolation tests pass |
 | 2E | 2D | 2.4E Engine.IO hook fire points; 2.4S Socket.IO hook fire points; 2.4O OTel bridge (`contrib/otel`) against frozen hook fixtures | all hook, span, metric and overhead checks pass |
-| 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs | M3 acceptance; publication verification at tag time |
+| 2F | 2E | 2.5T conformance/framework tests; 2.5D migration/examples/docs; 2.5M T3 (`cmd/socketio-migrate`) | M3 acceptance; publication verification at tag time |
 | 3A | M3 | freeze chat event schema; then server, browser/CLI and load client in separate directories | M4 single-server acceptance |
 | 5L-A | M3 | freeze single-server admin observation, snapshot/watermark types, command capability and command-result contracts, session-store interface and advertised features; pin the UI release and instrumentation fixtures | 5L contract gate |
 | 5L-B | 5L-A | core observers/snapshots; admin wire/auth module; memory-adapter command capability; browser tests against the pinned UI | M3A acceptance |
@@ -45,6 +45,11 @@ owning contract and consumer fixtures together.
 
 Each join builds/tests the whole v2 module and affected child modules. Mocks
 support isolated development; integration and release gates exercise real peers.
+2.5M writes its own module `cmd/socketio-migrate`, its CI job (the workflow job, its
+change-classifier entry and its place in `ci-ok`) and the `CLAUDE.md` layout row of the
+module, and joins no earlier gate: its T1 may start during 2B or 2C, each of its goldens
+using only declarations already on `master`, T2 starts once the 2.3S and 2.3C declarations it targets are on `master`,
+and T3 belongs to 2F (2.5M).
 
 ## Stage 2. Socket.IO protocol v5 over Engine.IO protocol v4 (tag `v2.0.0`)
 
@@ -163,7 +168,7 @@ frozen declaration. API.md (*Frozen contract*) lists the result; this table owns
 | Result and reason domains | moved out: upgrade results, request-rejection reasons, disconnect reasons, adapter results | the roadmap does not enumerate them and the hook fields are strings; a constant added later is additive | 2.4 (`docs/OBSERVABILITY.md`) |
 | `ChainHooks`, `LoggingHooks` | settled: signatures declared in both packages as in 2.4, returning nil | the signatures are fixed by 2.4; the behaviour needs the fire points | 2.4E, 2.4S |
 | `Server.ServeHTTP` | settled: declared, the skeleton answers 501 | the signature is `http.Handler`, asserted by 2.1 | 2.1, 2.3S |
-| Lifecycle context of `Socket` and `Namespace`, disconnect, connection callbacks, `Socket.Data`, descriptor codec binding | moved out | they need the runtime design; each is an added method | 2.3S |
+| Lifecycle context of `Socket` and `Namespace`, disconnect, connection callbacks, socket data (`SetData`/`Data`), descriptor codec binding | moved out | they need the runtime design; each is an added declaration | 2.3S |
 | Namespace API for external adapters (local sockets, local delivery of a received broadcast) | settled: `LocalSockets` (`Deliver`, `Snapshot`) in `adapter.go` and `Namespace.LocalSockets()` in `namespace.go`, with a fixture and a negative fixture | the memory adapter is its first user and 2B writes it in parallel with the runtime of 2C, so the seam must exist before either starts; a broker adapter calls the same two methods for a received broadcast. 2A owns both declarations; 2.2 never edits `namespace.go`; 2.3S fills the body and may not change the signatures | body: 2.3S (2C) |
 | Received `ServerSideEmit` (delivery to application handlers, acks of server-side emits) | moved out | no memory-adapter or 2B consumer: a single node has no peer to receive from | 4b, additively, with 2.3S |
 
@@ -277,9 +282,9 @@ peer against the WebSocket transport when its dependencies are installed.
     the private transport copies (with the `MaxPayload` override and the `CheckOrigin`
     fallback) and `client.Dialer.HandshakeTimeout`, with the acceptance clauses for those.
     **E2b** takes `WriteTimeout` (transports, `Options`, the copies), the heartbeat deadline
-    that bounds reads only and the close classification, with the acceptance clauses for the
-    write timeout, the 101 bound, the stalled peer, the classification, the read-deadline
-    backstop and the write benchmark.
+    that bounds reads only, the close classification and `DisableCORS`, with the acceptance
+    clauses for the write timeout, the 101 bound, the stalled peer, the classification, the
+    read-deadline backstop, the write benchmark and the CORS switch.
     - `Options.MaxPayload` over the existing transport `MaxPayload` fields (default 1 MiB;
       Node's `maxHttpBufferSize` is 1e6 bytes, a recorded difference). It bounds a polling
       POST in wire bytes and one websocket message in data bytes, fragments together, which is
@@ -320,6 +325,23 @@ peer against the WebSocket transport when its dependencies are installed.
       the OPEN write. The server has no handshake option: net/http has read the request before
       the transport sees it (the application's `http.Server.ReadHeaderTimeout` bounds that),
       and the 101 response is a write bounded by `WriteTimeout`.
+    - `DisableCORS bool`, new on `polling.Transport` and in `Options` (false keeps the
+      default). The v2 default stays as it is: the polling transport writes
+      `Access-Control-Allow-Origin` (with `Access-Control-Allow-Credentials: true` when the
+      request has an `Origin`) only when its `CheckOrigin`, or the `polling.Default.CheckOrigin`
+      fallback, allows the request, and a nil check allows none; the websocket transport
+      accepts by `CheckOrigin` or, when nil, by the same-origin rule. This default already
+      behaves as v1 `engineio.WithCORS(false)`, under which a transport `CheckOrigin` still
+      produced the headers for the origins it allowed. `DisableCORS` is stricter than that v1
+      option: with it set, the server writes no `Access-Control-*` header on any polling
+      response, the OPTIONS preflight included, whatever `CheckOrigin` returns, so an
+      application that writes its own CORS headers in front of the server is not overridden;
+      the websocket origin decision does not change. `Options.DisableCORS` reaches the
+      server's private polling copy: the copy has `DisableCORS` set when either
+      `Options.DisableCORS` or the transport field is true; the Go client ignores the
+      field. v1 allowed every origin with credentials by default; v2 has no permissive
+      default. V2_PROTOCOL records that difference; `docs/MIGRATION.md` and 2.5M report it
+      (2.5).
     Acceptance, `-race`: an `engineio.Server` test with `Options.MaxPayload` set and different
     transport fields checks the advertised `maxPayload`, a polling POST 413 and a websocket
     close 1009 at the `Options` limit, on a session opened on websocket and after an upgrade;
@@ -340,7 +362,12 @@ peer against the WebSocket transport when its dependencies are installed.
     read-deadline backstop is pinned at transport level (a polling POST body that stalls past
     the read deadline fails and releases its handler, as
     `TestServerPostStalledBodyHitsReadDeadline` does, and a websocket counterpart). A
-    websocket write benchmark shows the cost of the per-write deadline, base and head.
+    websocket write benchmark shows the cost of the per-write deadline, base and head. At
+    `engineio.Server` level, with `DisableCORS` set in `Options` and, separately, on the
+    transport, a polling handshake, poll, POST and OPTIONS preflight carry no
+    `Access-Control-*` header, both for an `Origin` that `CheckOrigin` allows and without
+    `Origin`, while with the switch unset the same requests carry the headers above; a
+    cross-origin websocket upgrade is accepted or refused exactly as without the switch.
   - **E3, fuzzing.** Fuzz targets `FuzzServerPost` (`transport/polling`: POST body to decoded
     packets), `FuzzNextReader` (`transport/websocket`: frames to messages to packets) and,
     after E1, `FuzzUpgradeSequence` (`engineio/session`: probe, upgrade, close and data
@@ -530,8 +557,9 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   Caller cancellation preserves `context.Canceled`/`context.DeadlineExceeded` through
   `errors.Is`; the library's own timer returns `ErrAckTimeout`.
 - **Wire contract.** Ordinary `T` (including a struct or slice) is one positional
-  JSON argument. `Args2[A, B]` expands to exactly two positional arguments; it is not
-  one JSON array. Descriptors carry typed encode/decode functions; dispatch itself
+  JSON argument; the one exception is `struct{}`, which is no argument, as a payload `T`
+  and as a result `R` (*v1 continuity*, *Events without a payload*). `Args2[A, B]` expands
+  to exactly two positional arguments; it is not one JSON array. Descriptors carry typed encode/decode functions; dispatch itself
   never reflects over handlers. `socketio.Binary` uses standard binary placeholders
   and attachments, including nested fields, slices and maps handled by `parser`.
   Encode/copy payload and binary bytes before `Emit` returns, so later application
@@ -546,19 +574,21 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   have explicit codes; unexpected handler errors expose `internal_error` with a
   generic message and log the original error. Unknown events without a raw handler
   and typed decode failures produce `unknown_event`/`invalid_payload` when an ack
-  was requested, otherwise only the error handler, if 2.0 defines one, or the log;
-  malformed protocol envelopes
+  was requested; with or without an ack they reach the `OnError` handler (*v1 continuity*
+  below) or, without one, the log; malformed protocol envelopes
   close with `parse error`. For valid known events, server and client use this table:
 
   | Descriptor | Incoming ACK ID | Handler and response |
   | --- | --- | --- |
-  | `Event[T]` | absent | run handler; errors go to the error handler, if 2.0 defines one, or the log |
-  | `Event[T]` | present | run handler; reply `[null]` on success or the typed error envelope |
-  | `AckEvent[T, R]` | absent | run handler, discard result; errors go to the error handler, if 2.0 defines one, or the log |
-  | `AckEvent[T, R]` | present | run handler; reply using the typed ack convention above |
+  | `Event[T]` | absent | run handler; errors go to `OnError` or, without one, the log |
+  | `Event[T]` | present | run handler; reply `[null]` on success or the typed error envelope; errors also go to `OnError` or the log |
+  | `AckEvent[T, R]` | absent | run handler, discard result; errors go to `OnError` or, without one, the log |
+  | `AckEvent[T, R]` | present | run handler; reply using the typed ack convention above; errors also go to `OnError` or the log |
 
   Tests cover all four combinations with success/error, both Go/Node directions and
-  binary ACKs; responses are queued at most once and only when an ACK ID is present.
+  binary ACKs; responses are queued at most once and only when an ACK ID is present. A
+  descriptor returned by `PlainAck` (*v1 continuity*) replies to a successful handler in
+  the plain v1 form instead.
 - **Resource limits.** `socketio.Options` implements separate count and byte budgets:
   outbound queue 64 complete message groups / 8 MiB, handler queue 64 events / 8 MiB,
   128 pending acks per socket, at most 64 binary attachments and 1 MiB reconstructed
@@ -588,7 +618,7 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   above; G2 froze them.
 - `BenchmarkEventDispatch` (root) is added with the new model, so stage 2.4 has a real
   baseline.
-- Rewrite `Client` on the same generic API with websocket over `gobwas/ws`. This item delivers the v2 client; the v1 client is an independent implementation.
+- Rewrite `Client` on the same generic API with websocket over `gobwas/ws`. This item delivers the v2 client; the v1 client is an independent implementation. Its names, callbacks and reconnection are fixed by *v1 continuity* below.
 - 2.3S implements the server side of 2.2 *Readiness*. Its root test is
   `TestNamespaceReadiness`, with the subtests `R1` to `R9` below; the 2C join gate runs
   `go test -race -count=1 -json -run '^TestNamespaceReadiness$' .` and requires a pass
@@ -636,6 +666,399 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
     done, then broadcasts to a room: the fake adapter receives that `Broadcast`, and its
     count, read in the handler right after the broadcast was delivered, is 0; the settled
     reading is 1.
+- **v1 continuity.** No frozen declaration changes for v1 users ([API.md](API.md#frozen-contract)).
+  The gap to v1 is closed additively by the declarations below, which keep v1 names where
+  the v2 meaning allows, together with `docs/MIGRATION.md` (2.5D) and the migration tool
+  (2.5M). A compatibility package with v1 signatures is not part of M3 and is reconsidered
+  after M3. Each declaration lands with its API.md inventory row, a positive compile
+  fixture and godoc; a value is carried by a type parameter, never by a bare `any` or
+  `interface{}` (`TestFrozenContract` scans every root file); none adds a package-graph edge
+  or imports `reflect`. Server side, 2.3S, in the root files listed under Stage 2:
+
+  ```go
+  func (n *Namespace) OnConnect(func(ctx context.Context, s *Socket) error) error
+  func (n *Namespace) OnDisconnect(func(ctx context.Context, s *Socket, reason string)) error
+  func (n *Namespace) OnError(func(ctx context.Context, s *Socket, err error)) error
+  func (n *Namespace) RoomLen(ctx context.Context, room Room) (int, error)
+  func (n *Namespace) Sockets(ctx context.Context, rooms ...Room) ([]SocketID, error)
+
+  func (s *Socket) Context() context.Context
+  func (s *Socket) Connected() bool
+  func (s *Socket) Disconnect() error
+  func (s *Socket) Close() error
+  func (s *Socket) Handshake() Handshake
+  func (s *Socket) RemoteHeader() http.Header
+  func (s *Socket) RemoteAddr() net.Addr
+  func (s *Socket) LocalAddr() net.Addr
+  func (s *Socket) URL() url.URL
+  func (s *Socket) To(rooms ...Room) BroadcastOperator
+  func (s *Socket) Rooms() []Room
+  func (s *Socket) LeaveAll() error
+
+  type Handshake struct {
+      Headers http.Header
+      Time    time.Time
+      Address string
+      XDomain bool
+      Secure  bool
+      URL     url.URL
+      Query   url.Values
+      Auth    json.RawMessage
+  }
+
+  func SetData[T any](s *Socket, v T)
+  func Data[T any](s *Socket) (T, bool)
+
+  func (s *Server) Count() int
+
+  func (e Event[T]) PlainAck() Event[T]
+  func (e AckEvent[T, R]) PlainAck() AckEvent[T, R]
+  ```
+
+  - *Identity and connect order.* A namespace CONNECT creates one `*Socket`. Every
+    middleware, `OnConnect`, event handler, `OnError` and `OnDisconnect` call for that
+    connection receives the same pointer, so an application can key a map with it from
+    `OnConnect` to `OnDisconnect`; a later CONNECT of the namespace, on the same session or
+    another, creates a new one. The CONNECT task (*Resource limits*: counted by
+    `MaxConcurrentConnects`, bounded by `ConnectTimeout`, off the reader) runs the
+    middleware in registration order, then `OnConnect`, then queues the CONNECT ack. A
+    non-nil error from either is answered with a CONNECT_ERROR whose `message` is
+    `err.Error()`, as v1 rejects from `OnConnect`; Node's `connection` event cannot reject,
+    so `Use` stays the Node-style gate. When `ConnectTimeout` expires first, the
+    CONNECT_ERROR is queued at the deadline with the message of the context's error, and a
+    later return of the middleware or `OnConnect` is ignored (its slot is held until it
+    returns, *Resource limits*). A rejection, an expired `ConnectTimeout` or a session lost
+    during the task cancels `s.Context()` and removes the socket from the adapter; a lost
+    session gets no CONNECT_ERROR.
+  - *Adapter membership.* While the middleware runs, the socket is in no room: no broadcast
+    selects it and `LocalSockets().Snapshot` reports it absent. Once the middleware has
+    passed, it joins the room named by its ID before `OnConnect` runs, as a Node socket
+    joins it before its `connection` handlers run. From then on, while its CONNECT ack is
+    still pending, broadcasts, `Deliver` and `Snapshot`, and therefore `Sockets`, `RoomLen`
+    and `FetchSockets`, see it and every room it joins; a rejection removes it. When the
+    socket ends, it leaves every room, its ID room included, and `Snapshot` reports it
+    absent, before `OnDisconnect` runs, as v1 does and as Node does before its `disconnect`
+    event. Inside `OnDisconnect`, `Rooms` is empty, `RoomLen` and `Sockets` exclude the
+    socket, `Leave` and `LeaveAll` return nil with no effect, `Join` returns an error
+    matching `ErrSocketClosed`, and `To` still broadcasts to the namespace without it.
+  - *Packets before the CONNECT ack.* From the creation of the `*Socket` until its CONNECT
+    ack is queued, every packet queued on it from any goroutine (an emit, `SendPacket`,
+    `RequestAck`, a broadcast or adapter `Deliver` that selects it through a room joined in
+    `OnConnect`) waits behind the CONNECT ack in submission order, counts toward the
+    outbound budgets and is written after the CONNECT packet. On rejection those packets are
+    discarded, as a library close discards; an emit that already returned stays returned,
+    and a pending `RequestAck` or `EmitWithAck` ends with `ErrSocketClosed`. An `EmitWithAck`
+    awaited inside `OnConnect` cannot be answered before the CONNECT ack, so it ends at the
+    deadline of the `OnConnect` context; the godoc says so.
+  - *Contexts.* `Socket.Context()` exists from the creation of the `*Socket`, derives from
+    the session context (2.0) and is cancelled once when the socket ends: a rejected
+    CONNECT, a namespace DISCONNECT from either side, `Disconnect`, `Close`, the session's
+    close, or the server's `Shutdown` or `Close`. `Connected()` reports
+    `s.Context().Err() == nil`, so it is true inside middleware and `OnConnect` unless the
+    socket was already lost. The `ctx` of middleware and `OnConnect` derives from
+    `s.Context()` with the `ConnectTimeout` deadline and ends with the CONNECT task. The
+    `ctx` of an event handler (descriptor or `OnRaw`) carries the values of `s.Context()`
+    and the values of the context the 2.4 `EventStart` hooks return, without that context's
+    deadline or cancellation, and is done exactly when `s.Context()` is done: it has no
+    deadline of its own and is not cancelled when the handler returns, so work a handler
+    starts may use it for the socket's lifetime. `OnDisconnect` gets the values of
+    `s.Context()` without its cancellation (`context.WithoutCancel`); `OnError` gets the
+    `ctx` of the operation that failed.
+  - *Callbacks.* `OnConnect`, `OnDisconnect` and `OnError` each hold one handler per
+    namespace: a second registration returns an error, as `Handle` does for a duplicate
+    event, and a registration after `Shutdown` or `Close` began returns an error matching
+    `ErrNamespaceClosed`. Each socket captures the three handlers when its CONNECT task
+    starts, so a registration applies only to sockets whose CONNECT task starts after it
+    returns; an `OnDisconnect` registered later is not called for sockets already connected.
+    No callback runs on the reader. When a socket ends, events in its handler queue that
+    have not started are discarded: no handler runs for them and no ACK reply is queued.
+    `OnDisconnect` runs once for each socket whose CONNECT ack was queued, on that socket's
+    worker queue after the handler running at the end returned, with a 2.4 disconnect
+    reason; it is not called for a rejected CONNECT. `Server.Shutdown` waits, within its
+    deadline, for the `OnDisconnect` calls of the sockets it ends, as v1 `Server.Close`
+    waited for them; `Server.Close` does not wait. 2.3S amends the `Shutdown` godoc, in
+    wording only, to state that wait. `OnError` runs on
+    the socket's worker queue, or for an `OnConnect` error in the CONNECT task after the
+    CONNECT_ERROR is queued, always with the socket concerned (never nil). It receives
+    exactly the failures marked *yes* below, after any reply is queued; a failure it
+    receives lowers its 2.4 record to at most DEBUG, and every other record stays WARN:
+
+    | Failure | ACK ID | Reply | `OnError` | 2.4 record |
+    | --- | --- | --- | --- | --- |
+    | handler error (descriptor or `OnRaw`) | absent | none | yes | `socketio: handler error` |
+    | handler error | present | the error envelope (*Typed ack errors*) | yes | `socketio: handler error` |
+    | decode failure of a known event | absent | none | yes | `socketio: unhandled error` |
+    | decode failure of a known event | present | `invalid_payload` envelope | yes | `socketio: unhandled error` |
+    | unknown event without `OnRaw` | absent | none | yes | `socketio: unhandled error` |
+    | unknown event without `OnRaw` | present | `unknown_event` envelope | yes | `socketio: unhandled error` |
+    | a handler result that cannot be encoded | present | `internal_error` envelope | yes | `socketio: unhandled error` |
+    | `OnConnect` error | n/a | CONNECT_ERROR | yes | none |
+    | middleware rejection | n/a | CONNECT_ERROR | no | none |
+    | an error returned to its caller (an emit's encoding error, `ErrTooManyPendingAcks`, an ack timeout) | n/a | none | no | none; the caller has it |
+    | outbound or handler queue overflow | n/a | the session or socket closes | no; `OnDisconnect` gets the reason | `socketio: unhandled error` |
+    | `Data` that cannot be encoded (*Data*) | n/a | none | no | `socketio: unhandled error` |
+    | CONNECT to an unknown namespace | n/a | CONNECT_ERROR | no (no socket) | `socketio: unhandled error` |
+
+    The client `OnError` (2.3C) receives the same rows for its own handlers, plus a
+    CONNECT_ERROR from the server; the end of a session is not an error on either side.
+  - *Accessors.* `Disconnect` ends this namespace socket with a DISCONNECT; `Close` sends a
+    DISCONNECT for every namespace socket of its Engine.IO session and closes the session,
+    as v1 `Conn.Close` does. Both are application closes: before they return, they cancel
+    the `Context()` of every socket they end and remove it from the adapter, so
+    `Connected()` is false right after; they do not wait for the drain, which continues as
+    2.0 states, nor for `OnDisconnect`, which runs after the running handler returned (the
+    socket's queued events are discarded, *Callbacks*), so a call from a handler cannot
+    deadlock. Both are idempotent and return nil once the socket
+    has ended. `Server.Shutdown` and `Server.Close` send no namespace DISCONNECT: they end
+    each session at the transport, as v1 `Server.Close` and Node's `server.close()` do, so
+    a client that reconnects after a lost session (2.3C, Node) reconnects to a restarted
+    server.
+    `Handshake` returns an owned copy: `Headers` of the handshake request, with `Host` set
+    from the request's `Host` field, where `net/http` keeps it, `Time` of the
+    socket's creation, `Address` the request's remote address with its port, `XDomain` a
+    non-empty `Origin`, `Secure` TLS, `URL` the handshake URL (unchanged by an upgrade),
+    `Query` its query (a Socket.IO 5 CONNECT carries none), and `Auth` the CONNECT auth
+    payload of this namespace (nil without one). It is the application's own data and is
+    not redacted; the local `RemoteSocket.Handshake` snapshot is produced from it with
+    Node's key names and value forms and passes through `RedactHandshake` (2.2): `headers`
+    an object of lower-case names with string values, `host` included, repeated values
+    joined as Node's `IncomingMessage.headers` joins them (`set-cookie` alone is an array
+    of strings, as in Node); `time` `Time` in the server's local zone in the
+    form of JavaScript's `Date.prototype.toString`, `Mon Jan 02 2006 15:04:05 GMT-0700`
+    followed by the zone in parentheses (Go's abbreviation where Node writes the long name);
+    `address` the remote IP without the port, as Node's `remoteAddress`; `xdomain` and
+    `secure` booleans; `issued` `Time` in Unix milliseconds, a number; `url` the request
+    target as received, path and query (Node's `req.url`), not an absolute URL; `query` an
+    object of the handshake query, a single value as a string and a repeated key as an array
+    of strings; `auth` omitted by `RedactHandshake`. `RemoteHeader` and `URL`
+    return copies of those fields; `RemoteAddr` and `LocalAddr` are the addresses of the
+    session's current transport connection. `To(rooms...)` is
+    `n.To(rooms...).Except(s.ID())`: it excludes the sender, as v1 `Conn.To` does. `Rooms`
+    returns an owned copy of `Adapter.SocketRooms(s.ID())`; `LeaveAll` leaves every room
+    except the one named by the socket's ID.
+  - *Data.* `SetData` stores the Go value, replacing the previous one; `Data[T]` returns it
+    when it is a `T` (a type assertion; false when nothing is stored or the type differs).
+    Both are safe for concurrent use. Nothing is copied or encoded when the value is
+    stored: `LocalSockets().Snapshot` encodes it with `encoding/json` into
+    `RemoteSocket.Data` on every call, on the caller's goroutine. The memory adapter uses
+    `Snapshot` as the presence check of `Sockets` (2.2), so each `RoomLen`, `Sockets` and
+    `FetchSockets` encodes the `Data` of every selected socket and runs its `MarshalJSON`;
+    the godoc of `SetData` says so. `Snapshot` has no error result (frozen): for a value
+    that cannot be encoded it returns the snapshot with nil `Data` and true, the memory
+    adapter's `FetchSockets` returns that entry with a nil error, and the encoding error is
+    logged as `socketio: unhandled error` (WARN, keys `sid`, `nsp`, `err`) once per stored
+    value. The 2.2 rule that a producer returns the encodable entries with an error binds
+    producers that encode `Data` themselves, such as a broker adapter encoding it for the
+    wire, and not producers that pass `Snapshot` output through, as the memory adapter's
+    `FetchSockets` does. 2.3S amends the `RemoteSocket` godoc, in wording only with the
+    declaration unchanged, to say that a nil `Data` in a local snapshot may also mean an
+    encoding failure, which is logged. A value the application
+    mutates after `SetData` (a pointer, as v1 `SetContext` users keep) must therefore be safe
+    to encode concurrently, for example through its own `MarshalJSON` under its lock. v1's
+    `Conn.Context()` user value maps to `Data`; `Socket.Context()` is the lifecycle context.
+  - *Counts.* `RoomLen` is the number of IDs `Adapter.Sockets(ctx, []Room{room})` returns,
+    and `Sockets` returns `Adapter.Sockets(ctx, rooms)`: the union of the rooms, every
+    socket of the namespace when none is given. Both are cluster-wide and follow the
+    partial-data rule of 2.2. `Server.Count` is the number of Engine.IO sessions of the
+    server open at the call (handshake accepted, not yet closed) on every transport; it
+    does not count namespace sockets.
+  - *Events without a payload.* A descriptor whose payload type `T` is `struct{}` carries
+    no argument: the default codec 2.3S binds to it encodes `struct{}{}` as an empty
+    argument list, so its `Emit` sends `["name"]`, and decodes any argument list by
+    ignoring it, as a v1 handler without payload parameters ignores the arguments it
+    receives. The same holds for a result type `R` of `struct{}`: its success reply is
+    `[null]` under the error-first convention, the reply of an `Event` with an ACK ID, and
+    `[]` under `PlainAck`, and `EmitWithAck` ignores the result arguments of a success
+    reply. Every other `T` keeps the arity of its codec: `parser.JSON` requires exactly
+    one argument and `Args2` two, where v1 zero-filled a missing argument and ignored extra
+    ones.
+  - *Plain acknowledgements.* `PlainAck` returns a copy of the descriptor, same name and
+    types, whose acknowledgement keeps the wire of a v1 untyped handler. On success an
+    `AckEvent` replies with its result arguments alone (`[r]`, two arguments for `Args2`)
+    and an `Event` with an ACK ID replies `[]`, an ACK without arguments as a v1 handler
+    without a return value sends. On failure it replies as v1 does for a type mismatch with
+    an ACK ID: the one-argument error envelope of the typed convention,
+    `[{"code": "invalid_payload", "message": ...}]` for a decode failure and the typed codes
+    for a handler error (`internal_error` for an unexpected one). A Node caller's
+    `(value) => ...` callback thus receives the result on success and the envelope object on
+    failure. `EmitWithAck` of a plain descriptor, on server and client, reads a reply of
+    exactly one argument that is a JSON object whose only members are the strings `code`
+    and `message` as that error (the error value the error-first descriptor returns for the
+    same envelope) and any other reply as the result; a result type whose JSON form is such
+    an object cannot be told apart, and its godoc directs it to the error-first convention,
+    which stays the default and the one every v2 example uses.
+
+  Client side, 2.3C, in `client/`:
+
+  ```go
+  func New(addr string, opts ...Option) (*Client, error)
+  func (c *Client) Connect(ctx context.Context) error
+  func (c *Client) Close() error
+  func (c *Client) OnConnect(func(ctx context.Context, cl *Client) error)
+  func (c *Client) OnDisconnect(func(ctx context.Context, cl *Client, reason string))
+  func (c *Client) OnError(func(ctx context.Context, cl *Client, err error))
+  func (c *Client) OnReconnectAttempt(func(attempt int))
+  func (c *Client) OnReconnect(func(attempt int))
+  func (c *Client) OnReconnectError(func(err error))
+  func (c *Client) OnReconnectFailed(func())
+  ```
+
+  - *Names.* The options keep the v1 names: `WithPath`, `WithQuery`, `WithHeader`,
+    `WithTimeout`, `WithWriteBufferSize`, `WithCloseTimeout`, `WithLogger`,
+    `WithTransports`, `WithMaxMessageSize`, `WithReconnection`, `WithReconnectionAttempts`,
+    `WithReconnectionDelay`, `WithReconnectionDelayMax` and `WithRandomizationFactor`, plus
+    `WithAuth(json.RawMessage)`, the CONNECT auth payload sent on every CONNECT,
+    reconnections included. Their parameter types follow the v2 packages: `WithTransports`
+    takes v2 `transport.Transport` values, and the others keep their v1 types.
+    `WithPerMessageDeflate` is not provided (*Out of scope*). Each option keeps its v1
+    meaning and default, and its godoc names the v2 setting it controls, with these
+    differences: `WithTimeout` bounds the whole dial up to the Engine.IO OPEN, zero meaning
+    20 s and a negative value no bound, as in v1, and the dialer's per-transport
+    `HandshakeTimeout` (default 10 s, 2.1) applies within it; `WithCloseTimeout` bounds the
+    drain of `Close`, but 2.0 bounds an application close by the session ping timeout, so
+    the smaller of the two applies and zero selects the ping timeout, not v1's one minute.
+    `WithMaxMessageSize` sets the transports' `MaxPayload` and `WithWriteBufferSize` the
+    outbound group budget, with v1's defaults (1 MiB, 64). The path of `addr` selects the
+    namespace, as in v1. `*Client` implements `socketio.ClientRegistration`, so
+    `HandleClient`, `Emit`, `EmitWithAck` and plain descriptors work on it; v1's untyped
+    `Emit` and `OnEvent` map to descriptors.
+  - *Connect.* `Connect(ctx)` dials, sends the CONNECT and returns nil once the CONNECT ack
+    arrived, where v1 returned once the CONNECT was queued; `OnConnect` runs after that,
+    concurrently with the caller. `ctx` and `WithTimeout` bound the dial and the wait for
+    the ack, whichever ends first; cancelling `ctx` after `Connect` returned has no effect.
+    A CONNECT_ERROR is returned as an error that carries the server's `message`, and
+    `OnError` receives it too; the client then closes as `Close` does: its session ends,
+    emits queued for it are discarded with their pending acks ending in `ErrSocketClosed`,
+    and no reconnection starts. A failed first dial returns its error and starts no
+    reconnection, as in v1 (Node's client retries it). `Connect` on a connected client
+    returns nil without dialing, and concurrent calls share one attempt and its result.
+    `Connect` during a reconnection, in a backoff or a dial, neither dials nor shortens the
+    backoff, as Node's `socket.connect()` does nothing while its manager reconnects: it
+    waits for the loop and returns nil at the next CONNECT ack, the CONNECT_ERROR that ends
+    the loop, an error matching `ErrSocketClosed` when `Close` or the attempt limit ends it,
+    or the error of `ctx` when `ctx` ends first, which leaves the loop running. A call after
+    `Close`, after a CONNECT_ERROR, after an `OnConnect` error or after `OnReconnectFailed`
+    starts a new connection with the same options and callbacks, as in v1.
+  - *Callbacks.* They are setters, as in v1: a later call replaces the handler and nil
+    removes it. `OnConnect` runs off the reader after the CONNECT ack, so `EmitWithAck`
+    inside it completes; event handlers start only after it returned nil, and events
+    received meanwhile wait in arrival order and are discarded when it fails; a non-nil
+    error goes to `OnError` and closes the client as `Close` does, with no reconnection.
+    `OnDisconnect` runs once per namespace connection that reached `OnConnect`, with a 2.4
+    disconnect reason; it is not called after an `OnConnect` error, as the server does not
+    call it for a rejected CONNECT. `OnError` receives what the server
+    *Callbacks* table lists for the client. The `ctx` of the callbacks and of the handlers
+    is done when the namespace connection ends, as on the server.
+  - *Reconnection*, part of 2.3C by M3, with v1's options and defaults, which are those of
+    Node's `socket.io-client` 4: on, unlimited attempts, delay 1 s, maximum 5 s,
+    randomization 0.5. As in v1, a non-positive attempt limit means unlimited, a factor of
+    0 selects the 0.5 default, and a negative factor or one above 1 disables jitter. After
+    the loss of a session that reached the CONNECT ack, caused neither by `Close` nor by a
+    server namespace DISCONNECT, the client waits and then dials, for attempts `n = 1, 2,
+    ...`: the base delay is `delay·2^(n-1)`; with a factor `f` in (0, 1] one uniform sample
+    chooses a deviation `floor(sample·f·base)` and whether it is subtracted or added, as v1
+    and Node's `backo2` do; the result is then capped at the maximum, so no delay exceeds
+    it. The growth saturates at the maximum for every `n`: it is computed without an
+    integer shift that can overflow `time.Duration` (v1 grows a float and caps a NaN or
+    infinite value), so a large `n` gives exactly the maximum and never a negative or zero
+    delay. `OnReconnectAttempt(n)` runs before dial `n`, `OnReconnectError` after each failed
+    dial, `OnReconnect(n)` after the engine opens and before CONNECT is sent, and
+    `OnReconnectFailed` once after the failed dial that reaches the attempt limit; the
+    numbers start at 1, as in v1. After a reconnection the CONNECT carries the `WithAuth`
+    payload and `OnConnect` runs again with a new socket ID. A CONNECT_ERROR answering a
+    reconnection's CONNECT goes to `OnError`, is not retried and closes the client as
+    `Close` does, as on the first `Connect`; `OnReconnectFailed` does not run for it.
+    Pending acks end with `ErrSocketClosed` at the loss (2.0). An emit made while a
+    connection is expected, before the first CONNECT ack or during reconnection, is queued
+    within the outbound budget and sent after the next CONNECT ack, as v1 queues
+    pre-connect events; an emit that would exceed that budget returns `ErrWriteBufferFull`
+    and is not queued, and the client and the emits already queued stay as they are, since
+    there is no session to close. The client is *ended* after `Close`, a CONNECT_ERROR, an
+    `OnConnect` error, a failed first dial, `OnReconnectFailed`, a server namespace
+    DISCONNECT, or the loss of a session while reconnection is off: entering that state
+    discards the queued emits and ends their pending acks with `ErrSocketClosed`, and until
+    the next `Connect` an emit or `EmitWithAck` returns an error matching `ErrSocketClosed`
+    at once and queues nothing. The reconnection loop and its callbacks run on one
+    goroutine of the client, never on the reader; `Close` during a backoff returns at once.
+    `Close` is idempotent: on a client that never connected or has ended, and on a repeated
+    call, it returns nil with no effect.
+
+  Acceptance, part of the 2C join, under `-race` with the goroutine check at cleanup of the
+  root and client packages. Server: the same `*Socket` reaches middleware, `OnConnect`, a
+  handler, `OnError` and `OnDisconnect`, and a new CONNECT of the namespace gets a new one;
+  an `OnConnect` error reaches a `socket.io-client@4` caller as `connect_error` with its
+  message and reaches `OnError`, a middleware rejection does not reach `OnError`, and
+  `OnDisconnect` is called for neither; an `OnConnect` that ignores its context past
+  `ConnectTimeout` gets the CONNECT_ERROR at the deadline; an emit, a `SendPacket` and a
+  broadcast to a room joined in `OnConnect`, sent from another goroutine while `OnConnect`
+  blocks, reach the client after its CONNECT ack in submission order, none reaches it when
+  `OnConnect` then fails, and an `EmitWithAck` queued then ends with `ErrSocketClosed`;
+  `RoomLen` counts a socket whose `OnConnect` blocks after joining the room and does not
+  count one still in middleware; heartbeat and ack progress continue while `OnConnect`,
+  `OnDisconnect` and `OnError` block; a second registration of each callback returns an
+  error, one after `Shutdown` began an error matching `ErrNamespaceClosed`, and an
+  `OnDisconnect` registered after a socket connected is not called for it; a handler's
+  `ctx` is live after the handler returned and done after the socket disconnected, carries
+  a value an `EventStart` hook set and is not cancelled by that hook's cancel; inside
+  `OnDisconnect`, `Rooms` is empty, `RoomLen` excludes the socket and `Leave` returns nil;
+  `Disconnect` called from a handler returns before `OnDisconnect` runs, `Connected()` is
+  false right after it returns, and `OnDisconnect` runs after that handler returned;
+  events queued behind a blocking handler when `Disconnect` is called never run and get no
+  ACK reply although they requested one; `Server.Shutdown` sends no namespace DISCONNECT,
+  and with a 1 s deadline returns after an `OnDisconnect` that blocks 100 ms has returned,
+  while `Server.Close` returns before it; `Handshake` returns the request's
+  headers, URL, query and address and the CONNECT `auth`, which the
+  `LocalSockets().Snapshot` handshake omits; for one polling handshake with a repeated
+  query key, served once by the Go server and once by Node `socket.io` 4, the two
+  snapshot handshakes have the same keys apart from `auth`, which only the Node snapshot
+  has, equal `url`, `query`, `xdomain` and `secure`,
+  the same header names, an `address` equal after removing Node's `::ffff:` prefix, a
+  numeric `issued`, and a `time` that Node's `Date.parse` reads as `issued` truncated to the
+  second; changing the values returned by
+  `Handshake`, `RemoteHeader` or `URL` does not change a later call; `RemoteAddr` and
+  `LocalAddr` match the test connection; a pointer stored with `SetData` and mutated
+  afterwards appears mutated in `LocalSockets().Snapshot`, `Data[T]` with another type
+  returns false, and a value whose `MarshalJSON` fails gives a snapshot with nil `Data` and
+  true, a `FetchSockets` entry with a nil error and one `socketio: unhandled error` record;
+  `RoomLen`, `Sockets`, `Rooms`, `LeaveAll`, `To` (sender excluded) and `Server.Count`
+  match a known topology; `Disconnect` and `Close` drain as 2.0 states; each *yes* row of
+  the `OnError` table, with and without an ACK ID, reaches `OnError` and lowers its record
+  to DEBUG, the record stays WARN without a registered `OnError`, and a handler-queue
+  overflow reaches `OnDisconnect` and not `OnError`; the four rows of the descriptor table
+  pass for plain descriptors, success and failure, both Go/Node directions, binary acks
+  included, a Node `(value) => ...` callback receives `invalid_payload` for a payload of
+  the wrong type, and a Go `EmitWithAck` of a plain descriptor returns the peer's envelope
+  as its error; a `NewEvent[struct{}]` handler runs for a Node `socket.emit('typing')`
+  without arguments and for one with an extra argument, and its `Emit` reaches a Node
+  listener with no argument. Client: `Connect` returns after the CONNECT ack, returns a
+  CONNECT_ERROR as its error carrying the server's message (`OnError` receives it too)
+  without reconnecting, returns the error of a failed first dial without starting
+  reconnection, and connects again after `Close`; `Connect` on a connected client returns
+  nil without a handshake, and eight concurrent `Connect` calls on a new client all return
+  nil while the server counts one Engine.IO handshake; `Connect` during a reconnection backoff
+  returns nil after the reconnection's CONNECT ack with no handshake of its own, and
+  returns its `ctx` error when `ctx` ends first while the loop goes on; an emit made before
+  the first `Connect` arrives after the CONNECT ack; an emit made while disconnected that
+  exceeds the outbound budget returns `ErrWriteBufferFull` while the emits queued before it
+  arrive after the next CONNECT ack; after a server namespace DISCONNECT, and after a
+  session loss with `WithReconnection(false)`, an emit and an `EmitWithAck` return an
+  error matching `ErrSocketClosed` at once; a later callback setter replaces the earlier one
+  and nil removes it; an `OnConnect` error closes the client without reconnection and without an
+  `OnDisconnect` call; the handler of an event the server emits right after its CONNECT
+  ack starts only after a blocking `OnConnect` returned, and never runs when that
+  `OnConnect` returns an error; after the
+  server is stopped with `Shutdown` and started again on the same address, the Go client
+  reconnects with `OnReconnectAttempt(1)`, `OnReconnect`, a CONNECT that carries the
+  `WithAuth` payload and a second `OnConnect`, and an emit made while it was disconnected
+  arrives; a CONNECT_ERROR answering a reconnection reaches `OnError`, ends the loop with
+  no further dial and no `OnReconnectFailed`, and a later emit returns an error matching
+  `ErrSocketClosed`; `OnReconnectFailed` runs once after the attempt limit; the delay
+  function, tested directly, returns exactly `min(max, delay·2^(n-1))` for a negative
+  factor and for a factor above 1, treats 0 as 0.5, and for a factor `f` in (0, 1] returns
+  a value in `[min(max, base·(1-f)), min(max, base·(1+f))]` for every sample, and returns
+  exactly the maximum at `n = 64` and `n = 1000` for each factor; `Close` during a backoff
+  returns at once and leaves no goroutine, and `Close` on a new client, on an ended one and
+  called twice returns nil.
 - Example migration is owned by 2.5D after runtime and observability gates pass.
 
 ### 2.4 Observability
@@ -695,7 +1118,7 @@ type Hooks struct {
     ConnectStart    func(ctx context.Context, s SocketInfo) context.Context
     ConnectEnd      func(ctx context.Context, s SocketInfo, err error, d time.Duration)
     Disconnect      func(ctx context.Context, s SocketInfo, reason string, d time.Duration)
-    EventStart      func(ctx context.Context, e EventInfo) context.Context // result is the handler ctx
+    EventStart      func(ctx context.Context, e EventInfo) context.Context // values reach the handler ctx
     EventEnd        func(ctx context.Context, e EventInfo, r EventResult)
     Emit            func(ctx context.Context, e EmitInfo)
     MessageQueued   func(ctx context.Context, e EmitInfo)
@@ -761,8 +1184,9 @@ Implementation split:
   heartbeat paths according to the lifecycle table. Count packet bytes at the
   reader/writer boundary, including error paths.
 - **2.4S:** fire Socket.IO hooks from namespace/event/ack/queue/broadcast paths;
-  adapters call paired hooks through `Namespace.Hooks()`. Pass the context returned
-  by `EventStart` to the handler.
+  adapters call paired hooks through `Namespace.Hooks()`. Pass the values of the
+  context returned by `EventStart` to the handler, without its deadline or cancellation
+  (2.3 *v1 continuity*, *Contexts*).
 - **2D:** propagate instance loggers before E/S instrumentation is merged.
 
 Instance logger contract (wave 2D): resolve Socket.IO Logger > Engine Logger >
@@ -797,10 +1221,16 @@ records not emitted by v1, with these keys:
 | socketio | `socketio: handler error` | WARN | `sid`, `nsp`, `event`, `err` |
 
 In v2, `socketio: handler error` (WARN) replaces v1's `socketio: unhandled error` for
-handler errors. Every other v1 trigger (decode errors, a marshal error, a CONNECT to an
-unknown namespace, an overflow) keeps `socketio: unhandled error`. v2 has no `OnError`;
-both records log WARN unless the API frozen in 2.0 adds an error handler, which then
-lowers them to at most DEBUG when registered. No `Hooks` field, chained or not
+handler errors. These v1 triggers keep `socketio: unhandled error`: decode errors, the
+encoding error of a handler result, a CONNECT to an unknown namespace and an overflow. So
+do two triggers new in v2: an unknown event without `OnRaw`, which v1 dropped
+silently when the socket had no per-socket middleware (`Conn.Use`), and a `Data` value that cannot be encoded.
+Two v1 triggers are not logged in v2: a middleware or `OnConnect` rejection, which v1
+logged when no `OnError` was registered, and an emit's encoding error, which is returned
+to its caller. Both records log WARN unless an
+`OnError` handler receives the error (the namespace's on the server, 2.3S; the client's,
+2.3C; the table in 2.3 *v1 continuity*, *Callbacks*), which then lowers them to at most
+DEBUG. No `Hooks` field, chained or not
 (including `LoggingHooks`, the OTel bridge and `contrib/admin`), counts as a registered
 error handler.
 On top of these it adds `rtt` on pong, `rooms`, `except` and `local` on broadcast, and
@@ -944,10 +1374,59 @@ Update the links in `engineio/README.md` and the import paths of `contrib/otel` 
 `socket.io-client@4` and the generic API, pinning maintained framework versions
 compatible with Go 1.22; Redis examples remain deferred to 4b.
 
+`docs/MIGRATION.md` owns the v1-to-v2 facts; 2.5M diagnostics and the v2 godoc link to
+its anchors. Besides the two items above it covers:
+
+- mapping tables from each v1 declaration consumers use to its v2 form, with the 2.5M
+  category of each: server construction and options, Engine.IO options and transports,
+  namespace callbacks, `Conn` to `*Socket`, rooms and broadcast, acknowledgements, socket
+  data, the client;
+- the wire upgrade: Engine.IO 3 to 4, Socket.IO 4 to 5, JavaScript `socket.io-client`
+  1.7/2.x to 4.x and its API changes, the explicit CONNECT to `/`, per-namespace socket
+  IDs; no tool can make this change for the JavaScript side;
+- the acknowledgement choice: `PlainAck` keeps the v1 wire and `(value)` callbacks, the
+  error-first default needs `(err, value)` callbacks in every client; with `AckTimeout` and
+  the ordering of v1 ack callbacks against a blocking `EmitWithAck`;
+- behaviour that compiles but changes, covering every difference from v1 that 2.1 E2b and
+  2.3 *v1 continuity* state, at least: the CORS default (v1 allowed every origin with
+  credentials unless `WithCORS(false)`; v2 writes CORS headers only when `CheckOrigin`
+  allows, which is what v1 `WithCORS(false)` did, and `DisableCORS` also removes those,
+  2.1 E2b), no `io` cookie, bounded per-socket queues whose overflow closes the socket,
+  what `Server.Count` counts, the `handler_error` code becoming `internal_error`, the
+  socket ID format and `Socket.Context()` as the lifecycle context; `OnError` no longer
+  receiving middleware rejections or a nil socket, and receiving an `OnConnect` error after
+  the CONNECT_ERROR is queued; an outbound queue overflow reaching `OnDisconnect` with its
+  reason and no longer `OnError` with `ErrWriteBufferFull`; an unknown event, which v1
+  dropped without a call, a record or a reply when the socket had no per-socket middleware
+  (`Conn.Use`), now reaching `OnError` or a WARN record and,
+  when it requests an ACK, answered with `unknown_event`; v1 `Server.Close` mapped to
+  `Shutdown` (2.5M), which drains queued outbound messages until its context ends where
+  v1 `Close` discarded them, and v2 `Server.Close` waiting for no `OnDisconnect` where v1
+  `Close` waited up to 10 s (neither v1 nor v2 sends a namespace DISCONNECT when the
+  server closes, so reconnecting clients reconnect after both); a middleware or
+  `OnConnect` rejection no longer logged when no `OnError` is registered; an emit's
+  encoding error returned to its caller, where v1 reported it to `OnError`, or logged it,
+  and sent an ERROR packet;
+  `OnConnect`, `OnDisconnect` and `OnError` registered once
+  per namespace, a second call returning an error where v1 replaced the handler;
+  `Handshake.Query` without the namespace CONNECT query v1 merged into it; a missing or
+  extra event argument answered with `invalid_payload` where v1 zero-filled or ignored it
+  (a `struct{}` payload excepted); the Go client's `Connect` returning after the CONNECT
+  ack, with a CONNECT_ERROR as its error, and its `WithCloseTimeout` bounded by the ping
+  timeout;
+- the features not carried;
+- worked examples as before/after excerpts: `_examples/gin-gonic` and
+  `github.com/sshaplygin/socketio-live-lab`. The gin-gonic example shows the manual step
+  after the tool for its `Serve` goroutine (2.5M, category B): the goroutine and its count
+  in `remaining` are deleted, because nothing ends it when the HTTP server fails.
+
+The PR that creates `docs/MIGRATION.md` adds its row to the documentation table of
+`CLAUDE.md`.
+
 DoD: both official suites (`engine.io-protocol/test-suite`,
 `socket.io-protocol/test-suite`) pass in CI against the Go server; a CI Node script with
 real `socket.io-client@4` covers connect, namespace with auth, ack both ways, binary,
-disconnect, reconnect after server restart; parser and payload unit tests cover every
+disconnect, reconnect after a server restart through `Shutdown`; parser and payload unit tests cover every
 example in the two specs; `go mod graph` shows no `gorilla/websocket`, and a lint rule
 forbids direct `reflect` imports in production code outside `parser` (test reflection
 is allowed); all stage-2 examples build and run against
@@ -968,11 +1447,213 @@ grep -rn 'googollee' --include='*.md' --include='go.mod' --include='*.go' v2 doc
 Acceptance: a browser page on `socket.io-client@4` from CDN connects to
 `_examples/default-http`, adds a user, receives `login`, and the server logs a
 clean disconnect on an explicit client disconnect. `docs/MIGRATION.md` is enough to port
-`_examples/gin-gonic` without reading library code. A handler with a wrong payload type
+`_examples/gin-gonic` without reading library code. The 2.5M corpus test passes on the v1
+`root:_examples/gin-gonic` and on the trimmed socketio-live-lab snapshot; that snapshot is the
+M3 gate for the lab, and a port of the lab repository itself follows M3 and is not an M3
+gate. A handler with a wrong payload type
 fails at compile time. Every badge and link in `v2/README.md` resolves to the v2 module.
 Pin Node, protocol-suite commits and client versions in CI. At tag time: test source
 consumers against released root/contrib module versions without workspace `replace` directives,
 publish the root tag before dependent module tags, and verify each module's minimum Go version. Redis examples and cluster acceptance are explicitly deferred to 4b.
+
+**2.5M `socketio-migrate`.** A `golang.org/x/tools/go/analysis` multichecker with `-fix`
+and `-diff` that rewrites a v1 project into v2 code. It is the nested module
+`github.com/sshaplygin/go-socket.io/v2/cmd/socketio-migrate` with its own `go.mod`, so
+`x/tools` stays out of the v2 module's `go.mod`; `x/tools` is pinned to a release whose
+`go.mod` declares at most `go 1.22` (v0.30.0 does), keeping the Go 1.22 floor. Its `go.mod`
+has no `replace` directive, because `go run` with a version refuses one. It imports neither
+the v1 nor the v2 module: it matches v1 objects by import path in the type information of
+the project, which must build on v1 when the tool runs. The v1 import paths are
+`github.com/sshaplygin/go-socket.io` and every package below it outside `v2/`. A package
+that imports `github.com/googollee/go-socket.io` or a package below it gets one category C
+diagnostic linking the migration from the archived upstream to v1 ([V1.md](V1.md)) and no
+rewrite, because the upstream API differs from v1. Users preview the edits with
+`go run github.com/sshaplygin/go-socket.io/v2/cmd/socketio-migrate@v0.X.Y -fix -diff ./...`
+(`-diff` alone prints no diff), apply them with the same command without `-diff`, then run
+`go get github.com/sshaplygin/go-socket.io/v2` and `go mod tidy`. The version is the
+module version `v0.X.Y` or `v1.X.Y`, since the module path has no `/vN` suffix; the git
+tag that publishes it is `v2/cmd/socketio-migrate/v0.X.Y` (*Repository layout*), created
+only on the owner's instruction. All analyzers apply in one `-fix` pass with edits that do
+not overlap. A rewrite the tool cannot finish leaves an undefined identifier
+`TODO_socketio_migrate_<reason>`, so the build fails exactly there. Every diagnostic links
+a `docs/MIGRATION.md` anchor. Categories:
+
+- A, mechanical fix: import paths; `socketio.Conn` to `*socketio.Socket`; `Room` and
+  `SocketID` conversions; literal `With*` option lists to `Options` and `engineio.Options`
+  literals (`WithMaxHTTPBufferSize` to `MaxPayload`, `WithWriteBufferSize` to
+  `OutboundQueueGroups`); removal of `engineio.WithCookieEnabled(false)`, which is the v2
+  behaviour, and of `engineio.WithCORS(false)`, whose behaviour the v2 default has whether
+  or not a transport sets `CheckOrigin` (2.1 E2b); `Of` and namespace strings to
+  `Server.Namespace(ctx, name)`, one variable per server and namespace string in a
+  function declaration, declared in its body before the statement of the first use and
+  reused by the function literals inside it (in the innermost block that encloses every
+  use, when the server value is not in scope in the body); the namespace callbacks, socket accessors,
+  `Count`, `RoomLen` and `To` of 2.3 *v1 continuity*; `Conn.Namespace()` to the `Name()` of
+  the namespace on which the enclosing callback or handler is registered (category C where
+  there is none); `Context` and `SetContext` to `Data` and `SetData`; the client
+  constructor, options and callbacks; `Serve()` used as a statement or in a `go` statement,
+  removed, since v2 has no `Serve` loop.
+- B, fix with a diagnostic for review: untyped `OnEvent` to
+  `NewAckEvent[T, R](name).PlainAck().Handle`, and a handler without a result to
+  `NewEvent[T](name).PlainAck().Handle`, so a peer that requests an ACK gets `[]` as from v1
+  (`Args2` for two arguments), with `return x` becoming `return x, nil`; a handler without a
+  payload parameter to `T` = `struct{}` (2.3 *v1 continuity*, *Events without a payload*),
+  whose handler ignores the value, and an emit without arguments to an emit of
+  `struct{}{}`; a payload parameter of type `interface{}` to `json.RawMessage`; the
+  client's `OnEvent` to `HandleClient` under the same rules; `Emit` to
+  descriptor emits, where `T` is the static type of the single argument (`Args2` for
+  two) and the descriptor is written inline at the call site, as
+  `NewEvent[T](name).Emit(...)`; an argument of interface type gets
+  `TODO_socketio_migrate_emit_interface` and an emit with more than two arguments
+  `TODO_socketio_migrate_emit_args` in place of the descriptor; an emit with an ack
+  callback, on a socket or the client, to
+  `go func() { r, err := ev.EmitWithAck(ctx, to, v); if err != nil { return }; f(r) }()`,
+  where `ev` is `NewAckEvent[T, R](name).PlainAck()` so the reply of a v1-style peer is
+  read as the result, `R` comes from the parameters of the callback `f` (`struct{}` for
+  none, `Args2` for two), and `f`, unchanged, runs only for a reply, as in v1, the error
+  being discarded; room and
+  namespace broadcasts to `EmitTo`; an adapter generated in the user package where a `Conn`
+  flows into a user interface (below); the client's `Connect()` to `Connect(ctx)` with the
+  `ctx` of the rule below, which now returns after the CONNECT ack; server
+  `WithCloseTimeout` removed, because v2 bounds an application close by the session ping
+  timeout and `Shutdown` by its context (2.0); a `Serve()` whose result is assigned or used
+  to `func() error { <-ctx.Done(); return nil }()` with the innermost `context.Context`
+  parameter of an enclosing function, and to `TODO_socketio_migrate_serve` without one, the
+  diagnostic saying that the result now arrives when that context ends, not when the server
+  is closed, so code that waits for it after `Shutdown` or `Close` blocks until the context
+  ends and needs the manual change MIGRATION.md shows; v1 `Server.Close()` to `func() error { ctx, cancel :=
+  context.WithTimeout(context.Background(), 10*time.Second); defer cancel(); return
+  s.Shutdown(ctx) }()`, keeping v1's fixed 10 s wait for `OnDisconnect` (2.3 *v1
+  continuity*, *Callbacks*), the diagnostic saying that `Shutdown` also drains queued
+  outbound messages within those 10 s, which v1 `Close` discarded. A server on v1's permissive CORS default (no `WithCORS`
+  option, or `WithCORS(true)`, which is removed) gets no inserted `CheckOrigin` and no
+  `DisableCORS`. Its diagnostic, saying that cross-origin browsers lose access unless the
+  application sets `CheckOrigin` and linking the MIGRATION.md CORS anchor, is emitted only
+  when a configured `*polling.Transport` or `*websocket.Transport` (both, without
+  `WithTransports`) has no `CheckOrigin` in a literal the tool reads, since v1's explicit
+  transport `CheckOrigin` already overrode the permissive default. The tool never inserts
+  `DisableCORS`; MIGRATION.md describes it for applications that write their own CORS
+  headers in front of the server.
+- C, diagnostic only: option lists built at run time; handlers with more than two
+  arguments or an `interface{}` type switch; `OfFunc`, per-socket `Use`, `Volatile`,
+  `Compress`, `WithCookie` and `WithCookieEnabled(true)`, HTTP compression and
+  permessage-deflate options; the client's `OnPing`, `OnPong` and `Socket(nsp)` and the v1
+  typed `RegisterEvent`, `SendEvent` and `RequestAck`; `EIO=3` literals; the JavaScript
+  client upgrade, reported once per package that imports a v1 package, at the first v1
+  import of its first file in file-name order. Every v1 declaration the categories above do not
+  list is category C, with a diagnostic linking the MIGRATION.md mapping table and the
+  code left as it is, for example `Conn.Request`, `Conn.EngineConn`, an `AckFunc` handler
+  parameter, `Server.ForEach`, `Rooms`, `ClearRoom`, `Remove` and `Engine`, and the options
+  `WithAdapter`, `WithHooks`, `WithUpgrades`, `WithSessionIDGenerator`, `WithRequestChecker`
+  and `WithConnInitor`.
+
+*Errors and contexts.* v2 adds error results that v1 did not have. For a construction or
+registration call (`NewServer`, `Server.Namespace`, `Handle`,
+`HandleClient`, and the namespace's `OnConnect`, `OnDisconnect` and `OnError`), the tool returns the error when the innermost enclosing
+function has an error as its last result (`return` with the zero values of the other
+results and `err`); otherwise it inserts `if err != nil { panic(err) }` with a category B
+diagnostic saying that the call could not fail in v1 and that the application should
+propagate the error. It never changes a function signature, because the callers may be in
+other packages or modules. For a runtime operation whose v1 form returned no error
+(`Join`, `Leave`, `LeaveAll`, a socket or client emit, `RoomLen`), the error is
+discarded as v1 discarded it: `_ =` for a statement and `v, _ :=` where the value is used,
+which for `RoomLen` is the partial result of 2.2. Where the v1 form returned
+an error, the v2 error takes its place. A v2 target with one more result, as `EmitTo`
+with its `BroadcastResult`, gets a blank for it: `_ = x` becomes `_, _ = x`, `err := x`
+becomes `_, err := x`, and any other use of the error becomes
+`func() error { _, err := x; return err }()`. Each inserted `ctx` is, in this order:
+the `ctx` parameter of the v2 handler or callback the tool wrote around the call; the
+innermost `context.Context` parameter of an enclosing function; `s.Context()` for an
+operation on one socket `s`; `context.Background()`.
+
+*Generated adapter.* Where a v1 `Conn` value flows into an interface that the project
+declares (the lab's `Wire`), the tool generates an adapter type in a form that a
+`SuggestedFix` can carry: one edit that appends the declaration to the end of an existing
+file, so `-fix -diff` shows it and nothing is written without `-fix`. No file is created.
+Each package with conversion sites gets one adapter per interface, in that package, also
+when the interface is declared in another one. The file is the one holding the package's
+first conversion site to that interface, by file name and then position, non-test files
+before `_test.go` files, so a package and its test variant produce the same edit. The type
+is unexported and named `socketioMigrate<Interface>Adapter` (`socketioMigrateWireAdapter`),
+with the smallest suffix `2`, `3`, ... that avoids a name already in the package scope.
+The imports it needs are added by the edit that rewrites that file's import declaration,
+so the edits do not overlap. The adapter is a struct holding the `*socketio.Socket` and the
+`*socketio.Namespace` on which the enclosing callback is registered; each conversion site
+becomes a pointer to a composite literal of it (a site with no such namespace gets
+`TODO_socketio_migrate_namespace`). Each interface method that matches a v1
+`Conn` method gets a body: `Emit(event string, args ...interface{})` encodes each argument
+as one positional argument with `parser.JSON[any]` at the default limits and joins them
+with `parser.Concat`, so a `parser.BinaryValue` such as `socketio.Binary`, at any depth,
+becomes an attachment as with a descriptor (a v1 `parser.Buffer` value falls under the
+default rule of category C); it builds the packet with `parser.EventPacket` and the
+namespace's `Name()` and sends it with `SendPacket` and `s.Context()`. An encoding or send
+error drops the emit and is logged on `Namespace.Logger()` with the event name: a send
+error at DEBUG, since v1's `Emit` dropped a packet on a closing connection without a
+report, and an encoding error at WARN, since v1 reported it to `OnError`, or logged it at WARN,
+and sent an ERROR packet. The adapter neither calls `OnError` nor sends an ERROR packet. A
+func argument, which v1 took as an ack callback, fails the encoding and so drops the emit.
+The diagnostic at the adapter names both changes.
+`Join` and `Leave` convert each name to `Room`, and they and `LeaveAll` discard the error
+as v1 did; `Close` returns `Socket.Close()`; the accessors map as in category A. A method
+without a v2 target gets `TODO_socketio_migrate_conn_<method>`.
+
+Staging: T1 (imports, options, `Conn`, IDs and the frozen room operations `Join`, `Leave`
+and `Namespace.To`/`Except`) may start before 2.3S; a T1 golden uses only declarations
+already on `master` when it merges, so the `MaxPayload` rule and its golden wait for 2.1
+E2a. T2 (events, acks, the callbacks, the 2.3S accessors `RoomLen`, `Rooms`, `LeaveAll`,
+`Socket.To`, `Count` and `Data`, the client, `Serve` and `Close`, the generated adapter)
+starts once the 2.3S and 2.3C declarations it targets are on `master`; *Errors and
+contexts* applies from the stage that rewrites each call; T3 (category C and the corpus) runs in 2F with 2.5D. DoD: `analysistest` golden
+pairs for each analyzer, including the four CORS cases (no option without and with
+`CheckOrigin` on both transports, `WithCORS(false)` with and without a transport
+`CheckOrigin`), a lab-shaped option list, zero-argument handlers and emits, a handler
+without a result under `PlainAck`, an `interface{}` payload, `Serve()` as a statement, in
+a `go` statement and with a used result with and without an enclosing context, `Close`,
+`Conn.Namespace()` with and without a namespace, a registration call in a function with an
+error result and in one without, each `ctx` position, a namespace string used inside a
+handler closure, an emit with an ack callback on a socket and on the client, a client
+`OnEvent`, a broadcast `Emit` whose error is discarded, assigned and returned, the
+generated adapter, as the golden of the file it is appended to, with and without a name
+collision, and a `googollee` import; a harness
+that builds every golden output against the v2 module of the same checkout in a temporary
+module, so a drift between the 2.3S or 2.3C names and the tool fails: an output without
+`TODO_socketio_migrate_` identifiers or category C diagnostics must build, and any other
+must fail, and every error of its type check, run with `go/types` so that all errors are
+collected and not only the first, lies on a line within the source range of such an
+identifier or of the node a category C diagnostic reports; an error that follows from a
+value left unconverted there (a later use of a variable declared in that range) is matched
+by listing the line of that use in the golden, and an error on any other line fails;
+from T3, when 2.5D has created
+`docs/MIGRATION.md`, a test that every diagnostic anchor exists there (T1 and T2 name their
+anchors in their golden files, and T3 adds the sections); a corpus test that runs the tool
+on a copy of the v1 `root:_examples/gin-gonic` and on a trimmed snapshot of
+`github.com/sshaplygin/socketio-live-lab` in `testdata` (its source commit recorded there),
+both type-checked against the v1 module of the same checkout, applies `-fix` and builds the
+result against the v2 module. The snapshot keeps, unchanged apart from removed unrelated
+code, `internal/lab/server.go` (the `NewServer` call with its options, `OnConnect`,
+`OnDisconnect`, `OnError`, the `OnEvent` loop and the `Count` admission check),
+`internal/lab/hub.go` (the `Wire` interface and its calls), the types they use and
+`cmd/bot/main.go` (`client.New` with its options, `OnEvent`, emits with ack callbacks, the
+callbacks and `Connect`). The corpus outputs contain no `TODO_socketio_migrate_`
+identifier and are compared with golden files; they contain the `panic(err)` checks of
+*Errors and contexts* for the registration calls in gin-gonic's `registerChat`, the lab's
+`NewServer` and the two `HandleClient` calls in the `main` of the lab's bot, one `nsp`
+variable in `registerChat` that its handler closures reuse, gin-gonic's broadcast emits as
+`_, _ =`, gin-gonic's `Serve` result rewritten with the `ctx` of `serveAfter` exactly as
+category B states, without the manual change, its `Close` rewritten to `Shutdown`, the
+bot's emits with ack callbacks on plain descriptors, and the lab's
+`socketioMigrateWireAdapter` appended to `internal/lab/server.go`, which holds the
+conversion site. The expected diagnostics are in a golden file, and the only category C
+diagnostics are the JavaScript client upgrade, one per package, and `EIO=3` literals. The corpus test also runs the ported gin-gonic server: 1 s after
+startup a polling handshake and a CONNECT to `/` succeed and the process is still running,
+and after its context is cancelled it exits with status 0 within 15 s. A CI job of its own
+runs the `analysistest` goldens and the build harness on Go 1.22, with `GOTOOLCHAIN=local`
+so that no newer toolchain is selected, and on the stable Go. The corpus test runs on the
+stable Go only, because its inputs do not build with Go 1.22: `_examples/gin-gonic`
+declares `go 1.26.0` and requires `gin` v1.12.0, whose `go.mod` declares `go 1.25.0`, and
+the lab declares `go 1.25.0`. It skips itself on a toolchain older than the highest `go`
+directive of its modules, and the stable Go run fails when it is skipped. `CLAUDE.md` gets
+the layout row of the module.
 
 ## Stage 3. Realtime chat example (`_examples/chat/`, own go.mod)
 
@@ -1501,7 +2182,7 @@ new revision IDs; release them separately. M7 closes the benchmark scope.
 | Milestone | Content | Release |
 | --- | --- | --- |
 | M2 | G2, Engine.IO v4, memory adapter and Socket.IO codec integrated; consumer experiments absorbed into their packages | Reviewed `v2-next` snapshot |
-| M3 | Socket.IO runtime, client, observability and conformance | `v2.0.0`, `v2/contrib/otel/v2.0.0` |
+| M3 | Socket.IO runtime, client, observability, conformance, migration guide and tool | `v2.0.0`, `v2/contrib/otel/v2.0.0`; a `v2/cmd/socketio-migrate` tag (2.5M) |
 | M3A | Admin UI on a single server (5L) | `v2.1.0` with the additive core changes, `contrib/admin/v2.0.0` |
 | M4 | Single-server chat | `v2.2.0` |
 | M5 | Broker adapters and cluster chat, including mixed Go/Node Redis | `v2.3.0`, then Redis/NATS module tags |

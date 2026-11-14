@@ -45,9 +45,9 @@ CVE.
 
 In scope are the v1 library packages of this module: the Socket.IO server in the root
 package, `client`, `engineio` and its sub-packages, `parser`, `adapter`, `adapter/redis`,
-`logger`, and the internal packages they use. Denial of service by a remote client is in scope, for example unbounded
-memory growth, a goroutine leak, or a panic triggered by crafted packets or handshakes over
-polling or websocket.
+`logger`, and the internal packages they use. Denial of service by a remote client is in
+scope, for example unbounded memory growth, a goroutine leak, or a panic triggered by
+crafted packets or handshakes over polling or websocket.
 
 Out of scope:
 

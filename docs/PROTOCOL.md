@@ -137,7 +137,9 @@ Package `engineio` of the v1 module at the repository root.
   whichever came first: 1000 from the expiry, 1006 from the close. Implemented in the private server session upgrade state machine (`engineio/internal/session/upgrade.go`).
 - Requests the server rejects before a transport handles them are answered with JSON
   `{"code":<n>,"message":"<text>"}`, as engine.io 3.6.2 answers a request that is not a
-  websocket upgrade: HTTP 400 with code 0 `Transport unknown`, 1 `Session ID unknown`, 2
+  websocket upgrade: HTTP 400 with code 0 `Transport unknown`, 1 `Session ID unknown`
+  (also for the sid of a session whose close has finished, which the server has
+  unregistered as engine.io 3.6.2 deletes a closed client), 2
   `Bad handshake method` or 3 `Bad request` (also a transport that cannot accept the
   request, except a websocket handshake that gorilla/websocket answers itself, and a
   session that cannot be created), and HTTP 403 with code 4 and the fixed message

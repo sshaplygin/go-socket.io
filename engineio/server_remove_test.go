@@ -3,7 +3,6 @@ package engineio
 import (
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
@@ -28,7 +27,9 @@ func TestRemoveMustNotEvadeShutdown(t *testing.T) {
 	require.Equal(t, StateClosed, conn.ReadyState(), "Server.Close promises to close every accepted session, including unregistered sessions")
 }
 
-func TestCloseClearsClosedRegisteredSession(t *testing.T) {
+// A closed session leaves both the registry and the shutdown snapshot, so
+// Server.Close has nothing left to close.
+func TestClosedSessionLeavesRegistryAndShutdownSnapshot(t *testing.T) {
 	s := NewServer()
 	ts := httptest.NewServer(s)
 	t.Cleanup(func() { _ = s.Close(); ts.Close() })
@@ -39,8 +40,11 @@ func TestCloseClearsClosedRegisteredSession(t *testing.T) {
 	conn, err := s.Accept()
 	require.NoError(t, err)
 	require.NoError(t, conn.Close())
-	require.Eventually(t, func() bool { s.lifecycle.Lock(); defer s.lifecycle.Unlock(); return len(s.live) == 0 }, time.Second, time.Millisecond)
-	require.Equal(t, 1, s.Count())
+	s.lifecycle.Lock()
+	live := len(s.live)
+	s.lifecycle.Unlock()
+	require.Zero(t, live)
+	require.Zero(t, s.Count())
 	require.NoError(t, s.Close())
 	require.Zero(t, s.Count())
 }

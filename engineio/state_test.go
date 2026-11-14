@@ -39,9 +39,9 @@ func TestEngineClients(t *testing.T) {
 	require.NoError(t, first.Close())
 	require.Equal(t, StateClosed, first.ReadyState())
 	require.Len(t, s.Clients(), 1)
-	require.Equal(t, 2, s.Count(), "closed sessions remain registered until Remove")
+	require.Equal(t, 1, s.Count(), "a closed session leaves the registry")
 	s.Remove(first.ID())
-	require.Equal(t, 1, s.Count())
+	require.Equal(t, 1, s.Count(), "Remove of an ended session is a no-op")
 	require.NoError(t, s.Close())
 	require.Empty(t, s.Clients())
 }

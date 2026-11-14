@@ -83,6 +83,7 @@ func run(ctx context.Context) (err error) {
 }
 
 // A failed peer ends only its own echo loop. Every acquired reader/writer is closed.
+// The server unregisters the session when it ends, so no Server.Remove call is needed.
 func echo(conn engineio.Conn) (err error) {
 	defer func() { err = errors.Join(err, conn.Close()) }()
 	fmt.Println(conn.ID(), conn.RemoteAddr(), "->", conn.LocalAddr(), "with", conn.RemoteHeader())

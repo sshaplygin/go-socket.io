@@ -77,9 +77,9 @@ func (c *serverConn) SetHeaders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// just in case the default behaviour gets changed and it has to handle an origin check
-	checkOrigin := Default.CheckOrigin
-	if c.transport.CheckOrigin != nil {
-		checkOrigin = c.transport.CheckOrigin
+	checkOrigin := c.transport.CheckOrigin
+	if checkOrigin == nil {
+		checkOrigin = Default.CheckOrigin
 	}
 
 	if checkOrigin != nil && checkOrigin(r) {

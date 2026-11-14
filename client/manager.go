@@ -37,21 +37,44 @@ type clientState struct {
 }
 
 func (m *clientState) connect(c *manager) (result error) {
-	return m.open(c, nil, 0)
+	return m.open(c, nil, 0, nil)
 }
 
-func (m *clientState) open(c *manager, retry *reconnectRun, number int) (result error) {
+// open dials unless a connection is open or being established. A non-nil join
+// reopens that Socket only: it joins the open connection at once, or the one a
+// dial or the reconnection in progress establishes.
+func (m *clientState) open(c *manager, retry *reconnectRun, number int, join *Socket) (result error) {
 	m.mu.Lock()
 	if retry != nil && (m.retry != retry || m.stopped) {
 		m.mu.Unlock()
 		return io.ErrClosedPipe
+	}
+	live := m.conn != nil && !isDone(m.conn.closing)
+	if join != nil {
+		if !join.active {
+			if join.namespace == rootNamespace && live {
+				m.mu.Unlock()
+				return ErrRootNamespaceRejoin
+			}
+			join.active = true
+			join.connected, join.requested, join.nc = false, false, nil
+			join.connectPending, join.connectQueued = false, false
+			if live && !m.stopped { // as in Socket: no CONNECT to a closing connection
+				join.requested = true
+				m.conn.writeControl(socketConnectHeader(join))
+			}
+		}
+		if live || m.retry != nil {
+			m.mu.Unlock()
+			return nil
+		}
 	}
 	if attempt := m.attempt; attempt != nil {
 		m.mu.Unlock()
 		<-attempt.finished
 		return attempt.err
 	}
-	if m.conn != nil && !isDone(m.conn.closing) {
+	if live {
 		m.mu.Unlock()
 		return nil
 	}
@@ -64,7 +87,7 @@ func (m *clientState) open(c *manager, retry *reconnectRun, number int) (result 
 	m.attempt, m.stopped, m.closingAll = a, false, false
 	// An explicit Connect starts a new lifecycle. A Socket.Close after this
 	// point must remain effective when this attempt's dial eventually returns.
-	if retry == nil {
+	if retry == nil && join == nil {
 		for _, socket := range m.order {
 			socket.active = true
 		}

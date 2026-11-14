@@ -79,7 +79,7 @@ func (m *clientState) reconnect(run *reconnectRun) {
 		if !m.retryCurrent(run) {
 			return
 		}
-		err := m.open(c, run, n)
+		err := m.open(c, run, n, nil)
 		if err == nil || !m.retryCurrent(run) {
 			return
 		}

@@ -15,5 +15,10 @@ import "errors"
 // throughput can be lower than the application's emit rate.
 var ErrWriteBufferFull = errors.New("client: write buffer full")
 
+// ErrRootNamespaceRejoin is returned by Socket.Connect for a closed root namespace
+// while the Engine.IO connection is open: the server joins the root namespace only
+// when a connection opens.
+var ErrRootNamespaceRejoin = errors.New("client: root namespace cannot rejoin an open connection")
+
 // ErrConnectTimeout means the engine connection did not open within WithTimeout.
 var ErrConnectTimeout = errors.New("client: connect timeout")

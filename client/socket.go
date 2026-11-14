@@ -326,8 +326,9 @@ func (s *Socket) Once(event string, f interface{}) (off func()) {
 // Off removes every listener of event, including the OnEvent registration.
 func (s *Socket) Off(event string) { s.handler.Off(event) }
 
-// Emit queues an event until the namespace CONNECT reply. A full pre-connect
-// buffer drops the event and logs a warning; connected writes use the normal queue.
+// Emit queues an event until the namespace CONNECT reply, also while the Socket
+// is closed (see Connect). A full pre-connect buffer drops the event and logs a
+// warning; connected writes use the normal queue.
 // A name the client keeps local (see Namespace.Emit) is neither sent nor
 // buffered: Emit calls this namespace's listeners as Conn.Emit does, with the
 // Socket's current Conn, and does nothing while the Socket has none, before its
@@ -388,7 +389,23 @@ func (s *Socket) OnConnect(f func(Conn) error) {
 	}
 }
 
-// OnDisconnect sets the namespace's disconnect callback.
+// OnDisconnect sets the namespace's disconnect callback. Its reason is one of:
+//
+//   - "io server disconnect": the server disconnected the namespace, for example
+//     with socket.disconnect() or a Go server's Conn.Disconnect or Conn.Close.
+//     The namespace stays closed until Connect.
+//   - "io client disconnect": Close, Client.Close, Conn.Close or Conn.Disconnect.
+//   - "transport close": the server ended the Engine.IO session in an orderly way.
+//   - "transport error": a transport read or write failed, or a received message
+//     exceeded WithMaxMessageSize.
+//   - "ping timeout": nothing arrived from the server within its ping interval
+//     and timeout.
+//   - "forced close": the client ended the session itself, for example after a
+//     failed write or ErrWriteBufferFull, or the session ended without one of
+//     the causes above.
+//
+// After the last four the Client reconnects, unless WithReconnection(false).
+// A namespace the server rejected was never connected and gets no callback.
 func (s *Socket) OnDisconnect(f func(Conn, string)) { s.handler.OnDisconnect(f) }
 
 // OnError sets the namespace's error callback. The end of the Engine.IO session is
@@ -401,8 +418,35 @@ func (s *Socket) OnError(f func(Conn, error)) { s.handler.OnError(f) }
 func (s *Socket) OnEvent(event string, f interface{}) { s.handler.OnEvent(event, f) }
 
 // Close sends DISCONNECT for this namespace. The last socket closes Engine.IO.
+// The Socket stays closed, also across reconnections, until Connect, or until a
+// Client.Connect that dials a new connection.
 func (s *Socket) Close() error {
 	return s.state.closeSocket(s, "io client disconnect", true, nil, nil)
+}
+
+// Connect reopens a namespace that the server disconnected (reason
+// "io server disconnect") or that Close closed, as socket.connect() does in
+// socket.io-client 2.x. On an open Engine.IO connection it sends the namespace
+// CONNECT and returns; OnConnect runs when the server accepts it. While the
+// Client is reconnecting, the namespace joins the restored connection. When the
+// Client has no connection, as after Client.Close or after the last namespace
+// closed, Connect dials one as Client.Connect does and returns its error, but
+// only this Socket joins it; other closed Sockets stay closed.
+//
+// A connected or joining Socket is left as it is, so concurrent calls send one
+// CONNECT. A namespace the server rejected (OnError receives the server's
+// message) counts as joining: Close followed by Connect sends a new CONNECT.
+// Events emitted while the Socket is closed are buffered as before its first
+// CONNECT and sent once the server accepts it; the buffer is shared with the
+// Client's other namespaces (see WithWriteBufferSize).
+//
+// The server joins the root namespace when the Engine.IO connection opens, and
+// protocol v4 has no client CONNECT for it. On an open connection Connect
+// therefore returns ErrRootNamespaceRejoin for a closed root Socket and changes
+// nothing. Once that connection has closed, after Client.Close or when its last
+// namespace closed, Connect on the root Socket dials a new one.
+func (s *Socket) Connect() error {
+	return s.state.open(s.state.client, nil, 0, s)
 }
 
 func (m *clientState) namespaceConnected(current *conn, namespace string, nc *namespaceConn) error {

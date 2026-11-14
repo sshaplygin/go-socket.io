@@ -226,6 +226,13 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
 - On a new session the server connects the client to the root namespace `/`
   automatically and sends `0` before any client packet. Other namespaces are joined
   when the client sends `0/<nsp>`.
+- A client joins a non-root namespace again on the same connection by sending
+  `0/<nsp>` after the server's or its own DISCONNECT (`Socket.Connect` in the Go
+  client, `socket.connect()` in `socket.io-client`). The root namespace has no
+  client CONNECT and is joined only when a session opens. socket.io 2.5.0 holds a
+  namespace CONNECT that arrives while the client's root namespace is disconnected
+  until the root namespace connects, which does not happen again on that
+  connection; this server accepts it.
 - A CONNECT to a namespace without a registered handler is answered with an ERROR packet
   (`4/<nsp>,"Invalid namespace"`) and the connection stays open.
 - Binary attachments are replaced by `{"_placeholder":true,"num":N}` and sent as

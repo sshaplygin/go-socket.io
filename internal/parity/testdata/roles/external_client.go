@@ -8,7 +8,9 @@ import (
 var (
 	_ func(*client.Client, func(client.Conn) error)    = (*client.Client).OnConnect
 	_ func(*client.Socket, string, interface{}) func() = (*client.Socket).On
+	_ func(*client.Socket) error                       = (*client.Socket).Connect
 	_ client.AckFunc                                   = func(...interface{}) {}
+	_ error                                            = client.ErrRootNamespaceRejoin
 )
 
 func main() {

@@ -29,6 +29,7 @@ for (const name of ['/', '/chat', '/late']) {
       socket.emit('num', 'bad', value => { clearTimeout(timer); ack(value); });
     });
     socket.on('drop-transport', () => socket.conn.close());
+    socket.on('kick', () => socket.disconnect());
     socket.on('inspect', ack => ack({
       sid, id: socket.id, namespace: socket.nsp.name,
       transport: socket.conn.transport.name,

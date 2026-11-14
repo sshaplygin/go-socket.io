@@ -31,7 +31,11 @@ func New(addr string, opts ...Option) (*Client, error) {
 }
 
 // Connect returns once Engine.IO is open and namespace CONNECT packets are queued.
-// A failed or timed-out attempt can be retried; late dial results are closed.
+// A failed or timed-out attempt returns its error and can be retried; late dial
+// results are closed. Automatic reconnection starts only after a connection has
+// opened, so the Client does not retry a failed Connect itself, unlike
+// socket.io-client 2.x. While a connection is open or being established, Connect
+// dials nothing and does not reopen closed namespaces; see Socket.Connect.
 func (c *Client) Connect() error { return c.manager.Connect() }
 
 // Close disconnects all namespace sockets and returns without waiting for the
@@ -50,7 +54,8 @@ func (c *Client) Emit(event string, args ...interface{}) { c.manager.Emit(event,
 // OnConnect sets the default namespace's connection callback.
 func (c *Client) OnConnect(f func(Conn) error) { c.manager.OnConnect(f) }
 
-// OnDisconnect sets the default namespace's disconnect callback.
+// OnDisconnect sets the default namespace's disconnect callback; Socket.OnDisconnect
+// lists its reasons.
 func (c *Client) OnDisconnect(f func(Conn, string)) { c.manager.OnDisconnect(f) }
 
 // OnError sets the default namespace's error callback. The end of the Engine.IO

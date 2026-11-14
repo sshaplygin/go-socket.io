@@ -232,7 +232,8 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   following binary frames; on the Go side they map to `parser.Buffer`.
 - Event handlers return values become the ACK payload; an ACK packet is sent when the
   client requested an ack and a listener handled the event. Emitting with a trailing
-  function argument registers an ack callback. When an event's arguments do not
+  function argument registers an ack callback; it runs for the first ACK with its id,
+  and a repeated ACK id is ignored, as in the reference. When an event's arguments do not
   decode into an untyped handler's parameter types, for example a string for an
   `int`, the handler does not run and the connection stays open. This holds for
   the server and for the Go client alike. If the peer requested an ack, the

@@ -43,6 +43,7 @@ type Server struct {
 	activeMu      sync.Mutex
 	active        map[*connection]struct{}
 	activeChanged chan struct{}
+	closeTimer    func(time.Duration) *time.Timer // tests set it; nil means time.NewTimer
 
 	limits connLimits
 	log    *slog.Logger
@@ -468,7 +469,11 @@ func (s *Server) releaseConnection(c *connection) {
 }
 
 func (s *Server) waitForConnections(timeout time.Duration) error {
-	timer := time.NewTimer(timeout)
+	newTimer := time.NewTimer
+	if s.closeTimer != nil {
+		newTimer = s.closeTimer
+	}
+	timer := newTimer(timeout)
 	defer timer.Stop()
 	engineDone := s.closeDone
 	closed := false

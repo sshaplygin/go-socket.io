@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"math"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -75,6 +77,8 @@ func TestPayloadValidation(t *testing.T) {
 		packet, event string
 		valid         bool
 	}{
+		// Packet types are the digits 0-6; the bytes around that range are invalid.
+		{``, "", false}, {`/`, "", false}, {`7`, "", false}, {`7["e"]`, "", false}, {`8`, "", false},
 		{`0`, "", true}, {`0{}`, "", true}, {`0[]`, "", true}, {`0null`, "", true}, {`0true`, "", false},
 		{`1`, "", true}, {`1{}`, "", false}, {`1null`, "", false},
 		{`2`, "", true}, {`2["e"]`, "e", true}, {`2["a,b",1]`, "a,b", true}, {`2[4,1]`, "4", true}, {`2[-0]`, "0", true}, {`2[1e400]`, "Infinity", true}, {`2[-1e400]`, "-Infinity", true}, {`2[1e-7]`, "1e-7", true}, {`2[1e21]`, "1e+21", true}, {`2[1e-6]`, "0.000001", true},
@@ -103,6 +107,40 @@ func TestPayloadValidation(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// TestPacketIDBounds checks that an ACK id is an unsigned 64-bit number: the largest
+// one is read exactly and the next value is rejected instead of wrapping around.
+func TestPacketIDBounds(t *testing.T) {
+	d, _ := validationDecoder(`218446744073709551615["e"]`)
+	var h Header
+	var event string
+	require.NoError(t, d.DecodeHeader(&h, &event))
+	require.True(t, h.NeedAck)
+	require.Equal(t, uint64(math.MaxUint64), h.ID)
+	require.Equal(t, "e", event)
+	require.NoError(t, d.Close())
+
+	for _, packet := range []string{`218446744073709551616["e"]`, `218446744073709551620["e"]`, `2184467440737095516150["e"]`, `3/chat,18446744073709551616[]`} {
+		t.Run(packet, func(t *testing.T) {
+			d, _ := validationDecoder(packet)
+			defer func() { _ = d.Close() }()
+			err := d.DecodeHeader(&h, &event)
+			require.ErrorIs(t, err, strconv.ErrRange)
+		})
+	}
+}
+
+// TestBinaryFirstFrame checks that a binary frame where a packet header is expected
+// is an error, not a packet: attachments only follow a BINARY_EVENT or BINARY_ACK header.
+func TestBinaryFirstFrame(t *testing.T) {
+	f := &validationFrames{frames: []validationFrame{{Binary, `2["e"]`}, {Text, `2["next"]`}}}
+	d := NewDecoder(f)
+	defer func() { _ = d.Close() }()
+	var h Header
+	var event string
+	require.ErrorIs(t, d.DecodeHeader(&h, &event), errInvalidFirstPacketType)
+	require.Empty(t, event)
 }
 
 func TestWrongTypeConsumesBinaryAttachments(t *testing.T) {

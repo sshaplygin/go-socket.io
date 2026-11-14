@@ -8,7 +8,7 @@ how to report a vulnerability privately.
 | Version | Security fixes |
 | --- | --- |
 | The latest v1.5.x release of `github.com/sshaplygin/go-socket.io` | Yes |
-| v2 (the `v2/` module) | No release yet: it is pre-release, and reports are welcome |
+| v2 (the `v2/` module) | No: unreleased; reports are welcome |
 | Earlier versions of this module, v0.9.1 through v1.4.2 | No; [go.mod](go.mod) retracts them |
 | The archived [googollee/go-socket.io](https://github.com/googollee/go-socket.io) | No |
 

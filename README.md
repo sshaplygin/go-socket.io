@@ -88,6 +88,8 @@ Start with the [net/http server](_examples/default-http/) or the
 [Go client](_examples/client/). The directory also includes ACKs, binary events,
 namespaces, middleware, framework integrations, Redis and graceful shutdown.
 
+To try Socket.IO in the browser, open the [online lab](https://sshaplygin.dev/labs/socketio/).
+
 ## Usage
 
 The Go client is available in

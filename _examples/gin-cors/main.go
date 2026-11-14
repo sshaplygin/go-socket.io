@@ -50,15 +50,20 @@ func originChecker(allowOrigin string) func(*http.Request) bool {
 
 // newHandler leaves CORS to the transports' origin checks. Polling reflects an accepted
 // Origin with credentials, as the default socket.io-client XHR requires, and sends no CORS
-// headers to other origins; websocket refuses other origins with HTTP 403. Middleware in
-// front of the handler must keep the request's Origin header and must not set the
-// Access-Control-Allow-Origin or -Credentials headers itself; see docs/PROTOCOL.md#cors.
+// headers to other origins; websocket refuses other origins with HTTP 403. WithCORS(false)
+// keeps CORS headers off the error for an unknown transport= value, which no transport
+// check handles. Middleware in front of the handler must keep the request's Origin header
+// and must not set the Access-Control-Allow-Origin or -Credentials headers itself; see
+// docs/PROTOCOL.md#cors.
 func newHandler(allowOrigin string) (*socketio.Server, http.Handler) {
 	checkOrigin := originChecker(allowOrigin)
-	server := socketio.NewServer(socketio.WithEngineOptions(engineio.WithTransports(
-		&polling.Transport{CheckOrigin: checkOrigin},
-		&websocket.Transport{CheckOrigin: checkOrigin},
-	)))
+	server := socketio.NewServer(socketio.WithEngineOptions(
+		engineio.WithCORS(false),
+		engineio.WithTransports(
+			&polling.Transport{CheckOrigin: checkOrigin},
+			&websocket.Transport{CheckOrigin: checkOrigin},
+		),
+	))
 
 	registerChat(server)
 

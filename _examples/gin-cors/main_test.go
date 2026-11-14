@@ -20,6 +20,9 @@ import (
 const (
 	allowedOrigin = "http://localhost:3000"
 	foreignOrigin = "http://evil.example"
+	// lookAlikeOrigin starts with the allowed origin; an allow-list must compare whole
+	// origins.
+	lookAlikeOrigin = allowedOrigin + ".evil.example"
 )
 
 var sidPattern = regexp.MustCompile(`"sid":"([^"]+)"`)
@@ -109,6 +112,7 @@ func TestPollingCORS(t *testing.T) {
 		{"configured origin", allowedOrigin, allowedOrigin, "true"},
 		{"own origin", ts.URL, ts.URL, "true"},
 		{"foreign origin", foreignOrigin, "", ""},
+		{"look-alike origin", lookAlikeOrigin, "", ""},
 		{"no origin", "", "*", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -140,6 +144,24 @@ func TestPollingCORS(t *testing.T) {
 	}
 }
 
+// TestErrorCORS pins that refused requests carry no CORS headers for other origins,
+// including the error for an unknown transport, which no transport origin check handles.
+func TestErrorCORS(t *testing.T) {
+	ts := startExample(t)
+	for _, tc := range []struct{ name, query string }{
+		{"unknown transport", "EIO=3&transport=bogus"},
+		{"unknown polling session", "EIO=3&transport=polling&sid=unknown"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, body := request(t, http.MethodGet, ts.URL+"/socket.io/?"+tc.query, foreignOrigin, "", nil)
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("HTTP %d %q, want 400", resp.StatusCode, body)
+			}
+			wantCORS(t, "error", resp, "", "")
+		})
+	}
+}
+
 // TestWebsocketOrigin pins the websocket origin check for direct connections and for
 // upgrades of a polling session: browsers always send Origin there, so a foreign page
 // is refused while the configured and the server's own origins connect.
@@ -153,6 +175,7 @@ func TestWebsocketOrigin(t *testing.T) {
 		{"configured origin", allowedOrigin, http.StatusSwitchingProtocols},
 		{"own origin", ts.URL, http.StatusSwitchingProtocols},
 		{"foreign origin", foreignOrigin, http.StatusForbidden},
+		{"look-alike origin", lookAlikeOrigin, http.StatusForbidden},
 		{"no origin", "", http.StatusSwitchingProtocols},
 	} {
 		for _, upgrade := range []bool{false, true} {

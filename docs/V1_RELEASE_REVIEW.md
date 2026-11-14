@@ -3001,7 +3001,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W67. Security policy
 
-- **Status:** open
+- **Status:** in progress — #PR
 - **Priority:** before tag
 - **Findings:** [REL-17](#release-engineering-findings)
 - **Depends on:** [P1](#p1-repository-security-settings)
@@ -3022,7 +3022,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W68. README quick start
 
-- **Status:** in progress — #253
+- **Status:** done — #253
 - **Priority:** before tag
 - **Findings:** [CL-20](#clarity-findings)
 - **Depends on:** none
@@ -3116,7 +3116,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W73. Forbid fatal exits by lint
 
-- **Status:** in progress — #254
+- **Status:** done — #254
 - **Priority:** before tag
 - **Findings:** [CL-21](#clarity-findings)
 - **Depends on:** none
@@ -3162,7 +3162,7 @@ the tag), and P9 its optional REL-11 step; when one of them is done, the owner a
 
 #### P1. Repository security settings
 
-- **Status:** open
+- **Status:** done (2026-11-14)
 - **Owner:** repository owner
 - **Depends on:** none; done before [W67](#w67-security-policy) merges
 - **Steps:** enable private vulnerability reporting, Dependabot alerts, Dependabot security
@@ -3189,7 +3189,7 @@ the tag), and P9 its optional REL-11 step; when one of them is done, the owner a
 
 #### P3. Leave the fork network
 
-- **Status:** open
+- **Status:** done (2026-11-10)
 - **Owner:** repository owner; the owner decides whether to request it
 - **Depends on:** none
 - **Steps:** do not use the self-service "Leave fork network" button: a repository detached
@@ -4246,7 +4246,7 @@ Every finding is listed under the dimension that reported it.
 | REL-14 | minor | — | PR #193 description | The release notes predate later pull requests and omit user-visible changes such as `WithSubscribeTimeout`, base64 over websocket and duplicate session ID rejection | Rewrite the release text against the final head (W52). Fixed by #218 (W52). |
 | REL-15 | minor | — | PR #193 description | The owner checklist says to tag the merge commit of #193 (`4265692`), which leaves out every later fix | Tag the verified head (W52). Fixed by #218 (W52). |
 | REL-16 | major | not re-checked; W66's acceptance is the re-check | PR #218 description | The release text predates #223–#238 and states as current differences behavior those PRs changed (websocket close codes, untyped-handler ACKs) | Rewrite the release text against the final head (W66). |
-| REL-17 | major | confirmed snapshot (GitHub API, 2026-11-10) | repository settings; `SECURITY.md` (absent) | No security policy: no SECURITY.md; private vulnerability reporting, Dependabot alerts and security updates, secret scanning and push protection are disabled (GitHub API, 2026-11-10) | Enable the settings and publish a security policy (W67 and P1). |
+| REL-17 | major | confirmed snapshot (GitHub API, 2026-11-10) | repository settings; `SECURITY.md` (absent) | No security policy: no SECURITY.md; private vulnerability reporting, Dependabot alerts and security updates, secret scanning and push protection are disabled (GitHub API, 2026-11-10) | Enable the settings and publish a security policy (W67 and P1). Fixed by #PR (W67). |
 | REL-18 | minor | — | repository settings, module proxy | Repository presentation: GitHub lists the repository as a fork of the archived `googollee/go-socket.io`; the description is upstream's; there is no GitHub Release; the module proxy resolves `@latest` to `v1.4.2`, which the `retract` directive in `go.mod` hides only once a tagged version carries it | P2, P3, P5–P7. |
 | REL-19 | minor | — | `.golangci.yml`, `.github/workflows/` | No static security analysis: golangci-lint uses the standard set without gosec, and no CodeQL analysis exists | Enable gosec and add CodeQL (W70). |
 

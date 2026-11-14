@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sshaplygin/go-socket.io/v2/engineio"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/frame"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/internal/logtest"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/transport/polling"
@@ -23,7 +24,9 @@ import (
 // TestClientAnswersServerPing: a Dialer client answers the PINGs of an Engine.IO v4
 // server with PONG and sends no PING itself, so the server keeps the session open for
 // many intervals. A missing PONG would close it with "ping timeout", a client PING
-// with "transport error"; either is a close record.
+// with "transport error"; either is a close record. The client is dialed with a
+// HandshakeTimeout far below that period, and still reads a MESSAGE the server writes
+// after it: the bound ends with the handshake.
 func TestClientAnswersServerPing(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
@@ -37,10 +40,18 @@ func TestClientAnswersServerPing(t *testing.T) {
 			ts := httptest.NewServer(srv)
 			t.Cleanup(ts.Close)
 
-			cl, err := (&Dialer{Transports: []transport.Transport{tr}}).Dial(ts.URL, nil)
+			d := &Dialer{Transports: []transport.Transport{tr}, HandshakeTimeout: 100 * time.Millisecond}
+			cl, err := d.Dial(ts.URL, nil)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cl.Close() })
-			go func() { _ = readAll(cl) }()
+			messages := make(chan string, 1)
+			go func() {
+				for _, r, err := cl.NextReader(); err == nil; _, r, err = cl.NextReader() {
+					b, _ := io.ReadAll(r)
+					_ = r.Close()
+					messages <- string(b)
+				}
+			}()
 			conn, err := srv.Accept()
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = conn.Close() })
@@ -49,6 +60,16 @@ func TestClientAnswersServerPing(t *testing.T) {
 			time.Sleep(timeout + 20*interval) // past the first ping timeout and many PINGs
 			require.Empty(t, rec.Find("engineio: session close"))
 			require.Equal(t, 1, srv.Count())
+			w, err := conn.NextWriter(frame.String)
+			require.NoError(t, err)
+			_, _ = w.Write([]byte("after"))
+			require.NoError(t, w.Close())
+			select {
+			case m := <-messages:
+				require.Equal(t, "after", m)
+			case <-time.After(5 * time.Second):
+				t.Fatal("no MESSAGE read after the handshake bound")
+			}
 		})
 	}
 }

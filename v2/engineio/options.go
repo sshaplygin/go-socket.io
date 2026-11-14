@@ -26,6 +26,16 @@ type Options struct {
 	// treats it as zero.
 	UpgradeTimeout time.Duration
 
+	// MaxPayload, when positive, replaces the MaxPayload of the server's polling and
+	// websocket transports: the limit of a polling POST body in wire bytes and of one
+	// websocket message in data bytes, fragments together. The OPEN packet advertises
+	// the limit the polling transport enforces. On websocket it also caps the messages
+	// the server writes, which polling responses and Node's server do not; a limit
+	// below the size of the OPEN packet keeps websocket sessions from opening. Zero
+	// keeps the transport values, 1 MiB by default (Node's maxHttpBufferSize is 1e6
+	// bytes); Normalize rejects a negative value and NewServer treats it as zero.
+	MaxPayload int
+
 	Transports         []transport.Transport
 	SessionIDGenerator session.IDGenerator
 
@@ -57,15 +67,18 @@ type Options struct {
 	PayloadPreviewBytes int
 }
 
-// Normalize validates a copy of the options: the observer fields and UpgradeTimeout,
-// which must not be negative. It fills no default, does not invoke user callbacks,
-// resolve loggers or change the application default logger.
+// Normalize validates a copy of the options: the observer fields, and UpgradeTimeout and
+// MaxPayload, which must not be negative. It fills no default, does not invoke user
+// callbacks, resolve loggers or change the application default logger.
 func (c Options) Normalize() (Options, error) {
 	if c.PayloadPreviewBytes < 0 || c.PayloadPreviewBytes > 256 {
 		return Options{}, fmt.Errorf("engineio: PayloadPreviewBytes %d outside 0..256", c.PayloadPreviewBytes)
 	}
 	if c.UpgradeTimeout < 0 {
 		return Options{}, fmt.Errorf("engineio: negative UpgradeTimeout %v", c.UpgradeTimeout)
+	}
+	if c.MaxPayload < 0 {
+		return Options{}, fmt.Errorf("engineio: negative MaxPayload %d", c.MaxPayload)
 	}
 	return c, nil
 }

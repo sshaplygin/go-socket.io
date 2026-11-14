@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -162,6 +163,23 @@ func (c *brokenConn) NextWriter(_ frame.Type, pt packet.Type) (io.WriteCloser, e
 }
 
 func (c *brokenConn) Close() error { c.close++; return nil }
+
+// deadlineRecorder is a transport and its own connection: it answers with OPEN and records
+// the read deadlines Dial sets. Dial calls no method of the nil embedded interfaces.
+type deadlineRecorder struct {
+	transport.Transport
+	transport.Conn
+	set []time.Time
+}
+
+func (r *deadlineRecorder) Name() string                                       { return "recorder" }
+func (r *deadlineRecorder) Dial(*url.URL, http.Header) (transport.Conn, error) { return r, nil }
+func (r *deadlineRecorder) SetReadDeadline(d time.Time) error                  { r.set = append(r.set, d); return nil }
+func (r *deadlineRecorder) Close() error                                       { return nil }
+
+func (r *deadlineRecorder) NextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
+	return frame.String, packet.OPEN, io.NopCloser(strings.NewReader(`{"sid":"s"}`)), nil
+}
 
 // TestClientPongFailure: the client answers a server PING with PONG from NextReader;
 // when the PONG cannot be written, the client closes (its connection is closed and its

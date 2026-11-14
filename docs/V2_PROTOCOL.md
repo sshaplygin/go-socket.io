@@ -9,7 +9,15 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
 
 - Query parameter `EIO` must be `4`. It is
   checked before the transport; a missing or other value is HTTP 400 with error code 5. The
-  Go dialer (`engineio/client`) sends `EIO=4`, replacing any value in the URL.
+  Go dialer (`engineio/client`) sends `EIO=4`, replacing any value in the URL. Its
+  `Dialer.HandshakeTimeout` (default 10 s) bounds each transport tried, from the dial to the
+  `OPEN` packet. When it expires, the attempt fails with an error that wraps
+  `os.ErrDeadlineExceeded`; a shorter bound of the transport, such as
+  `websocket.Transport.HandshakeTimeout` or the polling `http.Client` timeout, fails it with
+  the transport's own error. The Node client has no handshake bound of its own: `engine.io-client`
+  6.6.3, the version pinned in `v2/engineio/payload/testdata/reference`, passes no handshake
+  timeout to `ws`, and its XHR polling sets `requestTimeout` on a request only when that
+  option is given, which it is not by default.
 - Transports: `polling` (XHR only; the `j` JSONP parameter and the `b64` parameter are
   ignored, as in Engine.IO v4) and `websocket` (`gobwas/ws`). Order and upgrade path come from `engineio.Options.Transports`,
   default `[polling, websocket]`.
@@ -17,7 +25,13 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   `pingTimeout` (default 60 s) and `maxPayload`: the POST limit of the polling transport
   (`polling.Transport.MaxPayload`, default 1 MiB), the value the transport enforces. A server
   without a polling transport advertises the message limit of its websocket transport, as the
-  single `maxHttpBufferSize` of the Node server bounds both.
+  single `maxHttpBufferSize` of the Node server bounds both. `engineio.Options.MaxPayload`,
+  when positive, sets both limits of the server: a polling POST body in wire bytes and one
+  websocket message in data bytes, the units of the Node server. The default is 1 MiB
+  (1,048,576 bytes), where Node's `maxHttpBufferSize` is 1e6 bytes. `NewServer` applies it to
+  private copies of its polling and websocket transports, so later changes to those structs
+  or to `polling.Default.CheckOrigin` do not reach the server. On websocket the limit also
+  caps the messages the server writes (see WebSocket framing below).
 - Heartbeat: the server sends `PING` (`2`)
   `pingInterval` after the handshake and `pingInterval` after each `PONG` (`3`), as the Node
   server does, and closes the session with reason `ping timeout` when no `PONG` arrives within
@@ -56,7 +70,11 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   `permessage-deflate` is not supported, and no subprotocol is selected by the server. A
   message is limited to the transport's `MaxPayload` (default 1 MiB,
   `websocket.Transport.MaxPayload`), the fragments of one message together, checked before
-  they are buffered. The peer is told why it is cut off with a close frame, then the TCP
+  they are buffered. The limit also caps the messages this end writes: a larger packet is not
+  sent, its writer's `Close` returns `ErrTooLarge` and the connection stays open. Node's `ws`
+  limits received messages only, and the server does not limit polling responses; a server
+  limit below the size of the `OPEN` packet (about 110 bytes) keeps websocket sessions from
+  opening. The peer is told why it is cut off with a close frame, then the TCP
   connection is half-closed, drained for at most one second and closed (a `Close` by the consumer in between marks the connection closed but leaves the socket to the drain): status 1009 for an oversized message, 1007 for invalid UTF-8 and
   1002 for a framing violation (unmasked client frame, reserved bits or opcode, a stray
   continuation) or an invalid Engine.IO packet (empty text, unknown type byte, malformed

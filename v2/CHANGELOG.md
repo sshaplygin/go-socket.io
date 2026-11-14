@@ -18,6 +18,14 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   upgrade must arrive within it of the accept of the websocket connection. Zero means 10 s,
   the `upgradeTimeout` of the Node server; `Normalize` rejects a negative value and
   `NewServer` treats it as zero.
+- `engineio.Options.MaxPayload` (roadmap 2.1): when positive, it replaces the `MaxPayload` of
+  the server's polling and websocket transports (a POST body in wire bytes, one websocket
+  message in data bytes) and is advertised in `OPEN`. Zero keeps the transport values, 1 MiB
+  by default; `Normalize` rejects a negative value and `NewServer` treats it as zero.
+- `client.Dialer.HandshakeTimeout` (roadmap 2.1): bounds each transport tried, from the dial
+  to the `OPEN` packet. When it expires, the attempt fails with an error that wraps
+  `os.ErrDeadlineExceeded`; a shorter bound of the transport fails it with the transport's
+  own error. Zero means 10 s; a negative value means no bound.
 - In-memory adapter (roadmap 2.2), unexported, built from a `LocalSockets` value, with the
   default `AdapterFactory` over `Namespace.LocalSockets()`: room union with deduplication,
   `Except` rooms, empty selection of every socket, `LocalRecipients` counting successful
@@ -238,6 +246,23 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
 - The probe and `UPGRADE` of an upgrade must arrive within `Options.UpgradeTimeout`, 10 s by
   default, of the accept of the websocket connection; the window was `pingTimeout`, 60 s by
   default. On expiry the websocket connection is closed and the session stays on polling.
+- The Go client's handshake is bounded by `Dialer.HandshakeTimeout`, 10 s by default. Before,
+  the websocket dial and upgrade were bounded only by `websocket.Transport.HandshakeTimeout`
+  (none by default), the websocket `OPEN` read had no bound, and the polling open request
+  was bounded only by its `http.Client`. A `*websocket.Transport` is dialed through a copy
+  whose `HandshakeTimeout` is the shorter bound. The wait for `OPEN` is bounded through the
+  connection's `SetReadDeadline`, so an attempt now fails when a transport's connection cannot
+  set a read deadline; a negative `HandshakeTimeout` sets none.
+- `engineio.NewServer` keeps private copies of its `*polling.Transport` and
+  `*websocket.Transport` values, with `polling.Default.CheckOrigin` resolved into the polling
+  copy. Before, changes to those structs, or to the shared `polling.Default` and
+  `websocket.Default`, after `NewServer` changed the running server.
+- `client.Dialer.Dial` closes the connection of its last attempt when that attempt fails; it
+  was left open.
+- `client.Dialer.Dial` gives each transport attempt its own copy of the URL, so a transport
+  tried after a failed websocket attempt is dialed with the caller's scheme. Before, the
+  websocket attempt left its `ws` scheme in the shared URL and the next attempt failed with
+  `unsupported protocol scheme "ws"`.
 
 ### Removed
 

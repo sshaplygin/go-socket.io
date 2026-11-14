@@ -51,6 +51,9 @@ type trackedConn struct {
 
 func (c *trackedConn) Close() error { c.closed.Store(true); return c.Conn.Close() }
 
+// CloseWrite lets a websocket connection half-close after its close frame, as on TCP.
+func (c *trackedConn) CloseWrite() error { return c.Conn.(*net.TCPConn).CloseWrite() }
+
 func (l *trackingListener) Accept() (net.Conn, error) {
 	c, err := l.Listener.Accept()
 	if err != nil {

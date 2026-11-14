@@ -44,9 +44,11 @@ type Server struct {
 	log *slog.Logger
 }
 
-// NewServer returns a server.
+// NewServer returns a server. It keeps private copies of the *polling.Transport and
+// *websocket.Transport values of opts.Transports, with the Options overrides applied, so
+// later changes to those structs have no effect on the server.
 func NewServer(opts *Options) *Server {
-	transports := opts.getTransport()
+	transports := serverTransports(opts)
 	return &Server{
 		transports:     transport.NewManager(transports),
 		pingInterval:   opts.getPingInterval(),
@@ -271,6 +273,44 @@ func (s *Server) newSession(_ context.Context, conn transport.Conn, reqTransport
 	}(newSession)
 
 	return newSession, nil
+}
+
+// serverTransports returns the transports of opts, with a private copy of each
+// *polling.Transport and *websocket.Transport that carries the non-zero Options overrides.
+// polling.Default.CheckOrigin, the fallback of a polling transport without CheckOrigin,
+// is resolved into the copy. Other transports are used as given.
+func serverTransports(opts *Options) []transport.Transport {
+	var maxPayload int
+	if opts != nil {
+		maxPayload = max(opts.MaxPayload, 0)
+	}
+	trs := opts.getTransport()
+	out := make([]transport.Transport, len(trs))
+	for i, t := range trs {
+		switch t := t.(type) {
+		case *polling.Transport:
+			c := *t
+			if c.CheckOrigin == nil {
+				c.CheckOrigin = polling.Default.CheckOrigin
+			}
+			if c.CheckOrigin == nil {
+				c.CheckOrigin = func(*http.Request) bool { return false } // no CORS headers
+			}
+			if maxPayload > 0 {
+				c.MaxPayload = maxPayload
+			}
+			out[i] = &c
+		case *websocket.Transport:
+			c := *t
+			if maxPayload > 0 {
+				c.MaxPayload = maxPayload
+			}
+			out[i] = &c
+		default:
+			out[i] = t
+		}
+	}
+	return out
 }
 
 // advertisedMaxPayload is the maxPayload of the OPEN packet: the POST limit of the

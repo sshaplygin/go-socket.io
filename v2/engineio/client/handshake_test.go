@@ -214,5 +214,6 @@ func TestDialHandshakeDeadline(t *testing.T) {
 		}
 		require.Len(t, r.set, 2, "HandshakeTimeout %v: armed, then cleared after OPEN", tc.timeout)
 		require.WithinDuration(t, start.Add(tc.ahead), r.set[0], time.Second)
+		require.True(t, r.set[1].IsZero(), "the deadline is cleared after OPEN")
 	}
 }

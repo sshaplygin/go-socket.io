@@ -96,6 +96,21 @@ func TestServerKeepsTransportCopies(t *testing.T) {
 	requireTooBig(t, c, 301)
 }
 
+// TestServerResolvesCheckOriginFallback: a polling transport without CheckOrigin uses
+// polling.Default.CheckOrigin as it was at NewServer, so the CORS header it allowed is
+// still sent after polling.Default.CheckOrigin is cleared. Not parallel: it sets
+// polling.Default.CheckOrigin.
+func TestServerResolvesCheckOriginFallback(t *testing.T) {
+	prev := polling.Default.CheckOrigin
+	t.Cleanup(func() { polling.Default.CheckOrigin = prev })
+	polling.Default.CheckOrigin = func(*http.Request) bool { return true }
+	f := newGuardFixture(t, &engineio.Options{Transports: []transport.Transport{&polling.Transport{}}})
+	polling.Default.CheckOrigin = nil
+
+	resp, _ := openPollingParams(t, f.url, http.Header{"Origin": {"http://example.com"}})
+	require.Equal(t, "http://example.com", resp.Header.Get("Access-Control-Allow-Origin"))
+}
+
 // TestOptionsMaxPayload: a positive Options.MaxPayload is the limit the server advertises
 // in OPEN and enforces over the limits of its transports: a polling POST over it is
 // answered 413, and a websocket message over it closes the connection with status 1009,

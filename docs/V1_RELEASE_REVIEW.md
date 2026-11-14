@@ -2980,7 +2980,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W66. Refresh the release notes for the final head
 
-- **Status:** in progress — #PR
+- **Status:** in progress — #265
 - **Priority:** before tag
 - **Findings:** [REL-16](#release-engineering-findings)
 - **Depends on:** W63–W65, W67, W68, W73
@@ -4245,7 +4245,7 @@ Every finding is listed under the dimension that reported it.
 | REL-13 | minor | — | `.github/workflows/benchmarks.yml` | A sub-benchmark whose `b.N=1` probe fails in a later `-count` repetition prints `--- FAIL` but `go test` exits 0, so the Benchmarks workflow can lose samples without failing | Fail the step on `--- FAIL` in the raw output (W42). Found in the review of #153. Fixed by #198 (W42). |
 | REL-14 | minor | — | PR #193 description | The release notes predate later pull requests and omit user-visible changes such as `WithSubscribeTimeout`, base64 over websocket and duplicate session ID rejection | Rewrite the release text against the final head (W52). Fixed by #218 (W52). |
 | REL-15 | minor | — | PR #193 description | The owner checklist says to tag the merge commit of #193 (`4265692`), which leaves out every later fix | Tag the verified head (W52). Fixed by #218 (W52). |
-| REL-16 | major | not re-checked; W66's acceptance is the re-check | PR #218 description | The release text predates #223–#238 and states as current differences behavior those PRs changed (websocket close codes, untyped-handler ACKs) | Rewrite the release text against the final head (W66). Fixed by #PR (W66). |
+| REL-16 | major | not re-checked; W66's acceptance is the re-check | PR #218 description | The release text predates #223–#238 and states as current differences behavior those PRs changed (websocket close codes, untyped-handler ACKs) | Rewrite the release text against the final head (W66). Fixed by #265 (W66). |
 | REL-17 | major | confirmed snapshot (GitHub API, 2026-11-10) | repository settings; `SECURITY.md` (absent) | No security policy: no SECURITY.md; private vulnerability reporting, Dependabot alerts and security updates, secret scanning and push protection are disabled (GitHub API, 2026-11-10) | Enable the settings and publish a security policy (W67 and P1). Fixed by #260 (W67). |
 | REL-18 | minor | — | repository settings, module proxy | Repository presentation: GitHub lists the repository as a fork of the archived `googollee/go-socket.io`; the description is upstream's; there is no GitHub Release; the module proxy resolves `@latest` to `v1.4.2`, which the `retract` directive in `go.mod` hides only once a tagged version carries it | P2, P3, P5–P7. |
 | REL-19 | minor | — | `.golangci.yml`, `.github/workflows/` | No static security analysis: golangci-lint uses the standard set without gosec, and no CodeQL analysis exists | Enable gosec and add CodeQL (W70). |

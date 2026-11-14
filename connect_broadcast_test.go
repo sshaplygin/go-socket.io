@@ -6,9 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	redisadapter "github.com/sshaplygin/go-socket.io/adapter/redis"
 	client "github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
@@ -111,6 +113,29 @@ func TestOnConnectBroadcastsReachGoClient(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestOnConnectSocketVisibleToRedisCluster: while OnConnect runs on one node, the
+// socket is listed by another node's cluster query, and that node's broadcast to
+// its ID room reaches it after CONNECT.
+func TestOnConnectSocketVisibleToRedisCluster(t *testing.T) {
+	r := miniredis.RunT(t)
+	remote := NewServer()
+	useRedis(t, remote, r.Addr())
+	remote.OnConnect("/welcome", func(Conn) error { return nil })
+	_, url := defectServer(t, func(s *Server) {
+		s.SetAdapter(redisadapter.New(redisadapter.WithAddr(r.Addr())))
+		s.OnConnect("/welcome", func(c Conn) error {
+			assert.Contains(t, remote.Of("/welcome").SocketIDs(), c.ID())
+			assert.NoError(t, remote.Of("/welcome").To(c.ID()).Emit("remote"))
+			return nil
+		})
+	})
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	c.send("0/welcome,")
+	require.Equal(t, "0/welcome,", c.read())
+	require.Equal(t, "2/welcome,[\"remote\"]\n", c.read())
 }
 
 // TestRejectedConnectReceivesNoBroadcasts: packets addressed to a socket whose

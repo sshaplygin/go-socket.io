@@ -1225,8 +1225,11 @@ handler errors. These v1 triggers keep `socketio: unhandled error`: decode error
 encoding error of a handler result, a CONNECT to an unknown namespace and an overflow. So
 do two triggers new in v2: an unknown event without `OnRaw`, which v1 dropped
 silently when the socket had no per-socket middleware (`Conn.Use`), and a `Data` value that cannot be encoded.
+Without `OnError` the v1 server logs some of these at DEBUG: decode errors and an overflow
+caused by the ERROR replies to unknown namespaces; it logs a CONNECT to an unknown
+namespace only as the DEBUG record `socketio: connect without handler`.
 Two v1 triggers are not logged in v2: a middleware or `OnConnect` rejection, which v1
-logged when no `OnError` was registered, and an emit's encoding error, which is returned
+logs at DEBUG when no `OnError` is registered, and an emit's encoding error, which is returned
 to its caller. Both records log WARN unless an
 `OnError` handler receives the error (the namespace's on the server, 2.3S; the client's,
 2.3C; the table in 2.3 *v1 continuity*, *Callbacks*), which then lowers them to at most

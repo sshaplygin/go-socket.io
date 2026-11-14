@@ -16,8 +16,11 @@ func (emptyIDGenerator) NewID() string { return "" }
 // TestServerSideRejectionsWarn checks the two request rejections whose cause is on the
 // server's side, which stay at WARN while every rejection a peer causes is DEBUG: a
 // websocket upgrade through a ResponseWriter that is no http.Hijacker, and a handshake
-// for which the session ID generator returns no identifier.
+// for which the session ID generator returns no identifier. A handshake that finds the
+// server closed while it creates the session is DEBUG.
 func TestServerSideRejectionsWarn(t *testing.T) {
+	var closing *Server
+	closeServer := WithRequestChecker(func(*http.Request) (http.Header, error) { return nil, closing.Close() })
 	upgrade := func(r *http.Request) *http.Request {
 		r.Header.Set("Connection", "Upgrade")
 		r.Header.Set("Upgrade", "websocket")
@@ -36,10 +39,13 @@ func TestServerSideRejectionsWarn(t *testing.T) {
 			httptest.NewRequest(http.MethodGet, "/?EIO=3&transport=websocket", nil)},
 		{"no session id", "init", "WARN", []Option{WithSessionIDGenerator(emptyIDGenerator{})},
 			httptest.NewRequest(http.MethodGet, "/?EIO=3&transport=polling", nil)},
+		{"server closed during the handshake", "init", "DEBUG", []Option{closeServer},
+			httptest.NewRequest(http.MethodGet, "/?EIO=3&transport=polling", nil)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := newRecorder()
 			s := NewServer(append(tc.opts, WithLogger(slog.New(rec)))...)
+			closing = s
 			t.Cleanup(func() { _ = s.Close() })
 			w := httptest.NewRecorder() // no http.Hijacker
 			s.ServeHTTP(w, tc.req)

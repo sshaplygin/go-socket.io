@@ -76,7 +76,7 @@ func (nh *namespaceHandler) OnError(f func(Conn, error)) {
 func (nh *namespaceHandler) Connect(c Conn) (err error) {
 	defer func() {
 		if value := recover(); value != nil {
-			err = fmt.Errorf("connect callback panic: %v", value)
+			err = fmt.Errorf("%w: %v", errConnectPanic, value)
 		}
 	}()
 	nh.eventsLock.RLock()

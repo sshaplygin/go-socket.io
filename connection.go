@@ -149,7 +149,7 @@ func (c *connection) connect() error {
 		if onError := rootHandler.ErrorHandler(); onError != nil {
 			onError(nil, err)
 		} else {
-			c.unhandled(rootNamespace, err)
+			c.rejected(rootNamespace, err)
 		}
 		c.write(parser.Header{Type: parser.Error}, reflect.ValueOf(err.Error()))
 		return nil
@@ -169,10 +169,15 @@ func (c *connection) connected(err error) bool {
 		if root != nil {
 			onError = root.ErrorHandler()
 		}
-		if onError != nil {
+		switch {
+		case onError != nil:
 			onError(nil, err)
-		} else if !expected(err, c.writer.failed) {
+		case expected(err, c.writer.failed):
+			// the session ended: OnDisconnect reports it
+		case root == nil || root.Err() != nil: // see connect: no OnConnect ran
 			c.unhandled(rootNamespace, err)
+		default:
+			c.rejected(rootNamespace, err)
 		}
 	}
 	c.mu.Lock()
@@ -201,11 +206,17 @@ func (c *connection) reportOverflow(conn Conn) {
 	if c.overflow == nil {
 		return
 	}
-	if nh := c.namespace(fmtNS(c.overflow.namespace)); nh != nil {
-		if onError := nh.ErrorHandler(); onError != nil {
-			onError(conn, ErrWriteBufferFull)
-			return
-		}
+	nh := c.namespace(fmtNS(c.overflow.namespace))
+	if nh == nil {
+		// The packet answered a CONNECT to a namespace the server does not have, and the
+		// root namespace has no OnError (see overflowWrite): the client caused the
+		// overflow with what it sent and by not reading.
+		c.unhandledPeer(c.overflow.namespace, ErrWriteBufferFull)
+		return
+	}
+	if onError := nh.ErrorHandler(); onError != nil {
+		onError(conn, ErrWriteBufferFull)
+		return
 	}
 	c.unhandled(c.overflow.namespace, ErrWriteBufferFull)
 }
@@ -219,6 +230,19 @@ func (c *connection) unhandled(nsp string, err error) {
 // what it sent, so it may repeat it at will.
 func (c *connection) unhandledPeer(nsp string, err error) {
 	c.log.Debug("socketio: unhandled error", nspAttr(nsp), "err", err)
+}
+
+// rejected logs err, which connect middleware or OnConnect of nsp returned and which no
+// OnError receives. A rejection is the application's answer to a CONNECT that any
+// client may send again at will, and the ERROR packet carries it to the client, so it is
+// logged at DEBUG (see unhandledPeer); a panic is a fault of the application and is
+// logged at WARN.
+func (c *connection) rejected(nsp string, err error) {
+	if errors.Is(err, errConnectPanic) {
+		c.unhandled(nsp, err)
+	} else {
+		c.unhandledPeer(nsp, err)
+	}
 }
 
 // nspAttr is the nsp attribute of namespace nsp; the root namespace is "/".
@@ -243,17 +267,20 @@ func (c *connection) errConn(nsp string) (nc *namespaceConn) {
 // connection's NextReader or of a frame reader, which the decoder returned, ends the
 // session: OnDisconnect reports it and OnError does not.
 func (c *connection) onError(namespace string, err error) {
-	if !expected(err, c.reader.failure()) {
-		c.report(namespace, err, c.unhandled)
-	}
+	c.onErrorOr(namespace, err, c.unhandled)
 }
 
 // onPeerError is onError for a failure the peer caused with what it sent: a packet
 // that does not decode, a payload of the wrong type or an ERROR packet. Without OnError
 // it is logged at DEBUG (see unhandledPeer).
 func (c *connection) onPeerError(namespace string, err error) {
+	c.onErrorOr(namespace, err, c.unhandledPeer)
+}
+
+// onErrorOr is onError with unhandled in place of c.unhandled.
+func (c *connection) onErrorOr(namespace string, err error, unhandled func(string, error)) {
 	if !expected(err, c.reader.failure()) {
-		c.report(namespace, err, c.unhandledPeer)
+		c.report(namespace, err, unhandled)
 	}
 }
 

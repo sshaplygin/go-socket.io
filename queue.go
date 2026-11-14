@@ -94,7 +94,12 @@ func (c *connection) overflowWrite(header parser.Header) {
 	if isDone(c.closing) {
 		return
 	}
-	if c.overflow = c.errConn(header.Namespace); c.overflow == nil {
+	if c.overflow = c.errConn(header.Namespace); c.overflow == nil && c.namespace(header.Namespace) == nil {
+		// The ERROR packet answering a CONNECT to a namespace the server does not have:
+		// no OnError can be registered for it, so the overflow is the root namespace's.
+		c.overflow = c.errConn(rootNamespace)
+	}
+	if c.overflow == nil {
 		c.overflow = &namespaceConn{connection: c, namespace: header.Namespace}
 	}
 	if c.pending = c.startClose(); !c.connecting {

@@ -31,19 +31,29 @@
 // # Levels
 //
 // The library logs WARN and DEBUG records only; it logs no ERROR or INFO
-// record. WARN marks a failure no caller receives, such as
-// "socketio: unhandled error" for an error of an application handler or for a
-// full write buffer. On the server, a failure that a client causes with what it
-// sends, and can repeat with every packet or request, is DEBUG: every
-// "engineio: request rejected" record except two whose cause is
-// the server (a websocket upgrade through a ResponseWriter that is not an
-// http.Hijacker, and a session that could not be created), a CONNECT to a
-// namespace the server does not have ("socketio: connect without handler"),
-// and "socketio: unhandled error" for a packet that does not decode, a payload
-// of the wrong type or an ERROR packet that no OnError receives. A client can
-// cause a server WARN record at most once per session: "engineio: message too
-// large", after it sent more than the configured limit, and the write buffer
-// overflow of a client that does not read.
+// record. WARN marks a failure no caller receives. On the server such records
+// include "socketio: unhandled error" without OnError for an error or a panic of
+// an event handler, a panic of connect middleware or OnConnect, a packet the
+// server cannot encode and a full write buffer of a namespace the server has
+// (see ErrWriteBufferFull in the root package), and "engineio: request
+// rejected" for two causes: a websocket upgrade through a ResponseWriter that is
+// not an http.Hijacker, and a session that a running server could not create
+// (its ID generator returned an empty or duplicate ID, or setting the
+// transport's deadline failed). A handler error or panic is logged for every
+// packet that triggers it.
+//
+// On the server, a failure that any client can cause with what it sends, and
+// repeat with every packet or request, is DEBUG: every other "engineio: request
+// rejected" record, a CONNECT to a namespace the server does not have
+// ("socketio: connect without handler"), and "socketio: unhandled error"
+// without OnError for a packet that does not decode, a payload of the wrong
+// type, an ERROR packet, an error that connect middleware or OnConnect returns,
+// and a write buffer that ERROR packets answering CONNECTs to namespaces the
+// server does not have overflowed. Unless an application handler fails, a
+// client can cause a server WARN record only with a failure that ends its
+// session: "engineio: message too large", after it sent more than the
+// configured limit, or the overflow of a full write buffer when it does not
+// read.
 //
 // Expected closure (EOF, a closed connection, a peer close, a ping timeout and
 // any failure after a close started), errors also returned to a caller or
@@ -74,13 +84,15 @@
 //   - type: the packet type
 //   - value: an invalid setting, such as SOCKETIO_LOG_LEVEL
 //
-// No record carries packet payloads. In every record logged through Log or a
-// Wrap logger, a string value, or the text of an error value, longer than 1024
-// bytes is cut at a UTF-8 boundary to at most 1024 bytes ending in "...", at the
-// top level and inside groups; a cut error reaches the handler as a string.
-// Values a peer supplies, such as nsp, event, transport, a remote_addr that a
-// proxy middleware took from a request header, or the text of the peer's ERROR
-// packet, are therefore bounded.
+// No record carries event or ACK arguments. The err of a record can carry the
+// text of a peer's ERROR packet or a fragment of a payload that does not decode.
+// In every record logged through Log or a Wrap logger, a string value, or the
+// text of an error value, longer than 1024 bytes is cut at a UTF-8 boundary to
+// at most 1024 bytes ending in "...", at the top level and inside groups; a cut
+// error reaches the handler as a string, and an error whose Error method panics
+// reaches it unchanged. Values a peer supplies, such as nsp, event, transport, a
+// remote_addr that a proxy middleware took from a request header, or that err,
+// are therefore bounded.
 package logger
 
 import (
@@ -244,7 +256,7 @@ func boundAttr(a slog.Attr) (slog.Attr, bool) {
 		}
 	case slog.KindAny:
 		if err, ok := v.Any().(error); ok {
-			if s := err.Error(); len(s) > maxValueBytes {
+			if s, ok := errorText(err); ok && len(s) > maxValueBytes {
 				return slog.String(a.Key, cut(s)), true
 			}
 		}
@@ -254,6 +266,17 @@ func boundAttr(a slog.Attr) (slog.Attr, bool) {
 		}
 	}
 	return a, false
+}
+
+// errorText returns the text of err, or false if its Error method panics, as that of a
+// nil pointer receiver does; the handler then formats the value as it would unwrapped.
+func errorText(err error) (s string, ok bool) {
+	defer func() {
+		if recover() != nil {
+			s, ok = "", false
+		}
+	}()
+	return err.Error(), true
 }
 
 // cut returns the first bytes of s, at a UTF-8 boundary, followed by "...", in at most

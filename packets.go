@@ -167,7 +167,7 @@ func eventPacketHandler(c *connection, event string, header parser.Header) error
 
 func connectPacketHandler(c *connection, header parser.Header) error {
 	if err := c.decoder.DiscardLast(); err != nil {
-		c.onPeerError(header.Namespace, err)
+		c.onError(header.Namespace, err)
 		c.log.Debug("socketio: connect discard failed", nspAttr(header.Namespace), "err", err)
 		return nil
 	}
@@ -234,7 +234,7 @@ func connectNamespace(c *connection, header parser.Header) error {
 		}
 		c.claim(header.Namespace)
 		nc.reject()
-		c.onError(header.Namespace, err)
+		c.onErrorOr(header.Namespace, err, c.rejected)
 		c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf(err.Error()))
 		return nil
 	}
@@ -247,7 +247,7 @@ func connectNamespace(c *connection, header parser.Header) error {
 
 func disconnectPacketHandler(c *connection, header parser.Header) error {
 	if err := c.decoder.DiscardLast(); err != nil {
-		c.onPeerError(header.Namespace, err)
+		c.onError(header.Namespace, err)
 		return errDecodeArgs
 	}
 	nc, ok := c.claimDisconnect(header.Namespace)

@@ -308,7 +308,16 @@ func TestUnhandledErrorRecords(t *testing.T) {
 		{name: "overflow", nsps: []string{"/a"}, run: func(t *testing.T, p *peer) {
 			p.stall(t, p.join(t, "/a"), defaultWriteBufferSize+1)
 		}},
-		{name: "overflow in a failing OnConnect", nsps: []string{"/", "/"}, h: hooks{connect: func(c Conn) error {
+		{name: "overflow answering unknown namespaces", run: func(t *testing.T, p *peer) {
+			unknownOverflow(t, p)
+			close(p.fc.peerGone)
+		}, peer: []string{fmt.Sprintf("/z%d", defaultWriteBufferSize)}},
+		{name: "overflow answering unknown namespaces with OnError", keep: true, run: func(t *testing.T, p *peer) {
+			unknownOverflow(t, p)
+			p.overflowReported(t, "/")
+			close(p.fc.peerGone)
+		}},
+		{name: "overflow in a failing OnConnect", nsps: []string{"/"}, peer: []string{"/"}, h: hooks{connect: func(c Conn) error {
 			flood(c, defaultWriteBufferSize+1)
 			return refused
 		}}},
@@ -337,8 +346,64 @@ func TestUnhandledErrorRecords(t *testing.T) {
 		{name: "frame Close fails", fault: faultConn{closeErr: failed}},
 		{name: "frame Close fails before event dispatch", fault: faultConn{readCloseErr: failed}, h: hooks{events: map[string]interface{}{"boom": func(Conn) { t.Error("event ran after frame close failed") }}},
 			run: func(t *testing.T, p *peer) { p.send(t, ev("boom")) }},
-		{name: "frame Close fails, then OnConnect fails", fault: faultConn{closeErr: failed}, nsps: []string{"/"},
+		{name: "frame Close fails, then OnConnect fails", fault: faultConn{closeErr: failed}, peer: []string{"/"},
 			h: hooks{connect: func(Conn) error { return refused }}},
+		{name: "namespace OnConnect rejection", peer: []string{"/a", "/a", "/a"}, h: hooks{connect: func(c Conn) error {
+			if c.Namespace() == "/a" {
+				return refused
+			}
+			return nil
+		}}, run: func(t *testing.T, p *peer) {
+			require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
+			for i := 0; i < 3; i++ {
+				p.send(t, "0/a")
+				require.Equal(t, "4/a,\"refused\"\n", recv(t, p.fc.out, "the rejection"))
+			}
+			close(p.fc.peerGone)
+		}},
+		{name: "namespace middleware rejection", peer: []string{"/a"}, h: hooks{setup: func(s *Server) {
+			s.Use("/a", func(Conn) error { return refused })
+		}}, run: func(t *testing.T, p *peer) {
+			require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
+			p.send(t, "0/a")
+			require.Equal(t, "4/a,\"refused\"\n", recv(t, p.fc.out, "the rejection"))
+			close(p.fc.peerGone)
+		}},
+		{name: "namespace OnConnect panic", nsps: []string{"/a"}, h: hooks{connect: func(c Conn) error {
+			if c.Namespace() == "/a" {
+				panic("boom")
+			}
+			return nil
+		}}, run: func(t *testing.T, p *peer) {
+			require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
+			p.send(t, "0/a")
+			require.Equal(t, "4/a,\"connect callback panic: boom\"\n", recv(t, p.fc.out, "the rejection"))
+			close(p.fc.peerGone)
+		}},
+		{name: "typed payload decode error", peer: []string{"/", "/"}, h: hooks{events: boom, setup: func(s *Server) {
+			require.NoError(t, NewEvent[int]("n").Handle(s.Of("/"), func(context.Context, Conn, int) error { return nil }))
+		}}, run: func(t *testing.T, p *peer) {
+			require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
+			p.send(t, `2["n","x"]`)
+			p.send(t, `2["n","x"]`)
+			p.send(t, `27["num",42]`)
+			require.Equal(t, "37[]\n", recv(t, p.fc.out, "valid event after a type error"))
+			close(p.fc.peerGone)
+		}},
+		{name: "ACK decode error", peer: []string{"/"}, h: hooks{events: boom}, run: func(t *testing.T, p *peer) {
+			require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
+			acked := make(chan int, 1)
+			p.nc.Emit("q", func(n int) { acked <- n })
+			require.Equal(t, `21["q"]`+"\n", recv(t, p.fc.out, "the EVENT with an ACK id"))
+			p.send(t, `31["x"]`)
+			p.send(t, `27["num",42]`)
+			require.Equal(t, "37[]\n", recv(t, p.fc.out, "valid event after an ACK type error"))
+			require.Empty(t, drain(acked), "the ACK callback ran")
+			close(p.fc.peerGone)
+		}},
+		{name: "ERROR body decode error", peer: []string{"/"}, run: func(t *testing.T, p *peer) {
+			p.send(t, `4{"n":1e400}`)
+		}},
 		{name: "invalid packet type", peer: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "9") }},
 		{name: "empty frame", peer: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "") }},
 		{name: "EVENT with empty data", peer: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "2[]") }},
@@ -390,6 +455,19 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			require.Equal(t, tc.peer, peer)
 		})
 	}
+}
+
+// unknownOverflow holds the writer of p on a packet and sends one CONNECT more to an
+// unknown namespace than the outbound queue holds ERROR replies: the last reply, for
+// /z<defaultWriteBufferSize>, overflows.
+func unknownOverflow(t *testing.T, p *peer) {
+	t.Helper()
+	require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
+	p.stall(t, p.nc, 0)
+	for i := 0; i <= defaultWriteBufferSize; i++ {
+		p.send(t, fmt.Sprintf("0/z%d", i))
+	}
+	recv(t, p.completion(), "the close of the overflow")
 }
 
 func TestNamespaceRecords(t *testing.T) {

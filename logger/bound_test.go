@@ -55,6 +55,10 @@ type longValuer struct{ s string }
 
 func (v longValuer) LogValue() slog.Value { return slog.StringValue(v.s) }
 
+type panickingError struct{ msg string }
+
+func (e *panickingError) Error() string { return e.msg }
+
 // TestRecordValuesAreBounded checks that every string or error attribute value of a
 // record logged through a wrapped logger is at most maxValueBytes long: a longer one is
 // cut at a UTF-8 boundary and ends with "...", and a shorter one reaches the handler
@@ -89,6 +93,15 @@ func TestRecordValuesAreBounded(t *testing.T) {
 	exact := strings.Repeat("x", maxValueBytes)
 	log.Debug("socketio: test", "nsp", exact)
 	require.Equal(t, exact, rec.last()["nsp"].String())
+
+	// An error whose Error method panics, a nil pointer receiver here, reaches the
+	// handler unchanged, which formats it as it would without Wrap.
+	var nilErr *panickingError
+	text := &strings.Builder{}
+	Wrap(slog.New(slog.NewTextHandler(text, nil))).Info("socketio: test", "err", nilErr)
+	require.Contains(t, text.String(), "err=<nil>")
+	log.Info("socketio: test", "err", nilErr)
+	require.Same(t, nilErr, rec.last()["err"].Any())
 
 	// Log, the fallback logger, bounds the records it passes to slog.Default.
 	setOverride(t, LevelUnset)

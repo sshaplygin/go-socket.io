@@ -229,13 +229,16 @@ defined by the stage named; all are additions to the frozen declarations.
 | --- | --- |
 | Payload preview redaction: the `engineio` redactor type and its `Options` field | 2.4E, with the Socket.IO supplier in 2.4S |
 | Binding a codec to an event descriptor; constructors without handler reflection | 2.3S |
-| Lifecycle context of `Socket` and `Namespace`, socket disconnect, connection callbacks, `Socket.Data` and handshake accessors | 2.3S |
+| Lifecycle context of `Namespace` | 2.3S |
+| The v1 continuity declarations of the root ([ROADMAP 2.3](ROADMAP.md#23-socketio-v5-and-the-generic-api), *v1 continuity*): `Namespace.OnConnect`, `Namespace.OnDisconnect`, `Namespace.OnError`, `Namespace.RoomLen`, `Namespace.Sockets`; `Socket.Context`, `Socket.Connected`, `Socket.Disconnect`, `Socket.Close`, `Socket.Handshake`, `Socket.RemoteHeader`, `Socket.RemoteAddr`, `Socket.LocalAddr`, `Socket.URL`, `Socket.To`, `Socket.Rooms`, `Socket.LeaveAll`; the type `Handshake`; `SetData` and `Data`; `Server.Count`; `Event.PlainAck` and `AckEvent.PlainAck` | 2.3S |
 | Delivery of a received `ServerSideEmit` to application handlers, and acknowledgements of server-side emits | 4b, additively, with 2.3S for the namespace side |
 | Further broadcast flags: volatile, compress, timeout | a later stage, additive |
 | Upgrade results, request-rejection reasons, disconnect reasons and adapter results as constants | 2.4 (`docs/OBSERVABILITY.md`) |
 | Behaviour of `ChainHooks` and `LoggingHooks`, and every hook fire point | 2.4E and 2.4S |
-| The in-memory adapter, `client/`, and the runtime behind every declaration | 2.2, 2.3C, 2.1 to 2.4 |
+| The in-memory adapter and the runtime behind every declaration | 2.2, 2.1 to 2.4 |
+| `client/`, with the v1 names of ROADMAP 2.3 *v1 continuity*: `New`, the v1 `With*` options except `WithPerMessageDeflate`, with `WithAuth` and the reconnection options, `Client.Connect`, `Client.Close`, `Client.OnConnect`, `Client.OnDisconnect`, `Client.OnError` and the reconnect callbacks; `*Client` implements `ClientRegistration` | 2.3C |
 | The legacy fields of `engineio.Options` outside the two above, including `WriteBufferSize` | 2.1 |
+| `DisableCORS` on `engineio.Options` and `polling.Transport` | 2.1 (PR E2b) |
 
 ### Gate evidence
 

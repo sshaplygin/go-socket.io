@@ -18,6 +18,8 @@ for example in redis-adapter redis-adapter-unix-socket; do
   urls=()
   prefix="socketio-example-$$-$RANDOM"
   for side in 0 1; do
+    # Create or empty the log before the launch, as in run-node.sh.
+    : >"$scratch/$side.log"
     (cd "$root/_examples/$example" && exec "$scratch/server" -addr 127.0.0.1:0 -redis "$address" -prefix "$prefix") >"$scratch/$side.log" 2>&1 &
     pid=$!; pids+=("$pid")
     url=

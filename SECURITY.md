@@ -56,6 +56,4 @@ Out of scope:
   report those upstream;
 - issues that exist only because a deployment widened a documented limit, such as
   `engineio.WithMaxHTTPBufferSize`, `socketio.WithWriteBufferSize` or
-  `client.WithMaxMessageSize`, past what it can hold, or accepts every origin for a
-  cookie-authenticated application, which
-  [Cross-origin access](docs/V1.md#cross-origin-access) advises against.
+  `client.WithMaxMessageSize`, past what it can hold.

@@ -14,7 +14,10 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   `OPEN` packet. When it expires, the attempt fails with an error that wraps
   `os.ErrDeadlineExceeded`; a shorter bound of the transport, such as
   `websocket.Transport.HandshakeTimeout` or the polling `http.Client` timeout, fails it with
-  the transport's own error.
+  the transport's own error. The Node client has no handshake bound of its own: `engine.io-client`
+  6.6.3, the version pinned in `v2/engineio/payload/testdata/reference`, passes no handshake
+  timeout to `ws`, and its XHR polling sets `requestTimeout` on a request only when that
+  option is given, which it is not by default.
 - Transports: `polling` (XHR only; the `j` JSONP parameter and the `b64` parameter are
   ignored, as in Engine.IO v4) and `websocket` (`gobwas/ws`). Order and upgrade path come from `engineio.Options.Transports`,
   default `[polling, websocket]`.

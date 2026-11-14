@@ -33,9 +33,11 @@ type Dialer struct {
 	// fails it with the transport's own error. A *websocket.Transport is dialed
 	// through a private copy whose HandshakeTimeout is the shorter of the two; the TCP
 	// connect of its custom NetDial, which takes no context, is not bounded. For other
-	// transports only the wait for OPEN is bounded. Bounds of the transport, such as
-	// the timeout of the polling http.Client, apply too. Zero means 10 s; a negative
-	// value means no bound.
+	// transports only the wait for OPEN is bounded. That wait is bounded through the
+	// connection's SetReadDeadline, and an attempt fails when its connection cannot set
+	// it; a negative value sets none. Bounds of the transport, such as the timeout of
+	// the polling http.Client, apply too. Zero means 10 s; a negative value means no
+	// bound.
 	HandshakeTimeout time.Duration
 }
 

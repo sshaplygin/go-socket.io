@@ -250,7 +250,9 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   the websocket dial and upgrade were bounded only by `websocket.Transport.HandshakeTimeout`
   (none by default), the websocket `OPEN` read had no bound, and the polling open request
   was bounded only by its `http.Client`. A `*websocket.Transport` is dialed through a copy
-  whose `HandshakeTimeout` is the shorter bound.
+  whose `HandshakeTimeout` is the shorter bound. The wait for `OPEN` is bounded through the
+  connection's `SetReadDeadline`, so an attempt now fails when a transport's connection cannot
+  set a read deadline; a negative `HandshakeTimeout` sets none.
 - `engineio.NewServer` keeps private copies of its `*polling.Transport` and
   `*websocket.Transport` values, with `polling.Default.CheckOrigin` resolved into the polling
   copy. Before, changes to those structs, or to the shared `polling.Default` and

@@ -257,6 +257,10 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   `websocket.Default`, after `NewServer` changed the running server.
 - `client.Dialer.Dial` closes the connection of its last attempt when that attempt fails; it
   was left open.
+- `client.Dialer.Dial` gives each transport attempt its own copy of the URL, so a transport
+  tried after a failed websocket attempt is dialed with the caller's scheme. Before, the
+  websocket attempt left its `ws` scheme in the shared URL and the next attempt failed with
+  `unsupported protocol scheme "ws"`.
 
 ### Removed
 

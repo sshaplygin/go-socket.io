@@ -14,7 +14,8 @@ Supported wire behavior and differences are specified in
 | --- | --- |
 | Namespace registration, middleware, room selection, broadcast flags and listeners | Root package integration, connection and namespace tests |
 | Connection admission, shutdown, queue overflow, cancellation and namespace generations | Server and client lifecycle tests, exercised under `-race` |
-| Event/ACK arguments, variadic callbacks, reserved names and binary frame alignment | Packet-handler and integration tests in the root and `client` packages |
+| Event/ACK arguments, variadic callbacks and binary frame alignment | Packet-handler and integration tests in the root and `client` packages |
+| Reserved and local event names stay off the wire | Root `TestReservedEmitStaysLocal`, `TestReservedEmitCallsLocalListenersOnce` and `TestPeerCannotDispatchLifecycle`; `client` `TestClientLocalEvents*` and `TestClientTypedSendsRejectLocalEvents`; `internal/conformance` `TestGoClientKeepsLocalEventsOffTheWire` against the Node server |
 | Typed payloads and error-first ACKs | Root `event_integration_test.go` and `connection_typed_events_test.go`, `client/connection_typed_test.go`, typed consumer fixtures and Node typed-ACK tests |
 | Socket.IO packet encoding, nested binary, exact integers, malformed input and cycles | `parser` unit tests, fuzz targets and Node conformance fixtures |
 | Engine.IO handshake, polling/websocket upgrade and rejection responses | `engineio` / private session tests and raw conformance tests |

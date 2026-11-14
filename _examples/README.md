@@ -32,8 +32,9 @@ individual protocol features.
   For client 1.7.4 open <http://localhost:8000/index-1.7.html>; the 2.5.0 page is
   `index.html`. Under a mount prefix such as `/public/`, use
   `/public/index-1.7.html` and `/public/index.html`.
-- **Test.** `default-http/chat_test.go` checks the chat logic with the Go client;
-  `make examples` runs it with `-race`.
+- **Test.** `default-http/chat_test.go` checks the chat logic with the Go client, and
+  `gin-cors/main_test.go` the origin checks of that example; `make examples` runs both
+  with `-race`.
 
 | Directory | Shows |
 | --- | --- |
@@ -43,7 +44,8 @@ individual protocol features.
 | `middleware` | connection and event rejection while other sockets remain usable |
 | `default-http` | `net/http` server with default (permissive) CORS |
 | `dockerize-default-http` | the same server in a Docker image (`make -i`) |
-| `gin-gonic`, `gin-cors` | mounting on gin, with and without CORS middleware; page at `/public/` |
+| `gin-gonic` | mounting on gin; page at `/public/` |
+| `gin-cors` | mounting on gin with an origin allow-list in the transports' `CheckOrigin`: browser pages on `-allow-origin` (default `http://localhost:3000`) and on the server's own origin connect over polling and websocket, other origins get no polling CORS headers and HTTP 403 on websocket, and clients without an Origin connect; page at `/public/` |
 | `go-echo` | mounting on Echo v5 |
 | `iris` | mounting on iris |
 | `gf` | mounting on GoFrame; it serves only the socket endpoint, not the page |
@@ -66,8 +68,9 @@ arrives, or when the Engine.IO session ends on the client's CLOSE packet, on a
 closed connection, or at the latest at the server's ping timeout. A program that
 must deliver its last events waits for their ACKs before it exits.
 
-All server examples accept `-addr` (default `:8000`, except the Unix Redis example
-at `:8080`); pprof also accepts `-debug-addr` (default `:8001`). The examples own their HTTP servers, report service failures back to
+All server examples accept `-addr`: the default is `127.0.0.1:8000` for `ack`, `binary`,
+`namespaces` and `middleware`, `:8080` for the Unix Redis example and `:8000` for the
+others. pprof also accepts `-debug-addr` (default `:8001`). The examples own their HTTP servers, report service failures back to
 `run`, close Socket.IO, drain active HTTP requests with a five-second shutdown
 bound, and wait for serving goroutines before returning. Startup or serving
 errors make `main` panic with the error after cleanup, which exits with status 2.
@@ -79,7 +82,7 @@ same private `lifecycle.go`; `make examples` compares these copies.
 
 `make examples` builds and vets every standalone module and the Engine.IO echo
 example (`engineio/_examples`), checks the shared chat/lifecycle files and race-tests
-chat, service-failure cleanup and echo I/O cleanup. The executable Node clients check ACKs, binary buffers, namespace
+chat, service-failure cleanup, the `gin-cors` origin checks and echo I/O cleanup. The executable Node clients check ACKs, binary buffers, namespace
 authentication, room isolation, event middleware, and chat broadcasts excluding
 the sender. Start Redis with TCP and Unix socket listeners, then install either
 supported client into a temporary prefix and run from the repository root:

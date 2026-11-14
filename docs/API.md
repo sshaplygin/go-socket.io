@@ -126,8 +126,9 @@ Additions only; nothing existing changed.
 | `engineio/hooks.go` | `SessionInfo`, `PacketInfo`, `HandshakeResult` | `{SID, Transport, RemoteAddr string}`; `{Type packet.Type; Frame frame.Type; Bytes int; Preview []byte}`; `{Result string; Err error; Duration time.Duration}` |
 | `engineio/hooks.go` | `CloseReason` | `type CloseReason string` with `CloseTransportClose`, `CloseTransportError`, `ClosePingTimeout`, `CloseForced`, `CloseServerShuttingDown`, `CloseParseError`; handshake results `HandshakeResultOK`, `HandshakeResultBadTransport`, `HandshakeResultChecker`, `HandshakeResultAccept`, `HandshakeResultNoHijacker`, `HandshakeResultInit`, `HandshakeResultTimeout`, `HandshakeResultClosed` |
 | `engineio/hooks.go` | `ChainHooks`, `LoggingHooks` | `ChainHooks(...*Hooks) *Hooks`; `LoggingHooks(*slog.Logger) *Hooks`; the skeleton returns nil |
-| `engineio/options.go` | `Options` fields | `Hooks *Hooks`; `PayloadPreviewBytes int` (0 to 256); `UpgradeTimeout time.Duration` (2.1; zero means 10 s, a negative value is rejected by `Normalize` and treated as zero by `NewServer`) |
-| `engineio/options.go` | `Options.Normalize` | `(Options) Normalize() (Options, error)`; rejects a preview limit outside 0..256 and a negative `UpgradeTimeout` |
+| `engineio/options.go` | `Options` fields | `Hooks *Hooks`; `PayloadPreviewBytes int` (0 to 256); `UpgradeTimeout time.Duration` (2.1; zero means 10 s, a negative value is rejected by `Normalize` and treated as zero by `NewServer`); `MaxPayload int` (2.1; a positive value replaces the transport limits on the server, zero keeps them, a negative value is rejected by `Normalize` and treated as zero by `NewServer`) |
+| `engineio/options.go` | `Options.Normalize` | `(Options) Normalize() (Options, error)`; rejects a preview limit outside 0..256 and a negative `UpgradeTimeout` or `MaxPayload` |
+| `engineio/client/dialer.go` | `Dialer` fields | `HandshakeTimeout time.Duration` (2.1; bounds each transport tried, zero means 10 s, a negative value means no bound) |
 | `parser/value.go` | `Arguments` | `{Values []json.RawMessage; Attachments [][]byte}`; borrowed when passed, owned when returned |
 | `parser/value.go` | `Packet` | `{Type Type; Namespace string; ID *uint64; Data json.RawMessage; Attachments [][]byte}` |
 | `parser/value.go` | `BinaryValue` | `SocketIOBinary() []byte` |

@@ -9,7 +9,9 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
 
 - Query parameter `EIO` must be `4`. It is
   checked before the transport; a missing or other value is HTTP 400 with error code 5. The
-  Go dialer (`engineio/client`) sends `EIO=4`, replacing any value in the URL.
+  Go dialer (`engineio/client`) sends `EIO=4`, replacing any value in the URL. Its
+  `Dialer.HandshakeTimeout` (default 10 s) bounds each transport tried, from the dial to the
+  `OPEN` packet; an expired attempt fails with an error that wraps `os.ErrDeadlineExceeded`.
 - Transports: `polling` (XHR only; the `j` JSONP parameter and the `b64` parameter are
   ignored, as in Engine.IO v4) and `websocket` (`gobwas/ws`). Order and upgrade path come from `engineio.Options.Transports`,
   default `[polling, websocket]`.
@@ -17,7 +19,12 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   `pingTimeout` (default 60 s) and `maxPayload`: the POST limit of the polling transport
   (`polling.Transport.MaxPayload`, default 1 MiB), the value the transport enforces. A server
   without a polling transport advertises the message limit of its websocket transport, as the
-  single `maxHttpBufferSize` of the Node server bounds both.
+  single `maxHttpBufferSize` of the Node server bounds both. `engineio.Options.MaxPayload`,
+  when positive, sets both limits of the server: a polling POST body in wire bytes and one
+  websocket message in data bytes, the units of the Node server. The default is 1 MiB
+  (1,048,576 bytes), where Node's `maxHttpBufferSize` is 1e6 bytes. `NewServer` applies it to
+  private copies of its polling and websocket transports, so later changes to those structs
+  or to `polling.Default.CheckOrigin` do not reach the server.
 - Heartbeat: the server sends `PING` (`2`)
   `pingInterval` after the handshake and `pingInterval` after each `PONG` (`3`), as the Node
   server does, and closes the session with reason `ping timeout` when no `PONG` arrives within

@@ -1,0 +1,248 @@
+package redis
+
+import (
+	"context"
+	"errors"
+	"log"
+	"log/slog"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/gomodule/redigo/redis"
+	"github.com/stretchr/testify/require"
+
+	"github.com/sshaplygin/go-socket.io/adapter"
+	"github.com/sshaplygin/go-socket.io/logger"
+)
+
+const (
+	msgSubscriptionLost     = "socketio: redis subscription lost"
+	msgSubscriptionRestored = "socketio: redis subscription restored"
+	msgResubscribeFailed    = "socketio: redis resubscribe failed"
+	msgRequestFailed        = "socketio: redis cluster request failed"
+)
+
+// logRecorder keeps every record logged through slog.Default.
+type logRecorder struct {
+	mu   sync.Mutex
+	recs []slog.Record
+}
+
+func (r *logRecorder) Enabled(context.Context, slog.Level) bool { return true }
+func (r *logRecorder) Handle(_ context.Context, rec slog.Record) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.recs = append(r.recs, rec.Clone())
+	return nil
+}
+func (r *logRecorder) WithAttrs([]slog.Attr) slog.Handler { return r }
+func (r *logRecorder) WithGroup(string) slog.Handler      { return r }
+
+// records returns the records with message msg kept after the first n records.
+func (r *logRecorder) records(n int, msg string) []slog.Record {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []slog.Record
+	for _, rec := range r.recs[n:] {
+		if rec.Message == msg {
+			out = append(out, rec)
+		}
+	}
+	return out
+}
+
+func (r *logRecorder) len() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.recs)
+}
+
+// captureRedisLogs records the fallback logger with every level enabled until
+// Cleanup. The test must not run in parallel.
+func captureRedisLogs(t *testing.T) *logRecorder {
+	rec := &logRecorder{}
+	prev, prevOut, prevFlags, prevLevel := slog.Default(), log.Writer(), log.Flags(), logger.Level.Level()
+	slog.SetDefault(slog.New(rec))
+	logger.Level.Set(logger.LevelTrace)
+	t.Cleanup(func() {
+		logger.Level.Set(prevLevel)
+		slog.SetDefault(prev)
+		log.SetOutput(prevOut)
+		log.SetFlags(prevFlags)
+	})
+	return rec
+}
+
+// requireLevel checks that every record has level lvl and a non-empty err
+// attribute when withErr is set.
+func requireLevel(t *testing.T, recs []slog.Record, lvl slog.Level, withErr bool) {
+	t.Helper()
+	for _, r := range recs {
+		require.Equal(t, lvl, r.Level, r.Message)
+		var errText string
+		r.Attrs(func(a slog.Attr) bool {
+			if a.Key == "err" {
+				errText = a.Value.String()
+			}
+			return true
+		})
+		if withErr {
+			require.NotEmpty(t, errText, r.Message)
+		}
+	}
+}
+
+// requireQuiet waits several reconnect delays and checks that no subscription
+// record was logged after the first n records.
+func requireQuiet(t *testing.T, rec *logRecorder, n int) {
+	t.Helper()
+	time.Sleep(4 * redisReconnectMax)
+	for _, msg := range []string{msgSubscriptionLost, msgSubscriptionRestored, msgResubscribeFailed} {
+		require.Empty(t, rec.records(n, msg), msg)
+	}
+}
+
+// A subscription lost for several reconnect attempts logs one WARN with the
+// receive error, one DEBUG per failed attempt and one INFO on recovery.
+func TestSubscriptionLossAndRecoveryLoggedOncePerTransition(t *testing.T) {
+	rec := captureRedisLogs(t)
+	s := miniredis.RunT(t)
+	bc := newTestRedisBroadcast(t, s)
+	requireQuiet(t, rec, 0)
+
+	s.Close()
+	require.Eventually(t, func() bool { return len(rec.records(0, msgResubscribeFailed)) >= 3 },
+		5*time.Second, time.Millisecond, "the subscriber must keep retrying while Redis is down")
+	lost := rec.records(0, msgSubscriptionLost)
+	require.Len(t, lost, 1, "one record for the loss, not one per attempt")
+	requireLevel(t, lost, slog.LevelWarn, true)
+	requireLevel(t, rec.records(0, msgResubscribeFailed), slog.LevelDebug, true)
+	require.Empty(t, rec.records(0, msgSubscriptionRestored))
+
+	require.NoError(t, s.Restart())
+	require.Eventually(t, func() bool { return len(rec.records(0, msgSubscriptionRestored)) == 1 },
+		5*time.Second, time.Millisecond, "the recovery must be logged")
+	requireLevel(t, rec.records(0, msgSubscriptionRestored), slog.LevelInfo, false)
+	require.Len(t, rec.records(0, msgSubscriptionLost), 1)
+	waitRedisSubscribers(t, s, testRedisReqChannel, 1)
+
+	// A second loss is a new transition.
+	n := rec.len()
+	replaceSubscriber(t, bc)
+	require.Eventually(t, func() bool { return len(rec.records(n, msgSubscriptionRestored)) == 1 },
+		5*time.Second, time.Millisecond)
+	require.Len(t, rec.records(n, msgSubscriptionLost), 1)
+
+	n = rec.len()
+	require.NoError(t, bc.Close())
+	requireQuiet(t, rec, n)
+}
+
+// Namespaces of one factory share the subscriber, so its loss is one record.
+func TestSharedSubscriptionLossLoggedOncePerFactory(t *testing.T) {
+	rec := captureRedisLogs(t)
+	s := miniredis.RunT(t)
+	factory := New(WithAddr(s.Addr()))
+	root, err := factory("/")
+	require.NoError(t, err)
+	chat, err := factory("/chat")
+	require.NoError(t, err)
+
+	s.Close()
+	require.NoError(t, s.Restart())
+	require.Eventually(t, func() bool { return len(rec.records(0, msgSubscriptionRestored)) == 1 },
+		5*time.Second, time.Millisecond)
+	require.Len(t, rec.records(0, msgSubscriptionLost), 1)
+
+	n := rec.len()
+	require.NoError(t, chat.(*broadcast).Close())
+	require.NoError(t, root.(*broadcast).Close())
+	requireQuiet(t, rec, n)
+}
+
+// Closing the adapter ends the subscription on purpose: nothing is logged.
+func TestCloseLogsNoSubscriptionLoss(t *testing.T) {
+	rec := captureRedisLogs(t)
+	s := miniredis.RunT(t)
+	bc := newTestRedisBroadcast(t, s)
+	require.NoError(t, bc.Close())
+	requireQuiet(t, rec, 0)
+
+	// Closing during an outage also ends the reconnect attempts quietly.
+	other := newTestRedisBroadcast(t, s)
+	s.Close()
+	require.Eventually(t, func() bool { return len(rec.records(0, msgSubscriptionLost)) == 1 },
+		5*time.Second, time.Millisecond)
+	n := rec.len()
+	require.NoError(t, other.Close())
+	requireQuiet(t, rec, n)
+}
+
+// Redis Pub/Sub keeps no messages for a disconnected subscriber: a broadcast
+// published while a peer's subscription is down succeeds for the publisher,
+// is never delivered to that peer and is not replayed after recovery.
+func TestBroadcastDuringSubscriptionGapIsLost(t *testing.T) {
+	rec := captureRedisLogs(t)
+	s := miniredis.RunT(t)
+	a := newTestRedisBroadcast(t, s)
+	b := newTestRedisBroadcast(t, s)
+	a1 := newRedisTestConn("a1")
+	a.Join("room", a1)
+
+	var down atomic.Bool
+	down.Store(true)
+	orig := *a.dial.Load()
+	dial := func(ctx context.Context) (redis.Conn, error) {
+		if down.Load() {
+			return nil, errors.New("partitioned")
+		}
+		return orig(ctx)
+	}
+	a.dial.Store(&dial)
+	a.subLock.Lock()
+	_ = a.sub.Close()
+	a.subLock.Unlock()
+	require.Eventually(t, func() bool { return len(rec.records(0, msgSubscriptionLost)) == 1 },
+		5*time.Second, time.Millisecond)
+
+	require.NoError(t, b.SendTo(adapter.Options{Rooms: []string{"room"}}, "msg", "in gap"))
+
+	down.Store(false)
+	require.Eventually(t, func() bool { return len(rec.records(0, msgSubscriptionRestored)) == 1 },
+		5*time.Second, time.Millisecond)
+	require.NoError(t, b.SendTo(adapter.Options{Rooms: []string{"room"}}, "msg", "after"))
+	expectEvent(t, a1, "msg [after]")
+	require.Empty(t, a1.events)
+}
+
+// Request helpers return no error, so they log failures: at WARN while the
+// adapter is open, at DEBUG once it is closed, like Send and SendAll.
+func TestRequestHelperErrorsAfterCloseLogAtDebug(t *testing.T) {
+	rec := captureRedisLogs(t)
+	s := miniredis.RunT(t)
+	bc := newTestRedisBroadcast(t, s)
+	open := newTestRedisBroadcast(t, s)
+	require.NoError(t, bc.Close())
+
+	require.Nil(t, bc.IDs("room"))
+	require.Nil(t, bc.AllRooms())
+	require.Equal(t, -1, bc.Len("room"))
+	bc.Clear("room")
+	bc.SendAll("msg")
+	failed := rec.records(0, msgRequestFailed)
+	require.Len(t, failed, 4, "one record per failed call")
+	requireLevel(t, failed, slog.LevelDebug, true)
+	broadcast := rec.records(0, "socketio: redis broadcast failed")
+	require.Len(t, broadcast, 1)
+	requireLevel(t, broadcast, slog.LevelDebug, true)
+
+	n := rec.len()
+	s.Close()
+	require.Equal(t, -1, open.Len("room"))
+	failed = rec.records(n, msgRequestFailed)
+	require.Len(t, failed, 1)
+	requireLevel(t, failed, slog.LevelWarn, true)
+}

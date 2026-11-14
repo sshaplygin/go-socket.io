@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/gomodule/redigo/redis"
+
+	"github.com/sshaplygin/go-socket.io/logger"
 )
 
 // redisSubscribeTimeout is the WithSubscribeTimeout default.
@@ -84,7 +86,8 @@ func (bc *broadcast) subscribeChannels(ctx context.Context, channels []interface
 
 // dispatch handles the messages of the subscriber connection until the
 // broadcast is closed. Malformed messages are skipped; after a receive error
-// the subscriber connection is reopened.
+// the subscriber connection is reopened. A receive error that close did not
+// cause is logged once at WARN; resubscribe logs the recovery.
 func (bc *broadcast) dispatch() {
 	sub := bc.sub
 	delay := redisReconnectMin
@@ -111,6 +114,10 @@ func (bc *broadcast) dispatch() {
 		case error:
 			bc.subscriptionChanged("", false)
 			_ = sub.Close()
+			if bc.transportClosed() {
+				return
+			}
+			logger.Log.Warn("socketio: redis subscription lost", "err", m)
 			if sub, delay = bc.resubscribe(delay); sub == nil {
 				return
 			}
@@ -122,7 +129,8 @@ func (bc *broadcast) dispatch() {
 // first attempt and doubling it up to redisReconnectMax after each attempt.
 // It returns the connection and the delay for the next reconnect, so the
 // backoff also grows when the server refuses each new subscription, or a
-// nil connection once the broadcast is closed.
+// nil connection once the broadcast is closed. Each failed attempt is logged
+// at DEBUG and the new subscription at INFO.
 func (bc *broadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.Duration) {
 	for ; ; delay = min(2*delay, redisReconnectMax) {
 		select {
@@ -145,6 +153,9 @@ func (bc *broadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.D
 		sub, err := bc.subscribeChannels(ctx, channels)
 		cancel()
 		if err != nil {
+			if !bc.transportClosed() {
+				logger.Log.Debug("socketio: redis resubscribe failed", "err", err)
+			}
 			continue
 		}
 		bc.subLock.Lock()
@@ -164,7 +175,18 @@ func (bc *broadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.D
 		bc.sub = sub
 		bc.markReady(channels)
 		bc.subLock.Unlock()
+		logger.Log.Info("socketio: redis subscription restored")
 		return sub, min(2*delay, redisReconnectMax)
+	}
+}
+
+// transportClosed reports whether close has ended the subscriber transport.
+func (bc *broadcast) transportClosed() bool {
+	select {
+	case <-bc.done:
+		return true
+	default:
+		return false
 	}
 }
 

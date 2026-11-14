@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -269,10 +270,19 @@ func (bc *broadcast) Len(room string) int {
 	}
 	return n
 }
+
+// logRequestError logs a failure of IDs, AllRooms, Len or Clear, which return no
+// error. A failure after the adapter's close started is expected closure and
+// logged at DEBUG.
 func (bc *broadcast) logRequestError(err error) {
-	if err != nil {
-		logger.Log.Warn("socketio: redis cluster request failed", "nsp", bc.nsp, "err", err)
+	if err == nil {
+		return
 	}
+	if bc.closed.Load() || errors.Is(err, errAdapterClosed) {
+		logger.Log.Debug("socketio: redis cluster request failed", "nsp", bc.nsp, "err", err)
+		return
+	}
+	logger.Log.Warn("socketio: redis cluster request failed", "nsp", bc.nsp, "err", err)
 }
 
 func (bc *broadcast) onResponse(data []byte) {

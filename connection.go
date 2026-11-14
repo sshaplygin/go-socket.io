@@ -215,6 +215,12 @@ func (c *connection) unhandled(nsp string, err error) {
 	c.log.Warn("socketio: unhandled error", nspAttr(nsp), "err", err)
 }
 
+// unhandledPeer logs err, which no OnError receives, at DEBUG: the peer caused it with
+// what it sent, so it may repeat it at will.
+func (c *connection) unhandledPeer(nsp string, err error) {
+	c.log.Debug("socketio: unhandled error", nspAttr(nsp), "err", err)
+}
+
 // nspAttr is the nsp attribute of namespace nsp; the root namespace is "/".
 func nspAttr(nsp string) slog.Attr {
 	return slog.String("nsp", cmp.Or(nsp, aliasRootNamespace))
@@ -238,20 +244,29 @@ func (c *connection) errConn(nsp string) (nc *namespaceConn) {
 // session: OnDisconnect reports it and OnError does not.
 func (c *connection) onError(namespace string, err error) {
 	if !expected(err, c.reader.failure()) {
-		c.report(namespace, err)
+		c.report(namespace, err, c.unhandled)
+	}
+}
+
+// onPeerError is onError for a failure the peer caused with what it sent: a packet
+// that does not decode, a payload of the wrong type or an ERROR packet. Without OnError
+// it is logged at DEBUG (see unhandledPeer).
+func (c *connection) onPeerError(namespace string, err error) {
+	if !expected(err, c.reader.failure()) {
+		c.report(namespace, err, c.unhandledPeer)
 	}
 }
 
 // report delivers err to OnError of namespace and waits for it, unless a close started.
-// Without OnError, err is logged as unhandled. Callers report no transport failure: the
+// Without OnError, err is passed to unhandled. Callers report no transport failure: the
 // end of the session reaches OnDisconnect only.
-func (c *connection) report(namespace string, err error) {
+func (c *connection) report(namespace string, err error, unhandled func(string, error)) {
 	if isDone(c.closing) {
 		return
 	}
 	msg := newErrorMessage(namespace, err)
 	if msg.conn = c.errConn(namespace); msg.conn == nil {
-		c.unhandled(namespace, err)
+		unhandled(namespace, err)
 		return
 	}
 	c.startError()

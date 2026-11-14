@@ -14,6 +14,10 @@ import (
 
 var emtpyFH = newAckFunc(func() {})
 
+// maxEchoedNamespace is the longest namespace name, in bytes, that the ERROR packet
+// answering a CONNECT to an unknown namespace repeats.
+const maxEchoedNamespace = 1024
+
 func ackPacketHandler(c *connection, header parser.Header) error {
 	nc, ok := c.namespaces.Get(header.Namespace)
 	if !ok {
@@ -51,7 +55,7 @@ func ackPacketHandler(c *connection, header parser.Header) error {
 	args, err := decodeCallbackArgs(c.decoder, types, handler.Variadic())
 	if err != nil {
 		c.log.Debug("socketio: ack decode failed", nspAttr(header.Namespace), "err", err)
-		c.onError(header.Namespace, err)
+		c.onPeerError(header.Namespace, err)
 		var typeErr *json.UnmarshalTypeError
 		if errors.As(err, &typeErr) {
 			return nil
@@ -116,7 +120,7 @@ func eventPacketHandler(c *connection, event string, header parser.Header) error
 			// acknowledged handlers send for the same failure.
 			writeAckValues(conn, header, eventImpl.AckArgs(eventImpl.Payload{}, &eventImpl.RemoteError{Code: "invalid_payload", Message: err.Error()}))
 		}
-		c.onError(header.Namespace, err)
+		c.onPeerError(header.Namespace, err)
 		c.log.Debug("socketio: event decode failed", nspAttr(header.Namespace), "event", event, "err", err)
 		if mismatch {
 			return nil
@@ -163,7 +167,7 @@ func eventPacketHandler(c *connection, event string, header parser.Header) error
 
 func connectPacketHandler(c *connection, header parser.Header) error {
 	if err := c.decoder.DiscardLast(); err != nil {
-		c.onError(header.Namespace, err)
+		c.onPeerError(header.Namespace, err)
 		c.log.Debug("socketio: connect discard failed", nspAttr(header.Namespace), "err", err)
 		return nil
 	}
@@ -192,9 +196,13 @@ func connectNamespace(c *connection, header parser.Header) error {
 		ok = handler != nil
 	}
 	if !ok {
-		c.onError(header.Namespace, errFailedConnectNamespace)
+		// No OnError can be registered for a namespace the server does not have: the
+		// ERROR packet is the whole report, as in socket.io 2.5.0, except that a name
+		// too long to echo is not answered.
 		c.log.Debug("socketio: connect without handler", nspAttr(header.Namespace))
-		c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf("Invalid namespace"))
+		if len(header.Namespace) <= maxEchoedNamespace {
+			c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf("Invalid namespace"))
+		}
 		return nil
 	}
 
@@ -239,7 +247,7 @@ func connectNamespace(c *connection, header parser.Header) error {
 
 func disconnectPacketHandler(c *connection, header parser.Header) error {
 	if err := c.decoder.DiscardLast(); err != nil {
-		c.onError(header.Namespace, err)
+		c.onPeerError(header.Namespace, err)
 		return errDecodeArgs
 	}
 	nc, ok := c.claimDisconnect(header.Namespace)
@@ -254,7 +262,7 @@ func disconnectPacketHandler(c *connection, header parser.Header) error {
 func errorPacketHandler(c *connection, header parser.Header) error {
 	args, err := c.decoder.DecodeArgs([]reflect.Type{reflect.TypeOf((*interface{})(nil)).Elem()})
 	if err != nil {
-		c.onError(header.Namespace, err)
+		c.onPeerError(header.Namespace, err)
 		return errDecodeArgs
 	}
 	value := args[0].Interface()
@@ -266,7 +274,7 @@ func errorPacketHandler(c *connection, header parser.Header) error {
 		}
 		message = string(encoded)
 	}
-	c.onError(header.Namespace, errors.New(message))
+	c.onPeerError(header.Namespace, errors.New(message))
 	return nil
 }
 
@@ -307,11 +315,14 @@ func typedEventPacketHandler(c *connection, nc *namespaceConn, name string, head
 		}
 		writeAckValues(nc, header, eventImpl.AckArgs(result, ackErr))
 	}
-	if err != nil {
+	if decodeFailed {
+		c.onPeerError(header.Namespace, err)
+		c.log.Debug("socketio: event decode failed", nspAttr(header.Namespace), "event", name, "err", err)
+	} else if err != nil {
 		c.onError(header.Namespace, err)
-		if expected(err, c.reader.failure()) {
-			return err // the session ended: stop reading, as untyped handlers do
-		}
+	}
+	if err != nil && expected(err, c.reader.failure()) {
+		return err // the session ended: stop reading, as untyped handlers do
 	}
 	return nil
 }

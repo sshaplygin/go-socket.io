@@ -227,7 +227,11 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   automatically and sends `0` before any client packet. Other namespaces are joined
   when the client sends `0/<nsp>`.
 - A CONNECT to a namespace without a registered handler is answered with an ERROR packet
-  (`4/<nsp>,"Invalid namespace"`) and the connection stays open.
+  (`4/<nsp>,"Invalid namespace"`), as socket.io 2.5.0 answers it, and the connection
+  stays open. No `OnError` is called. A namespace name longer than 1024 bytes is not
+  answered, so that the server does not echo it; the reference echoes a name of any
+  length. The [`logger` package documentation](../logger/logger.go) lists the levels of
+  the records that a peer's packets and requests cause.
 - Binary attachments are replaced by `{"_placeholder":true,"num":N}` and sent as
   following binary frames; on the Go side they map to `parser.Buffer`.
 - Event handlers return values become the ACK payload; an ACK packet is sent when the

@@ -63,7 +63,7 @@ func (c *connection) serveWrite() {
 			// A failure of NextWriter or of the frame writer ends the session, which
 			// OnDisconnect reports; OnError receives only errors raised before the transport.
 			if !expected(err, c.writer.failed) {
-				c.report(pkg.Header.Namespace, err)
+				c.report(pkg.Header.Namespace, err, c.unhandled)
 			}
 			if c.writer.failed != nil {
 				c.stop()
@@ -129,7 +129,7 @@ func (c *connection) serveRead(connect, disconnect func(*connection, parser.Head
 		}
 		if next.err != nil {
 			c.log.Debug("socketio: header decode failed", "err", next.err)
-			c.onError(rootNamespace, next.err)
+			c.onPeerError(rootNamespace, next.err)
 			return
 		}
 		// A ready replacement takes priority over the header already read. Its

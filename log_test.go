@@ -169,12 +169,13 @@ func TestRequestRejectedRecords(t *testing.T) {
 		do            func() int
 		status        int
 	}{
-		{"bad transport", "WARN", func() int { return get("transport=foo") }, http.StatusBadRequest},
-		{"checker", "WARN", func() int { return get("transport=polling", "X-Reject", "1") }, http.StatusForbidden},
+		{"bad transport", "DEBUG", func() int { return get("transport=foo") }, http.StatusBadRequest},
+		{"bad transport", "DEBUG", func() int { return get("transport=" + strings.Repeat("x", 4000)) }, http.StatusBadRequest},
+		{"checker", "DEBUG", func() int { return get("transport=polling", "X-Reject", "1") }, http.StatusForbidden},
 		{"unknown sid", "DEBUG", func() int { return get("transport=polling&sid=nope") }, http.StatusBadRequest},
-		{"accept", "WARN", func() int { return get("transport=websocket") }, http.StatusBadRequest},
-		{"init", "WARN", func() int { return get("transport=faulty") }, http.StatusOK},
-		{"bad upgrade", "WARN", func() int { return get("transport=polling&sid=" + wsSID) }, http.StatusBadRequest},
+		{"accept", "DEBUG", func() int { return get("transport=websocket") }, http.StatusBadRequest},
+		{"init", "DEBUG", func() int { return get("transport=faulty") }, http.StatusOK},
+		{"bad upgrade", "DEBUG", func() int { return get("transport=polling&sid=" + wsSID) }, http.StatusBadRequest},
 	} {
 		n := rec.len()
 		require.Equal(t, tc.status, tc.do(), tc.reason)
@@ -189,6 +190,7 @@ func TestRequestRejectedRecords(t *testing.T) {
 			require.Len(t, only(recs, "engineio: request rejected"), 1, tc.reason)
 			require.Equal(t, tc.reason, rejected[0]["reason"])
 			require.Equal(t, tc.level, rejected[0]["level"], tc.reason)
+			require.LessOrEqual(t, len(rejected[0]["transport"]), maxRecordValue, tc.reason)
 		}
 		require.Empty(t, loud(recs, "engineio: request rejected"), tc.reason)
 		require.Empty(t, only(recs, "engineio: session open"), tc.reason)
@@ -274,6 +276,7 @@ func TestUnhandledErrorRecords(t *testing.T) {
 		fault faultConn
 		h     hooks
 		nsps  []string // of the expected "socketio: unhandled error" WARNs
+		peer  []string // of the expected DEBUG ones: the peer caused the error
 		run   func(t *testing.T, p *peer)
 	}{
 		{name: "peer close does not reach OnError", keep: true, run: func(t *testing.T, p *peer) {
@@ -295,7 +298,7 @@ func TestUnhandledErrorRecords(t *testing.T) {
 		}},
 		{name: "handler panic", h: hooks{events: boom}, nsps: []string{"/"},
 			run: func(t *testing.T, p *peer) { p.send(t, ev("boom")) }},
-		{name: "connect without handlers", nsps: []string{"/nope"},
+		{name: "connect without handlers",
 			run: func(t *testing.T, p *peer) {
 				p.send(t, "0/nope")
 				require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
@@ -309,7 +312,7 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			flood(c, defaultWriteBufferSize+1)
 			return refused
 		}}},
-		{name: "argument decode error", h: hooks{events: boom}, nsps: []string{"/"},
+		{name: "argument decode error", h: hooks{events: boom}, peer: []string{"/"},
 			run: func(t *testing.T, p *peer) {
 				require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
 				p.send(t, `2["num","x"]`)
@@ -336,9 +339,20 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			run: func(t *testing.T, p *peer) { p.send(t, ev("boom")) }},
 		{name: "frame Close fails, then OnConnect fails", fault: faultConn{closeErr: failed}, nsps: []string{"/"},
 			h: hooks{connect: func(Conn) error { return refused }}},
-		{name: "invalid packet type", nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "9") }},
-		{name: "empty frame", nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "") }},
-		{name: "EVENT with empty data", nsps: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "2[]") }},
+		{name: "invalid packet type", peer: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "9") }},
+		{name: "empty frame", peer: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "") }},
+		{name: "EVENT with empty data", peer: []string{"/"}, run: func(t *testing.T, p *peer) { p.send(t, "2[]") }},
+		{name: "ERROR packets", peer: []string{"/", "/a", "/nope"}, run: func(t *testing.T, p *peer) {
+			require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
+			p.join(t, "/a")
+			p.send(t, `4"boom"`)
+			p.send(t, `4/a,{"message":"boom"}`)
+			p.send(t, `4/nope,"boom"`)
+			p.send(t, `2["num",1]`)
+			p.send(t, `27["num",42]`)
+			require.Equal(t, "37[]\n", recv(t, p.fc.out, "the session goes on"))
+			close(p.fc.peerGone)
+		}, h: hooks{events: map[string]interface{}{"num": func(Conn, int) {}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := newAttrRecorder()
@@ -361,13 +375,19 @@ func TestUnhandledErrorRecords(t *testing.T) {
 				waitFor, time.Millisecond)
 			time.Sleep(20 * time.Millisecond) // a second record would come now
 			got = loud(rec.since(0), "")
-			var nsps []string
+			var nsps, peer []string
 			for _, m := range got {
 				require.Equal(t, "socketio: unhandled error", m["msg"])
 				require.Equal(t, "WARN", m["level"])
 				nsps = append(nsps, m["nsp"])
 			}
 			require.Equal(t, tc.nsps, nsps)
+			for _, m := range only(rec.since(0), "socketio: unhandled error") {
+				if m["level"] == "DEBUG" {
+					peer = append(peer, m["nsp"])
+				}
+			}
+			require.Equal(t, tc.peer, peer)
 		})
 	}
 }

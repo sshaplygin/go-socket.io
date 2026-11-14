@@ -56,4 +56,4 @@ Out of scope:
   report those upstream;
 - issues that exist only because a deployment widened a documented limit, such as
   `engineio.WithMaxHTTPBufferSize`, `socketio.WithWriteBufferSize` or
-  `client.WithMaxMessageSize`, past what it can hold.
+  `client.WithMaxMessageSize`, past what its memory can hold.

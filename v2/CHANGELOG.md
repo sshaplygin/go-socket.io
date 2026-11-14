@@ -23,8 +23,9 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   message in data bytes) and is advertised in `OPEN`. Zero keeps the transport values, 1 MiB
   by default; `Normalize` rejects a negative value and `NewServer` treats it as zero.
 - `client.Dialer.HandshakeTimeout` (roadmap 2.1): bounds each transport tried, from the dial
-  to the `OPEN` packet; an expired attempt fails with an error that wraps
-  `os.ErrDeadlineExceeded`. Zero means 10 s; a negative value means no bound.
+  to the `OPEN` packet. When it expires, the attempt fails with an error that wraps
+  `os.ErrDeadlineExceeded`; a shorter bound of the transport fails it with the transport's
+  own error. Zero means 10 s; a negative value means no bound.
 - In-memory adapter (roadmap 2.2), unexported, built from a `LocalSockets` value, with the
   default `AdapterFactory` over `Namespace.LocalSockets()`: room union with deduplication,
   `Except` rooms, empty selection of every socket, `LocalRecipients` counting successful

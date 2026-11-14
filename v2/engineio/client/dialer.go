@@ -28,8 +28,9 @@ type Dialer struct {
 	Transports []transport.Transport
 
 	// HandshakeTimeout bounds, for each transport tried, the dial, the websocket
-	// handshake and the wait for the OPEN packet; an expired bound fails the attempt
-	// with an error that wraps os.ErrDeadlineExceeded. A *websocket.Transport is dialed
+	// handshake and the wait for the OPEN packet. When it expires, the attempt fails
+	// with an error that wraps os.ErrDeadlineExceeded; a shorter bound of the transport
+	// fails it with the transport's own error. A *websocket.Transport is dialed
 	// through a private copy whose HandshakeTimeout is the shorter of the two; the TCP
 	// connect of its custom NetDial, which takes no context, is not bounded. For other
 	// transports only the wait for OPEN is bounded. Bounds of the transport, such as

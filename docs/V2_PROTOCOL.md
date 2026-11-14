@@ -11,7 +11,10 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   checked before the transport; a missing or other value is HTTP 400 with error code 5. The
   Go dialer (`engineio/client`) sends `EIO=4`, replacing any value in the URL. Its
   `Dialer.HandshakeTimeout` (default 10 s) bounds each transport tried, from the dial to the
-  `OPEN` packet; an expired attempt fails with an error that wraps `os.ErrDeadlineExceeded`.
+  `OPEN` packet. When it expires, the attempt fails with an error that wraps
+  `os.ErrDeadlineExceeded`; a shorter bound of the transport, such as
+  `websocket.Transport.HandshakeTimeout` or the polling `http.Client` timeout, fails it with
+  the transport's own error.
 - Transports: `polling` (XHR only; the `j` JSONP parameter and the `b64` parameter are
   ignored, as in Engine.IO v4) and `websocket` (`gobwas/ws`). Order and upgrade path come from `engineio.Options.Transports`,
   default `[polling, websocket]`.

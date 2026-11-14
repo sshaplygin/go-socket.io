@@ -154,6 +154,7 @@ examples:
 	@set -e; for d in $(CHAT_COPIES); do cmp $$d/chat.go _examples/default-http/chat.go; done
 	@set -e; for f in $(LIFECYCLE_COPIES); do cmp $$f _examples/default-http/lifecycle.go; done
 	cd _examples/default-http && go test -race -count=1 ./...
+	cd _examples/gin-cors && go test -race -count=1 ./...
 
 .PHONY: examples-node
 # CONFORMANCE_NODE_MODULES selects the pinned socket.io-client used by the runner.

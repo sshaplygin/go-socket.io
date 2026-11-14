@@ -3,8 +3,8 @@ module github.com/sshaplygin/go-socket.io
 go 1.22
 
 require (
-	github.com/alicebob/miniredis/v2 v2.39.0
-	github.com/gomodule/redigo v1.8.9
+	github.com/alicebob/miniredis/v2 v2.40.0
+	github.com/gomodule/redigo v1.9.3
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/stretchr/testify v1.12.1

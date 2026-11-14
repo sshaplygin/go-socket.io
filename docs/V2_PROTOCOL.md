@@ -30,7 +30,8 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   websocket message in data bytes, the units of the Node server. The default is 1 MiB
   (1,048,576 bytes), where Node's `maxHttpBufferSize` is 1e6 bytes. `NewServer` applies it to
   private copies of its polling and websocket transports, so later changes to those structs
-  or to `polling.Default.CheckOrigin` do not reach the server.
+  or to `polling.Default.CheckOrigin` do not reach the server. On websocket the limit also
+  caps the messages the server writes (see WebSocket framing below).
 - Heartbeat: the server sends `PING` (`2`)
   `pingInterval` after the handshake and `pingInterval` after each `PONG` (`3`), as the Node
   server does, and closes the session with reason `ping timeout` when no `PONG` arrives within
@@ -69,7 +70,11 @@ described in [PROTOCOL.md](PROTOCOL.md#engineio-protocol-v3).
   `permessage-deflate` is not supported, and no subprotocol is selected by the server. A
   message is limited to the transport's `MaxPayload` (default 1 MiB,
   `websocket.Transport.MaxPayload`), the fragments of one message together, checked before
-  they are buffered. The peer is told why it is cut off with a close frame, then the TCP
+  they are buffered. The limit also caps the messages this end writes: a larger packet is not
+  sent, its writer's `Close` returns `ErrTooLarge` and the connection stays open. Node's `ws`
+  limits received messages only, and the server does not limit polling responses; a server
+  limit below the size of the `OPEN` packet (about 110 bytes) keeps websocket sessions from
+  opening. The peer is told why it is cut off with a close frame, then the TCP
   connection is half-closed, drained for at most one second and closed (a `Close` by the consumer in between marks the connection closed but leaves the socket to the drain): status 1009 for an oversized message, 1007 for invalid UTF-8 and
   1002 for a framing violation (unmasked client frame, reserved bits or opcode, a stray
   continuation) or an invalid Engine.IO packet (empty text, unknown type byte, malformed

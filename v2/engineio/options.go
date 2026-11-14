@@ -29,9 +29,11 @@ type Options struct {
 	// MaxPayload, when positive, replaces the MaxPayload of the server's polling and
 	// websocket transports: the limit of a polling POST body in wire bytes and of one
 	// websocket message in data bytes, fragments together. The OPEN packet advertises
-	// the limit the polling transport enforces. Zero keeps the transport values, 1 MiB
-	// by default (Node's maxHttpBufferSize is 1e6 bytes); Normalize rejects a negative
-	// value and NewServer treats it as zero.
+	// the limit the polling transport enforces. On websocket it also caps the messages
+	// the server writes, which polling responses and Node's server do not; a limit
+	// below the size of the OPEN packet keeps websocket sessions from opening. Zero
+	// keeps the transport values, 1 MiB by default (Node's maxHttpBufferSize is 1e6
+	// bytes); Normalize rejects a negative value and NewServer treats it as zero.
 	MaxPayload int
 
 	Transports         []transport.Transport

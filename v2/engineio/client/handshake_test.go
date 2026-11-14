@@ -140,8 +140,23 @@ func TestDialHandshakeTimeoutPerTransport(t *testing.T) {
 	require.NoError(t, cl.Close())
 }
 
+// recordingConn is a connection that records the non-zero deadlines set through
+// SetDeadline, which gobwas uses for the websocket handshake.
+type recordingConn struct {
+	net.Conn
+	set []time.Time
+}
+
+func (c *recordingConn) SetDeadline(t time.Time) error {
+	if !t.IsZero() {
+		c.set = append(c.set, t)
+	}
+	return c.Conn.SetDeadline(t)
+}
+
 // TestDialNegativeHandshakeTimeout: a negative HandshakeTimeout means no bound; Dial waits
-// for an OPEN packet that the server sends 300 ms after the upgrade.
+// for an OPEN packet that the server sends 300 ms after the upgrade, and the websocket
+// handshake gets no deadline. A zero HandshakeTimeout gives the handshake one 10 s ahead.
 func TestDialNegativeHandshakeTimeout(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if c, _, _, err := ws.UpgradeHTTP(r, w); err == nil {
@@ -152,9 +167,23 @@ func TestDialNegativeHandshakeTimeout(t *testing.T) {
 		}
 	}))
 	t.Cleanup(ts.Close)
-	cl, err := (&Dialer{Transports: []transport.Transport{websocket.Default}, HandshakeTimeout: -1}).Dial(ts.URL, nil)
-	require.NoError(t, err)
-	require.NoError(t, cl.Close())
+	for _, tc := range []struct{ timeout, ahead time.Duration }{{-1, 0}, {0, 10 * time.Second}} {
+		rc := &recordingConn{}
+		tr := &websocket.Transport{NetDial: func(network, addr string) (c net.Conn, err error) {
+			rc.Conn, err = net.Dial(network, addr)
+			return rc, err
+		}}
+		start := time.Now()
+		cl, err := (&Dialer{Transports: []transport.Transport{tr}, HandshakeTimeout: tc.timeout}).Dial(ts.URL, nil)
+		require.NoError(t, err)
+		require.NoError(t, cl.Close())
+		if tc.ahead == 0 {
+			require.Empty(t, rc.set, "the handshake is bounded with HandshakeTimeout %v", tc.timeout)
+			continue
+		}
+		require.Len(t, rc.set, 1)
+		require.WithinDuration(t, start.Add(tc.ahead), rc.set[0], time.Second)
+	}
 }
 
 // TestDialTransportHandshakeTimeoutShorter: a websocket.Transport whose HandshakeTimeout is

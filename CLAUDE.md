@@ -161,6 +161,7 @@ Each fact has one owner; other documents link to it.
 | Godoc | Public signatures and detailed method contracts |
 | `_examples/README.md` | Running and testing v1 examples |
 | `CONTRIBUTING.md` | Contribution and release procedure |
+| `SECURITY.md` | Supported versions and vulnerability reporting |
 | `CLAUDE.md` | Development commands and repository conventions |
 | `v2/README.md`, `docs/V2_PROTOCOL.md` | V2 status and protocol behavior |
 | `docs/API.md` | V2 API inventory and compile fixtures |

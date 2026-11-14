@@ -102,6 +102,7 @@ and [Engine.IO](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0/eng
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the PR process and [CLAUDE.md](CLAUDE.md) for
 how to build and test.
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

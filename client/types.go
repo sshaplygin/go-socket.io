@@ -55,6 +55,16 @@ type Namespace interface {
 	// later one and closes the connection (see ErrWriteBufferFull). After this
 	// namespace disconnects, Emit drops new packets without a report. Retaining a
 	// Conn does not buffer sends for a replacement generation; use Client.Socket.
+	//
+	// These names are never sent: connect, connect_error, connect_timeout,
+	// connecting, disconnect, disconnecting, error, reconnect, reconnect_attempt,
+	// reconnect_error, reconnect_failed, reconnecting, ping and pong. socket.io-client
+	// keeps all of them local except disconnecting, which the server role reserves.
+	// Emit of such a name calls this namespace's On, Once and OnEvent
+	// listeners of that name synchronously with this Conn and v, a trailing func
+	// included, and changes no connection state. A listener error goes to OnError.
+	// While one such Emit runs its listeners, another one on this Conn, for
+	// example from a listener, does nothing.
 	Emit(eventName string, v ...interface{})
 
 	// Volatile starts a single-socket emit that drops when its connection is not writable.
@@ -75,7 +85,8 @@ type Emitter interface {
 	Volatile() Emitter
 	// Compress chooses per-packet compression; the default is true.
 	Compress(on bool) Emitter
-	// Emit uses the same encoding, generation and queue-admission rules as Conn.Emit.
+	// Emit uses the same encoding, generation and queue-admission rules as Conn.Emit
+	// and keeps the same names local, whatever the flags.
 	Emit(event string, args ...interface{})
 	// Send is Emit("message", args...).
 	Send(args ...interface{})

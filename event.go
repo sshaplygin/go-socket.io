@@ -41,6 +41,8 @@ type RemoteError = event.RemoteError
 
 var (
 	// ErrInvalidEventName rejects empty names and reserved lifecycle event names.
+	// Sends through the Go client also reject the names it keeps local; see
+	// client.Namespace.Emit.
 	ErrInvalidEventName = event.ErrInvalidEventName
 	// ErrDuplicateEvent means a typed registration would replace an existing listener.
 	ErrDuplicateEvent = event.ErrDuplicateEvent

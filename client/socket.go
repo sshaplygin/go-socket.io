@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sshaplygin/go-socket.io/internal/event"
 	"github.com/sshaplygin/go-socket.io/parser"
@@ -20,6 +21,7 @@ type namespaceConn struct {
 	cancelLifetime context.CancelFunc
 	typedAcks      map[uint64]*typedRequest
 	draining       bool // guarded by conn.mu; this namespace participates in Close's drain
+	localDispatch  atomic.Bool
 }
 
 func newNamespaceConn(conn *conn, namespace string) *namespaceConn {
@@ -70,6 +72,10 @@ func (nc *namespaceConn) emit(volatile bool, eventName string, v ...interface{})
 }
 
 func (nc *namespaceConn) emitFlags(volatile, noCompress bool, eventName string, v ...interface{}) {
+	if localEvent(eventName) {
+		nc.emitLocal(eventName, v...)
+		return
+	}
 	if volatile && (!nc.Connected() || !nc.writable()) {
 		return
 	}
@@ -322,19 +328,22 @@ func (s *Socket) Off(event string) { s.handler.Off(event) }
 
 // Emit queues an event until the namespace CONNECT reply. A full pre-connect
 // buffer drops the event and logs a warning; connected writes use the normal queue.
-func (s *Socket) Emit(event string, args ...interface{}) { s.emit(false, event, args...) }
-
-func (s *Socket) emit(volatile bool, event string, args ...interface{}) {
-	s.emitFlags(volatile, false, event, args...)
-}
-
-func (s *Socket) emitFlags(volatile, noCompress bool, event string, args ...interface{}) {
-	if volatile {
-		s.emitVolatileFlags(noCompress, event, args...)
+// A name the client keeps local (see Namespace.Emit) is neither sent nor
+// buffered: Emit calls this namespace's listeners as Conn.Emit does, with the
+// Socket's current Conn, and does nothing while the Socket has none, before its
+// namespace connects or after it disconnects.
+func (s *Socket) Emit(event string, args ...interface{}) {
+	m := s.state
+	if localEvent(event) {
+		m.mu.Lock()
+		nc := s.nc
+		m.mu.Unlock()
+		if nc != nil {
+			nc.emitLocal(event, args...)
+		}
 		return
 	}
-	prepared := prepareEvent(s.namespace, noCompress, event, args)
-	m := s.state
+	prepared := prepareEvent(s.namespace, false, event, args)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s.connected && s.nc != nil {
@@ -353,24 +362,6 @@ func (s *Socket) bufferEventLocked(prepared bufferedEvent, event string) {
 	}
 	s.buffer = append(s.buffer, prepared)
 	m.buffered++
-}
-
-// A custom transport's Writable method may reenter this Socket. Snapshot it
-// without holding state.mu, then recheck the namespace generation before admission.
-func (s *Socket) emitVolatileFlags(noCompress bool, event string, args ...interface{}) {
-	m := s.state
-	m.mu.Lock()
-	nc, connected := s.nc, s.connected
-	m.mu.Unlock()
-	if !connected || nc == nil || !nc.writable() {
-		return
-	}
-	prepared := prepareEvent(s.namespace, noCompress, event, args)
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if s.connected && s.nc == nc {
-		nc.queuePreparedEvent(true, prepared)
-	}
 }
 
 // Send is Emit("message", args...).

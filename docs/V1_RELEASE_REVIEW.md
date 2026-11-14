@@ -2980,7 +2980,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W66. Refresh the release notes for the final head
 
-- **Status:** in progress — #265
+- **Status:** done — #265
 - **Priority:** before tag
 - **Findings:** [REL-16](#release-engineering-findings)
 - **Depends on:** W63–W65, W67, W68, W73

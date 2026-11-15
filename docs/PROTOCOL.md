@@ -28,7 +28,8 @@ Package `engineio` of the v1 module at the repository root.
   by `sid`; an unknown `sid` is HTTP 400. Server GET responses coalesce complete
   packets for up to 1 ms idle or 5 ms total, at most 64 packets or 256 KiB checked
   between packets. A single packet can exceed that batching byte budget. A change
-  in compression preference starts the next response; cancellation fails the transport.
+  in compression preference starts the next response. A pending poll whose request
+  is cancelled, as when the client aborts it, ends the session with `transport error`.
 - WebSocket: one packet per message; a binary message starts with the packet type byte.
   The optional permessage-deflate extension is off by default, with a 1024-byte
   encoded-packet threshold when enabled. The Go client offers it when configured,

@@ -4,78 +4,104 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/http/cookiejar"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
-	"github.com/sshaplygin/go-socket.io/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
-// The polling transport sends the io cookie of the handshake only through an
-// http.Client with a cookie jar, and the websocket transport sends no cookie: the
-// upgrade request of a client whose polling requests carry the cookie has none
-// (docs/V1.md, Deployment).
-func TestWebsocketUpgradeCarriesNoCookie(t *testing.T) {
+// affinityServer serves a Socket.IO server whose "echo" event acknowledges its
+// argument, and passes every request to observe first.
+func affinityServer(t *testing.T, observe func(*http.Request)) *httptest.Server {
+	t.Helper()
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := socketio.NewServer(socketio.WithLogger(quiet), socketio.WithEngineOptions(engineio.WithLogger(quiet)))
+	srv := socketio.NewServer(socketio.WithLogger(quiet), socketio.WithEngineOptions(
+		append(append([]engineio.Option{}, steadyPing...), engineio.WithLogger(quiet))...))
 	srv.OnConnect("/", func(socketio.Conn) error { return nil })
+	srv.OnEvent("/", "echo", func(_ socketio.Conn, value string) string { return value })
 	go func() { _ = srv.Serve() }()
-	type seen struct{ sid, cookie string }
-	polls, upgrades := make(chan seen, 1), make(chan seen, 1)
-	polled := make(chan struct{})
-	var once sync.Once
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if sid := r.URL.Query().Get("sid"); sid != "" {
-			req := seen{sid, r.Header.Get("Cookie")}
-			if r.URL.Query().Get("transport") == "websocket" {
-				// The probe can start before the session's first poll: hold it
-				// until that poll has been recorded.
-				select {
-				case <-polled:
-				case <-r.Context().Done():
-				}
-				select {
-				case upgrades <- req:
-				default:
-				}
-			} else {
-				once.Do(func() { polls <- req; close(polled) })
-			}
-		}
+		observe(r)
 		srv.ServeHTTP(w, r)
 	}))
 	t.Cleanup(func() { _ = srv.Close(); ts.Close() })
+	return ts
+}
 
-	jar, err := cookiejar.New(nil)
+// The Go client with its default transports does not send the io cookie that
+// the polling handshake sets: neither the session's polling requests nor its
+// websocket upgrade request carry a Cookie header, so cookie affinity cannot
+// route them (docs/V1.md, Deployment).
+func TestDefaultTransportsSendNoSessionCookie(t *testing.T) {
+	var polls, upgrades, cookies atomic.Int32
+	polled, upgraded := make(chan struct{}), make(chan struct{})
+	var pollOnce, upgradeOnce sync.Once
+	ts := affinityServer(t, func(r *http.Request) {
+		if r.URL.Query().Get("sid") == "" {
+			return
+		}
+		if r.Header.Get("Cookie") != "" {
+			cookies.Add(1)
+		}
+		if r.URL.Query().Get("transport") == "websocket" {
+			// The probe can start before the session's first poll: hold it
+			// until that poll has been recorded.
+			select {
+			case <-polled:
+			case <-r.Context().Done():
+			}
+			upgrades.Add(1)
+			upgradeOnce.Do(func() { close(upgraded) })
+			return
+		}
+		polls.Add(1)
+		pollOnce.Do(func() { close(polled) })
+	})
+
+	// The handshake does offer the cookie.
+	resp, err := http.Get(ts.URL + "/socket.io/?EIO=3&transport=polling")
 	require.NoError(t, err)
-	cl, err := client.New(ts.URL, client.WithReconnection(false), client.WithLogger(quiet),
-		client.WithTransports(&polling.Transport{Client: &http.Client{Jar: jar}}, websocket.Default))
+	_, _ = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, resp.Body.Close())
+	require.Len(t, resp.Cookies(), 1)
+	require.Equal(t, "io", resp.Cookies()[0].Name)
+
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cl, err := client.New(ts.URL, client.WithReconnection(false), client.WithLogger(quiet))
 	require.NoError(t, err)
 	require.NoError(t, cl.Connect())
 	t.Cleanup(func() { _ = cl.Close() })
 
-	poll := receiveRequest(t, polls, "a polling request of the session")
-	require.Equal(t, "io="+poll.sid, poll.cookie)
-	upgrade := receiveRequest(t, upgrades, "the websocket upgrade request")
-	require.Equal(t, poll.sid, upgrade.sid)
-	require.Empty(t, upgrade.cookie)
+	recv(t, polled, "a polling request of the session")
+	recv(t, upgraded, "the websocket upgrade request")
+	require.Positive(t, polls.Load())
+	require.Positive(t, upgrades.Load())
+	require.Zero(t, cookies.Load(), "requests with a Cookie header")
 }
 
-func receiveRequest[T any](t *testing.T, ch <-chan T, what string) T {
-	t.Helper()
-	select {
-	case v := <-ch:
-		return v
-	case <-time.After(30 * time.Second):
-		t.Fatalf("timed out waiting for %s", what)
-		panic("unreachable")
-	}
+// A Go client that connects over websocket only makes one HTTP request for its
+// session, so a load balancer needs no affinity for it (docs/V1.md, Deployment).
+func TestWebsocketOnlyClientMakesOneRequest(t *testing.T) {
+	var requests atomic.Int32
+	ts := affinityServer(t, func(*http.Request) { requests.Add(1) })
+
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cl, err := client.New(ts.URL, client.WithReconnection(false), client.WithLogger(quiet),
+		client.WithTransports(websocket.Default))
+	require.NoError(t, err)
+	require.NoError(t, cl.Connect())
+	t.Cleanup(func() { _ = cl.Close() })
+
+	// The round trip shows the session works after its only request.
+	acked := make(chan string, 1)
+	cl.Emit("echo", "hello", func(value string) { acked <- value })
+	require.Equal(t, "hello", recv(t, acked, "the acknowledgement"))
+	require.EqualValues(t, 1, requests.Load())
 }

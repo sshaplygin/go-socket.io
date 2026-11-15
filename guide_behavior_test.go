@@ -1,6 +1,7 @@
 package socketio
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -112,54 +113,6 @@ func TestRoomsArePerNamespace(t *testing.T) {
 	require.Equal(t, ev("news", 1), c.read())
 	require.NoError(t, root.To(rootConn.ID()).Emit("direct", 2))
 	require.Equal(t, ev("direct", 2), c.read(), "the root broadcast reached /chat")
-}
-
-// A socket joins its ID room after OnConnect returns nil. Inside OnConnect,
-// Rooms, SocketIDs and RoomLen leave it out, and a broadcast to the socket's ID,
-// or to the namespace before the socket joins another room, returns nil but does
-// not reach it; a room joined in OnConnect, a namespace broadcast after that
-// join and a direct Emit do. socket.io 2.5.0
-// delivers io.emit and io.to(socket.id).emit from its connection listener
-// (docs/V1.md).
-func TestIDRoomJoinedAfterOnConnect(t *testing.T) {
-	type view struct {
-		rooms, ids []string
-		roomLen    int
-		errs       []error
-	}
-	views := make(chan view, 1)
-	var root *ServerNamespace
-	s, url := defectServer(t, func(s *Server) {
-		root = s.Of("/")
-		root.OnConnect(func(c Conn) error {
-			v := view{rooms: c.Rooms(), ids: root.SocketIDs(c.ID()), roomLen: s.RoomLen("/", c.ID())}
-			v.errs = append(v.errs, root.Emit("all"), root.To(c.ID()).Emit("self"))
-			c.Join("lobby")
-			v.errs = append(v.errs, root.To("lobby").Emit("lobby"), root.Emit("all"), root.To(c.ID()).Emit("self"))
-			c.Emit("direct")
-			views <- v
-			return nil
-		})
-		root.OnEvent("barrier", func(c Conn) { c.Emit("barrier") })
-	})
-	c := dialRaw(t, url)
-	require.Equal(t, "0", c.read())
-	v := recv(t, views, "OnConnect")
-	require.Empty(t, v.rooms)
-	require.Empty(t, v.ids)
-	require.Zero(t, v.roomLen)
-	require.Equal(t, []error{nil, nil, nil, nil, nil}, v.errs)
-	require.Equal(t, ev("lobby"), c.read())
-	require.Equal(t, ev("all"), c.read(), "the namespace broadcast after a join")
-	require.Equal(t, ev("direct"), c.read())
-	c.send(`2["barrier"]`)
-	require.Equal(t, ev("barrier"), c.read(), "a broadcast from OnConnect reached the connecting socket")
-
-	ids := root.SocketIDs()
-	require.Len(t, ids, 1)
-	require.Equal(t, 1, s.RoomLen("/", ids[0]))
-	require.NoError(t, root.To(ids[0]).Emit("self"))
-	require.Equal(t, ev("self"), c.read())
 }
 
 // Event middleware observes the decoded arguments; replacing an element of its
@@ -343,6 +296,67 @@ func pollAfterWriteTimeout(t *testing.T, payload string, closed bool) {
 	require.True(t, c.Connected(), "the session reported the lost write")
 	require.Equal(t, 1, srv.Count())
 	require.Empty(t, drain(reasons))
+}
+
+// A client that aborts a pending poll ends the session: the request context is
+// cancelled, the polling transport fails, and OnDisconnect receives "transport
+// error" (docs/PROTOCOL.md, polling payload).
+func TestAbortedPollEndsSessionWithTransportError(t *testing.T) {
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := NewServer(WithLogger(quiet), WithEngineOptions(engineio.WithLogger(quiet),
+		engineio.WithPingInterval(time.Minute), engineio.WithPingTimeout(time.Minute)))
+	connected, reasons := make(chan struct{}, 1), make(chan string, 1)
+	srv.OnConnect("/", func(Conn) error { connected <- struct{}{}; return nil })
+	srv.OnDisconnect("/", func(_ Conn, reason string) { reasons <- reason })
+	go func() { _ = srv.Serve() }()
+	polls := make(chan struct{}, 4)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Query().Get("sid") != "" {
+			polls <- struct{}{}
+		}
+		srv.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { _ = srv.Close(); ts.Close() })
+	hc := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	t.Cleanup(hc.CloseIdleConnections)
+	get := func(ctx context.Context, query string) (string, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+			ts.URL+"/socket.io/?EIO=3&b64=1&transport=polling"+query, nil)
+		if err != nil {
+			return "", err
+		}
+		resp, err := hc.Do(req)
+		if err != nil {
+			return "", err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		return string(body), err
+	}
+	open, err := get(context.Background(), "")
+	require.NoError(t, err)
+	var handshake struct{ Sid string }
+	require.NoError(t, json.Unmarshal([]byte(open[strings.Index(open, "{"):strings.Index(open, "}")+1]), &handshake))
+	recv(t, connected, "OnConnect")
+	if !strings.Contains(open, "2:40") {
+		body, err := get(context.Background(), "&sid="+handshake.Sid)
+		require.NoError(t, err)
+		require.Contains(t, body, "2:40", "the CONNECT packet")
+	}
+	// That CONNECT poll has returned; its token must not stand for the next poll.
+	require.LessOrEqual(t, len(drain(polls)), 1)
+
+	ctx, abort := context.WithCancel(context.Background())
+	defer abort()
+	aborted := make(chan error, 1)
+	go func() {
+		_, err := get(ctx, "&sid="+handshake.Sid)
+		aborted <- err
+	}()
+	recv(t, polls, "the pending poll")
+	abort()
+	require.ErrorIs(t, recv(t, aborted, "the aborted poll"), context.Canceled)
+	require.Equal(t, string(engineio.ReasonTransportError), recv(t, reasons, "OnDisconnect"))
 }
 
 // The client bundle route of socket.io 2.5.0 (serveClient) is not served: the

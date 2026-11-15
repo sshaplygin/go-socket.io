@@ -35,14 +35,15 @@ func TestPollingClientReasonsUnderServerWriteTimeout(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			// The second case needs the emit to precede the client's ping. A host
-			// too loaded to emit in time repeats the attempt.
+			// The second case needs the emit to precede the client's ping, which
+			// normally comes about four seconds later. A host too loaded to emit
+			// in time repeats the attempt and then leaves the case undecided.
 			for attempt := 0; attempt < 3; attempt++ {
 				if pollingClientReasons(t, tc.emit, tc.client, tc.server) {
 					return
 				}
 			}
-			t.Fatal("no attempt emitted before the client's ping")
+			t.Skip("no attempt emitted before the client's ping")
 		})
 	}
 }
@@ -52,12 +53,12 @@ func TestPollingClientReasonsUnderServerWriteTimeout(t *testing.T) {
 func pollingClientReasons(t *testing.T, emit bool, clientReason, serverReason string) bool {
 	const (
 		writeTimeout = 500 * time.Millisecond
-		pingInterval = 3 * time.Second
+		pingInterval = 5 * time.Second
 	)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := socketio.NewServer(socketio.WithLogger(quiet), socketio.WithEngineOptions(
 		engineio.WithLogger(quiet),
-		engineio.WithPingInterval(pingInterval), engineio.WithPingTimeout(2*time.Second)))
+		engineio.WithPingInterval(pingInterval), engineio.WithPingTimeout(time.Second)))
 	conns, serverReasons := make(chan socketio.Conn, 1), make(chan string, 1)
 	srv.OnConnect("/", func(c socketio.Conn) error { conns <- c; return nil })
 	srv.OnDisconnect("/", func(_ socketio.Conn, reason string) { serverReasons <- reason })

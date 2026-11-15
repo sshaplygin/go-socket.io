@@ -19,7 +19,9 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
-// Server is instance of server
+// Server is an Engine.IO server: an http.Handler that opens sessions on the
+// polling and websocket transports and hands each session to Accept once its
+// handshake has been written. Its methods are safe for concurrent use.
 type Server struct {
 	originCheck       func(*http.Request) bool
 	pingInterval      time.Duration
@@ -46,7 +48,9 @@ type Server struct {
 	log *slog.Logger
 }
 
-// NewServer returns a server.
+// NewServer returns a Server configured by opts; an option that is not given
+// keeps its default. The Server serves requests through ServeHTTP and needs no
+// start call; Close shuts it down.
 func NewServer(opts ...Option) *Server {
 	config := resolveOptions(opts...)
 	return &Server{
@@ -103,7 +107,12 @@ func (s *Server) Close() error {
 	return nil
 }
 
-// Accept accepts a connection.
+// Accept blocks until a session has written its handshake and run the
+// Connection hook, and returns it. The caller owns the returned Conn: it reads
+// the messages with NextReader and ends the session with Close. A session that
+// completes its handshake waits until an Accept call takes it. After Close,
+// Accept returns io.EOF, and a session that was still waiting is closed. Accept
+// may be called from several goroutines; each session is returned once.
 func (s *Server) Accept() (Conn, error) {
 	select {
 	case c := <-s.connChan:
@@ -154,10 +163,19 @@ func isClosed(ch <-chan struct{}) bool {
 	}
 }
 
+// Addr returns nil. A Server does not listen on an address of its own; it is
+// mounted as an http.Handler on the caller's HTTP server.
 func (s *Server) Addr() net.Addr {
 	return nil
 }
 
+// ServeHTTP handles one Engine.IO request. A GET request without a sid query
+// parameter starts a session on the transport named by the transport
+// parameter; a request with a sid continues that session or upgrades it to
+// another transport. It does not check the request path, so it answers on
+// whatever path the caller routes to it. A request it rejects is answered with
+// the JSON error bodies described in docs/PROTOCOL.md; after Close every
+// request is rejected as a bad request.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if isClosed(s.closed) {
 		s.writeServerError(w, r, 3, nil)

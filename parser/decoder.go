@@ -17,10 +17,17 @@ const (
 	maxAttachments = 10
 )
 
+// FrameReader is the transport side of a Decoder.
 type FrameReader interface {
+	// NextReader returns the type and the contents of the next frame. The
+	// Decoder closes every reader it obtains before it requests the next one.
 	NextReader() (FrameType, io.ReadCloser, error)
 }
 
+// Decoder reads Socket.IO packets from a FrameReader. A packet is read in two
+// steps: DecodeHeader reads the text frame, then DecodeArgs or
+// DecodeArgsVariadic consumes the attachments and converts the arguments, or
+// DiscardLast skips them. A Decoder is not safe for concurrent use.
 type Decoder struct {
 	r           FrameReader
 	lastFrame   io.ReadCloser
@@ -28,8 +35,12 @@ type Decoder struct {
 	args        []json.RawMessage
 }
 
+// NewDecoder returns a Decoder that reads from r.
 func NewDecoder(r FrameReader) *Decoder { return &Decoder{r: r} }
-func (d *Decoder) Close() error         { return d.DiscardLast() }
+
+// Close is DiscardLast: it releases the current packet. It does not close the
+// FrameReader, and the Decoder remains usable.
+func (d *Decoder) Close() error { return d.DiscardLast() }
 
 // DiscardLast releases the text frame and consumes attachments of an ignored packet.
 func (d *Decoder) DiscardLast() error {
@@ -62,6 +73,18 @@ func (d *Decoder) closeLastFrame() error {
 	return r.Close()
 }
 
+// DecodeHeader discards what remains of the previous packet, reads the next
+// text frame and stores its header in header and, for an Event packet, its
+// event name in event; both are reset first. A numeric event name is formatted
+// as JavaScript formats the number. The payload is validated as the reference
+// decoder validates it for the packet type, and binary event and ACK packets
+// are reported with Type Event and Ack. The arguments and binary attachments
+// stay pending until DecodeArgs, DecodeArgsVariadic or DiscardLast.
+//
+// DecodeHeader returns the error of the FrameReader unchanged, for example
+// io.EOF, ErrInvalidPacketType for a type digit outside 0-6, and an error for a
+// binary first frame, an invalid payload, a malformed attachment count or more
+// than 10 attachments.
 func (d *Decoder) DecodeHeader(header *Header, event *string) error {
 	if err := d.DiscardLast(); err != nil {
 		return err

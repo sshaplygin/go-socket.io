@@ -6,14 +6,22 @@ import (
 	"strings"
 )
 
+// Addr is the net.Addr of a polling connection, which spans many HTTP
+// requests rather than one network connection. On the server, LocalAddr is
+// the Host header and RemoteAddr the RemoteAddr of the request that opened the
+// connection; on the client, LocalAddr is empty and RemoteAddr is the host of
+// the dialed URL.
 type Addr struct {
+	// Host is the address in host or host:port form, or empty when unknown.
 	Host string
 }
 
+// Network returns "tcp".
 func (a Addr) Network() string {
 	return "tcp"
 }
 
+// String returns Host.
 func (a Addr) String() string {
 	return a.Host
 }

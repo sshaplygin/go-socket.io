@@ -137,7 +137,9 @@ func (c *serverConn) closePayload() []byte {
 
 // timedOut reports whether err is an expired read or write deadline, which the
 // session reports as "ping timeout": the payload's own deadline errors and a
-// request body read that its tracked deadline interrupted report Timeout.
+// request body read that its tracked deadline interrupted report Timeout. It must
+// match timedOut in engineio/internal/session/close.go, which classifies the same
+// errors for the session's close reason.
 func timedOut(err error) bool {
 	var timeout interface{ Timeout() bool }
 	return errors.Is(err, os.ErrDeadlineExceeded) || errors.As(err, &timeout) && timeout.Timeout()

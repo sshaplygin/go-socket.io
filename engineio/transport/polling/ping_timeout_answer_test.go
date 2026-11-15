@@ -86,6 +86,43 @@ func TestPollFailureAnswer(t *testing.T) {
 	}
 }
 
+// A poll whose response the session writer has started keeps that response when a
+// deadline then expires: the packets already written are delivered, not replaced by
+// a lone CLOSE.
+func TestPollStartedResponseOutranksCloseAnswer(t *testing.T) {
+	for _, tc := range []struct {
+		name, query string
+		packet      string
+	}{
+		{name: "b64", query: "/?b64=1", packet: "6:4hello"},
+		{name: "binary", query: "/", packet: "\x00\x06\xff4hello"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newServerConn(Default, httptest.NewRequest(http.MethodGet, tc.query, nil))
+			rec := httptest.NewRecorder()
+			served := make(chan struct{})
+			go func() {
+				defer close(served)
+				c.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.query, nil))
+			}()
+
+			// The session writer takes the poll's writer and writes one packet.
+			w, err := c.payload.AcquirePayloadWriter()
+			require.NoError(t, err)
+			_, err = w.Write([]byte(tc.packet))
+			require.NoError(t, err)
+			// Before the packet's write is released, a request body read times out:
+			// its error is stored and the connection closed.
+			_ = c.payload.Store("read", &requestError{"request body", timeoutError{}})
+			_ = c.Close()
+			<-served
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, tc.packet, rec.Body.String())
+		})
+	}
+}
+
 type errString string
 
 func (e errString) Error() string { return string(e) }

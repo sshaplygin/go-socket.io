@@ -21,12 +21,16 @@ Package `engineio` of the v1 module at the repository root.
   the session reads re-arms a window of `pingInterval + pingTimeout`; when it passes
   without one, the session closes with reason `ping timeout`. A poll pending at that
   moment is answered HTTP 200 with a `CLOSE` (`1`) payload, as in engine.io 3.6.2, so
-  the reference clients and the Go client report `transport close`; once the close has
-  finished, the session's `sid` is answered HTTP 400 with code 1 (below). Any poll that
-  fails because a deadline expired, which the session reports as `ping timeout`
-  ([V1.md](V1.md#constructor-configuration) lists the sources), gets the same answer. The
-  payload uses the framing of the polling payload bullet below, so without `b64=1`
-  it is binary where engine.io 3.6.2 sends the text `1:1`.
+  the reference clients and the Go client report `transport close`. A poll whose wait
+  ends on its request context deadline, for example one set by middleware, gets the
+  same answer and the session closes with `ping timeout`. A timeout outside the
+  handler answers for it: `http.TimeoutHandler` sends its own HTTP 503 for a poll it
+  times out, and once an `http.Server` `WriteTimeout` has passed, the connection closes
+  without a response. Until the close has finished, a further poll of the session also
+  receives `CLOSE`, where engine.io 3.6.2 has already removed the session and answers
+  HTTP 400 with code 1; after it, this library answers the same (below). The payload
+  uses the framing of the polling payload bullet below, so without `b64=1` it is
+  binary where engine.io 3.6.2 sends the text `1:1`.
 - Polling payload: with `b64=1` packets are length-prefixed (`<length>:<packet>`),
   lengths count UTF-16 code units, and binary packets are base64 with a `b` prefix.
   Otherwise the payload is binary: per packet a `0` (string) or `1` (binary) byte, the

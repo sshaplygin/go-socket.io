@@ -1,6 +1,7 @@
 package engineio_test
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -122,4 +123,51 @@ func pendingPollAtPingTimeout(t *testing.T, query string, window time.Duration, 
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	require.JSONEq(t, `{"code":1,"message":"Session ID unknown"}`, string(body))
 	return true
+}
+
+// A request context deadline that ends a pending poll, for example one that
+// middleware sets, is answered like the end of the heartbeat window: HTTP 200 with
+// CLOSE, and the session ends with "ping timeout".
+func TestPendingPollAtRequestDeadlineReceivesClose(t *testing.T) {
+	s := engineio.NewServer(engineio.WithPingInterval(time.Minute), engineio.WithPingTimeout(time.Minute))
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("sid") == "" {
+			s.ServeHTTP(w, r) // the handshake
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 100*time.Millisecond)
+		defer cancel()
+		s.ServeHTTP(w, r.WithContext(ctx))
+	}))
+	defer func() { _ = s.Close(); ts.Close() }()
+	client := &http.Client{Timeout: 10 * time.Second}
+	defer client.CloseIdleConnections()
+
+	resp, err := client.Get(ts.URL + "/?EIO=3&transport=polling&b64=1")
+	require.NoError(t, err)
+	open, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	m := sidPattern.FindSubmatch(open)
+	require.NotNil(t, m, "no sid in handshake response %q", open)
+	done := readUntilEnd(acceptOne(t, s))
+
+	resp, err = client.Get(ts.URL + "/?EIO=3&transport=polling&b64=1&sid=" + string(m[1]))
+	require.NoError(t, err)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, http.StatusOK, resp.StatusCode, "body %q", body)
+	require.Equal(t, "text/plain; charset=UTF-8", resp.Header.Get("Content-Type"))
+	require.Equal(t, "1:1", string(body))
+
+	var ended error
+	select {
+	case ended = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the session did not end")
+	}
+	var closeErr *engineio.CloseError
+	require.ErrorAs(t, ended, &closeErr)
+	require.Equal(t, engineio.ReasonPingTimeout, closeErr.Reason)
 }

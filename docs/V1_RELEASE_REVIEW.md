@@ -83,7 +83,9 @@ documentation checks.
 and every before-tag item of the earlier reviews (W1–W10, W45–W55, W58–W68, W73) is done,
 and D1–D6 are decided and applied. The release-readiness audit of 2026-11-14 at
 `594681a9` found no blocker that survived its independent re-check; its fixes are
-[W74](#w74-pin-the-heartbeat-window-ack-rules-decoder-bounds-and-documented-limits)–[W90](#w90-record-the-2026-11-14-audit-and-the-current-state).
+[W74](#w74-pin-the-heartbeat-window-ack-rules-decoder-bounds-and-documented-limits)–[W89](#w89-toolchain-independent-tests-event-based-waits-wider-leak-gate-limit-conformance),
+of which W80 and W87 follow the tag, and
+[W90](#w90-record-the-2026-11-14-audit-and-the-current-state) records them.
 By the owner's decision of 2026-11-15, only what blocks the release of the Go server role
 lands before the tag.
 
@@ -105,6 +107,12 @@ state):
 
 Work that follows the tag: W38, W69–W72, W80 (#276), W87 (#283) and W91–W105, and the
 owner decisions D9 and D11–D14; the [item index](#how-to-use-this-plan) lists them.
+
+That work includes two major findings, deferred in writing by the owner's decision of
+2026-11-15: API-15 ([W80](#w80-reopen-a-namespace-from-the-go-client): the Go client cannot
+reopen a namespace while its connection stays open) and CL-24
+([W87](#w87-complete-the-user-guide): the user guide has no `http.Server.WriteTimeout`
+rule for polling). [P6](#p6-github-release) requires the release notes to name both.
 
 `v1.5.0` is the first usable release of this module path, so it also fixes the public
 API surface for the life of v1: once tagged, later v1 releases can add to the API but
@@ -192,6 +200,13 @@ sets the item's Status to `deferred — <reason> (<date>)` and the release notes
 deferral (for M6, the encode cost from W2's `BenchmarkEncode/structs100` and
 `BenchmarkBroadcastWebsocket/structs100-10`, measured with the manual comparison against
 `3dd094d` below and quoted with its command).
+
+A major found after M1–M7 whose item follows the tag is deferred by the item's Priority
+line, `after release (deferred by the owner on <date>; …)`; its Status stays `open`, so
+that the item remains the work to execute after the tag. API-15 (W80) and CL-24 (W87) are
+deferred this way. The release notes name every major finding whose owning item is not
+`done` on the head P4 verifies, each with what it costs a user and a link to its item at
+the tag URL (P6).
 
 **Conventions** (from CONTRIBUTING.md and CLAUDE.md).
 
@@ -284,7 +299,9 @@ file the findings, the work plan and its progress. Status values:
   owner or the next PR touching this document changes it to `; done — #<PR>`. When a W item
   implements the decision (W10 implements D1), the W item's PR is that PR: it appends
   `; in progress — #<PR>` to the D item's Status line as well as setting its own.
-- Deferral of a major: `deferred — <reason> (<date>)`, recorded by the owner (see above).
+- Deferral of a major: `deferred — <reason> (<date>)` for M1–M7, or the Priority line
+  `after release (deferred by the owner on <date>; …)` for a later major whose item stays
+  `open`; both are recorded on the owner's decision (see above).
 - P items: `open` → `done (<date>)`, recorded by the owner; a step the owner decides not
   to take becomes `not taken — <reason> (<date>)`.
 
@@ -3555,8 +3572,8 @@ changed to `done — #<PR>` after the merge.
   returns; what v1.4.2 adds to the `OnError` migration row (needs a v1.4.2 run);
   ARCHITECTURE.md and the example READMEs of CL-26. The connect-rejection advice says that
   the socket receives namespace broadcasts until it is closed.
-- **Tests:** the nine tests of `guide_behavior_test.go` and `client/first_connect_test.go` in
-  #283, and a test or a quoted probe for each added topic.
+- **Tests:** the nine tests of `guide_behavior_test.go` and the one test of
+  `client/first_connect_test.go` in #283, and a test or a quoted probe for each added topic.
 - **Benchmarks:** none.
 - **Docs:** `docs/V1.md`, `docs/PROTOCOL.md`, `docs/ARCHITECTURE.md`, `docs/PARITY.md`,
   README, the example READMEs.
@@ -3760,11 +3777,16 @@ changed to `done — #<PR>` after the merge.
 - **Change:** renewing a websocket session's deadlines does not wait for an in-flight frame
   write, so received packets are dispatched while a write to a non-reading client is
   blocked; the blocked write still ends at its own deadline. No lock is held across a
-  transport call in a way that re-creates the cycle W1 removed.
+  transport call in a way that re-creates the cycle W1 removed. gorilla's frame writer
+  reads the write-deadline field that `SetWriteDeadline` sets, which is why
+  `engineio/transport/websocket/connect.go` takes the writer lock there: the renewal is
+  recorded and applied when the open frame writer closes or when the next one opens, and
+  gorilla's `SetWriteDeadline` is never called while a frame writer is open, which would
+  be a data race.
 - **Tests:** a client that floods the server's queue, stops reading and keeps sending
   pings and events: its events are dispatched while the write is blocked, and the session
   ends when the write deadline expires; fails on master. The W1 regression tests keep
-  passing.
+  passing, and all of them pass under `-race`.
 - **Benchmarks:** `BenchmarkWebsocketEcho`: no regression.
 - **Docs:** `docs/PROTOCOL.md` (reasons), if the reported reason changes.
 - **Acceptance criteria:** as in Tests, with
@@ -4228,8 +4250,20 @@ announced before both exist.
 - **Steps:** publish the GitHub Release for `v1.5.0` with the W66 text, refreshed against the
   head P4 verified (REL-20): every user-visible pull request merged after #265 (#270–#286
   and those after them) appears in it or is named internal; each performance row names its
-  base; fixes are stated relative to upstream `v1.7.0`, not to unreleased commits.
-- **Acceptance:** `gh release view v1.5.0` shows that text, and the release is the latest.
+  base; fixes are stated relative to upstream `v1.7.0`, not to unreleased commits. Its
+  deferred-majors line names every major finding whose owning item is not `done` on that
+  head, as CONTRIBUTING.md "Before tagging v1" step 5 requires, each with what it costs a
+  user and a link to its item at the tag URL
+  (`https://github.com/sshaplygin/go-socket.io/blob/v1.5.0/docs/V1_RELEASE_REVIEW.md#<anchor>`).
+  At `5ee06b23` these are API-15 (W80: after `io server disconnect` or `Socket.Close` the
+  Go client cannot rejoin that namespace while the connection stays open) and CL-24 (W87:
+  the user guide has no `http.Server.WriteTimeout` rule; a `WriteTimeout` shorter than a
+  pending poll loses the packet written to that poll and disconnects polling clients with
+  `transport error`). C29 joins them if D10 is still undecided at P4. The line does not
+  read "none" while such a finding exists.
+- **Acceptance:** `gh release view v1.5.0` shows that text, and the release is the latest;
+  every major row of the [finding catalogue](#finding-catalogue) whose owning item is not
+  `done` at the tag is named in the text's deferred-majors line.
   The owner then appends `Fixed by P6 (<date>).` to REL-20.
 
 #### P7. Module index
@@ -5279,7 +5313,7 @@ Every finding is listed under the dimension that reported it.
 | interop-20 | minor | reproduced at `789eab64` (Go probe, three runs; engine.io 3.6.2 run in the review of #278) | `engineio/internal/session`, `engineio/transport/polling/server.go`, `docs/PROTOCOL.md` (websocket close) | Engine.IO control packets and overlapping requests handled unlike engine.io 3.6.2, not listed or misdescribed: over websocket a client `CLOSE` (`1`, also `b1`) ends the session, while engine.io 3.6.2 handles `CLOSE` only on polling, and PROTOCOL.md lists the client `CLOSE` among the closes that send 1000 "as engine.io 3.6.2 does"; a base64 PING (`b2`) is answered with a binary PONG where the reference answers text `3`; a PING with data outside an upgrade probe (`2hello`) is answered `3hello` where the reference answers `3`; a second GET overlapping a pending one is answered HTTP 500 and the session continues, where the reference closes it (#203, Interoperability F6; the last two not re-run against the reference) | List the differences, or align them (W98). |
 | interop-21 | minor | reproduced at `789eab64` (Go probe; engine.io 3.6.2 run in the review of #278) | `engineio/transport/websocket/base64.go`, `docs/PROTOCOL.md` | Base64 websocket messages are decoded strictly: data after the padding (`b4AQI=AQ==`) is rejected where engine.io 3.6.2 decodes it, and the case is not listed. On a standalone `engineio.Server`, unpadded data, invalid characters and data after the padding fail only that packet's reader and the session stays open, although PROTOCOL.md says they close the session (the Socket.IO server does close its connection); an invalid character is reported as a bare `unexpected EOF`, the same as a truncation | Make PROTOCOL.md describe both levels and name the error (W98). |
 | interop-22 | minor | reproduced at `789eab64` (three runs); the routing in `errorPacketHandler` and `errConn` is unchanged on `5ee06b23`, where the record without `OnError` is DEBUG (`onPeerError`) | `packets.go` (`errorPacketHandler`), `connection.go` (`report`, `errConn`) | A client ERROR packet for a namespace the socket has not joined reaches that namespace's `OnError` with an inactive `Conn`, or a DEBUG record without one; socket.io 2.5.0 drops packets for a namespace that has no socket | Drop such packets, or list the difference (W98). |
-| interop-23 | minor | reproduced at `789eab64` (Go probe, five runs; socket.io 2.5.0) | `packets.go` (`connectNamespace`) | A CONNECT for a namespace the connection already holds, the root namespace included, is ignored: no reply and no second `OnConnect`; socket.io 2.5.0 answers it and creates another socket, leaving the first one orphaned | List the difference (W98). |
+| interop-23 | minor | reproduced at `789eab64` (Go probe, five runs; socket.io 2.5.0) | `packets.go` (`connectNamespace`) | A CONNECT for a namespace the connection already holds, the root namespace included, is ignored: no reply and no second `OnConnect`; socket.io 2.5.0 creates another socket for the held namespace, leaving the first one orphaned, and answers the duplicate CONNECT only for a non-root namespace (a second `40` on `/` gets no frame, a second `40/n` gets a second `40/n,`) | List the difference (W98). |
 | interop-24 | minor | reproduced at `789eab64` | `packets.go` (`connectNamespace`) | The server accepts a namespace CONNECT that arrives after the client disconnected the root namespace; socket.io 2.5.0 holds it until the root namespace connects again. #276 adds the PROTOCOL.md sentence | List the difference (W98). |
 | interop-25 | minor | reproduced at `789eab64` (Go probe); socket.io 2.5.0 `origins` run in the review of #274 | `engineio/transport/polling/server.go`, `docs/PROTOCOL.md` (CORS) | A transport `CheckOrigin` that rejects an origin only suppresses the polling CORS headers: a foreign-origin polling handshake still opens a session and runs `OnConnect`, although the browser cannot read the session ID. socket.io 2.5.0's `origins` option answers 403 on polling and 400 on websocket; PROTOCOL.md names neither that option nor `engineio.WithRequestChecker`, which refuses the handshake | Name the reference option and the request checker in PROTOCOL.md (W98). |
 | interop-26 | minor | reproduced at `789eab64` (server probe, three runs); `DispatchEvent` still appends a no-op `AckFunc` on `c8c0c1e4` | `namespace_listeners.go` (`DispatchEvent`), `client/namespace_listeners.go`, `client/local_event.go` | A local `Emit` of a lifecycle name with a trailing callback fails against a listener whose last parameter is `AckFunc`, in both roles (`reflect: Call with too many input arguments`), because the dispatcher appends a no-op `AckFunc` after the arguments; Node passes the caller's function, and the callback is answered | Pass the trailing func as the `AckFunc`, or document the restriction (W98). |
@@ -5353,7 +5387,7 @@ Every finding is listed under the dimension that reported it.
 | REL-17 | major | confirmed snapshot (GitHub API, 2026-11-10) | repository settings; `SECURITY.md` (absent) | No security policy: no SECURITY.md; private vulnerability reporting, Dependabot alerts and security updates, secret scanning and push protection are disabled (GitHub API, 2026-11-10) | Enable the settings and publish a security policy (W67 and P1). Fixed by #260 (W67). |
 | REL-18 | minor | — | repository settings, module proxy | Repository presentation: GitHub lists the repository as a fork of the archived `googollee/go-socket.io`; the description is upstream's; there is no GitHub Release; the module proxy resolves `@latest` to `v1.4.2`, which the `retract` directive in `go.mod` hides only once a tagged version carries it | P2, P3, P5–P7. |
 | REL-19 | minor | — | `.golangci.yml`, `.github/workflows/` | No static security analysis: golangci-lint uses the standard set without gosec, and no CodeQL analysis exists | Enable gosec and add CodeQL (W70). CodeQL default setup is configured; W70 states what remains. |
-| REL-20 | major → minor | partially-confirmed (`DOC-5`: every figure matches its committed benchmark; only the #169 row reads as a gain over a state users ran) | PR #265 description (the release text) | The release text that P6 publishes predates #270–#286, which change user-visible behaviour (among them `Server.Count` inside `OnDisconnect`, handler error results and panics on the wire, base64 websocket messages without `b64`, the `CLOSE` answer at ping timeout and the Redis subscription records). Its performance table gives before figures of unreleased fork commits without naming the base, so the #169 row reads 3,619 → 411 allocs/op where the gain over the master before #143 is 1,012 → 510. It carries development chronology (fixes relative to the unreleased snapshot `79b5996`, a sentence about a test's internals) and exists only as a PR description (audits `DOC-5`, `DOC-14`) | Refresh the text against the head P4 verifies before P6: every user-visible PR merged after #265, the base of each performance row, and fixes stated relative to upstream `v1.7.0` (P6). |
+| REL-20 | major → minor | partially-confirmed (`DOC-5`: every figure matches its committed benchmark; only the #169 row reads as a gain over a state users ran) | PR #265 description (the release text) | The release text that P6 publishes predates #270–#286, which change user-visible behaviour (among them `Server.Count` inside `OnDisconnect`, handler error results and panics on the wire, base64 websocket messages without `b64`, the `CLOSE` answer at ping timeout and the Redis subscription records). Its performance table gives before figures of unreleased fork commits without naming the base, so the #169 row reads 3,619 → 411 allocs/op where the gain over the master before #143 is 1,012 → 510. It carries development chronology (fixes relative to the unreleased snapshot `79b5996`, a sentence about a test's internals) and exists only as a PR description (audits `DOC-5`, `DOC-14`). Its line "Deferred major issues: none" omits the majors whose items follow the tag, API-15 (W80) and CL-24 (W87) | Refresh the text against the head P4 verifies before P6: every user-visible PR merged after #265, the base of each performance row, fixes stated relative to upstream `v1.7.0`, and a deferred-majors line that names every major finding whose item is not `done` on that head (P6). |
 | REL-21 | major → minor | partially-confirmed | CONTRIBUTING.md "Before tagging v1", P4 | The final-head verification of 2026-11-14 (dispatched CI run 43591826781 and Stress run 43591828823) ran on `594681a9`; pull requests merged after it, so the tag candidate named in #265 is no longer the head of `master`, and every merge between verification and tag moves the head again, v2 merges included (audit `CR-4`) | Run P4 on the commit to tag, tag that SHA, which P5 already requires, and merge nothing between P4 and P5 (P4). |
 | REL-22 | minor | reproduced on `c8c0c1e4` and `5ee06b23` with `git log --first-parent` | git history of `master` | Master history carries 70 placeholder `Co-authored-by` trailers (40 `t <t@t>`, 28 `q <q@q>`, 2 `Probe <probe@example.invalid>`) and 28 commits authored by placeholder identities (20 `q <q@q>`, 8 `t <t@t>`); REL-3 counts two commits (audit `CR-5`) | CONTRIBUTING.md forbids rewriting `master`, so the history stays; check the tagger identity at the tag (P5). |
 | REL-23 | nit | source-confirmed on `c8c0c1e4` | `.deepsource.toml`, `README.md`, `CONTRIBUTING.md`, `docs/PARITY.md`, the module zip | Files that ship in the module zip but are not part of the library: an inherited `.deepsource.toml` whose exclude pattern `/_example/**` matches no directory, and more than 0.5 MB of process documents (this review and the v2 roadmap). README, CONTRIBUTING.md and PARITY.md send contributors to the file that the ownership table makes the owner of the build and test commands, which CL-14 kept as an editorial choice (audits `CR-8`, `DOC-15`) | Delete `.deepsource.toml`; whether the commands move to CONTRIBUTING.md is the owner's choice (W105). |
@@ -5587,7 +5621,7 @@ The after-tag findings of the review of 2026-10-29, as the description of #203 l
 | Correctness F4 | CL-23 |
 | Interoperability F3, F5 | interop-16, interop-17 |
 | Interoperability F4 | interop-35 |
-| Interoperability F6 | the overlapping GET, `2hello` and the websocket `CLOSE`: interop-20; the session ID format: CL-36; a CONNECT for a namespace already held, the root included, is ignored, not answered: interop-23 |
+| Interoperability F6 | the overlapping GET, `2hello` and the websocket `CLOSE`: interop-20; the session ID format: CL-36; a CONNECT for a namespace already held, the root included, is ignored; the reference creates another socket and answers only a non-root one: interop-23 |
 | Tests F2, F3 | T25, except the Redis backoff reset, which #277 replaced and `TestReconnectBackoffKeepsGrowingAfterNamespaceChange` pins, and the packet ID overflow and packet-type bound, which W74 pins |
 | Tests F4 | T22 (fixed by #286) and T26 |
 | Tests F5 | REL-24; the probe goroutine: C34 |

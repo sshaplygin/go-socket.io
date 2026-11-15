@@ -160,7 +160,7 @@ func FuzzRedisBroadcastDecoder(f *testing.F) {
 
 func TestRedisGoPacketWithNodeOracle(t *testing.T) {
 	if os.Getenv("NODE_PATH") == "" {
-		t.Skip("optional oracle regeneration needs pinned Node modules; real Redis conformance is mandatory separately")
+		t.Skip("needs NODE_PATH with the pinned socket.io-redis modules; make conformance sets it")
 	}
 	data, err := encodeBroadcast("go-peer", "/chat", "from-go", adapter.Options{Rooms: []string{"r", "s"}, Except: []string{"excluded"}, Volatile: true, NoCompress: true}, []interface{}{redisJSONPayload{Ignored: "secret", Number: 7, Binary: parser.Buffer{Data: []byte{0, 255}}}})
 	require.NoError(t, err)

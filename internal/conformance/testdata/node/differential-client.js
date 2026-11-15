@@ -1,5 +1,6 @@
 'use strict';
 const assert = require('assert');
+const crypto = require('crypto');
 const http = require('http');
 const io = require('socket.io-client');
 const version = require('socket.io-client/package.json').version;
@@ -58,12 +59,19 @@ async function namespace(root, name) {
   await ready;
   return socket;
 }
+// Values longer than this are recorded by length and SHA-256, not in full.
+const summarized = 256;
+function digest(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
 function binary(value) {
   assert(Buffer.isBuffer(value), 'expected binary Buffer');
+  if (value.length > summarized) return {$binary: value.length, sha256: digest(value)};
   return {$binary: Array.from(value)};
 }
 function observable(value) {
   if (Buffer.isBuffer(value)) return binary(value);
+  if (typeof value === 'string' && value.length > summarized) return {$string: value.length, sha256: digest(value)};
   if (Array.isArray(value)) return value.map(observable);
   if (value && typeof value === 'object') {
     const result = {};
@@ -190,6 +198,38 @@ async function run() {
       value.time = new Date(value.time).toISOString();
       record(root, 'ack:metadata', values.map(observable)); resolve();
     }));
+  } else if (scenario === 'large-payload') {
+    // Close to the default message limit of 1e6 bytes, in both directions.
+    await ack(root, 'echo', 'x'.repeat(999000));
+    const echoed = event(root, 'binary-event');
+    await ack(root, 'binary', Buffer.from(Array.from({length: 600000}, (_, i) => i % 251)));
+    await echoed;
+  } else if (scenario === 'over-limit') {
+    // The EVENT packet is 12 bytes longer than the limit.
+    const disconnected = event(root, 'disconnect');
+    root.emit('echo', 'x'.repeat(1e6));
+    await disconnected;
+  } else if (scenario === 'burst') {
+    // 300 packets of 1,000 characters exceed a polling response's 64 packets and 256 KiB.
+    await ack(root, 'burst', 300, 1000);
+  } else if (scenario === 'client-burst') {
+    // Emitted at once, so a polling client sends them in one POST.
+    for (let i = 0; i < 200; i++) root.emit('count');
+    await ack(root, 'counted');
+  } else if (scenario === 'attachments') {
+    // 10 attachments, the parsers' limit, in an EVENT, an ACK and both directions.
+    const values = Array.from({length: 10}, (_, i) => Buffer.from([i, 255 - i]));
+    const echoed = event(root, 'binary-many-event');
+    await ack(root, 'binary-many', values);
+    await echoed;
+    root.once('binary-many-question', (question, reply) => reply(question.map(value => Buffer.from(value).reverse())));
+    const result = event(root, 'binary-many-result');
+    await ack(root, 'ask-binary-many');
+    await result;
+  } else if (scenario === 'too-many-attachments') {
+    const disconnected = event(root, 'disconnect');
+    root.emit('binary-many', Array.from({length: 11}, (_, i) => Buffer.from([i])));
+    await disconnected;
   } else {
     throw new Error('unknown scenario: ' + scenario);
   }

@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +22,10 @@ type handlerPeer struct {
 	errs    chan error  // OnError calls of the namespaces registered by onError
 	conns   chan Conn   // the Conn of each OnError call
 	reasons chan string // OnDisconnect reasons of the root namespace
-	done    chan struct{}
+	// done is closed when the server has released the connection: its read
+	// goroutine has returned and so has every disconnect callback, so each report
+	// those goroutines raise has been delivered or logged.
+	done chan struct{}
 }
 
 // newHandlerPeer builds the server; setup registers the handlers before the
@@ -36,10 +38,21 @@ func newHandlerPeer(t *testing.T, setup func(*handlerPeer)) *handlerPeer {
 	if setup != nil {
 		setup(p)
 	}
-	go func() { defer close(p.done); p.server.serveConn(p.fc) }()
+	go func() {
+		defer close(p.done)
+		p.server.serveConn(p.fc)
+		// serveConn returns once the read goroutine runs; a rejected or already
+		// released connection is no longer a holder.
+		p.server.activeMu.Lock()
+		c := p.server.holders[p.fc.ID()]
+		p.server.activeMu.Unlock()
+		if c != nil {
+			<-c.released
+		}
+	}()
 	t.Cleanup(func() {
 		_ = p.fc.Close()
-		recv(t, p.done, "serveConn return")
+		recv(t, p.done, "connection release")
 		_ = p.server.Close()
 	})
 	return p
@@ -104,6 +117,11 @@ func requirePanicRecord(t *testing.T, rec *attrRecorder, value string) {
 	require.Contains(t, found[0]["stack"], "handler_errors_test.go")
 }
 
+// fieldError is an error type with an exported field.
+type fieldError struct{ Detail string }
+
+func (e *fieldError) Error() string { return "field error: " + e.Detail }
+
 func TestUntypedErrorReturnIsAcknowledgedAndReported(t *testing.T) {
 	failure := errors.New("bad thing")
 	p := newHandlerPeer(t, func(p *handlerPeer) {
@@ -118,6 +136,12 @@ func TestUntypedErrorReturnIsAcknowledgedAndReported(t *testing.T) {
 			return "done", nil
 		})
 		p.server.OnEvent("/", "remote", func(Conn) error { return &RemoteError{Code: "denied", Message: "no"} })
+		p.server.OnEvent("/", "concrete", func(_ Conn, fail bool) *fieldError {
+			if fail {
+				return &fieldError{Detail: "disk"}
+			}
+			return nil
+		})
 	})
 	require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
 
@@ -142,6 +166,13 @@ func TestUntypedErrorReturnIsAcknowledgedAndReported(t *testing.T) {
 	var remote *RemoteError
 	require.ErrorAs(t, recv(t, p.errs, "OnError of the RemoteError"), &remote)
 	recv(t, p.conns, "OnError Conn")
+
+	// A result declared with a concrete error type is a plain value: JSON-encoded
+	// by its fields and not reported.
+	p.send(t, `26["concrete",true]`)
+	require.Equal(t, "36[{\"Detail\":\"disk\"}]\n", recv(t, p.fc.out, "concrete error type ACK"))
+	p.send(t, `27["concrete",false]`)
+	require.Equal(t, "37[null]\n", recv(t, p.fc.out, "nil concrete error type ACK"))
 
 	// Without an ACK id the error is still reported, and nothing is written.
 	p.send(t, `2["fail"]`)
@@ -310,9 +341,11 @@ func TestHandlerPanicsAreReportedOnce(t *testing.T) {
 				}
 				if tc.want.reason != "" {
 					require.Equal(t, tc.want.reason, recv(t, p.reasons, "OnDisconnect"))
-					if tc.want.reason == "forced close" {
-						recv(t, p.done, "connection end")
-					}
+					// A panic after Close is reported once the handler returns, after
+					// OnDisconnect: wait for the read goroutine before counting reports.
+					// A client's namespace disconnect leaves the engine connection open.
+					_ = p.fc.Close()
+					recv(t, p.done, "connection release")
 				} else {
 					p.barrier(t) // the connection stays open
 				}
@@ -320,10 +353,6 @@ func TestHandlerPanicsAreReportedOnce(t *testing.T) {
 					require.Empty(t, p.errs, "a second report")
 					require.Empty(t, only(p.rec.since(0), "socketio: handler panic"))
 				} else {
-					// A panic after Close is reported once the handler returns, after OnDisconnect.
-					require.Eventually(t, func() bool {
-						return len(only(p.rec.since(0), "socketio: handler panic")) != 0
-					}, waitFor, time.Millisecond)
 					requirePanicRecord(t, p.rec, value)
 				}
 				for _, frame := range drain(p.fc.out) {
@@ -408,16 +437,17 @@ func TestDisconnectPanicIsReportedOnce(t *testing.T) {
 			if withOnError {
 				requirePanic(t, recv(t, p.errs, "OnError of the panic"), "disconnect boom")
 				recv(t, p.conns, "OnError Conn")
-				require.Empty(t, p.errs)
-			} else {
-				require.Eventually(t, func() bool {
-					return len(only(p.rec.since(0), "socketio: handler panic")) == 1
-				}, waitFor, time.Millisecond)
-				requirePanicRecord(t, p.rec, "disconnect boom")
 			}
-			// The connection keeps serving the root namespace and the namespace can rejoin.
+			// The connection keeps serving the root namespace and the namespace can
+			// rejoin; the read goroutine has finished the disconnect by then.
 			p.send(t, "0/chat")
 			require.Equal(t, "0/chat,", recv(t, p.fc.out, "namespace CONNECT again"))
+			if withOnError {
+				require.Empty(t, p.errs, "a second report")
+				require.Empty(t, only(p.rec.since(0), "socketio: handler panic"))
+			} else {
+				requirePanicRecord(t, p.rec, "disconnect boom")
+			}
 		})
 	}
 }
@@ -450,11 +480,29 @@ func TestErrorResultsBeforeAListenerPanicAreReported(t *testing.T) {
 	require.ErrorIs(t, recv(t, p.errs, "the first listener's error"), first)
 	requirePanic(t, recv(t, p.errs, "the second listener's panic"), "listener boom")
 	require.Equal(t, "forced close", recv(t, p.reasons, "OnDisconnect"))
-	recv(t, p.done, "connection end")
+	recv(t, p.done, "connection release")
 	require.Empty(t, p.errs, "a further report")
 	for _, frame := range drain(p.fc.out) {
 		require.NotRegexp(t, `^3`, frame, "an ACK after the panic")
 	}
+}
+
+// A handler that calls Close and then panics has its panic reported when it
+// returns, after the OnDisconnect that Close ran.
+func TestPanicAfterCloseIsReportedAfterOnDisconnect(t *testing.T) {
+	order := make(chan string, 4)
+	p := newHandlerPeer(t, func(p *handlerPeer) {
+		p.server.OnDisconnect("/", func(Conn, string) { order <- "OnDisconnect" })
+		p.server.OnError("/", func(_ Conn, err error) { order <- "OnError: " + err.Error() })
+		p.server.OnEvent("/", "boom", func(c Conn) {
+			_ = c.Close()
+			panic("closing boom")
+		})
+	})
+	require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
+	p.send(t, `2["boom"]`)
+	recv(t, p.done, "connection release")
+	require.Equal(t, []string{"OnDisconnect", "OnError: panic: closing boom"}, drain(order))
 }
 
 // nilPointerError has a pointer receiver that dereferences it, so the Error
@@ -514,14 +562,14 @@ func TestConnectPanicAfterCloseIsReportedOnce(t *testing.T) {
 				}
 				if withOnError {
 					requirePanic(t, recv(t, p.errs, "OnError of the panic"), "connect boom")
+				}
+				recv(t, p.done, "connection release")
+				if withOnError {
+					require.Empty(t, p.errs, "a second report")
+					require.Empty(t, only(p.rec.since(0), "socketio: handler panic"))
 				} else {
-					require.Eventually(t, func() bool {
-						return len(only(p.rec.since(0), "socketio: handler panic")) != 0
-					}, waitFor, time.Millisecond)
 					requirePanicRecord(t, p.rec, "connect boom")
 				}
-				recv(t, p.done, "connection end")
-				require.Empty(t, p.errs, "a second report")
 				for _, frame := range drain(p.fc.out) {
 					require.NotContains(t, frame, "connect boom", "the panic value reached the peer")
 				}
@@ -585,9 +633,7 @@ func TestErrorResultAfterCloseIsLoggedAtDebug(t *testing.T) {
 	require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
 	p.send(t, `2["fail"]`)
 	require.Equal(t, "server namespace disconnect", recv(t, p.reasons, "OnDisconnect"))
-	require.Eventually(t, func() bool {
-		return len(only(p.rec.since(0), "socketio: error after close")) != 0
-	}, waitFor, time.Millisecond)
+	recv(t, p.done, "connection release") // the handler has returned its error
 	records := only(p.rec.since(0), "socketio: error after close")
 	require.Len(t, records, 1, "records %v", p.rec.since(0))
 	require.Equal(t, "DEBUG", records[0]["level"])
@@ -714,7 +760,9 @@ func TestDisconnectingErrorResultIsReportedDuringClose(t *testing.T) {
 					}
 				}
 				require.Equal(t, tc.reason, recv(t, p.reasons, "OnDisconnect"))
-				recv(t, p.done, "connection end")
+				// The local Emit of the close handler reports after OnDisconnect, on
+				// the read goroutine.
+				recv(t, p.done, "connection release")
 				records := only(p.rec.since(0), "socketio: unhandled error")
 				if withOnError {
 					require.ElementsMatch(t, want, got)

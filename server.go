@@ -190,10 +190,11 @@ func (s *Server) OnDisconnect(namespace string, f func(Conn, string)) {
 // OnError sets the namespace error handler. Root connect and connection-middleware
 // failures pass a nil Conn; errors for other unjoined namespaces pass an inactive
 // Conn. It receives the non-nil error results of untyped event handlers as
-// returned, and a recovered panic of any application callback of the namespace as
-// a *PanicError, possibly wrapped; each panic is reported once, also after the
-// connection's close started. Without an error handler these are logged at WARN, a
-// panic as "socketio: handler panic" with its stack. An error result that a handler
+// returned, and a recovered panic of the namespace's callbacks that PanicError
+// lists as a *PanicError, possibly wrapped; each panic is reported once, also
+// after the connection's close started, when the report can follow OnDisconnect.
+// Without an error handler these are logged at WARN, a panic as
+// "socketio: handler panic" with its stack. An error result that a handler
 // of an incoming event returns after the connection's close started is not
 // reported: it is logged at DEBUG as "socketio: error after close". The error
 // results of disconnecting listeners, which only run during a close, and of
@@ -224,8 +225,9 @@ func (s *Server) OnError(namespace string, f func(Conn, error)) {
 // A result of type error is sent as null when nil, also when it holds a nil
 // pointer, and otherwise as the typed error object
 // {"code":"handler_error","message":err.Error()}, or with the code and message of
-// a *RemoteError in its chain; a non-nil one also goes to OnError, whether or not
-// an acknowledgement was requested, and the connection stays open.
+// a *RemoteError in its chain; a non-nil one is also reported as OnError
+// describes, whether or not an acknowledgement was requested, and the connection
+// stays open.
 // A final AckFunc parameter takes ownership of the ACK and suppresses automatic
 // returns; it may be called later, once, from another goroutine. If the arguments
 // do not decode into the parameter types, f is not called, the error goes to

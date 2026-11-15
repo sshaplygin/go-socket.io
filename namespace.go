@@ -218,9 +218,9 @@ func (b parentBroadcast) IDs(rooms ...string) []string {
 
 // On adds a listener after existing listeners; off removes just this listener.
 // Listener payload parameter types must match; a mismatch or non-function panics.
-// The first listener with results supplies the ACK; the error results of every
-// listener go to OnError, and a panicking listener ends the dispatch as in
-// Server.OnEvent.
+// The first listener with results supplies the ACK; the error results of each
+// listener that ran are reported as Server.OnError describes, and a panicking
+// listener ends the dispatch as in Server.OnEvent.
 func (n *ServerNamespace) On(event string, f interface{}) (off func()) {
 	return n.registration().AddListener(event, f, false)
 }

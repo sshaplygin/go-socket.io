@@ -28,9 +28,15 @@ type Conn interface {
 	// ID returns the Engine.IO ID in the root namespace, or
 	// <namespace>#<Engine.IO ID> in any other namespace.
 	ID() string
+	// URL returns the request URL of the current Engine.IO transport, which
+	// changes with a transport upgrade.
 	URL() url.URL
+	// LocalAddr returns the local network address of the current transport.
 	LocalAddr() net.Addr
+	// RemoteAddr returns the server's network address on the current transport.
 	RemoteAddr() net.Addr
+	// RemoteHeader returns the server's response headers on the current
+	// transport: of the websocket handshake, or of the latest polling response.
 	RemoteHeader() http.Header
 }
 
@@ -40,8 +46,12 @@ type Namespace interface {
 	// Synchronize access when callbacks or application goroutines share mutable state;
 	// a disconnect initiated by the application can run callbacks concurrently.
 	Context() interface{}
+	// SetContext replaces the value Context returns. It does not synchronize
+	// with Context; see Context.
 	SetContext(ctx interface{})
 
+	// Namespace returns the name of this namespace, "/" for the root
+	// namespace.
 	Namespace() string
 	// Connected is true from namespace CONNECT until its socket or connection closes.
 	Connected() bool
@@ -82,6 +92,9 @@ type Namespace interface {
 // Each builder returns a new value, so an Emitter can be reused within the Conn's
 // generation. It cannot send through a replacement namespace or connection.
 type Emitter interface {
+	// Volatile drops the packet, instead of queueing or buffering it, when the
+	// namespace is not connected, the transport is not writable or packets are
+	// still waiting to be written.
 	Volatile() Emitter
 	// Compress chooses per-packet compression; the default is true.
 	Compress(on bool) Emitter

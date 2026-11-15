@@ -77,9 +77,15 @@ type Conn interface {
 	// ID returns the Engine.IO ID in the root namespace, or
 	// <namespace>#<Engine.IO ID> in any other namespace.
 	ID() string
+	// URL returns the request URL of the current Engine.IO transport, which
+	// changes with a transport upgrade; Handshake keeps the original URL.
 	URL() url.URL
+	// LocalAddr returns the local network address of the current transport.
 	LocalAddr() net.Addr
+	// RemoteAddr returns the peer's network address on the current transport.
 	RemoteAddr() net.Addr
+	// RemoteHeader returns the request headers of the current transport;
+	// Handshake keeps the headers of the original request.
 	RemoteHeader() http.Header
 }
 
@@ -89,8 +95,12 @@ type Namespace interface {
 	// Synchronize access when callbacks or application goroutines share mutable state;
 	// a disconnect initiated by the application can run callbacks concurrently.
 	Context() interface{}
+	// SetContext replaces the value Context returns. It does not synchronize
+	// with Context; see Context.
 	SetContext(ctx interface{})
 
+	// Namespace returns the name of this socket's namespace, "/" for the root
+	// namespace.
 	Namespace() string
 	// Connected is true from namespace CONNECT until its socket or connection closes.
 	Connected() bool
@@ -141,11 +151,27 @@ type Namespace interface {
 // to a broadcast excluding its sender; Volatile, Local and Compress preserve its target.
 // A single-socket target stays bound to its Conn's namespace generation.
 type Emitter interface {
+	// To adds rooms to the target: the broadcast reaches each socket in any of
+	// the rooms once. A broadcast without rooms reaches every socket of the
+	// namespace that is in at least one room; the server joins each socket to
+	// the room of its own ID, so that is every socket that has not left it.
 	To(rooms ...string) Emitter
+	// Except excludes the sockets with these Conn.ID values. With an adapter
+	// that cannot exclude sockets, Emit of any broadcast that excludes sockets
+	// returns an error wrapping adapter.ErrExceptUnsupported, and that adapter
+	// sends nothing (for a dynamic parent, see Emit); a broadcast that starts
+	// from a Conn always excludes its sender, so this applies to it without
+	// Except.
 	Except(ids ...string) Emitter
+	// Volatile drops the packet, instead of queueing it, for each target
+	// connection whose transport is not writable or that still has packets
+	// waiting to be written.
 	Volatile() Emitter
 	// Compress chooses per-packet compression; the default is true.
 	Compress(on bool) Emitter
+	// Local restricts a broadcast to the sockets of this server instance: a
+	// clustered adapter, such as the Redis adapter, does not publish it. It
+	// does not change a single-socket emit.
 	Local() Emitter
 	// Emit returns ErrBroadcastAck without sending for a broadcast with a trailing
 	// func, or an adapter error. A dynamic parent may have delivered to earlier

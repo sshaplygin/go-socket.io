@@ -173,10 +173,15 @@ func (s *Server) Addr() net.Addr {
 // parameter starts a session on the transport named by the transport
 // parameter; a request with a sid continues that session or upgrades it to
 // another transport. It does not check the request path, so it answers on
-// whatever path the caller routes to it. A request it rejects is answered with
-// the JSON error bodies described in docs/PROTOCOL.md, except a websocket
-// handshake that gorilla/websocket rejects, which gorilla/websocket answers
-// itself; after Close every request is rejected as a bad request.
+// whatever path the caller routes to it.
+//
+// A request rejected before a transport handles it is answered with one of the
+// JSON error bodies described in docs/PROTOCOL.md; after Close every request
+// is rejected that way, as a bad request. The transports answer what they
+// reject themselves: the polling transport in plain text (HTTP 400, 413 or
+// 500), and gorilla/websocket a websocket handshake it refuses. A websocket
+// request that fails after its connection was taken over from the HTTP server
+// gets no HTTP answer; the connection is closed.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if isClosed(s.closed) {
 		s.writeServerError(w, r, 3, nil)

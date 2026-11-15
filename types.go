@@ -150,13 +150,16 @@ type Namespace interface {
 // A single-socket target stays bound to its Conn's namespace generation.
 type Emitter interface {
 	// To adds rooms to the target: the broadcast reaches each socket in any of
-	// the rooms once. A broadcast without rooms reaches the whole namespace.
+	// the rooms once. A broadcast without rooms reaches every socket of the
+	// namespace that is in at least one room; the server joins each socket to
+	// the room of its own ID, so that is every socket that has not left it.
 	To(rooms ...string) Emitter
 	// Except excludes the sockets with these Conn.ID values. With an adapter
 	// that cannot exclude sockets, Emit of any broadcast that excludes sockets
-	// returns an error wrapping adapter.ErrExceptUnsupported and sends nothing;
-	// a broadcast that starts from a Conn always excludes its sender, so this
-	// applies to it without Except.
+	// returns an error wrapping adapter.ErrExceptUnsupported, and that adapter
+	// sends nothing (for a dynamic parent, see Emit); a broadcast that starts
+	// from a Conn always excludes its sender, so this applies to it without
+	// Except.
 	Except(ids ...string) Emitter
 	// Volatile drops the packet, instead of queueing it, for each target
 	// connection whose transport is not writable or that still has packets

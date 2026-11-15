@@ -52,11 +52,15 @@ type Packet = packet.Packet
 
 // FrameWriter is the writer which supports framing.
 type FrameWriter interface {
+	// NextWriter returns a writer for one frame of the given type; the frame
+	// is complete when the writer is closed.
 	NextWriter(FrameType) (io.WriteCloser, error)
 }
 
 // FrameReader is the reader which supports framing.
 type FrameReader interface {
+	// NextReader returns the type and the contents of the next frame; the
+	// reader is closed before the next frame is requested.
 	NextReader() (FrameType, io.ReadCloser, error)
 }
 
@@ -78,6 +82,14 @@ type PacketEncoder = packet.Encoder
 // for the next packet.
 type PacketDecoder = packet.Decoder
 
+// NewPacketEncoder returns a PacketEncoder that writes each packet as one frame
+// of w: the packet type, as a digit in a String frame or as a byte in a Binary
+// frame, followed by the body the caller writes. A PacketEncoder is not safe for
+// concurrent use.
 func NewPacketEncoder(w FrameWriter) *PacketEncoder { return packet.NewEncoder(w) }
 
+// NewPacketDecoder returns a PacketDecoder that reads each frame of r as one
+// packet: the first byte gives the packet type, and the returned reader yields
+// the rest of the frame. The caller must close that reader before the next
+// call. A PacketDecoder is not safe for concurrent use.
 func NewPacketDecoder(r FrameReader) *PacketDecoder { return packet.NewDecoder(r) }

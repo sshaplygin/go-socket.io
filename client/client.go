@@ -14,7 +14,8 @@ import (
 )
 
 // Client multiplexes namespace sockets over one Engine.IO connection. Its Emit,
-// OnConnect, OnDisconnect, OnError and OnEvent act on the namespace selected by the
+// OnConnect, OnDisconnect, OnError and OnEvent, and the typed-descriptor bridges
+// RegisterEvent, SendEvent and RequestAck, act on the namespace selected by the
 // address passed to New; OnReconnectAttempt, OnReconnect, OnReconnectError,
 // OnReconnectFailed, OnPing and OnPong belong to the connection. Socket returns a
 // namespace socket, which also has On, Once, Off, Send, Connected and ID. Emit and

@@ -56,7 +56,9 @@ func newHeartbeatPair(t *testing.T, tr transport.Transport, interval, timeout ti
 // A server handler that blocks past the heartbeat window ends its own connection: the
 // connection's reader is the one that answers the client's PING, so no PONG is sent and
 // the client disconnects with ping timeout. The handler's ACK is lost, and neither
-// role's OnError is called.
+// role's OnError is called. The test pins the behavior of a reader that also answers
+// the heartbeat, which the documentation does not promise: a server that answered PING
+// while a handler runs would keep this connection.
 func TestBlockingServerHandlerEndsItsConnection(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
@@ -83,29 +85,70 @@ func TestBlockingServerHandlerEndsItsConnection(t *testing.T) {
 	}
 }
 
-// A Go client callback that blocks past the heartbeat window normally ends its own
-// connection with ping timeout: the client renews its window only when it reads a PONG,
-// and it reads nothing while the callback runs. The end is not guaranteed: over
+// blockedClient observes the heartbeat of a Go client while one of its callbacks blocks.
+type blockedClient struct {
+	running atomic.Bool
+	pongs   atomic.Int32
+	pings   chan struct{}
+}
+
+// observe counts the client's PINGs and the PONGs it reads once block has been called.
+func (b *blockedClient) observe(cl *client.Client) {
+	b.pings = make(chan struct{}, 16)
+	cl.OnPing(func() {
+		if b.running.Load() {
+			select {
+			case b.pings <- struct{}{}:
+			default:
+			}
+		}
+	})
+	cl.OnPong(func(time.Duration) {
+		if b.running.Load() {
+			b.pongs.Add(1)
+		}
+	})
+}
+
+// block is called by the callback before it blocks.
+func (b *blockedClient) block() { b.running.Store(true) }
+
+// pastWindow returns once the blocked callback has outlasted the heartbeat window. PINGs
+// are at least pingInterval apart, so after six of them, with the 100 ms interval and
+// 300 ms timeout of these tests, the client has read nothing for longer than the window.
+// Over polling the server can end the session first, after which the client sends no
+// more PINGs.
+func (b *blockedClient) pastWindow(t *testing.T, p *heartbeatPair) {
+	t.Helper()
+	for n := 0; n < 6; n++ {
+		select {
+		case <-b.pings:
+		case reason := <-p.serverReasons:
+			p.serverReasons <- reason
+			return
+		case <-time.After(waitFor):
+			t.Fatal("timed out waiting for the client's PINGs")
+		}
+	}
+}
+
+// While a Go client callback runs, the client's heartbeat stops: its PINGs go out, but it
+// reads no PONG, because the reader that would read one is running the callback. The
+// client renews its window only when it reads a PONG, so a callback that blocks past the
+// window normally ends its connection with ping timeout. The end is not guaranteed: over
 // websocket, a PONG read ahead together with the event renews the window once the
 // callback returns. So after the release the test accepts either outcome; it requires
 // ping timeout if the connection ends, and no OnError in both cases.
 func TestBlockingClientHandlerStopsHeartbeat(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
-			var running atomic.Bool
-			started, release, pings := make(chan struct{}), make(chan struct{}), make(chan struct{}, 16)
+			var blocked blockedClient
+			started, release := make(chan struct{}), make(chan struct{})
 			const interval, timeout = 100 * time.Millisecond, 300 * time.Millisecond
 			p := newHeartbeatPair(t, tr, interval, timeout, func(p *heartbeatPair) {
-				p.cl.OnPing(func() {
-					if running.Load() {
-						select {
-						case pings <- struct{}{}:
-						default:
-						}
-					}
-				})
+				blocked.observe(p.cl)
 				p.cl.OnEvent("work", func(client.Conn) {
-					running.Store(true)
+					blocked.block()
 					close(started)
 					<-release
 				})
@@ -114,20 +157,8 @@ func TestBlockingClientHandlerStopsHeartbeat(t *testing.T) {
 			c := recv(t, p.conns, "OnConnect")
 			c.Emit("work")
 			recv(t, started, "the client handler to start")
-			// PINGs are at least interval apart, so after six of them the client has read
-			// nothing for longer than interval+timeout. Over polling the server can end the
-			// session first, after which the client sends no more PINGs.
-			serverEnded := false
-			for n := 0; n < 6 && !serverEnded; n++ {
-				select {
-				case <-pings:
-				case reason := <-p.serverReasons:
-					p.serverReasons <- reason
-					serverEnded = true
-				case <-time.After(waitFor):
-					t.Fatal("timed out waiting for the client's PINGs")
-				}
-			}
+			blocked.pastWindow(t, p)
+			require.Zero(t, blocked.pongs.Load(), "the client read a PONG while its callback ran")
 			close(release)
 			alive := make(chan string, 1)
 			c.Emit("probe", func(s string) { alive <- s })

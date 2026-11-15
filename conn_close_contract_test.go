@@ -60,16 +60,19 @@ func (r *rawWS) send(t *testing.T, msg string) {
 // different ways, and a raw websocket client connected to its root namespace.
 type rawDecodeServer struct {
 	*rawWS
+	srv     *Server
+	conns   chan Conn
 	errs    chan error
 	reasons chan string
 }
 
-func newRawDecodeServer(t *testing.T) *rawDecodeServer {
+// newRawDecodeServer registers further handlers through setup before the client connects.
+func newRawDecodeServer(t *testing.T, setup ...func(*Server)) *rawDecodeServer {
 	t.Helper()
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := NewServer(WithEngineOptions(engineio.WithLogger(quiet)))
-	s := &rawDecodeServer{errs: make(chan error, 4), reasons: make(chan string, 1)}
-	srv.OnConnect("/", func(Conn) error { return nil })
+	s := &rawDecodeServer{srv: srv, conns: make(chan Conn, 1), errs: make(chan error, 4), reasons: make(chan string, 1)}
+	srv.OnConnect("/", func(c Conn) error { s.conns <- c; return nil })
 	srv.OnEvent("/", "num", func(_ Conn, n int) int { return n })
 	srv.OnEvent("/", "time", func(_ Conn, ts time.Time) string { return ts.String() })
 	srv.OnEvent("/", "ping", func(Conn) string { return "pong" })
@@ -81,11 +84,38 @@ func newRawDecodeServer(t *testing.T) *rawDecodeServer {
 		s.errs <- err
 	})
 	srv.OnDisconnect("/", func(_ Conn, reason string) { s.reasons <- reason })
+	for _, f := range setup {
+		f(srv)
+	}
 	go func() { _ = srv.Serve() }()
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { _ = srv.Close(); ts.Close() })
 	s.rawWS = dialRawWS(t, ts.URL)
 	return s
+}
+
+// ackRequest waits for the server's acknowledged event name, such as 421["q"], and
+// returns its acknowledgement id.
+func (s *rawDecodeServer) ackRequest(t *testing.T, name string) string {
+	t.Helper()
+	for {
+		m := s.next(t, "42")
+		if id, ok := strings.CutSuffix(strings.TrimPrefix(m, "42"), `["`+name+`"]`); ok {
+			require.NotEmpty(t, id, "the event %s requests no acknowledgement", m)
+			return id
+		}
+	}
+}
+
+// closed reads until the server has closed the websocket.
+func (s *rawDecodeServer) closed(t *testing.T) {
+	t.Helper()
+	for {
+		if _, err := s.read(); err != nil {
+			require.False(t, errors.Is(err, os.ErrDeadlineExceeded), "the websocket stayed open")
+			return
+		}
+	}
 }
 
 // An argument of the wrong JSON type for a handler's parameter is reported to OnError

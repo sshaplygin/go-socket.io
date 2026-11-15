@@ -402,16 +402,18 @@ func (s *Socket) OnError(f func(Conn, error)) { s.handler.OnError(f) }
 // error of a time.Time parameter, goes to OnError and ends the connection without an
 // ACK; OnDisconnect reports forced close.
 //
-// f runs on the connection's reader, which also reads the heartbeat's PONG packets,
-// and the client renews its heartbeat window only when it reads a PONG. While f runs,
-// that connection dispatches nothing else. An f that runs longer than the server's
-// ping timeout (20 seconds by default) can therefore end the connection with a ping
-// timeout on the client or the server, and one that runs longer than the ping
-// interval plus the ping timeout (45 seconds by default) normally does; neither the
-// end nor the survival of the connection can be relied on. When the connection ends
-// this way, OnError is not called, and the ACK of f may still reach the server or be
-// lost. For long work, f starts a goroutine and returns, and the goroutine
-// acknowledges through a final AckFunc parameter.
+// f runs on the reader of the client's Engine.IO connection, which serves every
+// namespace socket of the Client and also reads the heartbeat's PONG packets, and
+// the client renews its heartbeat window only when it reads a PONG. While f runs,
+// that Engine.IO connection dispatches nothing else, in any namespace. An f that
+// runs longer than the server's ping timeout (20 seconds by default) can therefore
+// end the Engine.IO connection, with all its namespaces, with a ping timeout on the
+// client or the server, and one that runs longer than the ping interval plus the
+// ping timeout (45 seconds by default) normally does; neither the end nor the
+// survival of the connection can be relied on. When the connection ends this way,
+// OnError is not called, and the ACK of f may still reach the server or be lost.
+// For long work, f starts a goroutine and returns, and the goroutine acknowledges
+// through a final AckFunc parameter.
 func (s *Socket) OnEvent(event string, f interface{}) { s.handler.OnEvent(event, f) }
 
 // Close sends DISCONNECT for this namespace. The last socket closes Engine.IO.

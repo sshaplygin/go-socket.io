@@ -36,7 +36,8 @@ type Conn interface {
 	// URL returns the request URL of the current transport. The result is a url.URL
 	// value, so a pointer method such as String needs a variable: u := c.URL(); u.String().
 	URL() url.URL
-	// LocalAddr returns the local network address of the current transport.
+	// LocalAddr returns the local network address of the current transport; over
+	// polling it is an empty polling.Addr.
 	LocalAddr() net.Addr
 	// RemoteAddr returns the server's network address on the current transport.
 	RemoteAddr() net.Addr
@@ -61,7 +62,11 @@ type Namespace interface {
 	// Emit sends eventName with arguments v to the server. If the last element of v
 	// is a func, it is not sent but registered as the acknowledgement callback: the
 	// server's ACK arguments are decoded into its parameters and it is called on the
-	// read goroutine of the connection. Encoding is synchronous and may invoke
+	// read goroutine of the connection. The callback has no timeout: it is called
+	// when the ACK arrives, and never if this generation ends first. An ACK argument
+	// with the wrong JSON type for its parameter is reported to OnError without
+	// calling the callback; any other ACK argument decode error is reported to OnError
+	// and ends the connection with forced close. Encoding is synchronous and may invoke
 	// application marshalers. Queue admission does not wait for free capacity;
 	// transport writes run in the background. A queue already holding
 	// WithWriteBufferSize packets not yet started drops the packet and every

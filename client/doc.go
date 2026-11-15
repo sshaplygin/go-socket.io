@@ -25,8 +25,9 @@
 // OnConnect reports namespace readiness. Events emitted before readiness are
 // buffered. The peer must handle echo and return a value for the ACK above.
 // Callbacks run on the connection dispatcher: do not block one while waiting for
-// another event or ACK on the same connection. A long callback stops the heartbeat
-// and can end the connection with a ping timeout (see Socket.OnEvent). Close
+// another event or ACK on the same connection, in any namespace. A long callback
+// stops the heartbeat and can end the connection, with all its namespaces, with a
+// ping timeout (see Socket.OnEvent). Close
 // disconnects all namespaces and returns without waiting: queued packets and
 // DISCONNECT are written in the background within the configured close timeout,
 // so a program that exits right after Close can lose them. The example above

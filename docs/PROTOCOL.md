@@ -252,9 +252,13 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   with that object as its only argument, and `EmitWithAck` returns a
   `*RemoteError` with code `invalid_payload`; without an ACK id nothing is sent. The decode error goes to `OnError` in both cases. This
   covers a wrong JSON type and a binary attachment where another type is
-  expected. Any other argument decode error, such as the `UnmarshalJSON` error of a
-  `time.Time` parameter given `"bad"`, goes to `OnError` and closes the connection,
-  as an invalid packet does, with no ACK. A missing argument is zero-filled and extra arguments are ignored, so
+  expected. Any other decode error of an argument of an untyped handler, such as
+  the `UnmarshalJSON` error of a `time.Time` parameter given `"bad"`, goes to
+  `OnError` and closes the connection, as an invalid packet does, with no ACK. The
+  arguments of an ACK decoded into an `Emit` callback follow the same two rules:
+  a wrong JSON type is reported to `OnError` and the callback is not called, and
+  any other decode error also closes the connection. A typed descriptor's handler
+  keeps the connection on every argument decode error. A missing argument is zero-filled and extra arguments are ignored, so
   the handler runs and its return value is the ACK. A packet that is not valid
   (an event payload that is not an array) or an invalid attachment closes the
   connection and sends no ACK. The reference server has no equivalent, because its

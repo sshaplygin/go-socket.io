@@ -57,6 +57,18 @@ func (p *rejoinPeer) written(t *testing.T) []string {
 	}
 }
 
+// read feeds the reader a frame and returns once the reader has handled it:
+// frames are handled in order, and a root event follows this one.
+func (p *rejoinPeer) read(t *testing.T, frame string) {
+	t.Helper()
+	handled := make(chan struct{}, 1)
+	off := p.root.On("handled", func(Conn) { handled <- struct{}{} })
+	defer off()
+	p.fc.reads <- frame
+	p.fc.reads <- `2["handled"]`
+	recv(t, handled, "reader handled "+frame)
+}
+
 func TestSocketConnectConcurrentCallsSendOneConnect(t *testing.T) {
 	for _, by := range []string{"server", "client"} {
 		t.Run(by, func(t *testing.T) {
@@ -326,4 +338,73 @@ func TestSocketConnectBeforeReconnectionStarts(t *testing.T) {
 	next.reads <- "0"
 	next.reads <- "0/chat,"
 	require.ElementsMatch(t, []string{"/", "/chat"}, []string{recv(t, p.connects, "root OnConnect"), recv(t, p.connects, "chat OnConnect")})
+}
+
+// The reader registers a CONNECT reply's Conn before it binds it to the Socket.
+// A Close in between unregisters that Conn and sends DISCONNECT; a Connect that
+// follows must join with the reply to its own CONNECT, not with that Conn, whose
+// events the connection no longer routes.
+func TestSocketConnectDropsReplyClosedBeforeBinding(t *testing.T) {
+	p := newRejoinPeer(t)
+	p.fc.reads <- "1/chat,"
+	require.Equal(t, "/chat:io server disconnect", recv(t, p.disconnects, "server disconnect"))
+	require.NoError(t, p.chat.Connect())
+	require.Equal(t, []string{"0/chat,"}, p.written(t))
+	// The reader's first step for the reply, as clientConnectPacketHandler does it.
+	m := p.cl.state
+	m.mu.Lock()
+	current := m.conn
+	m.mu.Unlock()
+	reply := newNamespaceConn(current, "/chat")
+	require.True(t, current.register("/chat", reply))
+	require.NoError(t, p.chat.Close())
+	require.NoError(t, p.chat.Connect())
+	// The reader's second step.
+	require.NoError(t, m.namespaceConnected(current, "/chat", reply))
+	require.False(t, p.chat.Connected(), "the reply that Close ended does not join the Socket")
+	require.Empty(t, p.connects)
+	require.Equal(t, []string{"1/chat,", "0/chat,"}, p.written(t))
+	p.fc.reads <- "0/chat,"
+	require.Equal(t, "/chat", recv(t, p.connects, "OnConnect for the second CONNECT"))
+	require.True(t, p.chat.Connected())
+	p.chat.Emit("after", 1)
+	require.Equal(t, []string{`2/chat,["after",1]`}, p.written(t))
+	require.Empty(t, p.connects)
+	require.Empty(t, p.disconnects, "the join that Close ended was never announced")
+}
+
+// A CONNECT reply for a Socket that the server's DISCONNECT closed announces a
+// namespace socket that the server keeps. The client tells the server to drop
+// it, so that the server answers the next CONNECT.
+func TestSocketConnectReleasesNamespaceJoinedWhileClosed(t *testing.T) {
+	p := newRejoinPeer(t)
+	p.fc.reads <- "1/chat,"
+	require.Equal(t, "/chat:io server disconnect", recv(t, p.disconnects, "server disconnect"))
+	require.NoError(t, p.chat.Connect())
+	require.NoError(t, p.chat.Close())
+	require.NoError(t, p.chat.Connect())
+	require.Equal(t, []string{"0/chat,", "1/chat,", "0/chat,"}, p.written(t))
+	p.fc.reads <- "0/chat," // the first CONNECT's namespace socket
+	require.Equal(t, "/chat", recv(t, p.connects, "OnConnect"))
+	p.fc.reads <- "1/chat," // the server disconnects it
+	require.Equal(t, "/chat:io server disconnect", recv(t, p.disconnects, "server disconnect"))
+	p.read(t, "0/chat,") // the second CONNECT's namespace socket
+	require.Equal(t, []string{"1/chat,"}, p.written(t))
+	require.False(t, p.chat.Connected())
+	require.NoError(t, p.chat.Connect())
+	require.Equal(t, []string{"0/chat,"}, p.written(t))
+	p.fc.reads <- "0/chat,"
+	require.Equal(t, "/chat", recv(t, p.connects, "OnConnect after Connect"))
+	require.True(t, p.chat.Connected())
+
+	// Close has sent DISCONNECT after the CONNECT whose reply arrives next: the
+	// server drops that namespace socket without another DISCONNECT.
+	require.NoError(t, p.chat.Close())
+	require.Equal(t, "/chat:io client disconnect", recv(t, p.disconnects, "Socket.Close"))
+	require.NoError(t, p.chat.Connect())
+	require.NoError(t, p.chat.Close())
+	p.read(t, "0/chat,")
+	require.Equal(t, []string{"1/chat,", "0/chat,", "1/chat,"}, p.written(t))
+	require.Empty(t, p.connects)
+	require.Empty(t, p.disconnects)
 }

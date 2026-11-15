@@ -368,7 +368,9 @@ func (s *Socket) bufferEventLocked(prepared bufferedEvent, event string) {
 // Send is Emit("message", args...).
 func (s *Socket) Send(args ...interface{}) { s.Emit("message", args...) }
 
-// OnConnect sets the namespace's connection callback.
+// OnConnect sets the namespace's connection callback. A Close that runs while
+// the server's CONNECT reply is being handled can end the join before the
+// callback is called; OnDisconnect is still called for that join.
 func (s *Socket) OnConnect(f func(Conn) error) {
 	s.handler.OnConnect(f)
 	m := s.state
@@ -439,7 +441,8 @@ func (s *Socket) Close() error {
 //
 // A connected or joining Socket is left as it is, so concurrent calls send one
 // CONNECT. A namespace the server rejected (OnError receives the server's
-// message) counts as joining: Close followed by Connect sends a new CONNECT.
+// message) counts as joining: for a namespace other than the root, Close
+// followed by Connect sends a new CONNECT.
 // A server sends the CONNECT reply of a namespace socket before its DISCONNECT,
 // so a DISCONNECT that arrives while the Socket waits for that reply ends the
 // namespace socket that Close ended, for example when the server disconnected
@@ -469,13 +472,24 @@ func (m *clientState) namespaceConnected(current *conn, namespace string, nc *na
 	}
 	s := m.sockets[namespace]
 	if s == nil || !s.active {
-		m.mu.Unlock()
 		if s != nil {
 			current.claim(namespace, nc)
+			if namespace != rootNamespace && s.requested {
+				// The Socket closed without a DISCONNECT after its last CONNECT:
+				// the server disconnected an earlier namespace socket. The server
+				// holds the one this reply announces until it is told to drop it,
+				// and a server that has it may not answer another CONNECT.
+				s.requested = false
+				current.writeControl(parser.Header{Type: parser.Disconnect, Namespace: namespace})
+			}
 		}
+		m.mu.Unlock()
 		return nil
 	}
-	if s.connected {
+	// A Close that ran after the reader registered nc has unregistered it and
+	// sent DISCONNECT. A Socket reopened since then joins with the reply to its
+	// own CONNECT; a Conn the connection no longer routes would drop its events.
+	if s.connected || !m.ownsNamespaceLocked(nc) {
 		m.mu.Unlock()
 		return nil
 	}
@@ -617,6 +631,9 @@ func (m *clientState) detachLocked(s *Socket, reason string) func() {
 			nc = pending
 		}
 		if s.requested && reason == "io client disconnect" {
+			// While s is closed, requested means that its last CONNECT is not
+			// followed by a DISCONNECT; see namespaceConnected.
+			s.requested = false
 			current.writeControl(parser.Header{Type: parser.Disconnect, Namespace: s.namespace})
 		}
 	}

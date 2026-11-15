@@ -287,3 +287,41 @@ func TestSocketConnectAfterCrossingDisconnect(t *testing.T) {
 		})
 	}
 }
+
+// Replies to the CONNECTs of earlier rounds arrive while later rounds close and
+// reopen the Socket. Whichever reply joins it, its events reach the server.
+func TestSocketConnectAfterCloseConnectRounds(t *testing.T) {
+	for _, tr := range []struct {
+		name      string
+		transport transport.Transport
+	}{{"polling", polling.Default}, {"websocket", websocket.Default}} {
+		t.Run(tr.name, func(t *testing.T) {
+			received := make(chan string, 2)
+			ts := newTestServer(t, func(srv *socketio.Server) {
+				srv.OnConnect("/", func(socketio.Conn) error { return nil })
+				srv.OnConnect("/chat", func(socketio.Conn) error { return nil })
+				srv.OnEvent("/chat", "echo", func(c socketio.Conn, value string) string {
+					received <- c.Namespace() + ":" + value
+					return value
+				})
+			}, steadyPing...)
+			cl, err := client.New(ts.URL, client.WithTransports(tr.transport))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = cl.Close() })
+			cl.Socket("/")
+			chat := cl.Socket("/chat")
+			require.NoError(t, cl.Connect())
+			for i := 0; i < 100; i++ {
+				require.NoError(t, chat.Close())
+				require.NoError(t, chat.Connect())
+			}
+			acks := make(chan string, 1)
+			for _, value := range []string{"first", "second"} {
+				chat.Emit("echo", value, func(value string) { acks <- value })
+				require.Equal(t, value, recv(t, acks, "ACK of "+value))
+				require.Equal(t, "/chat:"+value, recv(t, received, value))
+				require.True(t, chat.Connected())
+			}
+		})
+	}
+}

@@ -90,7 +90,8 @@ func loud(recs []map[string]string, msg string) (out []map[string]string) {
 
 // requireGoroutinesReturned waits until every library goroutine that is not in
 // before, a result of moduleGoroutines, has returned, so that no record those
-// goroutines log can still arrive.
+// goroutines log can still arrive. A time.AfterFunc timer that has not fired has
+// no goroutine yet, so a record it would log later is not covered.
 func requireGoroutinesReturned(t *testing.T, before map[string]string) {
 	t.Helper()
 	for deadline := time.Now().Add(waitFor); ; time.Sleep(time.Millisecond) {
@@ -376,8 +377,8 @@ func TestUnhandledErrorRecords(t *testing.T) {
 				p.nc = recv(t, p.conns, "root OnConnect")
 				tc.run(t, p)
 			}
-			// Every case ends the connection, and a second record could only come
-			// from one of the goroutines it started.
+			// Every case ends the connection; wait for the goroutines it started,
+			// which log any second record (pending timers are not covered).
 			recv(t, p.completion(), "the close")
 			requireGoroutinesReturned(t, before)
 			got := loud(rec.since(0), "")

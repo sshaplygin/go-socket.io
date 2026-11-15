@@ -600,9 +600,10 @@ func requireStalledWrite(t *testing.T) {
 }
 
 // Server.Close and engineio.Abort expire a poll response write that an orderly
-// close left in progress: the response carrying CLOSE blocks in the
-// ResponseWriter, the session stays live until that write ends, and the abort
-// releases the handler within 2 s.
+// close left in progress: the poll response blocks in the ResponseWriter with
+// CLOSE in it or queued behind it (behind the CONNECT packet when that missed the
+// OPEN response, see open), the session stays live until that write ends, and the
+// abort releases the handler within 2 s.
 func TestPollingOrderlyCloseWriteExpiresOnAbort(t *testing.T) {
 	for name, abort := range map[string]func(*deadlineServer, Conn){
 		"Server.Close": func(d *deadlineServer, _ Conn) { _ = d.srv.Close() },

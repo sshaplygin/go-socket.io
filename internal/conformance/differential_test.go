@@ -234,7 +234,7 @@ var sessionEndingScenarios = map[string]bool{"over-limit": true, "too-many-attac
 
 func TestDifferential(t *testing.T) {
 	for _, scenario := range []string{"connect-root", "namespace", "middleware-reject", "ack-both-ways", "binary", "non-ascii", "rooms", "server-disconnect", "handshake-data", "rejected-handshake", "cors", "open-packet", "connect-broadcast",
-		"large-payload", "over-limit", "burst", "client-burst", "attachments", "too-many-attachments"} {
+		"large-payload", "over-limit", "burst", "client-burst", "attachments", "too-many-attachments", "buffered-replay"} {
 		for _, transport := range []string{"polling", "websocket"} {
 			if transport == "polling" && sessionEndingScenarios[scenario] {
 				continue
@@ -258,8 +258,10 @@ func TestDifferential(t *testing.T) {
 }
 
 // Over polling, a message over the limit and a packet with more than 10
-// attachments end the session with either server. The reference's client sees
-// `transport close`; this server's sees a failed POST and `transport error`.
+// attachments end the session with either server. The reference answers the
+// pending poll with CLOSE, and its client usually records `transport close`. This
+// server answers the pending poll with HTTP 500 and the over-limit POST with 413,
+// so its client records `error` and `transport error` (docs/PROTOCOL.md).
 func TestPollingSessionEndingScenarios(t *testing.T) {
 	for scenario := range sessionEndingScenarios {
 		t.Run(scenario, func(t *testing.T) {

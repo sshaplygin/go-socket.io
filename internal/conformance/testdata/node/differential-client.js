@@ -226,6 +226,24 @@ async function run() {
     const result = event(root, 'binary-many-result');
     await ack(root, 'ask-binary-many');
     await result;
+  } else if (scenario === 'buffered-replay') {
+    // Emitted between the drop of the transport and the reconnect: the client buffers
+    // the packets and sends them to the new session.
+    const replay = track(io(base, {autoConnect: false, forceNew: true, forceNode: true,
+      transports: [transport], reconnection: true, reconnectionDelay: 20, reconnectionDelayMax: 20,
+      randomizationFactor: 0, reconnectionAttempts: 3, timeout: 5000}));
+    let connected = event(replay, 'connect');
+    replay.connect();
+    await connected;
+    const disconnected = event(replay, 'disconnect');
+    connected = event(replay, 'connect');
+    replay.emit('drop-transport');
+    await disconnected;
+    assert(!replay.connected);
+    const replies = [ack(replay, 'echo', 'buffered 1'), ack(replay, 'echo', 'buffered 2')];
+    await connected;
+    await Promise.all(replies);
+    replay.disconnect();
   } else if (scenario === 'too-many-attachments') {
     const disconnected = event(root, 'disconnect');
     root.emit('binary-many', Array.from({length: 11}, (_, i) => Buffer.from([i])));

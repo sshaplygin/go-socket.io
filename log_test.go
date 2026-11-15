@@ -295,6 +295,7 @@ func TestUnhandledErrorRecords(t *testing.T) {
 		fault faultConn
 		h     hooks
 		nsps  []string // of the expected "socketio: unhandled error" WARNs
+		panic bool     // the WARNs are "socketio: handler panic"
 		run   func(t *testing.T, p *peer)
 	}{
 		{name: "peer close does not reach OnError", keep: true, run: func(t *testing.T, p *peer) {
@@ -314,7 +315,7 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			p.send(t, ev("boom"))
 			recv(t, p.errs, "the report")
 		}},
-		{name: "handler panic", h: hooks{events: boom}, nsps: []string{"/"},
+		{name: "handler panic", h: hooks{events: boom}, nsps: []string{"/"}, panic: true,
 			run: func(t *testing.T, p *peer) { p.send(t, ev("boom")) }},
 		{name: "connect without handlers", nsps: []string{"/nope"},
 			run: func(t *testing.T, p *peer) {
@@ -383,8 +384,12 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			requireGoroutinesReturned(t, before)
 			got := loud(rec.since(0), "")
 			var nsps []string
+			want := "socketio: unhandled error"
+			if tc.panic {
+				want = "socketio: handler panic"
+			}
 			for _, m := range got {
-				require.Equal(t, "socketio: unhandled error", m["msg"])
+				require.Equal(t, want, m["msg"])
 				require.Equal(t, "WARN", m["level"])
 				nsps = append(nsps, m["nsp"])
 			}
@@ -544,7 +549,7 @@ var (
 	msgPattern  = regexp.MustCompile(`^(engineio|socketio|logger): [a-z][a-z0-9 ]*$`)
 	allowedKeys = map[string]bool{"sid": true, "nsp": true, "err": true, "transport": true,
 		"remote_addr": true, "reason": true, "duration": true, "event": true, "ack_id": true,
-		"type": true, "value": true}
+		"type": true, "value": true, "stack": true}
 	// infoMessages are the recoveries the logger package documents at INFO.
 	infoMessages = map[string]bool{"socketio: redis subscription restored": true}
 )
@@ -685,5 +690,5 @@ func TestOnErrorPanicIsLogged(t *testing.T) {
 	require.Len(t, records, 1)
 	require.Equal(t, "WARN", records[0]["level"])
 	require.Equal(t, "/", records[0]["nsp"])
-	require.Equal(t, "error callback failed", records[0]["err"])
+	require.Equal(t, "panic: error callback failed", records[0]["err"])
 }

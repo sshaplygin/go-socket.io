@@ -32,15 +32,21 @@
 //
 // The library logs WARN, INFO and DEBUG records; it logs no ERROR record.
 // WARN marks a failure no caller receives, such as
-// "socketio: unhandled error" or a rejected request (DEBUG for an unknown sid).
+// "socketio: unhandled error", a rejected request (DEBUG for an unknown sid) or
+// a recovered panic: "socketio: handler panic" for a server callback, or a typed
+// handler of the Go client, whose namespace has no OnError, and
+// "socketio: error handler panic" for a server's OnError itself, both with the
+// stack.
 // INFO marks only the end of such a failure that persists until the library
 // recovers from it: "socketio: redis subscription restored" follows
 // "socketio: redis subscription lost", which is WARN whatever its error,
 // EOF included, because the adapter did not end that subscription.
 // Expected closure of a session (EOF, a closed connection, a peer close, a
-// ping timeout and any failure after a close started), errors also returned
-// to a caller or delivered to an OnError handler, and the boundary records
-// (session open and close, namespace connect, disconnect) are DEBUG. LevelTrace is available for
+// ping timeout and any failure after a close started other than a recovered
+// panic or an error result of a disconnecting or locally emitted listener),
+// errors also returned to a caller or delivered to an OnError handler, and the
+// boundary records (session open and close, namespace connect, disconnect)
+// are DEBUG. LevelTrace is available for
 // application records; the library does not emit records at that level.
 //
 // # Messages and keys
@@ -65,6 +71,7 @@
 //   - ack_id: the acknowledgement id
 //   - type: the packet type
 //   - value: an invalid setting, such as SOCKETIO_LOG_LEVEL
+//   - stack: the goroutine stack of a recovered panic, from runtime/debug.Stack
 //
 // No record carries packet payloads.
 package logger

@@ -159,7 +159,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // accepts the join, and the packets f emits are written after the namespace
 // is accepted. An error rejects it: the client receives an ERROR packet with
 // the error text, the Engine.IO connection stays open, and the error goes to
-// OnError, with a nil Conn for the root namespace.
+// OnError, with a nil Conn for the root namespace. An error that holds a nil
+// pointer counts as nil and accepts the join. A panic in f rejects the join
+// with the text "internal error" and is reported as a *PanicError (see OnError).
 //
 // f runs once the namespace middleware (ServerNamespace.Use) has accepted the
 // socket. By then the socket has joined its ID room and is listed by Sockets and
@@ -183,12 +185,13 @@ func (s *Server) OnConnect(namespace string, f func(Conn) error) {
 // namespace disconnect; server namespace disconnect for Conn.Close and
 // Conn.Disconnect; the engine's transport close/error or ping timeout; or forced
 // close for every other server-side close, such as Server.Close, an engine-level
-// close (EngineConn().Close or engineio.Abort), a parser failure, a handler panic
-// or a queue overflow. Rooms have been left before it runs;
-// OnEvent(namespace, "disconnecting", func(Conn, string)) observes the same
-// reason while the rooms are still joined. Both run once for each socket whose
-// OnConnect returned nil, also when a close started while OnConnect ran; a socket
-// rejected by middleware or OnConnect gets neither.
+// close (EngineConn().Close or engineio.Abort), a parser failure, a panic in an
+// untyped event handler or an ACK callback, or a queue overflow. Rooms have been
+// left before it runs; OnEvent(namespace, "disconnecting", func(Conn, string))
+// observes the same reason while the rooms are still joined. Both run once for
+// each socket whose OnConnect returned nil, also when a close started while
+// OnConnect ran; a socket rejected by middleware or OnConnect gets neither. A
+// panic in f is recovered and reported as a *PanicError (see OnError).
 func (s *Server) OnDisconnect(namespace string, f func(Conn, string)) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -200,9 +203,25 @@ func (s *Server) OnDisconnect(namespace string, f func(Conn, string)) {
 
 // OnError sets the namespace error handler. Root connect and connection-middleware
 // failures pass a nil Conn; errors for other unjoined namespaces pass an inactive
-// Conn. A panic in the error handler is recovered and logged at WARN. The end of the
-// Engine.IO session, by a disconnect, a transport failure, a ping timeout, a close or
-// a message-size limit, is not an error: OnDisconnect reports it.
+// Conn. It receives the non-nil error results of untyped event handlers as
+// returned, and a recovered panic of the namespace's callbacks that PanicError
+// lists as a *PanicError, possibly wrapped; each panic is reported once, also
+// after the connection's close started, when the report can follow OnDisconnect.
+// Without an error handler these are logged at WARN, a panic as
+// "socketio: handler panic" with its stack. An error result that a handler
+// of an incoming event returns after the connection's close started is not
+// reported: it is logged at DEBUG as "socketio: error after close". The error
+// results of disconnecting listeners, which only run during a close, and of
+// listeners that an Emit of a reserved event runs locally are always reported. An
+// error result whose Error method panics is reported as that *PanicError. A panic
+// in the error handler is recovered and logged at WARN as
+// "socketio: error handler panic" with its stack. f may be called concurrently,
+// also for one connection: reports raised while handling incoming packets are
+// delivered one at a time, but those of a close (disconnecting listeners,
+// OnDisconnect, panics after the close started) and of a local Emit run on the
+// goroutine that raised them.
+// The end of the Engine.IO session, by a disconnect, a transport failure, a ping
+// timeout, a close or a message-size limit, is not an error: OnDisconnect reports it.
 func (s *Server) OnError(namespace string, f func(Conn, error)) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -216,19 +235,33 @@ func (s *Server) OnError(namespace string, f func(Conn, error)) {
 //
 // f must be a func whose first parameter is Conn; the remaining parameters are
 // decoded from the event arguments. If the client asked for an
-// acknowledgement, the return values are sent back as the ACK payload. A final
-// AckFunc parameter takes ownership of the ACK and suppresses automatic returns;
-// it may be called later, once, from another goroutine. If the arguments do not
-// decode into the parameter types, f is not called and the error goes to OnError.
-// What follows depends on the error, not on the JSON value. When it is a
+// acknowledgement, the return values are sent back in order as the ACK payload.
+// A result of type error is sent as null when nil, also when it holds a nil
+// pointer, and otherwise as the typed error object
+// {"code":"handler_error","message":err.Error()}, or with the code and message of
+// a *RemoteError in its chain; a non-nil one is also reported as OnError
+// describes, whether or not an acknowledgement was requested, and the connection
+// stays open.
+// A final AckFunc parameter takes ownership of the ACK and suppresses automatic
+// returns; it may be called later, once, from another goroutine. If the arguments
+// do not decode into the parameter types, f is not called and the error goes to
+// OnError. What follows depends on the error, not on the JSON value. When it is a
 // *json.UnmarshalTypeError, which encoding/json returns for a value that does not
 // fit the Go type, such as a string for an int parameter or struct field, a
 // requested acknowledgement is answered with an error ACK and the connection stays
 // open. Any other decode error, such as the one Time.UnmarshalJSON returns for
 // "bad", closes the connection without an ACK (see Conn.Close). Which error a
 // value produces is decided by encoding/json and can differ under
-// GOEXPERIMENT=jsonv2. OnEvent replaces every listener of this event (see
-// ServerNamespace.On and Once).
+// GOEXPERIMENT=jsonv2. If f
+// panics while handling an incoming event, OnError receives a *PanicError, no
+// automatic ACK is sent (one already sent through an AckFunc stays sent) and the
+// connection is closed with the OnDisconnect reason forced close, unless a close
+// already started, which keeps its reason.
+// A panic in a listener of a reserved event (disconnecting, or a listener that an
+// Emit or broadcast of connect, disconnect, disconnecting or error runs locally) is
+// reported the same way and closes nothing: a disconnect in progress keeps its
+// reason, and the emitting code continues. OnEvent replaces every
+// listener of this event (see ServerNamespace.On and Once).
 //
 // f is called on the read goroutine of the client's Engine.IO connection, which
 // serves every namespace of that client and also answers its heartbeat. While f

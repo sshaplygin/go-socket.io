@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"errors"
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/parser"
@@ -36,4 +37,12 @@ func declarations(s *socketio.Server, c *client.Client, server socketio.Conn, pe
 	var _ socketio.ClientRegistration = c.Socket("/chat")
 	var _ error = &socketio.RemoteError{Code: "refused", Message: "no"}
 	var _ socketio.EventHandler
+	s.OnError("/chat", func(_ socketio.Conn, err error) {
+		var panicked *socketio.PanicError
+		if errors.As(err, &panicked) {
+			var value interface{} = panicked.Value
+			var stack []byte = panicked.Stack
+			_, _ = value, stack
+		}
+	})
 }

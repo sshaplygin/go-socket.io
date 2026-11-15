@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
+	eventImpl "github.com/sshaplygin/go-socket.io/internal/event"
 
 	"github.com/sshaplygin/go-socket.io/parser"
 )
@@ -153,7 +154,7 @@ func (c *connection) connect() error {
 		} else {
 			c.unhandled(rootNamespace, err)
 		}
-		c.write(parser.Header{Type: parser.Error}, reflect.ValueOf(err.Error()))
+		c.write(parser.Header{Type: parser.Error}, reflect.ValueOf(eventImpl.WireMessage(err)))
 		return nil
 	}
 	if isDone(c.closing) {
@@ -213,8 +214,26 @@ func (c *connection) reportOverflow(conn Conn) {
 }
 
 // unhandled logs err, which no OnError receives and which is not expected closure.
+// A recovered panic is logged with its stack.
 func (c *connection) unhandled(nsp string, err error) {
+	var panicked *PanicError
+	if errors.As(err, &panicked) {
+		c.log.Warn("socketio: handler panic", nspAttr(nsp), "err", err, "stack", string(panicked.Stack))
+		return
+	}
 	c.log.Warn("socketio: unhandled error", nspAttr(nsp), "err", err)
+}
+
+// notify delivers err of a callback on nc to the OnError of nh on this goroutine,
+// or logs it as unhandled.
+func (c *connection) notify(nh *namespaceHandler, nc *namespaceConn, err error) {
+	if nh != nil {
+		if onError := nh.ErrorHandler(); onError != nil {
+			onError(nc, err)
+			return
+		}
+	}
+	c.unhandled(nc.namespace, err)
 }
 
 // nspAttr is the nsp attribute of namespace nsp; the root namespace is "/".
@@ -246,9 +265,11 @@ func (c *connection) onError(namespace string, err error) {
 
 // report delivers err to OnError of namespace and waits for it, unless a close started.
 // Without OnError, err is logged as unhandled. Callers report no transport failure: the
-// end of the session reaches OnDisconnect only.
+// end of the session reaches OnDisconnect only. After a close started, see
+// reportAfterClose.
 func (c *connection) report(namespace string, err error) {
 	if isDone(c.closing) {
+		c.reportAfterClose(namespace, err)
 		return
 	}
 	msg := newErrorMessage(namespace, err)
@@ -261,7 +282,23 @@ func (c *connection) report(namespace string, err error) {
 	case c.errorChan <- msg:
 		<-msg.done
 	case <-c.closing:
+		c.reportAfterClose(namespace, err)
 	}
+}
+
+// reportAfterClose handles err raised after the connection's close started. A
+// recovered panic is reported on this goroutine, because the error worker may have
+// stopped; any other failure is logged at DEBUG only.
+func (c *connection) reportAfterClose(namespace string, err error) {
+	if !eventImpl.IsPanic(err) {
+		c.log.Debug("socketio: error after close", nspAttr(namespace), "err", err)
+		return
+	}
+	if nc := c.errConn(namespace); nc != nil {
+		c.notify(c.namespace(namespace), nc, err)
+		return
+	}
+	c.unhandled(namespace, err)
 }
 
 func (c *connection) namespace(nsp string) *namespaceHandler {

@@ -16,10 +16,10 @@ func TestOnceSurvivesEarlierListenerFailure(t *testing.T) {
 		}
 	})
 	h.AddListener("event", func(Conn) { called++ }, true)
-	_, err := h.DispatchEvent(&testConn{}, "event")
+	_, err := h.DispatchEvent(&testConn{}, "event", nil)
 	require.Error(t, err)
 	require.Zero(t, called)
-	_, err = h.DispatchEvent(&testConn{}, "event")
+	_, err = h.DispatchEvent(&testConn{}, "event", nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, called, "a Once listener is consumed only when it is invoked")
 }
@@ -36,7 +36,7 @@ func TestOnceListenerClaimedAcrossSnapshots(t *testing.T) {
 	first, second := h.Listeners("event"), h.Listeners("event")
 	require.Len(t, second, 2)
 	for _, snapshot := range [][]*eventListener{first, second} {
-		_, _, err := h.DispatchListeners(&testConn{}, "event", snapshot, func(...interface{}) {})
+		_, _, err := h.DispatchListeners(&testConn{}, "event", snapshot, func(...interface{}) {}, nil)
 		require.NoError(t, err)
 	}
 	require.Equal(t, 2, every)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/adapter"
+	eventImpl "github.com/sshaplygin/go-socket.io/internal/event"
 
 	"github.com/sshaplygin/go-socket.io/parser"
 )
@@ -329,7 +330,7 @@ func (nc *namespaceConn) hasMiddleware() bool {
 func (nc *namespaceConn) runMiddleware(event string, args []reflect.Value) (err error) {
 	defer func() {
 		if value := recover(); value != nil {
-			err = fmt.Errorf("event middleware panic: %v", value)
+			err = fmt.Errorf("event middleware: %w", eventImpl.NewPanicError(value))
 		}
 	}()
 	nc.outMu.Lock()
@@ -343,7 +344,7 @@ func (nc *namespaceConn) runMiddleware(event string, args []reflect.Value) (err 
 		values[i] = arg.Interface()
 	}
 	for _, f := range chain {
-		if err := f(event, values); err != nil {
+		if err := eventImpl.Returned(f(event, values)); err != nil {
 			return err
 		}
 	}
@@ -533,11 +534,8 @@ func (nc *namespaceConn) emitLocal(event string, args ...interface{}) {
 			values[i] = reflect.ValueOf(arg)
 		}
 	}
-	if _, err := handler.DispatchEvent(nc, event, values...); err != nil {
-		if onError := handler.ErrorHandler(); onError != nil {
-			onError(nc, err)
-		} else {
-			nc.connection.unhandled(nc.namespace, err)
-		}
+	report := func(err error) { nc.connection.notify(handler, nc, err) }
+	if _, err := handler.DispatchEvent(nc, event, report, values...); err != nil {
+		report(err)
 	}
 }

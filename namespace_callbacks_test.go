@@ -15,7 +15,7 @@ func TestCallbacksCanReregister(t *testing.T) {
 	finished := make(chan struct{})
 	go func() {
 		h.ErrorHandler()(nil, errors.New("reported"))
-		h.NotifyDisconnect(nil, "closed")
+		_ = h.NotifyDisconnect(nil, "closed")
 		close(finished)
 	}()
 	select {

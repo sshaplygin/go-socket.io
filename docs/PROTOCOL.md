@@ -132,7 +132,7 @@ Package `engineio` of the v1 module at the repository root.
   the same limit applies to inflated bytes; rejection does not buffer the full message.
   The session ends with `OnDisconnect` reason `transport error`; `OnError` is not
   called. For the built-in transports the session logs `engineio: message too large`
-  at WARN through `engineio.WithLogger`, with `sid`, `transport` and an `err` that
+  at DEBUG through `engineio.WithLogger`, with `sid`, `transport` and an `err` that
   states the limit. A custom transport that enforces its own limit reports it itself.
 - The Go client limits incoming websocket messages (inflated bytes) and whole decoded
   polling response bodies, OPEN included, to 1 MiB by default. The configurable
@@ -263,7 +263,15 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   automatically and sends `0` before any client packet. Other namespaces are joined
   when the client sends `0/<nsp>`.
 - A CONNECT to a namespace without a registered handler is answered with an ERROR packet
-  (`4/<nsp>,"Invalid namespace"`) and the connection stays open.
+  (`4/<nsp>,"Invalid namespace"`) and the connection stays open. No `OnError` is called.
+  The name is repeated as received. socket.io 2.5.0 parses the name as a URL path: it
+  removes whitespace at the end of the name, sends a space, a tab, CR and LF inside the
+  name as `%20`, `%09`, `%0D` and `%0A`, drops `#` and what follows it, and turns `\` into
+  `/`. For a name without whitespace, `#` or `\` the two replies are the same.
+  A namespace name longer than 1024 bytes is not answered, so that the server does not
+  echo it; the reference echoes a name of any length. The
+  [`logger` package documentation](../logger/logger.go) lists the levels of the records
+  that a peer's packets and requests cause.
 - Binary attachments are replaced by `{"_placeholder":true,"num":N}` and sent as
   following binary frames; on the Go side they map to `parser.Buffer`.
 - Event handlers return values become the ACK payload; an ACK packet is sent when the

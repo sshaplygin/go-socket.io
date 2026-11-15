@@ -231,7 +231,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			} else {
 				s.connectionError(r, 3, err)
 			}
-			s.reject(reqTransport, r.RemoteAddr, "accept", err)
+			s.rejectAt(acceptLevel(w, r, reqTransport), reqTransport, r.RemoteAddr, "accept", err)
 			return
 		}
 
@@ -242,7 +242,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			} else {
 				s.connectionError(r, 3, err)
 			}
-			s.reject(reqTransport, r.RemoteAddr, "init", err)
+			level := slog.LevelWarn // no session: its ID or its transport deadline failed
+			if errors.Is(err, io.EOF) {
+				level = slog.LevelDebug // the server is closing
+			}
+			s.rejectAt(level, reqTransport, r.RemoteAddr, "init", err)
 			return
 		}
 	}
@@ -275,7 +279,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			} else {
 				s.connectionError(r, 3, err)
 			}
-			s.reject(reqTransport, r.RemoteAddr, "accept", err)
+			s.rejectAt(acceptLevel(w, r, reqTransport), reqTransport, r.RemoteAddr, "accept", err)
 			return
 		}
 
@@ -427,17 +431,30 @@ func writeServerError(w http.ResponseWriter, code int) {
 	}{code, serverErrors[code]})
 }
 
-// reject logs a request ServeHTTP rejects or a failed session initialisation: at DEBUG
-// for an unknown sid, at WARN otherwise.
+// reject logs a request ServeHTTP rejects, or a session whose OPEN packet could not be
+// written, at DEBUG: the request or the peer that sent it is the cause, and any peer can
+// repeat it at will.
 func (s *Server) reject(transport, addr, reason string, err error) {
-	level, args := slog.LevelWarn, []any{"transport", transport, "remote_addr", addr, "reason", reason}
-	if reason == "unknown sid" {
-		level = slog.LevelDebug
-	}
+	s.rejectAt(slog.LevelDebug, transport, addr, reason, err)
+}
+
+// rejectAt is reject at level, which is WARN for a cause on the server's side.
+func (s *Server) rejectAt(level slog.Level, transport, addr, reason string, err error) {
+	args := []any{"transport", transport, "remote_addr", addr, "reason", reason}
 	if err != nil {
 		args = append(args, "err", err)
 	}
 	s.log.Log(context.Background(), level, "engineio: request rejected", args...)
+}
+
+// acceptLevel is the level of a failed Accept of transport: WARN for a websocket
+// upgrade request that w cannot take over because it does not implement http.Hijacker,
+// a fault of the server's handler chain, and DEBUG otherwise.
+func acceptLevel(w http.ResponseWriter, r *http.Request, transport string) slog.Level {
+	if _, ok := w.(http.Hijacker); !ok && transport == "websocket" && websocket.IsWebSocketUpgrade(r) {
+		return slog.LevelWarn
+	}
+	return slog.LevelDebug
 }
 
 // canUpgrade reports whether a session on transport from may move to

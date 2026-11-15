@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,6 +52,31 @@ func differentialGoServer(t *testing.T, configure ...func(*socketio.Server)) *ht
 				c.Emit("binary-result", value)
 			})
 		})
+		n.OnEvent("binary-many", func(c socketio.Conn, values []*parser.Buffer) []*parser.Buffer {
+			c.Emit("binary-many-event", values)
+			return values
+		})
+		n.OnEvent("ask-binary-many", func(c socketio.Conn) {
+			values := make([]*parser.Buffer, 10)
+			for i := range values {
+				values[i] = &parser.Buffer{Data: []byte{byte(i), byte(255 - i)}}
+			}
+			c.Emit("binary-many-question", values, func(value []*parser.Buffer) { c.Emit("binary-many-result", value) })
+		})
+		n.OnEvent("burst", func(c socketio.Conn, count, size int) string {
+			filler := strings.Repeat("x", size)
+			for i := 0; i < count; i++ {
+				c.Emit("item", i, filler)
+			}
+			return "sent"
+		})
+		var counted sync.Map // connection ID -> *atomic.Int64
+		counter := func(c socketio.Conn) *atomic.Int64 {
+			value, _ := counted.LoadOrStore(c.ID(), new(atomic.Int64))
+			return value.(*atomic.Int64)
+		}
+		n.OnEvent("count", func(c socketio.Conn) { counter(c).Add(1) })
+		n.OnEvent("counted", func(c socketio.Conn) int64 { return counter(c).Load() })
 		n.OnEvent("join", func(c socketio.Conn, room string) string { c.Join(room); return "joined" })
 		n.OnEvent("leave", func(c socketio.Conn, room string) string { c.Leave(room); return "left" })
 		n.OnEvent("room", func(c socketio.Conn, room string, except bool) string {
@@ -200,9 +227,18 @@ func normalizeDifferential(t *testing.T, transcript []interface{}) {
 	replace(transcript)
 }
 
+// sessionEndingScenarios end the session from the server. Over polling the
+// client's records differ from the reference's, so TestPollingSessionEndingScenarios
+// compares only that the session ends.
+var sessionEndingScenarios = map[string]bool{"over-limit": true, "too-many-attachments": true}
+
 func TestDifferential(t *testing.T) {
-	for _, scenario := range []string{"connect-root", "namespace", "middleware-reject", "ack-both-ways", "binary", "non-ascii", "rooms", "server-disconnect", "handshake-data", "rejected-handshake", "cors", "open-packet", "connect-broadcast"} {
+	for _, scenario := range []string{"connect-root", "namespace", "middleware-reject", "ack-both-ways", "binary", "non-ascii", "rooms", "server-disconnect", "handshake-data", "rejected-handshake", "cors", "open-packet", "connect-broadcast",
+		"large-payload", "over-limit", "burst", "client-burst", "attachments", "too-many-attachments", "buffered-replay"} {
 		for _, transport := range []string{"polling", "websocket"} {
+			if transport == "polling" && sessionEndingScenarios[scenario] {
+				continue
+			}
 			t.Run(scenario+"-"+transport, func(t *testing.T) {
 				goServer := differentialGoServer(t)
 				reference := differentialReference(t)
@@ -218,6 +254,27 @@ func TestDifferential(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// Over polling, a message over the limit and a packet with more than 10
+// attachments end the session with either server. The reference answers the
+// pending poll with CLOSE, and its client usually records `transport close`. This
+// server answers the pending poll with HTTP 500 and the over-limit POST with 413,
+// so its client records `error` and `transport error` (docs/PROTOCOL.md).
+func TestPollingSessionEndingScenarios(t *testing.T) {
+	for scenario := range sessionEndingScenarios {
+		t.Run(scenario, func(t *testing.T) {
+			goServer := differentialGoServer(t)
+			reference := differentialReference(t)
+			for server, url := range map[string]string{"Go": goServer.URL, "Node": reference} {
+				transcript := differentialTranscript(t, url, scenario, "polling")
+				last, _ := transcript[len(transcript)-1].(map[string]interface{})
+				if last["event"] != "disconnect" {
+					t.Fatalf("%s: the session did not end: %s", server, differentialJSON(transcript))
+				}
+			}
+		})
 	}
 }
 

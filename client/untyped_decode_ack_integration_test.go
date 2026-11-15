@@ -2,6 +2,7 @@ package client_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -36,7 +37,10 @@ func TestServerAckCallbackAnsweredWhenClientArgumentsDoNotDecode(t *testing.T) {
 		select {
 		case v := <-got:
 			require.Equal(t, "invalid_payload", v["code"])
-			require.Contains(t, v["message"], "cannot unmarshal string into Go value of type int")
+			// The tail is the json.Unmarshal error, whose text is the toolchain's.
+			want := json.Unmarshal([]byte(`"bad"`), new(int))
+			require.Error(t, want)
+			require.Equal(t, "decode argument 0: "+want.Error(), v["message"])
 		case <-time.After(2 * time.Second):
 			t.Fatal("the ACK callback was not called")
 		}

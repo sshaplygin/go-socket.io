@@ -3,7 +3,6 @@ package polling
 import (
 	"encoding/json"
 	"os"
-	"testing"
 
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
@@ -21,7 +20,9 @@ type payloadVector struct {
 
 var payloadVectors []payloadVector
 
-func TestMain(m *testing.M) {
+// loadPayloadVectors reads the shared payload corpus into payloadVectors; TestMain
+// calls it before the tests run.
+func loadPayloadVectors() {
 	data, err := os.ReadFile("../../parser/testdata/payload.json")
 	if err != nil {
 		panic(err)
@@ -45,5 +46,4 @@ func TestMain(m *testing.M) {
 		}
 		payloadVectors = append(payloadVectors, w)
 	}
-	os.Exit(m.Run())
 }

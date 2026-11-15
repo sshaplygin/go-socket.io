@@ -36,6 +36,9 @@ type clientState struct {
 	buffered        int
 	// ended is the last connection whose end connectionEnded has handled.
 	ended *conn
+	// retired is the connection that a close which stopped the client closes.
+	// Every Socket was detached from it; see supersededLocked.
+	retired *conn
 	// Test hooks, nil outside tests: testHookClosing runs after a close stopped
 	// the client and before it closes the connection, testHookJoinWaits when
 	// Connect waits for that close.
@@ -175,7 +178,7 @@ func (m *clientState) open(c *manager, retry *reconnectRun, number int, join *So
 			return err
 		}
 	}
-	m.conn, m.rootReady = current, false
+	m.conn, m.rootReady, m.retired = current, false, nil
 	for _, socket := range m.order {
 		if !socket.active {
 			continue

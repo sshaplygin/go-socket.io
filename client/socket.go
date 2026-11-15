@@ -430,10 +430,12 @@ func (s *Socket) Close() error {
 // "io server disconnect") or that Close closed, as socket.connect() does in
 // socket.io-client 2.x. On an open Engine.IO connection it sends the namespace
 // CONNECT and returns; OnConnect runs when the server accepts it. While the
-// Client is reconnecting, or after its connection ended with reconnection
-// enabled, Connect dials nothing and the namespace joins the connection the
-// reconnection restores. When the Client has no connection, as after
-// Client.Close or after the last namespace closed, Connect dials one as
+// Client is reconnecting, or when its connection has ended and its reconnection
+// has not started yet, Connect dials nothing and the namespace joins the
+// connection the reconnection restores. When the Client has no connection and
+// is not reconnecting, as after Client.Close, after the last namespace closed,
+// after the reconnection gave up (OnReconnectFailed) or after a connection
+// ended with WithReconnection(false), Connect dials one as
 // Client.Connect does and returns its error, but it reopens only this Socket:
 // other closed Sockets stay closed, and Sockets that are not closed join the new
 // connection as they do with Client.Connect. A Connect that runs while
@@ -535,7 +537,7 @@ func (m *clientState) deliverConnect(current *conn, s *Socket) error {
 
 func (m *clientState) namespaceDisconnected(current *conn, namespace string) error {
 	m.mu.Lock()
-	if m.conn != current {
+	if m.supersededLocked(current) {
 		m.mu.Unlock()
 		return nil
 	}
@@ -561,6 +563,14 @@ func (m *clientState) namespaceDisconnected(current *conn, namespace string) err
 	return m.closeSocket(socket, "io server disconnect", true, current, nil)
 }
 
+// supersededLocked reports whether a DISCONNECT that c's reader read no longer
+// concerns the Sockets. The reader of a connection that a close retired keeps
+// running while the connection drains, and a Socket that is open after that
+// close was opened for the next connection. The caller holds m.mu.
+func (m *clientState) supersededLocked(c *conn) bool {
+	return m.conn != c || m.retired == c
+}
+
 // ownsNamespaceLocked validates a concrete Conn, including the cached root
 // before its CONNECT reply. The caller holds m.mu to fence replacement dials.
 func (m *clientState) ownsNamespaceLocked(nc *namespaceConn) bool {
@@ -583,7 +593,7 @@ func (m *clientState) closeSocket(s *Socket, reason string, closeLast bool, expe
 
 func (m *clientState) detachSocket(s *Socket, reason string, closeLast bool, expected *conn, expectedNamespace *namespaceConn) (func(), error) {
 	m.mu.Lock()
-	if expected != nil && m.conn != expected || expectedNamespace != nil && !m.ownsNamespaceLocked(expectedNamespace) {
+	if expected != nil && m.supersededLocked(expected) || expectedNamespace != nil && !m.ownsNamespaceLocked(expectedNamespace) {
 		m.mu.Unlock()
 		return nil, nil
 	}
@@ -598,7 +608,7 @@ func (m *clientState) detachSocket(s *Socket, reason string, closeLast bool, exp
 		last = last && !other.active
 	}
 	if last && closeLast {
-		m.stopped = true
+		m.stopped, m.retired = true, current
 		m.cancelRetryLocked()
 		if m.attempt != nil {
 			m.attempt.cancel()
@@ -658,7 +668,7 @@ func (m *clientState) closeAll(expected ...*namespaceConn) error {
 		m.mu.Unlock()
 		return nil
 	}
-	m.stopped, m.closingAll = true, true
+	m.stopped, m.closingAll, m.retired = true, true, m.conn
 	m.cancelRetryLocked()
 	if m.attempt != nil {
 		m.attempt.cancel()

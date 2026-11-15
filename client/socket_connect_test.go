@@ -450,3 +450,148 @@ func TestSocketConnectKeepsEventsBufferedBeforeClose(t *testing.T) {
 	require.Equal(t, "/chat", recv(t, p.connects, "OnConnect after Connect"))
 	require.Equal(t, `2/chat,["early",1]`, strings.TrimSuffix(recv(t, p.fc.out, "buffered event"), "\n"))
 }
+
+// The reader of a connection that a close is draining still reads the server's
+// DISCONNECT for a namespace. A Socket that Connect reopened since that close
+// belongs to the connection being dialed: the DISCONNECT neither closes it nor
+// cancels the dial.
+func TestConnectIgnoresDisconnectReadByClosingConnection(t *testing.T) {
+	for _, tc := range []struct{ name, closer, opener string }{
+		{"last Socket, Socket.Connect", "socket", "socket"},
+		{"Client.Close, Socket.Connect", "client", "socket"},
+		{"Client.Close, Client.Connect", "client", "client"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newRejoinPeer(t)
+			next := newFakeConn(t)
+			dials, release := make(chan struct{}, 1), make(chan struct{})
+			p.cl.dial = func(string) (engineclient.Conn, error) {
+				dials <- struct{}{}
+				<-release
+				return next, nil
+			}
+			var once sync.Once
+			unblock := func() { once.Do(func() { close(release) }) }
+			t.Cleanup(unblock)
+			// The held writer keeps the closing connection draining and its reader running.
+			p.fc.hold.Store(true)
+			if tc.closer == "socket" {
+				require.NoError(t, p.root.Close())
+				require.NoError(t, p.chat.Close())
+			} else {
+				require.NoError(t, p.cl.Close())
+			}
+			require.ElementsMatch(t, []string{"/:io client disconnect", "/chat:io client disconnect"},
+				[]string{recv(t, p.disconnects, "first OnDisconnect"), recv(t, p.disconnects, "second OnDisconnect")})
+			opened := make(chan error, 1)
+			go func() {
+				if tc.opener == "socket" {
+					opened <- p.chat.Connect()
+				} else {
+					opened <- p.cl.Connect()
+				}
+			}()
+			recv(t, dials, "dial")
+			// The reader takes the second frame once it has handled the first.
+			p.fc.reads <- "1/chat,"
+			p.fc.reads <- "1/chat,"
+			unblock()
+			require.NoError(t, recv(t, opened, "Connect"))
+			_ = p.fc.Close() // the next connection starts once the closed one has ended
+			require.Equal(t, "0/chat,", recv(t, next.out, "chat CONNECT on the next connection"))
+			next.reads <- "0"
+			next.reads <- "0/chat,"
+			want := []string{"/chat"}
+			if tc.opener == "client" {
+				want = append(want, "/")
+			}
+			var got []string
+			for range want {
+				got = append(got, recv(t, p.connects, "OnConnect"))
+			}
+			require.ElementsMatch(t, want, got)
+			require.True(t, p.chat.Connected())
+			require.Empty(t, p.disconnects)
+		})
+	}
+}
+
+// After a failed dial the closed connection may still be draining. A DISCONNECT
+// its reader reads then does not close the Socket that the failed Connect
+// reopened: the Socket joins the connection another Socket's Connect dials.
+func TestConnectIgnoresDisconnectReadByClosedConnectionAfterFailedDial(t *testing.T) {
+	p := newRejoinPeer(t)
+	next := newFakeConn(t)
+	failed := errors.New("down")
+	var dials atomic.Int32
+	p.cl.dial = func(string) (engineclient.Conn, error) {
+		if dials.Add(1) == 1 {
+			return nil, failed
+		}
+		return next, nil
+	}
+	p.fc.hold.Store(true)
+	require.NoError(t, p.cl.Close())
+	require.ErrorIs(t, p.chat.Connect(), failed)
+	p.fc.reads <- "1/chat,"
+	p.fc.reads <- "1/chat,"
+	require.NoError(t, p.root.Connect())
+	_ = p.fc.Close()
+	require.Equal(t, "0/chat,", recv(t, next.out, "chat CONNECT on the next connection"))
+	require.Equal(t, int32(2), dials.Load())
+}
+
+// Once the reconnection has given up, the Client has no connection and is not
+// reconnecting: Connect dials.
+func TestSocketConnectAfterReconnectionGaveUp(t *testing.T) {
+	p := newRejoinPeer(t, WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1), WithReconnectionAttempts(1))
+	p.fc.reads <- "1/chat,"
+	require.Equal(t, "/chat:io server disconnect", recv(t, p.disconnects, "server disconnect"))
+	next := newFakeConn(t)
+	var dials atomic.Int32
+	p.cl.dial = func(string) (engineclient.Conn, error) {
+		if dials.Add(1) == 1 {
+			return nil, errors.New("down")
+		}
+		return next, nil
+	}
+	gaveUp := make(chan struct{}, 1)
+	p.cl.OnReconnectFailed(func() { gaveUp <- struct{}{} })
+	close(p.fc.peerGone)
+	require.True(t, strings.HasPrefix(recv(t, p.disconnects, "engine end"), "/:"))
+	recv(t, gaveUp, "OnReconnectFailed")
+	require.Equal(t, int32(1), dials.Load())
+	require.NoError(t, p.chat.Connect())
+	require.Equal(t, int32(2), dials.Load(), "Connect dials")
+	require.Equal(t, "0/chat,", recv(t, next.out, "chat CONNECT on the dialed connection"))
+	next.reads <- "0"
+	next.reads <- "0/chat,"
+	require.ElementsMatch(t, []string{"/", "/chat"}, []string{recv(t, p.connects, "root OnConnect"), recv(t, p.connects, "chat OnConnect")})
+}
+
+// With WithReconnection(false) nothing restores a connection that ended: Connect
+// dials, also when it runs before the end of that connection has been handled.
+func TestSocketConnectAfterConnectionEndedWithoutReconnection(t *testing.T) {
+	p := newRejoinPeer(t, WithReconnection(false))
+	p.fc.reads <- "1/chat,"
+	require.Equal(t, "/chat:io server disconnect", recv(t, p.disconnects, "server disconnect"))
+	next := newFakeConn(t)
+	var dials atomic.Int32
+	p.cl.dial = func(string) (engineclient.Conn, error) {
+		dials.Add(1)
+		return next, nil
+	}
+	t.Cleanup(func() { _ = p.cl.Close() }) // before next closes
+	joined := make(chan string, 1)
+	// The root's OnDisconnect runs before the end of the connection is handled.
+	p.root.OnDisconnect(func(Conn, string) {
+		err := p.chat.Connect()
+		joined <- fmt.Sprintf("err %v, dials %d", err, dials.Load())
+	})
+	close(p.fc.peerGone)
+	require.Equal(t, "err <nil>, dials 1", recv(t, joined, "Connect"))
+	require.Equal(t, "0/chat,", recv(t, next.out, "chat CONNECT on the dialed connection"))
+	next.reads <- "0"
+	next.reads <- "0/chat,"
+	require.ElementsMatch(t, []string{"/", "/chat"}, []string{recv(t, p.connects, "root OnConnect"), recv(t, p.connects, "chat OnConnect")})
+}

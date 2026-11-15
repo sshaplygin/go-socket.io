@@ -325,3 +325,35 @@ func TestSocketConnectAfterCloseConnectRounds(t *testing.T) {
 		})
 	}
 }
+
+// A Client with one namespace closes its connection with that namespace. Connect
+// then dials while the closed connection may still deliver the server's
+// DISCONNECT for the kick; that DISCONNECT does not end the new attempt.
+func TestSocketConnectAfterCrossingDisconnectOfOnlyNamespace(t *testing.T) {
+	for _, tr := range []struct {
+		name      string
+		transport transport.Transport
+	}{{"polling", polling.Default}, {"websocket", websocket.Default}} {
+		t.Run(tr.name, func(t *testing.T) {
+			url, _, received := rejoinServer(t)
+			cl, err := client.New(url+"/chat", client.WithTransports(tr.transport))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = cl.Close() })
+			connects := make(chan string, 8)
+			chat := cl.Socket("/chat")
+			chat.OnConnect(func(c client.Conn) error { connects <- c.Namespace(); return nil })
+			require.NoError(t, cl.Connect())
+			require.Equal(t, "/chat", recv(t, connects, "OnConnect"))
+
+			chat.Emit("kick")
+			require.NoError(t, chat.Close())
+			require.NoError(t, chat.Connect())
+			require.Equal(t, "/chat", recv(t, connects, "OnConnect after Socket.Connect"))
+			acks := make(chan string, 1)
+			chat.Emit("echo", "rejoined", func(value string) { acks <- value })
+			require.Equal(t, "rejoined", recv(t, acks, "ACK after the rejoin"))
+			require.Equal(t, "/chat:rejoined", recv(t, received, "event after the rejoin"))
+			require.True(t, chat.Connected())
+		})
+	}
+}

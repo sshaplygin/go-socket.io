@@ -87,10 +87,16 @@ func (bc *broadcast) subscribeChannels(ctx context.Context, channels []interface
 // dispatch handles the messages of the subscriber connection until the
 // broadcast is closed. Malformed messages are skipped; after a receive error
 // the subscriber connection is reopened. A receive error that close did not
-// cause is logged once at WARN; resubscribe logs the recovery.
+// cause is logged once at WARN and the new subscription at INFO.
+//
+// The reconnect backoff starts over when the lost subscription had stayed up
+// for at least redisReconnectMax; a subscription that fails sooner, such as one
+// a server drops right after accepting it, continues the backoff where the
+// previous reconnect left it.
 func (bc *broadcast) dispatch() {
 	sub := bc.sub
 	delay := redisReconnectMin
+	var restored time.Time
 	for {
 		switch m := sub.Receive().(type) {
 		case redis.Message:
@@ -117,10 +123,15 @@ func (bc *broadcast) dispatch() {
 			if bc.transportClosed() {
 				return
 			}
+			if !restored.IsZero() && time.Since(restored) >= redisReconnectMax {
+				delay = redisReconnectMin
+			}
 			logger.Log.Warn("socketio: redis subscription lost", "err", m)
 			if sub, delay = bc.resubscribe(delay); sub == nil {
 				return
 			}
+			restored = time.Now()
+			logger.Log.Info("socketio: redis subscription restored")
 		}
 	}
 }
@@ -130,13 +141,13 @@ func (bc *broadcast) dispatch() {
 // It returns the connection and the delay for the next reconnect, so the
 // backoff also grows when the server refuses each new subscription, or a
 // nil connection once the broadcast is closed. Each failed attempt is logged
-// at DEBUG and the new subscription at INFO.
+// at DEBUG.
 func (bc *broadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.Duration) {
 	for ; ; delay = min(2*delay, redisReconnectMax) {
 		select {
 		case <-bc.done:
 			return nil, 0
-		case <-time.After(delay):
+		case <-bc.reconnectTimer(delay):
 		}
 		// select picks either case when both are ready.
 		select {
@@ -175,9 +186,16 @@ func (bc *broadcast) resubscribe(delay time.Duration) (*redis.PubSubConn, time.D
 		bc.sub = sub
 		bc.markReady(channels)
 		bc.subLock.Unlock()
-		logger.Log.Info("socketio: redis subscription restored")
 		return sub, min(2*delay, redisReconnectMax)
 	}
+}
+
+// reconnectTimer returns the channel that ends a reconnect delay.
+func (bc *broadcast) reconnectTimer(delay time.Duration) <-chan time.Time {
+	if wait := bc.reconnectWait.Load(); wait != nil {
+		return (*wait)(delay)
+	}
+	return time.After(delay)
 }
 
 // transportClosed reports whether close has ended the subscriber transport.

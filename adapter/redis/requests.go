@@ -271,9 +271,11 @@ func (bc *broadcast) Len(room string) int {
 	return n
 }
 
-// logRequestError logs a failure of IDs, AllRooms, Len or Clear, which return no
-// error. A failure after the adapter's close started is expected closure and
-// logged at DEBUG.
+// logRequestError logs a cluster request failure that reaches no caller: one of
+// IDs, AllRooms, Len or Clear, which return no error, or one of answering a
+// peer's request (a custom handler error or invalid answer, a failed remote
+// Close, a recovered handler panic, a failed reply). A failure after the
+// adapter's close started is expected closure and logged at DEBUG.
 func (bc *broadcast) logRequestError(err error) {
 	if err == nil {
 		return

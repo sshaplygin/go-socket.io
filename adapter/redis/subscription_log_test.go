@@ -171,14 +171,128 @@ func TestCloseLogsNoSubscriptionLoss(t *testing.T) {
 	require.NoError(t, bc.Close())
 	requireQuiet(t, rec, 0)
 
+	// Closing while a reconnect attempt is in flight ends it without a record
+	// of the failed attempt.
+	blocked := newTestRedisBroadcast(t, s)
+	attempt := make(chan struct{}, 1)
+	dial := func(ctx context.Context) (redis.Conn, error) {
+		select {
+		case attempt <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	blocked.dial.Store(&dial)
+	blocked.subLock.Lock()
+	_ = blocked.sub.Close()
+	blocked.subLock.Unlock()
+	select {
+	case <-attempt:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no reconnect attempt")
+	}
+	n := rec.len()
+	require.NoError(t, blocked.Close())
+	requireQuiet(t, rec, n)
+
 	// Closing during an outage also ends the reconnect attempts quietly.
 	other := newTestRedisBroadcast(t, s)
 	s.Close()
-	require.Eventually(t, func() bool { return len(rec.records(0, msgSubscriptionLost)) == 1 },
+	require.Eventually(t, func() bool { return len(rec.records(n, msgSubscriptionLost)) == 1 },
 		5*time.Second, time.Millisecond)
-	n := rec.len()
+	n = rec.len()
 	require.NoError(t, other.Close())
 	requireQuiet(t, rec, n)
+}
+
+// recordReconnectWaits records the reconnect delays bc's dispatcher waits.
+func recordReconnectWaits(bc *broadcast) func() []time.Duration {
+	var mu sync.Mutex
+	var waits []time.Duration
+	wait := func(d time.Duration) <-chan time.Time {
+		mu.Lock()
+		waits = append(waits, d)
+		mu.Unlock()
+		return time.After(d)
+	}
+	bc.reconnectWait.Store(&wait)
+	return func() []time.Duration {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]time.Duration(nil), waits...)
+	}
+}
+
+// A recovered subscription that stays up for the maximum delay starts the
+// backoff over: the first reconnect after a later loss waits the minimum
+// delay, not the delay the previous outage reached.
+func TestReconnectBackoffRestartsAfterStableSubscription(t *testing.T) {
+	rec := captureRedisLogs(t)
+	s := miniredis.RunT(t)
+	bc := newTestRedisBroadcast(t, s)
+	waits := recordReconnectWaits(bc)
+
+	s.Close()
+	require.Eventually(t, func() bool {
+		w := waits()
+		return len(w) > 0 && w[len(w)-1] == redisReconnectMax
+	}, 5*time.Second, time.Millisecond, "the first outage must reach the maximum delay")
+	require.Equal(t, redisReconnectMin, waits()[0], "the first loss starts at the minimum delay")
+	require.NoError(t, s.Restart())
+	require.Eventually(t, func() bool { return len(rec.records(0, msgSubscriptionRestored)) == 1 },
+		5*time.Second, time.Millisecond)
+
+	// The restored subscription stays up for longer than the maximum delay.
+	time.Sleep(2 * redisReconnectMax)
+	n := len(waits())
+	replaceSubscriber(t, bc)
+	w := waits()
+	require.Greater(t, len(w), n)
+	require.Equal(t, redisReconnectMin, w[n], "a later loss must start the backoff over")
+}
+
+// dropAfterSubscribe accepts the subscription and fails the next read, like a
+// server that drops every subscriber right after acknowledging it.
+type dropAfterSubscribe struct {
+	redis.Conn
+	acks int
+}
+
+func (c *dropAfterSubscribe) Receive() (interface{}, error) {
+	if c.acks == 0 {
+		return nil, errors.New("dropped after subscribe")
+	}
+	c.acks--
+	return c.Conn.Receive()
+}
+
+// A subscription that fails right after each recovery keeps the backoff
+// growing instead of reconnecting at the minimum delay: doubling from 5 ms up
+// to 50 ms allows about 8 attempts in 300 ms, restarting at 5 ms about 50.
+func TestReconnectBackoffGrowsWhenSubscriptionDropsAtOnce(t *testing.T) {
+	captureRedisLogs(t)
+	s := miniredis.RunT(t)
+	bc := newTestRedisBroadcast(t, s)
+	var dials atomic.Int32
+	orig := *bc.dial.Load()
+	dial := func(ctx context.Context) (redis.Conn, error) {
+		dials.Add(1)
+		c, err := orig(ctx)
+		if err != nil {
+			return nil, err
+		}
+		// One acknowledgement for the pattern and one per channel.
+		return &dropAfterSubscribe{Conn: c, acks: 3}, nil
+	}
+	bc.dial.Store(&dial)
+	bc.subLock.Lock()
+	_ = bc.sub.Close()
+	bc.subLock.Unlock()
+
+	time.Sleep(300 * time.Millisecond)
+	require.GreaterOrEqual(t, dials.Load(), int32(2), "the subscriber must keep reconnecting")
+	require.LessOrEqual(t, dials.Load(), int32(12), "the delay must keep doubling")
 }
 
 // Redis Pub/Sub keeps no messages for a disconnected subscriber: a broadcast
@@ -239,7 +353,15 @@ func TestRequestHelperErrorsAfterCloseLogAtDebug(t *testing.T) {
 	require.Len(t, broadcast, 1)
 	requireLevel(t, broadcast, slog.LevelDebug, true)
 
+	// A failure of answering a peer that ends after Close, such as a reply
+	// whose PUBLISH fails, is not ErrAdapterClosed and is still DEBUG.
 	n := rec.len()
+	bc.logRequestError(errors.New("reply failed"))
+	failed = rec.records(n, msgRequestFailed)
+	require.Len(t, failed, 1)
+	requireLevel(t, failed, slog.LevelDebug, true)
+
+	n = rec.len()
 	s.Close()
 	require.Equal(t, -1, open.Len("room"))
 	failed = rec.records(n, msgRequestFailed)

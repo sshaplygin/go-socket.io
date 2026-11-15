@@ -112,9 +112,12 @@ Package `engineio` of the v1 module at the repository root.
   `http.NewResponseController` supports deadlines, the body read and the response
   write follow the heartbeat window, within the `http.Server`'s `ReadTimeout` or
   `WriteTimeout`; a read or write that such a deadline ends closes the session with
-  `ping timeout`. A response that fits net/http's buffer is written there even after
-  `WriteTimeout` has expired; net/http fails to send it once the handler has
-  returned, and the session does not see the loss ([deployment](V1.md#deployment)).
+  `ping timeout`. Over HTTP/1.x a response that fits net/http's buffer is written
+  there even after `WriteTimeout` has expired; net/http fails to send it once the
+  handler has returned, and the session does not see the loss. Over HTTP/2 net/http
+  resets a poll that is still pending when `WriteTimeout` expires, which cancels its
+  request and ends the session with `transport error`
+  ([deployment](V1.md#deployment)).
   A close interrupts an incomplete POST body. An
   orderly close (`Conn.Close`, `engineio.Conn.Close`) lets the response carrying
   CLOSE keep its deadline, so the packet reaches a slow client; the session stays
@@ -264,9 +267,11 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   (`4/<nsp>,"Invalid namespace"`) and the connection stays open.
 - Binary attachments are replaced by `{"_placeholder":true,"num":N}` and sent as
   following binary frames; on the Go side they map to `parser.Buffer`.
-- No EVENT named `connect`, `disconnect`, `disconnecting` or `error` crosses the
-  wire in either direction; an emit or broadcast of these names runs the selected
-  sockets' own listeners ([lifecycle names](V1.md#connections-and-namespaces),
+- This library sends no EVENT named `connect`, `disconnect`, `disconnecting` or
+  `error`, and its server discards incoming ones, such as the `disconnecting` that
+  socket.io-client 1.7.4 and 2.5.0 send as an ordinary event. An emit or broadcast
+  of these names runs the selected sockets' own listeners
+  ([lifecycle names](V1.md#connections-and-namespaces),
   [broadcasts](V1.md#rooms-and-broadcasting)). socket.io 2.5.0 keeps these names, and
   `newListener` and `removeListener`, local only for `socket.emit` and for a
   broadcast started from a socket (`socket.to(room).emit`, `socket.broadcast.emit`),

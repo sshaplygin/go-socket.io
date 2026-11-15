@@ -39,6 +39,19 @@ type EventHandler = event.Handler
 // *RemoteError implements error; Error returns Code + ": " + Message.
 type RemoteError = event.RemoteError
 
+// PanicError is a panic recovered from an application callback. On the server
+// these are connection middleware, OnConnect, typed and untyped event handlers and
+// listeners, event middleware (Conn.Use), ACK callbacks and OnDisconnect: the
+// namespace's OnError receives the PanicError, possibly wrapped, so errors.As
+// identifies it, and without OnError it is logged at WARN as
+// "socketio: handler panic" with its stack (see Server.OnError). The Go client's
+// OnError receives one for a panic in a typed handler. Value is the value passed
+// to panic and Stack the panicking goroutine's stack from runtime/debug.Stack.
+// *PanicError implements error; Error returns "panic: " followed by Value, and
+// Unwrap returns Value when it is an error. The peer never receives Value: it gets
+// the fixed text "internal error" where it gets a message.
+type PanicError = event.PanicError
+
 var (
 	// ErrInvalidEventName rejects empty names and reserved lifecycle event names.
 	// Sends through the Go client also reject the names it keeps local; see
@@ -167,6 +180,8 @@ func (e AckEvent[T, R]) Name() string { return e.name }
 
 // Handle registers a server handler and acknowledges only packets requesting an
 // ACK. Application errors become handler_error; RemoteError preserves its code.
+// A recovered panic becomes handler_panic with the message "internal error", and
+// OnError receives it as a *PanicError; the socket stays open.
 func (e AckEvent[T, R]) Handle(nsp *ServerNamespace, h func(context.Context, Conn, T) (R, error)) error {
 	if err := event.ValidateName(e.name); err != nil {
 		return err

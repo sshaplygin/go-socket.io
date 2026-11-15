@@ -111,9 +111,12 @@ func TestHandlerInvocation(t *testing.T) {
 	}
 	panicHandler := NewHandler(SchemaOf[int](), false, func(context.Context, Endpoint, Payload) (Payload, error) { panic("test panic") })
 	_, err = panicHandler.Invoke(context.Background(), nil, p)
-	var remote *RemoteError
-	if !errors.As(err, &remote) || remote.Code != "handler_panic" {
+	var panicked *PanicError
+	if !errors.As(err, &panicked) || panicked.Value != "test panic" || !strings.Contains(string(panicked.Stack), "event_test.go") {
 		t.Fatal(err)
+	}
+	if got := AckArgs(Payload{}, err); len(got) != 1 || got[0] != (RemoteError{Code: "handler_panic", Message: PanicMessage}) {
+		t.Fatalf("panic ACK %v", got)
 	}
 	if _, err := (Handler{}).Invoke(context.Background(), nil, p); !errors.Is(err, ErrInvalidPayload) {
 		t.Fatal(err)

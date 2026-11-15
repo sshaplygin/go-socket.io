@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/sshaplygin/go-socket.io/adapter"
+	eventImpl "github.com/sshaplygin/go-socket.io/internal/event"
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
@@ -76,7 +77,7 @@ func (nh *namespaceHandler) OnError(f func(Conn, error)) {
 func (nh *namespaceHandler) Connect(c Conn) (err error) {
 	defer func() {
 		if value := recover(); value != nil {
-			err = fmt.Errorf("connect callback panic: %v", value)
+			err = fmt.Errorf("connect callback: %w", eventImpl.NewPanicError(value))
 		}
 	}()
 	nh.eventsLock.RLock()
@@ -121,11 +122,7 @@ type callbackFunc struct {
 func (h *callbackFunc) Call(args []reflect.Value) (ret []reflect.Value, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			var ok bool
-			err, ok = r.(error)
-			if !ok {
-				err = fmt.Errorf("event call error: %s", r)
-			}
+			err = eventImpl.NewPanicError(r)
 		}
 	}()
 
@@ -224,19 +221,19 @@ func (nh *namespaceHandler) ErrorHandler() func(Conn, error) {
 	return func(c Conn, err error) {
 		defer func() {
 			if value := recover(); value != nil {
-				nh.log.Warn("socketio: error handler panic", nspAttr(nh.name), "err", fmt.Errorf("%v", value))
+				panicked := eventImpl.NewPanicError(value)
+				nh.log.Warn("socketio: error handler panic", nspAttr(nh.name), "err", panicked, "stack", string(panicked.Stack))
 			}
 		}()
 		callback(c, err)
 	}
 }
 
-func (nh *namespaceHandler) NotifyDisconnect(c Conn, reason string) {
+// NotifyDisconnect calls OnDisconnect and returns its recovered panic.
+func (nh *namespaceHandler) NotifyDisconnect(c Conn, reason string) (err error) {
 	defer func() {
 		if value := recover(); value != nil {
-			if callback := nh.ErrorHandler(); callback != nil {
-				callback(c, fmt.Errorf("disconnect callback panic: %v", value))
-			}
+			err = fmt.Errorf("disconnect callback: %w", eventImpl.NewPanicError(value))
 		}
 	}()
 	nh.eventsLock.RLock()
@@ -245,6 +242,7 @@ func (nh *namespaceHandler) NotifyDisconnect(c Conn, reason string) {
 	if callback != nil {
 		callback(c, reason)
 	}
+	return nil
 }
 
 func (nh *namespaceHandler) Use(f func(Conn) error) {

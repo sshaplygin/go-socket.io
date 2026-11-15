@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"runtime/debug"
 
 	"github.com/sshaplygin/go-socket.io/parser"
 )
@@ -77,7 +78,7 @@ func (h Handler) Decode(d *parser.Decoder) (Payload, error) { return Decode(d, h
 func (h Handler) Invoke(ctx context.Context, to Endpoint, payload Payload) (result Payload, err error) {
 	defer func() {
 		if value := recover(); value != nil {
-			err = &RemoteError{Code: "handler_panic", Message: fmt.Sprint(value)}
+			err = NewPanicError(value)
 		}
 	}()
 	if !h.Valid() {
@@ -114,16 +115,64 @@ func (e *RemoteError) Error() string {
 	return e.Code + ": " + e.Message
 }
 
+// PanicMessage replaces the value of a recovered panic in what the peer receives.
+const PanicMessage = "internal error"
+
+// PanicError is a panic recovered from an application callback.
+type PanicError struct {
+	Value interface{} // the value passed to panic
+	Stack []byte      // the panicking goroutine's stack, formatted by runtime/debug.Stack
+}
+
+// NewPanicError records value with the current stack. Call it from the deferred
+// function that recovered value, so the stack still holds the panicking frames.
+func NewPanicError(value interface{}) *PanicError {
+	return &PanicError{Value: value, Stack: debug.Stack()}
+}
+
+func (e *PanicError) Error() string { return fmt.Sprintf("panic: %v", e.Value) }
+
+// Unwrap returns the panic value when it is an error.
+func (e *PanicError) Unwrap() error {
+	err, _ := e.Value.(error)
+	return err
+}
+
+// IsPanic reports whether err carries a recovered panic.
+func IsPanic(err error) bool {
+	var panicked *PanicError
+	return errors.As(err, &panicked)
+}
+
+// WireMessage is the text a peer receives for err: PanicMessage for a recovered
+// panic, err.Error() otherwise.
+func WireMessage(err error) string {
+	if IsPanic(err) {
+		return PanicMessage
+	}
+	return err.Error()
+}
+
+// AckError is the error object of an error-first acknowledgement for err: a
+// RemoteError keeps its code, a recovered panic becomes handler_panic with
+// PanicMessage, and any other error becomes handler_error with its text.
+func AckError(err error) RemoteError {
+	if IsPanic(err) {
+		return RemoteError{Code: "handler_panic", Message: PanicMessage}
+	}
+	var remote *RemoteError
+	if errors.As(err, &remote) && remote != nil && remote.Code != "" {
+		return RemoteError{Code: remote.Code, Message: remote.Message}
+	}
+	return RemoteError{Code: "handler_error", Message: err.Error()}
+}
+
 // AckArgs encodes the same error-first envelope for both Socket.IO roles.
 func AckArgs(value Payload, err error) []interface{} {
 	if err == nil {
 		return []interface{}{nil, value.Interface()}
 	}
-	var remote *RemoteError
-	if errors.As(err, &remote) && remote != nil && remote.Code != "" {
-		return []interface{}{RemoteError{Code: remote.Code, Message: remote.Message}}
-	}
-	return []interface{}{RemoteError{Code: "handler_error", Message: err.Error()}}
+	return []interface{}{AckError(err)}
 }
 
 // DecodeAck validates the full envelope while decoding the result directly to R.

@@ -32,9 +32,12 @@
 //
 // The library logs WARN and DEBUG records only; it logs no ERROR or INFO
 // record. WARN marks a failure no caller receives, such as
-// "socketio: unhandled error" or a rejected request (DEBUG for an unknown sid).
+// "socketio: unhandled error", a rejected request (DEBUG for an unknown sid) or
+// a recovered panic: "socketio: handler panic" for a server callback whose
+// namespace has no OnError, and "socketio: error handler panic" for OnError
+// itself, both with the stack.
 // Expected closure (EOF, a closed connection, a peer close, a ping timeout and
-// any failure after a close started), errors also returned to a caller or
+// any failure other than a panic after a close started), errors also returned to a caller or
 // delivered to an OnError handler, and the boundary records (session open and
 // close, namespace connect, disconnect) are DEBUG. LevelTrace is available for
 // application records; the library does not emit records at that level.
@@ -61,6 +64,7 @@
 //   - ack_id: the acknowledgement id
 //   - type: the packet type
 //   - value: an invalid setting, such as SOCKETIO_LOG_LEVEL
+//   - stack: the goroutine stack of a recovered panic, from runtime/debug.Stack
 //
 // No record carries packet payloads.
 package logger

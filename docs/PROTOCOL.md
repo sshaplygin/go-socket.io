@@ -253,12 +253,31 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   (an event payload that is not an array) or an invalid attachment closes the
   connection and sends no ACK. The reference server has no equivalent, because its
   handlers accept any arguments.
+- A server handler result of type `error` is encoded in its ACK position as `null`
+  when nil and otherwise as `{"code":"handler_error","message":"<err.Error()>"}`,
+  or with the code and message of a `*RemoteError`; for example a
+  `func(Conn) error` returning `errors.New("bad thing")` answers
+  `3<id>[{"code":"handler_error","message":"bad thing"}]`, and a
+  `func(Conn) (string, error)` answers `3<id>["",{"code":"handler_error",...}]`
+  ([usage](V1.md#handler-errors-and-panics)). A reference listener has no return
+  value; `ack(new Error("bad thing"))` there sends `[{}]`, because an `Error`'s
+  message is not an enumerable property.
 - An ERROR payload is always a JSON string: `err.Error()` for a connect or event
-  middleware rejection or an `OnConnect` error, for example `4"rejected"`, and
-  `Invalid namespace` for an unknown namespace. Additional error data is not
+  middleware rejection or an `OnConnect` error, for example `4"rejected"`,
+  `internal error` when that callback panicked, and `Invalid namespace` for an
+  unknown namespace. Additional error data is not
   sent, even when the error value implements `json.Marshaler`. As a known
   compatibility limitation, socket.io 2.5.0 instead sends `err.data` when it is
   set, which can be any JSON value, and `err.message` otherwise.
+- A recovered panic never sends its value: the peer receives `internal error` in
+  the ERROR packet of a connect or event middleware or `OnConnect` panic, and in
+  the `handler_panic` error ACK of a typed handler; an untyped handler or ACK
+  callback panic closes the connection without a reply
+  ([usage](V1.md#handler-errors-and-panics)). socket.io 2.5.0 recovers none of
+  these and never sends a thrown error either: an exception thrown in an event
+  listener, a packet middleware (`socket.use`), an ACK callback, a `connection`
+  listener or a `disconnect` listener is an uncaught exception of the Node process,
+  and one thrown in namespace middleware (`nsp.use`) closes the client's transport.
 - Namespace query strings (`0/nsp?x=1`) are parsed into `Header.Query` and merged into
   `Handshake().Query` of that socket.
 - The reference server queues outbound packets without a bound. This server bounds

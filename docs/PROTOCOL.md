@@ -68,6 +68,13 @@ Package `engineio` of the v1 module at the repository root.
   error` (in the Go client, `OnDisconnect` reason `transport error`); engine.io 3.6.2
   answers the poll with `CLOSE` (`1`), and its clients report `transport close`. A
   websocket session receives the server's close frame with code 1000 instead.
+- A polling session that the server ends for a POST over the message limit (below)
+  or for a packet that does not decode also answers its pending poll with HTTP 500,
+  so the JavaScript clients report `transport error`. engine.io 3.6.2 answers the
+  poll with `CLOSE` in both cases, and its clients usually report `transport close`.
+  The over-limit POST is answered 413, where engine.io 3.6.2 resets its connection;
+  the POST that carried the undecodable packet is answered 200, or 400 when the
+  session has already closed.
 - The Go client's Engine.IO `Close` of an open websocket, also after the client's
   own ping timeout, sends a close frame with code 1000, with the write deadline and
   the reply wait of the server's close above, so that the server reports
@@ -246,8 +253,11 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   the server and for the Go client alike. If the peer requested an ack, the
   receiving side answers with the error ACK of acknowledged typed descriptors
   (`NewAckEvent`), `3<id>[{"code":"invalid_payload","message":"decode argument 0:
-  json: cannot unmarshal string into Go value of type int"}]`, so a JavaScript
-  callback, or the callback of a Go `Emit` with an acknowledgement, is called
+  json: cannot unmarshal string into Go value of type int"}]`. The message is
+  `decode argument <index>: ` followed by the `encoding/json` error of the Go
+  toolchain the receiver was built with; the example is the text of the default
+  `encoding/json`, and a build with `GOEXPERIMENT=jsonv2` can word it differently. A
+  JavaScript callback, or the callback of a Go `Emit` with an acknowledgement, is called
   with that object as its only argument, and `EmitWithAck` returns a
   `*RemoteError` with code `invalid_payload`; without an ACK id nothing is sent. The decode error goes to `OnError` in both cases. This
   covers a wrong JSON type and a binary attachment where another type is

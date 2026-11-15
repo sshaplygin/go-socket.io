@@ -340,20 +340,35 @@ type (
 	sharedSubtypes16 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes12]]]]
 	sharedSubtypes20 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes16]]]]
 	sharedSubtypes24 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes20]]]]
+	sharedSubtypes28 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes24]]]]
+	sharedSubtypes32 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes28]]]]
+	sharedSubtypes36 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes32]]]]
+	sharedSubtypes40 = sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes[sharedSubtypes36]]]]
 )
 
 func TestPreparePlainTypeCheckIsLinearInSharedSubtypes(t *testing.T) {
-	// The plain-type check must visit each distinct type once; walking every path
-	// makes the first Prepare of this type exponential in the nesting depth.
-	var value sharedSubtypes24
-	start := time.Now()
-	packet, err := parser.Prepare(parser.Header{Type: parser.Event}, []any{"event", value})
-	elapsed := time.Since(start)
-	if err != nil {
-		t.Fatal(err)
+	// The plain-type check must visit each distinct type once: 41 types here.
+	// Walking every path instead visits 2^40 of them, so the first Prepare of
+	// this type would not finish within the wait below on any machine.
+	type prepared struct {
+		packet *parser.PreparedPacket
+		err    error
 	}
-	if elapsed > 100*time.Millisecond {
-		t.Fatalf("first Prepare took %v, want at most 100ms", elapsed)
+	done := make(chan prepared, 1)
+	go func() {
+		var value sharedSubtypes40
+		packet, err := parser.Prepare(parser.Header{Type: parser.Event}, []any{"event", value})
+		done <- prepared{packet, err}
+	}()
+	var packet *parser.PreparedPacket
+	select {
+	case result := <-done:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		packet = result.packet
+	case <-time.After(10 * time.Second):
+		t.Fatal("the first Prepare walks every path through the type graph")
 	}
 	w := new(recordedWriter)
 	if err := parser.NewEncoder(w).EncodePrepared(packet); err != nil {

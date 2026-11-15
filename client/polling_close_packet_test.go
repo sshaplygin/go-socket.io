@@ -128,7 +128,8 @@ func TestPollingCloseUnansweredClosePacket(t *testing.T) {
 	reasons := make(chan string, 1)
 	_, ts := longPingServer(t, reasons)
 	before := clientGoroutines()
-	entered := make(chan struct{})
+	entered, canceled := make(chan struct{}), make(chan struct{})
+	posts := make(chan context.Context, 1)
 	tr := &polling.Transport{Client: &http.Client{Transport: closeRoundTripper(func(r *http.Request) (*http.Response, error) {
 		if r.Method == http.MethodPost && r.Body != nil {
 			body, err := io.ReadAll(r.Body)
@@ -136,8 +137,10 @@ func TestPollingCloseUnansweredClosePacket(t *testing.T) {
 				return nil, err
 			}
 			if bytes.Equal(body, []byte{0x00, 0x01, 0xff, '1'}) { // CLOSE in a binary payload
+				posts <- r.Context()
 				close(entered)
 				<-r.Context().Done() // the server never answers
+				close(canceled)
 				return nil, r.Context().Err()
 			}
 			r = r.Clone(r.Context())
@@ -147,12 +150,20 @@ func TestPollingCloseUnansweredClosePacket(t *testing.T) {
 	})}}
 	cl := connectPolling(t, ts.URL, tr)
 
-	started := time.Now()
-	require.NoError(t, cl.Close())
-	require.Less(t, time.Since(started), 100*time.Millisecond, "Close waited for the transport")
+	closed := make(chan error, 1)
+	go func() { closed <- cl.Close() }()
+	require.NoError(t, recv(t, closed, "Close"))
+	// Only the Engine.IO client's CLOSE packet timeout cancels the unanswered
+	// CLOSE POST. A Close that waited for the transport returns after the
+	// cancellation.
+	select {
+	case ctx := <-posts:
+		require.NoError(t, ctx.Err(), "Close waited for the transport")
+	default: // the CLOSE POST has not started
+	}
 	require.Equal(t, "client namespace disconnect", recv(t, reasons, "server OnDisconnect"))
 	recv(t, entered, "the CLOSE packet POST")
-	deadline := started.Add(3 * time.Second)
+	recv(t, canceled, "cancellation of the unanswered CLOSE POST")
 	leftover := func() (stacks []string) {
 		for id, stack := range clientGoroutines() {
 			if _, ok := before[id]; !ok {
@@ -161,8 +172,6 @@ func TestPollingCloseUnansweredClosePacket(t *testing.T) {
 		}
 		return stacks
 	}
-	for len(leftover()) > 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	require.Empty(t, leftover(), "client goroutines outlived the unanswered CLOSE POST by 3 s")
+	require.Eventually(t, func() bool { return len(leftover()) == 0 }, waitFor, 10*time.Millisecond,
+		"client goroutines outlived the canceled CLOSE POST")
 }

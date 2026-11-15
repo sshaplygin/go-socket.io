@@ -38,14 +38,15 @@ conformance:
 test-jsonv2:
 	GOEXPERIMENT=jsonv2 go test -race -count=1 ./parser/... . ./client/...
 
-# Race tests of STRESS_PKGS that are also in PKGS, repeated and shuffled.
+# Race tests of STRESS_PKGS that are also in PKGS, repeated and shuffled. The ten runs of
+# the root package can exceed go test's default timeout of 10 minutes per package.
 .PHONY: test-stress
 test-stress:
 	@set -e; selected=$$(go list $(PKGS)); \
 	pkgs=$$(go list $(STRESS_PKGS) | grep -Fx "$$selected" || true); \
 	if test -z "$$pkgs"; then echo "test-stress: no stress package in PKGS"; exit 0; fi; \
-	echo go test -race -count=5 -shuffle=on -cpu=1,4 $$pkgs; \
-	go test -race -count=5 -shuffle=on -cpu=1,4 $$pkgs
+	echo go test -race -count=5 -shuffle=on -cpu=1,4 -timeout=20m $$pkgs; \
+	go test -race -count=5 -shuffle=on -cpu=1,4 -timeout=20m $$pkgs
 
 # Race tests of STRESS_PKGS repeated under CPU load: STRESS_LOAD POSIX sh busy loops (twice the
 # CPU count) run while go test -json writes STRESS_JSON, which .github/stress summarizes into

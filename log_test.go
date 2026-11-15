@@ -415,8 +415,8 @@ func TestNamespaceRecords(t *testing.T) {
 			p.connect(t).disconnected(t, "/")
 		}, map[string]error{"/": ErrWriteBufferFull}, map[string]any{"/": "connection close"}},
 		{"overflow in a failing root OnConnect", fail("/", defaultWriteBufferSize+1, refused), func(t *testing.T, p *peer) {
-			p.connect(t).disconnected(t, "/")
-		}, map[string]error{"/": errors.Join(ErrWriteBufferFull, refused)}, map[string]any{"/": "connection close"}},
+			p.connect(t).disconnected(t)
+		}, map[string]error{"/": errors.Join(ErrWriteBufferFull, refused)}, map[string]any{}},
 		{"overflow in OnConnect of /chat", fail("/chat", defaultWriteBufferSize+1, nil), func(t *testing.T, p *peer) {
 			p.connect(t).stall(t, p.nc, 0) // so that the writer cannot drain the queue
 			p.send(t, "0/chat")

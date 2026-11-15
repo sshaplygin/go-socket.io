@@ -159,7 +159,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // accepts the join, and the packets f emits are written after the namespace
 // is accepted. An error rejects it: the client receives an ERROR packet with
 // the error text, the Engine.IO connection stays open, and the error goes to
-// OnError, with a nil Conn for the root namespace.
+// OnError, with a nil Conn for the root namespace. An error that holds a nil
+// pointer counts as nil and accepts the join. A panic in f rejects the join
+// with the text "internal error" and is reported as a *PanicError (see OnError).
 func (s *Server) OnConnect(namespace string, f func(Conn) error) {
 	h := s.getNamespace(namespace)
 	if h == nil {

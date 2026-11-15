@@ -37,6 +37,11 @@ type Handshake struct {
 // Conn is one connection generation of a server-side Socket.IO namespace.
 // Direct sends and room operations remain bound to that namespace socket, even
 // if a later connection to the namespace reuses its ID.
+//
+// Emit, Send, the emitters, Join, Leave, LeaveAll, Rooms, Disconnect and Close may
+// be called from any goroutine, concurrently with each other and with handlers;
+// SetContext and Context are not synchronized. Conn is implemented by the library,
+// and a minor release may add methods to it.
 type Conn interface {
 	adapter.Socket
 	// Close closes the connection and returns nil; only the first close, by Close or by the library,
@@ -48,13 +53,21 @@ type Conn interface {
 	// WithCloseTimeout (one minute if not positive) after Close started, the rest is
 	// discarded and the engine.io connection is closed; Server.Count counts the session until then.
 	// Incoming packets are no longer dispatched, and a read or write failure ends the drain at once.
-	// The library closes a connection on a read, decode or dispatch error, a peer close, a ping
-	// timeout or an overflow (see ErrWriteBufferFull), discarding the queue at once.
-	// Other than an overflow, the error is reported to OnError before the close's effects run,
-	// so Emits from OnError still queue. A middleware or OnConnect rejection sends ERROR and keeps
-	// the engine connection open; it reports to that namespace's OnError, with a nil Conn for root.
-	// Failures during a close are not reported. An encode failure reports OnError, sends an ERROR
-	// packet with "encode error", and keeps the connection open.
+	// The library itself closes a connection, discarding the queue at once, when its Engine.IO
+	// session ends (a peer close, a transport read or write failure, a ping timeout or a message
+	// past the size limit), on an overflow (see ErrWriteBufferFull), and when a received packet
+	// stops the connection's reader, for example a packet that is not valid, or arguments that
+	// fail to decode into the parameters of an untyped event handler (OnEvent, On, Once) or of
+	// an Emit acknowledgement callback with an error that is not a *json.UnmarshalTypeError
+	// (see Server.OnEvent). The end of the session is not an error: OnDisconnect receives its
+	// reason and OnError is not called. A received packet that stops the reader is reported to
+	// OnError while the connection is still connected; the close follows, so an Emit from that
+	// OnError call can be discarded before it is written. A decode error of such arguments that
+	// is a *json.UnmarshalTypeError is reported to OnError without a close.
+	// A middleware or OnConnect rejection sends ERROR and keeps the engine connection open; it
+	// reports to that namespace's OnError, with a nil Conn for root. Failures during a close are
+	// not reported. An encode failure reports OnError, sends an ERROR packet with "encode error",
+	// and keeps the connection open.
 	Close() error
 	Namespace
 	// EngineConn returns the underlying server Engine.IO connection for metadata
@@ -76,9 +89,12 @@ type Conn interface {
 	// <namespace>#<Engine.IO ID> in any other namespace.
 	ID() string
 	// URL returns the request URL of the current Engine.IO transport, which
-	// changes with a transport upgrade; Handshake keeps the original URL.
+	// changes with a transport upgrade; Handshake keeps the original URL. The
+	// result is a url.URL value, so calling a pointer method such as String needs
+	// a variable: u := c.URL(); u.String().
 	URL() url.URL
-	// LocalAddr returns the local network address of the current transport.
+	// LocalAddr returns the local network address of the current transport; over
+	// polling it is a polling.Addr, which is not the address of a network connection.
 	LocalAddr() net.Addr
 	// RemoteAddr returns the peer's network address on the current transport.
 	RemoteAddr() net.Addr
@@ -87,11 +103,13 @@ type Conn interface {
 	RemoteHeader() http.Header
 }
 
-// Namespace exposes server operations on one Socket.IO namespace socket.
+// Namespace exposes server operations on one Socket.IO namespace socket. It is
+// implemented by the library, and a minor release may add methods to it.
 type Namespace interface {
-	// Context returns application state associated with this connection.
-	// Synchronize access when callbacks or application goroutines share mutable state;
-	// a disconnect initiated by the application can run callbacks concurrently.
+	// Context returns the application state stored by SetContext. Neither method is
+	// synchronized: the application synchronizes calls from more than one goroutine
+	// and access to shared mutable state. A disconnect initiated by the application
+	// can run callbacks concurrently with handlers.
 	Context() interface{}
 	// SetContext replaces the value Context returns. It does not synchronize
 	// with Context; see Context.
@@ -105,7 +123,11 @@ type Namespace interface {
 	// Emit sends eventName with arguments v to the client. If the last element of v
 	// is a func, it is not sent but registered as the acknowledgement callback: the
 	// client's ACK arguments are decoded into its parameters and it is called on the
-	// read goroutine of the connection. Encoding is synchronous and may invoke
+	// read goroutine of the connection. The callback has no timeout: it is called
+	// when the ACK arrives, and never if its namespace connection ends first. ACK
+	// arguments that do not decode into its parameters are reported to OnError
+	// without calling the callback, and the connection closes unless the error is a
+	// *json.UnmarshalTypeError (see Server.OnEvent). Encoding is synchronous and may invoke
 	// application marshalers. Queue admission does not wait for free capacity;
 	// transport writes run in the background. Emits from OnConnect are written
 	// after the namespace is accepted. A queue already holding
@@ -148,6 +170,7 @@ type Namespace interface {
 // value, so an Emitter can be reused. To or Except converts a single-socket target
 // to a broadcast excluding its sender; Volatile, Local and Compress preserve its target.
 // A single-socket target stays bound to its Conn's namespace generation.
+// Emitter is implemented by the library, and a minor release may add methods to it.
 type Emitter interface {
 	// To adds rooms to the target: the broadcast reaches each socket in any of
 	// the rooms once. A broadcast without rooms reaches every socket of the

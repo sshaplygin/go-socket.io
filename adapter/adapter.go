@@ -28,7 +28,8 @@ type Options struct {
 
 // Socket is the minimal namespace socket used by adapters.
 // EmitWithOptions applies Volatile and NoCompress to this socket only; room
-// selection, exclusion and cluster routing belong to the adapter.
+// selection, exclusion and cluster routing belong to the adapter. Socket is
+// implemented by the library, and a minor release may add methods to it.
 type Socket interface {
 	// ID returns the socket ID that Options.Except and the room of the
 	// socket's own ID use.
@@ -68,8 +69,8 @@ var ErrExceptUnsupported = errors.New("socketio: broadcast except is not support
 // SendTo; Rooms(nil) is equivalent to AllRooms. Because Send and SendAll return
 // no error, an adapter must not drop a SendTo failure silently; it should log it
 // at WARN, or at DEBUG once the adapter is closed, as the Redis adapter does.
-// The Adapter method set is fixed for v1; new capabilities are expressed through
-// optional interfaces.
+// Adapter is the interface meant to be implemented outside this module: its method
+// set is fixed for v1, and new capabilities are expressed through optional interfaces.
 type Adapter interface {
 	// SendTo snapshots matching sockets and emits on the caller's goroutine after
 	// releasing the adapter lock. Delivery uses target.Emit, or target.EmitWithOptions

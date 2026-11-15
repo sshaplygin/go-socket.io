@@ -123,15 +123,15 @@ func TestHandlerCall(t *testing.T) {
 func TestConnectPanicIsContained(t *testing.T) {
 	h := newNamespaceHandler()
 	h.OnConnect(func(Conn) error { panic("application panic") })
-	require.NotPanics(t, func() { require.Error(t, h.Connect(nil)) })
+	require.NotPanics(t, func() { require.Error(t, h.Connect(nil, nil)) })
 }
 
 func TestConnectMiddlewarePanicAndNil(t *testing.T) {
 	h := newNamespaceHandler()
 	h.Use(nil)
-	require.NoError(t, h.Connect(nil))
+	require.NoError(t, h.Connect(nil, nil))
 	h.Use(func(Conn) error { panic("middleware panic") })
-	require.ErrorContains(t, h.Connect(nil), "middleware panic")
+	require.ErrorContains(t, h.Connect(nil, nil), "middleware panic")
 }
 
 func TestVariadicHandlerArguments(t *testing.T) {

@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -161,10 +162,12 @@ func TestPollingCloseQueuesCloseBehindAdmittedWriter(t *testing.T) {
 func TestPollingCloseUnansweredClosePacket(t *testing.T) {
 	url, _ := closePacketServer(t)
 	entered, canceled := make(chan struct{}), make(chan struct{})
+	posts := make(chan context.Context, 1)
 	tr := postHook(func(r *http.Request, body []byte) error {
 		if !bytes.Equal(body, closePacketBody) {
 			return nil
 		}
+		posts <- r.Context()
 		close(entered)
 		<-r.Context().Done() // the server never answers
 		close(canceled)
@@ -172,9 +175,21 @@ func TestPollingCloseUnansweredClosePacket(t *testing.T) {
 	})
 	c, err := (&Dialer{Transports: []transport.Transport{tr}}).Dial(url, nil)
 	require.NoError(t, err)
-	started := time.Now()
-	require.NoError(t, c.Close())
-	require.Less(t, time.Since(started), 100*time.Millisecond, "Close waited for the CLOSE POST")
+	returned := make(chan error, 1)
+	go func() { returned <- c.Close() }()
+	select {
+	case err := <-returned:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not return")
+	}
+	// Only closePacketTimeout cancels the unanswered CLOSE POST. A Close that
+	// waited for that POST returns after the cancellation.
+	select {
+	case ctx := <-posts:
+		require.NoError(t, ctx.Err(), "Close waited for the CLOSE POST")
+	default: // the CLOSE POST has not started
+	}
 	require.NoError(t, c.Close())
 	require.Equal(t, StateClosed, c.ReadyState())
 	for _, step := range []struct {
@@ -183,7 +198,7 @@ func TestPollingCloseUnansweredClosePacket(t *testing.T) {
 	}{{entered, "CLOSE packet POST"}, {canceled, "cancellation of the unanswered CLOSE POST"}} {
 		select {
 		case <-step.ch:
-		case <-time.After(3 * time.Second):
+		case <-time.After(closePacketTimeout + 5*time.Second):
 			t.Fatalf("no %s", step.what)
 		}
 	}

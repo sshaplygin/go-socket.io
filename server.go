@@ -160,6 +160,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // is accepted. An error rejects it: the client receives an ERROR packet with
 // the error text, the Engine.IO connection stays open, and the error goes to
 // OnError, with a nil Conn for the root namespace.
+//
+// f runs once the namespace middleware (ServerNamespace.Use) has accepted the
+// socket. By then the socket has joined its ID room and is listed by Sockets and
+// SocketIDs, as in the reference's connection listener, so a broadcast that
+// selects it reaches it, whether issued by f or by another goroutine while f
+// runs. Those packets and the Emits of f wait in the connection's write queue
+// (see WithWriteBufferSize) and are written after CONNECT once f returns nil. If
+// f returns an error, the socket receives an ERROR packet instead, the waiting
+// packets are discarded, the socket leaves its rooms and the namespace, and it
+// gets neither disconnecting nor OnDisconnect.
 func (s *Server) OnConnect(namespace string, f func(Conn) error) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -176,7 +186,9 @@ func (s *Server) OnConnect(namespace string, f func(Conn) error) {
 // close (EngineConn().Close or engineio.Abort), a parser failure, a handler panic
 // or a queue overflow. Rooms have been left before it runs;
 // OnEvent(namespace, "disconnecting", func(Conn, string)) observes the same
-// reason while the rooms are still joined.
+// reason while the rooms are still joined. Both run once for each socket whose
+// OnConnect returned nil, also when a close started while OnConnect ran; a socket
+// rejected by middleware or OnConnect gets neither.
 func (s *Server) OnDisconnect(namespace string, f func(Conn, string)) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -207,11 +219,31 @@ func (s *Server) OnError(namespace string, f func(Conn, error)) {
 // acknowledgement, the return values are sent back as the ACK payload. A final
 // AckFunc parameter takes ownership of the ACK and suppresses automatic returns;
 // it may be called later, once, from another goroutine. If the arguments do not
-// decode into the parameter types, f is not called, the error goes to OnError and
-// a requested acknowledgement is answered with an error ACK. OnEvent replaces
-// every listener of this event (see ServerNamespace.On and Once).
-// f is called on the read goroutine of the connection, so a blocking f delays only
-// that client. OnEvent panics if f is not a func or its first parameter is not Conn.
+// decode into the parameter types, f is not called and the error goes to OnError.
+// What follows depends on the error, not on the JSON value. When it is a
+// *json.UnmarshalTypeError, which encoding/json returns for a value that does not
+// fit the Go type, such as a string for an int parameter or struct field, a
+// requested acknowledgement is answered with an error ACK and the connection stays
+// open. Any other decode error, such as the one Time.UnmarshalJSON returns for
+// "bad", closes the connection without an ACK (see Conn.Close). Which error a
+// value produces is decided by encoding/json and can differ under
+// GOEXPERIMENT=jsonv2. OnEvent replaces every listener of this event (see
+// ServerNamespace.On and Once).
+//
+// f is called on the read goroutine of the client's Engine.IO connection, which
+// serves every namespace of that client and also answers its heartbeat. While f
+// runs, that Engine.IO connection dispatches nothing else, in any namespace, and
+// sends no PONG; other clients are not affected. An f that runs longer than the
+// ping timeout (engineio.WithPingTimeout, 20 seconds by default) can therefore end
+// that Engine.IO connection, with all its namespaces, with a ping timeout on the
+// client or the server, and one that runs longer than the ping interval plus the
+// ping timeout (45 seconds by default) normally does; neither the end nor the
+// survival of the connection can be relied on. When the connection ends this way,
+// the ACK of f is lost and OnError is not called. For long work, f starts a
+// goroutine and returns, and the goroutine acknowledges through a final AckFunc
+// parameter.
+//
+// OnEvent panics if f is not a func or its first parameter is not Conn.
 func (s *Server) OnEvent(namespace, event string, f interface{}) {
 	h := s.getNamespace(namespace)
 	if h == nil {

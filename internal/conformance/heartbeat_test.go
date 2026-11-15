@@ -15,8 +15,10 @@ import (
 // TestJSHeartbeat runs the pinned JavaScript client against a short heartbeat. The client
 // script receives the configured interval and timeout and derives its waits from them:
 // "heartbeat" waits for enough pongs to outlive one window, "heartbeat-timeout" never
-// pings and waits for the server to close it. The timeout leaves a loaded host room to
-// answer a ping; the interval keeps the scenarios short.
+// pings, waits for the server to close it and expects the reason "transport close": a
+// pending poll is answered with CLOSE, a websocket with the close frame, as by engine.io
+// 3.6.2. The timeout leaves a loaded host room to answer a ping; the interval keeps the
+// scenarios short.
 func TestJSHeartbeat(t *testing.T) {
 	const pingInterval, pingTimeout = 200 * time.Millisecond, time.Second
 	const window = pingInterval + pingTimeout

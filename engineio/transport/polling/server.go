@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -126,6 +127,24 @@ func (c *serverConn) SetHeaders(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// closePayload is a payload of one CLOSE packet in the connection's framing.
+func (c *serverConn) closePayload() []byte {
+	if c.supportBinary {
+		return []byte{0x00, 0x01, 0xff, '1'}
+	}
+	return []byte("1:1")
+}
+
+// timedOut reports whether err is an expired read or write deadline, which the
+// session reports as "ping timeout": the payload's own deadline errors and a
+// request body read that its tracked deadline interrupted report Timeout. A body
+// read that Close or Abort interrupted does not (bodyReadError). It must match timedOut in engineio/internal/session/close.go, which classifies the same
+// errors for the session's close reason.
+func timedOut(err error) bool {
+	var timeout interface{ Timeout() bool }
+	return errors.Is(err, os.ErrDeadlineExceeded) || errors.As(err, &timeout) && timeout.Timeout()
+}
+
 // progressWriter records whether a write to w was attempted.
 type progressWriter struct {
 	w       io.Writer
@@ -190,6 +209,23 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if err != nil {
 				logger.Log.Debug("engineio: poll response failed after it was started", "err", err)
+			}
+			return
+		}
+		if timedOut(err) {
+			// The session's heartbeat window expired while this poll waited: the
+			// session ends with "ping timeout", and engine.io 3.6.2 answers the
+			// pending poll of such a session with CLOSE. The write is not tracked,
+			// like the error response below: the abort of the session expires
+			// tracked writes, and the packet fits in the response buffer.
+			//
+			// The session re-arms the write deadline when its reader asks for the
+			// next packet. A reader that is later than the window lets the deadline
+			// expire here while the session is still open: the client is told CLOSE
+			// and stops polling, and the session ends when its reader next fails,
+			// at most one window later.
+			if _, werr := w.Write(c.closePayload()); werr != nil {
+				logger.Log.Debug("engineio: poll close answer failed", "err", werr)
 			}
 			return
 		}

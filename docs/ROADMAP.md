@@ -42,6 +42,11 @@ owning contract and consumer fixtures together.
 | 6A | M6 | benchmark owner freezes versions, workload matrix, resource budgets and result schema | comparison contract and correctness checks pass |
 | 6B | 6A | our-v2, existing-Go and official-Node runners in separate directories; shared load generator owned by integrator | runners produce equivalent traffic/results |
 | 6C | 6B | measurements sequentially on reserved hosts; analysis/report follows complete raw results | M7 reproducibility and report acceptance |
+| 7A | M7 and owner authorization | 7.0 spikes (`_experiments/`) and contract text | owner confirms the Stage 7 contract |
+| 7B | 7A | 7.1 core seams (`engineio/server.go`, `engineio/transport/manager.go`, `engineio/hooks.go`) | seam tests pass; existing Engine.IO suite unchanged |
+| 7C | 7B | 7.2 WebSocket over HTTP/2 (`engineio/transport/websocket`); 7.3 WebTransport (`contrib/webtransport`, own module and CI job) | M8 acceptance for 7.2; M9 acceptance for 7.3 |
+| 7D | 7C | 7.4 benchmark scenarios; 7.5 Go client after owner authorization | report revision; client acceptance |
+| 7E | 7D (7.5) and owner authorization | 7.6 raw HTTP/2 stream | M10 acceptance |
 
 Each join builds/tests the whole v2 module and affected child modules. Mocks
 support isolated development; integration and release gates exercise real peers.
@@ -2179,6 +2184,282 @@ stage triggers code changes, rerun affected correctness gates and comparisons wi
 new revision IDs; release them separately. M7 closes the benchmark scope.
 
 
+## Stage 7. Additional Engine.IO transports
+
+Entry: M7 and the owner's authorization. Output: WebSocket over HTTP/2 in the root module,
+WebTransport over HTTP/3 in the module
+`github.com/sshaplygin/go-socket.io/v2/contrib/webtransport/v2`, then Go client support and
+a raw HTTP/2 stream transport. Paths are relative to `v2/`. Server work precedes client
+work; client-only defects found earlier go to issues.
+
+Root-module changes are additive to the frozen contract, as in M3A: no exported signature of
+`Options`, `Hooks`, the root API, `transport.Transport` or `transport.Conn` changes. The
+default `Options.Transports` stays `[polling, websocket]`. The root module gets no new
+dependency: `quic-go`, `webtransport-go` and `golang.org/x/net` stay out of its build list,
+and its `go` directive stays at 1.22.
+
+| Transport | HTTP version | Reference | Clients it serves |
+| --- | --- | --- | --- |
+| WebSocket over extended CONNECT (RFC 8441), name `websocket` | HTTP/2 | none; v2 extension | browsers that upgrade from polling on an established HTTP/2 connection |
+| WebTransport, name `webtransport` | HTTP/3 | Node engine.io >= 6.5.2, engine.io-parser >= 5.2.1, socket.io-client >= 4.7.2 | browsers; the Go client after 7.5 |
+| Raw HTTP/2 stream, name fixed in 7.0 | HTTP/2 | none; v2 extension | clients in any language with a duplex HTTP/2 client; Chromium browsers through `fetch` in split mode |
+
+Constraints the slices build on:
+
+- The standard library serves extended CONNECT from Go 1.24 and only when the `GODEBUG`
+  environment variable contains `http2xconnect=1` at process start. The switch is
+  process-wide: browsers then send WebSocket CONNECT requests to every WebSocket handler of
+  the process. `http.Server.HTTP2.EnableConnectProtocol` (golang/go#53208) is not in a Go
+  release; 7.0 records its status. Below Go 1.24, and without the switch, an HTTP/2 request
+  for `transport=websocket` keeps the HTTP 501 answer described in
+  [V2_PROTOCOL.md](V2_PROTOCOL.md).
+- An HTTP/2 `ResponseWriter` panics when written or flushed after its handler returns, so a
+  transport on an HTTP/2 stream blocks in `ServeHTTP` for the life of the stream and
+  serializes every write, flush and deadline call with the handler's exit.
+- An Engine.IO WebTransport client sends no query string. The first packet on the first
+  bidirectional stream is `open`; it carries `{"sid": ...}` when the stream upgrades an
+  existing session. The server takes the choice between a new session and an upgrade from
+  that packet.
+- Only a transport whose connection can pause is an upgrade source. Polling is the only one,
+  as in Node, where polling upgrades to `websocket` and `webtransport` and WebSocket
+  upgrades to nothing.
+- Node `ws` does not implement RFC 8441, so Node clients and the Node server provide no
+  oracle for 7.2.
+
+### 7.0 Contract and spikes
+
+Entry: Stage 7 entry. Exit: the owner confirms the recorded contract. No library code lands
+in this slice.
+
+- `_experiments/h2-xconnect` (Go 1.24+): what a handler sees for an extended CONNECT request
+  (method, `r.Proto`, `:protocol`); flush, read and write deadlines through
+  `http.ResponseController`; calls after the handler returns; a peer `RST_STREAM`;
+  `http.Server.Shutdown`, `ReadTimeout` and `WriteTimeout` on an open stream.
+- Browser matrix for WebSocket over HTTP/2: Chrome, Firefox and Safari against the spike
+  server, WebSocket-first and polling-then-upgrade, recording which requests use HTTP/2.
+- `_experiments/wt-framing`: golden fixtures of the WebTransport stream framing from the
+  pinned `engine.io-parser`, and a trace of the in-band handshake (new session and upgrade)
+  against the pinned Node server with `@fails-components/webtransport`.
+- Pinned `quic-go` and `webtransport-go` versions and their Go floor; the certificates
+  browsers accept for WebTransport (a locally trusted CA or `serverCertificateHashes`); the
+  QUIC limits available against resource exhaustion.
+- The WebTransport server of `zishang520/socket.io`, read as a second implementation.
+- Decisions recorded in this file and in V2_PROTOCOL: the Go versions and the enabling
+  mechanism for 7.2; the signature of the in-band handshake entry point of 7.1; the request
+  check applied to a WebTransport session (Node applies none); the names of new constants,
+  interfaces and of the 7.6 transport.
+
+DoD for 7.0: each experiment is a standalone module accepted by `make experiments`; the PR
+description lists the commands run and their output; every constraint above and every open
+question of this stage is confirmed with evidence or recorded as a limitation in
+V2_PROTOCOL.
+
+Acceptance for 7.0: the owner reads the reports and confirms the contract. If the browser
+matrix shows no browser using HTTP/2 for the polling-then-upgrade case, 7.2 moves to
+[Out of scope](#out-of-scope) and M8 contains 7.1 only.
+
+### 7.1 Core seams
+
+Entry: 7.0. Exit: the seam tests pass and the existing Engine.IO suite is unchanged.
+
+- An optional interface marks a transport that uses one request per connection. It
+  replaces the transport name literal in the same-transport check of `engineio/server.go`.
+- A transport declares the request methods it accepts for a handshake without `sid`, so a
+  `CONNECT` request can open a WebSocket-first session over HTTP/2. The default stays `GET`
+  and `OPTIONS`.
+- Optional interfaces replace the concrete polling and WebSocket types in the mapping of
+  `Accept` errors to HTTP answers and in the advertised `maxPayload`. Existing statuses, log
+  text and reasons do not change.
+- `Manager.UpgradeFrom` and the upgrade check advertise and accept an upgrade only from a
+  transport whose connection can pause. A WebSocket session advertises no upgrades when a
+  third transport is configured.
+- An additive server entry point takes an accepted `transport.Conn` whose session the
+  request query does not identify, reads the first `open` packet under `UpgradeTimeout`, and
+  creates a session or upgrades the one that `sid` names.
+- Section 2.1 and the godoc state that a connection on an HTTP stream blocks in `ServeHTTP`
+  for the life of the stream, while the hijacking WebSocket connection returns at once.
+- New `HandshakeResult*` and reason constants only where no existing value fits.
+
+DoD for 7.1: tests with a fake stream transport and a fake in-band transport cover the
+handshake, the upgrade from polling with the probe, a rejected second request of the same
+transport, an upgrade from a non-pausing transport that is neither advertised nor accepted,
+the heartbeat, close, and a first packet that is missing, malformed or names an unknown
+`sid`; each test checks connection and goroutine cleanup. The existing Engine.IO tests pass
+unmodified under `-race`. A test fails when the method set of `transport.Transport` or
+`transport.Conn` changes. `make graph freeze fixtures` and the Go 1.22 job pass. API.md,
+V2_PROTOCOL and CHANGELOG list the additions.
+
+Acceptance for 7.1: with default options the `upgrades` list of the OPEN packet and every
+rejection status, body and log record are identical before and after the change, shown by
+the unmodified existing tests; the diff of exported identifiers contains additions only.
+
+### 7.2 WebSocket over HTTP/2
+
+Entry: 7.1. Exit: M8 acceptance. V2 extension without a Node reference; V2_PROTOCOL and
+PARITY mark it as such.
+
+- `websocket.Transport.Accept` accepts `CONNECT` with `:protocol=websocket`: it checks
+  `Sec-WebSocket-Version: 13` and `CheckOrigin` and answers 200 without
+  `Sec-WebSocket-Accept`. The HTTP/1.1 hijack path does not change.
+- A stream adapter implements `net.Conn` over the request body and the `ResponseWriter`
+  and feeds the existing frame reader and writer. It flushes after every write, has no
+  half-close, maps a peer `RST_STREAM` to a closed transport, and applies deadlines through
+  `http.ResponseController`. After the handler returns, every call on the adapter fails
+  with `net.ErrClosed`.
+- `Server.Close` ends the HTTP/2 streams, so `http.Server.Shutdown` returns.
+- V2_PROTOCOL records the Go versions and the switch, its process-wide effect, the effect
+  of `ReadTimeout` and `WriteTimeout`, the stream limit per connection, head-of-line
+  blocking with polling on the same connection, and that a proxy that terminates TLS and
+  speaks HTTP/1.1 to the server bypasses the transport.
+- An example serves TLS with the switch set.
+
+Tests run in a helper process started with the switch, because the standard library reads
+it once at start. Below Go 1.24 they skip with a logged reason; one CI job requires them to
+run. The test client is the standard library HTTP/2 client with the RFC 8441 handshake and
+the existing framing.
+
+| Test | Asserts |
+| --- | --- |
+| H2-1 | OPEN, text and binary MESSAGE round trips |
+| H2-2 | polling to WebSocket upgrade with the probe on one HTTP/2 connection |
+| H2-3 | WebSocket-first session opened by `CONNECT` |
+| H2-4 | `MaxPayload`, close codes, deadlines and a peer `RST_STREAM` |
+| H2-5 | switch off: the client gets a stream error and the server keeps no session; an HTTP/2 `GET` gets 501 with `reason="no hijacker"` |
+| H2-6 | a rejected `Origin` |
+| H2-7 | writes, deadline calls and `Close` from other goroutines that race the handler's exit never panic, under `-race` and repeated |
+| H2-8 | `Server.Close` followed by `http.Server.Shutdown` returns within a bound |
+| H2-9 | fuzz target over the adapter with a committed seed corpus |
+| H2-10 | no connection or goroutine remains after cleanup |
+
+DoD for 7.2: H2-1 to H2-10 pass with `-race -shuffle=on`; `BenchmarkH2Websocket*` sits
+beside the WebSocket benchmarks and the CI benchmark job runs it with the switch set; the Go
+1.22 job passes with the tests skipped; V2_PROTOCOL, PARITY, `engineio/README.md` and
+CHANGELOG are updated.
+
+Acceptance for 7.2: the owner opens the example over HTTPS in Chrome. The network panel
+shows the polling requests and the WebSocket on one HTTP/2 connection, events and
+acknowledgements round-trip, and the session log reports `transport=websocket`.
+
+### 7.3 WebTransport over HTTP/3
+
+Entry: 7.1. Exit: M9 acceptance. Reference: Node engine.io with the versions of the table
+above.
+
+- `contrib/webtransport` has its own `go.mod` with the Go floor of `quic-go`, its CI job
+  (build, tests with `-race`, vet, lint, `govulncheck`), its change-classifier entry, its
+  place in `ci-ok` and its `CLAUDE.md` layout row.
+- An HTTP/3 handler on the Engine.IO path accepts the WebTransport session, takes the
+  first bidirectional stream under `UpgradeTimeout` and passes the connection to the 7.1
+  entry point. A second stream closes the session. The request check is the one fixed in
+  7.0.
+- Framing follows the 7.0 fixtures. The transport applies `MaxPayload` and deadlines, maps
+  a stream reset to a closed transport, and exposes QUIC limits (streams, sessions, idle
+  timeout) as fields with defaults.
+- A helper serves UDP on the port of the TCP server. The library does not manage
+  certificates.
+- `upgrades` lists `webtransport` for a polling session only.
+- An example has a browser page and certificate instructions.
+
+| Test | Asserts |
+| --- | --- |
+| W-1 | round trips with a `webtransport-go` client |
+| W-2 | frames equal to the 7.0 fixtures in both directions |
+| W-3 | a new session opened by the in-band `open` packet |
+| W-4 | upgrade from polling with the probe |
+| W-5 | an unknown `sid`, a wrong first packet, no stream before the timeout and a second stream each close the session with a logged reason |
+| W-6 | `MaxPayload`, deadlines, close and stream reset |
+| W-7 | a rejected request, per the 7.0 request check |
+| W-8 | fuzz target over the frame decoder with a committed seed corpus |
+| W-9 | no goroutine of the module or of `quic-go` and no UDP socket remains after cleanup |
+| W-10 | the Node server trace of 7.0 decodes to the recorded packets |
+
+DoD for 7.3: W-1 to W-10 pass with `-race -shuffle=on`; in the root module
+`go list -deps ./...` lists no `quic-go` or `golang.org/x/net` package, checked in CI; the
+module's benchmarks are committed; V2_PROTOCOL, PARITY, the module README and CHANGELOG are
+updated. At tag time the module builds against the released root version without a
+`replace` directive.
+
+Acceptance for 7.3: the owner runs the example and connects `socket.io-client` >= 4.7.2 in
+Chrome, once with `transports: ["webtransport"]` and once with
+`["polling", "websocket", "webtransport"]`. Both connect, the second upgrades to
+WebTransport, and events and acknowledgements round-trip. The PR records the command, the
+browser version and the result.
+
+### 7.4 Benchmarks addendum
+
+Entry: 7.2 and 7.3. The Stage 6 harness gains idle-session and echo scenarios for WebSocket
+over HTTP/2 and for WebTransport. Candidates are this module, the Node server and
+`zishang520/socket.io` where they implement the transport; an unsupported combination is
+marked, never scored as zero.
+
+DoD and acceptance for 7.4: the Stage 6 measurement protocol and gate apply, and
+`docs/BENCHMARKS.md` receives a report revision.
+
+### 7.5 Go client
+
+Entry: 7.2, 7.3 and the owner's authorization. `engineio/client` dials WebSocket over
+HTTP/2 with the standard library HTTP/2 client, `contrib/webtransport` gains a client
+transport, and `client/` exposes both through its options.
+
+DoD for 7.5: the Go client passes the transport round-trip, upgrade, close and cleanup
+tests against the Go server over each transport, with `-race`.
+
+Acceptance for 7.5: the Go client connects to the pinned Node server over WebTransport and
+exchanges events and acknowledgements in both directions.
+
+### 7.6 Raw HTTP/2 stream
+
+Entry: 7.5 and the owner's confirmation that it is needed. V2 extension without a Node
+reference. The transport carries Engine.IO packets on plain HTTP/2 request and response
+bodies, without a WebSocket handshake and without the extended CONNECT switch, so the
+server runs on Go 1.22. A proxy that buffers request bodies or speaks HTTP/1.1 to the
+server breaks it.
+
+The transport has its own name, uses the WebTransport packet framing and the 7.2 stream
+adapter, and is an upgrade target from polling. It has two modes with one framing:
+
+| Mode | Requests | Clients |
+| --- | --- | --- |
+| duplex | one request; its body carries client packets while its response carries server packets | any HTTP/2 client that reads the response while it writes the request body: Go, Node `http2`, Rust, JVM, .NET, C |
+| split | two requests bound by `sid`: one streams client packets in its body, the other streams server packets in its response | Chromium browsers with `fetch`, where a request with a streaming body (`duplex: "half"`) yields its response only after the body ends |
+
+The wire contract is independent of the implementation language. A ROADMAP change fixes it
+before the slice starts, and V2_PROTOCOL then owns it: the request method, path, query and
+headers of each mode; the response status and headers; the framing; the order of the first
+packets for a new session and for an upgrade; the heartbeat; `MaxPayload`; how each side
+closes and what a stream reset means; how the server binds and routes the two requests of
+the split mode, including during an upgrade from polling; the `Origin` and CORS rules for
+browser requests; and the numbered tests. The same change confirms, with a spike in
+current Chromium, the `fetch` behaviour the split mode relies on. Committed test vectors
+(packets and the byte streams of both directions for a new session, an upgrade, a
+heartbeat and a close) let a client in any language check itself without this repository's
+code.
+
+Clients and examples of the slice:
+
+- the Go client, which dials the duplex mode with the standard library;
+- a Node example of the duplex mode on the core `http2` module, written from V2_PROTOCOL
+  and the test vectors only, as the check that the contract is sufficient for another
+  language;
+- a browser example of the split mode with `fetch` for Chromium, with a page that reports
+  when the browser lacks streaming request bodies. A custom transport for
+  `socket.io-client` (the `transports` option of engine.io-client >= 6.6) is part of the
+  example when the contract change finds that option sufficient.
+
+DoD for 7.6: tests equivalent to H2-1 to H2-10 pass for both modes with the Go client
+under `-race`; the committed test vectors are replayed against the server and against the
+Go client in tests; the Node example runs in a CI job against the server and exchanges the
+packets of the test vectors; a committed benchmark compares the duplex mode with 7.2 on
+equal payloads and the PR reports both results; V2_PROTOCOL, PARITY and CHANGELOG are
+updated.
+
+Acceptance for 7.6: the owner runs three clients against the example server over TLS: the
+Go client, the Node example, and the browser example in Chrome. Each exchanges events and
+acknowledgements in both directions, `upgrades` lists the transport, and the session log
+reports the transport and its mode. The PR records the commands, the Node and Chrome
+versions and the results.
+
+
 ## Milestones
 
 | Milestone | Content | Release |
@@ -2190,6 +2471,9 @@ new revision IDs; release them separately. M7 closes the benchmark scope.
 | M5 | Broker adapters and cluster chat, including mixed Go/Node Redis | `v2.3.0`, then Redis/NATS module tags |
 | M6 | Cluster administration (5C) | `v2.4.0` (`adaptertest` and capability additions), then Admin module and adapter minor releases |
 | M7 | Comparative benchmarks and reproducible artifacts | Report revision |
+| M8 | Transport seams and WebSocket over HTTP/2 (7.1, 7.2) | next root minor |
+| M9 | WebTransport over HTTP/3 and the transport benchmarks (7.3, 7.4) | `v2/contrib/webtransport/v2.0.0` |
+| M10 | Go client transports and the raw HTTP/2 stream (7.5, 7.6) | next root minor; `contrib/webtransport` minor |
 
 Each milestone takes the next root minor at its tag; the numbers above assume the
 order M3A, M4, M5, M6. Acceptance checks run before tagging. Publication checks that require released
@@ -2199,7 +2483,8 @@ receive development PRs; topic branches continue to target `master`.
 
 ## Out of scope
 
-Engine.IO v3 in v2; connection state recovery; WebTransport; permessage-deflate
-in v2; Redis sharded Pub/Sub, Cluster, Ring and replica-routed clients;
+Engine.IO v3 in v2; connection state recovery; permessage-deflate
+in v2; a server-sent events transport (one direction only; polling is the fallback);
+WebSocket over HTTP/3 (RFC 9220); WebTransport over HTTP/2; Redis sharded Pub/Sub, Cluster, Ring and replica-routed clients;
 cluster broadcast ACKs; NATS JetStream persistence; framework-specific integration
 packages; trace-context propagation through the Redis adapter.

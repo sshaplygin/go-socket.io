@@ -282,6 +282,8 @@ func (s *Session) failRead(err error) error {
 // os.ErrDeadlineExceeded, or an error in its chain reports Timeout, as the
 // deadline errors of gorilla/websocket and of the polling payload do. The
 // transports expire deadlines on the monotonic clock; the wall clock can disagree.
+// The polling GET handler answers a poll with CLOSE for the errors it matches;
+// timedOut in engineio/transport/polling/server.go must stay identical.
 func timedOut(err error) bool {
 	var timeout interface{ Timeout() bool }
 	return errors.Is(err, os.ErrDeadlineExceeded) || errors.As(err, &timeout) && timeout.Timeout()

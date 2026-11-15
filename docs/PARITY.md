@@ -8,7 +8,9 @@ Go client tests also connect to the reference Node server.
 
 The table identifies test owners; it is not a claim of complete Node API parity.
 Supported wire behavior and differences are specified in
-[PROTOCOL.md](PROTOCOL.md), and Go API usage in [V1.md](V1.md).
+[PROTOCOL.md](PROTOCOL.md), Go API usage in [V1.md](V1.md), and the JavaScript API
+without a counterpart in its
+[list of differences](V1.md#differences-from-the-socketio-2x-javascript-api).
 
 | Contract | Behavioral evidence |
 | --- | --- |
@@ -31,6 +33,7 @@ Supported wire behavior and differences are specified in
 | Go client reconnect, pre-connect buffering, namespace lifecycle and transport selection | `client` integration tests and private manager tests |
 | Public consumer contracts, independent client/server roles and package privacy | `internal/parity` compilation fixtures and `.github/architecture` tests |
 | Runnable chat, ACK, binary, namespaces and middleware examples | `make examples` and `make examples-node` |
+| User-guide behavior: lifecycle-name broadcasts, rooms per namespace with ID rooms, event middleware arguments, a reason given before closing a root connection, a poll answered after `http.Server.WriteTimeout`, the client bundle route and sessions local to one instance | Root `guide_behavior_test.go` |
 
 `go test ./...` runs local tests without Node or Redis services. `make conformance`
 runs the tagged protocol and interoperability suite; `make examples-node` runs the

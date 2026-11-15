@@ -19,9 +19,11 @@ follow the [migration guide](docs/V1.md#migrating-from-googolleego-socketio).
 | v1 (this module, repository root) | v4 | v3 | `socket.io-client` 1.x and 2.x |
 | v2 (in development in [`v2/`](v2/README.md), no runtime yet) | v5 | v4 | `socket.io-client` 3.x and 4.x |
 
-The v1 interoperability checks use `socket.io-client` **1.7.4** and **2.5.0**;
-the reference server is Socket.IO 2.5.0 with Engine.IO 3.6.2.
-V1 protocol details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md).
+The client versions and the reference server that the v1 interoperability checks use
+are listed in [docs/PARITY.md](docs/PARITY.md).
+V1 protocol details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md). The parts of
+the socket.io 2.x JavaScript API without a counterpart are listed in
+[docs/V1.md](docs/V1.md#differences-from-the-socketio-2x-javascript-api).
 
 ## Install
 
@@ -96,7 +98,8 @@ The Go client is available in
 [`github.com/sshaplygin/go-socket.io/client`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0/client);
 server and client use separate connection types and constructors.
 
-Configuration, namespace lifecycle, adapters and typed events: [V1 usage](docs/V1.md).
+Configuration, namespace lifecycle, rooms, deployment behind HTTP servers and load
+balancers, adapters and typed events: [V1 usage](docs/V1.md).
 API reference: [Socket.IO](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0)
 and [Engine.IO](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0/engineio).
 

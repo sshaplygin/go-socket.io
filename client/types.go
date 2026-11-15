@@ -15,6 +15,11 @@ type AckFunc func(args ...interface{})
 // Conn is one connection generation of a client-side Socket.IO namespace.
 // Sends and lifecycle operations stay bound to that generation. Use Client.Socket
 // to retain a namespace across reconnections and buffer events during recovery.
+//
+// Emit, Send, the emitters, Disconnect and Close may be called from any goroutine,
+// concurrently with each other and with callbacks; SetContext and Context are not
+// synchronized. Conn is implemented by the library, and a minor release may add
+// methods to it.
 type Conn interface {
 	// Close sends DISCONNECT for each connected namespace and reports
 	// "io client disconnect". It runs disconnect callbacks before returning;
@@ -29,9 +34,11 @@ type Conn interface {
 	// <namespace>#<Engine.IO ID> in any other namespace.
 	ID() string
 	// URL returns the request URL of the current Engine.IO transport, which
-	// changes with a transport upgrade.
+	// changes with a transport upgrade. The result is a url.URL value, so calling
+	// a pointer method such as String needs a variable: u := c.URL(); u.String().
 	URL() url.URL
-	// LocalAddr returns the local network address of the current transport.
+	// LocalAddr returns the local network address of the current transport; over
+	// polling it is an empty polling.Addr.
 	LocalAddr() net.Addr
 	// RemoteAddr returns the server's network address on the current transport.
 	RemoteAddr() net.Addr
@@ -40,11 +47,13 @@ type Conn interface {
 	RemoteHeader() http.Header
 }
 
-// Namespace exposes client operations on one Socket.IO namespace.
+// Namespace exposes client operations on one Socket.IO namespace. It is
+// implemented by the library, and a minor release may add methods to it.
 type Namespace interface {
-	// Context returns application state associated with this connection.
-	// Synchronize access when callbacks or application goroutines share mutable state;
-	// a disconnect initiated by the application can run callbacks concurrently.
+	// Context returns the application state stored by SetContext. Neither method is
+	// synchronized: the application synchronizes calls from more than one goroutine
+	// and access to shared mutable state. A disconnect initiated by the application
+	// can run callbacks concurrently with handlers.
 	Context() interface{}
 	// SetContext replaces the value Context returns. It does not synchronize
 	// with Context; see Context.
@@ -58,7 +67,11 @@ type Namespace interface {
 	// Emit sends eventName with arguments v to the server. If the last element of v
 	// is a func, it is not sent but registered as the acknowledgement callback: the
 	// server's ACK arguments are decoded into its parameters and it is called on the
-	// read goroutine of the connection. Encoding is synchronous and may invoke
+	// read goroutine of the connection. The callback has no timeout: it is called
+	// when the ACK arrives, and never if this generation ends first. ACK arguments
+	// that do not decode into its parameters are reported to OnError without calling
+	// the callback, and the connection ends with forced close unless the error is a
+	// *json.UnmarshalTypeError (see Socket.OnEvent). Encoding is synchronous and may invoke
 	// application marshalers. Queue admission does not wait for free capacity;
 	// transport writes run in the background. A queue already holding
 	// WithWriteBufferSize packets not yet started drops the packet and every
@@ -91,6 +104,7 @@ type Namespace interface {
 // Emitter applies immutable delivery flags to events sent to the server.
 // Each builder returns a new value, so an Emitter can be reused within the Conn's
 // generation. It cannot send through a replacement namespace or connection.
+// Emitter is implemented by the library, and a minor release may add methods to it.
 type Emitter interface {
 	// Volatile drops the packet, instead of queueing or buffering it, when the
 	// namespace is not connected, the transport is not writable or packets are

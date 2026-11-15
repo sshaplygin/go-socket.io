@@ -24,6 +24,7 @@ var ErrAdapterClosed = errAdapterClosed
 // Expiry of that configured bound returns ErrRequestTimeout; cancellation or
 // expiry of ctx returns its error. Calls also report transport errors and
 // ErrAdapterClosed after closure. Mutations do not roll back completed changes.
+// Cluster is implemented by the library, and a minor release may add methods to it.
 type Cluster interface {
 	adapter.Adapter
 	// IDsContext returns the namespace's socket IDs in the room union, or all IDs.

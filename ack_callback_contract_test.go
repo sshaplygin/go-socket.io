@@ -10,8 +10,8 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
 )
 
-// A typed descriptor's handler keeps the connection on an argument decode error that
-// closes it for an untyped handler: the error is reported to OnError, a requested
+// A typed descriptor's handler given "bad" for a time.Time, which closes the connection
+// of an untyped handler, keeps it: the error is reported to OnError, a requested
 // acknowledgement is answered with the invalid_payload error ACK, and a later event is
 // answered.
 func TestTypedHandlerDecodeErrorKeepsConnection(t *testing.T) {
@@ -32,9 +32,9 @@ func TestTypedHandlerDecodeErrorKeepsConnection(t *testing.T) {
 }
 
 // The arguments of an ACK decode into the parameters of the Emit callback under the
-// rules of an untyped handler's arguments. A wrong JSON type is reported to OnError, the
-// callback is not called and the connection stays open; any other decode error is
-// reported while connected and then closes the connection with forced close.
+// rule of an untyped handler's arguments. A *json.UnmarshalTypeError is reported to
+// OnError, the callback is not called and the connection stays open; any other decode
+// error is reported while connected and then closes the connection with forced close.
 func TestAckCallbackArgumentDecodeErrors(t *testing.T) {
 	s := newRawDecodeServer(t)
 	c := recv(t, s.conns, "OnConnect")
@@ -42,7 +42,9 @@ func TestAckCallbackArgumentDecodeErrors(t *testing.T) {
 
 	c.Emit("q", func(int) { called <- struct{}{} })
 	s.send(t, "43"+s.ackRequest(t, "q")+`["x"]`)
-	require.ErrorContains(t, recv(t, s.errs, "the type mismatch"), "decode argument 0: json: cannot unmarshal string")
+	mismatch := recv(t, s.errs, "the type mismatch")
+	require.ErrorContains(t, mismatch, "decode argument 0")
+	require.True(t, isTypeError(mismatch), "%T: %v", mismatch, mismatch)
 	s.send(t, `422["ping"]`)
 	require.Equal(t, `432["pong"]`, s.next(t, "432"))
 	require.Empty(t, drain(s.reasons), "the connection ended")
@@ -58,7 +60,7 @@ func TestAckCallbackArgumentDecodeErrors(t *testing.T) {
 }
 
 // The Go client decodes ACK arguments into its Emit callbacks as the server does, and
-// its typed handlers keep the connection on an argument decode error.
+// its typed handler given "bad" for a time.Time keeps the connection.
 func TestClientAckCallbackArgumentDecodeErrors(t *testing.T) {
 	p := newHeartbeatPair(t, websocket.Default, 25*time.Second, 20*time.Second, func(p *heartbeatPair) {
 		p.srv.OnEvent("/", "word", func(Conn) string { return "bad" })
@@ -81,7 +83,9 @@ func TestClientAckCallbackArgumentDecodeErrors(t *testing.T) {
 	alive("the ACK after the typed handler's decode error")
 
 	p.cl.Emit("word", func(int) { called <- struct{}{} })
-	require.ErrorContains(t, recv(t, p.errs, "the type mismatch"), "decode argument 0: json: cannot unmarshal string")
+	mismatch := recv(t, p.errs, "the type mismatch")
+	require.ErrorContains(t, mismatch, "decode argument 0")
+	require.True(t, isTypeError(mismatch), "%T: %v", mismatch, mismatch)
 	alive("the ACK after the type mismatch")
 
 	p.cl.Emit("word", func(time.Time) { called <- struct{}{} })

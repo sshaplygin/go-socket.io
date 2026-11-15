@@ -245,25 +245,23 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   client requested an ack and a listener handled the event. Emitting with a trailing
   function argument registers an ack callback; it runs for the first ACK with its id,
   and a repeated ACK id is ignored, as in the reference. When an event's arguments do not
-  decode into an untyped handler's parameter types, for example a string for an
-  `int`, the handler does not run and the connection stays open. This holds for
+  decode into an untyped handler's parameter types with a `*json.UnmarshalTypeError`,
+  for example a string for an `int`, the handler does not run and the connection stays open. This holds for
   the server and for the Go client alike. If the peer requested an ack, the
   receiving side answers with the error ACK of acknowledged typed descriptors
   (`NewAckEvent`), `3<id>[{"code":"invalid_payload","message":"decode argument 0:
   json: cannot unmarshal string into Go value of type int"}]`, so a JavaScript
   callback, or the callback of a Go `Emit` with an acknowledgement, is called
   with that object as its only argument, and `EmitWithAck` returns a
-  `*RemoteError` with code `invalid_payload`; without an ACK id nothing is sent. The decode error goes to `OnError` in both cases. This
-  covers a wrong JSON type and a binary attachment where another type is
-  expected. Any other decode error of an argument of an untyped handler, such as
-  the `UnmarshalJSON` error of a `time.Time` parameter given `"bad"`, goes to
-  `OnError` and closes the connection, as an invalid packet does, with no ACK. The
-  arguments of an ACK decoded into an `Emit` callback follow the same two rules:
-  a wrong JSON type is reported to `OnError` and the callback is not called, and
-  any other decode error also closes the connection. A typed descriptor's handler
-  keeps the connection on every argument decode error. A missing argument is zero-filled and extra arguments are ignored, so
+  `*RemoteError` with code `invalid_payload`; without an ACK id nothing is sent. The decode error goes to `OnError` in both cases. A binary
+  attachment where an `int` is expected is such an error as well. Any other error decoding the arguments for an untyped handler, such as
+  the one `Time.UnmarshalJSON` returns for `"bad"` or an attachment sent as a text
+  frame, goes to `OnError` and closes the connection with no ACK. The
+  arguments of an ACK decoded into an `Emit` callback follow the same rule: the
+  error is reported to `OnError`, the callback is not called, and the connection
+  closes unless the error is a `*json.UnmarshalTypeError`. A missing argument is zero-filled and extra arguments are ignored, so
   the handler runs and its return value is the ACK. A packet that is not valid
-  (an event payload that is not an array) or an invalid attachment closes the
+  (an event payload that is not an array) closes the
   connection and sends no ACK. The reference server has no equivalent, because its
   handlers accept any arguments.
 - An ERROR payload is always a JSON string: `err.Error()` for a connect or event

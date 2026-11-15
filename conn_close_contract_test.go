@@ -1,6 +1,7 @@
 package socketio
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,7 +18,15 @@ import (
 	"github.com/sshaplygin/go-socket.io/client"
 	"github.com/sshaplygin/go-socket.io/engineio"
 	"github.com/sshaplygin/go-socket.io/engineio/transport/websocket"
+	"github.com/sshaplygin/go-socket.io/parser"
 )
+
+// isTypeError reports whether err is the *json.UnmarshalTypeError that keeps a
+// connection open after an argument decode error.
+func isTypeError(err error) bool {
+	var typeErr *json.UnmarshalTypeError
+	return errors.As(err, &typeErr)
+}
 
 // rawWS is a raw Engine.IO 3 websocket client of a test server.
 type rawWS struct{ ws *gorilla.Conn }
@@ -75,6 +84,7 @@ func newRawDecodeServer(t *testing.T, setup ...func(*Server)) *rawDecodeServer {
 	srv.OnConnect("/", func(c Conn) error { s.conns <- c; return nil })
 	srv.OnEvent("/", "num", func(_ Conn, n int) int { return n })
 	srv.OnEvent("/", "time", func(_ Conn, ts time.Time) string { return ts.String() })
+	srv.OnEvent("/", "bin", func(_ Conn, b *parser.Buffer) int { return len(b.Data) })
 	srv.OnEvent("/", "ping", func(Conn) string { return "pong" })
 	srv.OnError("/", func(c Conn, err error) {
 		if !c.Connected() {
@@ -118,52 +128,106 @@ func (s *rawDecodeServer) closed(t *testing.T) {
 	}
 }
 
-// An argument of the wrong JSON type for a handler's parameter is reported to OnError
-// and keeps the connection: a requested ACK is answered with the error ACK, an Emit from
-// OnError is delivered and a later event is answered.
-func TestArgumentTypeMismatchKeepsConnection(t *testing.T) {
-	s := newRawDecodeServer(t)
-	s.send(t, `421["num","x"]`)
-	require.ErrorContains(t, recv(t, s.errs, "the decode error"), "decode argument 0")
-	require.Equal(t, `431[{"code":"invalid_payload","message":"decode argument 0: json: cannot unmarshal string into Go value of type int"}]`, s.next(t, "431"))
-	require.Equal(t, `42["reported","decode argument 0: json: cannot unmarshal string into Go value of type int"]`, s.next(t, `42["reported"`))
+// kept requires that the decode error err of the event acknowledged with id 1 kept the
+// connection: the error ACK and the Emit from OnError arrive and a later event is
+// answered.
+func (s *rawDecodeServer) kept(t *testing.T, err error) {
+	t.Helper()
+	require.True(t, isTypeError(err), "%T: %v", err, err)
+	require.Contains(t, s.next(t, "431"), `431[{"code":"invalid_payload","message":"decode argument 0: json: cannot unmarshal`)
+	require.Contains(t, s.next(t, `42["reported"`), `42["reported","decode argument 0: json: cannot unmarshal`)
 	s.send(t, `422["ping"]`)
 	require.Equal(t, `432["pong"]`, s.next(t, "432"))
 	require.Empty(t, drain(s.reasons), "the connection ended")
 }
 
-// A packet that cannot be decoded, and an argument that fails to decode with an error
-// other than a JSON type mismatch, such as the UnmarshalJSON error of a time.Time
-// parameter, are reported to OnError on a connection that is still connected; then the
-// library closes it with forced close and sends no ACK. The close discards the queue, so
-// an Emit from that OnError call may not be written.
-func TestUndecodablePacketReportedBeforeClose(t *testing.T) {
-	for _, tc := range []struct{ name, packet, err string }{
-		{"invalid payload", `421{"a":1}`, "invalid payload"},
-		{"argument decode error", `421["time","bad"]`, "decode argument 0: parsing time"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+// closedWithoutAck requires that err was reported to OnError on a connection that was
+// still connected, and that the library then closed it with forced close and no ACK.
+func (s *rawDecodeServer) closedWithoutAck(t *testing.T, err error) {
+	t.Helper()
+	require.False(t, isTypeError(err), "%T: %v", err, err)
+	require.NotContains(t, err.Error(), "after the close")
+	require.Equal(t, "forced close", recv(t, s.reasons, "OnDisconnect"))
+	for { // no ACK precedes the close of the websocket
+		m, err := s.read()
+		if err != nil {
+			require.False(t, errors.Is(err, os.ErrDeadlineExceeded), "the websocket stayed open")
+			break
+		}
+		require.False(t, strings.HasPrefix(m, "43"), "an ACK was sent: %s", m)
+	}
+}
+
+// Arguments that fail to decode with a *json.UnmarshalTypeError, such as a string, a
+// number out of range or a binary attachment for an int parameter, are reported to
+// OnError and keep the connection: a requested ACK is answered with the error ACK, an
+// Emit from OnError is delivered and a later event is answered.
+func TestArgumentTypeMismatchKeepsConnection(t *testing.T) {
+	for _, packet := range []string{`421["num","x"]`, `421["num",1e400]`, `451-1["num",{"_placeholder":true,"num":0}]`} {
+		t.Run(packet, func(t *testing.T) {
 			s := newRawDecodeServer(t)
-			s.send(t, tc.packet)
-			err := recv(t, s.errs, "OnError")
-			require.ErrorContains(t, err, tc.err)
-			require.NotContains(t, err.Error(), "after the close")
-			require.Equal(t, "forced close", recv(t, s.reasons, "OnDisconnect"))
-			for { // no ACK precedes the close of the websocket
-				m, err := s.read()
-				if err != nil {
-					require.False(t, errors.Is(err, os.ErrDeadlineExceeded), "the websocket stayed open")
-					break
-				}
-				require.False(t, strings.HasPrefix(m, "43"), "an ACK was sent: %s", m)
+			s.send(t, packet)
+			if strings.HasPrefix(packet, "45") { // the attachment: an Engine.IO binary MESSAGE
+				require.NoError(t, s.ws.WriteMessage(gorilla.BinaryMessage, []byte{4, 'a', 'b', 'c'}))
 			}
+			err := recv(t, s.errs, "the decode error")
+			require.ErrorContains(t, err, "decode argument 0")
+			s.kept(t, err)
 		})
 	}
 }
 
-// The Go client treats argument decode errors as the server does: a JSON type mismatch
-// keeps the connection, any other argument decode error is reported to OnError and ends
-// the connection with forced close.
+// A packet that is not valid, and arguments that fail to decode with an error that is
+// not a *json.UnmarshalTypeError, such as the error Time.UnmarshalJSON returns for
+// "bad" or an attachment sent as a text frame, are reported to OnError on a connection
+// that is still connected; then the library closes it with forced close and sends no
+// ACK. The close discards the queue, so an Emit from that OnError call may not be
+// written.
+func TestUndecodablePacketReportedBeforeClose(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		packets []string
+		err     string
+	}{
+		{"invalid payload", []string{`421{"a":1}`}, "invalid payload"},
+		{"argument decode error", []string{`421["time","bad"]`}, "decode argument 0: parsing time"},
+		{"text frame as attachment", []string{`451-1["bin",{"_placeholder":true,"num":0}]`, `4hello`}, "buffer packet should be binary"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newRawDecodeServer(t)
+			for _, packet := range tc.packets {
+				s.send(t, packet)
+			}
+			err := recv(t, s.errs, "OnError")
+			require.ErrorContains(t, err, tc.err)
+			s.closedWithoutAck(t, err)
+		})
+	}
+}
+
+// The error decides, not the JSON value: a number or an object for a time.Time
+// parameter keeps the connection when encoding/json reports it as a
+// *json.UnmarshalTypeError, and closes it when Time.UnmarshalJSON returns its own
+// error. Which of the two happens depends on the JSON implementation of the build.
+func TestArgumentDecodeErrorTypeDecidesClose(t *testing.T) {
+	for _, packet := range []string{`421["time",5]`, `421["time",{"code":"x"}]`} {
+		t.Run(packet, func(t *testing.T) {
+			s := newRawDecodeServer(t)
+			s.send(t, packet)
+			err := recv(t, s.errs, "OnError")
+			require.ErrorContains(t, err, "decode argument 0")
+			if isTypeError(err) {
+				s.kept(t, err)
+				return
+			}
+			s.closedWithoutAck(t, err)
+		})
+	}
+}
+
+// The Go client treats argument decode errors as the server does: a
+// *json.UnmarshalTypeError keeps the connection, any other argument decode error is
+// reported to OnError and ends the connection with forced close.
 func TestClientArgumentDecodeErrors(t *testing.T) {
 	p := newHeartbeatPair(t, websocket.Default, 25*time.Second, 20*time.Second, func(p *heartbeatPair) {
 		p.cl.OnEvent("num", func(_ client.Conn, n int) int { return n })
@@ -174,7 +238,9 @@ func TestClientArgumentDecodeErrors(t *testing.T) {
 	acks := make(chan string, 2)
 
 	c.Emit("num", "x")
-	require.ErrorContains(t, recv(t, p.errs, "the type mismatch"), "decode argument 0: json: cannot unmarshal string")
+	mismatch := recv(t, p.errs, "the type mismatch")
+	require.ErrorContains(t, mismatch, "decode argument 0")
+	require.True(t, isTypeError(mismatch), "%T: %v", mismatch, mismatch)
 	c.Emit("ping", func(s string) { acks <- s })
 	require.Equal(t, "pong", recv(t, acks, "the ACK after the type mismatch"))
 

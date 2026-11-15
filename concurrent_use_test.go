@@ -84,7 +84,7 @@ func TestConcurrentUseFromApplicationGoroutines(t *testing.T) {
 		run(func(i int) { cl.Emit("msg", i) })
 	}
 	for _, c := range clientConns {
-		run(func(i int) { c.Emit("echo", i, func(int) {}); c.Volatile().Emit("msg", i) })
+		run(func(i int) { c.Emit("echo", i, func(int) {}); c.Volatile().Emit("msg", i); c.Send(i) })
 	}
 	// Closes race the calls above: a close from another goroutine ends each connection
 	// while it is in use, and later calls on it are dropped.

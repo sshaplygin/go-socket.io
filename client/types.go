@@ -34,9 +34,11 @@ type Conn interface {
 	// <namespace>#<Engine.IO ID> in any other namespace.
 	ID() string
 	// URL returns the request URL of the current Engine.IO transport, which
-	// changes with a transport upgrade.
+	// changes with a transport upgrade. The result is a url.URL value, so calling
+	// a pointer method such as String needs a variable: u := c.URL(); u.String().
 	URL() url.URL
-	// LocalAddr returns the local network address of the current transport.
+	// LocalAddr returns the local network address of the current transport; over
+	// polling it is an empty polling.Addr.
 	LocalAddr() net.Addr
 	// RemoteAddr returns the server's network address on the current transport.
 	RemoteAddr() net.Addr
@@ -66,10 +68,10 @@ type Namespace interface {
 	// is a func, it is not sent but registered as the acknowledgement callback: the
 	// server's ACK arguments are decoded into its parameters and it is called on the
 	// read goroutine of the connection. The callback has no timeout: it is called
-	// when the ACK arrives, and never if this generation ends first. An ACK argument
-	// with the wrong JSON type for its parameter is reported to OnError without
-	// calling the callback; any other ACK argument decode error is reported to OnError
-	// and ends the connection with forced close. Encoding is synchronous and may invoke
+	// when the ACK arrives, and never if this generation ends first. ACK arguments
+	// that do not decode into its parameters are reported to OnError without calling
+	// the callback, and the connection ends with forced close unless the error is a
+	// *json.UnmarshalTypeError (see Socket.OnEvent). Encoding is synchronous and may invoke
 	// application marshalers. Queue admission does not wait for free capacity;
 	// transport writes run in the background. A queue already holding
 	// WithWriteBufferSize packets not yet started drops the packet and every

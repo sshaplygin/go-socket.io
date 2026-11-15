@@ -218,13 +218,17 @@ func (s *Server) OnError(namespace string, f func(Conn, error)) {
 // decoded from the event arguments. If the client asked for an
 // acknowledgement, the return values are sent back as the ACK payload. A final
 // AckFunc parameter takes ownership of the ACK and suppresses automatic returns;
-// it may be called later, once, from another goroutine. If an argument has the
-// wrong JSON type for its parameter (*json.UnmarshalTypeError), f is not called,
-// the error goes to OnError, a requested acknowledgement is answered with an error
-// ACK and the connection stays open. Any other argument decode error, such as the
-// UnmarshalJSON error of a time.Time parameter, goes to OnError and closes the
-// connection without an ACK (see Conn.Close). OnEvent replaces every listener of
-// this event (see ServerNamespace.On and Once).
+// it may be called later, once, from another goroutine. If the arguments do not
+// decode into the parameter types, f is not called and the error goes to OnError.
+// What follows depends on the error, not on the JSON value. When it is a
+// *json.UnmarshalTypeError, which encoding/json returns for a value that does not
+// fit the Go type, such as a string for an int parameter or struct field, a
+// requested acknowledgement is answered with an error ACK and the connection stays
+// open. Any other decode error, such as the one Time.UnmarshalJSON returns for
+// "bad", closes the connection without an ACK (see Conn.Close). Which error a
+// value produces is decided by encoding/json and can differ under
+// GOEXPERIMENT=jsonv2. OnEvent replaces every listener of this event (see
+// ServerNamespace.On and Once).
 //
 // f is called on the read goroutine of the client's Engine.IO connection, which
 // serves every namespace of that client and also answers its heartbeat. While f

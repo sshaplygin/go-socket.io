@@ -395,12 +395,16 @@ func (s *Socket) OnDisconnect(f func(Conn, string)) { s.handler.OnDisconnect(f) 
 // not an error; see Client.OnError.
 func (s *Socket) OnError(f func(Conn, error)) { s.handler.OnError(f) }
 
-// OnEvent replaces the namespace's handler for event. If an argument has the wrong
-// JSON type for its parameter (*json.UnmarshalTypeError), f is not called, the error
-// goes to OnError, a requested acknowledgement is answered with an error ACK and the
-// connection stays open. Any other argument decode error, such as the UnmarshalJSON
-// error of a time.Time parameter, goes to OnError and ends the connection without an
-// ACK; OnDisconnect reports forced close.
+// OnEvent replaces the namespace's handler for event. If the event's arguments do
+// not decode into the parameter types of f, f is not called and the error goes to
+// OnError. What follows depends on the error, not on the JSON value. When it is a
+// *json.UnmarshalTypeError, which encoding/json returns for a value that does not
+// fit the Go type, such as a string for an int parameter or struct field, a
+// requested acknowledgement is answered with an error ACK and the connection stays
+// open. Any other decode error, such as the one Time.UnmarshalJSON returns for
+// "bad", ends the connection without an ACK; OnDisconnect reports forced close.
+// Which error a value produces is decided by encoding/json and can differ under
+// GOEXPERIMENT=jsonv2.
 //
 // f runs on the reader of the client's Engine.IO connection, which serves every
 // namespace socket of the Client and also reads the heartbeat's PONG packets, and

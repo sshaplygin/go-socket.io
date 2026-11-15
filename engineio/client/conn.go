@@ -81,7 +81,8 @@ const (
 	// it sent a CLOSE packet, or closed its websocket with a close frame of normal
 	// closure, going away or no status. Other close frames are transport errors.
 	ReasonTransportClose CloseReason = "transport close"
-	// ReasonPingTimeout means no packet arrived within PingInterval + PingTimeout.
+	// ReasonPingTimeout means no PONG arrived within PingInterval + PingTimeout;
+	// other packets do not renew that window.
 	ReasonPingTimeout CloseReason = "ping timeout"
 	// ReasonTransportError means a transport read or write failed before the deadline.
 	ReasonTransportError CloseReason = "transport error"

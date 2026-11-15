@@ -56,16 +56,14 @@ type Conn interface {
 	// The library itself closes a connection, discarding the queue at once, when its Engine.IO
 	// session ends (a peer close, a transport read or write failure, a ping timeout or a message
 	// past the size limit), on an overflow (see ErrWriteBufferFull), and when a received packet
-	// stops the connection's reader, for example an invalid packet or attachment, or an argument
-	// of an untyped event handler (OnEvent, On, Once) or of an Emit acknowledgement callback
-	// whose decoding fails with an error other than a type mismatch (*json.UnmarshalTypeError),
-	// such as the UnmarshalJSON error of a time.Time parameter. The end of the session is not an
-	// error: OnDisconnect receives its reason and OnError is not called. A received packet that
-	// stops the reader is reported to OnError while the connection is still connected; the close
-	// follows, so an Emit from that OnError call can be discarded before it is written. Reported
-	// to OnError without a close are an argument with a type mismatch (see Server.OnEvent) and
-	// every argument decode error of a typed descriptor's handler (NewEvent, NewAckEvent); a
-	// NewAckEvent handler answers a requested acknowledgement with the invalid_payload error ACK.
+	// stops the connection's reader, for example a packet that is not valid, or arguments that
+	// fail to decode into the parameters of an untyped event handler (OnEvent, On, Once) or of
+	// an Emit acknowledgement callback with an error that is not a *json.UnmarshalTypeError
+	// (see Server.OnEvent). The end of the session is not an error: OnDisconnect receives its
+	// reason and OnError is not called. A received packet that stops the reader is reported to
+	// OnError while the connection is still connected; the close follows, so an Emit from that
+	// OnError call can be discarded before it is written. A decode error of such arguments that
+	// is a *json.UnmarshalTypeError is reported to OnError without a close.
 	// A middleware or OnConnect rejection sends ERROR and keeps the engine connection open; it
 	// reports to that namespace's OnError, with a nil Conn for root. Failures during a close are
 	// not reported. An encode failure reports OnError, sends an ERROR packet with "encode error",
@@ -91,9 +89,12 @@ type Conn interface {
 	// <namespace>#<Engine.IO ID> in any other namespace.
 	ID() string
 	// URL returns the request URL of the current Engine.IO transport, which
-	// changes with a transport upgrade; Handshake keeps the original URL.
+	// changes with a transport upgrade; Handshake keeps the original URL. The
+	// result is a url.URL value, so calling a pointer method such as String needs
+	// a variable: u := c.URL(); u.String().
 	URL() url.URL
-	// LocalAddr returns the local network address of the current transport.
+	// LocalAddr returns the local network address of the current transport; over
+	// polling it is a polling.Addr, which is not the address of a network connection.
 	LocalAddr() net.Addr
 	// RemoteAddr returns the peer's network address on the current transport.
 	RemoteAddr() net.Addr
@@ -123,10 +124,10 @@ type Namespace interface {
 	// is a func, it is not sent but registered as the acknowledgement callback: the
 	// client's ACK arguments are decoded into its parameters and it is called on the
 	// read goroutine of the connection. The callback has no timeout: it is called
-	// when the ACK arrives, and never if its namespace connection ends first. An ACK
-	// argument with the wrong JSON type for its parameter is reported to OnError
-	// without calling the callback; any other ACK argument decode error is reported
-	// and closes the connection (see Conn.Close). Encoding is synchronous and may invoke
+	// when the ACK arrives, and never if its namespace connection ends first. ACK
+	// arguments that do not decode into its parameters are reported to OnError
+	// without calling the callback, and the connection closes unless the error is a
+	// *json.UnmarshalTypeError (see Server.OnEvent). Encoding is synchronous and may invoke
 	// application marshalers. Queue admission does not wait for free capacity;
 	// transport writes run in the background. Emits from OnConnect are written
 	// after the namespace is accepted. A queue already holding

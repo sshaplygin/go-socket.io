@@ -127,7 +127,22 @@ func (s *Server) dropUnaccepted() {
 
 func (s *Server) drop(c *sessionImpl.Session) {
 	_ = c.Shutdown()
-	s.Remove(c.ID())
+	s.unregister(c, false)
+}
+
+// unregister removes session c from the registry, and with live also from the
+// shutdown set. It leaves an entry that another session holds: the ID of an
+// ended session can be issued again, so removal by ID could hit a newer session.
+func (s *Server) unregister(c *sessionImpl.Session, live bool) {
+	sid := c.ID()
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	if live && s.live[sid] == c {
+		delete(s.live, sid)
+	}
+	if registered, ok := s.sessions.Get(sid); ok && registered == c {
+		s.sessions.Remove(sid)
+	}
 }
 
 func isClosed(ch <-chan struct{}) bool {
@@ -251,7 +266,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reqSession.ServeHTTP(w, r)
 }
 
-// Count counts connected
+// Count returns the number of registered sessions, whatever their state. A
+// session is registered from its handshake until its close has finished, by
+// whichever path it ends: a client CLOSE, a transport error, a ping timeout,
+// Conn.Close, Abort or Server.Close. A polling session closed by Conn.Close
+// finishes once a poll has delivered its CLOSE packet, or when Abort,
+// Server.Close or a 30-second limit ends the wait.
+// The server then forgets the session's ID: a later request carrying it is
+// answered as for an unknown session. Remove unregisters a session earlier.
 func (s *Server) Count() int {
 	return s.sessions.Count()
 }
@@ -259,8 +281,8 @@ func (s *Server) Count() int {
 // Clients returns a snapshot of open or closing sessions keyed by session ID.
 // A session is open from the start of its OPEN packet's delivery, so one whose
 // client has received that packet is listed. A session that is still opening,
-// or already closed, is not. Count includes every registered session until
-// Remove, regardless of state.
+// or already closed, is not. Count also includes registered sessions that are
+// opening, or closed and still finishing their close.
 func (s *Server) Clients() map[string]Conn {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
@@ -273,8 +295,12 @@ func (s *Server) Clients() map[string]Conn {
 	return clients
 }
 
-// Remove unregisters a session without closing it. Server.Close still closes
-// the session if its transport remains open.
+// Remove unregisters the session registered under sid without closing it.
+// Server.Close still closes the session if its transport remains open. A
+// session unregisters itself when its close finishes, so an ended session needs
+// no Remove call. After that, sid names no session and Remove does nothing,
+// unless an IDGenerator has issued sid again: Remove then unregisters the newer
+// session.
 func (s *Server) Remove(sid string) {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
@@ -305,13 +331,9 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 	newSession.SetRequest(r)
 	s.installHooks(newSession, r, reqTransport != "websocket")
 
-	newSession.SetCloseCallback(func() {
-		s.lifecycle.Lock()
-		if s.live[sid] == newSession {
-			delete(s.live, sid)
-		}
-		s.lifecycle.Unlock()
-	})
+	// The ended session leaves the shutdown snapshot and the registry. A session
+	// refused as a duplicate also runs this, so only this session's entries go.
+	newSession.SetCloseCallback(func() { s.unregister(newSession, true) })
 
 	// Register before the handshake: the client may send its next request
 	// with this sid as soon as it reads the OPEN packet.
@@ -334,7 +356,9 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 
 	go func(newSession *sessionImpl.Session) {
 		if err := newSession.Init(); err != nil {
-			s.Remove(newSession.ID())
+			// A close during the handshake has already unregistered it, and
+			// its ID may since belong to a newer session.
+			s.unregister(newSession, false)
 			if errors.Is(err, sessionImpl.ErrClosedDuringInit) {
 				// Opened and closed by someone else while its handshake was
 				// being written: not a refused request. The session's own

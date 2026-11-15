@@ -34,15 +34,17 @@ Package `engineio` of the v1 module at the repository root.
   encoded-packet threshold when enabled. The Go client offers it when configured,
   with the same threshold. Per-packet compression defaults to true; false suppresses
   it for the packet and all its binary attachments on either transport.
-  With `b64=1` in the websocket request, as sent by a `forceBase64` client, the
-  server writes binary packets as text messages `b<type><base64 data>` and decodes
-  such text messages as binary packets, both on a direct websocket connection and
-  after a polling-to-websocket upgrade. Decoding is strict: unpadded data or invalid
-  characters close the session; the reference clients always pad. Binary messages
-  are still accepted in this mode; socket.io-client 1.7.4 under Node sends them
-  despite `forceBase64`. Without `b64`, a text message starting with `b` is an
-  invalid packet type and closes the session; engine.io 3.6.2 decodes it as base64
-  in either mode.
+  A text message `b<type><base64 data>` is a binary packet, with or without `b64=1`
+  in the websocket request, as in engine.io 3.6.2: socket.io-client 1.0–1.3 under
+  Node sends binary attachments that way without `b64`. The Go client reads such
+  messages the same way. Decoding is strict: unpadded data, invalid characters, a
+  message `b` without a type and an unknown type close the session; engine.io 3.6.2
+  decodes the data leniently and ignores the last two. The reference clients always
+  pad. The message limit below counts the base64 text as sent. With `b64=1`, as sent
+  by a `forceBase64` client, the server also writes binary packets in that form,
+  both on a direct websocket connection and after a polling-to-websocket upgrade;
+  without it, it writes binary messages. Binary messages are accepted in either
+  mode; socket.io-client 1.7.4 under Node sends them despite `forceBase64`.
   A server-initiated websocket close, such as `Conn.Close`, `Server.Close`, a
   client `CLOSE` packet or a ping timeout, sends a close frame with code 1000 before
   the TCP connection is closed, as engine.io 3.6.2 does, so the client observes close
@@ -137,7 +139,9 @@ Package `engineio` of the v1 module at the repository root.
   whichever came first: 1000 from the expiry, 1006 from the close. Implemented in the private server session upgrade state machine (`engineio/internal/session/upgrade.go`).
 - Requests the server rejects before a transport handles them are answered with JSON
   `{"code":<n>,"message":"<text>"}`, as engine.io 3.6.2 answers a request that is not a
-  websocket upgrade: HTTP 400 with code 0 `Transport unknown`, 1 `Session ID unknown`, 2
+  websocket upgrade: HTTP 400 with code 0 `Transport unknown`, 1 `Session ID unknown`
+  (also for the sid of a session whose close has finished, which the server has
+  unregistered as engine.io 3.6.2 deletes a closed client), 2
   `Bad handshake method` or 3 `Bad request` (also a transport that cannot accept the
   request, except a websocket handshake that gorilla/websocket answers itself, and a
   session that cannot be created), and HTTP 403 with code 4 and the fixed message

@@ -35,11 +35,12 @@
 // "socketio: unhandled error" or a rejected request (DEBUG for an unknown sid).
 // INFO marks only the end of such a failure that persists until the library
 // recovers from it: "socketio: redis subscription restored" follows
-// "socketio: redis subscription lost".
-// Expected closure (EOF, a closed connection, a peer close, a ping timeout and
-// any failure after a close started), errors also returned to a caller or
-// delivered to an OnError handler, and the boundary records (session open and
-// close, namespace connect, disconnect) are DEBUG. LevelTrace is available for
+// "socketio: redis subscription lost", which is WARN whatever its error,
+// EOF included, because the adapter did not end that subscription.
+// Expected closure of a session (EOF, a closed connection, a peer close, a
+// ping timeout and any failure after a close started), errors also returned
+// to a caller or delivered to an OnError handler, and the boundary records
+// (session open and close, namespace connect, disconnect) are DEBUG. LevelTrace is available for
 // application records; the library does not emit records at that level.
 //
 // # Messages and keys

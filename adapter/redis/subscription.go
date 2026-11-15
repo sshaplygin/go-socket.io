@@ -92,7 +92,8 @@ func (bc *broadcast) subscribeChannels(ctx context.Context, channels []interface
 // The reconnect backoff starts over when the lost subscription had stayed up
 // for at least redisReconnectMax; a subscription that fails sooner, such as one
 // a server drops right after accepting it, continues the backoff where the
-// previous reconnect left it.
+// previous reconnect left it. Nothing else starts it over: the acknowledgement
+// of a namespace's SUBSCRIBE or UNSUBSCRIBE does not.
 func (bc *broadcast) dispatch() {
 	sub := bc.sub
 	delay := redisReconnectMin
@@ -114,8 +115,6 @@ func (bc *broadcast) dispatch() {
 			if m.Count == 0 {
 				return
 			}
-			// The server accepted the subscription, so the backoff starts over.
-			delay = redisReconnectMin
 
 		case error:
 			bc.subscriptionChanged("", false)

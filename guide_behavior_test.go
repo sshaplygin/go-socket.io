@@ -146,7 +146,7 @@ func TestClusterRequestInRedisDeliveredLifecycleListenerTimesOut(t *testing.T) {
 		ts := newTestServer(t, func(s *Server) {
 			srv = s
 			s.SetAdapter(redisadapter.New(redisadapter.WithAddr(mr.Addr()),
-				redisadapter.WithRequestsTimeout(time.Second)))
+				redisadapter.WithRequestsTimeout(250*time.Millisecond)))
 			s.OnConnect("/", func(Conn) error { return nil })
 			if listen {
 				s.Of("/").On("error", func(Conn, string) {
@@ -299,6 +299,7 @@ func TestDisconnectReasonsEqualEngineConstants(t *testing.T) {
 // "ping timeout". With PingInterval or PingTimeout longer than WriteTimeout, a
 // pending poll outlives the timeout.
 func TestPollingResponseAfterServerWriteTimeoutIsLost(t *testing.T) {
+	t.Parallel() // the test waits on timers
 	large := make([]byte, 30000)
 	_, err := rand.Read(large)
 	require.NoError(t, err)
@@ -311,6 +312,7 @@ func TestPollingResponseAfterServerWriteTimeoutIsLost(t *testing.T) {
 		{"exceeds the buffer", base64.StdEncoding.EncodeToString(large), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			pollAfterWriteTimeout(t, tc.payload, tc.closed)
 		})
 	}
@@ -370,7 +372,9 @@ func pollAfterWriteTimeout(t *testing.T, payload string, closed bool) {
 		poll <- result{body, err}
 	}()
 	recv(t, polls, "the pending poll")
-	time.Sleep(2 * writeTimeout) // only lengthens the wait past the deadline under load
+	// The deadline was set before the handler signalled, so it has passed after
+	// this wait; load only lengthens the wait.
+	time.Sleep(writeTimeout + 100*time.Millisecond)
 	c.Emit("push", payload)
 	got := recv(t, poll, "the poll's end")
 	require.Error(t, got.err, "the poll was answered: %.40q", got.body)
@@ -391,6 +395,7 @@ func pollAfterWriteTimeout(t *testing.T, payload string, closed bool) {
 // net/http of Go 1.22 does not cancel it: the session ends with "ping timeout"
 // when its heartbeat window, four seconds here, has passed.
 func TestPendingPollOverHTTP2EndsAtServerWriteTimeout(t *testing.T) {
+	t.Parallel() // the test waits on timers
 	heartbeat, reason := time.Minute, engineio.ReasonTransportError
 	if strings.HasPrefix(runtime.Version(), "go1.22") {
 		heartbeat, reason = 2*time.Second, engineio.ReasonPingTimeout
@@ -410,7 +415,7 @@ func TestPendingPollOverHTTP2EndsAtServerWriteTimeout(t *testing.T) {
 		srv.ServeHTTP(w, r)
 	}))
 	ts.EnableHTTP2 = true
-	ts.Config.WriteTimeout = 2 * time.Second
+	ts.Config.WriteTimeout = time.Second
 	ts.StartTLS()
 	t.Cleanup(func() { _ = srv.Close(); ts.Close() })
 	hc := ts.Client()

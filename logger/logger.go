@@ -49,11 +49,19 @@
 // without OnError for a packet that does not decode, a payload of the wrong
 // type, an ERROR packet, an error that connect middleware or OnConnect returns,
 // and a write buffer that ERROR packets answering CONNECTs to namespaces the
-// server does not have overflowed. Unless an application handler fails, a
-// client can cause a server WARN record only with a failure that ends its
-// session: "engineio: message too large", after it sent more than the
-// configured limit, or the overflow of a full write buffer when it does not
-// read.
+// server does not have overflowed.
+//
+// A client can still cause these server WARN records. Two end its session and
+// are logged once for it: "engineio: message too large", after it sent more than
+// the configured limit, and "socketio: unhandled error" for the full write
+// buffer of a namespace the server has, without OnError of that namespace, when
+// the client does not read; the ERROR packets that answer CONNECTs which connect
+// middleware or OnConnect of that namespace refuses fill the buffer too, so a
+// client needs no access to the namespace for it. The others follow from the
+// application or the deployment: an event handler that fails, a ResponseWriter
+// that is not an http.Hijacker, which logs each websocket upgrade request, and a
+// namespace whose Redis broadcast could not be created, which logs each CONNECT
+// to it without OnError and closes the session.
 //
 // Expected closure (EOF, a closed connection, a peer close, a ping timeout and
 // any failure after a close started), errors also returned to a caller or

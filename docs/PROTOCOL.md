@@ -228,9 +228,10 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   when the client sends `0/<nsp>`.
 - A CONNECT to a namespace without a registered handler is answered with an ERROR packet
   (`4/<nsp>,"Invalid namespace"`) and the connection stays open. No `OnError` is called.
-  The name is repeated as received. socket.io 2.5.0 sends the same reply for a name
-  without a space, a tab, `#` or `\`; it parses the name as a URL path, so it sends a space
-  as `%20` and a tab as `%09`, drops `#` and what follows it, and turns `\` into `/`.
+  The name is repeated as received. socket.io 2.5.0 parses the name as a URL path: it
+  removes whitespace at the end of the name, sends a space, a tab, CR and LF inside the
+  name as `%20`, `%09`, `%0D` and `%0A`, drops `#` and what follows it, and turns `\` into
+  `/`. For a name without whitespace, `#` or `\` the two replies are the same.
   A namespace name longer than 1024 bytes is not answered, so that the server does not
   echo it; the reference echoes a name of any length. The
   [`logger` package documentation](../logger/logger.go) lists the levels of the records

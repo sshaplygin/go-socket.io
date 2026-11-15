@@ -436,23 +436,30 @@ func TestUnhandledErrorRecords(t *testing.T) {
 				recv(t, p.completion(), "the close") // except with closeErr, where nothing closes
 			}
 			var got []map[string]string
-			require.Eventually(t, func() bool { got = loud(rec.since(0), ""); return len(got) >= len(tc.nsps) },
-				waitFor, time.Millisecond)
+			peerRecords := func() (nsps []string) {
+				for _, m := range only(rec.since(0), "socketio: unhandled error") {
+					if m["level"] == "DEBUG" {
+						nsps = append(nsps, m["nsp"])
+					}
+				}
+				return nsps
+			}
+			// The close does not wait for the goroutine that logs an overflow, so every
+			// expected record is awaited, at either level.
+			require.Eventually(t, func() bool {
+				got = loud(rec.since(0), "")
+				return len(got) >= len(tc.nsps) && len(peerRecords()) >= len(tc.peer)
+			}, waitFor, time.Millisecond)
 			time.Sleep(20 * time.Millisecond) // a second record would come now
 			got = loud(rec.since(0), "")
-			var nsps, peer []string
+			var nsps []string
 			for _, m := range got {
 				require.Equal(t, "socketio: unhandled error", m["msg"])
 				require.Equal(t, "WARN", m["level"])
 				nsps = append(nsps, m["nsp"])
 			}
 			require.Equal(t, tc.nsps, nsps)
-			for _, m := range only(rec.since(0), "socketio: unhandled error") {
-				if m["level"] == "DEBUG" {
-					peer = append(peer, m["nsp"])
-				}
-			}
-			require.Equal(t, tc.peer, peer)
+			require.Equal(t, tc.peer, peerRecords())
 		})
 	}
 }

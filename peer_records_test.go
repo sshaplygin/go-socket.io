@@ -28,8 +28,9 @@ const maxRecordValue = 1024
 // registered on "/", CONNECT packets for namespaces the server does not have, among them
 // names of 1024, 1025 and 100,001 bytes, and ERROR packets with a 100,000-byte message to
 // an unknown namespace and to "/". The server answers each name of at most 1024 bytes
-// with ERROR "Invalid namespace" for that namespace, as socket.io 2.5.0 does, answers
-// nothing for a longer one, logs every packet at DEBUG only, calls OnError of "/" for
+// with ERROR "Invalid namespace" for that namespace, as socket.io 2.5.0 does, repeating
+// the name as received even where the reference rewrites it, answers nothing for a
+// longer one, logs every packet at DEBUG only, calls OnError of "/" for
 // the ERROR packet sent to "/" only, and keeps every attribute value within the
 // logger's bound.
 func TestPeerFloodLogsNoWarn(t *testing.T) {
@@ -65,6 +66,12 @@ func TestPeerFloodLogsNoWarn(t *testing.T) {
 	c.send("0/" + long + ",")
 	c.send("0/after,")
 	assert.Equal(t, "4/after,\"Invalid namespace\"\n", clip(c.read()), "the 1025-byte and oversized names are not answered")
+	// socket.io 2.5.0 rewrites these names as a URL path; they are repeated as received.
+	verbatim := []string{"/a b", "/a\tb", "/a\rb", "/a\nb", "/a ", "/a\n", "/a#b", `/a\b`}
+	for _, name := range verbatim {
+		c.send("0" + name + ",")
+		assert.Equal(t, "4"+name+",\"Invalid namespace\"\n", c.read())
+	}
 	c.send("4/nope,\"" + long + "\"")
 	c.send(`4"` + long + `"`)
 
@@ -75,7 +82,7 @@ func TestPeerFloodLogsNoWarn(t *testing.T) {
 	for _, m := range loud(recs, "") {
 		assert.Fail(t, "a record above DEBUG", "%s %s nsp=%s err=%s", m["level"], m["msg"], clip(m["nsp"]), clip(m["err"]))
 	}
-	require.Equal(t, n+5, len(only(recs, "socketio: connect without handler")))
+	require.Equal(t, n+5+len(verbatim), len(only(recs, "socketio: connect without handler")))
 	for _, m := range recs {
 		for key, value := range m {
 			assert.LessOrEqual(t, len(value), maxRecordValue, "%s of %q", key, m["msg"])

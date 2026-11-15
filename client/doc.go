@@ -29,8 +29,8 @@
 // and can end the connection with a ping timeout (see Socket.OnEvent). Close
 // disconnects all namespaces and returns without waiting: queued packets and
 // DISCONNECT are written in the background within the configured close timeout,
-// so a program that exits right after Close can lose them. The example above waits for the ACK of its last
-// event before the deferred Close.
+// so a program that exits right after Close can lose them. The example above
+// waits for the ACK of its last event before the deferred Close.
 //
 // Typed Event and AckEvent descriptors are defined in the root socketio package,
 // so programs using typed client events import that package as well as client.

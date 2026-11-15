@@ -56,16 +56,17 @@ type Conn interface {
 	// The library itself closes a connection, discarding the queue at once, when its Engine.IO
 	// session ends (a peer close, a transport read or write failure, a ping timeout or a message
 	// past the size limit), on an overflow (see ErrWriteBufferFull), and when a received packet
-	// stops the connection's reader, such as an invalid packet or attachment. The end of the
-	// session is not an error: OnDisconnect receives its reason and OnError is not called.
-	// A received packet that stops the reader is reported to OnError while the connection is
-	// still connected; the close follows, so an Emit from that OnError call can be discarded
-	// before it is written. An argument that does not decode into a handler's parameters is
-	// reported to OnError without a close (see Server.OnEvent). A middleware or OnConnect
-	// rejection sends ERROR and keeps the engine connection open; it reports to that
-	// namespace's OnError, with a nil Conn for root. Failures during a close are not reported.
-	// An encode failure reports OnError, sends an ERROR packet with "encode error", and keeps
-	// the connection open.
+	// stops the connection's reader: an invalid packet or attachment, or an event argument whose
+	// decoding fails with an error other than a type mismatch (*json.UnmarshalTypeError), such
+	// as the UnmarshalJSON error of a time.Time parameter. The end of the session is not an
+	// error: OnDisconnect receives its reason and OnError is not called. A received packet that
+	// stops the reader is reported to OnError while the connection is still connected; the close
+	// follows, so an Emit from that OnError call can be discarded before it is written. An event
+	// argument with a type mismatch is reported to OnError without a close (see Server.OnEvent).
+	// A middleware or OnConnect rejection sends ERROR and keeps the engine connection open; it
+	// reports to that namespace's OnError, with a nil Conn for root. Failures during a close are
+	// not reported. An encode failure reports OnError, sends an ERROR packet with "encode error",
+	// and keeps the connection open.
 	Close() error
 	Namespace
 	// EngineConn returns the underlying server Engine.IO connection for metadata

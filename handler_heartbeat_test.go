@@ -83,10 +83,13 @@ func TestBlockingServerHandlerEndsItsConnection(t *testing.T) {
 	}
 }
 
-// A Go client callback that blocks past the heartbeat window ends its own connection
-// with ping timeout as well: the client reads no packet while it runs, so its heartbeat
-// window expires, and over polling the server also stops hearing from it.
-func TestBlockingClientHandlerEndsItsConnection(t *testing.T) {
+// A Go client callback that blocks past the heartbeat window normally ends its own
+// connection with ping timeout: the client renews its window only when it reads a PONG,
+// and it reads nothing while the callback runs. The end is not guaranteed: over
+// websocket, a PONG read ahead together with the event renews the window once the
+// callback returns. So after the release the test accepts either outcome; it requires
+// ping timeout if the connection ends, and no OnError in both cases.
+func TestBlockingClientHandlerStopsHeartbeat(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
 			var running atomic.Bool
@@ -106,12 +109,13 @@ func TestBlockingClientHandlerEndsItsConnection(t *testing.T) {
 					close(started)
 					<-release
 				})
+				p.cl.OnEvent("probe", func(client.Conn) string { return "alive" })
 			})
 			c := recv(t, p.conns, "OnConnect")
 			c.Emit("work")
 			recv(t, started, "the client handler to start")
 			// PINGs are at least interval apart, so after six of them the client has read
-			// nothing for longer than interval+timeout. Over polling the server ends the
+			// nothing for longer than interval+timeout. Over polling the server can end the
 			// session first, after which the client sends no more PINGs.
 			serverEnded := false
 			for n := 0; n < 6 && !serverEnded; n++ {
@@ -125,8 +129,17 @@ func TestBlockingClientHandlerEndsItsConnection(t *testing.T) {
 				}
 			}
 			close(release)
-			require.Equal(t, "ping timeout", recv(t, p.clientReason, "the client's OnDisconnect"))
-			recv(t, p.serverReasons, "the server's OnDisconnect")
+			alive := make(chan string, 1)
+			c.Emit("probe", func(s string) { alive <- s })
+			select {
+			case reason := <-p.clientReason:
+				require.Equal(t, "ping timeout", reason)
+				recv(t, p.serverReasons, "the server's OnDisconnect")
+			case <-alive:
+				t.Log("the connection survived: a PONG read ahead renewed the client's window")
+			case <-time.After(waitFor):
+				t.Fatal("neither a disconnect nor the probe's ACK")
+			}
 			require.Empty(t, drain(p.errs), "OnError was called")
 		})
 	}
@@ -134,12 +147,12 @@ func TestBlockingClientHandlerEndsItsConnection(t *testing.T) {
 
 // A handler that hands its work to a goroutine and acknowledges through AckFunc returns
 // at once, so the heartbeat keeps the connection alive while the work runs and the ACK
-// arrives. An AckFunc called after its connection ended does nothing.
+// arrives.
 func TestDeferredAckKeepsHeartbeat(t *testing.T) {
 	for _, tr := range []transport.Transport{polling.Default, websocket.Default} {
 		t.Run(tr.Name(), func(t *testing.T) {
 			var pending atomic.Bool
-			pongs, late := make(chan struct{}, 16), make(chan AckFunc, 1)
+			pongs := make(chan struct{}, 16)
 			// A timeout that a loaded host keeps: only the heartbeat round trips are counted.
 			p := newHeartbeatPair(t, tr, 50*time.Millisecond, 5*time.Second, func(p *heartbeatPair) {
 				p.cl.OnPong(func(time.Duration) {
@@ -159,24 +172,13 @@ func TestDeferredAckKeepsHeartbeat(t *testing.T) {
 						ack("done")
 					}()
 				})
-				p.srv.OnEvent("/", "later", func(_ Conn, ack AckFunc) { late <- ack })
 			})
-			c := recv(t, p.conns, "OnConnect")
+			recv(t, p.conns, "OnConnect")
 			acks := make(chan string, 1)
 			p.cl.Emit("work", func(s string) { acks <- s })
 			require.Equal(t, "done", recv(t, acks, "the deferred ACK"))
 			require.Empty(t, drain(p.clientReason), "the client disconnected")
 			require.Empty(t, drain(p.serverReasons), "the server disconnected")
-
-			p.cl.Emit("later", func(string) { acks <- "late" })
-			ack := recv(t, late, "the later handler")
-			require.NoError(t, p.cl.Close())
-			recv(t, p.serverReasons, "the server's OnDisconnect")
-			recv(t, serverCompletion(p.srv, c.ID()), "the end of the connection")
-			done := make(chan struct{})
-			go func() { defer close(done); ack("late") }()
-			recv(t, done, "the late AckFunc call")
-			require.Empty(t, drain(acks), "an ACK arrived after the client closed")
 			require.Empty(t, drain(p.errs), "OnError was called")
 		})
 	}

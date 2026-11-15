@@ -67,7 +67,7 @@ func TestConcurrentUseFromApplicationGoroutines(t *testing.T) {
 	nsp := srv.Of("/")
 	for _, c := range server {
 		run(func(i int) { c.Emit("msg", i) })
-		run(func(i int) { c.Emit("msg", i, func(int) {}) })
+		run(func(i int) { c.Emit("msg", i, func(int) {}); c.Send(i) })
 		run(func(i int) { _ = c.Volatile().Emit("msg", i) })
 		run(func(int) { c.Join("a", "b"); c.Leave("a"); _ = c.Rooms() })
 		run(func(int) { c.LeaveAll() })

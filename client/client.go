@@ -13,11 +13,13 @@ import (
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
-// Client multiplexes namespace sockets over one Engine.IO connection. Its Emit and
-// handler methods act on the namespace selected by the address passed to New;
-// Socket returns a namespace socket, which also has On, Once, Off, Send, Connected
-// and ID. Emit and Close of a Client, of its sockets and of a Conn may be called from
-// any goroutine, concurrently with each other and with callbacks.
+// Client multiplexes namespace sockets over one Engine.IO connection. Its Emit,
+// OnConnect, OnDisconnect, OnError and OnEvent act on the namespace selected by the
+// address passed to New; OnReconnectAttempt, OnReconnect, OnReconnectError,
+// OnReconnectFailed, OnPing and OnPong belong to the connection. Socket returns a
+// namespace socket, which also has On, Once, Off, Send, Connected and ID. Emit and
+// Close of a Client, of its sockets and of a Conn may be called from any goroutine,
+// concurrently with each other and with callbacks.
 type Client struct{ manager *manager }
 
 // New configures addr (http://host:port[/namespace]) without opening a connection.

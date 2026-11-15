@@ -9,7 +9,14 @@ linters:
   default: standard
   enable:
     - forbidigo
+    - revive
   settings:
+    # Every exported function, method, type, constant and variable of the public
+    # packages has a doc comment that starts with its name. Internal packages,
+    # examples and the CI tools are excluded below; revive skips test files.
+    revive:
+      rules:
+        - name: exported
     # Examples, README snippets and library code never terminate the process: a library
     # returns the error, and a failing example main panics with it, which runs deferred
     # cleanup and can be recovered, instead of exiting past it.
@@ -45,7 +52,7 @@ linters:
       # These TestMain functions own the exit status of their test binary: the goroutine-leak
       # gates set it after m.Run returns, and a helper subprocess exits before running tests.
       # os.Exit in any other test file is reported.
-      - path: ^((client/|engineio/)?main_test|logger/logger_test|engineio/(parser|transport/polling)/payload_vectors_test)\.go$
+      - path: ^((client/|adapter/redis/|engineio/(client/|internal/session/|transport/(polling|websocket)/)?)?main_test|logger/logger_test|engineio/parser/payload_vectors_test)\.go$
         text: os\.Exit
         linters: [forbidigo]
       # Every example module carries an identical lifecycle.go; graceful-shutdown calls
@@ -53,6 +60,10 @@ linters:
       - path: _examples/graceful-shutdown/lifecycle\.go$
         text: func serve is unused
         linters: [unused]
+      # The godoc requirement covers the public API only: internal packages, the
+      # example applications and the CI tools are not part of it.
+      - path: (^|/)(internal|_examples|\.github)/
+        linters: [revive]
 
 formatters:
   enable:

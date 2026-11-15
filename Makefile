@@ -25,11 +25,14 @@ test:
 test-race:
 	go test -race -count=1 $(PKGS)
 
-# Optional interoperability gate; default Go tests do not require Node.
+# Optional interoperability gate; default Go tests do not require Node. The Redis
+# codec oracle decodes a Go-encoded broadcast with the reference server's notepack.io.
 .PHONY: conformance
 conformance:
 	go vet -tags conformance ./internal/conformance/...
 	go test -race -count=1 -tags conformance ./internal/conformance/...
+	NODE_PATH="$(CURDIR)/internal/conformance/testdata/node/server/node_modules" \
+		go test -race -count=1 -run '^TestRedisGoPacketWithNodeOracle$$' ./adapter/redis
 
 .PHONY: test-jsonv2
 test-jsonv2:

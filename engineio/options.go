@@ -28,7 +28,7 @@ type options struct {
 	// DisableHTTPCompression disables gzip/deflate for polling responses.
 	DisableHTTPCompression bool
 	// CompressionThreshold is the encoded size from which compression applies;
-	// nonpositive values mean 1024 bytes.
+	// nonpositive values mean 1024 bytes. See WithCompressionThreshold.
 	CompressionThreshold int
 	// Cookie is copied with Value replaced by the session ID. Nil defaults to
 	// io, Path=/, HttpOnly, SameSite=Strict. An empty Name defaults to io.
@@ -240,7 +240,9 @@ func WithHTTPCompression(value bool) Option {
 	return func(config *options) { config.DisableHTTPCompression = !value }
 }
 
-// WithCompressionThreshold sets the compression threshold; nonpositive means 1024 bytes.
+// WithCompressionThreshold sets the compression threshold of both transports;
+// nonpositive means 1024 bytes. polling.Transport.CompressionThreshold and
+// websocket.Transport.CompressionThreshold say what each transport measures.
 func WithCompressionThreshold(value int) Option {
 	return func(config *options) { config.CompressionThreshold = value }
 }

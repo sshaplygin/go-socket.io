@@ -51,7 +51,10 @@ type Server struct {
 	log    *slog.Logger
 }
 
-// NewServer returns a server.
+// NewServer returns a Server configured by opts. It creates the Engine.IO
+// server the Server serves through, which Engine returns. Mount the Server as
+// an http.Handler, run Serve to dispatch connections and events, and call Close
+// to shut it down.
 func NewServer(opts ...Option) *Server {
 	config := resolveOptions(opts...)
 	return &Server{
@@ -88,6 +91,19 @@ func loggerFrom(opts *options) *slog.Logger {
 // then, their errors are joined to it. Callers that treat a timeout as a clean stop
 // can ignore the error with errors.Is(err, context.DeadlineExceeded). Close may be
 // called again to wait once more.
+//
+// The wait includes the connection whose callback calls Close, and that connection
+// cannot finish until the callback returns. Called from a callback of this server
+// (middleware, OnConnect, OnEvent, listeners, acknowledgement callbacks, OnError,
+// disconnecting or OnDisconnect), Close therefore returns the timeout error after ten
+// seconds, and shutdown completes only after the callback returns. Callbacks start it
+// on its own goroutine instead:
+//
+//	go func() {
+//		if err := s.Close(); err != nil {
+//			// handle err
+//		}
+//	}()
 func (s *Server) Close() error { return s.closeWithTimeout(10 * time.Second) }
 
 func (s *Server) closeWithTimeout(timeout time.Duration) error {
@@ -136,7 +152,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.engine.ServeHTTP(w, r)
 }
 
-// OnConnect set a handler function f to handle open event for namespace.
+// OnConnect sets the connect handler of namespace, creating the namespace when
+// it has none; a later call replaces the handler. f runs when a client joins
+// the namespace, for the root namespace when its Engine.IO connection opens,
+// after the connection middleware (see Server.Use). A nil error
+// accepts the join, and the packets f emits are written after the namespace
+// is accepted. An error rejects it: the client receives an ERROR packet with
+// the error text, the Engine.IO connection stays open, and the error goes to
+// OnError, with a nil Conn for the root namespace.
+//
+// f runs once the namespace middleware (ServerNamespace.Use) has accepted the
+// socket. By then the socket has joined its ID room and is listed by Sockets and
+// SocketIDs, as in the reference's connection listener, so a broadcast that
+// selects it reaches it, whether issued by f or by another goroutine while f
+// runs. Those packets and the Emits of f wait in the connection's write queue
+// (see WithWriteBufferSize) and are written after CONNECT once f returns nil. If
+// f returns an error, the socket receives an ERROR packet instead, the waiting
+// packets are discarded, the socket leaves its rooms and the namespace, and it
+// gets neither disconnecting nor OnDisconnect.
 func (s *Server) OnConnect(namespace string, f func(Conn) error) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -153,7 +186,9 @@ func (s *Server) OnConnect(namespace string, f func(Conn) error) {
 // close (EngineConn().Close or engineio.Abort), a parser failure, a handler panic
 // or a queue overflow. Rooms have been left before it runs;
 // OnEvent(namespace, "disconnecting", func(Conn, string)) observes the same
-// reason while the rooms are still joined.
+// reason while the rooms are still joined. Both run once for each socket whose
+// OnConnect returned nil, also when a close started while OnConnect ran; a socket
+// rejected by middleware or OnConnect gets neither.
 func (s *Server) OnDisconnect(namespace string, f func(Conn, string)) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -288,7 +323,10 @@ func (s *Server) roomSocket(nsp string, conn Conn) *namespaceConn {
 	return nil
 }
 
-// ClearRoom clears the room.
+// ClearRoom removes every socket from room in namespace through the
+// namespace's adapter (see adapter.Adapter.Clear). It returns false, doing
+// nothing, when the namespace has no handler or its adapter could not be
+// created.
 func (s *Server) ClearRoom(namespace string, room string) bool {
 	bc := s.broadcastOf(namespace)
 	if bc != nil {

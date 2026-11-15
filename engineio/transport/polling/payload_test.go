@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -266,6 +267,27 @@ func TestPayloadFlushOutBinary(t *testing.T) {
 	should.Equal("write: timeout", err.Error())
 }
 
+// requireParked waits up to 5 s until, for each method, a goroutine is parked on
+// a channel operation inside it, so the next step wakes a waiting call instead
+// of meeting a call that has not started.
+func requireParked(t *testing.T, methods ...string) {
+	t.Helper()
+	parked := func(method string) bool {
+		for _, stack := range leakedModuleStacks() {
+			header, frames, _ := strings.Cut(stack, "\n")
+			if (strings.Contains(header, "[select") || strings.Contains(header, "[chan ")) &&
+				strings.Contains(frames, "polling.(*payload)."+method+"(") {
+				return true
+			}
+		}
+		return false
+	}
+	for _, method := range methods {
+		require.Eventually(t, func() bool { return parked(method) }, 5*time.Second, time.Millisecond,
+			"no goroutine waits in %s; library goroutines:\n%s", method, strings.Join(leakedModuleStacks(), "\n\n"))
+	}
+}
+
 func TestPayloadWaitNextClose(t *testing.T) {
 	should := assert.New(t)
 	must := require.New(t)
@@ -290,8 +312,7 @@ func TestPayloadWaitNextClose(t *testing.T) {
 		should.Equal(io.EOF, err)
 	}()
 
-	// let next run
-	time.Sleep(time.Second / 10)
+	requireParked(t, "NextReader", "NextWriter")
 
 	err := p.Close()
 	must.NoError(err)
@@ -335,8 +356,7 @@ func TestPayloadWaitInOutClose(t *testing.T) {
 		should.Equal(io.EOF, err)
 	}()
 
-	// let next run
-	time.Sleep(time.Second / 10)
+	requireParked(t, "FeedIn", "FlushOut")
 
 	must.NoError(p.Close())
 
@@ -411,8 +431,7 @@ func TestPayloadNextPause(t *testing.T) {
 		should.True(op.Temporary())
 	}()
 
-	// let next run
-	time.Sleep(time.Second / 10)
+	requireParked(t, "NextReader", "NextWriter")
 	p.Pause()
 
 	wg.Wait()

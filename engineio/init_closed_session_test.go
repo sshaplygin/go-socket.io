@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -49,6 +51,19 @@ func (h recordList) above() (out []map[string]string) {
 	return out
 }
 
+// handshakeRunning reports whether a goroutine that Server.newSession started,
+// the one that writes the handshake and reports its failure, is still running.
+func handshakeRunning() bool {
+	buffer := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(buffer, true)
+		if n < len(buffer) {
+			return strings.Contains(string(buffer[:n]), "engineio.(*Server).newSession.")
+		}
+		buffer = make([]byte, 2*len(buffer))
+	}
+}
+
 // A session that was open, and then closed by someone else while its handshake
 // response was still being delivered, is not a rejected request: the close is
 // the session's own record, the request is not reported to ConnectionError or at
@@ -87,9 +102,11 @@ func TestSessionClosedDuringHandshakeIsNotRejected(t *testing.T) {
 
 			require.Eventually(t, func() bool { return s.Count() == 0 }, 5*time.Second, time.Millisecond,
 				"closed session stays registered")
-			// Init removes the session first and reports the failure after it; give a report
-			// that is going to be made time to arrive.
-			time.Sleep(100 * time.Millisecond)
+			// Init removes the session first and reports the failure after it, on
+			// the goroutine that runs the handshake; once that has returned, a
+			// report would have been made.
+			require.Eventually(t, func() bool { return !handshakeRunning() }, 5*time.Second, time.Millisecond,
+				"the handshake goroutine did not return")
 			require.Empty(t, rec.above(), "a session that opened and closed was logged as a failure")
 			require.Zero(t, rejected.Load(), "a session that opened and closed was reported to ConnectionError")
 		})

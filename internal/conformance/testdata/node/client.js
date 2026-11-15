@@ -133,11 +133,16 @@ async function reconnect() {
   root.emit('drop-transport');
   const [reason] = await disconnected;
   assert.notStrictEqual(reason, 'io server disconnect');
+  // Emitted while disconnected: the client buffers the packets and sends them once
+  // the new session has connected, and the new session answers them.
+  assert.strictEqual(root.connected, false);
+  const replayed = [ack(root, 'echo', 'buffered 1'), ack(root, 'echo', 'buffered 2')];
   await reconnected;
+  assert.deepStrictEqual(await Promise.all(replayed), [['buffered 1'], ['buffered 2']]);
   assert.notStrictEqual((await ack(root, 'id'))[0], before);
   assert.deepStrictEqual(await ack(root, 'echo', 'reconnected'), ['reconnected']);
   root.disconnect();
-  console.log(version + ' ' + transport + ': reconnect passed');
+  console.log(version + ' ' + transport + ': reconnect and buffered replay passed');
 }
 
 async function upgrade() {

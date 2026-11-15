@@ -57,7 +57,8 @@ are not built by its current `examples` target.
 
 ### Interoperability
 
-`make conformance` runs the tagged suite with `-race`. Node, npm and a Redis
+`make conformance` runs the tagged suite with `-race`, then the `adapter/redis`
+codec oracle test against the reference server's modules. Node, npm and a Redis
 server are required. Install the client separately from the reference server
 so the server's dependency cannot shadow the selected client:
 
@@ -95,8 +96,8 @@ job failed or was cancelled. Validate result handling with
 
 The v1 matrix includes stable/oldstable Go on Linux for every event, and on
 macOS and Windows for scheduled and manual runs. It also includes race
-tests, Go 1.22, repeated concurrency tests on every event, JSONv2 on stable and
-oldstable Go, coverage, examples and Node clients
+tests, Go 1.22, repeated concurrency tests on every event, JSONv2 on stable,
+oldstable and Go 1.25, coverage, examples and Node clients
 1.7.4/2.5.0. Vulnerability checks use the newest Go release available to CI.
 `.github/sync-manifest` is the complete list of files deliberately shared across
 modules; other implementations evolve independently.
@@ -134,11 +135,18 @@ workflow exercises the report action with the collected benchmark samples.
   are not covered. The exceptions are the `.github` CI tools, which report through
   their exit status, and `os.Exit` in the `TestMain` functions that set a test binary's
   exit status, whose files the configuration names.
-- Root, client and Engine.IO test packages fail when library goroutines remain
-  after cleanup; fixtures must close clients and unblock callbacks.
+- The test packages of the packages that start goroutines (root, `client`,
+  `adapter/redis`, `engineio`, `engineio/client`, `engineio/internal/session` and the
+  polling and websocket transports) fail when library goroutines remain after
+  cleanup; fixtures must close clients and unblock callbacks.
 - Reproduce a bug with a behavioral test; verify concurrency changes with `-race`.
   Test observable contracts, failure paths and boundaries. Avoid tests that only
   repeat implementation details or count documentation markers.
+- Every exported identifier of the root module's non-internal packages has godoc
+  that states its contract: behavior, errors, concurrency and ownership of
+  arguments. golangci-lint (revive `exported`) enforces a doc comment on exported
+  functions, methods, types, constants and variables there; struct fields and
+  interface methods are not checked by the linter.
 - Public API changes update the owning reference and consumer fixtures. Client
   APIs contain client operations; server-only operations belong to server types.
 - Repository text is English. Commit and PR descriptions state the problem,

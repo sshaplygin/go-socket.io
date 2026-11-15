@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"testing"
 
@@ -46,6 +47,18 @@ func invalidPayloadACK(t *testing.T, message string) string {
 	return `[{"code":"invalid_payload","message":` + string(data) + "}]\n"
 }
 
+// decodeArgumentMessage is the error ACK message for argument index whose JSON
+// does not decode into a value of target's type: the argument index followed by
+// the json.Unmarshal error. The text of that error is the toolchain's, and it
+// differs under GOEXPERIMENT=jsonv2, so it is taken from encoding/json here.
+func decodeArgumentMessage(t *testing.T, index int, argument string, target interface{}) string {
+	t.Helper()
+	err := json.Unmarshal([]byte(argument), target)
+	var typeErr *json.UnmarshalTypeError
+	require.ErrorAs(t, err, &typeErr)
+	return fmt.Sprintf("decode argument %d: %v", index, err)
+}
+
 // TestUntypedHandlerDecodeFailureAnswersRequestedAck: when the peer asked for an
 // acknowledgement and the arguments do not decode into the handler's parameter
 // types, the server answers with the error ACK of typed acknowledged handlers and
@@ -82,7 +95,7 @@ func TestUntypedHandlerDecodeFailureAnswersRequestedAck(t *testing.T) {
 		c := connect(t)
 		c.send(`24["num","bad"]`)
 		sendProbe(c)
-		require.Equal(t, "34"+invalidPayloadACK(t, "decode argument 0: json: cannot unmarshal string into Go value of type int"), c.read())
+		require.Equal(t, "34"+invalidPayloadACK(t, decodeArgumentMessage(t, 0, `"bad"`, new(int))), c.read())
 		probeReply(t, c)
 		reported(t)
 	})
@@ -90,7 +103,7 @@ func TestUntypedHandlerDecodeFailureAnswersRequestedAck(t *testing.T) {
 		c := connect(t)
 		c.send(`25["pair",1,2]`)
 		sendProbe(c)
-		require.Equal(t, "35"+invalidPayloadACK(t, "decode argument 1: json: cannot unmarshal number into Go value of type string"), c.read())
+		require.Equal(t, "35"+invalidPayloadACK(t, decodeArgumentMessage(t, 1, `2`, new(string))), c.read())
 		probeReply(t, c)
 		reported(t)
 	})
@@ -98,7 +111,7 @@ func TestUntypedHandlerDecodeFailureAnswersRequestedAck(t *testing.T) {
 		c := connect(t)
 		c.send(`26["rest","a",1,"x"]`)
 		sendProbe(c)
-		require.Equal(t, "36"+invalidPayloadACK(t, "decode argument 2: json: cannot unmarshal string into Go value of type int"), c.read())
+		require.Equal(t, "36"+invalidPayloadACK(t, decodeArgumentMessage(t, 2, `"x"`, new(int))), c.read())
 		probeReply(t, c)
 		reported(t)
 	})
@@ -106,7 +119,7 @@ func TestUntypedHandlerDecodeFailureAnswersRequestedAck(t *testing.T) {
 		c := connect(t)
 		c.send(`27["num",{"a":1}]`)
 		sendProbe(c)
-		require.Equal(t, "37"+invalidPayloadACK(t, "decode argument 0: json: cannot unmarshal object into Go value of type int"), c.read())
+		require.Equal(t, "37"+invalidPayloadACK(t, decodeArgumentMessage(t, 0, `{"a":1}`, new(int))), c.read())
 		probeReply(t, c)
 		reported(t)
 	})
@@ -125,7 +138,7 @@ func TestUntypedHandlerDecodeFailureAnswersRequestedAck(t *testing.T) {
 		require.Equal(t, "0/chat,", c.read())
 		c.send(`2/chat,3["num","bad"]`)
 		sendProbe(c)
-		require.Equal(t, "3/chat,3"+invalidPayloadACK(t, "decode argument 0: json: cannot unmarshal string into Go value of type int"), c.read())
+		require.Equal(t, "3/chat,3"+invalidPayloadACK(t, decodeArgumentMessage(t, 0, `"bad"`, new(int))), c.read())
 		probeReply(t, c)
 		reported(t)
 	})

@@ -85,6 +85,13 @@ Package `engineio` of the v1 module at the repository root.
   error` (in the Go client, `OnDisconnect` reason `transport error`); engine.io 3.6.2
   answers the poll with `CLOSE` (`1`), and its clients report `transport close`. A
   websocket session receives the server's close frame with code 1000 instead.
+- A polling session that the server ends for a POST over the message limit (below)
+  or for a packet that does not decode also answers its pending poll with HTTP 500,
+  so the JavaScript clients report `transport error`. engine.io 3.6.2 answers the
+  poll with `CLOSE` in both cases, and its clients usually report `transport close`.
+  The over-limit POST is answered 413, where engine.io 3.6.2 resets its connection;
+  the POST that carried the undecodable packet is answered 200, or 400 when the
+  session has already closed.
 - The Go client's Engine.IO `Close` of an open websocket, also after the client's
   own ping timeout, sends a close frame with code 1000, with the write deadline and
   the reply wait of the server's close above, so that the server reports
@@ -104,10 +111,13 @@ Package `engineio` of the v1 module at the repository root.
   keeps `transport error` for those, so that a failed or crashed peer stays distinct
   from an orderly close.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
-  to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
-  threshold and only for a packet whose compression flag is true. The threshold is
-  configurable; responses below it remain uncompressed. A batch shares one compression
-  stream and contains only packets with the same compression preference.
+  to Accept-Encoding, gzip preferred at equal quality, and only for a packet whose
+  compression flag is true. A batch shares one compression stream and contains only
+  packets with the same compression preference. The first packet of a response decides:
+  the response is compressed when that packet's encoded size, length prefix included,
+  is at least the threshold (1024 bytes by default, configurable). A response whose first
+  packet is smaller is sent uncompressed whatever its total size; engine.io 3.6.2 compares the
+  size of the whole payload with its threshold instead.
 - The polling transport that opens a session sets its session cookie on every
   response (default io, Path=/, HttpOnly, SameSite=Strict). The cookie's attributes
   and name are configurable, and it can be disabled. A websocket-first handshake
@@ -261,8 +271,11 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   the server and for the Go client alike. If the peer requested an ack, the
   receiving side answers with the error ACK of acknowledged typed descriptors
   (`NewAckEvent`), `3<id>[{"code":"invalid_payload","message":"decode argument 0:
-  json: cannot unmarshal string into Go value of type int"}]`, so a JavaScript
-  callback, or the callback of a Go `Emit` with an acknowledgement, is called
+  json: cannot unmarshal string into Go value of type int"}]`. The message is
+  `decode argument <index>: ` followed by the `encoding/json` error of the Go
+  toolchain the receiver was built with; the example is the text of the default
+  `encoding/json`, and a build with `GOEXPERIMENT=jsonv2` can word it differently. A
+  JavaScript callback, or the callback of a Go `Emit` with an acknowledgement, is called
   with that object as its only argument, and `EmitWithAck` returns a
   `*RemoteError` with code `invalid_payload`; without an ACK id nothing is sent. The decode error goes to `OnError` in both cases. This
   covers a wrong JSON type and a binary attachment where another type is
@@ -282,7 +295,12 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
 - The reference server queues outbound packets without a bound. This server bounds
   the queue per connection with `WithWriteBufferSize` (1024 packets by default), so a
   burst that must be queued at once, such as one handler's emits over polling, has to
-  fit the bound. `ErrWriteBufferFull` documents the overflow behavior.
+  fit the bound. `ErrWriteBufferFull` documents the overflow behavior. As in the
+  reference, broadcasts that select a socket reach it from the time its connection
+  handler (`OnConnect`) starts and are written after its CONNECT. Unlike the
+  reference's synchronous listener, `OnConnect` may block; packets addressed to the
+  socket meanwhile, broadcasts from other sockets included, wait for it to return
+  and count toward the bound.
 
 A Socket.IO packet may contain at most 10 binary attachments. Encoding counts
 only attachments referenced by the encoded JSON and rejects a larger packet

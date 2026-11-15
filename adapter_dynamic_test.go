@@ -61,7 +61,7 @@ func TestSetAdapter(t *testing.T) {
 	b.mu.Lock()
 	require.Equal(t, 1, b.sends)
 	require.Equal(t, 1, b.lists)
-	require.Equal(t, []string{"room", ids[0]}, b.joined)
+	require.Equal(t, []string{ids[0], "room"}, b.joined, "the ID room is joined before OnConnect")
 	b.mu.Unlock()
 
 	failure := errors.New("factory refused")
@@ -108,7 +108,7 @@ func TestAdapterJoinRooms(t *testing.T) {
 	b := &observedAdapter{Memory: adapter.NewMemory()}
 	p := start(t, 'S', hooks{setup: func(s *Server) { s.SetAdapter(func(string) (adapter.Adapter, error) { return b, nil }) }, connect: func(c Conn) error { c.Join("one", "two", "three"); return nil }})
 	b.mu.Lock()
-	require.Equal(t, []string{"one", "two", "three", p.nc.ID()}, b.joined)
+	require.Equal(t, []string{p.nc.ID(), "one", "two", "three"}, b.joined)
 	b.mu.Unlock()
 	require.ElementsMatch(t, []string{"one", "two", "three", p.nc.ID()}, p.nc.Rooms())
 	require.Equal(t, []string{p.nc.ID()}, b.IDs("one", "two"))

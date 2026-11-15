@@ -31,7 +31,6 @@ type namespaceConn struct {
 	ack             sync.Map
 	outMu           sync.Mutex
 	connecting      bool
-	acceptDone      chan struct{}
 	connectDone     chan struct{}
 	connectErr      error
 	disconnectEmits bool
@@ -387,32 +386,13 @@ func (nc *namespaceConn) sendPayload(pkg outboundPayload, ack *callbackFunc) {
 
 func (nc *namespaceConn) acceptPending() {
 	nc.outMu.Lock()
-	if done := nc.acceptDone; done != nil {
-		nc.outMu.Unlock()
-		<-done
-		return
-	}
-	if !nc.connecting || nc.rejected {
-		nc.outMu.Unlock()
-		return
-	}
-	nc.acceptDone = make(chan struct{})
-	nc.outMu.Unlock()
-	// Adapter callbacks can emit or disconnect. Keep connecting true so their
-	// packets join pending until this admission has queued CONNECT.
-	nc.Join(nc.ID())
-	nc.outMu.Lock()
 	defer nc.outMu.Unlock()
-	defer close(nc.acceptDone)
-	if nc.rejected {
+	if !nc.connecting || nc.rejected {
 		return
 	}
 	pending := nc.pending
 	nc.pending = nil
 	nc.connecting = false
-	if nh := nc.connection.namespace(fmtNS(nc.namespace)); nh != nil {
-		nh.AddSocket(nc)
-	}
 	nc.connection.write(parser.Header{Type: parser.Connect, Namespace: fmtNS(nc.namespace)})
 	for _, p := range pending {
 		nc.connection.mu.Lock()
@@ -433,7 +413,21 @@ func (nc *namespaceConn) reject() {
 	nc.connection.mu.Unlock()
 	nc.pending = nil
 	nc.outMu.Unlock()
+	if nh := nc.connection.namespace(fmtNS(nc.namespace)); nh != nil {
+		nh.RemoveSocket(nc)
+	}
 	nc.retireRooms()
+}
+
+// enter makes the connecting socket a broadcast target once its middleware has
+// passed: it joins its ID room and the namespace's sockets before OnConnect runs,
+// as the reference does before its connection listeners. Packets addressed to it
+// wait in pending until acceptPending queues CONNECT; reject discards them.
+func (nc *namespaceConn) enter() {
+	nc.Join(nc.ID())
+	if nh := nc.connection.namespace(fmtNS(nc.namespace)); nh != nil {
+		nh.AddSocket(nc)
+	}
 }
 
 func (nc *namespaceConn) To(rooms ...string) Emitter {

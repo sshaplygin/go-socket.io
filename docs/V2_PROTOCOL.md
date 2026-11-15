@@ -225,4 +225,6 @@ Socket.IO v4 → v5:
 | Binary attachments | placeholder objects | unchanged |
 | Connection state recovery | none | `pid`/`offset` in CONNECT; out of scope, answered without recovery |
 
-Not planned: EIO=3 in v2, WebTransport, permessage-deflate, connection state recovery.
+Not planned: EIO=3 in v2, permessage-deflate, connection state recovery. WebTransport and
+WebSocket over HTTP/2 are not implemented; they are planned in
+[ROADMAP.md](ROADMAP.md#stage-7-additional-engineio-transports).

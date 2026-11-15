@@ -1,6 +1,8 @@
 package socketio
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -112,6 +114,54 @@ func TestRoomsArePerNamespace(t *testing.T) {
 	require.Equal(t, ev("direct", 2), c.read(), "the root broadcast reached /chat")
 }
 
+// A socket joins its ID room after OnConnect returns nil. Inside OnConnect,
+// Rooms, SocketIDs and RoomLen leave it out, and a broadcast to the socket's ID,
+// or to the namespace before the socket joins another room, returns nil but does
+// not reach it; a room joined in OnConnect, a namespace broadcast after that
+// join and a direct Emit do. socket.io 2.5.0
+// delivers io.emit and io.to(socket.id).emit from its connection listener
+// (docs/V1.md).
+func TestIDRoomJoinedAfterOnConnect(t *testing.T) {
+	type view struct {
+		rooms, ids []string
+		roomLen    int
+		errs       []error
+	}
+	views := make(chan view, 1)
+	var root *ServerNamespace
+	s, url := defectServer(t, func(s *Server) {
+		root = s.Of("/")
+		root.OnConnect(func(c Conn) error {
+			v := view{rooms: c.Rooms(), ids: root.SocketIDs(c.ID()), roomLen: s.RoomLen("/", c.ID())}
+			v.errs = append(v.errs, root.Emit("all"), root.To(c.ID()).Emit("self"))
+			c.Join("lobby")
+			v.errs = append(v.errs, root.To("lobby").Emit("lobby"), root.Emit("all"), root.To(c.ID()).Emit("self"))
+			c.Emit("direct")
+			views <- v
+			return nil
+		})
+		root.OnEvent("barrier", func(c Conn) { c.Emit("barrier") })
+	})
+	c := dialRaw(t, url)
+	require.Equal(t, "0", c.read())
+	v := recv(t, views, "OnConnect")
+	require.Empty(t, v.rooms)
+	require.Empty(t, v.ids)
+	require.Zero(t, v.roomLen)
+	require.Equal(t, []error{nil, nil, nil, nil, nil}, v.errs)
+	require.Equal(t, ev("lobby"), c.read())
+	require.Equal(t, ev("all"), c.read(), "the namespace broadcast after a join")
+	require.Equal(t, ev("direct"), c.read())
+	c.send(`2["barrier"]`)
+	require.Equal(t, ev("barrier"), c.read(), "a broadcast from OnConnect reached the connecting socket")
+
+	ids := root.SocketIDs()
+	require.Len(t, ids, 1)
+	require.Equal(t, 1, s.RoomLen("/", ids[0]))
+	require.NoError(t, root.To(ids[0]).Emit("self"))
+	require.Equal(t, ev("self"), c.read())
+}
+
 // Event middleware observes the decoded arguments; replacing an element of its
 // slice does not change what the handler receives. socket.use in socket.io
 // 2.5.0 can rewrite the packet.
@@ -172,11 +222,31 @@ func TestRootRejectionKeepsReasonWithOnConnectClose(t *testing.T) {
 }
 
 // A polling response written after the http.Server's WriteTimeout has expired
-// for that request is lost: net/http buffers the write, fails to send it when
-// the handler returns and closes the TCP connection, while the session counts the
-// packet as delivered and stays open. With PingInterval or PingTimeout longer
-// than WriteTimeout, a pending poll outlives the timeout.
+// for that request is lost when it fits net/http's write buffer: net/http
+// buffers the write, fails to send it when the handler returns and closes the TCP
+// connection, while the session counts the packet as delivered and stays open. A
+// larger response fails the write in the handler, and the session ends with
+// "ping timeout". With PingInterval or PingTimeout longer than WriteTimeout, a
+// pending poll outlives the timeout.
 func TestPollingResponseAfterServerWriteTimeoutIsLost(t *testing.T) {
+	large := make([]byte, 30000)
+	_, err := rand.Read(large)
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name, payload string
+		closed        bool
+	}{
+		{"fits the buffer", "x", false},
+		// Random bytes keep the response larger than the buffer after gzip.
+		{"exceeds the buffer", base64.StdEncoding.EncodeToString(large), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pollAfterWriteTimeout(t, tc.payload, tc.closed)
+		})
+	}
+}
+
+func pollAfterWriteTimeout(t *testing.T, payload string, closed bool) {
 	const writeTimeout = time.Second
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := NewServer(WithLogger(quiet), WithEngineOptions(engineio.WithLogger(quiet),
@@ -217,6 +287,8 @@ func TestPollingResponseAfterServerWriteTimeoutIsLost(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, body, "2:40", "the CONNECT packet")
 	}
+	// That CONNECT poll has returned; its token must not stand for the next poll.
+	require.LessOrEqual(t, len(drain(polls)), 1)
 
 	type result struct {
 		body string
@@ -229,10 +301,14 @@ func TestPollingResponseAfterServerWriteTimeoutIsLost(t *testing.T) {
 	}()
 	recv(t, polls, "the pending poll")
 	time.Sleep(2 * writeTimeout) // only lengthens the wait past the deadline under load
-	c.Emit("push", "x")
+	c.Emit("push", payload)
 	got := recv(t, poll, "the poll's end")
-	require.Error(t, got.err, "the poll was answered: %q", got.body)
+	require.Error(t, got.err, "the poll was answered: %.40q", got.body)
 	require.NotContains(t, got.body, "push")
+	if closed {
+		require.Equal(t, "ping timeout", recv(t, reasons, "OnDisconnect"))
+		return
+	}
 	require.True(t, c.Connected(), "the session reported the lost write")
 	require.Equal(t, 1, srv.Count())
 	require.Empty(t, drain(reasons))
@@ -252,8 +328,7 @@ func TestClientBundleIsNotServed(t *testing.T) {
 }
 
 // Engine.IO sessions live in one server instance: a sid issued by one instance
-// is unknown to another one, also when both share a Redis adapter, so polling
-// across instances needs session affinity.
+// is unknown to another one, so polling across instances needs session affinity.
 func TestSessionIsUnknownToAnotherInstance(t *testing.T) {
 	a := newTestServer(t, func(s *Server) { s.OnConnect("/", func(Conn) error { return nil }) })
 	b := newTestServer(t, func(s *Server) { s.OnConnect("/", func(Conn) error { return nil }) })

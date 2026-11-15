@@ -51,7 +51,10 @@ type Server struct {
 	log    *slog.Logger
 }
 
-// NewServer returns a server.
+// NewServer returns a Server configured by opts. It creates the Engine.IO
+// server the Server serves through, which Engine returns. Mount the Server as
+// an http.Handler, run Serve to dispatch connections and events, and call Close
+// to shut it down.
 func NewServer(opts ...Option) *Server {
 	config := resolveOptions(opts...)
 	return &Server{
@@ -149,7 +152,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.engine.ServeHTTP(w, r)
 }
 
-// OnConnect set a handler function f to handle open event for namespace.
+// OnConnect sets the connect handler of namespace, creating the namespace when
+// it has none; a later call replaces the handler. f runs when a client joins
+// the namespace, for the root namespace when its Engine.IO connection opens,
+// after the connection middleware (see Server.Use). A nil error
+// accepts the join, and the packets f emits are written after the namespace
+// is accepted. An error rejects it: the client receives an ERROR packet with
+// the error text, the Engine.IO connection stays open, and the error goes to
+// OnError, with a nil Conn for the root namespace.
 func (s *Server) OnConnect(namespace string, f func(Conn) error) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -301,7 +311,10 @@ func (s *Server) roomSocket(nsp string, conn Conn) *namespaceConn {
 	return nil
 }
 
-// ClearRoom clears the room.
+// ClearRoom removes every socket from room in namespace through the
+// namespace's adapter (see adapter.Adapter.Clear). It returns false, doing
+// nothing, when the namespace has no handler or its adapter could not be
+// created.
 func (s *Server) ClearRoom(namespace string, room string) bool {
 	bc := s.broadcastOf(namespace)
 	if bc != nil {

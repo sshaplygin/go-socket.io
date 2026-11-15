@@ -203,22 +203,53 @@ func TestRootRejectionKeepsReasonWithOnConnectClose(t *testing.T) {
 		require.Equal(t, "server namespace disconnect", recv(t, reasons, "OnDisconnect"))
 	})
 	t.Run("close then reject", func(t *testing.T) {
+		ran := make(chan struct{}, 1)
 		ts := newTestServer(t, func(s *Server) {
 			s.Of("/").Use(func(c Conn) error {
 				_ = c.Close()
+				ran <- struct{}{}
 				return errors.New("unauthorized")
 			})
 		})
-		// The session can end before the dial has read OPEN, or right after it.
+		// The session ends while the handshake request is being answered, so the
+		// dial fails on that request, or it ends right after OPEN.
 		d := engineclient.Dialer{Transports: []transport.Transport{polling.Default}}
 		conn, err := d.Dial(ts.URL, nil)
+		recv(t, ran, "the middleware")
 		if err != nil {
+			var failed *polling.OpError
+			require.ErrorAs(t, err, &failed, "the handshake request fails in the transport")
 			return
 		}
 		t.Cleanup(func() { _ = conn.Close() })
 		c := &rawClient{t: t, conn: conn}
 		require.True(t, c.readClosed(), "the client received a packet")
 	})
+}
+
+// The Engine.IO causes reach OnDisconnect as the values of the engineio.Reason
+// constants. Server.Close reports engineio.ReasonForcedClose, not
+// engineio.ReasonServerShutdown, which is the close reason of the Engine.IO
+// session only.
+func TestDisconnectReasonsEqualEngineConstants(t *testing.T) {
+	var srv *Server
+	reasons := make(chan string, 2)
+	ts := newTestServer(t, func(s *Server) {
+		srv = s
+		s.OnConnect("/", func(Conn) error { return nil })
+		s.OnDisconnect("/", func(_ Conn, reason string) { reasons <- reason })
+	})
+	left := dialRaw(t, ts.URL)
+	require.Equal(t, "0", left.read())
+	require.NoError(t, left.conn.Close())
+	require.Equal(t, string(engineio.ReasonTransportClose), recv(t, reasons, "OnDisconnect after the client's CLOSE"))
+
+	stays := dialRaw(t, ts.URL)
+	require.Equal(t, "0", stays.read())
+	require.NoError(t, srv.Close())
+	reason := recv(t, reasons, "OnDisconnect after Server.Close")
+	require.Equal(t, string(engineio.ReasonForcedClose), reason)
+	require.NotEqual(t, string(engineio.ReasonServerShutdown), reason)
 }
 
 // A polling response written after the http.Server's WriteTimeout has expired

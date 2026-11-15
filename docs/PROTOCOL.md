@@ -260,10 +260,10 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   (`4/<nsp>,"Invalid namespace"`) and the connection stays open.
 - Binary attachments are replaced by `{"_placeholder":true,"num":N}` and sent as
   following binary frames; on the Go side they map to `parser.Buffer`.
-- The server sends no EVENT named `connect`, `disconnect`, `disconnecting` or
-  `error` and discards incoming ones; an emit or broadcast of these names runs the
-  selected sockets' own listeners
-  ([usage](V1.md#rooms-and-broadcasting)). socket.io 2.5.0 keeps these names, and
+- No EVENT named `connect`, `disconnect`, `disconnecting` or `error` crosses the
+  wire in either direction; an emit or broadcast of these names runs the selected
+  sockets' own listeners ([lifecycle names](V1.md#connections-and-namespaces),
+  [broadcasts](V1.md#rooms-and-broadcasting)). socket.io 2.5.0 keeps these names, and
   `newListener` and `removeListener`, local only for `socket.emit` and for a
   broadcast started from a socket (`socket.to(room).emit`, `socket.broadcast.emit`),
   where it runs the sender's listeners and none of the recipients'. A namespace or

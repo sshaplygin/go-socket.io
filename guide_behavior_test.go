@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -384,13 +385,19 @@ func pollAfterWriteTimeout(t *testing.T, payload string, closed bool) {
 }
 
 // Over HTTP/2 net/http resets the stream of a poll that is still pending when
-// the http.Server's WriteTimeout expires, with nothing to write: the request is
-// cancelled, and OnDisconnect receives "transport error" at that moment, with a
-// heartbeat window of two minutes.
+// the http.Server's WriteTimeout expires, with nothing to write, and the poll
+// fails. Since Go 1.23 the reset cancels the request, and OnDisconnect receives
+// "transport error" at that moment, with a heartbeat window of two minutes. The
+// net/http of Go 1.22 does not cancel it: the session ends with "ping timeout"
+// when its heartbeat window, four seconds here, has passed.
 func TestPendingPollOverHTTP2EndsAtServerWriteTimeout(t *testing.T) {
+	heartbeat, reason := time.Minute, engineio.ReasonTransportError
+	if strings.HasPrefix(runtime.Version(), "go1.22") {
+		heartbeat, reason = 2*time.Second, engineio.ReasonPingTimeout
+	}
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := NewServer(WithLogger(quiet), WithEngineOptions(engineio.WithLogger(quiet),
-		engineio.WithPingInterval(time.Minute), engineio.WithPingTimeout(time.Minute)))
+		engineio.WithPingInterval(heartbeat), engineio.WithPingTimeout(heartbeat)))
 	connected, reasons := make(chan struct{}, 1), make(chan string, 1)
 	srv.OnConnect("/", func(Conn) error { connected <- struct{}{}; return nil })
 	srv.OnDisconnect("/", func(_ Conn, reason string) { reasons <- reason })
@@ -435,8 +442,8 @@ func TestPendingPollOverHTTP2EndsAtServerWriteTimeout(t *testing.T) {
 		poll <- err
 	}()
 	require.Equal(t, "HTTP/2.0", recv(t, polls, "the pending poll"))
-	require.Error(t, recv(t, poll, "the poll's end"))
-	require.Equal(t, string(engineio.ReasonTransportError), recv(t, reasons, "OnDisconnect"))
+	require.ErrorContains(t, recv(t, poll, "the poll's end"), "INTERNAL_ERROR")
+	require.Equal(t, string(reason), recv(t, reasons, "OnDisconnect"))
 }
 
 // A client that aborts a pending poll ends the session: the request context is

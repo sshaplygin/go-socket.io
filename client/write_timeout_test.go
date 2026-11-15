@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -144,13 +146,19 @@ func pollingClientReasons(t *testing.T, emit bool, clientReason, serverReason st
 
 // Over HTTP/2 net/http resets the stream of a poll that is still pending when
 // the http.Server's WriteTimeout expires (docs/V1.md, Deployment): an idle Go
-// client and the server both report "transport error" at that moment, long
-// before the heartbeat window ends.
+// client reports "transport error" at that moment, and so does the server since
+// Go 1.23, long before the heartbeat window ends. A server built with Go 1.22
+// reports "ping timeout" when its heartbeat window, eight seconds here, has
+// passed; the client's window is longer than WriteTimeout in both cases.
 func TestPollingClientOverHTTP2EndsAtServerWriteTimeout(t *testing.T) {
+	heartbeat, serverReason := time.Minute, "transport error"
+	if strings.HasPrefix(runtime.Version(), "go1.22") {
+		heartbeat, serverReason = 4*time.Second, "ping timeout"
+	}
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := socketio.NewServer(socketio.WithLogger(quiet), socketio.WithEngineOptions(
 		engineio.WithLogger(quiet),
-		engineio.WithPingInterval(time.Minute), engineio.WithPingTimeout(time.Minute)))
+		engineio.WithPingInterval(heartbeat), engineio.WithPingTimeout(heartbeat)))
 	serverReasons := make(chan string, 1)
 	srv.OnConnect("/", func(socketio.Conn) error { return nil })
 	srv.OnDisconnect("/", func(_ socketio.Conn, reason string) { serverReasons <- reason })
@@ -175,13 +183,17 @@ func TestPollingClientOverHTTP2EndsAtServerWriteTimeout(t *testing.T) {
 	cl.OnDisconnect(func(_ client.Conn, reason string) { clientReasons <- reason })
 	require.NoError(t, cl.Connect())
 	t.Cleanup(func() { _ = cl.Close() })
-	for side, reasons := range map[string]chan string{"client": clientReasons, "server": serverReasons} {
-		select {
-		case reason := <-reasons:
-			require.Equal(t, "transport error", reason, side)
-		case <-time.After(30 * time.Second):
-			t.Fatalf("the %s did not disconnect", side)
-		}
+	select {
+	case reason := <-clientReasons:
+		require.Equal(t, "transport error", reason)
+	case <-time.After(30 * time.Second):
+		t.Fatal("the client did not disconnect")
+	}
+	select {
+	case reason := <-serverReasons:
+		require.Equal(t, serverReason, reason)
+	case <-time.After(30 * time.Second):
+		t.Fatal("the server did not disconnect")
 	}
 	require.NotEmpty(t, protos)
 	for len(protos) > 0 {

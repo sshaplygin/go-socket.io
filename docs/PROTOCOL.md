@@ -115,8 +115,9 @@ Package `engineio` of the v1 module at the repository root.
   `ping timeout`. Over HTTP/1.x a response that fits net/http's buffer is written
   there even after `WriteTimeout` has expired; net/http fails to send it once the
   handler has returned, and the session does not see the loss. Over HTTP/2 net/http
-  resets a poll that is still pending when `WriteTimeout` expires, which cancels its
-  request and ends the session with `transport error`
+  resets a poll that is still pending when `WriteTimeout` expires; since Go 1.23
+  that cancels the poll's request and ends the session with `transport error`,
+  while the net/http of Go 1.22 leaves the session open
   ([deployment](V1.md#deployment)).
   A close interrupts an incomplete POST body. An
   orderly close (`Conn.Close`, `engineio.Conn.Close`) lets the response carrying

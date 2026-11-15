@@ -74,6 +74,7 @@ type connection struct {
 	disconnectReason             string         // guarded by mu; forced close unless read observes an engine close
 	disconnects                  sync.WaitGroup // registered under mu before claiming a namespace
 	disconnecting                int            // callbacks claimed but not completed; guarded by mu
+	released                     chan struct{}  // closed when the server releases the connection
 }
 
 func newConnection(engineConn engineio.Conn, handlers *namespaceRegistry, writeBufferSize int, drainTimeout time.Duration, log *slog.Logger) *connection {
@@ -92,6 +93,7 @@ func newConnection(engineConn engineio.Conn, handlers *namespaceRegistry, writeB
 		seal:             make(chan struct{}),
 		discard:          make(chan struct{}),
 		done:             make(chan struct{}),
+		released:         make(chan struct{}),
 	}
 	if source, ok := engineConn.(interface{ Request() *http.Request }); ok {
 		c.request = source.Request()
@@ -137,7 +139,7 @@ func (c *connection) connect() error {
 	}
 	c.namespaces.Set(rootNamespace, root)
 	c.mu.Unlock()
-	err := rootHandler.Connect(root)
+	err := rootHandler.Connect(root, root.enter)
 	root.connectReturned(err)
 	if err != nil {
 		if isDone(c.closing) {

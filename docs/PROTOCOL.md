@@ -34,15 +34,17 @@ Package `engineio` of the v1 module at the repository root.
   encoded-packet threshold when enabled. The Go client offers it when configured,
   with the same threshold. Per-packet compression defaults to true; false suppresses
   it for the packet and all its binary attachments on either transport.
-  With `b64=1` in the websocket request, as sent by a `forceBase64` client, the
-  server writes binary packets as text messages `b<type><base64 data>` and decodes
-  such text messages as binary packets, both on a direct websocket connection and
-  after a polling-to-websocket upgrade. Decoding is strict: unpadded data or invalid
-  characters close the session; the reference clients always pad. Binary messages
-  are still accepted in this mode; socket.io-client 1.7.4 under Node sends them
-  despite `forceBase64`. Without `b64`, a text message starting with `b` is an
-  invalid packet type and closes the session; engine.io 3.6.2 decodes it as base64
-  in either mode.
+  A text message `b<type><base64 data>` is a binary packet, with or without `b64=1`
+  in the websocket request, as in engine.io 3.6.2: socket.io-client 1.0–1.3 under
+  Node sends binary attachments that way without `b64`. The Go client reads such
+  messages the same way. Decoding is strict: unpadded data, invalid characters, a
+  message `b` without a type and an unknown type close the session; engine.io 3.6.2
+  decodes the data leniently and ignores the last two. The reference clients always
+  pad. The message limit below counts the base64 text as sent. With `b64=1`, as sent
+  by a `forceBase64` client, the server also writes binary packets in that form,
+  both on a direct websocket connection and after a polling-to-websocket upgrade;
+  without it, it writes binary messages. Binary messages are accepted in either
+  mode; socket.io-client 1.7.4 under Node sends them despite `forceBase64`.
   A server-initiated websocket close, such as `Conn.Close`, `Server.Close`, a
   client `CLOSE` packet or a ping timeout, sends a close frame with code 1000 before
   the TCP connection is closed, as engine.io 3.6.2 does, so the client observes close
@@ -85,10 +87,13 @@ Package `engineio` of the v1 module at the repository root.
   keeps `transport error` for those, so that a failed or crashed peer stays distinct
   from an orderly close.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
-  to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
-  threshold and only for a packet whose compression flag is true. The threshold is
-  configurable; responses below it remain uncompressed. A batch shares one compression
-  stream and contains only packets with the same compression preference.
+  to Accept-Encoding, gzip preferred at equal quality, and only for a packet whose
+  compression flag is true. A batch shares one compression stream and contains only
+  packets with the same compression preference. The first packet of a response decides:
+  the response is compressed when that packet's encoded size, length prefix included,
+  is at least the threshold (1024 bytes by default, configurable). A response whose first
+  packet is smaller is sent uncompressed whatever its total size; engine.io 3.6.2 compares the
+  size of the whole payload with its threshold instead.
 - The polling transport that opens a session sets its session cookie on every
   response (default io, Path=/, HttpOnly, SameSite=Strict). The cookie's attributes
   and name are configurable, and it can be disabled. A websocket-first handshake
@@ -137,7 +142,9 @@ Package `engineio` of the v1 module at the repository root.
   whichever came first: 1000 from the expiry, 1006 from the close. Implemented in the private server session upgrade state machine (`engineio/internal/session/upgrade.go`).
 - Requests the server rejects before a transport handles them are answered with JSON
   `{"code":<n>,"message":"<text>"}`, as engine.io 3.6.2 answers a request that is not a
-  websocket upgrade: HTTP 400 with code 0 `Transport unknown`, 1 `Session ID unknown`, 2
+  websocket upgrade: HTTP 400 with code 0 `Transport unknown`, 1 `Session ID unknown`
+  (also for the sid of a session whose close has finished, which the server has
+  unregistered as engine.io 3.6.2 deletes a closed client), 2
   `Bad handshake method` or 3 `Bad request` (also a transport that cannot accept the
   request, except a websocket handshake that gorilla/websocket answers itself, and a
   session that cannot be created), and HTTP 403 with code 4 and the fixed message
@@ -276,7 +283,12 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
 - The reference server queues outbound packets without a bound. This server bounds
   the queue per connection with `WithWriteBufferSize` (1024 packets by default), so a
   burst that must be queued at once, such as one handler's emits over polling, has to
-  fit the bound. `ErrWriteBufferFull` documents the overflow behavior.
+  fit the bound. `ErrWriteBufferFull` documents the overflow behavior. As in the
+  reference, broadcasts that select a socket reach it from the time its connection
+  handler (`OnConnect`) starts and are written after its CONNECT. Unlike the
+  reference's synchronous listener, `OnConnect` may block; packets addressed to the
+  socket meanwhile, broadcasts from other sockets included, wait for it to return
+  and count toward the bound.
 
 A Socket.IO packet may contain at most 10 binary attachments. Encoding counts
 only attachments referenced by the encoded JSON and rejects a larger packet

@@ -415,8 +415,8 @@ func TestNamespaceRecords(t *testing.T) {
 			p.connect(t).disconnected(t, "/")
 		}, map[string]error{"/": ErrWriteBufferFull}, map[string]any{"/": "connection close"}},
 		{"overflow in a failing root OnConnect", fail("/", defaultWriteBufferSize+1, refused), func(t *testing.T, p *peer) {
-			p.connect(t).disconnected(t, "/")
-		}, map[string]error{"/": errors.Join(ErrWriteBufferFull, refused)}, map[string]any{"/": "connection close"}},
+			p.connect(t).disconnected(t)
+		}, map[string]error{"/": errors.Join(ErrWriteBufferFull, refused)}, map[string]any{}},
 		{"overflow in OnConnect of /chat", fail("/chat", defaultWriteBufferSize+1, nil), func(t *testing.T, p *peer) {
 			p.connect(t).stall(t, p.nc, 0) // so that the writer cannot drain the queue
 			p.send(t, "0/chat")
@@ -523,6 +523,8 @@ var (
 	allowedKeys = map[string]bool{"sid": true, "nsp": true, "err": true, "transport": true,
 		"remote_addr": true, "reason": true, "duration": true, "event": true, "ack_id": true,
 		"type": true, "value": true}
+	// infoMessages are the recoveries the logger package documents at INFO.
+	infoMessages = map[string]bool{"socketio: redis subscription restored": true}
 )
 
 func newKeyChecker() *keyChecker {
@@ -549,7 +551,7 @@ func (h *keyChecker) Handle(_ context.Context, r slog.Record) error {
 	if !msgPattern.MatchString(r.Message) {
 		bad("message outside the pattern")
 	}
-	if r.Level != slog.LevelWarn && r.Level > slog.LevelDebug {
+	if r.Level != slog.LevelWarn && r.Level > slog.LevelDebug && (r.Level != slog.LevelInfo || !infoMessages[r.Message]) {
 		bad("level " + r.Level.String())
 	}
 	var sids []string

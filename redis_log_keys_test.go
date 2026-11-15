@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"testing"
+	"time"
 
 	"github.com/sshaplygin/go-socket.io/logger"
 
@@ -23,7 +24,8 @@ func TestRedisClusterFailureLogKeys(t *testing.T) {
 	require.NotEmpty(t, logs[0]["err"])
 }
 
-// TestNoBadKeyAttrsRedis checks the shared logging contract on a failed Redis request.
+// TestNoBadKeyAttrsRedis checks the shared logging contract on a failed Redis request
+// and on the loss and recovery of the subscription.
 func TestNoBadKeyAttrsRedis(t *testing.T) {
 	checker := newKeyChecker()
 	setDefault(t, checker)
@@ -37,5 +39,14 @@ func TestNoBadKeyAttrsRedis(t *testing.T) {
 	require.True(t, p.srv.ClearRoom("/", "r"))
 	problems, records := checker.result("socketio: redis cluster request failed")
 	require.Len(t, records, 1, "the failure must emit a checked log record")
+	require.Empty(t, problems, "Redis records must follow the shared logging contract")
+
+	require.NoError(t, s.Restart())
+	require.Eventually(t, func() bool {
+		_, restored := checker.result("socketio: redis subscription restored")
+		return len(restored) == 1
+	}, 15*time.Second, time.Millisecond, "the recovery must emit a checked log record")
+	problems, lost := checker.result("socketio: redis subscription lost")
+	require.Len(t, lost, 1)
 	require.Empty(t, problems, "Redis records must follow the shared logging contract")
 }

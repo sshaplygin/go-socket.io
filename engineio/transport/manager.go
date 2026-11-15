@@ -7,12 +7,20 @@ import (
 
 // Transport accepts and dials transport connections.
 type Transport interface {
+	// Name returns the transport name used in the transport query parameter
+	// and in upgrade lists, such as "polling" or "websocket".
 	Name() string
+	// Accept creates the server connection for the request r. A transport
+	// that fails may already have answered on w, as a websocket handshake
+	// error does.
 	Accept(w http.ResponseWriter, r *http.Request) (Conn, error)
+	// Dial opens a client connection to u, sending requestHeader with its
+	// requests. It may modify u.
 	Dial(u *url.URL, requestHeader http.Header) (Conn, error)
 }
 
-// Manager is a manager of transports.
+// Manager is an immutable registry of transports by name, in upgrade order.
+// It is safe for concurrent use.
 type Manager struct {
 	order      []string
 	transports map[string]Transport

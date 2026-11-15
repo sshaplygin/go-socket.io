@@ -54,7 +54,7 @@ type deadlineServer struct {
 	posts   chan struct{}
 	reads   chan bodyRead // Read calls on the body of a stalled POST
 	stalled atomic.Int64  // numbers the stalled POSTs
-	writes  chan struct{} // a blockingWriter started a write
+	writes  chan struct{} // a blockingWriter or failingWriter started a write
 	reasons chan string
 }
 
@@ -70,9 +70,18 @@ func (temporaryError) Temporary() bool { return true }
 func (temporaryError) Timeout() bool   { return false }
 
 // failingWriter fails every write with a temporaryError.
-type failingWriter struct{ http.ResponseWriter }
+type failingWriter struct {
+	http.ResponseWriter
+	started chan<- struct{}
+}
 
-func (failingWriter) Write([]byte) (int, error) { return 0, temporaryError{} }
+func (f failingWriter) Write([]byte) (int, error) {
+	select {
+	case f.started <- struct{}{}:
+	default:
+	}
+	return 0, temporaryError{}
+}
 
 // failingBody fails every read with a temporaryError.
 type failingBody struct{ io.ReadCloser }
@@ -177,7 +186,7 @@ func newDeadlineServer(t *testing.T, cfg deadlineConfig) *deadlineServer {
 			w = opaqueWriter{w}
 		}
 		if session := r.URL.Query().Get("sid") != ""; session && cfg.failWrites && r.Method == http.MethodGet {
-			w = failingWriter{w}
+			w = failingWriter{ResponseWriter: w, started: d.writes}
 		} else if session && cfg.blockWrites && r.Method == http.MethodGet {
 			b := &blockingWriter{ResponseWriter: w, started: d.writes, expired: make(chan struct{})}
 			t.Cleanup(func() { b.once.Do(func() { close(b.expired) }) }) // ts.Close waits for the handler
@@ -446,12 +455,17 @@ func (d *deadlineServer) stallPoll(t *testing.T, sid string, c Conn) net.Conn {
 	return raw
 }
 
-// requirePollWaiting waits up to 5 s for a poll handler parked in flushOut,
-// offering its response to the session writer. Failure to establish the
-// precondition fails the test.
-func requirePollWaiting(t *testing.T) {
+// requirePollTaken waits up to 5 s until the session has taken a poll: its
+// handler is parked in flushOut, offering its response to the session writer,
+// or the response write has started, as it does at once when the CONNECT packet
+// missed the OPEN response (see open). Failure to establish the precondition
+// fails the test.
+func (d *deadlineServer) requirePollTaken(t *testing.T) {
 	t.Helper()
 	waiting := func() bool {
+		if len(d.writes) > 0 {
+			return true
+		}
 		for _, stack := range leakedModuleStacks() {
 			header, frames, _ := strings.Cut(stack, "\n")
 			if strings.Contains(header, "[select") && strings.Contains(frames, "polling.(*payload).flushOut") {
@@ -462,7 +476,7 @@ func requirePollWaiting(t *testing.T) {
 	}
 	for deadline := time.Now().Add(5 * time.Second); !waiting(); time.Sleep(time.Millisecond) {
 		if time.Now().After(deadline) {
-			t.Fatalf("no poll waits for a packet; library goroutines:\n%s", strings.Join(leakedModuleStacks(), "\n\n"))
+			t.Fatalf("the session took no poll; library goroutines:\n%s", strings.Join(leakedModuleStacks(), "\n\n"))
 		}
 	}
 }
@@ -560,7 +574,7 @@ func TestPollingTemporaryRequestErrorsEndSession(t *testing.T) {
 						_ = resp.Body.Close()
 					}
 				}()
-				requirePollWaiting(t)
+				d.requirePollTaken(t)
 				c.Emit("x", "y")
 			} else {
 				resp, err := d.ts.Client().Post(d.url("&sid="+sid), "text/plain;charset=UTF-8", strings.NewReader(`10:42["tick"]`))
@@ -599,7 +613,7 @@ func TestPollingOrderlyCloseWriteExpiresOnAbort(t *testing.T) {
 			d := newDeadlineServer(t, deadlineConfig{heartbeat: time.Hour, blockWrites: true})
 			sid, c := d.open(t)
 			d.dial(t, http.MethodGet, sid, "")
-			requirePollWaiting(t)
+			d.requirePollTaken(t)
 			require.NoError(t, c.EngineConn().Close())
 			recv(t, d.writes, "the poll response write")
 			start := time.Now()

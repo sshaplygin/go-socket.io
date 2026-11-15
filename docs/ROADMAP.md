@@ -2200,7 +2200,7 @@ and its `go` directive stays at 1.22.
 | --- | --- | --- | --- |
 | WebSocket over extended CONNECT (RFC 8441), name `websocket` | HTTP/2 | none; v2 extension | browsers that upgrade from polling on an established HTTP/2 connection |
 | WebTransport, name `webtransport` | HTTP/3 | Node engine.io >= 6.5.2, engine.io-parser >= 5.2.1, socket.io-client >= 4.7.2 | browsers; the Go client after 7.5 |
-| Raw duplex stream, name fixed in 7.0 | HTTP/2 | none; v2 extension | Go and native clients |
+| Raw HTTP/2 stream, name fixed in 7.0 | HTTP/2 | none; v2 extension | clients in any language with a duplex HTTP/2 client; Chromium browsers through `fetch` in split mode |
 
 Constraints the slices build on:
 
@@ -2407,21 +2407,55 @@ exchanges events and acknowledgements in both directions.
 
 ### 7.6 Raw HTTP/2 stream
 
-Entry: 7.5 and the owner's confirmation that Go or native clients need it. V2 extension.
-One HTTP/2 request carries both directions in its body and its response, without a
-WebSocket handshake and without the extended CONNECT switch, so it runs on Go 1.22.
-Browsers cannot open such a stream, and a proxy that buffers request bodies breaks it.
+Entry: 7.5 and the owner's confirmation that it is needed. V2 extension without a Node
+reference. The transport carries Engine.IO packets on plain HTTP/2 request and response
+bodies, without a WebSocket handshake and without the extended CONNECT switch, so the
+server runs on Go 1.22. A proxy that buffers request bodies or speaks HTTP/1.1 to the
+server breaks it.
 
 The transport has its own name, uses the WebTransport packet framing and the 7.2 stream
-adapter, and is an upgrade target from polling. The Go client dials it with the standard
-library. A ROADMAP change fixes its wire contract and numbered tests before the slice
-starts.
+adapter, and is an upgrade target from polling. It has two modes with one framing:
 
-DoD for 7.6: tests equivalent to H2-1 to H2-10 pass with the Go client under `-race`; a
-committed benchmark compares it with 7.2 on equal payloads and the PR reports both results.
+| Mode | Requests | Clients |
+| --- | --- | --- |
+| duplex | one request; its body carries client packets while its response carries server packets | any HTTP/2 client that reads the response while it writes the request body: Go, Node `http2`, Rust, JVM, .NET, C |
+| split | two requests bound by `sid`: one streams client packets in its body, the other streams server packets in its response | Chromium browsers with `fetch`, where a request with a streaming body (`duplex: "half"`) yields its response only after the body ends |
 
-Acceptance for 7.6: the owner runs the Go client example against the server over TLS and
-sees `upgrades` list the transport and the session log report it after the upgrade.
+The wire contract is independent of the implementation language. A ROADMAP change fixes it
+before the slice starts, and V2_PROTOCOL then owns it: the request method, path, query and
+headers of each mode; the response status and headers; the framing; the order of the first
+packets for a new session and for an upgrade; the heartbeat; `MaxPayload`; how each side
+closes and what a stream reset means; how the server binds and routes the two requests of
+the split mode, including during an upgrade from polling; the `Origin` and CORS rules for
+browser requests; and the numbered tests. The same change confirms, with a spike in
+current Chromium, the `fetch` behaviour the split mode relies on. Committed test vectors
+(packets and the byte streams of both directions for a new session, an upgrade, a
+heartbeat and a close) let a client in any language check itself without this repository's
+code.
+
+Clients and examples of the slice:
+
+- the Go client, which dials the duplex mode with the standard library;
+- a Node example of the duplex mode on the core `http2` module, written from V2_PROTOCOL
+  and the test vectors only, as the check that the contract is sufficient for another
+  language;
+- a browser example of the split mode with `fetch` for Chromium, with a page that reports
+  when the browser lacks streaming request bodies. A custom transport for
+  `socket.io-client` (the `transports` option of engine.io-client >= 6.6) is part of the
+  example when the contract change finds that option sufficient.
+
+DoD for 7.6: tests equivalent to H2-1 to H2-10 pass for both modes with the Go client
+under `-race`; the committed test vectors are replayed against the server and against the
+Go client in tests; the Node example runs in a CI job against the server and exchanges the
+packets of the test vectors; a committed benchmark compares the duplex mode with 7.2 on
+equal payloads and the PR reports both results; V2_PROTOCOL, PARITY and CHANGELOG are
+updated.
+
+Acceptance for 7.6: the owner runs three clients against the example server over TLS: the
+Go client, the Node example, and the browser example in Chrome. Each exchanges events and
+acknowledgements in both directions, `upgrades` lists the transport, and the session log
+reports the transport and its mode. The PR records the commands, the Node and Chrome
+versions and the results.
 
 
 ## Milestones

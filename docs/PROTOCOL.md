@@ -270,14 +270,15 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   compatibility limitation, socket.io 2.5.0 instead sends `err.data` when it is
   set, which can be any JSON value, and `err.message` otherwise.
 - A recovered panic never sends its value: the peer receives `internal error` in
-  the ERROR packet of a connect or event middleware or `OnConnect` panic, and in
-  the `handler_panic` error ACK of a typed handler; an untyped handler or ACK
-  callback panic closes the connection without a reply
+  the ERROR packet of a connect or event middleware, `OnConnect` or `OfFunc` match
+  function panic, and in the `handler_panic` error ACK of a typed handler; an
+  untyped handler or ACK callback panic closes the connection without a reply
   ([usage](V1.md#handler-errors-and-panics)). socket.io 2.5.0 recovers none of
   these and never sends a thrown error either: an exception thrown in an event
   listener, a packet middleware (`socket.use`), an ACK callback, a `connection`
-  listener or a `disconnect` listener is an uncaught exception of the Node process,
-  and one thrown in namespace middleware (`nsp.use`) closes the client's transport.
+  listener, a `disconnect` listener or root namespace middleware (`io.use`) is an
+  uncaught exception of the Node process, and one thrown in the middleware of any
+  other namespace closes the client's transport.
 - Namespace query strings (`0/nsp?x=1`) are parsed into `Header.Query` and merged into
   `Handshake().Query` of that socket.
 - The reference server queues outbound packets without a bound. This server bounds

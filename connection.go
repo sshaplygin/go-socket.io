@@ -265,11 +265,11 @@ func (c *connection) onError(namespace string, err error) {
 
 // report delivers err to OnError of namespace and waits for it, unless a close started.
 // Without OnError, err is logged as unhandled. Callers report no transport failure: the
-// end of the session reaches OnDisconnect only. A recovered panic is reported even
-// after a close started.
+// end of the session reaches OnDisconnect only. After a close started, see
+// reportAfterClose.
 func (c *connection) report(namespace string, err error) {
 	if isDone(c.closing) {
-		c.reportPanicNow(namespace, err)
+		c.reportAfterClose(namespace, err)
 		return
 	}
 	msg := newErrorMessage(namespace, err)
@@ -282,14 +282,16 @@ func (c *connection) report(namespace string, err error) {
 	case c.errorChan <- msg:
 		<-msg.done
 	case <-c.closing:
-		c.reportPanicNow(namespace, err)
+		c.reportAfterClose(namespace, err)
 	}
 }
 
-// reportPanicNow reports err, if it is a recovered panic, on this goroutine: the
-// error worker may have stopped because a close started.
-func (c *connection) reportPanicNow(namespace string, err error) {
+// reportAfterClose handles err raised after the connection's close started. A
+// recovered panic is reported on this goroutine, because the error worker may have
+// stopped; any other failure is logged at DEBUG only.
+func (c *connection) reportAfterClose(namespace string, err error) {
 	if !eventImpl.IsPanic(err) {
+		c.log.Debug("socketio: error after close", nspAttr(namespace), "err", err)
 		return
 	}
 	if nc := c.errConn(namespace); nc != nil {

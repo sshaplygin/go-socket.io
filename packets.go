@@ -3,6 +3,7 @@ package socketio
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"reflect"
 	"sync"
@@ -203,8 +204,12 @@ func connectNamespace(c *connection, header parser.Header) error {
 
 	handler, ok := c.handlers.Get(header.Namespace)
 	if !ok && c.resolveNamespace != nil {
-		query, _ := url.ParseQuery(header.Query)
-		handler = c.resolveNamespace(header.Namespace, query)
+		var err error
+		if handler, err = c.resolve(header); err != nil {
+			c.onError(header.Namespace, err)
+			c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf(eventImpl.WireMessage(err)))
+			return nil
+		}
 		ok = handler != nil
 	}
 	if !ok {
@@ -238,6 +243,9 @@ func connectNamespace(c *connection, header parser.Header) error {
 	c.connectRecord(header.Namespace, err)
 	if err != nil {
 		if isDone(c.closing) {
+			if eventImpl.IsPanic(err) {
+				c.onError(header.Namespace, err) // reported on this goroutine; see report
+			}
 			return nil
 		}
 		c.claim(header.Namespace)
@@ -251,6 +259,18 @@ func connectNamespace(c *connection, header parser.Header) error {
 	}
 	nc.acceptPending()
 	return nil
+}
+
+// resolve creates the dynamic namespace of header whose match function accepts it.
+// A panic of a match function is recovered and returned.
+func (c *connection) resolve(header parser.Header) (handler *namespaceHandler, err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			handler, err = nil, fmt.Errorf("namespace match: %w", eventImpl.NewPanicError(value))
+		}
+	}()
+	query, _ := url.ParseQuery(header.Query)
+	return c.resolveNamespace(header.Namespace, query), nil
 }
 
 func disconnectPacketHandler(c *connection, header parser.Header) error {

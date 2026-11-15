@@ -84,7 +84,8 @@ func (h Handler) Invoke(ctx context.Context, to Endpoint, payload Payload) (resu
 	if !h.Valid() {
 		return Payload{}, ErrInvalidPayload
 	}
-	return h.invoke(ctx, to, payload)
+	result, err = h.invoke(ctx, to, payload)
+	return result, NilError(err)
 }
 
 func Decode(d *parser.Decoder, schema Schema) (Payload, error) {
@@ -138,6 +139,23 @@ func (e *PanicError) Unwrap() error {
 	return err
 }
 
+// NilError returns nil for err that is nil or holds a nil pointer, map, slice,
+// channel or function (a typed nil), and err otherwise. The library treats a
+// typed nil returned by an application callback as success: the Error method of
+// a nil pointer commonly panics, and it would run on the goroutine reporting it.
+func NilError(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch value := reflect.ValueOf(err); value.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.UnsafePointer:
+		if value.IsNil() {
+			return nil
+		}
+	}
+	return err
+}
+
 // IsPanic reports whether err carries a recovered panic.
 func IsPanic(err error) bool {
 	var panicked *PanicError
@@ -169,7 +187,7 @@ func AckError(err error) RemoteError {
 
 // AckArgs encodes the same error-first envelope for both Socket.IO roles.
 func AckArgs(value Payload, err error) []interface{} {
-	if err == nil {
+	if err = NilError(err); err == nil {
 		return []interface{}{nil, value.Interface()}
 	}
 	return []interface{}{AckError(err)}

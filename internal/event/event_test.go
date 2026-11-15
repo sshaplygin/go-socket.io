@@ -94,6 +94,33 @@ func TestAckEnvelope(t *testing.T) {
 	if (*RemoteError)(nil).Error() != "" {
 		t.Fatal("nil remote error")
 	}
+	// A typed nil is success: its Error method would dereference nil.
+	if got := AckArgs(ValueOf(42), (*derefError)(nil)); len(got) != 2 || got[0] != nil || got[1] != 42 {
+		t.Fatal(got)
+	}
+}
+
+type derefError struct{ msg string }
+
+func (e *derefError) Error() string { return e.msg }
+
+type sliceError []string
+
+func (e sliceError) Error() string { return strings.Join(e, "; ") }
+
+func TestNilError(t *testing.T) {
+	for _, err := range []error{nil, (*derefError)(nil), (*RemoteError)(nil)} {
+		if got := NilError(err); got != nil {
+			t.Fatalf("NilError(%#v) = %v", err, got)
+		}
+	}
+	if got := NilError(sliceError(nil)); got != nil {
+		t.Fatalf("nil slice error %v", got)
+	}
+	plain := errors.New("bad")
+	if got := NilError(plain); got != plain {
+		t.Fatal(got)
+	}
 }
 
 func TestHandlerInvocation(t *testing.T) {
@@ -120,6 +147,12 @@ func TestHandlerInvocation(t *testing.T) {
 	}
 	if _, err := (Handler{}).Invoke(context.Background(), nil, p); !errors.Is(err, ErrInvalidPayload) {
 		t.Fatal(err)
+	}
+	typedNil := NewHandler(SchemaOf[int](), true, func(_ context.Context, _ Endpoint, p Payload) (Payload, error) {
+		return p, (*derefError)(nil)
+	})
+	if result, err := typedNil.Invoke(context.Background(), nil, p); err != nil || result.Interface() != 42 {
+		t.Fatalf("typed nil error: %v %v", result, err)
 	}
 }
 

@@ -164,7 +164,10 @@ type dynamicNamespace struct {
 // server's lifetime, even if every connection is rejected, so the registry grows
 // with every distinct name a match function accepts. Use restrictive match
 // functions and authenticate at the root namespace to bound the namespaces
-// untrusted clients can create.
+// untrusted clients can create. A panic in match is recovered: the namespace is
+// rejected with the ERROR text "internal error", no later match function is
+// offered the name, and the *PanicError is logged at WARN as
+// "socketio: handler panic" with its stack.
 func (s *Server) OfFunc(match func(string, url.Values) bool) *ServerNamespace {
 	s.parentsMu.Lock()
 	defer s.parentsMu.Unlock()

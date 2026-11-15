@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -435,4 +436,161 @@ func TestOnErrorPanicIsLoggedWithStack(t *testing.T) {
 	require.Equal(t, "WARN", records[0]["level"])
 	require.Contains(t, records[0]["err"], "panic: error handler boom")
 	require.Contains(t, records[0]["stack"], "handler_errors_test.go")
+}
+
+func TestErrorResultsBeforeAListenerPanicAreReported(t *testing.T) {
+	first := errors.New("first")
+	p := newHandlerPeer(t, func(p *handlerPeer) {
+		p.onError("/")
+		p.server.Of("/").On("multi", func(Conn) error { return first })
+		p.server.Of("/").On("multi", func(Conn) error { panic("listener boom") })
+	})
+	require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
+	p.send(t, `21["multi"]`)
+	require.ErrorIs(t, recv(t, p.errs, "the first listener's error"), first)
+	requirePanic(t, recv(t, p.errs, "the second listener's panic"), "listener boom")
+	require.Equal(t, "forced close", recv(t, p.reasons, "OnDisconnect"))
+	recv(t, p.done, "connection end")
+	require.Empty(t, p.errs, "a further report")
+	for _, frame := range drain(p.fc.out) {
+		require.NotRegexp(t, `^3`, frame, "an ACK after the panic")
+	}
+}
+
+// nilPointerError has a pointer receiver that dereferences it, so the Error
+// method of a typed nil of it panics.
+type nilPointerError struct{ msg string }
+
+func (e *nilPointerError) Error() string { return e.msg }
+
+func TestTypedNilErrorResultCountsAsNil(t *testing.T) {
+	var typedNil *nilPointerError
+	p := newHandlerPeer(t, func(p *handlerPeer) {
+		p.onError("/")
+		p.onError("/chat")
+		registerBarrier(p.server)
+		p.server.OnConnect("/", func(c Conn) error {
+			c.Use(func(string, []interface{}) error { return typedNil })
+			return typedNil
+		})
+		p.server.OnEvent("/", "single", func(Conn) error { return typedNil })
+		p.server.OnEvent("/", "pair", func(Conn) (string, error) { return "done", typedNil })
+		require.NoError(t, NewAckEvent[int, int]("typed").Handle(p.server.Of("/"), func(context.Context, Conn, int) (int, error) {
+			return 7, typedNil
+		}))
+		p.server.Use("/chat", func(Conn) error { return typedNil })
+		p.server.OnConnect("/chat", func(Conn) error { return typedNil })
+	})
+	require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
+	p.send(t, `21["single"]`)
+	require.Equal(t, "31[null]\n", recv(t, p.fc.out, "single result ACK"))
+	p.send(t, `22["pair"]`)
+	require.Equal(t, "32[\"done\",null]\n", recv(t, p.fc.out, "pair ACK"))
+	p.send(t, `23["typed",1]`)
+	require.Equal(t, "33[null,7]\n", recv(t, p.fc.out, "typed ACK"))
+	p.send(t, "0/chat")
+	require.Equal(t, "0/chat,", recv(t, p.fc.out, "namespace CONNECT"))
+	p.barrier(t)
+	require.Empty(t, p.errs)
+	require.Empty(t, only(p.rec.since(0), "socketio: unhandled error"))
+}
+
+func TestConnectPanicAfterCloseIsReportedOnce(t *testing.T) {
+	for name, nsp := range map[string]string{"root": "/", "namespace": "/chat"} {
+		for _, withOnError := range []bool{true, false} {
+			t.Run(name+map[bool]string{true: "/with OnError", false: "/without OnError"}[withOnError], func(t *testing.T) {
+				p := newHandlerPeer(t, func(p *handlerPeer) {
+					if withOnError {
+						p.onError(nsp)
+					}
+					p.server.OnConnect(nsp, func(c Conn) error {
+						_ = c.Close()
+						panic("connect boom")
+					})
+				})
+				if nsp != "/" {
+					require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
+					p.send(t, "0"+nsp)
+				}
+				if withOnError {
+					requirePanic(t, recv(t, p.errs, "OnError of the panic"), "connect boom")
+				} else {
+					require.Eventually(t, func() bool {
+						return len(only(p.rec.since(0), "socketio: handler panic")) != 0
+					}, waitFor, time.Millisecond)
+					requirePanicRecord(t, p.rec, "connect boom")
+				}
+				recv(t, p.done, "connection end")
+				require.Empty(t, p.errs, "a second report")
+				for _, frame := range drain(p.fc.out) {
+					require.NotContains(t, frame, "connect boom", "the panic value reached the peer")
+				}
+			})
+		}
+	}
+}
+
+func TestNamespaceMatchPanicIsReported(t *testing.T) {
+	p := newHandlerPeer(t, func(p *handlerPeer) {
+		registerBarrier(p.server)
+		p.server.OfFunc(func(string, url.Values) bool { panic("match boom") })
+	})
+	require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
+	p.send(t, "0/dyn")
+	require.Equal(t, "4/dyn,\"internal error\"\n", recv(t, p.fc.out, "namespace ERROR"))
+	p.barrier(t) // the root namespace stays connected
+	requirePanicRecord(t, p.rec, "match boom")
+	require.Equal(t, "/dyn", only(p.rec.since(0), "socketio: handler panic")[0]["nsp"])
+}
+
+func TestReservedLocalEmitPanicKeepsTheConnection(t *testing.T) {
+	for _, withOnError := range []bool{true, false} {
+		t.Run(map[bool]string{true: "with OnError", false: "without OnError"}[withOnError], func(t *testing.T) {
+			p := newHandlerPeer(t, func(p *handlerPeer) {
+				if withOnError {
+					p.onError("/")
+				}
+				registerBarrier(p.server)
+				p.server.OnEvent("/", "error", func(Conn, string) { panic("local boom") })
+				p.server.OnEvent("/", "emit", func(c Conn) {
+					c.Emit("error", "local")
+					c.Emit("after")
+				})
+			})
+			require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
+			p.send(t, `2["emit"]`)
+			if withOnError {
+				requirePanic(t, recv(t, p.errs, "OnError of the panic"), "local boom")
+			}
+			require.Equal(t, "2[\"after\"]\n", recv(t, p.fc.out, "the Emit after the panic"))
+			p.barrier(t)
+			if withOnError {
+				require.Empty(t, p.errs, "a second report")
+			} else {
+				requirePanicRecord(t, p.rec, "local boom")
+			}
+			require.Empty(t, p.reasons, "the connection closed")
+		})
+	}
+}
+
+func TestErrorResultAfterCloseIsLoggedAtDebug(t *testing.T) {
+	p := newHandlerPeer(t, func(p *handlerPeer) {
+		p.onError("/")
+		p.server.OnEvent("/", "fail", func(c Conn) error {
+			_ = c.Close()
+			return errors.New("after close failure")
+		})
+	})
+	require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
+	p.send(t, `2["fail"]`)
+	require.Equal(t, "server namespace disconnect", recv(t, p.reasons, "OnDisconnect"))
+	require.Eventually(t, func() bool {
+		return len(only(p.rec.since(0), "socketio: error after close")) != 0
+	}, waitFor, time.Millisecond)
+	records := only(p.rec.since(0), "socketio: error after close")
+	require.Len(t, records, 1, "records %v", p.rec.since(0))
+	require.Equal(t, "DEBUG", records[0]["level"])
+	require.Equal(t, "after close failure", records[0]["err"])
+	require.Empty(t, p.errs, "OnError after the close started")
 }

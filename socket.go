@@ -345,7 +345,7 @@ func (nc *namespaceConn) runMiddleware(event string, args []reflect.Value) (err 
 		values[i] = arg.Interface()
 	}
 	for _, f := range chain {
-		if err := f(event, values); err != nil {
+		if err := eventImpl.NilError(f(event, values)); err != nil {
 			return err
 		}
 	}

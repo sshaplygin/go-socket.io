@@ -72,7 +72,8 @@ var errorType = reflect.TypeOf((*error)(nil)).Elem()
 
 // DispatchListeners calls the listeners in order until one panics; that panic is
 // the returned error. A non-nil result of type error is passed to report, if set,
-// and replaced in the results by its error-first acknowledgement object.
+// and replaced in the results by its error-first acknowledgement object; a typed
+// nil counts as nil (see eventImpl.NilError).
 func (nh *namespaceHandler) DispatchListeners(conn Conn, event string, snapshot []*eventListener, ack AckFunc, report func(error), args ...reflect.Value) ([]reflect.Value, bool, error) {
 	var result []reflect.Value
 	ownsAck := false
@@ -101,10 +102,15 @@ func (nh *namespaceHandler) DispatchListeners(conn Conn, event string, snapshot 
 			return nil, ownsAck, err
 		}
 		for i, value := range ret {
-			if value.Type() != errorType || value.IsNil() {
+			if value.Type() != errorType {
 				continue
 			}
-			returned := value.Interface().(error)
+			returned, _ := value.Interface().(error)
+			returned = eventImpl.NilError(returned)
+			if returned == nil {
+				ret[i] = reflect.Zero(errorType) // a typed nil is sent as null
+				continue
+			}
 			if report != nil {
 				report(returned)
 			}

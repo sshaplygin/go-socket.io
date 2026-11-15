@@ -118,12 +118,18 @@ func TestTypedClientHandlerFailureAcknowledgesAndReports(t *testing.T) {
 			})))
 			p.send(t, `23["fail",1]`)
 			ack := recv(t, p.fc.out, "error acknowledgement")
+			reported := recv(t, p.errs, "local handler error").err
 			if panics {
-				require.Contains(t, ack, `"code":"handler_panic"`)
+				// The server receives a fixed text, never the panic value.
+				require.Equal(t, `33[{"code":"handler_panic","message":"internal error"}]`, strings.TrimSpace(ack))
+				var panicked *event.PanicError
+				require.ErrorAs(t, reported, &panicked)
+				require.Equal(t, "failure", panicked.Value)
+				require.Contains(t, string(panicked.Stack), "connection_typed_test.go")
 			} else {
-				require.Contains(t, ack, `"code":"handler_error"`)
+				require.Equal(t, `33[{"code":"handler_error","message":"failure"}]`, strings.TrimSpace(ack))
+				require.EqualError(t, reported, "failure")
 			}
-			require.Error(t, recv(t, p.errs, "local handler error").err)
 		})
 	}
 }

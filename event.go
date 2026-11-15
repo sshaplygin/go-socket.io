@@ -44,7 +44,8 @@ type RemoteError = event.RemoteError
 // listeners, event middleware (Conn.Use), ACK callbacks and OnDisconnect: the
 // namespace's OnError receives the PanicError, possibly wrapped, so errors.As
 // identifies it, and without OnError it is logged at WARN as
-// "socketio: handler panic" with its stack (see Server.OnError). The Go client's
+// "socketio: handler panic" with its stack (see Server.OnError); so is a panic in
+// an OfFunc match function. The Go client's
 // OnError receives one for a panic in a typed handler. Value is the value passed
 // to panic and Stack the panicking goroutine's stack from runtime/debug.Stack.
 // *PanicError implements error; Error returns "panic: " followed by Value, and

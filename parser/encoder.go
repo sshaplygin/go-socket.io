@@ -8,20 +8,27 @@ import (
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
+// FrameWriter opens the frames of outgoing packets: a text frame per packet,
+// followed by one binary frame per attachment.
 type FrameWriter interface {
+	// NextWriter opens a frame of type ft; closing the writer finishes the frame.
 	NextWriter(ft FrameType) (io.WriteCloser, error)
 }
 
+// Encoder writes Socket.IO packets to a FrameWriter.
 type Encoder struct {
 	w FrameWriter
 }
 
+// NewEncoder returns an Encoder that writes frames to w.
 func NewEncoder(w FrameWriter) *Encoder {
 	return &Encoder{
 		w: w,
 	}
 }
 
+// Encode prepares a packet from h and args, as Prepare does, and writes it with
+// EncodePrepared.
 func (e *Encoder) Encode(h Header, args ...interface{}) (err error) {
 	packet, err := Prepare(h, args...)
 	if err != nil {

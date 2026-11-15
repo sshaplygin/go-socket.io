@@ -15,6 +15,11 @@ type AckFunc func(args ...interface{})
 // Conn is one connection generation of a client-side Socket.IO namespace.
 // Sends and lifecycle operations stay bound to that generation. Use Client.Socket
 // to retain a namespace across reconnections and buffer events during recovery.
+//
+// Emit, Send, the emitters, Disconnect and Close may be called from any goroutine,
+// concurrently with each other and with callbacks; SetContext and Context are not
+// synchronized. Conn is implemented by the library, and a minor release may add
+// methods to it.
 type Conn interface {
 	// Close sends DISCONNECT for each connected namespace and reports
 	// "io client disconnect". It runs disconnect callbacks before returning;
@@ -28,18 +33,26 @@ type Conn interface {
 	// ID returns the Engine.IO ID in the root namespace, or
 	// <namespace>#<Engine.IO ID> in any other namespace.
 	ID() string
+	// URL returns the request URL of the current transport. The result is a url.URL
+	// value, so a pointer method such as String needs a variable: u := c.URL(); u.String().
 	URL() url.URL
+	// LocalAddr returns the local network address of the current transport.
 	LocalAddr() net.Addr
+	// RemoteAddr returns the server's network address on the current transport.
 	RemoteAddr() net.Addr
+	// RemoteHeader returns the server's response headers on the current transport.
 	RemoteHeader() http.Header
 }
 
-// Namespace exposes client operations on one Socket.IO namespace.
+// Namespace exposes client operations on one Socket.IO namespace. It is
+// implemented by the library, and a minor release may add methods to it.
 type Namespace interface {
-	// Context returns application state associated with this connection.
-	// Synchronize access when callbacks or application goroutines share mutable state;
-	// a disconnect initiated by the application can run callbacks concurrently.
+	// Context returns the application state stored by SetContext. Neither method is
+	// synchronized: the application synchronizes calls from more than one goroutine
+	// and access to shared mutable state. A disconnect initiated by the application
+	// can run callbacks concurrently with handlers.
 	Context() interface{}
+	// SetContext stores application state on this connection.
 	SetContext(ctx interface{})
 
 	Namespace() string
@@ -81,6 +94,7 @@ type Namespace interface {
 // Emitter applies immutable delivery flags to events sent to the server.
 // Each builder returns a new value, so an Emitter can be reused within the Conn's
 // generation. It cannot send through a replacement namespace or connection.
+// Emitter is implemented by the library, and a minor release may add methods to it.
 type Emitter interface {
 	Volatile() Emitter
 	// Compress chooses per-packet compression; the default is true.

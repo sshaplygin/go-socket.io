@@ -19,7 +19,8 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
-// Server is instance of server
+// Server is an Engine.IO protocol v3 server. It is an http.Handler and does not
+// listen itself; Accept yields the sessions it opens.
 type Server struct {
 	originCheck       func(*http.Request) bool
 	pingInterval      time.Duration
@@ -103,7 +104,8 @@ func (s *Server) Close() error {
 	return nil
 }
 
-// Accept accepts a connection.
+// Accept waits for and returns the next session whose handshake has completed.
+// After Close it returns io.EOF.
 func (s *Server) Accept() (Conn, error) {
 	select {
 	case c := <-s.connChan:
@@ -154,10 +156,14 @@ func isClosed(ch <-chan struct{}) bool {
 	}
 }
 
+// Addr always returns nil: the server does not listen, and the address belongs to
+// the HTTP server that serves it.
 func (s *Server) Addr() net.Addr {
 	return nil
 }
 
+// ServeHTTP handles Engine.IO handshakes and the polling and websocket requests of
+// open sessions.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if isClosed(s.closed) {
 		s.writeServerError(w, r, 3, nil)

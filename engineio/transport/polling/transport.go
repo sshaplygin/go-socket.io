@@ -17,6 +17,9 @@ type Transport struct {
 	CheckOrigin func(r *http.Request) bool
 	// Compression enables gzip/deflate responses at CompressionThreshold bytes
 	// (1024 when nonpositive). Cookie is copied with the session ID as its value.
+	// An engineio.Server replaces these three fields on its copy of the transport
+	// with its options (WithHTTPCompression, WithCompressionThreshold, WithCookie and
+	// WithCookieEnabled); the transport passed to WithTransports is not modified.
 	Compression          bool
 	CompressionThreshold int
 	Cookie               *http.Cookie

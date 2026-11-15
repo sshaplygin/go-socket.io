@@ -17,10 +17,16 @@ const (
 	maxAttachments = 10
 )
 
+// FrameReader supplies the frames of incoming packets: a text frame per packet,
+// followed by one binary frame per attachment.
 type FrameReader interface {
+	// NextReader returns the next frame; the caller closes the reader.
 	NextReader() (FrameType, io.ReadCloser, error)
 }
 
+// Decoder reads Socket.IO packets from a FrameReader. DecodeHeader reads a packet's
+// header; DecodeArgs, DecodeArgsVariadic or DiscardLast then consumes its arguments
+// and attachments. A Decoder is not safe for concurrent use.
 type Decoder struct {
 	r           FrameReader
 	lastFrame   io.ReadCloser
@@ -28,8 +34,12 @@ type Decoder struct {
 	args        []json.RawMessage
 }
 
+// NewDecoder returns a Decoder that reads frames from r.
 func NewDecoder(r FrameReader) *Decoder { return &Decoder{r: r} }
-func (d *Decoder) Close() error         { return d.DiscardLast() }
+
+// Close releases the current packet as DiscardLast does; it does not close the
+// FrameReader.
+func (d *Decoder) Close() error { return d.DiscardLast() }
 
 // DiscardLast releases the text frame and consumes attachments of an ignored packet.
 func (d *Decoder) DiscardLast() error {
@@ -62,6 +72,10 @@ func (d *Decoder) closeLastFrame() error {
 	return r.Close()
 }
 
+// DecodeHeader releases the previous packet, reads the text frame of the next one
+// and stores its header, and the event name of an event packet, in header and event.
+// Binary event and ACK packets are reported as Event and Ack; the Decoder keeps
+// their attachment count. An unknown packet type returns ErrInvalidPacketType.
 func (d *Decoder) DecodeHeader(header *Header, event *string) error {
 	if err := d.DiscardLast(); err != nil {
 		return err

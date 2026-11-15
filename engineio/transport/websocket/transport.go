@@ -23,7 +23,10 @@ type DialError struct {
 // Transport is websocket transport.
 type Transport struct {
 	// EnableCompression negotiates permessage-deflate; frames below the threshold
-	// (1024 when nonpositive) are sent uncompressed.
+	// (1024 when nonpositive) are sent uncompressed. An engineio.Server replaces both
+	// fields on its copy of the transport with WithPerMessageDeflate and
+	// WithCompressionThreshold, and the Go client with client.WithPerMessageDeflate
+	// and a threshold of 1024; the transport passed to WithTransports is not modified.
 	EnableCompression    bool
 	CompressionThreshold int
 

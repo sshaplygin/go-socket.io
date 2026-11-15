@@ -290,6 +290,9 @@ func WithLogger(value *slog.Logger) Option {
 }
 
 // WithTransports sets transports in dial/upgrade order. The slice is copied for each instance.
+// The server uses a copy of each polling.Transport and websocket.Transport, with the
+// compression and cookie fields replaced by its options (see their field docs) and a
+// nil CheckOrigin replaced by the WithCORS policy.
 func WithTransports(values ...transport.Transport) Option {
 	return func(config *options) { config.Transports = append(values[:0:0], values...) }
 }

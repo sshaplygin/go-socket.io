@@ -86,6 +86,9 @@ func (bc *Memory) SendAll(event string, args ...interface{}) {
 	_ = bc.SendTo(Options{}, event, args...)
 }
 
+// SendTo emits to the sockets selected by opts, as Adapter.SendTo describes,
+// registering a trailing callback on each socket. It always returns nil: the memory
+// adapter supports every option.
 func (bc *Memory) SendTo(opts Options, event string, args ...interface{}) error {
 	bc.lock.RLock()
 	targets := broadcastMembers(bc.rooms, opts)
@@ -94,6 +97,8 @@ func (bc *Memory) SendTo(opts Options, event string, args ...interface{}) error 
 	return nil
 }
 
+// IDs returns a copy of the IDs of the sockets in any of rooms, or of every socket
+// in a room when rooms is empty.
 func (bc *Memory) IDs(rooms ...string) []string {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()

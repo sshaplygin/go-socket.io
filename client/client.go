@@ -13,7 +13,11 @@ import (
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
-// Client multiplexes namespace sockets over one Engine.IO connection.
+// Client multiplexes namespace sockets over one Engine.IO connection. Its Emit and
+// handler methods act on the namespace selected by the address passed to New;
+// Socket returns a namespace socket, which also has On, Once, Off, Send, Connected
+// and ID. Emit and Close of a Client, of its sockets and of a Conn may be called from
+// any goroutine, concurrently with each other and with callbacks.
 type Client struct{ manager *manager }
 
 // New configures addr (http://host:port[/namespace]) without opening a connection.
@@ -58,10 +62,8 @@ func (c *Client) OnDisconnect(f func(Conn, string)) { c.manager.OnDisconnect(f) 
 // message-size limit, is not an error: OnDisconnect reports it.
 func (c *Client) OnError(f func(Conn, error)) { c.manager.OnError(f) }
 
-// OnEvent replaces the default namespace's handler for event. If the event's
-// arguments do not decode into the parameter types of f, f is not called, the
-// error goes to OnError and a requested acknowledgement is answered with an
-// error ACK.
+// OnEvent replaces the default namespace's handler for event, as Socket.OnEvent
+// does, including what a long-running f does to the connection's heartbeat.
 func (c *Client) OnEvent(event string, f interface{}) { c.manager.OnEvent(event, f) }
 
 // OnReconnectAttempt sets the callback before each automatic dial; nil removes it.

@@ -6,14 +6,20 @@ import (
 	"strings"
 )
 
+// Addr is the net.Addr of a polling connection, which has no single TCP connection.
+// On the server, LocalAddr returns the handshake request's Host and RemoteAddr its
+// RemoteAddr; on the client, RemoteAddr returns the request's Host and LocalAddr an
+// empty Addr.
 type Addr struct {
 	Host string
 }
 
+// Network returns "tcp".
 func (a Addr) Network() string {
 	return "tcp"
 }
 
+// String returns Host.
 func (a Addr) String() string {
 	return a.Host
 }

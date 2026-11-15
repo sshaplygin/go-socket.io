@@ -16,6 +16,8 @@ type Buffer struct {
 	Data []byte
 }
 
+// BufferData is the JSON object that Buffer.UnmarshalJSON decodes: an attachment
+// placeholder ({"_placeholder":true,"num":n}) or inline Data.
 type BufferData struct {
 	Num         uint64
 	PlaceHolder bool `json:"_placeholder"`

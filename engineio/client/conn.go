@@ -9,7 +9,8 @@ import (
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
-// Conn is an established client-side Engine.IO connection.
+// Conn is an established client-side Engine.IO connection. It is implemented by the
+// library, and a minor release may add methods to it.
 type Conn interface {
 	ID() string
 	// ReadyState returns the connection's current state.

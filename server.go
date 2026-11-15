@@ -187,8 +187,16 @@ func (s *Server) OnError(namespace string, f func(Conn, error)) {
 // decode into the parameter types, f is not called, the error goes to OnError and
 // a requested acknowledgement is answered with an error ACK. OnEvent replaces
 // every listener of this event (see ServerNamespace.On and Once).
-// f is called on the read goroutine of the connection, so a blocking f delays only
-// that client. OnEvent panics if f is not a func or its first parameter is not Conn.
+// f is called on the read goroutine of the connection, which also answers the client's
+// heartbeat. While f runs, that connection dispatches nothing else and sends no PONG;
+// other connections are not affected. An f that runs longer than the ping timeout
+// (engineio.WithPingTimeout, 20 seconds by default) can therefore end its own
+// connection with a ping timeout on the client or the server, and one that runs
+// longer than the ping interval plus the ping timeout (45 seconds by default) always
+// does; its ACK is then lost and OnError is not called. For long work, f starts a
+// goroutine and returns, and the goroutine acknowledges through a final AckFunc
+// parameter.
+// OnEvent panics if f is not a func or its first parameter is not Conn.
 func (s *Server) OnEvent(namespace, event string, f interface{}) {
 	h := s.getNamespace(namespace)
 	if h == nil {

@@ -19,7 +19,10 @@ Package `engineio` of the v1 module at the repository root.
   whitespace difference from engine.io 3.6.2.
 - Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`). Every packet
   the session reads re-arms a window of `pingInterval + pingTimeout`; when it passes
-  without one, the session closes with reason `ping timeout`.
+  without one, the session closes with reason `ping timeout`. `PING` is answered
+  inside `Conn.NextReader`, so only while the application reads the session; a
+  Socket.IO connection does not read while one of its event handlers runs (see
+  [handler duration](V1.md#connections-and-namespaces)).
 - Polling payload: with `b64=1` packets are length-prefixed (`<length>:<packet>`),
   lengths count UTF-16 code units, and binary packets are base64 with a `b` prefix.
   Otherwise the payload is binary: per packet a `0` (string) or `1` (binary) byte, the
@@ -151,8 +154,9 @@ Package `engineio` of the v1 module at the repository root.
   the polling transport rejects itself stays plain text: HTTP 400 for a POST the payload
   cannot take (paused, overlapping, closed, timed out or not decodable) or an invalid
   method, 413 for the message limit above, 500 for a poll
-  whose response failed before it was started. A POST whose body read the session's
-  close interrupted is answered with `Connection: close`.
+  whose response failed before it was started. A POST that is not decodable also
+  closes the session, and a later POST with its `sid` is answered HTTP 400. A POST whose
+  body read the session's close interrupted is answered with `Connection: close`.
   A polling POST body is decoded by its `Content-Type`, as in engine.io 3.6.2:
   `application/octet-stream` selects the binary payload and every other value, a
   missing header, `text/plain` with or without a charset, `application/x-www-form-urlencoded`

@@ -398,6 +398,14 @@ func (s *Socket) OnError(f func(Conn, error)) { s.handler.OnError(f) }
 // OnEvent replaces the namespace's handler for event. If the event's arguments
 // do not decode into the parameter types of f, f is not called, the error goes to
 // OnError and a requested acknowledgement is answered with an error ACK.
+//
+// f runs on the connection's reader, which also reads the heartbeat's PONG packets.
+// While f runs, that connection dispatches nothing else. An f that runs longer than
+// the server's ping timeout (20 seconds by default) can therefore end the connection
+// with a ping timeout on the client or the server, and one that runs longer than the
+// ping interval plus the ping timeout (45 seconds by default) always does; its ACK is
+// then lost and OnError is not called. For long work, f starts a goroutine and returns, and the goroutine
+// acknowledges through a final AckFunc parameter.
 func (s *Socket) OnEvent(event string, f interface{}) { s.handler.OnEvent(event, f) }
 
 // Close sends DISCONNECT for this namespace. The last socket closes Engine.IO.

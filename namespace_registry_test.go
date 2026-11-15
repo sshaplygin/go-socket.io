@@ -61,7 +61,7 @@ func TestNamespaceHandlerEvent(t *testing.T) {
 			types := h.Listeners(test.event)[0].ArgTypes()
 			should.Equal(target, types)
 
-			ret, err := h.DispatchEvent(&testConn{}, test.event, args...)
+			ret, err := h.DispatchEvent(&testConn{}, test.event, nil, args...)
 			must.NoError(err)
 
 			res := make([]interface{}, len(ret))

@@ -165,7 +165,10 @@ type dynamicNamespace struct {
 // server's lifetime, even if every connection is rejected, so the registry grows
 // with every distinct name a match function accepts. Use restrictive match
 // functions and authenticate at the root namespace to bound the namespaces
-// untrusted clients can create.
+// untrusted clients can create. A panic in match is recovered: the namespace is
+// rejected with the ERROR text "internal error", no later match function is
+// offered the name, and the *PanicError is logged at WARN as
+// "socketio: handler panic" with its stack.
 func (s *Server) OfFunc(match func(string, url.Values) bool) *ServerNamespace {
 	s.parentsMu.Lock()
 	defer s.parentsMu.Unlock()
@@ -215,6 +218,9 @@ func (b parentBroadcast) IDs(rooms ...string) []string {
 
 // On adds a listener after existing listeners; off removes just this listener.
 // Listener payload parameter types must match; a mismatch or non-function panics.
+// The first listener with results supplies the ACK; the error results of each
+// listener that ran are reported as Server.OnError describes, and a panicking
+// listener ends the dispatch as in Server.OnEvent.
 func (n *ServerNamespace) On(event string, f interface{}) (off func()) {
 	return n.registration().AddListener(event, f, false)
 }

@@ -49,24 +49,30 @@
 // returned an error.
 //
 // The WARN records of the server include "socketio: unhandled error" without
-// OnError for an error or a panic of an event handler, a panic of connect
-// middleware or OnConnect, a packet the server cannot encode, a connect to a
-// namespace whose Redis broadcast could not be created, and a write buffer that
-// overflowed with any other packet (see ErrWriteBufferFull in the root package);
-// and "engineio: request rejected" for a websocket upgrade request through a
-// ResponseWriter that is not an http.Hijacker and for a session that a running
-// server could not create (its ID generator returned an empty or duplicate ID,
-// or setting the transport's deadline failed). Some of these follow what a
-// client sends: a handler error or panic is logged for every packet that
-// triggers it, the ResponseWriter for each websocket upgrade request, the
-// missing Redis broadcast for a session that connects to that namespace, and
-// the full write buffer once for a session. A client that does not read what
-// the server sends it can cause the full write buffer.
+// OnError for an error of an event handler, a packet the server cannot encode, a
+// connect to a namespace whose Redis broadcast could not be created, and a write
+// buffer that overflowed with any other packet (see ErrWriteBufferFull in the
+// root package); "socketio: handler panic", with the stack, for a recovered panic
+// of a server callback whose namespace has no OnError, connect middleware and
+// OnConnect included; "socketio: error handler panic", with the stack, for a
+// panic of a server's OnError itself; and "engineio: request rejected" for a
+// websocket upgrade request through a ResponseWriter that is not an
+// http.Hijacker and for a session that a running server could not create (its
+// ID generator returned an empty or duplicate ID, or setting the transport's
+// deadline failed). Some of these follow what a client sends: a handler error or
+// panic is logged for every packet that triggers it, the ResponseWriter for each
+// websocket upgrade request, the missing Redis broadcast for a session that
+// connects to that namespace, and the full write buffer once for a session. A
+// client that does not read what the server sends it can cause the full write
+// buffer. The Go client logs "socketio: handler panic", with the stack, for a
+// panic of a typed handler when it has no OnError.
 //
 // Expected closure of a session (EOF, a closed connection, a peer close, a
-// ping timeout and any failure after a close started), errors also returned
-// to a caller or delivered to an OnError handler, and the boundary records
-// (session open and close, namespace connect, disconnect) are DEBUG. LevelTrace is available for
+// ping timeout and any failure after a close started other than a recovered
+// panic or an error result of a disconnecting or locally emitted listener),
+// errors also returned to a caller or delivered to an OnError handler, and the
+// boundary records (session open and close, namespace connect, disconnect)
+// are DEBUG. LevelTrace is available for
 // application records; the library does not emit records at that level.
 //
 // # Messages and keys
@@ -91,6 +97,7 @@
 //   - ack_id: the acknowledgement id
 //   - type: the packet type
 //   - value: an invalid setting, such as SOCKETIO_LOG_LEVEL
+//   - stack: the goroutine stack of a recovered panic, from runtime/debug.Stack
 //
 // No record carries event or ACK arguments. The err of a record can carry the
 // text of a peer's ERROR packet or a fragment of a payload that does not decode.

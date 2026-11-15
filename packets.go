@@ -3,6 +3,7 @@ package socketio
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"reflect"
 	"sync"
@@ -132,7 +133,7 @@ func eventPacketHandler(c *connection, event string, header parser.Header) error
 	}
 
 	if err := conn.runMiddleware(event, args); err != nil {
-		c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf(err.Error()))
+		middlewareFailed(c, header, err)
 		return nil
 	}
 	var once sync.Once
@@ -150,8 +151,12 @@ func eventPacketHandler(c *connection, event string, header parser.Header) error
 			conn.writeAck(reply, args...)
 		})
 	})
-	ret, ownsAck, err := handler.DispatchListeners(conn, event, snapshot, ack, args...)
+	var returned []error // error results, reported after the ACK as typed handlers do
+	ret, ownsAck, err := handler.DispatchListeners(conn, event, snapshot, ack, func(err error) { returned = append(returned, err) }, args...)
 	if err != nil {
+		for _, result := range returned {
+			c.onError(header.Namespace, result)
+		}
 		c.onError(header.Namespace, err)
 		c.log.Debug("socketio: event handler failed", nspAttr(header.Namespace), "event", event, "err", err)
 		return errHandleDispatch
@@ -161,8 +166,20 @@ func eventPacketHandler(c *connection, event string, header parser.Header) error
 		header.Type = parser.Ack
 		conn.writeAck(header, ret...)
 	}
+	for _, result := range returned {
+		c.onError(header.Namespace, result)
+	}
 
 	return nil
+}
+
+// middlewareFailed answers an event that socket middleware rejected with an ERROR
+// packet. A recovered panic is reported, and the peer receives a fixed text.
+func middlewareFailed(c *connection, header parser.Header, err error) {
+	if eventImpl.IsPanic(err) {
+		c.onError(header.Namespace, err)
+	}
+	c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf(eventImpl.WireMessage(err)))
 }
 
 func connectPacketHandler(c *connection, header parser.Header) error {
@@ -191,8 +208,12 @@ func connectNamespace(c *connection, header parser.Header) error {
 
 	handler, ok := c.handlers.Get(header.Namespace)
 	if !ok && c.resolveNamespace != nil {
-		query, _ := url.ParseQuery(header.Query)
-		handler = c.resolveNamespace(header.Namespace, query)
+		var err error
+		if handler, err = c.resolve(header); err != nil {
+			c.onError(header.Namespace, err)
+			c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf(eventImpl.WireMessage(err)))
+			return nil
+		}
 		ok = handler != nil
 	}
 	if !ok {
@@ -230,12 +251,15 @@ func connectNamespace(c *connection, header parser.Header) error {
 	c.connectRecord(header.Namespace, err)
 	if err != nil {
 		if isDone(c.closing) {
+			if eventImpl.IsPanic(err) {
+				c.onError(header.Namespace, err) // reported on this goroutine; see report
+			}
 			return nil
 		}
 		c.claim(header.Namespace)
 		nc.reject()
 		c.onErrorOr(header.Namespace, err, c.rejected)
-		c.refuse(header.Namespace, err.Error())
+		c.refuse(header.Namespace, eventImpl.WireMessage(err))
 		return nil
 	}
 	if isDone(c.closing) {
@@ -243,6 +267,18 @@ func connectNamespace(c *connection, header parser.Header) error {
 	}
 	nc.acceptPending()
 	return nil
+}
+
+// resolve creates the dynamic namespace of header whose match function accepts it.
+// A panic of a match function is recovered and returned.
+func (c *connection) resolve(header parser.Header) (handler *namespaceHandler, err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			handler, err = nil, fmt.Errorf("namespace match: %w", eventImpl.NewPanicError(value))
+		}
+	}()
+	query, _ := url.ParseQuery(header.Query)
+	return c.resolveNamespace(header.Namespace, query), nil
 }
 
 func disconnectPacketHandler(c *connection, header parser.Header) error {
@@ -299,7 +335,7 @@ func typedEventPacketHandler(c *connection, nc *namespaceConn, name string, head
 	if err == nil {
 		value := payload.Interface()
 		if middlewareErr := nc.runMiddleware(name, []reflect.Value{reflect.ValueOf(&value).Elem()}); middlewareErr != nil {
-			c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf(middlewareErr.Error()))
+			middlewareFailed(c, header, middlewareErr)
 			return nil
 		}
 	}

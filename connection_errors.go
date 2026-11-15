@@ -6,12 +6,7 @@ import (
 )
 
 // connect errors.
-var (
-	errUnavailableRootHandler = errors.New("root ('/') doesn't have a namespace handler")
-
-	// errConnectPanic wraps the value of a panic in connect middleware or OnConnect.
-	errConnectPanic = errors.New("connect callback panic")
-)
+var errUnavailableRootHandler = errors.New("root ('/') doesn't have a namespace handler")
 
 // common connection dispatch errors.
 var (

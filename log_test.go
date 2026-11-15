@@ -306,7 +306,8 @@ func TestUnhandledErrorRecords(t *testing.T) {
 		fault faultConn
 		h     hooks
 		nsps  []string // of the expected "socketio: unhandled error" WARNs
-		peer  []string // of the expected DEBUG ones: the peer caused the error
+		panic bool     // the WARNs are "socketio: handler panic"
+		peer  []string // of the expected DEBUG "socketio: unhandled error" ones: the peer caused the error
 		run   func(t *testing.T, p *peer)
 	}{
 		{name: "peer close does not reach OnError", keep: true, run: func(t *testing.T, p *peer) {
@@ -326,7 +327,7 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			p.send(t, ev("boom"))
 			recv(t, p.errs, "the report")
 		}},
-		{name: "handler panic", h: hooks{events: boom}, nsps: []string{"/"},
+		{name: "handler panic", h: hooks{events: boom}, nsps: []string{"/"}, panic: true,
 			run: func(t *testing.T, p *peer) { p.send(t, ev("boom")) }},
 		{name: "connect without handlers",
 			run: func(t *testing.T, p *peer) {
@@ -416,7 +417,7 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			require.Equal(t, "4/a,\"refused\"\n", recv(t, p.fc.out, "the rejection"))
 			close(p.fc.peerGone)
 		}},
-		{name: "namespace OnConnect panic", nsps: []string{"/a"}, h: hooks{connect: func(c Conn) error {
+		{name: "namespace OnConnect panic", nsps: []string{"/a"}, panic: true, h: hooks{connect: func(c Conn) error {
 			if c.Namespace() == "/a" {
 				panic("boom")
 			}
@@ -424,7 +425,7 @@ func TestUnhandledErrorRecords(t *testing.T) {
 		}}, run: func(t *testing.T, p *peer) {
 			require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
 			p.send(t, "0/a")
-			require.Equal(t, "4/a,\"connect callback panic: boom\"\n", recv(t, p.fc.out, "the rejection"))
+			require.Equal(t, "4/a,\"internal error\"\n", recv(t, p.fc.out, "the rejection"))
 			close(p.fc.peerGone)
 		}},
 		{name: "typed payload decode error", peer: []string{"/", "/"}, h: hooks{events: boom, setup: func(s *Server) {
@@ -494,8 +495,12 @@ func TestUnhandledErrorRecords(t *testing.T) {
 				}
 			}
 			var nsps []string
+			want := "socketio: unhandled error"
+			if tc.panic {
+				want = "socketio: handler panic"
+			}
 			for _, m := range got {
-				require.Equal(t, "socketio: unhandled error", m["msg"])
+				require.Equal(t, want, m["msg"])
 				require.Equal(t, "WARN", m["level"])
 				nsps = append(nsps, m["nsp"])
 			}
@@ -678,7 +683,7 @@ var (
 	msgPattern  = regexp.MustCompile(`^(engineio|socketio|logger): [a-z][a-z0-9 ]*$`)
 	allowedKeys = map[string]bool{"sid": true, "nsp": true, "err": true, "transport": true,
 		"remote_addr": true, "reason": true, "duration": true, "event": true, "ack_id": true,
-		"type": true, "value": true}
+		"type": true, "value": true, "stack": true}
 	// infoMessages are the recoveries the logger package documents at INFO.
 	infoMessages = map[string]bool{"socketio: redis subscription restored": true}
 )
@@ -819,5 +824,5 @@ func TestOnErrorPanicIsLogged(t *testing.T) {
 	require.Len(t, records, 1)
 	require.Equal(t, "WARN", records[0]["level"])
 	require.Equal(t, "/", records[0]["nsp"])
-	require.Equal(t, "error callback failed", records[0]["err"])
+	require.Equal(t, "panic: error callback failed", records[0]["err"])
 }

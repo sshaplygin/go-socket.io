@@ -12,10 +12,19 @@ import (
 // Endpoint is the shared sending surface of server and client namespace sockets.
 // Typed descriptors support the built-in server connections, clients and client
 // namespace sockets. Implementing Emit alone does not support typed sends.
-type Endpoint interface{ Emit(string, ...interface{}) }
+type Endpoint interface {
+	// Emit sends an event with its arguments to the peer; see Namespace.Emit
+	// and client.Namespace.Emit.
+	Emit(string, ...interface{})
+}
 
 // ClientRegistration accepts typed handlers on a client or a client namespace.
 type ClientRegistration interface {
+	// RegisterEvent is the bridge that Event.HandleClient and
+	// AckEvent.HandleClient call; applications register through those
+	// descriptors. It returns ErrInvalidEventName for an invalid name,
+	// ErrInvalidPayload for an invalid handler and ErrDuplicateEvent when the
+	// name already has a listener.
 	RegisterEvent(string, EventHandler) error
 }
 
@@ -41,6 +50,8 @@ type RemoteError = event.RemoteError
 
 var (
 	// ErrInvalidEventName rejects empty names and reserved lifecycle event names.
+	// Sends through the Go client also reject the names it keeps local; see
+	// client.Namespace.Emit.
 	ErrInvalidEventName = event.ErrInvalidEventName
 	// ErrDuplicateEvent means a typed registration would replace an existing listener.
 	ErrDuplicateEvent = event.ErrDuplicateEvent

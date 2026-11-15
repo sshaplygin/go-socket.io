@@ -51,7 +51,8 @@ func (n *ServerNamespace) Name() string {
 // OnConnect sets the namespace's connect handler, as Server.OnConnect does.
 func (n *ServerNamespace) OnConnect(f func(Conn) error) { n.registration().OnConnect(f) }
 
-// OnDisconnect sets the namespace's disconnect handler, as Server.OnDisconnect does.
+// OnDisconnect sets the namespace's disconnect handler, as Server.OnDisconnect
+// does.
 func (n *ServerNamespace) OnDisconnect(f func(Conn, string)) { n.registration().OnDisconnect(f) }
 
 // OnError sets the namespace's error handler, as Server.OnError does.

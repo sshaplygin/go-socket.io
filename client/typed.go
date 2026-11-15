@@ -79,6 +79,9 @@ func typedPacket(namespace, name string, value event.Payload) (*parser.PreparedP
 	if err := event.ValidateName(name); err != nil {
 		return nil, err
 	}
+	if localEvent(name) {
+		return nil, event.ErrInvalidEventName
+	}
 	if !value.Valid() {
 		return nil, event.ErrInvalidPayload
 	}

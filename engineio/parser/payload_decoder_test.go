@@ -179,6 +179,36 @@ func TestInvalidPayloadLengths(t *testing.T) {
 	}
 }
 
+// TestBinaryPayloadFrameTypeByte checks the first byte of a binary payload packet:
+// 0 is a string packet, 1 a binary packet, and any other value is invalid.
+func TestBinaryPayloadFrameTypeByte(t *testing.T) {
+	for _, tc := range []struct {
+		data []byte
+		ft   FrameType
+		ok   bool
+	}{
+		{[]byte{0, 2, 0xff, '4', 'x'}, String, true},
+		{[]byte{1, 2, 0xff, 4, 'x'}, Binary, true},
+		{[]byte{2, 2, 0xff, '4', 'x'}, 0, false},
+		{[]byte{2, 2, 0xff, 4, 'x'}, 0, false},
+		{[]byte{0xfe, 2, 0xff, '4', 'x'}, 0, false},
+	} {
+		d := NewPayloadDecoder(&singlePayloadSource{data: tc.data, binary: true})
+		ft, pt, r, err := d.NextReader()
+		if !tc.ok {
+			require.Error(t, err, "frame type byte %d", tc.data[0])
+			continue
+		}
+		require.NoError(t, err)
+		require.Equal(t, tc.ft, ft)
+		require.Equal(t, MESSAGE, pt)
+		data, err := io.ReadAll(r)
+		require.NoError(t, err)
+		require.NoError(t, r.Close())
+		require.Equal(t, "x", string(data))
+	}
+}
+
 func TestZeroLengthSkipsEmptyPacket(t *testing.T) {
 	f := &fakeReaderFeeder{data: []byte("0:1:4")}
 	d := NewPayloadDecoder(f)

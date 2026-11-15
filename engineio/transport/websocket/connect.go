@@ -23,8 +23,9 @@ type conn struct {
 	transport.FrameReader
 
 	ws wrapper
-	// base64 is set by b64 in the request URL: binary packets travel as
-	// "b<type><base64>" text messages in both directions.
+	// base64 is set by b64 in the request URL: binary packets are written as
+	// "b<type><base64>" text messages. Such messages are read as binary
+	// packets in either mode (see packetReader).
 	base64 bool
 
 	url          url.URL
@@ -58,21 +59,14 @@ func newConn(ws *websocket.Conn, url url.URL, header http.Header, settings ...*T
 	}
 	closed := make(chan struct{})
 
-	// With b64, inbound text messages starting with 'b' decode as binary packets;
-	// binary messages are still accepted.
-	var decoder eioparser.FrameReader = w
-	b64 := url.Query().Get("b64") != ""
-	if b64 {
-		decoder = base64FrameReader{w}
-	}
 	return &conn{
 		url:          url,
 		remoteHeader: header,
 		ws:           w,
-		base64:       b64,
+		base64:       url.Query().Get("b64") != "",
 		closed:       closed,
 		abort:        make(chan struct{}),
-		FrameReader:  eioparser.NewPacketDecoder(decoder),
+		FrameReader:  packetReader{w},
 	}
 }
 

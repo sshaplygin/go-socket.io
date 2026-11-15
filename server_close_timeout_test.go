@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -58,6 +60,40 @@ func TestServerCloseTimeoutReportsPendingConnections(t *testing.T) {
 	err = s.closeWithTimeout(50 * time.Millisecond)
 	require.ErrorIs(t, err, context.DeadlineExceeded, "timeout is still reported")
 	require.ErrorIs(t, err, failure, "adapter close error accompanies the timeout")
+}
+
+// TestServerCloseWaitsTenSeconds checks the bound of Server.Close: it waits ten
+// seconds for an OnDisconnect handler that does not return. The wait's timer fires
+// at once here, so the test observes the configured bound without waiting for it.
+func TestServerCloseWaitsTenSeconds(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	s := NewServer(WithEngineOptions(shortPingOptions()...))
+	waits := make(chan time.Duration, 4)
+	var expired atomic.Bool
+	s.closeTimer = func(d time.Duration) *time.Timer {
+		waits <- d
+		if expired.Swap(true) {
+			return time.NewTimer(d)
+		}
+		return time.NewTimer(0)
+	}
+	s.OnConnect("/", func(Conn) error { return nil })
+	s.OnDisconnect("/", func(Conn, string) { close(entered); <-release })
+	go func() { _ = s.Serve() }()
+	ts := httptest.NewServer(s)
+	unblock := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(func() { unblock(); _ = s.Close(); ts.Close() })
+
+	c := dialRaw(t, ts.URL)
+	require.Equal(t, "0", c.read())
+
+	err := s.Close()
+	require.Equal(t, 10*time.Second, recv(t, waits, "Close wait"))
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "close timed out after 10s with 1 connections still open")
+	recv(t, entered, "blocked OnDisconnect")
+	unblock()
+	require.NoError(t, s.Close(), "Close after OnDisconnect returned")
 }
 
 // An adapter whose Close outlives the wait is a timeout as well, even with no

@@ -133,11 +133,16 @@ async function reconnect() {
   root.emit('drop-transport');
   const [reason] = await disconnected;
   assert.notStrictEqual(reason, 'io server disconnect');
+  // Emitted while disconnected: the client buffers the packets and sends them once
+  // the new session has connected, and the new session answers them.
+  assert.strictEqual(root.connected, false);
+  const replayed = [ack(root, 'echo', 'buffered 1'), ack(root, 'echo', 'buffered 2')];
   await reconnected;
+  assert.deepStrictEqual(await Promise.all(replayed), [['buffered 1'], ['buffered 2']]);
   assert.notStrictEqual((await ack(root, 'id'))[0], before);
   assert.deepStrictEqual(await ack(root, 'echo', 'reconnected'), ['reconnected']);
   root.disconnect();
-  console.log(version + ' ' + transport + ': reconnect passed');
+  console.log(version + ' ' + transport + ': reconnect and buffered replay passed');
 }
 
 async function upgrade() {
@@ -199,12 +204,15 @@ async function heartbeat(suppressPings) {
     });
     renewed.catch(() => {}); // awaited only by the heartbeat scenario
   });
+  const disconnected = suppressPings ? event(root, 'disconnect', 3 * window) : null;
   const engine = root.io.engine;
   assert.strictEqual(engine.pingInterval, pingInterval);
   assert.strictEqual(engine.pingTimeout, pingTimeout);
   if (suppressPings) {
-    // The server closes the connection a window after the last packet it read.
-    if (root.connected) { await event(root, 'disconnect', 3 * window); }
+    // The server closes the connection a window after the last packet it read: the
+    // pending poll receives CLOSE, a websocket the close frame, and the client reports
+    // an orderly close, as against engine.io 3.6.2.
+    assert.deepStrictEqual(await disconnected, ['transport close']);
     assert.strictEqual(pongs, 0, 'muted client must not send heartbeat pings');
     assert.strictEqual(root.connected, false, 'server must close the muted client');
   } else {

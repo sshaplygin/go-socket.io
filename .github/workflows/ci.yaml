@@ -406,7 +406,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go: [stable, oldstable]
+        # 1.25 is the first release with the experiment, and its encoding/json
+        # error text differs from later releases.
+        go: [stable, oldstable, '1.25']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

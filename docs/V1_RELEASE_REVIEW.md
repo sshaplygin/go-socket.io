@@ -3597,7 +3597,8 @@ changed to `done — #<PR>` after the merge.
   replayed after a reconnect, compared with the reference.
 - **Tests:** as listed; `TestServerEndedPollingSessionAnswersPendingPoll` pins interop-19.
 - **Benchmarks:** none.
-- **Docs:** `docs/PROTOCOL.md`, `docs/PARITY.md`, `CLAUDE.md` (CI).
+- **Docs:** `docs/PROTOCOL.md`, `docs/PARITY.md`, and the CI description of the file the
+  ownership table assigns it to.
 - **Acceptance criteria:** met: `make test-jsonv2` passes on Go 1.25.5; both conformance
   jobs pass.
 - **Definition of done:** standard.
@@ -3837,7 +3838,8 @@ changed to `done — #<PR>` after the merge.
 - **Tests:** a `.github/changes` case for the classifier; each T26 test passes
   `-race -count=50` under `make test-stress-load`.
 - **Benchmarks:** none.
-- **Docs:** `CLAUDE.md` (Commands, CI), if a target or job changes.
+- **Docs:** the commands and CI description of the file the ownership table assigns them
+  to, if a target or job changes.
 - **Acceptance criteria:** `go test ./.github/changes` passes; a Stress workflow run on the
   PR head passes on Ubuntu and macOS, linked in the PR.
 - **Definition of done:** standard.

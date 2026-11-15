@@ -88,6 +88,19 @@ func loggerFrom(opts *options) *slog.Logger {
 // then, their errors are joined to it. Callers that treat a timeout as a clean stop
 // can ignore the error with errors.Is(err, context.DeadlineExceeded). Close may be
 // called again to wait once more.
+//
+// The wait includes the connection whose callback calls Close, and that connection
+// cannot finish until the callback returns. Called from a callback of this server
+// (middleware, OnConnect, OnEvent, listeners, acknowledgement callbacks, OnError,
+// disconnecting or OnDisconnect), Close therefore returns the timeout error after ten
+// seconds, and shutdown completes only after the callback returns. Callbacks start it
+// on its own goroutine instead:
+//
+//	go func() {
+//		if err := s.Close(); err != nil {
+//			// handle err
+//		}
+//	}()
 func (s *Server) Close() error { return s.closeWithTimeout(10 * time.Second) }
 
 func (s *Server) closeWithTimeout(timeout time.Duration) error {

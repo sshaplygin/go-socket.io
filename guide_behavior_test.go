@@ -80,7 +80,7 @@ func TestReservedBroadcastRunsRecipientListeners(t *testing.T) {
 			want := append([]string(nil), tc.want...)
 			sort.Strings(want)
 			require.Equal(t, want, got)
-			// Packets of one connection arrive in order: the barrier's ACK path
+			// Packets of one connection arrive in order: the barrier's event
 			// would follow any event the broadcast had written.
 			a.send(`2["barrier"]`)
 			b.send(`2["barrier"]`)

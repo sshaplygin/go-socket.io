@@ -112,6 +112,8 @@ func WithRandomizationFactor(value float64) Option {
 }
 
 // WithTransports sets transports in dial/upgrade order. The slice is copied for each instance.
+// The client uses a copy of each websocket.Transport whose EnableCompression and
+// CompressionThreshold are replaced by WithPerMessageDeflate and a threshold of 1024.
 func WithTransports(values ...transport.Transport) Option {
 	return func(config *options) { config.Transports = append(values[:0:0], values...) }
 }

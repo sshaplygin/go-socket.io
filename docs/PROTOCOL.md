@@ -31,7 +31,10 @@ Package `engineio` of the v1 module at the repository root.
   receives `CLOSE`, where engine.io 3.6.2 has already removed the session and answers
   HTTP 400 with code 1; after it, this library answers the same (below). The payload
   uses the framing of the polling payload bullet below, so without `b64=1` it is
-  binary where engine.io 3.6.2 sends the text `1:1`.
+  binary where engine.io 3.6.2 sends the text `1:1`. `PING` is answered
+  inside `Conn.NextReader`, so only while the application reads the session; a
+  Socket.IO connection does not read while one of its event handlers runs (see
+  [handler duration](V1.md#connections-and-namespaces)).
 - Polling payload: with `b64=1` packets are length-prefixed (`<length>:<packet>`),
   lengths count UTF-16 code units, and binary packets are base64 with a `b` prefix.
   Otherwise the payload is binary: per packet a `0` (string) or `1` (binary) byte, the
@@ -179,8 +182,9 @@ Package `engineio` of the v1 module at the repository root.
   cannot take (paused, overlapping, closed, timed out or not decodable) or an invalid
   method, 413 for the message limit above, 500 for a poll
   whose response failed before it was started, except on an expired deadline, which
-  is answered with `CLOSE` (heartbeat bullet above). A POST whose body read the session's
-  close interrupted is answered with `Connection: close`.
+  is answered with `CLOSE` (heartbeat bullet above). A POST that is not decodable also
+  closes the session; once it has closed, a POST with its `sid` is answered HTTP 400. A POST whose
+  body read the session's close interrupted is answered with `Connection: close`.
   A polling POST body is decoded by its `Content-Type`, as in engine.io 3.6.2:
   `application/octet-stream` selects the binary payload and every other value, a
   missing header, `text/plain` with or without a charset, `application/x-www-form-urlencoded`
@@ -266,8 +270,8 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   client requested an ack and a listener handled the event. Emitting with a trailing
   function argument registers an ack callback; it runs for the first ACK with its id,
   and a repeated ACK id is ignored, as in the reference. When an event's arguments do not
-  decode into an untyped handler's parameter types, for example a string for an
-  `int`, the handler does not run and the connection stays open. This holds for
+  decode into an untyped handler's parameter types with a `*json.UnmarshalTypeError`,
+  for example a string for an `int`, the handler does not run and the connection stays open. This holds for
   the server and for the Go client alike. If the peer requested an ack, the
   receiving side answers with the error ACK of acknowledged typed descriptors
   (`NewAckEvent`), `3<id>[{"code":"invalid_payload","message":"decode argument 0:
@@ -277,11 +281,15 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   `encoding/json`, and a build with `GOEXPERIMENT=jsonv2` can word it differently. A
   JavaScript callback, or the callback of a Go `Emit` with an acknowledgement, is called
   with that object as its only argument, and `EmitWithAck` returns a
-  `*RemoteError` with code `invalid_payload`; without an ACK id nothing is sent. The decode error goes to `OnError` in both cases. This
-  covers a wrong JSON type and a binary attachment where another type is
-  expected. A missing argument is zero-filled and extra arguments are ignored, so
+  `*RemoteError` with code `invalid_payload`; without an ACK id nothing is sent. The decode error goes to `OnError` in both cases. A binary
+  attachment where an `int` is expected is such an error as well. Any other error decoding the arguments for an untyped handler, such as
+  the one `Time.UnmarshalJSON` returns for `"bad"` or an attachment sent as a text
+  frame, goes to `OnError` and closes the connection with no ACK. The
+  arguments of an ACK decoded into an `Emit` callback follow the same rule: the
+  error is reported to `OnError`, the callback is not called, and the connection
+  closes unless the error is a `*json.UnmarshalTypeError`. A missing argument is zero-filled and extra arguments are ignored, so
   the handler runs and its return value is the ACK. A packet that is not valid
-  (an event payload that is not an array) or an invalid attachment closes the
+  (an event payload that is not an array) closes the
   connection and sends no ACK. The reference server has no equivalent, because its
   handlers accept any arguments.
 - A server handler result of type `error` is encoded in its ACK position as `null`

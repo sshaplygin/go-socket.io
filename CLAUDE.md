@@ -139,6 +139,11 @@ workflow exercises the report action with the collected benchmark samples.
 - Reproduce a bug with a behavioral test; verify concurrency changes with `-race`.
   Test observable contracts, failure paths and boundaries. Avoid tests that only
   repeat implementation details or count documentation markers.
+- Every exported identifier of the root module's non-internal packages has godoc
+  that states its contract: behavior, errors, concurrency and ownership of
+  arguments. golangci-lint (revive `exported`) enforces a doc comment on exported
+  functions, methods, types, constants and variables there; struct fields and
+  interface methods are not checked by the linter.
 - Public API changes update the owning reference and consumer fixtures. Client
   APIs contain client operations; server-only operations belong to server types.
 - Repository text is English. Commit and PR descriptions state the problem,

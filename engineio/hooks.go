@@ -29,18 +29,23 @@ type Hooks struct {
 	// error.
 	ConnectionError func(r *http.Request, code int, message string, err error)
 
-	// Packet fires for every packet read from the client, PacketCreate for every
-	// packet about to be written, each with the packet and frame types.
-	Packet       func(c Conn, pt eioparser.PacketType, ft eioparser.FrameType)
+	// Packet fires for every packet read from the client, with its packet and
+	// frame types.
+	Packet func(c Conn, pt eioparser.PacketType, ft eioparser.FrameType)
+	// PacketCreate fires for every packet about to be written, with its packet
+	// and frame types.
 	PacketCreate func(c Conn, pt eioparser.PacketType, ft eioparser.FrameType)
 	// Heartbeat fires when a PING is received, before the PONG is written.
 	Heartbeat func(c Conn)
-	// Upgrading fires when the probe is accepted, Upgrade when the transport has
-	// switched; transport is the name of the new one.
+	// Upgrading fires when the probe is accepted; transport is the name of the
+	// new transport.
 	Upgrading func(c Conn, transport string)
-	Upgrade   func(c Conn, transport string)
-	// Flush fires when a polling write batch starts, Drain when it has been written.
+	// Upgrade fires when the session has switched to the new transport named
+	// by transport.
+	Upgrade func(c Conn, transport string)
+	// Flush fires when a polling write batch starts.
 	Flush func(c Conn)
+	// Drain fires when a polling write batch has been written.
 	Drain func(c Conn)
 	// Error fires with the transport error that closes the session (the cause
 	// transport error), before the close; a peer close or a ping timeout fires nothing.

@@ -5,9 +5,18 @@ const socketio = require('socket.io');
 assert.strictEqual(require('socket.io/package.json').version, '2.5.0');
 const server = http.createServer();
 const io = socketio(server);
-for (const name of ['/', '/chat']) {
+for (const name of ['/', '/chat', '/welcome']) {
   const namespace = io.of(name);
   namespace.on('connection', socket => {
+    if (name === '/welcome' || socket.handshake.query.welcome === '1') {
+      // Broadcasts from the connection listener that select the connecting socket reach it.
+      socket.join('lobby');
+      namespace.emit('welcome', 'all');
+      namespace.to(socket.id).emit('welcome', 'self');
+      namespace.to('lobby').emit('welcome', 'lobby');
+      socket.broadcast.emit('welcome', 'others');
+      socket.emit('welcome', 'direct');
+    }
     socket.on('echo', (value, ack) => ack(value));
     socket.on('identity', ack => ack(socket.id));
     socket.on('metadata', ack => ack({query: socket.handshake.query.custom,

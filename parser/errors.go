@@ -7,8 +7,8 @@ var (
 	errIllegalAttachments = errors.New("illegal attachments")
 	errInvalidPayload     = errors.New("invalid payload")
 
-	// ErrInvalidPacketType is returned by Decoder.DecodeHeader for a packet type
-	// outside 0-6.
+	// ErrInvalidPacketType is returned by Decoder.DecodeHeader when the first
+	// byte of a packet is not a packet type digit from 0 to 6.
 	ErrInvalidPacketType = errors.New("parser: invalid packet type")
 
 	errInvalidBinaryBufferType = errors.New("buffer packet should be binary")

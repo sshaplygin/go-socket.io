@@ -31,8 +31,14 @@ type Options struct {
 // selection, exclusion and cluster routing belong to the adapter. Socket is
 // implemented by the library, and a minor release may add methods to it.
 type Socket interface {
+	// ID returns the socket ID that Options.Except and the room of the
+	// socket's own ID use.
 	ID() string
+	// Emit sends event with args to this socket, as socketio.Conn.Emit does:
+	// a trailing func is registered as the acknowledgement callback.
 	Emit(event string, args ...interface{})
+	// EmitWithOptions is Emit with the Volatile and NoCompress flags of opts;
+	// its other fields are ignored.
 	EmitWithOptions(opts Options, event string, args ...interface{})
 }
 
@@ -42,6 +48,8 @@ type Socket interface {
 // lookup returns nil for IDs not connected to the namespace, is safe for
 // concurrent use and holds no server lock while the adapter runs.
 type SocketLookupBinder interface {
+	// BindSocketLookup receives the lookup of the namespace's connected
+	// sockets by ID.
 	BindSocketLookup(lookup func(string) Socket)
 }
 

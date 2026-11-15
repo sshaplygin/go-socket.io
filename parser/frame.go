@@ -4,7 +4,7 @@ package parser
 type FrameType byte
 
 const (
-	// Text is the frame of a packet's header and JSON payload.
+	// Text is the frame of a packet header and its JSON payload.
 	Text FrameType = iota
 	// Binary is the frame of one binary attachment.
 	Binary

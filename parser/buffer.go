@@ -13,18 +13,30 @@ type Buffer struct {
 	num      uint64
 	isBinary bool
 
+	// Data is the binary content. A decoded Buffer receives the bytes of its
+	// attachment, or of the data array of a {"type":"Buffer","data":[...]}
+	// object sent as JSON.
 	Data []byte
 }
 
-// BufferData is the JSON object that Buffer.UnmarshalJSON decodes: an attachment
-// placeholder ({"_placeholder":true,"num":n}) or inline Data.
+// BufferData is the JSON object that Buffer.UnmarshalJSON accepts: either an
+// attachment placeholder {"_placeholder":true,"num":N} or a Node.js Buffer
+// object {"type":"Buffer","data":[...]}.
 type BufferData struct {
-	Num         uint64
+	// Num is the zero-based index of the attachment that a placeholder refers to.
+	Num uint64
+	// PlaceHolder reports whether the object is an attachment placeholder.
 	PlaceHolder bool `json:"_placeholder"`
-	Data        []byte
+	// Data is the byte array of a Node.js Buffer object.
+	Data []byte
 }
 
-// MarshalJSON marshals to JSON.
+// MarshalJSON returns the JSON form of a: the Node.js Buffer object
+// {"type":"Buffer","data":[...]} with the bytes as numbers, or the attachment
+// placeholder of a Buffer decoded from a placeholder that was not replaced by
+// an attachment. Prepare does not call it for a Buffer it reaches in a payload,
+// which it sends as an attachment; encoding/json calls it, for example for a
+// Buffer inside a value with a custom marshaler.
 func (a Buffer) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	if err := a.marshalJSONBuf(&buf); err != nil {
@@ -64,7 +76,8 @@ func (a *Buffer) encodeBinary(buf *bytes.Buffer) error {
 	return nil
 }
 
-// UnmarshalJSON unmarshal data from JSON.
+// UnmarshalJSON decodes a BufferData object into a. A placeholder records the
+// attachment index, which DecodeArgs replaces with the attachment bytes.
 func (a *Buffer) UnmarshalJSON(b []byte) error {
 	var data BufferData
 	if err := json.Unmarshal(b, &data); err != nil {

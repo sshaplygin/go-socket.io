@@ -73,7 +73,8 @@ func (nh *namespaceHandler) OnError(f func(Conn, error)) {
 	nh.onError = f
 }
 
-func (nh *namespaceHandler) Connect(c Conn) (err error) {
+// Connect runs the middleware, then enter, when not nil, and OnConnect.
+func (nh *namespaceHandler) Connect(c Conn, enter func()) (err error) {
 	defer func() {
 		if value := recover(); value != nil {
 			err = fmt.Errorf("connect callback panic: %v", value)
@@ -87,6 +88,9 @@ func (nh *namespaceHandler) Connect(c Conn) (err error) {
 		if err := f(c); err != nil {
 			return err
 		}
+	}
+	if enter != nil {
+		enter()
 	}
 	if onConnect != nil {
 		return onConnect(c)

@@ -61,7 +61,7 @@ const (
 	// ReasonTransportError means a transport read or write failed with an error
 	// that is not a deadline or timeout error.
 	ReasonTransportError CloseReason = "transport error"
-	// ReasonForcedClose means Conn.Close was called.
+	// ReasonForcedClose means Conn.Close or Abort was called.
 	ReasonForcedClose CloseReason = "forced close"
 	// ReasonServerShutdown means engineio.Server.Close closed the session.
 	ReasonServerShutdown CloseReason = "server shutting down"

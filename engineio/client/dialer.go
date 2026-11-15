@@ -16,6 +16,11 @@ import (
 
 // Dialer configures Engine.IO client dialing and optional transport upgrades.
 type Dialer struct {
+	// Transports are the transports Dial may use, in upgrade order, such as
+	// polling.Default followed by websocket.Default. With Upgrade, Dial opens
+	// the first one; without it, Dial tries them from the last to the first
+	// and keeps the first that opens. Dial fails when the list is empty. Dial
+	// copies the slice; the transports themselves are shared.
 	Transports []transport.Transport
 	// MaxMessageSize bounds received websocket messages and polling HTTP bodies,
 	// including OPEN and upgraded transports. Nonpositive values mean 1 MiB.
@@ -28,9 +33,10 @@ type Dialer struct {
 	// Nonpositive values mean ten seconds; the OPEN heartbeat window clamps it.
 	// A transport's Dial has its own timeout; a late connection is closed.
 	UpgradeTimeout time.Duration
-	// OnPing runs after a PING write on the ping goroutine; OnPong runs on the
-	// NextReader goroutine with the time since that PING. Observers must not block.
+	// OnPing runs after a PING write on the ping goroutine. It must not block.
 	OnPing func()
+	// OnPong runs on the NextReader goroutine when a PONG arrives, with the
+	// time since the latest PING. It must not block.
 	OnPong func(rtt time.Duration)
 }
 

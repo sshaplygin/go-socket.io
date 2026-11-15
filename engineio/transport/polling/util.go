@@ -6,11 +6,13 @@ import (
 	"strings"
 )
 
-// Addr is the net.Addr of a polling connection, which has no single TCP connection.
-// On the server, LocalAddr returns the handshake request's Host and RemoteAddr its
-// RemoteAddr; on the client, RemoteAddr returns the request's Host and LocalAddr an
-// empty Addr.
+// Addr is the net.Addr of a polling connection, which spans many HTTP
+// requests rather than one network connection. On the server, LocalAddr is
+// the Host header and RemoteAddr the RemoteAddr of the request that opened the
+// connection; on the client, LocalAddr is empty and RemoteAddr is the host of
+// the dialed URL.
 type Addr struct {
+	// Host is the address in host or host:port form, or empty when unknown.
 	Host string
 }
 

@@ -170,10 +170,18 @@ func (s *Server) OnDisconnect(namespace string, f func(Conn, string)) {
 // returned, and a recovered panic of any application callback of the namespace as
 // a *PanicError, possibly wrapped; each panic is reported once, also after the
 // connection's close started. Without an error handler these are logged at WARN, a
-// panic as "socketio: handler panic" with its stack. An error result returned after
-// the connection's close started is not reported: it is logged at DEBUG as
-// "socketio: error after close". A panic in the error handler is
-// recovered and logged at WARN as "socketio: error handler panic" with its stack.
+// panic as "socketio: handler panic" with its stack. An error result that a handler
+// of an incoming event returns after the connection's close started is not
+// reported: it is logged at DEBUG as "socketio: error after close". The error
+// results of disconnecting listeners, which only run during a close, and of
+// listeners that an Emit of a reserved event runs locally are always reported. An
+// error result whose Error method panics is reported as that *PanicError. A panic
+// in the error handler is recovered and logged at WARN as
+// "socketio: error handler panic" with its stack. f may be called concurrently,
+// also for one connection: reports raised while handling incoming packets are
+// delivered one at a time, but those of a close (disconnecting listeners,
+// OnDisconnect, panics after the close started) and of a local Emit run on the
+// goroutine that raised them.
 // The end of the Engine.IO session, by a disconnect, a transport failure, a ping
 // timeout, a close or a message-size limit, is not an error: OnDisconnect reports it.
 func (s *Server) OnError(namespace string, f func(Conn, error)) {
@@ -199,8 +207,10 @@ func (s *Server) OnError(namespace string, f func(Conn, error)) {
 // returns; it may be called later, once, from another goroutine. If the arguments
 // do not decode into the parameter types, f is not called, the error goes to
 // OnError and a requested acknowledgement is answered with an error ACK. If f
-// panics while handling an incoming event, OnError receives a *PanicError, no ACK
-// is sent and the connection is closed with the OnDisconnect reason forced close.
+// panics while handling an incoming event, OnError receives a *PanicError, no
+// automatic ACK is sent (one already sent through an AckFunc stays sent) and the
+// connection is closed with the OnDisconnect reason forced close, unless a close
+// already started, which keeps its reason.
 // A panic in a listener of a reserved event (disconnecting, or a listener that an
 // Emit or broadcast of connect, disconnect, disconnecting or error runs locally) is
 // reported the same way and closes nothing: a disconnect in progress keeps its

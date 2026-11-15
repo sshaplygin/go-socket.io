@@ -53,8 +53,9 @@ type Conn interface {
 	// Other than an overflow, the error is reported to OnError before the close's effects run,
 	// so Emits from OnError still queue. A middleware or OnConnect rejection sends ERROR and keeps
 	// the engine connection open; it reports to that namespace's OnError, with a nil Conn for root.
-	// Failures during a close are not reported, except recovered panics of application callbacks
-	// (see Server.OnError); they are logged at DEBUG. An encode failure reports OnError, sends an ERROR
+	// Failures during a close are not reported but logged at DEBUG, except recovered panics of
+	// application callbacks and the error results of disconnecting listeners and of listeners run
+	// by a local Emit (see Server.OnError). An encode failure reports OnError, sends an ERROR
 	// packet with "encode error", and keeps the connection open.
 	Close() error
 	Namespace

@@ -180,3 +180,48 @@ func TestValidation(t *testing.T) {
 		t.Fatal("context")
 	}
 }
+
+type panickingError struct{}
+
+func (panickingError) Error() string { panic("error method boom") }
+
+type panickingUnwrap struct{}
+
+func (panickingUnwrap) Error() string { return "unwrap" }
+func (panickingUnwrap) Unwrap() error { panic("unwrap boom") }
+
+func TestReturnedRecoversErrorMethodPanics(t *testing.T) {
+	plain := errors.New("plain")
+	if got := Returned(plain); got != plain {
+		t.Fatalf("Returned(plain) = %v", got)
+	}
+	if got := Returned((*derefError)(nil)); got != nil {
+		t.Fatalf("Returned(typed nil) = %v", got)
+	}
+	for value, err := range map[string]error{"error method boom": panickingError{}, "unwrap boom": panickingUnwrap{}} {
+		var panicked *PanicError
+		got := Returned(err)
+		if !errors.As(got, &panicked) || panicked.Value != value || len(panicked.Stack) == 0 {
+			t.Fatalf("Returned(%T) = %v", err, got)
+		}
+		if got.Error() != "error method: panic: "+value {
+			t.Fatal(got.Error())
+		}
+		// The encoders do not crash on the unchecked value either.
+		if object := AckError(err); object != (RemoteError{Code: "handler_panic", Message: PanicMessage}) {
+			t.Fatal(object)
+		}
+		if args := AckArgs(Payload{}, err); len(args) != 1 || args[0] != (RemoteError{Code: "handler_panic", Message: PanicMessage}) {
+			t.Fatal(args)
+		}
+	}
+	if got := WireMessage(panickingError{}); got != PanicMessage {
+		t.Fatal(got)
+	}
+	h := NewHandler(SchemaOf[int](), true, func(context.Context, Endpoint, Payload) (Payload, error) {
+		return Payload{}, panickingError{}
+	})
+	if _, err := h.Invoke(context.Background(), nil, ValueOf(1)); !IsPanic(err) {
+		t.Fatalf("Invoke = %v", err)
+	}
+}

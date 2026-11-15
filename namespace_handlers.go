@@ -85,12 +85,12 @@ func (nh *namespaceHandler) Connect(c Conn) (err error) {
 	onConnect := nh.onConnect
 	nh.eventsLock.RUnlock()
 	for _, f := range middleware {
-		if err := eventImpl.NilError(f(c)); err != nil {
+		if err := eventImpl.Returned(f(c)); err != nil {
 			return err
 		}
 	}
 	if onConnect != nil {
-		return eventImpl.NilError(onConnect(c))
+		return eventImpl.Returned(onConnect(c))
 	}
 	return nil
 }

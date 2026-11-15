@@ -594,3 +594,141 @@ func TestErrorResultAfterCloseIsLoggedAtDebug(t *testing.T) {
 	require.Equal(t, "after close failure", records[0]["err"])
 	require.Empty(t, p.errs, "OnError after the close started")
 }
+
+// brokenError is a non-nil error whose Error method panics.
+type brokenError struct{}
+
+func (brokenError) Error() string { panic("error method boom") }
+
+// An error result whose Error method panics is a panic of the callback that
+// returned it: reported once with the stack, answered with the fixed text, and
+// the connection keeps dispatching.
+func TestErrorMethodPanicIsReportedAsPanic(t *testing.T) {
+	const panicAck = "[{\"code\":\"handler_panic\",\"message\":\"internal error\"}]\n"
+	for _, withOnError := range []bool{true, false} {
+		t.Run(map[bool]string{true: "with OnError", false: "without OnError"}[withOnError], func(t *testing.T) {
+			p := newHandlerPeer(t, func(p *handlerPeer) {
+				if withOnError {
+					p.onError("/")
+					p.onError("/chat")
+				}
+				registerBarrier(p.server)
+				p.server.OnConnect("/", func(c Conn) error {
+					c.Use(func(event string, _ []interface{}) error {
+						if event == "guarded" {
+							return brokenError{}
+						}
+						return nil
+					})
+					return nil
+				})
+				p.server.OnEvent("/", "guarded", func(Conn) {})
+				p.server.OnEvent("/", "single", func(Conn) error { return brokenError{} })
+				p.server.OnEvent("/", "pair", func(Conn) (string, error) { return "done", brokenError{} })
+				require.NoError(t, NewAckEvent[int, int]("typed").Handle(p.server.Of("/"), func(context.Context, Conn, int) (int, error) {
+					return 0, brokenError{}
+				}))
+				p.server.OnConnect("/chat", func(Conn) error { return brokenError{} })
+			})
+			require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
+			reports := 0
+			step := func(frame, want string) {
+				t.Helper()
+				p.send(t, frame)
+				require.Equal(t, want, recv(t, p.fc.out, "reply to "+frame))
+				reports++
+				if withOnError {
+					err := recv(t, p.errs, "OnError for "+frame)
+					requirePanic(t, err, "error method boom")
+					require.Contains(t, err.Error(), "error method: ")
+				}
+			}
+			step(`21["single"]`, "31"+panicAck)
+			step(`22["pair"]`, "32[\"done\",{\"code\":\"handler_panic\",\"message\":\"internal error\"}]\n")
+			step(`23["typed",1]`, "33"+panicAck)
+			step(`2["guarded"]`, "4\"internal error\"\n")
+			step("0/chat", "4/chat,\"internal error\"\n")
+			p.barrier(t)
+			require.Empty(t, p.errs, "a second report")
+			require.Empty(t, p.reasons, "the connection closed")
+			if !withOnError {
+				records := only(p.rec.since(0), "socketio: handler panic")
+				require.Len(t, records, reports, "records %v", p.rec.since(0))
+				for _, record := range records {
+					require.Equal(t, "WARN", record["level"])
+					require.Contains(t, record["stack"], "handler_errors_test.go")
+				}
+				require.Empty(t, only(p.rec.since(0), "socketio: unhandled error"))
+			}
+		})
+	}
+}
+
+// The error results of disconnecting listeners, which only run after the close
+// started, and of listeners run by a local Emit are reported, not logged at DEBUG
+// as the error results of incoming event handlers are.
+func TestDisconnectingErrorResultIsReportedDuringClose(t *testing.T) {
+	failure, local := errors.New("disconnecting failure"), errors.New("local failure")
+	closes := []struct {
+		name   string
+		close  func(*testing.T, *handlerPeer)
+		reason string
+		local  bool // an "error" listener is run by a local Emit after the close started
+	}{
+		{name: "engine connection close", close: func(_ *testing.T, p *handlerPeer) { _ = p.fc.Close() }, reason: "forced close"},
+		{name: "Conn.Close", close: func(t *testing.T, p *handlerPeer) { p.send(t, `2["close"]`) }, reason: "server namespace disconnect", local: true},
+		{name: "Server.Close", close: func(_ *testing.T, p *handlerPeer) { _ = p.server.Close() }, reason: "forced close"},
+	}
+	for _, tc := range closes {
+		for _, withOnError := range []bool{true, false} {
+			t.Run(tc.name+map[bool]string{true: "/with OnError", false: "/without OnError"}[withOnError], func(t *testing.T) {
+				closing := make(chan bool, 2)
+				p := newHandlerPeer(t, func(p *handlerPeer) {
+					if withOnError {
+						p.onError("/")
+					}
+					p.server.OnEvent("/", "disconnecting", func(c Conn, _ string) error {
+						closing <- isDone(c.(*namespaceConn).connection.closing)
+						return failure
+					})
+					p.server.OnEvent("/", "error", func(c Conn, _ string) error {
+						closing <- isDone(c.(*namespaceConn).connection.closing)
+						return local
+					})
+					p.server.OnEvent("/", "close", func(c Conn) {
+						_ = c.Close()
+						c.Emit("error", "local")
+					})
+				})
+				require.Equal(t, "0", recv(t, p.fc.out, "CONNECT"))
+				tc.close(t, p)
+				want := []error{failure}
+				if tc.local {
+					want = append(want, local)
+				}
+				var got []error
+				for range want {
+					require.True(t, recv(t, closing, "listener"), "the close had not started")
+					if withOnError {
+						got = append(got, recv(t, p.errs, "OnError of a listener error result"))
+					}
+				}
+				require.Equal(t, tc.reason, recv(t, p.reasons, "OnDisconnect"))
+				recv(t, p.done, "connection end")
+				records := only(p.rec.since(0), "socketio: unhandled error")
+				if withOnError {
+					require.ElementsMatch(t, want, got)
+					require.Empty(t, p.errs, "a second report")
+					require.Empty(t, records)
+				} else {
+					require.Len(t, records, len(want), "records %v", p.rec.since(0))
+					for _, record := range records {
+						require.Equal(t, "WARN", record["level"])
+						require.Contains(t, []string{failure.Error(), local.Error()}, record["err"])
+					}
+				}
+				require.Empty(t, only(p.rec.since(0), "socketio: error after close"))
+			})
+		}
+	}
+}

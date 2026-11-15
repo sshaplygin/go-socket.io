@@ -6,12 +6,19 @@ import (
 	"time"
 )
 
-// ConnParameters is connection parameter of server.
+// ConnParameters are the session parameters of the OPEN packet, which the
+// server sends as JSON with the durations in milliseconds.
 type ConnParameters struct {
+	// PingInterval is the interval at which the client sends PING
+	// ("pingInterval").
 	PingInterval time.Duration
-	PingTimeout  time.Duration
-	SID          string
-	Upgrades     []string
+	// PingTimeout is how long the server waits for a packet after the ping
+	// interval before it closes the session ("pingTimeout").
+	PingTimeout time.Duration
+	// SID is the session ID ("sid").
+	SID string
+	// Upgrades lists the transports the session may upgrade to ("upgrades").
+	Upgrades []string
 }
 
 type jsonParameters struct {

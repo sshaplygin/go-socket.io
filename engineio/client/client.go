@@ -25,8 +25,12 @@ import (
 // final POST that carries the polling CLOSE packet.
 const closePacketTimeout = 2 * time.Second
 
-// Opener is client connection which need receive open message first.
+// Opener is a client transport connection that performs the Engine.IO
+// handshake itself, as polling does. Dialer.Dial calls Open on a connection
+// that implements it; on any other connection it reads the OPEN packet with
+// NextReader.
 type Opener interface {
+	// Open reads the server's OPEN packet and returns its parameters.
 	Open() (eioparser.ConnParameters, error)
 }
 

@@ -55,6 +55,9 @@ type broadcast struct {
 	// the subscriber listens on.
 	dial    atomic.Pointer[func(context.Context) (redis.Conn, error)]
 	pattern string
+	// reconnectWait replaces time.After for the reconnect delays when set
+	// (atomic so tests can record the delays while the dispatcher runs).
+	reconnectWait atomic.Pointer[func(time.Duration) <-chan time.Time]
 
 	nsp        string
 	uid        string

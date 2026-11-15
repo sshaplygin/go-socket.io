@@ -66,13 +66,16 @@ type Option func(*options)
 // New returns a lazy namespace factory interoperable with socket.io-redis 5.4.0.
 // Namespaces share one subscriber and publishing pool. Construction waits for
 // subscription acknowledgements within WithSubscribeTimeout (ten seconds by
-// default); lost subscriptions reconnect with bounded backoff. WithDB selects
+// default). A lost subscription reconnects with bounded backoff; the loss is
+// logged once at WARN and the recovery at INFO, and messages from other
+// instances published in between are not delivered to this one. WithDB selects
 // the Redis database, but Pub/Sub isolation requires distinct prefixes.
 //
 // Values implement Cluster for bounded context/error query and control methods.
-// IDs and AllRooms return partial snapshots and log errors; Len returns -1
-// on failure. Clear performs bounded, acknowledged remote leaves. Queries are not
-// atomic snapshots, and Clear does not roll back partial effects.
+// IDs and AllRooms return partial snapshots and log errors (at DEBUG once the
+// adapter is closed); Len returns -1 on failure. Clear performs bounded,
+// acknowledged remote leaves. Queries are not atomic snapshots, and Clear does
+// not roll back partial effects.
 func New(opts ...Option) adapter.Factory {
 	config := new(options)
 	for _, option := range opts {

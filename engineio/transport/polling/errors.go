@@ -5,15 +5,24 @@ import (
 	"fmt"
 )
 
-// Error is payload error.
+// Error is a payload error that reports whether the failed operation can be
+// retried. OpError.Temporary consults it on its Err.
 type Error interface {
+	// Error returns the error text.
 	Error() string
+	// Temporary reports whether the operation can succeed when retried, as
+	// for a payload paused during a transport upgrade.
 	Temporary() bool
 }
 
-// OpError is operation error.
+// OpError is the error a polling connection returns for a failed operation.
+// OpError has no Unwrap method; use Timeout and Temporary, or inspect Err.
 type OpError struct {
-	Op  string
+	// Op names the operation: "read" or "write" of the payload, "payload" for
+	// a paused payload, and on the client "get" or "post" for a failed poll or
+	// send request.
+	Op string
+	// Err is the cause.
 	Err error
 }
 
@@ -24,6 +33,7 @@ func newOpError(op string, err error) error {
 	}
 }
 
+// Error returns Op + ": " + the text of Err.
 func (e *OpError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Op, e.Err.Error())
 }

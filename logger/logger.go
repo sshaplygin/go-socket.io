@@ -30,8 +30,8 @@
 //
 // # Levels
 //
-// The library logs WARN and DEBUG records only; it logs no ERROR or INFO
-// record. WARN marks a failure no caller receives. On the server such records
+// The library logs WARN, INFO and DEBUG records; it logs no ERROR record.
+// WARN marks a failure no caller receives. On the server such records
 // include "socketio: unhandled error" without OnError for an error or a panic of
 // an event handler, a panic of connect middleware or OnConnect, a packet the
 // server cannot encode and a full write buffer of a namespace the server has
@@ -63,10 +63,15 @@
 // namespace whose Redis broadcast could not be created, which logs each CONNECT
 // to it without OnError and closes the session.
 //
-// Expected closure (EOF, a closed connection, a peer close, a ping timeout and
-// any failure after a close started), errors also returned to a caller or
-// delivered to an OnError handler, and the boundary records (session open and
-// close, namespace connect, disconnect) are DEBUG. LevelTrace is available for
+// INFO marks only the end of a WARN failure that persists until the library
+// recovers from it: "socketio: redis subscription restored" follows
+// "socketio: redis subscription lost", which is WARN whatever its error,
+// EOF included, because the adapter did not end that subscription.
+//
+// Expected closure of a session (EOF, a closed connection, a peer close, a
+// ping timeout and any failure after a close started), errors also returned
+// to a caller or delivered to an OnError handler, and the boundary records
+// (session open and close, namespace connect, disconnect) are DEBUG. LevelTrace is available for
 // application records; the library does not emit records at that level.
 //
 // # Messages and keys

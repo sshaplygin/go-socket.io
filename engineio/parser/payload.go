@@ -10,7 +10,11 @@ import (
 // receives the encoding/write error, or nil, after that packet; its error takes
 // precedence. AcquirePayloadWriter errors are returned without a release.
 type PayloadWriter interface {
+	// AcquirePayloadWriter returns the destination of the next packet.
 	AcquirePayloadWriter() (io.Writer, error)
+	// ReleasePayloadWriter ends the use of that destination, given the
+	// packet's encoding or write error, and returns the error the encoder
+	// reports.
 	ReleasePayloadWriter(error) error
 }
 
@@ -20,7 +24,11 @@ type PayloadWriter interface {
 // from an already closed source does not replace a decoding or body read
 // failure. Acquisition errors are returned without a release.
 type PayloadReader interface {
+	// AcquirePayloadReader returns the source of the next payload and whether
+	// it uses binary payload framing.
 	AcquirePayloadReader() (io.Reader, bool, error)
+	// ReleasePayloadReader ends the use of that source, given the decoding
+	// error or nil, and returns the error the decoder reports.
 	ReleasePayloadReader(error) error
 }
 

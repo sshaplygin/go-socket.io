@@ -28,9 +28,15 @@ type Conn interface {
 	// ID returns the Engine.IO ID in the root namespace, or
 	// <namespace>#<Engine.IO ID> in any other namespace.
 	ID() string
+	// URL returns the request URL of the current Engine.IO transport, which
+	// changes with a transport upgrade.
 	URL() url.URL
+	// LocalAddr returns the local network address of the current transport.
 	LocalAddr() net.Addr
+	// RemoteAddr returns the server's network address on the current transport.
 	RemoteAddr() net.Addr
+	// RemoteHeader returns the server's response headers on the current
+	// transport: of the websocket handshake, or of the latest polling response.
 	RemoteHeader() http.Header
 }
 
@@ -40,8 +46,12 @@ type Namespace interface {
 	// Synchronize access when callbacks or application goroutines share mutable state;
 	// a disconnect initiated by the application can run callbacks concurrently.
 	Context() interface{}
+	// SetContext replaces the value Context returns. It does not synchronize
+	// with Context; see Context.
 	SetContext(ctx interface{})
 
+	// Namespace returns the name of this namespace, "/" for the root
+	// namespace.
 	Namespace() string
 	// Connected is true from namespace CONNECT until its socket or connection closes.
 	Connected() bool
@@ -55,6 +65,16 @@ type Namespace interface {
 	// later one and closes the connection (see ErrWriteBufferFull). After this
 	// namespace disconnects, Emit drops new packets without a report. Retaining a
 	// Conn does not buffer sends for a replacement generation; use Client.Socket.
+	//
+	// These names are never sent: connect, connect_error, connect_timeout,
+	// connecting, disconnect, disconnecting, error, reconnect, reconnect_attempt,
+	// reconnect_error, reconnect_failed, reconnecting, ping and pong. socket.io-client
+	// keeps all of them local except disconnecting, which the server role reserves.
+	// Emit of such a name calls this namespace's On, Once and OnEvent
+	// listeners of that name synchronously with this Conn and v, a trailing func
+	// included, and changes no connection state. A listener error goes to OnError.
+	// While one such Emit runs its listeners, another one on this Conn, for
+	// example from a listener, does nothing.
 	Emit(eventName string, v ...interface{})
 
 	// Volatile starts a single-socket emit that drops when its connection is not writable.
@@ -72,10 +92,14 @@ type Namespace interface {
 // Each builder returns a new value, so an Emitter can be reused within the Conn's
 // generation. It cannot send through a replacement namespace or connection.
 type Emitter interface {
+	// Volatile drops the packet, instead of queueing or buffering it, when the
+	// namespace is not connected, the transport is not writable or packets are
+	// still waiting to be written.
 	Volatile() Emitter
 	// Compress chooses per-packet compression; the default is true.
 	Compress(on bool) Emitter
-	// Emit uses the same encoding, generation and queue-admission rules as Conn.Emit.
+	// Emit uses the same encoding, generation and queue-admission rules as Conn.Emit
+	// and keeps the same names local, whatever the flags.
 	Emit(event string, args ...interface{})
 	// Send is Emit("message", args...).
 	Send(args ...interface{})

@@ -115,9 +115,10 @@ func (t *Transport) Dial(u *url.URL, requestHeader http.Header) (transport.Conn,
 }
 
 // Accept upgrades the request to a websocket connection, sending the headers
-// already set on w with the upgrade response. When the upgrade fails,
-// gorilla/websocket has already answered the request, and the error is
-// returned.
+// already set on w with the upgrade response. When the upgrade fails, the error
+// is returned and gorilla/websocket has already answered the request with an
+// HTTP error or, for a failure after it took over the connection, closed that
+// connection.
 func (t *Transport) Accept(w http.ResponseWriter, r *http.Request) (transport.Conn, error) {
 	upgrader := websocket.Upgrader{
 		EnableCompression: t.EnableCompression,

@@ -51,9 +51,10 @@ type Server struct {
 	log    *slog.Logger
 }
 
-// NewServer returns a Server configured by opts, together with the Engine.IO
-// server it serves through (see Engine). Mount the Server as an http.Handler,
-// run Serve to dispatch connections and events, and call Close to shut it down.
+// NewServer returns a Server configured by opts. It creates the Engine.IO
+// server the Server serves through, which Engine returns. Mount the Server as
+// an http.Handler, run Serve to dispatch connections and events, and call Close
+// to shut it down.
 func NewServer(opts ...Option) *Server {
 	config := resolveOptions(opts...)
 	return &Server{

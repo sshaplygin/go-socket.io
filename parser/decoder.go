@@ -73,18 +73,24 @@ func (d *Decoder) closeLastFrame() error {
 	return r.Close()
 }
 
-// DecodeHeader discards what remains of the previous packet, reads the next
-// text frame and stores its header in header and, for an Event packet, its
-// event name in event; both are reset first. A numeric event name is formatted
-// as JavaScript formats the number. The payload is validated as the reference
-// decoder validates it for the packet type, and binary event and ACK packets
-// are reported with Type Event and Ack. The arguments and binary attachments
-// stay pending until DecodeArgs, DecodeArgsVariadic or DiscardLast.
+// DecodeHeader discards what remains of the previous packet as DiscardLast
+// does; when that fails, it returns the error and leaves header and event
+// unchanged. Otherwise it resets header and event, reads the next text frame
+// and stores its header in header and, for an Event packet, its event name in
+// event. A numeric event name is formatted as JavaScript formats the number.
+// The payload is validated as the reference decoder validates it for the packet
+// type, and binary event and ACK packets are reported with Type Event and Ack.
+// The arguments and binary attachments stay pending until DecodeArgs,
+// DecodeArgsVariadic or DiscardLast.
 //
-// DecodeHeader returns the error of the FrameReader unchanged, for example
-// io.EOF, ErrInvalidPacketType for a type digit outside 0-6, and an error for a
-// binary first frame, an invalid payload, a malformed attachment count or more
-// than 10 attachments.
+// Errors include those of the FrameReader, returned unchanged; io.EOF for a
+// text frame with no contents, so io.EOF alone does not mean that the
+// FrameReader has ended; ErrInvalidPacketType for a type digit outside 0-6; an
+// error wrapping strconv.ErrRange for an acknowledgement ID that overflows
+// uint64; and errors for a binary first frame, an invalid payload, a malformed
+// attachment count, more than 10 attachments, an attachment placeholder whose
+// index is out of range, and, from discarding the previous packet, an
+// attachment that is not a binary frame.
 func (d *Decoder) DecodeHeader(header *Header, event *string) error {
 	if err := d.DiscardLast(); err != nil {
 		return err

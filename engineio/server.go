@@ -174,8 +174,9 @@ func (s *Server) Addr() net.Addr {
 // parameter; a request with a sid continues that session or upgrades it to
 // another transport. It does not check the request path, so it answers on
 // whatever path the caller routes to it. A request it rejects is answered with
-// the JSON error bodies described in docs/PROTOCOL.md; after Close every
-// request is rejected as a bad request.
+// the JSON error bodies described in docs/PROTOCOL.md, except a websocket
+// handshake that gorilla/websocket rejects, which gorilla/websocket answers
+// itself; after Close every request is rejected as a bad request.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if isClosed(s.closed) {
 		s.writeServerError(w, r, 3, nil)

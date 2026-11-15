@@ -24,11 +24,15 @@ type Transport struct {
 	// request has no Origin. It does not reject requests. Nil uses
 	// Default.CheckOrigin, which is nil: no CORS headers.
 	CheckOrigin func(r *http.Request) bool
-	// Compression enables gzip/deflate responses at CompressionThreshold bytes
-	// (1024 when nonpositive). Cookie is copied with the session ID as its value.
+	// Compression enables gzip/deflate encoding of server responses, chosen by
+	// the request's Accept-Encoding, for responses that CompressionThreshold
+	// selects.
 	Compression bool
-	// CompressionThreshold is the response size in bytes from which a server
-	// response is compressed when Compression is set; nonpositive means 1024.
+	// CompressionThreshold applies when Compression is set. A response is
+	// compressed, together with the rest of its batch, when the encoded size in
+	// bytes of its first packet, length prefix included, is at least the
+	// threshold. A response whose first packet is smaller is sent uncompressed
+	// whatever its total size. Nonpositive means 1024.
 	CompressionThreshold int
 	// Cookie, when not nil, is set on the responses of a server session that
 	// opened on polling, from its handshake on, with Value replaced by the

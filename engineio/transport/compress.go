@@ -11,9 +11,10 @@ import (
 type CompressWriter interface {
 	// NextWriterCompress is FrameWriter.NextWriter with a compression
 	// preference for the packet. False sends it uncompressed; true allows the
-	// transport's compression, permessage-deflate on websocket or the
-	// gzip/deflate response encoding on polling, from the transport's
-	// threshold on. A polling response carries a batch of packets and is
-	// compressed or not as a whole.
+	// transport's compression: permessage-deflate on websocket for a message
+	// of at least the transport's threshold, or the gzip/deflate response
+	// encoding on polling. A polling response carries a batch of packets and
+	// is compressed or not as a whole, decided by its first packet (see
+	// polling.Transport.CompressionThreshold).
 	NextWriterCompress(ft eioparser.FrameType, pt eioparser.PacketType, compress bool) (io.WriteCloser, error)
 }

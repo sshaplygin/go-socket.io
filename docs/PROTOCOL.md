@@ -87,10 +87,13 @@ Package `engineio` of the v1 module at the repository root.
   keeps `transport error` for those, so that a failed or crashed peer stays distinct
   from an orderly close.
 - Polling HTTP compression is enabled by default: gzip or zlib deflate according
-  to Accept-Encoding, gzip preferred at equal quality, above the 1024-byte response
-  threshold and only for a packet whose compression flag is true. The threshold is
-  configurable; responses below it remain uncompressed. A batch shares one compression
-  stream and contains only packets with the same compression preference.
+  to Accept-Encoding, gzip preferred at equal quality, and only for a packet whose
+  compression flag is true. A batch shares one compression stream and contains only
+  packets with the same compression preference. The first packet of a response decides:
+  the response is compressed when that packet's encoded size, length prefix included,
+  is at least the threshold (1024 bytes by default, configurable). A batch of smaller
+  packets is sent uncompressed whatever its total size; engine.io 3.6.2 compares the
+  size of the whole payload with its threshold instead.
 - The polling transport that opens a session sets its session cookie on every
   response (default io, Path=/, HttpOnly, SameSite=Strict). The cookie's attributes
   and name are configurable, and it can be disabled. A websocket-first handshake

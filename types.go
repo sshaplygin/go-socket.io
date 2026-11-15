@@ -153,8 +153,10 @@ type Emitter interface {
 	// the rooms once. A broadcast without rooms reaches the whole namespace.
 	To(rooms ...string) Emitter
 	// Except excludes the sockets with these Conn.ID values. With an adapter
-	// that cannot exclude sockets, Emit returns an error wrapping
-	// adapter.ErrExceptUnsupported and sends nothing.
+	// that cannot exclude sockets, Emit of any broadcast that excludes sockets
+	// returns an error wrapping adapter.ErrExceptUnsupported and sends nothing;
+	// a broadcast that starts from a Conn always excludes its sender, so this
+	// applies to it without Except.
 	Except(ids ...string) Emitter
 	// Volatile drops the packet, instead of queueing it, for each target
 	// connection whose transport is not writable or that still has packets

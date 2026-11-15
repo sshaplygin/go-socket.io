@@ -408,3 +408,45 @@ func TestSocketConnectReleasesNamespaceJoinedWhileClosed(t *testing.T) {
 	require.Empty(t, p.connects)
 	require.Empty(t, p.disconnects)
 }
+
+// Connect on a Client that has no connection reopens only its own Socket, but
+// the connection it dials is the Client's: Sockets that are not closed join it.
+func TestSocketConnectDialJoinsSocketsNotClosed(t *testing.T) {
+	cl, err := newTestManager(t, "http://unused/")
+	require.NoError(t, err)
+	fc := newFakeConn(t)
+	cl.dial = func(string) (engineclient.Conn, error) { return fc, nil }
+	connects := make(chan string, 8)
+	root, chat, open, closed := cl.Socket("/"), cl.Socket("/chat"), cl.Socket("/open"), cl.Socket("/closed")
+	for _, s := range []*Socket{root, chat, open, closed} {
+		s.OnConnect(func(c Conn) error { connects <- c.Namespace(); return nil })
+	}
+	require.NoError(t, closed.Close())
+	require.NoError(t, chat.Connect())
+	require.Equal(t, "0/chat,", recv(t, fc.out, "chat CONNECT"))
+	require.Equal(t, "0/open,", recv(t, fc.out, "CONNECT of the Socket that was not closed"))
+	fc.reads <- "0"
+	fc.reads <- "0/chat,"
+	fc.reads <- "0/open,"
+	require.ElementsMatch(t, []string{"/", "/chat", "/open"},
+		[]string{recv(t, connects, "OnConnect"), recv(t, connects, "OnConnect"), recv(t, connects, "OnConnect")})
+	root.Emit("barrier")
+	require.Equal(t, `2["barrier"]`, strings.TrimSuffix(recv(t, fc.out, "barrier"), "\n"), "no CONNECT for the closed Socket")
+	require.False(t, closed.Connected())
+}
+
+// An event emitted while the Socket waits for its CONNECT reply stays buffered
+// through Close and is sent when the Socket joins after Connect.
+func TestSocketConnectKeepsEventsBufferedBeforeClose(t *testing.T) {
+	p := newRejoinPeer(t)
+	p.fc.reads <- "1/chat,"
+	require.Equal(t, "/chat:io server disconnect", recv(t, p.disconnects, "server disconnect"))
+	require.NoError(t, p.chat.Connect())
+	p.chat.Emit("early", 1)
+	require.NoError(t, p.chat.Close())
+	require.NoError(t, p.chat.Connect())
+	require.Equal(t, []string{"0/chat,", "1/chat,", "0/chat,"}, p.written(t))
+	p.fc.reads <- "0/chat,"
+	require.Equal(t, "/chat", recv(t, p.connects, "OnConnect after Connect"))
+	require.Equal(t, `2/chat,["early",1]`, strings.TrimSuffix(recv(t, p.fc.out, "buffered event"), "\n"))
+}

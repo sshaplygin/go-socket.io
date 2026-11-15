@@ -434,10 +434,11 @@ func (s *Socket) Close() error {
 // enabled, Connect dials nothing and the namespace joins the connection the
 // reconnection restores. When the Client has no connection, as after
 // Client.Close or after the last namespace closed, Connect dials one as
-// Client.Connect does and returns its error, but only this Socket joins it; other
-// closed Sockets stay closed. A Connect that runs while Client.Close or the
-// Close of the last namespace is closing the connection waits for that close and
-// then dials.
+// Client.Connect does and returns its error, but it reopens only this Socket:
+// other closed Sockets stay closed, and Sockets that are not closed join the new
+// connection as they do with Client.Connect. A Connect that runs while
+// Client.Close or the Close of the last namespace is closing the connection
+// waits for that close and then dials.
 //
 // A connected or joining Socket is left as it is, so concurrent calls send one
 // CONNECT. A namespace the server rejected (OnError receives the server's

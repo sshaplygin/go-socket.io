@@ -23,10 +23,11 @@ Package `engineio` of the v1 module at the repository root.
   moment is answered HTTP 200 with a `CLOSE` (`1`) payload, as in engine.io 3.6.2, so
   the reference clients and the Go client report `transport close`. A poll whose wait
   ends on its request context deadline, for example one set by middleware, gets the
-  same answer and the session closes with `ping timeout`. A timeout outside the
-  handler answers for it: `http.TimeoutHandler` sends its own HTTP 503 for a poll it
-  times out, and once an `http.Server` `WriteTimeout` has passed, the connection closes
-  without a response. Until the close has finished, a further poll of the session also
+  same answer and the session closes with `ping timeout`. A timeout applied
+  outside the polling handler decides the answer instead: `http.TimeoutHandler` sends
+  its own HTTP 503 for a poll it times out, and with an `http.Server` `WriteTimeout`
+  shorter than the wait, the connection is closed without a response when the window
+  expires. Until the close has finished, a further poll of the session also
   receives `CLOSE`, where engine.io 3.6.2 has already removed the session and answers
   HTTP 400 with code 1; after it, this library answers the same (below). The payload
   uses the framing of the polling payload bullet below, so without `b64=1` it is

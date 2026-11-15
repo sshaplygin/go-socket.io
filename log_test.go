@@ -146,6 +146,12 @@ func TestRequestRejectedRecords(t *testing.T) {
 	rec, opts := captureLogs(t, opts)
 	srv := NewServer(WithEngineOptions(opts...), WithLogger(slog.New(rec)))
 	srv.OnConnect("/", func(Conn) error { return nil })
+	// The client reads OPEN, and the engine has logged "session open", before the
+	// Socket.IO connection of the session has started its goroutines. Its EVENT
+	// reaches a handler only from the connection's dispatcher, once they all run, so
+	// the goroutines of the two open sessions are in every snapshot below.
+	dispatched := make(chan struct{}, 2)
+	srv.OnEvent("/", "started", func(Conn) { dispatched <- struct{}{} })
 	go func() { _ = srv.Serve() }()
 	t.Cleanup(func() { _ = srv.Close() })
 	ts := httptest.NewServer(srv)
@@ -169,22 +175,29 @@ func TestRequestRejectedRecords(t *testing.T) {
 		c, err := tr.Dial(u, nil)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = c.Close() })
+		var params eioparser.ConnParameters
 		if o, ok := c.(engineclient.Opener); ok {
-			params, err := o.Open()
+			params, err = o.Open()
 			require.NoError(t, err)
-			return params.SID
+		} else {
+			var r io.ReadCloser
+			_, _, r, err = c.NextReader()
+			require.NoError(t, err)
+			params, err = eioparser.ReadConnParameters(r)
+			closeErr := r.Close()
+			require.NoError(t, err)
+			require.NoError(t, closeErr)
 		}
-		_, _, r, err := c.NextReader()
+		w, err := c.NextWriter(eioparser.String, eioparser.MESSAGE)
 		require.NoError(t, err)
-		params, err := eioparser.ReadConnParameters(r)
-		closeErr := r.Close()
+		_, err = io.WriteString(w, `2["started"]`)
 		require.NoError(t, err)
-		require.NoError(t, closeErr)
+		require.NoError(t, w.Close())
+		recv(t, dispatched, "the EVENT of the "+tr.Name()+" session")
 		return params.SID
 	}
 	wsSID, _ := dial(websocket.Default), dial(polling.Default)
-	require.Eventually(t, func() bool { return len(only(rec.since(0), "engineio: session open")) == 2 },
-		waitFor, time.Millisecond, "a client can read OPEN before its session logs open")
+	require.Len(t, only(rec.since(0), "engineio: session open"), 2)
 
 	for _, tc := range []struct {
 		reason, level string

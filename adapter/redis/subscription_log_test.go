@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -62,7 +63,17 @@ func (r *logRecorder) len() int {
 
 // captureRedisLogs records the fallback logger with every level enabled until
 // Cleanup. The test must not run in parallel.
+//
+// The fallback logger is process-wide, and Close does not wait for an
+// adapter's dispatcher and request workers: one of an adapter that an earlier
+// test closed can still log, such as the DEBUG record of a reply whose PUBLISH
+// returned after that Close. Recording therefore starts once the library
+// goroutines of earlier tests have ended, so every record belongs to this test.
 func captureRedisLogs(t *testing.T) *logRecorder {
+	t.Helper()
+	if leaks := awaitModuleGoroutines(); len(leaks) > 0 {
+		t.Fatalf("library goroutines of earlier tests remain:\n%s", strings.Join(leaks, "\n\n"))
+	}
 	rec := &logRecorder{}
 	prev, prevOut, prevFlags, prevLevel := slog.Default(), log.Writer(), log.Flags(), logger.Level.Level()
 	slog.SetDefault(slog.New(rec))

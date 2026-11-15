@@ -88,6 +88,28 @@ func loud(recs []map[string]string, msg string) (out []map[string]string) {
 	return out
 }
 
+// requireGoroutinesReturned waits until every library goroutine that is not in
+// before, a result of moduleGoroutines, has returned, so that no record those
+// goroutines log can still arrive. A time.AfterFunc timer that has not fired has
+// no goroutine yet, so a record it would log later is not covered.
+func requireGoroutinesReturned(t *testing.T, before map[string]string) {
+	t.Helper()
+	for deadline := time.Now().Add(waitFor); ; time.Sleep(time.Millisecond) {
+		var started []string
+		for id, stack := range moduleGoroutines() {
+			if _, ok := before[id]; !ok {
+				started = append(started, stack)
+			}
+		}
+		if len(started) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("library goroutines still run:\n%s", strings.Join(started, "\n\n"))
+		}
+	}
+}
+
 func only(recs []map[string]string, msg string) (out []map[string]string) {
 	for _, m := range recs {
 		if m["msg"] == msg {
@@ -176,17 +198,16 @@ func TestRequestRejectedRecords(t *testing.T) {
 		{"init", "WARN", func() int { return get("transport=faulty") }, http.StatusOK},
 		{"bad upgrade", "WARN", func() int { return get("transport=polling&sid=" + wsSID) }, http.StatusBadRequest},
 	} {
-		n := rec.len()
+		n, before := rec.len(), moduleGoroutines()
 		require.Equal(t, tc.status, tc.do(), tc.reason)
-		var rejected []map[string]string
-		require.Eventually(t, func() bool {
-			rejected = only(rec.since(n), "engineio: request rejected")
-			return len(rejected) > 0 || tc.reason == ""
-		}, waitFor, time.Millisecond, "no record for %q", tc.reason)
-		time.Sleep(20 * time.Millisecond) // records the trigger might log late
+		// The request's records come from its handler and from the session
+		// goroutine it may start; both have returned once the request's library
+		// goroutines have.
+		requireGoroutinesReturned(t, before)
 		recs := rec.since(n)
+		rejected := only(recs, "engineio: request rejected")
 		if tc.reason != "" {
-			require.Len(t, only(recs, "engineio: request rejected"), 1, tc.reason)
+			require.Len(t, rejected, 1, tc.reason)
 			require.Equal(t, tc.reason, rejected[0]["reason"])
 			require.Equal(t, tc.level, rejected[0]["level"], tc.reason)
 		}
@@ -343,6 +364,7 @@ func TestUnhandledErrorRecords(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := newAttrRecorder()
 			setDefault(t, rec) // the peer's NewServer() logs through logger.Log, which follows slog.Default
+			before := moduleGoroutines()
 			p := newPeer(t, 'S', tc.h, "/a")
 			for _, nsp := range []string{"/", "/a"} {
 				if !tc.keep {
@@ -354,13 +376,12 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			if tc.run != nil {
 				p.nc = recv(t, p.conns, "root OnConnect")
 				tc.run(t, p)
-				recv(t, p.completion(), "the close") // except with closeErr, where nothing closes
 			}
-			var got []map[string]string
-			require.Eventually(t, func() bool { got = loud(rec.since(0), ""); return len(got) >= len(tc.nsps) },
-				waitFor, time.Millisecond)
-			time.Sleep(20 * time.Millisecond) // a second record would come now
-			got = loud(rec.since(0), "")
+			// Every case ends the connection; wait for the goroutines it started,
+			// which log any second record (pending timers are not covered).
+			recv(t, p.completion(), "the close")
+			requireGoroutinesReturned(t, before)
+			got := loud(rec.since(0), "")
 			var nsps []string
 			for _, m := range got {
 				require.Equal(t, "socketio: unhandled error", m["msg"])
@@ -432,6 +453,7 @@ func TestNamespaceRecords(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := &recordingHandler{}
 			setDefault(t, rec)
+			before := moduleGoroutines()
 			p := newPeer(t, 'S', tc.h, "/chat", "/b")
 			p.srv.getNamespace("/b").OnDisconnect(nil)
 			p.srv.getNamespace("/chat").OnError(nil)
@@ -455,8 +477,8 @@ func TestNamespaceRecords(t *testing.T) {
 			if unhandled := func() map[string]any { // exactly one, at WARN
 				return rec.byNsp(t, "socketio: unhandled error", "err", slog.LevelWarn)
 			}; tc.name == "overflow in OnConnect of /chat" {
-				require.Eventually(t, func() bool { return len(unhandled()) == 1 }, waitFor, time.Millisecond)
-				time.Sleep(20 * time.Millisecond) // a second record would come now
+				requireGoroutinesReturned(t, before) // the run ended the connection
+				require.Len(t, unhandled(), 1)
 				require.ErrorIs(t, unhandled()["/chat"].(error), ErrWriteBufferFull)
 			}
 		})
@@ -596,14 +618,7 @@ func TestNoBadKeyAttrs(t *testing.T) {
 	sid := lifecycleRootNamespace(t, WithLogger(slog.New(inst)))
 	// Check the records only once the goroutines the scenario started, which include the
 	// Go client's polling goroutines after Close, have all returned.
-	require.Eventually(t, func() bool {
-		for id := range moduleGoroutines() {
-			if _, ok := before[id]; !ok {
-				return false
-			}
-		}
-		return true
-	}, waitFor, 10*time.Millisecond)
+	requireGoroutinesReturned(t, before)
 
 	// Each lifecycle record carries exactly one sid, the session's.
 	for _, msg := range []string{"engineio: session open", "socketio: namespace connect", "socketio: disconnect"} {

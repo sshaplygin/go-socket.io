@@ -3,6 +3,7 @@
 package conformance
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -36,7 +37,10 @@ func TestGoClientAnswersUndecodableArguments(t *testing.T) {
 			cl.Emit("ask-mismatch", func(value map[string]interface{}) { got <- value })
 			value := goClientReceive(t, got, "ACK callback of the Node server")
 			require.Equal(t, "invalid_payload", value["code"])
-			require.Contains(t, value["message"], "cannot unmarshal string into Go value of type int")
+			// The tail is the json.Unmarshal error, whose text is the toolchain's.
+			want := json.Unmarshal([]byte(`"bad"`), new(int))
+			require.Error(t, want)
+			require.Equal(t, "decode argument 0: "+want.Error(), value["message"])
 			require.Error(t, goClientReceive(t, failures, "client error handler"))
 			require.Empty(t, ran, "the handler must not run")
 			echoed := make(chan string, 1)

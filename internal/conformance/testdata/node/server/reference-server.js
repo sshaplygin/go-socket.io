@@ -31,6 +31,20 @@ for (const name of ['/', '/chat', '/welcome']) {
       socket.emit('binary-question', Buffer.from([0, 255, 2]), value => socket.emit('binary-result', value));
       ack();
     });
+    socket.on('binary-many', (values, ack) => { socket.emit('binary-many-event', values); ack(values); });
+    socket.on('ask-binary-many', ack => {
+      const values = Array.from({length: 10}, (_, i) => Buffer.from([i, 255 - i]));
+      socket.emit('binary-many-question', values, value => socket.emit('binary-many-result', value));
+      ack();
+    });
+    socket.on('burst', (count, size, ack) => {
+      const filler = 'x'.repeat(size);
+      for (let i = 0; i < count; i++) socket.emit('item', i, filler);
+      ack('sent');
+    });
+    let counted = 0;
+    socket.on('count', () => { counted++; });
+    socket.on('counted', ack => ack(counted));
     socket.on('join', (room, ack) => socket.join(room, () => ack('joined')));
     socket.on('leave', (room, ack) => socket.leave(room, () => ack('left')));
     socket.on('room', (room, except, ack) => {

@@ -1,6 +1,7 @@
 package socketio
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -246,4 +247,40 @@ func TestDeclaredLengthPastLimitEndsSession(t *testing.T) {
 	require.Len(t, got, 1)
 	require.Equal(t, map[string]string{"sid": sid, "transport": "polling"}, map[string]string{"sid": got[0]["sid"], "transport": got[0]["transport"]})
 	require.Contains(t, got[0]["err"], "limit 512 bytes")
+}
+
+// A polling session that the server ends for a POST over the message limit or for a
+// packet that does not decode answers its pending poll with HTTP 500, where
+// engine.io 3.6.2 sends CLOSE (docs/PROTOCOL.md). The POST of the undecodable packet
+// is answered 200 or 400, depending on whether the session has closed by then.
+func TestServerEndedPollingSessionAnswersPendingPoll(t *testing.T) {
+	packet := func(s string) string { return fmt.Sprintf("%d:%s", len(s), s) }
+	for name, tc := range map[string]struct {
+		limit  int64
+		body   string
+		post   []int
+		reason string
+	}{
+		"over the message limit": {512, packet("4" + strings.Repeat("x", 600)), []int{http.StatusRequestEntityTooLarge}, "transport error"},
+		"11 attachments": {0, packet(`4511-["x"]`) + strings.Repeat(packet("b4AA=="), 11),
+			[]int{http.StatusOK, http.StatusBadRequest}, "forced close"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := newDeadlineServer(t, deadlineConfig{heartbeat: time.Hour, limit: tc.limit})
+			sid, _ := d.open(t)
+			raw := d.dial(t, http.MethodGet, sid, "")
+			d.requirePollTaken(t)
+			resp, err := d.ts.Client().Post(d.url("&sid="+sid), "text/plain;charset=UTF-8", strings.NewReader(tc.body))
+			require.NoError(t, err)
+			_ = resp.Body.Close()
+			require.Contains(t, tc.post, resp.StatusCode, "the POST")
+			require.Equal(t, tc.reason, recv(t, d.reasons, "OnDisconnect"))
+			// The session has ended, so the poll is answered without waiting for the heartbeat.
+			require.NoError(t, raw.SetReadDeadline(time.Now().Add(time.Minute)))
+			poll, err := http.ReadResponse(bufio.NewReader(raw), nil)
+			require.NoError(t, err)
+			_ = poll.Body.Close()
+			require.Equal(t, http.StatusInternalServerError, poll.StatusCode, "the pending poll")
+		})
+	}
 }

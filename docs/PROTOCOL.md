@@ -19,7 +19,19 @@ Package `engineio` of the v1 module at the repository root.
   whitespace difference from engine.io 3.6.2.
 - Heartbeat: the client sends `PING` (`2`), the server answers `PONG` (`3`). Every packet
   the session reads re-arms a window of `pingInterval + pingTimeout`; when it passes
-  without one, the session closes with reason `ping timeout`. `PING` is answered
+  without one, the session closes with reason `ping timeout`. A poll pending at that
+  moment is answered HTTP 200 with a `CLOSE` (`1`) payload, as in engine.io 3.6.2, so
+  the reference clients and the Go client report `transport close`. A poll whose wait
+  ends on its request context deadline, for example one set by middleware, gets the
+  same answer and the session closes with `ping timeout`. A timeout applied
+  outside the polling handler decides the answer instead: `http.TimeoutHandler` sends
+  its own HTTP 503 for a poll it times out, and with an `http.Server` `WriteTimeout`
+  shorter than the wait, the connection is closed without a response when the window
+  expires. Until the close has finished, a further poll of the session also
+  receives `CLOSE`, where engine.io 3.6.2 has already removed the session and answers
+  HTTP 400 with code 1; after it, this library answers the same (below). The payload
+  uses the framing of the polling payload bullet below, so without `b64=1` it is
+  binary where engine.io 3.6.2 sends the text `1:1`. `PING` is answered
   inside `Conn.NextReader`, so only while the application reads the session; a
   Socket.IO connection does not read while one of its event handlers runs (see
   [handler duration](V1.md#connections-and-namespaces)).
@@ -27,9 +39,14 @@ Package `engineio` of the v1 module at the repository root.
   lengths count UTF-16 code units, and binary packets are base64 with a `b` prefix.
   Otherwise the payload is binary: per packet a `0` (string) or `1` (binary) byte, the
   length as one byte per decimal digit, `0xff`, then the packet, the length counting
-  bytes (UTF-8 for a string packet), as engine.io-parser 2.x. Sessions are looked up
-  by `sid`; an unknown `sid` is HTTP 400. Server GET responses coalesce complete
-  packets for up to 1 ms idle or 5 ms total, at most 64 packets or 256 KiB checked
+  bytes (UTF-8 for a string packet), as engine.io-parser 2.x. Every poll response
+  without `b64=1`, the handshake included, uses that binary framing with
+  `Content-Type: application/octet-stream`; engine.io 3.6.2 uses it only for a payload
+  that contains a binary packet and answers a text-only payload in the length-prefixed
+  framing with `text/plain; charset=UTF-8`. engine.io-client 3.5.6 reads the framing
+  that header names, and under Node the pinned JavaScript clients send `b64=1`.
+  Sessions are looked up by `sid`; an unknown `sid` is HTTP 400. Server GET responses
+  coalesce complete packets for up to 1 ms idle or 5 ms total, at most 64 packets or 256 KiB checked
   between packets. A single packet can exceed that batching byte budget. A change
   in compression preference starts the next response; cancellation fails the transport.
 - WebSocket: one packet per message; a binary message starts with the packet type byte.
@@ -71,6 +88,13 @@ Package `engineio` of the v1 module at the repository root.
   error` (in the Go client, `OnDisconnect` reason `transport error`); engine.io 3.6.2
   answers the poll with `CLOSE` (`1`), and its clients report `transport close`. A
   websocket session receives the server's close frame with code 1000 instead.
+- A polling session that the server ends for a POST over the message limit (below)
+  or for a packet that does not decode also answers its pending poll with HTTP 500,
+  so the JavaScript clients report `transport error`. engine.io 3.6.2 answers the
+  poll with `CLOSE` in both cases, and its clients usually report `transport close`.
+  The over-limit POST is answered 413, where engine.io 3.6.2 resets its connection;
+  the POST that carried the undecodable packet is answered 200, or 400 when the
+  session has already closed.
 - The Go client's Engine.IO `Close` of an open websocket, also after the client's
   own ping timeout, sends a close frame with code 1000, with the write deadline and
   the reply wait of the server's close above, so that the server reports
@@ -157,7 +181,8 @@ Package `engineio` of the v1 module at the repository root.
   the polling transport rejects itself stays plain text: HTTP 400 for a POST the payload
   cannot take (paused, overlapping, closed, timed out or not decodable) or an invalid
   method, 413 for the message limit above, 500 for a poll
-  whose response failed before it was started. A POST that is not decodable also
+  whose response failed before it was started, except on an expired deadline, which
+  is answered with `CLOSE` (heartbeat bullet above). A POST that is not decodable also
   closes the session; once it has closed, a POST with its `sid` is answered HTTP 400. A POST whose
   body read the session's close interrupted is answered with `Connection: close`.
   A polling POST body is decoded by its `Content-Type`, as in engine.io 3.6.2:
@@ -250,8 +275,11 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   the server and for the Go client alike. If the peer requested an ack, the
   receiving side answers with the error ACK of acknowledged typed descriptors
   (`NewAckEvent`), `3<id>[{"code":"invalid_payload","message":"decode argument 0:
-  json: cannot unmarshal string into Go value of type int"}]`, so a JavaScript
-  callback, or the callback of a Go `Emit` with an acknowledgement, is called
+  json: cannot unmarshal string into Go value of type int"}]`. The message is
+  `decode argument <index>: ` followed by the `encoding/json` error of the Go
+  toolchain the receiver was built with; the example is the text of the default
+  `encoding/json`, and a build with `GOEXPERIMENT=jsonv2` can word it differently. A
+  JavaScript callback, or the callback of a Go `Emit` with an acknowledgement, is called
   with that object as its only argument, and `EmitWithAck` returns a
   `*RemoteError` with code `invalid_payload`; without an ACK id nothing is sent. The decode error goes to `OnError` in both cases. A binary
   attachment where an `int` is expected is such an error as well. Any other error decoding the arguments for an untyped handler, such as

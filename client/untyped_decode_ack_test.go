@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,6 +25,18 @@ func clientInvalidPayloadACK(t *testing.T, message string) string {
 	return `[{"code":"invalid_payload","message":` + string(data) + "}]\n"
 }
 
+// clientDecodeArgumentMessage is the error ACK message for argument index whose
+// JSON does not decode into a value of target's type: the argument index followed
+// by the json.Unmarshal error. The text of that error is the toolchain's, and it
+// differs under GOEXPERIMENT=jsonv2, so it is taken from encoding/json here.
+func clientDecodeArgumentMessage(t *testing.T, index int, argument string, target interface{}) string {
+	t.Helper()
+	err := json.Unmarshal([]byte(argument), target)
+	var typeErr *json.UnmarshalTypeError
+	require.ErrorAs(t, err, &typeErr)
+	return fmt.Sprintf("decode argument %d: %v", index, err)
+}
+
 // TestClientUntypedHandlerDecodeFailureAnswersRequestedAck: when the server asked
 // for an acknowledgement and the arguments do not decode into the handler's
 // parameter types, the client answers with the error ACK of typed acknowledged
@@ -39,10 +52,10 @@ func TestClientUntypedHandlerDecodeFailureAnswersRequestedAck(t *testing.T) {
 	for _, tc := range []struct {
 		name, packet, want string
 	}{
-		{"wrong type", `24["num","bad"]`, "34" + clientInvalidPayloadACK(t, "decode argument 0: json: cannot unmarshal string into Go value of type int")},
-		{"wrong type in a later argument", `25["pair",1,2]`, "35" + clientInvalidPayloadACK(t, "decode argument 1: json: cannot unmarshal number into Go value of type string")},
-		{"wrong type in a variadic element", `26["rest","a",1,"x"]`, "36" + clientInvalidPayloadACK(t, "decode argument 2: json: cannot unmarshal string into Go value of type int")},
-		{"object where a number is expected", `27["num",{"a":1}]`, "37" + clientInvalidPayloadACK(t, "decode argument 0: json: cannot unmarshal object into Go value of type int")},
+		{"wrong type", `24["num","bad"]`, "34" + clientInvalidPayloadACK(t, clientDecodeArgumentMessage(t, 0, `"bad"`, new(int)))},
+		{"wrong type in a later argument", `25["pair",1,2]`, "35" + clientInvalidPayloadACK(t, clientDecodeArgumentMessage(t, 1, `2`, new(string)))},
+		{"wrong type in a variadic element", `26["rest","a",1,"x"]`, "36" + clientInvalidPayloadACK(t, clientDecodeArgumentMessage(t, 2, `"x"`, new(int)))},
+		{"object where a number is expected", `27["num",{"a":1}]`, "37" + clientInvalidPayloadACK(t, clientDecodeArgumentMessage(t, 0, `{"a":1}`, new(int)))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ran := make(chan string, 8)
@@ -64,7 +77,7 @@ func TestClientUntypedHandlerDecodeFailureAnswersRequestedAck(t *testing.T) {
 		}}, "/chat")
 		p.send(t, `2/chat,3["num","bad"]`)
 		p.send(t, `29["alive"]`)
-		require.Equal(t, "3/chat,3"+clientInvalidPayloadACK(t, "decode argument 0: json: cannot unmarshal string into Go value of type int"), recv(t, p.fc.out, "error ACK"))
+		require.Equal(t, "3/chat,3"+clientInvalidPayloadACK(t, clientDecodeArgumentMessage(t, 0, `"bad"`, new(int))), recv(t, p.fc.out, "error ACK"))
 		require.Equal(t, "39[\"alive\"]\n", recv(t, p.fc.out, "probe ACK"))
 		require.Equal(t, "/chat", recv(t, p.errs, "error handler").nsp)
 		require.Empty(t, ran)

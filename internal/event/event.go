@@ -148,7 +148,7 @@ func NilError(err error) error {
 		return nil
 	}
 	switch value := reflect.ValueOf(err); value.Kind() {
-	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.UnsafePointer:
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.UnsafePointer:
 		if value.IsNil() {
 			return nil
 		}

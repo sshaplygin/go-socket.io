@@ -121,10 +121,7 @@ Package `engineio` of the v1 module at the repository root.
   `WriteTimeout`; a read or write that such a deadline ends closes the session with
   `ping timeout`. Over HTTP/1.x a response that fits net/http's buffer is written
   there even after `WriteTimeout` has expired; net/http fails to send it once the
-  handler has returned, and the session does not see the loss. Over HTTP/2 net/http
-  resets a poll that is still pending when `WriteTimeout` expires; since Go 1.23
-  that cancels the poll's request and ends the session with `transport error`,
-  while the net/http of Go 1.22 leaves the session open
+  handler has returned, and the session does not see the loss
   ([deployment](V1.md#deployment)).
   A close interrupts an incomplete POST body. An
   orderly close (`Conn.Close`, `engineio.Conn.Close`) lets the response carrying
@@ -275,18 +272,16 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   (`4/<nsp>,"Invalid namespace"`) and the connection stays open.
 - Binary attachments are replaced by `{"_placeholder":true,"num":N}` and sent as
   following binary frames; on the Go side they map to `parser.Buffer`.
-- This library sends no EVENT named `connect`, `disconnect`, `disconnecting` or
-  `error`, and its server discards incoming ones, such as the `disconnecting` that
-  socket.io-client 1.7.4 and 2.5.0 send as an ordinary event. An emit or broadcast
-  of these names runs the selected sockets' own listeners
+- The server sends no EVENT named `connect`, `disconnect`, `disconnecting` or
+  `error` and discards incoming ones
   ([lifecycle names](V1.md#connections-and-namespaces),
-  [broadcasts](V1.md#rooms-and-broadcasting)). socket.io 2.5.0 keeps these names, and
-  `newListener` and `removeListener`, local only for `socket.emit` and for a
-  broadcast started from a socket (`socket.to(room).emit`, `socket.broadcast.emit`),
-  where it runs the sender's listeners and none of the recipients'. A namespace or
-  room broadcast (`io.emit`, `io.to(room).emit`) sends `error`, `disconnect` and
-  `disconnecting` to the clients and keeps only `connect`, `connection` and
-  `newListener` local. The Go client's local names are listed in
+  [broadcasts](V1.md#rooms-and-broadcasting)). socket.io-client 1.7.4 and 2.5.0 send
+  `disconnecting` as an ordinary event. socket.io 2.5.0 keeps these four names
+  local for `socket.emit` and for a broadcast started from a socket
+  (`socket.to(room).emit`, `socket.broadcast.emit`), where it runs the sender's
+  listeners and none of the recipients'. Its namespace or room broadcast (`io.emit`,
+  `io.to(room).emit`) sends `error`, `disconnect` and `disconnecting` to the clients
+  and keeps `connect` local. The Go client's local names are listed in
   [V1.md](V1.md#connections-and-namespaces).
 - Event handlers return values become the ACK payload; an ACK packet is sent when the
   client requested an ack and a listener handled the event. Emitting with a trailing

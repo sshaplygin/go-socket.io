@@ -15,8 +15,8 @@ unless that section reproduced them.
 
 Later reviews added findings to the same catalogue: a tag-readiness review of `6641d4b`
 (2026-10-29), an announcement-readiness check of `27fdab8` (2026-11-10) and a
-release-readiness audit of `594681a9` (2026-11-14). The [verdict](#verdict-ready-after-fixes)
-states where the release stands.
+release-readiness audit of `594681a9` (2026-11-14), and the work on the Stress failures of
+2026-11-15. The [verdict](#verdict-ready-after-fixes) states where the release stands.
 
 The document has three parts:
 
@@ -25,7 +25,7 @@ The document has three parts:
   [finding catalogue](#finding-catalogue). They come from the original review, corrected
   where the follow-up validation and the 2026-10-22 fact-check required it, and from the
   later reviews.
-- **[Work plan](#work-plan):** pull-request-sized work items (W1–W106), owner decisions
+- **[Work plan](#work-plan):** pull-request-sized work items (W1–W107), owner decisions
   (D1–D14) and owner-only publication steps (P1–P9) that cover every catalogue ID except
   the editorial `CL-14` (not planned), with their order, acceptance criteria and status.
 - **[Follow-up validation](#follow-up-validation):** the evidence log, with a status and
@@ -77,30 +77,34 @@ documentation checks.
 
 ## Verdict: ready after fixes
 
-**State on `master` at `5ee06b23` (2026-11-15).** No release blocker is open. B1 is fixed by
+**State on `master` at `64c30489` (2026-11-15).** A later commit that changes only this
+document leaves this state unchanged. No release blocker is open. B1 is fixed by
 [W1](#w1-fix-the-permanent-session-deadlock) (#147) and B2 by
 [W47](#w47-bound-polling-request-io-by-the-session-deadlines) (#205). Every major M1–M7
-and every before-tag item of the earlier reviews (W1–W10, W45–W55, W58–W68, W73) is done,
-and D1–D6 are decided and applied. The release-readiness audit of 2026-11-14 at
-`594681a9` found no blocker that survived its independent re-check; its fixes are
+and every before-tag work item (W1–W10, W45–W55, W58–W68, W73–W79, W81–W86, W88–W90 and
+W106) is done. D1–D6 are decided and applied, and the owner decided
+[D7](#d7-servercount-inside-ondisconnect),
+[D8](#d8-untyped-handler-error-text-on-the-wire) and
+[D10](#d10-a-typed-nil-error-from-onconnect-or-connection-middleware) on 2026-11-15 to
+keep the current behaviour, which needs no change. The release-readiness audit of
+2026-11-14 at `594681a9` found no blocker that survived its independent re-check; its
+fixes are
 [W74](#w74-pin-the-heartbeat-window-ack-rules-decoder-bounds-and-documented-limits)–[W89](#w89-toolchain-independent-tests-event-based-waits-wider-leak-gate-limit-conformance),
 of which W80 and W87 follow the tag, and
 [W90](#w90-record-the-2026-11-14-audit-and-the-current-state) records them.
-By the owner's decision of 2026-11-15, only what blocks the release of the Go server role
-lands before the tag.
+[W106](#w106-make-the-tests-that-failed-in-the-stress-runs-of-2026-11-15-pass-under-load)
+removed the four Stress failures of T30, each a fault of the test. On `64c30489` the
+dispatched Stress run 43762022486 reported no failed or unfinished test and no race
+report in any package on Ubuntu and macOS, and the dispatched CI run 43762025324 passed
+in all 30 jobs, on Linux, macOS and Windows. By the owner's decision of 2026-11-15, only
+what blocks the release of the Go server role lands before the tag.
 
 Open for the release at that commit, in this order (each item's Status line gives its
 state):
 
-1. Before the tag: [W90](#w90-record-the-2026-11-14-audit-and-the-current-state), this
-   record;
-   [W106](#w106-make-the-tests-that-failed-in-the-stress-runs-of-2026-11-15-pass-under-load),
-   the four tests that failed in the Stress runs of 2026-11-15 (T30); the owner decisions
-   [D7](#d7-servercount-inside-ondisconnect),
-   [D8](#d8-untyped-handler-error-text-on-the-wire) and
-   [D10](#d10-a-typed-nil-error-from-onconnect-or-connection-middleware), which change
-   contracts the tag freezes (keeping the current behaviour is a valid outcome); then the
-   owner's final head verification [P4](#p4-final-head-verification).
+1. Before the tag: only the owner's final head verification
+   [P4](#p4-final-head-verification), whose runs have the commit to tag as their head; the
+   runs on `64c30489` do not replace them.
 2. The tag: [P5](#p5-tag-v150), on the head P4 verified.
 3. After the tag: the GitHub Release with the refreshed release text
    ([P6](#p6-github-release)) and the module index ([P7](#p7-module-index)); only then,
@@ -108,14 +112,16 @@ state):
    The repository metadata ([P2](#p2-repository-metadata)) can be set at any time before
    P8; P9 is optional.
 
-Work that follows the tag: W38, W69–W72, W80 (#276), W87 (#283) and W91–W105, and the
-owner decisions D9 and D11–D14; the [item index](#how-to-use-this-plan) lists them.
+Work that follows the tag: W38, W69–W72, W80 (#276), W87 (#283), W91–W105 and W107, and
+the owner decisions D9 and D11–D14; the [item index](#how-to-use-this-plan) lists them.
 
 That work includes two major findings, deferred in writing by the owner's decision of
 2026-11-15: API-15 ([W80](#w80-reopen-a-namespace-from-the-go-client): the Go client cannot
 reopen a namespace while its connection stays open) and CL-24
 ([W87](#w87-complete-the-user-guide): the user guide has no `http.Server.WriteTimeout`
-rule for polling). [P6](#p6-github-release) requires the release notes to name both.
+rule for polling). [P6](#p6-github-release) requires the release notes to name both. The
+major finding C29, owned by D10, is not open: D10 kept the current behaviour without a
+pull request.
 
 `v1.5.0` is the first usable release of this module path, so it also fixes the public
 API surface for the life of v1: once tagged, later v1 releases can add to the API but
@@ -132,22 +138,24 @@ and the publication steps [P1](#p1-repository-security-settings)–[P9](#p9-remo
 the owner added [W73](#w73-forbid-fatal-exits-by-lint) on 2026-11-13; the release-readiness
 audit of `594681a9` (2026-11-14) added W74–W105 and D7–D14
 ([Release-readiness audit on 2026-11-14](#release-readiness-audit-on-2026-11-14)); the
-Stress runs of 2026-11-15 added W106.
+Stress runs of 2026-11-15 added W106; the work on W106 and the last review of W90 added
+W107 and the rows C35, C36, T31, interop-39 and interop-40
+([Stress fixes and owner decisions on 2026-11-15](#stress-fixes-and-owner-decisions-on-2026-11-15)).
 
 ## Scorecard
 
 The scores are the original review's at `7311fbe` and were not re-scored. The other
-columns give what that review found and the state on `master` at `5ee06b23`.
+columns give what that review found and the state on `master` at `64c30489`.
 
 | Dimension | Score at `7311fbe` | Open before the tag | Found, and the state now |
 | --- | --- | --- | --- |
-| Clarity | 5/10 | W90 | **Found:** no inline quick start or migration note, 9 of 12 packages without a package doc, the `OnError` and Redis callback contracts documented incorrectly. **Now:** fixed by W8, W9, W13, W27, W68, W85 and W88 (godoc for every exported identifier). **After the tag:** W87 and W99. |
+| Clarity | 5/10 | none | **Found:** no inline quick start or migration note, 9 of 12 packages without a package doc, the `OnError` and Redis callback contracts documented incorrectly. **Now:** fixed by W8, W9, W13, W27, W68, W85 and W88 (godoc for every exported identifier); this review records the current state (W90). **After the tag:** W87 and W99. |
 | Architecture | 7/10 | none | **Found:** the adapter, alias and typed-event contracts needed decisions before the API freeze. **Now:** D1–D6 decided and applied. |
-| Tests | 7/10 | W106 | **Found:** no goroutine-leak gate, and no scenario with a non-reading client that keeps sending packets, which triggers B1. **Now:** the leak gate runs in eight test packages (W12, W89), B1 has regression tests (W1), the stress packages run under CPU load on a schedule (W55), and W74 pins contracts no test discriminated. **Before the tag:** W106 (T30: four tests failed in the Stress runs of 2026-11-15). **After the tag:** W69, W71, W100, W101 and W104. |
-| API compatibility | 4/10 | D7, D8, D10 | **Found:** no migration notes for the upstream API breaks, the changed defaults and the Redis wire break. **Now:** the migration guide (W8, W51) and the API decisions D1–D6. **After the tag:** the migration rows of W87, and W80. |
-| Interoperability | 8/10 | none | **Found:** `forceBase64` over websocket unsupported, and undocumented wire differences. **Now:** fixed by W15, W16, W64, W65, W82 (socket.io-client 1.0–1.3 over websocket) and W83 (`CLOSE` at ping timeout). **After the tag:** W72 and the reference differences of W98. |
+| Tests | 7/10 | none | **Found:** no goroutine-leak gate, and no scenario with a non-reading client that keeps sending packets, which triggers B1. **Now:** the leak gate runs in eight test packages (W12, W89), B1 has regression tests (W1), the stress packages run under CPU load on a schedule (W55), W74 pins contracts no test discriminated, and W106 fixed the four tests that failed in the Stress runs of 2026-11-15 (T30); the dispatched Stress run on `64c30489` had no failure. **After the tag:** W69, W71, W100, W101 (with T31's fixed time windows) and W104. |
+| API compatibility | 4/10 | none | **Found:** no migration notes for the upstream API breaks, the changed defaults and the Redis wire break. **Now:** the migration guide (W8, W51), the API decisions D1–D6, and D7, D8 and D10, which keep the current contracts. **After the tag:** the migration rows of W87, and W80. |
+| Interoperability | 8/10 | none | **Found:** `forceBase64` over websocket unsupported, and undocumented wire differences. **Now:** fixed by W15, W16, W64, W65, W82 (socket.io-client 1.0–1.3 over websocket) and W83 (`CLOSE` at ping timeout). **After the tag:** W72, the reference differences of W98 and the Go client's of W102. |
 | Performance | 6/10 | none | **Found:** the JSON encoder from #143 regressed encode cost, Redis `PUBLISH` could block indefinitely, and nothing benchmarked Socket.IO-level code. **Now:** W2–W4, W18–W26 and W54, each with a committed benchmark. |
-| Correctness and security | 6/10 | none | **Found:** any client could trigger a session deadlock (B1). **Now:** B1 and B2 fixed (W1, W47), C14–C20 fixed (W76, W77, W79, W81, W84, W86). **After the tag:** W91–W97 and the decisions D9 and D11–D14. |
+| Correctness and security | 6/10 | none | **Found:** any client could trigger a session deadlock (B1). **Now:** B1 and B2 fixed (W1, W47), C14–C20 fixed (W76, W77, W79, W81, W84, W86), and C29 settled by D10. **After the tag:** W91–W97, W107 and the decisions D9 and D11–D14. |
 | Release engineering | 7/10 | P4 | **Found:** no release notes, the version and the inherited tags undecided, the stress job never ran on push. **Now:** W10, W39, W52, W66 and W67 done, P1 and P3 done. **Before the tag:** P4 (REL-21). **The tag and after, in this order:** P5 (REL-22), the GitHub Release P6 with the refreshed release text (REL-20), P7, and the announcement P8 only once P5 and P6 exist; P2 at any time before P8; W105. |
 
 ## Work plan
@@ -196,9 +204,10 @@ to do the work. The status of each item is owned by its **Status** line and nowh
    before it, and the owner decides D7, D8 and D10, which change contracts the tag
    freezes, before P5. W80 (#276), W87 (#283) and W91–W105 follow the tag, and so
    can D9 and D11–D14. W106 covers the tests that failed in the Stress runs of 2026-11-15
-   and lands before P4.
-7. After the tag: the open items W38, W69–W72, W80, W87 and W91–W105, in numeric order
-   unless **Depends on** says otherwise. W38 needs the tag.
+   and lands before P4. W107 covers Redis adapter findings of the work on W106 and
+   follows the tag.
+7. After the tag: the open items W38, W69–W72, W80, W87, W91–W105 and W107, in numeric
+   order unless **Depends on** says otherwise. W38 needs the tag.
 
 A major (M1–M7) that is not fixed before the tag is deferred only in writing: the owner
 sets the item's Status to `deferred — <reason> (<date>)` and the release notes state the
@@ -322,7 +331,9 @@ only by an owner-only step after the merge (W10: REL-2, REL-3 and REL-11) gets n
 the item's PR; the owner appends `Fixed by #<PR> (W<n>).` once the step is done, and a
 finding whose optional step is never done keeps no note. A finding that only P items close
 (REL-18) gets `Fixed by P<n>[, P<m>…] (<date>).` from the owner once each P item it names is
-done or not taken; the note lists only the P items actually done.
+done or not taken; the note lists only the P items actually done. A finding whose D item is
+decided without a pull request gets `Decided by D<n> (<date>).` in the same place, added
+with the decision's Status line; it is not a `Fixed by` note, because nothing changed.
 
 Apart from its own Status line, its `Fixed by` notes, the Status line and `Fixed by` notes
 of the D item it implements, and `done` updates of items whose PRs
@@ -330,8 +341,8 @@ have already merged, the item's PR changes no part of this document. Apart from 
 lines and the `Fixed by` notes, do not rewrite the review's findings, the Backlog or the Follow-up
 validation evidence log when an item is done; they record the state at `7311fbe`. This
 progress tracking is not a v1 changelog: after the tag, the owner decides whether the
-remaining items (W38, W69–W72, W80, W87, W91–W105 and the undecided D items) move to
-GitHub issues, and this document then keeps only the findings and the evidence.
+remaining items (W38, W69–W72, W80, W87, W91–W105, W107 and the undecided D items) move
+to GitHub issues, and this document then keeps only the findings and the evidence.
 
 **Standard definition of done** (every item refers to it): the PR is squash-merged by the
 owner or the owner's explicit delegate; the CI workflow is green on the merge commit, and
@@ -448,15 +459,16 @@ changed to `done — #<PR>` after the merge.
 | [W95](#w95-send-nothing-after-disconnect-inside-onconnect) | Send nothing after Disconnect inside OnConnect | after release | C24 | — |
 | [W96](#w96-do-not-connect-a-waiter-after-serverclose) | Do not connect a waiter after Server.Close | after release | C26 | — |
 | [W97](#w97-keep-reading-while-a-websocket-write-is-blocked) | Keep reading while a websocket write is blocked | after release | C27 | — |
-| [W98](#w98-document-or-remove-the-remaining-server-reference-differences) | Document or remove the remaining server reference differences | after release | interop-20, interop-21, interop-22, interop-23, interop-24, interop-25, interop-26, interop-27, interop-28, interop-29, interop-30, interop-31, interop-32, interop-33, interop-34, interop-35 | — |
+| [W98](#w98-document-or-remove-the-remaining-server-reference-differences) | Document or remove the remaining server reference differences | after release | interop-20, interop-21, interop-22, interop-23, interop-24, interop-25, interop-26, interop-27, interop-28, interop-29, interop-30, interop-31, interop-32, interop-33, interop-34, interop-35, interop-40 | D9 (interop-40) |
 | [W99](#w99-correct-the-server-godoc-and-the-reference-documentation) | Correct the server godoc and the reference documentation | after release | API-16, CL-35, CL-36 | W87 |
 | [W100](#w100-close-the-test-gaps) | Close the test gaps | after release | T25, T28 | — |
-| [W101](#w101-remove-wall-clock-margins-and-close-ci-coverage-gaps) | Remove wall-clock margins and close CI coverage gaps | after release | T26, T27 | — |
-| [W102](#w102-go-client-and-transport-follow-ups) | Go client and transport follow-ups | after release | C34, interop-38, PERF-17, API-26 | — |
+| [W101](#w101-remove-wall-clock-margins-and-close-ci-coverage-gaps) | Remove wall-clock margins and close CI coverage gaps | after release | T26, T27, T31 | — |
+| [W102](#w102-go-client-and-transport-follow-ups) | Go client and transport follow-ups | after release | C34, interop-38, PERF-17, API-26, interop-39 | — |
 | [W103](#w103-follow-ups-of-275-and-280) | Follow-ups of #275 and #280 | after release | C33 | W79 |
 | [W104](#w104-verify-redis-subscription-loss-on-a-real-redis) | Verify Redis subscription loss on a real Redis | after release | T29 | — |
 | [W105](#w105-repository-hygiene) | Repository hygiene | after release | REL-23, REL-24 | — |
 | [W106](#w106-make-the-tests-that-failed-in-the-stress-runs-of-2026-11-15-pass-under-load) | Make the tests that failed in the Stress runs of 2026-11-15 pass under load | before tag | T30 | W55 |
+| [W107](#w107-join-the-redis-adapters-goroutines-on-close-and-report-delivered-replies) | Join the Redis adapter's goroutines on Close and report delivered replies | after release | C35, C36 | — |
 | [D7](#d7-servercount-inside-ondisconnect) | Server.Count inside OnDisconnect | owner decision, before the tag | API-24 | — |
 | [D8](#d8-untyped-handler-error-text-on-the-wire) | Untyped handler error text on the wire | owner decision, before the tag | API-25 | — |
 | [D9](#d9-a-log-signal-for-a-message-limit-that-is-too-low) | A log signal for a message limit that is too low | owner decision | C31 | W79 |
@@ -479,13 +491,13 @@ changed to `done — #<PR>` after the merge.
 
 | Catalogue section | Mapping |
 | --- | --- |
-| Correctness and security | C1 W1 · C2 W14 · C3 W11 · C4 W13 · C5 W6 · C6 W47 · C7 W47 · C8 W53 · C9 W58 · C10 W59 · C11 W60 · C12 W62 · C13 W63 · C14 W76 · C15 W77 · C16 W77 · C17 W79 · C18 W84 · C19 W81 · C20 W86 · C21 W93 · C22 W91 · C23 W92 · C24 W95 · C25 W94 · C26 W96 · C27 W97 · C28 D14 · C29 D10 · C30 D11 · C31 D9 · C32 D13 · C33 W103 · C34 W102 |
+| Correctness and security | C1 W1 · C2 W14 · C3 W11 · C4 W13 · C5 W6 · C6 W47 · C7 W47 · C8 W53 · C9 W58 · C10 W59 · C11 W60 · C12 W62 · C13 W63 · C14 W76 · C15 W77 · C16 W77 · C17 W79 · C18 W84 · C19 W81 · C20 W86 · C21 W93 · C22 W91 · C23 W92 · C24 W95 · C25 W94 · C26 W96 · C27 W97 · C28 D14 · C29 D10 · C30 D11 · C31 D9 · C32 D13 · C33 W103 · C34 W102 · C35 W107 · C36 W107 |
 | API compatibility | API-1 W8 · API-2 D1 · API-3 W6 · API-4 W7 · API-5 W8 · API-6 W8 · API-7 W8 · API-8 W8 · API-9 D2 · API-10 W10 · API-11 W38 · API-12 D6 · API-13 W8 · API-14 W75 · API-15 W80 · API-16 W99 · API-17 W84 · API-18 W87 · API-19 W85 · API-20 W85 · API-21 W87 · API-22 W78 · API-23 W80 · API-24 D7 · API-25 D8 · API-26 W102 |
 | Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 · CL-16 W50 · CL-17 W51 · CL-18 W51 · CL-19 W51 · CL-20 W68 · CL-21 W73 · CL-22 W85 · CL-23 W85 · CL-24 W87 · CL-25 W88 · CL-26 W87 · CL-27 W87 · CL-28 W80 · CL-29 W78 · CL-30 W85 · CL-31 W90 · CL-32 W87 · CL-33 W87 · CL-34 W87 · CL-35 W99 · CL-36 W99 |
 | Architecture | ARCH-1 W5 · ARCH-2 D2 · ARCH-3 D3 · ARCH-4 W26 · ARCH-5 D4 · ARCH-6 D5 · ARCH-7 W33 · ARCH-8 W32 · ARCH-9 W14 · ARCH-10 W37 · ARCH-11 D6 · ARCH-12 W28 · ARCH-13 W26 |
 | Performance | PERF-1 W3 · PERF-2 W18 · PERF-3 W4 · PERF-4 W19 · PERF-5 W20 · PERF-6 W21 · PERF-7 W22 · PERF-8 W23 · PERF-9 W24 · PERF-10 W2 · PERF-11 W25 · PERF-12 W21 · PERF-13 W26 · PERF-14 W50 · PERF-15 W23 · PERF-16 W54 · PERF-17 W102 |
-| Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 · interop-10 W49 · interop-11 W51 · interop-12 W64 · interop-13 W65 · interop-14 W72 · interop-15 W82 · interop-16 W83 · interop-17 W83 · interop-18 W78 · interop-19 W72 · interop-20 W98 · interop-21 W98 · interop-22 W98 · interop-23 W98 · interop-24 W98 · interop-25 W98 · interop-26 W98 · interop-27 W98 · interop-28 W98 · interop-29 W98 · interop-30 W98 · interop-31 W98 · interop-32 W98 · interop-33 W98 · interop-34 W98 · interop-35 W98 · interop-36 W79 · interop-37 D12 · interop-38 W102 |
-| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 · T11 W48 · T12 W55 · T13 W56 · T14 W56 · T15 W57 · T16 W61 · T17 W69 · T18 W71 · T19 W74 · T20 W89 · T21 W89 · T22 W89 · T23 W89 · T24 W75 · T25 W100 · T26 W101 · T27 W101 · T28 W100 · T29 W104 · T30 W106 |
+| Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 · interop-10 W49 · interop-11 W51 · interop-12 W64 · interop-13 W65 · interop-14 W72 · interop-15 W82 · interop-16 W83 · interop-17 W83 · interop-18 W78 · interop-19 W72 · interop-20 W98 · interop-21 W98 · interop-22 W98 · interop-23 W98 · interop-24 W98 · interop-25 W98 · interop-26 W98 · interop-27 W98 · interop-28 W98 · interop-29 W98 · interop-30 W98 · interop-31 W98 · interop-32 W98 · interop-33 W98 · interop-34 W98 · interop-35 W98 · interop-36 W79 · interop-37 D12 · interop-38 W102 · interop-39 W102 · interop-40 W98 |
+| Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 · T11 W48 · T12 W55 · T13 W56 · T14 W56 · T15 W57 · T16 W61 · T17 W69 · T18 W71 · T19 W74 · T20 W89 · T21 W89 · T22 W89 · T23 W89 · T24 W75 · T25 W100 · T26 W101 · T27 W101 · T28 W100 · T29 W104 · T30 W106 · T31 W101 |
 | Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 · REL-13 W42 · REL-14 W52 · REL-15 W52 · REL-16 W66 · REL-17 W67 · REL-18 P2 · REL-19 W70 · REL-20 P6 · REL-21 P4 · REL-22 P5 · REL-23 W105 · REL-24 W105 |
 
 **Not planned.**
@@ -3636,7 +3648,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W90. Record the 2026-11-14 audit and the current state
 
-- **Status:** in progress — #289
+- **Status:** done — #289
 - **Priority:** before tag
 - **Findings:** [CL-31](#clarity-findings)
 - **Depends on:** none
@@ -3811,14 +3823,17 @@ changed to `done — #<PR>` after the merge.
 - **Findings:** [interop-20](#interoperability-findings) to
   [interop-35](#interoperability-findings): interop-20, interop-21, interop-22, interop-23,
   interop-24, interop-25, interop-26, interop-27, interop-28, interop-29, interop-30,
-  interop-31, interop-32, interop-33, interop-34, interop-35
-- **Depends on:** none
+  interop-31, interop-32, interop-33, interop-34, interop-35; and
+  [interop-40](#interoperability-findings)
+- **Depends on:** D9 for interop-40, since D9's option B changes the server's reason for
+  that message
 - **Problem:** see the findings.
 - **Change:** for each finding, the behaviour of socket.io 2.5.0 / engine.io 3.6.2 is
   established by running it, and the PR either aligns the server with it, where the
   finding's recommendation says so, or adds a PROTOCOL.md bullet that states both
   behaviours; the false PROTOCOL.md statements of interop-20 and interop-21 are corrected
-  either way. The item may land as several pull requests.
+  either way. For interop-40 the bullet states the reasons D9's outcome leaves, on the
+  server and in socket.io-client 2.5.0. The item may land as several pull requests.
 - **Tests:** each documented difference is pinned by a Go test; each alignment has a test
   that fails on master.
 - **Benchmarks:** none.
@@ -3870,14 +3885,15 @@ changed to `done — #<PR>` after the merge.
 
 - **Status:** open
 - **Priority:** after release
-- **Findings:** [T26](#tests-findings), [T27](#tests-findings)
+- **Findings:** [T26](#tests-findings), [T27](#tests-findings), [T31](#tests-findings)
 - **Depends on:** none
-- **Problem:** see T26 and T27.
-- **Change:** the T26 tests use the default ping settings where the heartbeat is not under
-  test, events instead of margins, and the `closeTimer` hook; the change classifier selects
-  the conformance job for `adapter/redis/node_codec_test.go`; the PR states whether a
-  socket.io-client older than 1.4 is pinned, and why.
-- **Tests:** a `.github/changes` case for the classifier; each T26 test passes
+- **Problem:** see T26, T27 and T31.
+- **Change:** the T26 and T31 tests use the default ping settings where the heartbeat is
+  not under test, events instead of margins, the `closeTimer` hook, and timeouts that a
+  loaded runner does not reach where a timeout is not under test; the change classifier
+  selects the conformance job for `adapter/redis/node_codec_test.go`; the PR states whether
+  a socket.io-client older than 1.4 is pinned, and why.
+- **Tests:** a `.github/changes` case for the classifier; each T26 and T31 test passes
   `-race -count=50` under `make test-stress-load`.
 - **Benchmarks:** none.
 - **Docs:** the commands and CI description of the file the ownership table assigns them
@@ -3893,16 +3909,19 @@ changed to `done — #<PR>` after the merge.
 - **Priority:** after release
 - **Findings:** [C34](#correctness-and-security-findings),
   [interop-38](#interoperability-findings), [PERF-17](#performance-findings),
-  [API-26](#api-compatibility-findings)
+  [API-26](#api-compatibility-findings), [interop-39](#interoperability-findings)
 - **Depends on:** none
 - **Problem:** see the findings.
 - **Change:** the Go client discards incoming events with lifecycle names, reports an
   untyped handler's error result and a recovered callback panic as the server does, joins
-  the upgrade-probe goroutine on `Close`, renews its heartbeat window on every packet, and
-  waits in its ping loop on one timer it stops; `polling.OpError` gains `Unwrap`. The item
-  may land as several pull requests.
+  the upgrade-probe goroutine on `Close`, renews its heartbeat window on every packet,
+  starts no polling request after `Close` other than the CLOSE POST, and waits in its ping
+  loop on one timer it stops; `polling.OpError` gains `Unwrap`. The item may land as
+  several pull requests.
 - **Tests:** a test per change that fails on master; Node conformance with both pinned
-  clients for the heartbeat change.
+  clients for the heartbeat change; for the polling close, a test that holds the CLOSE
+  answer and counts the GETs that start after `Close`, and the PR quotes engine.io-client
+  3.5.6 against engine.io 3.6.2 doing the same.
 - **Benchmarks:** none.
 - **Docs:** client godoc, `docs/V1.md` and the migration notes where a behaviour changes.
 - **Acceptance criteria:** as in Tests; `make test-race` and
@@ -3969,7 +3988,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W106. Make the tests that failed in the Stress runs of 2026-11-15 pass under load
 
-- **Status:** open
+- **Status:** done — #290, #291, #292, #293; Stress run [43762022486](https://github.com/sshaplygin/go-socket.io/actions/runs/43762022486) on `master` at `64c30489`: 0 failed, 0 unfinished and 0 race reports in every package on `ubuntu-latest` and `macos-latest`
 - **Priority:** before tag
 - **Findings:** [T30](#tests-findings)
 - **Depends on:** W55
@@ -3986,13 +4005,43 @@ changed to `done — #<PR>` after the merge.
 - **Acceptance criteria:** a dispatched Stress workflow run on `master`, started after the
   last of the item's pull requests merged, whose summary shows 0 in the Failed, Unfinished
   and Race reports columns for every package on `ubuntu-latest` and on `macos-latest`; the
-  run is linked in this Status line.
+  run is linked in this Status line. Met: the reproductions and the repeated runs are in
+  the descriptions of #290–#293, and each fix changed only test files; the run in the
+  Status line was dispatched on `64c30489`, the merge of #293, the last of the four, and
+  both of its jobs passed (14 packages each, one with no tests).
 - **Definition of done:** standard, and the acceptance run.
 - **Out of scope:** the wall-clock margins of T26 that did not fail in these runs (W101).
 
+### W107. Join the Redis adapter's goroutines on Close and report delivered replies
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [C35](#correctness-and-security-findings),
+  [C36](#correctness-and-security-findings)
+- **Depends on:** none
+- **Problem:** see C35 and C36.
+- **Change:** a Redis adapter's `Close` returns after the goroutines that serve it, its
+  dispatcher where it owns one and its custom-request workers, have ended, or its comment
+  and the Redis section of `docs/V1.md` state that records can follow `Close` and which
+  ones; `boundedDo` returns the reply of a command that completed, and reports
+  `ErrAdapterClosed` only for a command that did not run. Neither change may make `Close`
+  wait for a request without bound or re-create the outage wait of C25 (W94).
+- **Tests:** with the reply `PUBLISH` of a peer request held until both adapters' `Close`
+  has started: no record follows the return of `Close` (or, where the comment documents
+  records instead, the test pins exactly those), and a reply that Redis accepted is not
+  reported as `ErrAdapterClosed`. The behavioural tests fail on master and pass
+  `-race -count=50` with miniredis and under the package's leak gate.
+- **Benchmarks:** none.
+- **Docs:** the comment of the adapter's `Close`; `docs/V1.md` (Redis), if records can
+  still follow `Close`.
+- **Acceptance criteria:** as in Tests; `make test-stress PKGS=./adapter/redis` passes, and
+  the conformance job's `TestRedis*` tests pass in CI.
+- **Definition of done:** standard.
+- **Out of scope:** the subscription records during an outage (W94, W104).
+
 ### D7. Server.Count inside OnDisconnect
 
-- **Status:** open (awaiting owner decision)
+- **Status:** decided — option A (2026-11-15)
 - **Priority:** owner decision, before the tag: the tag fixes the meaning of
   `socketio.Server.Count` for v1
 - **Findings:** [API-24](#api-compatibility-findings)
@@ -4018,7 +4067,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D8. Untyped handler error text on the wire
 
-- **Status:** open (awaiting owner decision)
+- **Status:** decided — option A (2026-11-15)
 - **Priority:** owner decision, before the tag: changing it later changes the wire contract
   of a released version
 - **Findings:** [API-25](#api-compatibility-findings)
@@ -4075,7 +4124,7 @@ changed to `done — #<PR>` after the merge.
 
 ### D10. A typed-nil error from OnConnect or connection middleware
 
-- **Status:** open (awaiting owner decision)
+- **Status:** decided — option A (2026-11-15)
 - **Priority:** owner decision, before the tag: rejecting later would turn accepted sockets
   into rejected ones in a minor release
 - **Findings:** [C29](#correctness-and-security-findings)
@@ -4292,12 +4341,11 @@ announced before both exist.
   "Before tagging v1" step 5 requires, each with what it costs a user and a link to its
   item at the tag URL
   (`https://github.com/sshaplygin/go-socket.io/blob/v1.5.0/docs/V1_RELEASE_REVIEW.md#<anchor>`).
-  At `5ee06b23` these are API-15 (W80: after `io server disconnect` or `Socket.Close` the
+  At `64c30489` these are API-15 (W80: after `io server disconnect` or `Socket.Close` the
   Go client cannot rejoin that namespace while the connection stays open) and CL-24 (W87:
   the user guide has no `http.Server.WriteTimeout` rule; a `WriteTimeout` shorter than a
   pending poll loses the packet written to that poll and disconnects polling clients with
-  `transport error`), and C29 while D10 is undecided. P4 depends on D10, so C29 leaves
-  the list before the tag. The line does not read "none" while such a finding exists.
+  `transport error`). The line does not read "none" while such a finding exists.
 - **Acceptance:** `gh release view v1.5.0` shows that text, and the release is the latest;
   every major row of the [finding catalogue](#finding-catalogue) whose owning item is still
   open at the tag is named in the text's deferred-majors line.
@@ -5169,6 +5217,12 @@ Every finding is listed under the dimension that reported it.
 - T30 was found in the Stress workflow runs of 2026-11-15 that its row names. It is not
   among the 85 entries and has no row in [Catalogue cross-check](#catalogue-cross-check);
   its locations refer to `origin/master` at `5ee06b23`.
+- C35, C36, T31 and interop-39 were reported by the work on W106 (#290–#293), and
+  interop-40 by the last review of W90 (#289); see
+  [Stress fixes and owner decisions on 2026-11-15](#stress-fixes-and-owner-decisions-on-2026-11-15).
+  They are not among the 85 entries and have no row in
+  [Catalogue cross-check](#catalogue-cross-check); each was checked against `origin/master`
+  at `64c30489`, to which their locations refer.
 - The [work plan](#work-plan) maps every ID to exactly one work item, owner decision or
   owner-only publication step, or lists it under "Not planned"; the finding coverage table is in
   [How to use this plan](#how-to-use-this-plan). When a fix merges, the row's
@@ -5208,12 +5262,14 @@ Every finding is listed under the dimension that reported it.
 | C26 | nit | partially-confirmed at `789eab64` (constant `IDGenerator`, three runs); `serveConn` unchanged on `c8c0c1e4` | `server.go` (`serveConn`) | With an `IDGenerator` that reissues the IDs of ended sessions, a connection waiting for the previous holder of its ID runs `OnConnect` after `Server.Close` has started, and its dead transport keeps the ID registered while it waits; the default random IDs never take this path | Check after the wait that the server is not closed and the engine session has not ended (W96). |
 | C27 | minor | reproduced at `789eab64` (`-race`, two runs, session ended after 6.0 s); `engineio/transport/websocket` unchanged on `c8c0c1e4` | `engineio/transport/websocket/connect.go` (`SetWriteDeadline`), `engineio/internal/session` (`NextReader`) | Over websocket, a server write blocked by a client that stopped reading stalls the session's reads: each received packet renews the deadlines, and `SetWriteDeadline` waits for the lock the blocked frame writer holds, so the client's events are not dispatched and the session ends with `ping timeout` PingInterval + PingTimeout after the last renewal, although the client keeps sending pings; socket.io 2.5.0 buffers its writes and keeps reading | Renew the deadlines without waiting for an in-flight frame write, without re-creating the W1 lock cycle (W97). |
 | C28 | minor | — | `engineio/server.go`, `docs/V1.md`, `SECURITY.md` | The server has no session cap and no handshake rate limit, and no document said so: 20,000 unauthenticated polling handshakes held 80,068 goroutines and 269 MiB of heap for 45 s, an ad hoc measurement (no committed benchmark yet); `SECURITY.md` puts denial of service by a remote client in scope (audit `CR-7`) | Owner decision D14; the user guide's deployment section (W87) states the cost and what to put in front. |
-| C29 | major | reproduced at `789eab64`: the process ended with a nil pointer dereference on the connection's read goroutine | `namespace_handlers.go` (`Connect`), `internal/event/event.go` (`Returned`) | An error returned by `OnConnect` or connection middleware whose `Error` method panics, a typed nil pointer error included, ended the server process. #280 (W84) fixes the crash: a typed nil counts as nil, so the socket is accepted, and a panicking `Error` method is reported as a panic. Upstream `v1.7.0` rejected any non-nil interface | Owner decision D10 on whether a typed-nil error accepts or rejects the socket. |
+| C29 | major | reproduced at `789eab64`: the process ended with a nil pointer dereference on the connection's read goroutine | `namespace_handlers.go` (`Connect`), `internal/event/event.go` (`Returned`) | An error returned by `OnConnect` or connection middleware whose `Error` method panics, a typed nil pointer error included, ended the server process. #280 (W84) fixes the crash: a typed nil counts as nil, so the socket is accepted, and a panicking `Error` method is reported as a panic. Upstream `v1.7.0` rejected any non-nil interface | Owner decision D10 on whether a typed-nil error accepts or rejects the socket. Decided by D10 (2026-11-15). |
 | C30 | minor | reproduced at `789eab64` (1027 ACK requests against a held writer) | `queue.go`, `connection.go` (`unhandled`) | A client that does not read can still cause one WARN `socketio: unhandled error ... write buffer full` per session through the replies the server queues for it (ACKs, CONNECT and DISCONNECT replies) and repeat it by reconnecting; the record is also the only signal that `WithWriteBufferSize` is too small for what the application emits. #275 (W79) lowers only the refused-CONNECT case | Owner decision D11. |
 | C31 | minor | reproduced on `5ee06b23` and against socket.io 2.5.0 / engine.io 3.6.2 on 2026-11-15: a limit of 1000 and a 5000-character emit from socket.io-client 2.5.0 | `engineio/internal/session/close.go` | Since #275 the server logs `engineio: message too large` at DEBUG, because a client alone triggers it and socket.io 2.5.0 logs nothing; a default deployment then has no log signal that `WithMaxHTTPBufferSize` is too low for legitimate clients. For a message over the limit, `OnDisconnect` reports `transport error` over polling and over websocket, and socket.io-client 2.5.0 reports `transport error` over polling and `transport close` over websocket. With socket.io 2.5.0 the server-side reason is `transport error` over websocket and `parse error` over polling, and the client reports `transport close` over both | Owner decision D9. |
 | C32 | minor | — | `packets.go` (argument decoding), `client/packets.go` | An argument decode error that is not a `*json.UnmarshalTypeError` (for example the one `Time.UnmarshalJSON` returns for `"bad"`, or a custom `UnmarshalJSON` that rejects) closes the whole connection without an error ACK, while a type mismatch keeps it open, and which error a value produces depends on `encoding/json` and differs under `GOEXPERIMENT=jsonv2`. #281 (W85) documents the rule | Owner decision D13. |
 | C33 | nit | from the reviews of #275 and #280; source-confirmed | `queue.go`, `logger/logger.go` (`levelHandler.Handle`), `connection.go` (`onError`) | Follow-ups of the logging and error-report changes: #275 classifies an overflow by the packet that did not fit, not by what filled the queue, and no test covers a refused-CONNECT overflow on a namespace without `OnError` while `/` has one; #275's level handler resolves each attribute two or three times, so an application `LogValuer` runs repeatedly per record; `connection.onError` drops an error that `errors.Is` the failure of the frame being read, so a recovered panic whose value wraps that error would not be reported (no input that reaches it was found) | Add the test, resolve each attribute once, and exempt `*PanicError` from the filter (W103). |
 | C34 | minor | source-confirmed on `c8c0c1e4`; the error-result difference is pinned by `TestClientUntypedErrorResultIsAPlainValue` | `client/packets.go`, `client/namespace_handlers.go`, `client/namespace_listeners.go`, `engineio/client/client.go` (`terminate`) | Go client behaviour that differs from the server role or leaves work behind: incoming EVENT packets with lifecycle names, `disconnecting` among them, which the client also fires itself on close, are dispatched to its listeners, while the server discards them; an untyped client handler's `error` result is answered as `{}` and reaches neither `OnError` nor a log record, and a recovered callback panic reads `event call error: <value>` with no stack; `Close` aborts an upgrade probe without waiting for the probe goroutine (#203, Tests F5) | Apply the server role's rules in the client and join the probe goroutine on `Close` (W102). |
+| C35 | minor | reproduced on `5ee06b23` in the work on #292: 6 of 300 repetitions under CPU load, and every time by a probe that holds a reply `PUBLISH` until both adapters are closed; `adapter/redis` unchanged on `64c30489` | `adapter/redis/subscription.go` (`Close`, `dispatch`), `adapter/redis/cluster.go` (request workers) | A Redis adapter's `Close` returns without waiting for the goroutines that serve it, the subscription dispatcher and the custom-request workers, so a closed adapter can still log after `Close` returns: a `socketio: redis cluster request failed` record at DEBUG, which in Stress runs 43738490624 and 43714889813 landed in the log capture of the next test (T30). By code reading, a subscription loss or recovery record can follow `Close` too, because `dispatch` checks `transportClosed` before it logs (not reproduced). Neither the comment of `Close` nor `docs/V1.md` says that records can follow `Close` | Join those goroutines in `Close`, or state which records can follow it (W107). |
+| C36 | nit | reproduced on `5ee06b23` by the held-reply probe of the work on #292; source-confirmed on `64c30489` | `adapter/redis/cluster.go` (`boundedDo`), `adapter/redis/requests.go` (`replyCluster`) | `boundedDo` checks the closed flag after `conn.Do` and returns `ErrAdapterClosed` instead of the reply, so when `Close` lands between the two, a reply `PUBLISH` that Redis accepted, and whose requester got the answer, is logged at DEBUG as `socketio: redis cluster request failed` with `err=redis adapter closed` | Return the result of a command that ran, and report `ErrAdapterClosed` only for one that did not (W107). |
 
 ### API compatibility findings
 
@@ -5242,8 +5298,8 @@ Every finding is listed under the dimension that reported it.
 | API-21 | minor | — | `docs/V1.md` (migration guide) | Behaviour changes the migration section does not list: argument decode errors, a CONNECT to an unregistered namespace, the v1.4.2 room scope and ID room; the `OnError` row attributes the orderly-close report to v1.4.2 only (audit `USER-4`) | Add the migration rows (W87). |
 | API-22 | nit | — | `docs/V1.md` (migration guide) | The guide said a build reports the renamed, removed and re-typed identifiers, but `socketio.NewServer(nil)`, the most common upstream call, still compiles and runs with the fork's defaults, and a missing package stops the build before any identifier error (audit `USER-7`) | Say so and add `NewServer(nil)` to the search list (W78). Fixed by #274 (W78). |
 | API-23 | minor | — | `client/client.go` (`Connect`), `client/options.go` (`WithReconnection`) | A failed first `Client.Connect` is not retried, although reconnection is enabled by default and socket.io-client 2.x retries it; neither the godoc nor the user guide says so (audit `U-7`) | State it in the `Connect` and `WithReconnection` godoc and in the user guide, pinned by a test (W80). |
-| API-24 | minor | — | `server.go` (`Count`), `engineio/server.go` | `socketio.Server.Count` inside `OnDisconnect` is 0, not 1, for a connection whose transport has ended (a transport close without a namespace DISCONNECT, reason `transport close`; a transport error; a ping timeout), as `engine.clientsCount` in engine.io 3.6.2; for a namespace DISCONNECT or a server `Conn.Close` it stays 1. #272 made this change, and the V1.md migration table lists it; the work package had asked for unchanged `socketio.Server` behaviour | Owner decision D7. |
-| API-25 | minor | — | `internal/event/event.go` (`AckError`), `namespace_listeners.go` | An untyped server handler's non-nil error result is sent in its ACK as `{"code":"handler_error","message":"<err.Error()>"}` (#280), so error text reaches clients by default where upstream `v1.7.0` and socket.io 2.5.0 send `{}` | Owner decision D8. |
+| API-24 | minor | — | `server.go` (`Count`), `engineio/server.go` | `socketio.Server.Count` inside `OnDisconnect` is 0, not 1, for a connection whose transport has ended (a transport close without a namespace DISCONNECT, reason `transport close`; a transport error; a ping timeout), as `engine.clientsCount` in engine.io 3.6.2; for a namespace DISCONNECT or a server `Conn.Close` it stays 1. #272 made this change, and the V1.md migration table lists it; the work package had asked for unchanged `socketio.Server` behaviour | Owner decision D7. Decided by D7 (2026-11-15). |
+| API-25 | minor | — | `internal/event/event.go` (`AckError`), `namespace_listeners.go` | An untyped server handler's non-nil error result is sent in its ACK as `{"code":"handler_error","message":"<err.Error()>"}` (#280), so error text reaches clients by default where upstream `v1.7.0` and socket.io 2.5.0 send `{}` | Owner decision D8. Decided by D8 (2026-11-15). |
 | API-26 | nit | source-confirmed on `c8c0c1e4` | `engineio/transport/polling/errors.go` (`OpError`) | `polling.OpError` has no `Unwrap`, so `errors.Is` and `errors.As` cannot reach its `Err`; its godoc states this | Add `Unwrap`, an additive change (W102). |
 
 ### Clarity findings
@@ -5369,6 +5425,8 @@ Every finding is listed under the dimension that reported it.
 | interop-36 | minor | — | `packets.go` (`connectNamespace`) | The ERROR reply to a CONNECT for an unknown namespace repeats the name as received, while socket.io 2.5.0 parses it as a URL path (it trims trailing whitespace, percent-encodes space, tab, CR and LF, drops `#` and what follows, and turns `\` into `/`); with #275 a name longer than 1024 bytes gets no reply, where the reference echoes any length | List both differences in PROTOCOL.md (W79). Fixed by #275 (W79). |
 | interop-37 | minor | code reading in the review of #279 | `engineio/transport/polling/server.go` (GET handler) | #279 answers a pending poll with `CLOSE` when the payload's write deadline has expired; that deadline can expire while the session is still open, when the application's reader is later than the window, so the client is told `CLOSE` and the session ends only when its reader next fails, at most one window later. A comment in the handler names the case; PROTOCOL.md does not | Owner decision D12. |
 | interop-38 | minor | source-confirmed on `c8c0c1e4` | `engineio/client/client.go` (PONG case of `NextReader`) | The Go Engine.IO client renews its heartbeat window only when it reads a PONG; engine.io-client 3.x renews it on every packet. #281 states the rule in the `ReasonPingTimeout` godoc and the user guide | Renew the window on every packet, as the reference client does (W102). |
+| interop-39 | nit | reproduced on `64c30489` (scratch Go probe, three runs) and against engine.io 3.6.2 with engine.io-client 3.5.6 (five runs); see [Stress fixes and owner decisions on 2026-11-15](#stress-fixes-and-owner-decisions-on-2026-11-15) | `engineio/client/client.go` (`terminate`, `sendClose`), `engineio/transport/polling/connect.go` (`serveGet`) | After `Conn.Close` returns, the Go polling client can still start long-poll GETs until its CLOSE POST is answered: `terminate` sends CLOSE from a goroutine, and `serveGet` stops only when the transport's `Close`, at the end of `sendClose`, marks it stopped. engine.io-client 3.5.6 sends only the CLOSE POST after `close()`. With a unique session ID the extra GET gets HTTP 400 or is cancelled; with an ID the server has issued again it reaches the newer session and can end it, as in `TestReusedIDWaitsForPreviousConnection` (T30, #291) | Start no polling request after `Close` other than the CLOSE POST (W102). |
+| interop-40 | nit | reproduced on `64c30489` (three runs) and against socket.io 2.5.0 / engine.io 3.6.2 (three runs): a limit of 1000 and a 5000-character emit from socket.io-client 2.5.0 over polling | `engineio/internal/session/close.go`, `engineio/transport/polling` | Over polling, a message over `WithMaxHTTPBufferSize` ends the session with the `OnDisconnect` reason `transport error`, and socket.io-client 2.5.0 reports `transport error`; with socket.io 2.5.0 the server reason is `parse error` and the client reports `transport close`. C31 and D9 record the reasons; `docs/PROTOCOL.md` does not list the difference | List the difference with D9's outcome, or align the reasons (W98). |
 
 ### Tests findings
 
@@ -5403,7 +5461,8 @@ Every finding is listed under the dimension that reported it.
 | T27 | minor | reproduced on `5ee06b23`: `go run ./.github/changes` for a commit that adds a test function to `adapter/redis/node_codec_test.go` prints `v1_packages=./adapter/redis` and `conformance=false` | `.github/changes`, `internal/conformance` | CI coverage gaps: a pull request that changes only `adapter/redis/node_codec_test.go` does not select the conformance job, the only one that runs that Node oracle test (`TestRedisGoPacketWithNodeOracle` skips without `NODE_PATH`); the conformance suite has no socket.io-client 1.0–1.3, whose websocket path #278 added (raw-frame tests cover it). The stress run's `go test` timeout is not a gap: `make test-stress` passes `-timeout=20m` | Select the conformance job for the oracle's test file, and decide whether to pin a 1.x client older than 1.4 (W101). |
 | T28 | nit | source-confirmed on `c8c0c1e4` | the `TestMain` of eight test packages, `namespace_listeners_test.go`, `parser/json_compatibility_test.go`, `internal/conformance/transport_test.go`, `handler_heartbeat_test.go` | Test-code hygiene: the goroutine leak gate (`TestMain`, `leakedModuleStacks`) is copied into eight test packages; `TestOnceListenerClaimedAcrossSnapshots` says two connections dispatch concurrently but replays the interleaving sequentially; `TestPreparePlainTypeCheckIsLinearInSharedSubtypes` says the walk visits 41 types, while it visits 81 (40 structs, 40 slices and `int`); the conformance-tagged `transport_test.go` has an `if`/`else if` chain on `mode` (staticcheck QF1003) that CI lint, which does not build that tag, does not see; in `TestBlockingServerHandlerEndsItsConnection` an assertion that fails before `close(release)` leaves the handler blocked, so cleanup waits for the ten-second bound of `Server.Close`, and the test requires `ping timeout` although the user guide says neither the end nor the survival of such a connection can be relied on | Share the leak gate if the architecture gate allows it, correct the comments, and release the handler in `t.Cleanup` (W100). |
 | T29 | minor | — | `adapter/redis/subscription_log_test.go` | The subscription loss and recovery records of #277 are verified only against miniredis, stopped with `Close` and restarted with `Restart`; a real Redis can answer `LOADING` after a restart. The description of #277 says the stop and start run against a `redis:7` container remains to be done | Run the scenario against a Redis container and record the result (W104). |
-| T30 | minor | Stress runs 43740386493, 43738490624 and 43714889813; not reproduced outside them | `serve_test.go`, `log_test.go`, `adapter/redis/subscription_log_test.go`, `engineio/client/upgrade_test.go` | Four tests failed in Stress workflow runs of 2026-11-15 (`make test-stress-load`; 40 executions of each test per run and operating system); every package of every run reported 0 unfinished tests and 0 race reports. The dispatched run 43740386493 on `master` at `5ee06b23`, the commit whose dispatched CI run 43740384034 passed on Linux, macOS and Windows, failed on Ubuntu and on macOS, in the root package only: `TestReusedIDWaitsForPreviousConnection` (added by #272) failed 1 of 40 on Ubuntu in its `OnDisconnect` case, where the second connection's first read returned `transport error: get: invalid request: 500 Internal Server Error(500)` instead of the OPEN packet, and 2 of 40 on macOS in its `disconnecting` case, with `timed out waiting for event from the second session` after 5 s; `TestRequestRejectedRecords` failed 3 of 40 on macOS with `library goroutines still run` at `log_test.go:216`, listing goroutines of a Socket.IO connection's read loop. The pull-request run 43738490624 on the head `d8748584` of #275 failed with `TestRequestRejectedRecords` (1 of 40 on Ubuntu, the same message), `TestReusedIDWaitsForPreviousConnection/OnDisconnect` (1 of 40 on macOS, the same 500 answer) and `adapter/redis` `TestRequestHelperErrorsAfterCloseLogAtDebug` (added by #277; 1 of 40 on Ubuntu, five `socketio: redis cluster request failed` records where the test requires four). The pull-request run 43714889813 on the head `d1e4196a` of #286 failed with `TestRequestHelperErrorsAfterCloseLogAtDebug` (2 of 40 on Ubuntu, the same count) and `engineio/client` `TestClientUpgradeOrder` (1 of 40 on macOS: the server side read 19 packets where the test requires at least 20). For none of the four is it established whether the test or the library is at fault | Establish the cause of each failure and remove it, in the fixture without weakening an assertion or in the library with a regression test, until a dispatched Stress run on `master` reports no failed test (W106). |
+| T30 | minor | Stress runs 43740386493, 43738490624 and 43714889813; each failure reproduced under CPU load and by a probe in its fixing pull request (#290–#293) | `serve_test.go`, `log_test.go`, `adapter/redis/subscription_log_test.go`, `engineio/client/upgrade_test.go` | Four tests failed in Stress workflow runs of 2026-11-15 (`make test-stress-load`; 40 executions of each test per run and operating system); every package of every run reported 0 unfinished tests and 0 race reports. The dispatched run 43740386493 on `master` at `5ee06b23`, the commit whose dispatched CI run 43740384034 passed on Linux, macOS and Windows, failed on Ubuntu and on macOS, in the root package only: `TestReusedIDWaitsForPreviousConnection` (added by #272) failed 1 of 40 on Ubuntu in its `OnDisconnect` case, where the second connection's first read returned `transport error: get: invalid request: 500 Internal Server Error(500)` instead of the OPEN packet, and 2 of 40 on macOS in its `disconnecting` case, with `timed out waiting for event from the second session` after 5 s; `TestRequestRejectedRecords` failed 3 of 40 on macOS with `library goroutines still run` at `log_test.go:216`, listing goroutines of a Socket.IO connection's read loop. The pull-request run 43738490624 on the head `d8748584` of #275 failed with `TestRequestRejectedRecords` (1 of 40 on Ubuntu, the same message), `TestReusedIDWaitsForPreviousConnection/OnDisconnect` (1 of 40 on macOS, the same 500 answer) and `adapter/redis` `TestRequestHelperErrorsAfterCloseLogAtDebug` (added by #277; 1 of 40 on Ubuntu, five `socketio: redis cluster request failed` records where the test requires four). The pull-request run 43714889813 on the head `d1e4196a` of #286 failed with `TestRequestHelperErrorsAfterCloseLogAtDebug` (2 of 40 on Ubuntu, the same count) and `engineio/client` `TestClientUpgradeOrder` (1 of 40 on macOS: the server side read 19 packets where the test requires at least 20). Each test was at fault, not the library: `TestRequestRejectedRecords` took its first goroutine snapshot after the engine had logged its two sessions as open but before the Socket.IO server, which receives a session from `Accept` only after that record, had started their goroutines, so those goroutines counted as started by the rejected request; in `TestReusedIDWaitsForPreviousConnection`, the first client, a Go Engine.IO client closed with `Conn.Close`, kept polling until its CLOSE request was answered (interop-39), and a late poll of it reached the second session with the same ID, which answered an overlapping poll with HTTP 500 and ended when that poll was cancelled, as engine.io 3.6.2 ends a session whose poll closes early; `TestRequestHelperErrorsAfterCloseLogAtDebug` captured a DEBUG record that the dispatcher of an adapter closed by the preceding test logged after that adapter's `Close` returned (C35, C36); `TestClientUpgradeOrder` counted a value that its writer sent on polling as sent after the switch, when the upgrade completed between the write and the writer's check | Establish the cause of each failure and remove it, in the fixture without weakening an assertion or in the library with a regression test, until a dispatched Stress run on `master` reports no failed test (W106). Fixed by #290, #291, #292 and #293 (W106). |
+| T31 | minor | reported in the work on #292 and #293 (one failure in 1000 repetitions of `TestRedisBroadcastConcurrentRequests` at a load average above 100); not among the failures of the Stress runs of T30 or of run 43762022486; the windows are source-confirmed on `64c30489` | `adapter/redis/adapter_test.go`, `engineio/client/upgrade_test.go` | Tests bound by wall-clock time that T26 does not list and that can fail a zero-failure Stress run: `TestRedisBroadcastConcurrentRequests` depends on the 300 ms `redisRequestTimeout` the package's tests set (the failed run's `Len` returned -1 after `ErrRequestTimeout`); `TestClientUpgradeProbeFails` waits 1.2 s for the probe-failure record, and `TestClientUpgradeTransportErrors` 2 s for it and 1 s for each later step | Derive the bounds from events or from the configuration, as for T26 (W101). |
 
 ### Release engineering findings
 
@@ -5726,3 +5785,56 @@ authors were counted with `git log --first-parent` (REL-22); the dispatched CI r
 43740384034 on `5ee06b23` passed on Linux, macOS and Windows, and the dispatched Stress run
 43740386493 on that commit failed on Ubuntu and on macOS (T30). Redis-backed tests were
 not run for this record, and the Node reference was run for C24, interop-23 and C31 only.
+
+### Stress fixes and owner decisions on 2026-11-15
+
+This record describes `master` at `64c30489`, the merge of #293. #290–#293 (W106) changed
+only test files: `log_test.go`, `serve_test.go`, `adapter/redis/main_test.go` and
+`adapter/redis/subscription_log_test.go`, and `engineio/client/upgrade_test.go`. Each
+pull request reproduced its failure before the fix and repeated the test after it, under
+20 `sh` busy loops on a darwin/arm64 machine that other test runs also loaded; the
+counts below are from their descriptions, and T30 states the causes.
+
+| Test | Fix | Before the fix | After the fix |
+| --- | --- | --- | --- |
+| `TestRequestRejectedRecords` | #290 | 6 of 2000 runs on `5ee06b23` (race build, `-count=1000 -cpu=1,4 -shuffle=on`); a root `OnConnect` held for 100 ms failed it 3 of 3 | 0 of 2000; with the held `OnConnect`, 0 of 3 |
+| `TestReusedIDWaitsForPreviousConnection` | #291 | 11 of 4000 subtest runs on `5ee06b23` (`-race -count=250 -cpu=1,4`, four batches) | 0 of 4000; with either defect #272 fixed reintroduced, 20 of 20 subtests fail (`-race -count=10`) |
+| `TestRequestHelperErrorsAfterCloseLogAtDebug` | #292 | 6 of 300 repetitions with the preceding test on `5ee06b23` (`-race -cpu=4`) | 0 of 1000; each of the file's eight tests 0 of 2000 (`-race -count=1000 -cpu=1,4`) |
+| `TestClientUpgradeOrder` | #293 | 1 of 240 executions in the three Stress runs of T30, 0 of 2000 locally; a probe that holds the writer between its write and its check failed it 5 of 5 | 0 of 2000 (`-race -count=1000 -cpu=1,4`); the probe 0 of 5 |
+
+Runs on `64c30489`, read with `gh run view` and from the run artifacts:
+
+- Stress run 43762022486 (`workflow_dispatch`, started after #293 merged): both jobs,
+  `ubuntu-latest` and `macos-latest`, succeeded. Each `stress-summary.md` lists 14
+  packages, 13 passing and `engineio/parser/internal/packet` without tests, 87,481 test
+  runs, and 0 failed, 0 unfinished and 0 race reports in every package.
+- CI run 43762025324 (`workflow_dispatch`) succeeded in all 30 jobs, among them the v1
+  and v2 tests on Linux, macOS and Windows and both conformance jobs; the push CI run
+  43761971269 on the same commit succeeded.
+- The push CI runs on the merges of #289 (43748843430) and #291 (43754784068) failed in
+  one job, `Test v2 ubuntu-latest Go stable`, in the v2 test
+  `TestUpgradeGuardBusySession/upgraded` (two `request rejected` records where it
+  expects one), which is outside this review; the re-run of the failed jobs passed on both
+  (attempt 2). The push CI runs on the merges of #290 and #292 succeeded.
+
+Reference runs for the new rows (Node 26.4.0):
+
+- interop-39: engine.io 3.6.2 with engine.io-client 3.5.6, polling only; the server sends
+  a message every 2 ms, and the client calls `close()` 200 ms after `open`. In five runs
+  the only request after `close()` was the CLOSE POST, 1 ms later, and the server's
+  socket closed with `transport close`. A scratch Go test on `64c30489` (not committed),
+  with this server sending in the same way and the Go client calling `Close` after
+  200 ms: in three runs with the CLOSE answer delayed by 300 ms, one GET started 1–3 ms
+  after `Close` and before the CLOSE POST; in one of three runs without the delay, one
+  GET started 1 ms after `Close`.
+- interop-40 and C31: a server with `WithMaxHTTPBufferSize(1000)` and socket.io-client
+  2.5.0 emitting 5000 characters. Against socket.io 2.5.0 (engine.io 3.6.2, ws 7.5.14),
+  three runs: over websocket, server `transport error` and client `transport close`; over
+  polling, server `parse error` and client `transport close`. Against this server at
+  `64c30489`, three runs: `OnDisconnect` `transport error` on both transports, and the
+  client `transport close` over websocket and `transport error` over polling.
+
+C35 and C36 were checked by reading `adapter/redis` on `64c30489`, which #290–#293 did
+not change; the reproductions are those of the work on #292. T31's windows were read in
+the test sources; its Redis failure was observed only in that work.
+The owner's decisions of 2026-11-15 on D7, D8 and D10 are recorded in their Status lines.

@@ -68,6 +68,7 @@ type connection struct {
 	draining, connecting         bool             // the first close is Close; until connected
 	appSealed                    bool             // Close returned from its own callbacks
 	overflow                     *namespaceConn   // the first close is its overflow, in this namespace
+	overflowByPeer               bool             // refuse queued the packet that overflowed
 	pending                      []*namespaceConn // OnDisconnect calls a library close owes
 	drainTimer                   *time.Timer
 	drainTimeout                 time.Duration  // tests shorten it
@@ -208,16 +209,17 @@ func (c *connection) reportOverflow(conn Conn) {
 	if c.overflow == nil {
 		return
 	}
-	nh := c.namespace(fmtNS(c.overflow.namespace))
-	if nh == nil {
-		// The packet answered a CONNECT to a namespace the server does not have, and the
-		// root namespace has no OnError (see overflowWrite): the client caused the
-		// overflow with what it sent and by not reading.
-		c.unhandledPeer(c.overflow.namespace, ErrWriteBufferFull)
-		return
+	if nh := c.namespace(fmtNS(c.overflow.namespace)); nh != nil {
+		if onError := nh.ErrorHandler(); onError != nil {
+			onError(conn, ErrWriteBufferFull)
+			return
+		}
 	}
-	if onError := nh.ErrorHandler(); onError != nil {
-		onError(conn, ErrWriteBufferFull)
+	if c.overflowByPeer {
+		// The packet answered a CONNECT to a namespace that the server does not have or
+		// that refused it (see refuse): the client caused the overflow with the CONNECTs
+		// it sent and by not reading.
+		c.unhandledPeer(c.overflow.namespace, ErrWriteBufferFull)
 		return
 	}
 	c.unhandled(c.overflow.namespace, ErrWriteBufferFull)

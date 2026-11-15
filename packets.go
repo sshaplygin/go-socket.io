@@ -201,7 +201,7 @@ func connectNamespace(c *connection, header parser.Header) error {
 		// too long to echo is not answered.
 		c.log.Debug("socketio: connect without handler", nspAttr(header.Namespace))
 		if len(header.Namespace) <= maxEchoedNamespace {
-			c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf("Invalid namespace"))
+			c.refuse(header.Namespace, "Invalid namespace")
 		}
 		return nil
 	}
@@ -235,7 +235,7 @@ func connectNamespace(c *connection, header parser.Header) error {
 		c.claim(header.Namespace)
 		nc.reject()
 		c.onErrorOr(header.Namespace, err, c.rejected)
-		c.write(parser.Header{Type: parser.Error, Namespace: header.Namespace}, reflect.ValueOf(err.Error()))
+		c.refuse(header.Namespace, err.Error())
 		return nil
 	}
 	if isDone(c.closing) {

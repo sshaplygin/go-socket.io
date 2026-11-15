@@ -15,7 +15,10 @@ var errServerClosed = errors.New("socketio: server closed")
 // An overflow in root OnConnect fails the connect and is reported with a nil Conn.
 // An ERROR packet answering a CONNECT to a namespace the server does not have counts as
 // the root namespace's: its overflow is reported to OnError of "/", and is logged at
-// DEBUG without one (see the logger package for the levels).
+// DEBUG without one (see the logger package for the levels). An overflow by the ERROR
+// packet answering a CONNECT that connect middleware or OnConnect of a namespace other
+// than "/" refused is reported to OnError of that namespace, and is logged at DEBUG
+// without one.
 // Packets queued faster than they are written can close a healthy client:
 // a packet with k binary attachments takes k+1 Engine.IO frames, and transport
 // throughput can be lower than the application's emit rate.

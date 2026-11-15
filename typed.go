@@ -108,7 +108,7 @@ func (nc *namespaceConn) admitTyped(ctx context.Context, name string, payload ev
 		return 0, eventImpl.ErrSocketClosed
 	}
 	if c.pendingWrites+c.drainQueued >= c.writeBufferSize {
-		c.overflowWrite(header)
+		c.overflowWrite(header, false)
 		return 0, ErrWriteBufferFull
 	}
 	if pending != nil {

@@ -1,11 +1,14 @@
 package socketio
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -96,73 +99,153 @@ func TestPeerFloodLogsNoWarn(t *testing.T) {
 	require.Equal(t, int32(1), rootErrors.Load(), "only the ERROR packet for / reaches OnError")
 }
 
-// TestUnknownNamespaceOverflowOverPolling sends, in one POST of a polling session that
-// never polls again, more CONNECTs to namespaces the server does not have than the
-// outbound queue holds ERROR replies. The reply that overflows the queue is the root
-// namespace's: OnError of "/" receives ErrWriteBufferFull once when it is registered,
-// and the overflow is logged at DEBUG otherwise. No record is above DEBUG.
-func TestUnknownNamespaceOverflowOverPolling(t *testing.T) {
-	for _, withOnError := range []bool{true, false} {
-		t.Run(fmt.Sprintf("OnError=%v", withOnError), func(t *testing.T) {
+// TestConnectRefusalOverflowOverPolling sends, in one POST of a polling session that
+// never polls again, more CONNECTs than the outbound queue holds ERROR replies: to
+// namespaces the server does not have, and to a namespace whose connect middleware
+// refuses them. The reply that overflows the queue is reported once as
+// ErrWriteBufferFull to OnError of "/" for the unknown namespaces and of the refusing
+// namespace for the refused ones, and is logged at DEBUG without that OnError. No
+// record is above DEBUG.
+func TestConnectRefusalOverflowOverPolling(t *testing.T) {
+	for _, tc := range []struct {
+		name, nsp string           // nsp is the namespace whose OnError receives the overflow
+		packet    func(int) string // the i-th CONNECT
+	}{
+		{"unknown", "/", func(i int) string { return fmt.Sprintf("40/z%d,", i) }},
+		{"refused", "/admin", func(int) string { return "40/admin," }},
+	} {
+		for _, withOnError := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/OnError=%v", tc.name, withOnError), func(t *testing.T) {
+				rec, opts := captureLogs(t, nil)
+				srv := NewServer(WithEngineOptions(opts...), WithLogger(slog.New(rec)))
+				overflows := make(chan error, 8)
+				srv.OnConnect("/", func(Conn) error { return nil })
+				srv.Use("/admin", func(Conn) error { return errors.New("unauthorized") })
+				if withOnError {
+					srv.OnError(tc.nsp, func(c Conn, err error) {
+						if errors.Is(err, ErrWriteBufferFull) { // not the rejections of /admin
+							assert.Equal(t, tc.nsp, c.Namespace())
+							overflows <- err
+						}
+					})
+				}
+				go func() { _ = srv.Serve() }()
+				t.Cleanup(func() { _ = srv.Close() })
+				ts := httptest.NewServer(srv)
+				t.Cleanup(ts.Close)
+
+				resp, err := http.Get(ts.URL + "/?EIO=3&transport=polling")
+				require.NoError(t, err)
+				body, err := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				require.NoError(t, err)
+				var params struct {
+					SID string `json:"sid"`
+				}
+				require.NoError(t, json.Unmarshal(body[bytes.IndexByte(body, '{'):bytes.LastIndexByte(body, '}')+1], &params))
+
+				var payload strings.Builder
+				for i := 0; i < defaultWriteBufferSize+100; i++ {
+					packet := tc.packet(i)
+					fmt.Fprintf(&payload, "%d:%s", len(packet), packet)
+				}
+				resp, err = http.Post(ts.URL+"/?EIO=3&transport=polling&sid="+params.SID, "text/plain;charset=UTF-8",
+					strings.NewReader(payload.String()))
+				require.NoError(t, err)
+				_ = resp.Body.Close()
+
+				overflow := func() []map[string]string {
+					var out []map[string]string
+					for _, m := range only(rec.since(0), "socketio: unhandled error") {
+						if m["err"] == ErrWriteBufferFull.Error() {
+							out = append(out, m)
+						}
+					}
+					return out
+				}
+				if withOnError {
+					require.ErrorIs(t, recv(t, overflows, "the overflow report"), ErrWriteBufferFull)
+				} else {
+					require.Eventually(t, func() bool { return len(overflow()) == 1 }, waitFor, time.Millisecond,
+						"the overflow record")
+					require.Equal(t, "DEBUG", overflow()[0]["level"])
+				}
+				require.Eventually(t, func() bool { return len(only(rec.since(0), "engineio: session close")) == 1 },
+					waitFor, time.Millisecond, "the session close record")
+				require.Empty(t, drain(overflows), "a second OnError call")
+				for _, m := range loud(rec.since(0), "") {
+					assert.Fail(t, "a record above DEBUG", "%s %s nsp=%s err=%s", m["level"], m["msg"], m["nsp"], m["err"])
+				}
+				if withOnError {
+					require.Empty(t, overflow(), "the overflow reached OnError and was logged")
+				}
+			})
+		}
+	}
+}
+
+// TestAnnouncedMessagePastLimitLogsNoWarn announces a message longer than the default
+// limit of 1,000,000 bytes without sending it: over websocket with the 14-byte header of
+// a masked 2,000,000-byte text frame, over polling with a POST that has
+// Content-Length: 2000000 and no body. The session ends, the server logs
+// "engineio: message too large" once at DEBUG, and no record is above DEBUG.
+func TestAnnouncedMessagePastLimitLogsNoWarn(t *testing.T) {
+	for _, name := range []string{"websocket", "polling"} {
+		t.Run(name, func(t *testing.T) {
 			rec, opts := captureLogs(t, nil)
 			srv := NewServer(WithEngineOptions(opts...), WithLogger(slog.New(rec)))
-			rootErrors := make(chan error, 8)
 			srv.OnConnect("/", func(Conn) error { return nil })
-			if withOnError {
-				srv.OnError("/", func(c Conn, err error) {
-					assert.Equal(t, "/", c.Namespace())
-					rootErrors <- err
-				})
-			}
 			go func() { _ = srv.Serve() }()
 			t.Cleanup(func() { _ = srv.Close() })
 			ts := httptest.NewServer(srv)
 			t.Cleanup(ts.Close)
 
-			resp, err := http.Get(ts.URL + "/?EIO=3&transport=polling")
+			raw, err := net.Dial("tcp", ts.Listener.Addr().String())
 			require.NoError(t, err)
-			body, err := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
-			require.NoError(t, err)
-			var params struct {
-				SID string `json:"sid"`
-			}
-			require.NoError(t, json.Unmarshal(body[bytes.IndexByte(body, '{'):bytes.LastIndexByte(body, '}')+1], &params))
-
-			var payload strings.Builder
-			for i := 0; i < defaultWriteBufferSize+100; i++ {
-				packet := fmt.Sprintf("40/z%d,", i)
-				fmt.Fprintf(&payload, "%d:%s", len(packet), packet)
-			}
-			resp, err = http.Post(ts.URL+"/?EIO=3&transport=polling&sid="+params.SID, "text/plain;charset=UTF-8",
-				strings.NewReader(payload.String()))
-			require.NoError(t, err)
-			_ = resp.Body.Close()
-
-			overflow := func() []map[string]string {
-				var out []map[string]string
-				for _, m := range only(rec.since(0), "socketio: unhandled error") {
-					if m["err"] == ErrWriteBufferFull.Error() {
-						out = append(out, m)
-					}
-				}
-				return out
-			}
-			if withOnError {
-				require.ErrorIs(t, recv(t, rootErrors, "the overflow report"), ErrWriteBufferFull)
+			t.Cleanup(func() { _ = raw.Close() })
+			br := bufio.NewReader(raw)
+			if name == "websocket" {
+				_, err = raw.Write([]byte("GET /?EIO=3&transport=websocket HTTP/1.1\r\nHost: x\r\n" +
+					"Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n" +
+					"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"))
+				require.NoError(t, err)
+				resp, err := http.ReadResponse(br, nil)
+				require.NoError(t, err)
+				require.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
+				// FIN and text; masked with a 64-bit length of 2,000,000; the mask
+				_, err = raw.Write([]byte{0x81, 0x80 | 127, 0, 0, 0, 0, 0, 0x1e, 0x84, 0x80, 1, 2, 3, 4})
+				require.NoError(t, err)
 			} else {
-				require.Eventually(t, func() bool { return len(overflow()) == 1 }, waitFor, time.Millisecond,
-					"the overflow record")
-				require.Equal(t, "DEBUG", overflow()[0]["level"])
+				resp, err := http.Get(ts.URL + "/?EIO=3&transport=polling")
+				require.NoError(t, err)
+				body, err := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				require.NoError(t, err)
+				var params struct {
+					SID string `json:"sid"`
+				}
+				require.NoError(t, json.Unmarshal(body[bytes.IndexByte(body, '{'):bytes.LastIndexByte(body, '}')+1], &params))
+				_, err = raw.Write([]byte("POST /?EIO=3&transport=polling&sid=" + params.SID + " HTTP/1.1\r\nHost: x\r\n" +
+					"Content-Type: text/plain;charset=UTF-8\r\nContent-Length: 2000000\r\n\r\n"))
+				require.NoError(t, err)
+				resp, err = http.ReadResponse(br, nil)
+				require.NoError(t, err)
+				_ = resp.Body.Close()
+				require.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
 			}
-			require.Eventually(t, func() bool { return len(only(rec.since(0), "engineio: session close")) == 1 },
-				waitFor, time.Millisecond, "the session close record")
-			require.Empty(t, drain(rootErrors), "a second OnError call")
-			for _, m := range loud(rec.since(0), "") {
-				assert.Fail(t, "a record above DEBUG", "%s %s nsp=%s err=%s", m["level"], m["msg"], m["nsp"], m["err"])
-			}
-			if withOnError {
-				require.Empty(t, overflow(), "the overflow reached OnError and was logged")
+
+			require.Eventually(t, func() bool {
+				recs := rec.since(0)
+				return len(only(recs, "engineio: message too large")) == 1 && len(only(recs, "engineio: session close")) == 1
+			}, waitFor, time.Millisecond, "the message too large and session close records")
+			recs := rec.since(0)
+			tooLarge := only(recs, "engineio: message too large")
+			require.Len(t, tooLarge, 1)
+			assert.Equal(t, "DEBUG", tooLarge[0]["level"])
+			assert.Equal(t, name, tooLarge[0]["transport"])
+			assert.Contains(t, tooLarge[0]["err"], "limit 1000000 bytes")
+			for _, m := range loud(recs, "") {
+				assert.Fail(t, "a record above DEBUG", "%s %s err=%s", m["level"], m["msg"], m["err"])
 			}
 		})
 	}

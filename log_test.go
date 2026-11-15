@@ -174,6 +174,15 @@ func TestRequestRejectedRecords(t *testing.T) {
 		{"checker", "DEBUG", func() int { return get("transport=polling", "X-Reject", "1") }, http.StatusForbidden},
 		{"unknown sid", "DEBUG", func() int { return get("transport=polling&sid=nope") }, http.StatusBadRequest},
 		{"accept", "DEBUG", func() int { return get("transport=websocket") }, http.StatusBadRequest},
+		// upgrade requests that the websocket handshake refuses, through a ResponseWriter
+		// that is an http.Hijacker
+		{"accept", "DEBUG", func() int {
+			return get("transport=websocket", "Connection", "Upgrade", "Upgrade", "websocket",
+				"Sec-WebSocket-Version", "12", "Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+		}, http.StatusBadRequest},
+		{"accept", "DEBUG", func() int {
+			return get("transport=websocket", "Connection", "Upgrade", "Upgrade", "websocket", "Sec-WebSocket-Version", "13")
+		}, http.StatusBadRequest},
 		{"init", "DEBUG", func() int { return get("transport=faulty") }, http.StatusOK},
 		{"bad upgrade", "DEBUG", func() int { return get("transport=polling&sid=" + wsSID) }, http.StatusBadRequest},
 	} {
@@ -317,6 +326,23 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			p.overflowReported(t, "/")
 			close(p.fc.peerGone)
 		}},
+		{name: "overflow answering refused CONNECTs", h: hooks{setup: func(s *Server) {
+			s.Use("/a", func(Conn) error { return refused })
+		}}, run: func(t *testing.T, p *peer) {
+			require.Equal(t, "0", recv(t, p.fc.out, "the CONNECT packet"))
+			p.stall(t, p.nc, 0)
+			for i := 0; i <= defaultWriteBufferSize; i++ {
+				p.send(t, "0/a")
+			}
+			recv(t, p.completion(), "the close of the overflow")
+			close(p.fc.peerGone)
+		}, peer: repeat("/a", defaultWriteBufferSize+2)}, // each rejection, then the overflow
+		{name: "root namespace without its broadcast", nsps: []string{"/"}, h: hooks{setup: func(s *Server) {
+			s.createNamespace("/").SetAdapter(nil, failed)
+		}}},
+		{name: "namespace without its broadcast", nsps: []string{"/a"}, h: hooks{setup: func(s *Server) {
+			s.createNamespace("/a").SetAdapter(nil, failed)
+		}}, run: func(t *testing.T, p *peer) { p.send(t, "0/a") }},
 		{name: "overflow in a failing OnConnect", nsps: []string{"/"}, peer: []string{"/"}, h: hooks{connect: func(c Conn) error {
 			flood(c, defaultWriteBufferSize+1)
 			return refused
@@ -462,6 +488,15 @@ func TestUnhandledErrorRecords(t *testing.T) {
 			require.Equal(t, tc.peer, peerRecords())
 		})
 	}
+}
+
+// repeat returns n copies of s.
+func repeat(s string, n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = s
+	}
+	return out
 }
 
 // unknownOverflow holds the writer of p on a packet and sends one CONNECT more to an

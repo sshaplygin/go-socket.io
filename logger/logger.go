@@ -31,42 +31,37 @@
 // # Levels
 //
 // The library logs WARN, INFO and DEBUG records; it logs no ERROR record.
-// WARN marks a failure no caller receives. On the server such records
-// include "socketio: unhandled error" without OnError for an error or a panic of
-// an event handler, a panic of connect middleware or OnConnect, a packet the
-// server cannot encode and a full write buffer of a namespace the server has
-// (see ErrWriteBufferFull in the root package), and "engineio: request
-// rejected" for two causes: a websocket upgrade through a ResponseWriter that is
-// not an http.Hijacker, and a session that a running server could not create
-// (its ID generator returned an empty or duplicate ID, or setting the
-// transport's deadline failed). A handler error or panic is logged for every
-// packet that triggers it.
+// WARN marks a failure no caller receives. INFO marks only the end of a WARN
+// failure that persists until the library recovers from it: "socketio: redis
+// subscription restored" follows "socketio: redis subscription lost", which is
+// WARN whatever its error, EOF included, because the adapter did not end that
+// subscription.
 //
-// On the server, a failure that any client can cause with what it sends, and
-// repeat with every packet or request, is DEBUG: every other "engineio: request
-// rejected" record, a CONNECT to a namespace the server does not have
-// ("socketio: connect without handler"), and "socketio: unhandled error"
-// without OnError for a packet that does not decode, a payload of the wrong
-// type, an ERROR packet, an error that connect middleware or OnConnect returns,
-// and a write buffer that ERROR packets answering CONNECTs to namespaces the
-// server does not have overflowed.
+// On the server these records are DEBUG, because a client causes them with the
+// requests and packets it sends and can repeat them: "engineio: request
+// rejected", except for the two causes named below; "engineio: message too
+// large"; "socketio: connect without handler", for a CONNECT to a namespace the
+// server does not have; and "socketio: unhandled error" without OnError for a
+// packet that does not decode, a payload of the wrong type, an ERROR packet, an
+// error that connect middleware or OnConnect returns, and a write buffer that
+// overflowed with the ERROR packet answering a CONNECT to a namespace other than
+// "/" that the server does not have or whose connect middleware or OnConnect
+// returned an error.
 //
-// A client can still cause these server WARN records. Two end its session and
-// are logged once for it: "engineio: message too large", after it sent more than
-// the configured limit, and "socketio: unhandled error" for the full write
-// buffer of a namespace the server has, without OnError of that namespace, when
-// the client does not read; the ERROR packets that answer CONNECTs which connect
-// middleware or OnConnect of that namespace refuses fill the buffer too, so a
-// client needs no access to the namespace for it. The others follow from the
-// application or the deployment: an event handler that fails, a ResponseWriter
-// that is not an http.Hijacker, which logs each websocket upgrade request, and a
-// namespace whose Redis broadcast could not be created, which logs each CONNECT
-// to it without OnError and closes the session.
-//
-// INFO marks only the end of a WARN failure that persists until the library
-// recovers from it: "socketio: redis subscription restored" follows
-// "socketio: redis subscription lost", which is WARN whatever its error,
-// EOF included, because the adapter did not end that subscription.
+// The WARN records of the server include "socketio: unhandled error" without
+// OnError for an error or a panic of an event handler, a panic of connect
+// middleware or OnConnect, a packet the server cannot encode, a connect to a
+// namespace whose Redis broadcast could not be created, and a write buffer that
+// overflowed with any other packet (see ErrWriteBufferFull in the root package);
+// and "engineio: request rejected" for a websocket upgrade request through a
+// ResponseWriter that is not an http.Hijacker and for a session that a running
+// server could not create (its ID generator returned an empty or duplicate ID,
+// or setting the transport's deadline failed). Some of these follow what a
+// client sends: a handler error or panic is logged for every packet that
+// triggers it, the ResponseWriter for each websocket upgrade request, the
+// missing Redis broadcast for a session that connects to that namespace, and
+// the full write buffer once for a session. A client that does not read what
+// the server sends it can cause the full write buffer.
 //
 // Expected closure of a session (EOF, a closed connection, a peer close, a
 // ping timeout and any failure after a close started), errors also returned

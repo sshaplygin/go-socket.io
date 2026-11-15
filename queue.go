@@ -17,6 +17,18 @@ func (c *connection) writeFlags(header parser.Header, reserved, noCompress bool,
 	c.queuePayloadLocked(pkg, reserved)
 }
 
+// refuse queues the ERROR packet that answers a CONNECT to nsp, a namespace other than
+// "/" that the server does not have or whose connect middleware or OnConnect returned an
+// error. The peer chooses how many such packets it is sent, so an overflow of the queue
+// by one of them is the peer's doing (see reportOverflow).
+func (c *connection) refuse(nsp, message string) {
+	pkg := preparePayload(parser.Header{Type: parser.Error, Namespace: nsp}, false, reflect.ValueOf(message))
+	pkg.refusal = true
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.queuePayloadLocked(pkg, false)
+}
+
 // writeAck admits a reply only while its originating namespace is current.
 // Encoding runs before the lock because application marshalers may reenter.
 func (nc *namespaceConn) writeAck(header parser.Header, args ...reflect.Value) {
@@ -83,17 +95,19 @@ func (c *connection) queuePayloadLocked(pkg outboundPayload, reserved bool) {
 			}
 			c.notifyWrite()
 		} else if !c.draining {
-			c.overflowWrite(header)
+			c.overflowWrite(header, pkg.refusal)
 		}
 	}
 
 }
 
-// overflowWrite starts a library close for a full outbound queue; mu is held.
-func (c *connection) overflowWrite(header parser.Header) {
+// overflowWrite starts a library close for a full outbound queue, which the packet of
+// header did not fit; refusal reports whether refuse queued that packet. mu is held.
+func (c *connection) overflowWrite(header parser.Header, refusal bool) {
 	if isDone(c.closing) {
 		return
 	}
+	c.overflowByPeer = refusal
 	if c.overflow = c.errConn(header.Namespace); c.overflow == nil && c.namespace(header.Namespace) == nil {
 		// The ERROR packet answering a CONNECT to a namespace the server does not have:
 		// no OnError can be registered for it, so the overflow is the root namespace's.
@@ -163,4 +177,5 @@ type outboundPayload struct {
 	err        error
 	noCompress bool
 	lifecycle  bool
+	refusal    bool // queued by refuse
 }

@@ -378,7 +378,7 @@ func (nc *namespaceConn) sendPayload(pkg outboundPayload, ack *callbackFunc) {
 			nc.connection.pendingWrites++
 			nc.pending = append(nc.pending, pkg)
 		} else {
-			nc.connection.overflowWrite(header)
+			nc.connection.overflowWrite(header, false)
 		}
 		return
 	}

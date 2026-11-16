@@ -323,6 +323,10 @@ func clientUpgradeRead(conn upgradeMessageConn, firstTen func()) <-chan clientUp
 	return result
 }
 
+// clientUpgradeWrite writes consecutive numbers until it has written ten of them
+// after observing switched, then the end marker. switched is checked before each
+// write, so the ten counted values were all started on the upgraded transport,
+// and a value whose write began before the switch is never one of them.
 func clientUpgradeWrite(conn upgradeMessageConn, switched func() bool) <-chan error {
 	result := make(chan error, 1)
 	go func() {
@@ -336,6 +340,8 @@ func clientUpgradeWrite(conn upgradeMessageConn, switched func() bool) <-chan er
 			value := strconv.Itoa(i)
 			if after == 10 {
 				value = "end"
+			} else if switched() {
+				after++
 			}
 			writer, err := conn.NextWriter(eioparser.String)
 			if err == nil {
@@ -348,9 +354,6 @@ func clientUpgradeWrite(conn upgradeMessageConn, switched func() bool) <-chan er
 			if err != nil || value == "end" {
 				result <- err
 				return
-			}
-			if switched() {
-				after++
 			}
 		}
 	}()
@@ -404,7 +407,9 @@ func TestClientUpgradeOrder(t *testing.T) {
 			require.NoError(t, frames.err)
 			minimum := 10
 			if side == 0 {
-				minimum = 20 // the probe is held until ten client messages crossed polling
+				// The probe is held until the server read 0..9, so the writer
+				// saw no switch before writing them; ten more follow it.
+				minimum = 20
 			}
 			require.GreaterOrEqual(t, len(frames.values), minimum)
 			for i, value := range frames.values {

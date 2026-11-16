@@ -65,8 +65,10 @@ type Conn interface {
 	// OnError call can be discarded before it is written. A decode error of such arguments that
 	// is a *json.UnmarshalTypeError is reported to OnError without a close.
 	// A middleware or OnConnect rejection sends ERROR and keeps the engine connection open; it
-	// reports to that namespace's OnError, with a nil Conn for root. Failures during a close are
-	// not reported. An encode failure reports OnError, sends an ERROR packet with "encode error",
+	// reports to that namespace's OnError, with a nil Conn for root.
+	// Failures during a close are not reported, except recovered panics of application callbacks
+	// and the error results of disconnecting listeners and of listeners run by a local Emit (see
+	// Server.OnError). An encode failure reports OnError, sends an ERROR packet with "encode error",
 	// and keeps the connection open.
 	Close() error
 	Namespace

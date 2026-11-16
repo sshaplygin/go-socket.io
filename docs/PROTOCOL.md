@@ -160,7 +160,7 @@ Package `engineio` of the v1 module at the repository root.
   the same limit applies to inflated bytes; rejection does not buffer the full message.
   The session ends with `OnDisconnect` reason `transport error`; `OnError` is not
   called. For the built-in transports the session logs `engineio: message too large`
-  at WARN through `engineio.WithLogger`, with `sid`, `transport` and an `err` that
+  at DEBUG through `engineio.WithLogger`, with `sid`, `transport` and an `err` that
   states the limit. A custom transport that enforces its own limit reports it itself.
 - The Go client limits incoming websocket messages (inflated bytes) and whole decoded
   polling response bodies, OPEN included, to 1 MiB by default. The configurable
@@ -291,7 +291,15 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   automatically and sends `0` before any client packet. Other namespaces are joined
   when the client sends `0/<nsp>`.
 - A CONNECT to a namespace without a registered handler is answered with an ERROR packet
-  (`4/<nsp>,"Invalid namespace"`) and the connection stays open.
+  (`4/<nsp>,"Invalid namespace"`) and the connection stays open. No `OnError` is called.
+  The name is repeated as received. socket.io 2.5.0 parses the name as a URL path: it
+  removes whitespace at the end of the name, sends a space, a tab, CR and LF inside the
+  name as `%20`, `%09`, `%0D` and `%0A`, drops `#` and what follows it, and turns `\` into
+  `/`. For a name without whitespace, `#` or `\` the two replies are the same.
+  A namespace name longer than 1024 bytes is not answered, so that the server does not
+  echo it; the reference echoes a name of any length. The
+  [`logger` package documentation](../logger/logger.go) lists the levels of the records
+  that a peer's packets and requests cause.
 - Binary attachments are replaced by `{"_placeholder":true,"num":N}` and sent as
   following binary frames; on the Go side they map to `parser.Buffer`.
 - The server sends no EVENT named `connect`, `disconnect`, `disconnecting` or
@@ -331,12 +339,32 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   (an event payload that is not an array) closes the
   connection and sends no ACK. The reference server has no equivalent, because its
   handlers accept any arguments.
+- A server handler result of type `error` is encoded in its ACK position as `null`
+  when nil and otherwise as `{"code":"handler_error","message":"<err.Error()>"}`,
+  or with the code and message of a `*RemoteError`; for example a
+  `func(Conn) error` returning `errors.New("bad thing")` answers
+  `3<id>[{"code":"handler_error","message":"bad thing"}]`, and a
+  `func(Conn) (string, error)` answers `3<id>["",{"code":"handler_error",...}]`
+  ([usage](V1.md#handler-errors-and-panics)). A reference listener has no return
+  value; `ack(new Error("bad thing"))` there sends `[{}]`, because an `Error`'s
+  message is not an enumerable property.
 - An ERROR payload is always a JSON string: `err.Error()` for a connect or event
-  middleware rejection or an `OnConnect` error, for example `4"rejected"`, and
-  `Invalid namespace` for an unknown namespace. Additional error data is not
+  middleware rejection or an `OnConnect` error, for example `4"rejected"`,
+  `internal error` when that callback panicked, and `Invalid namespace` for an
+  unknown namespace. Additional error data is not
   sent, even when the error value implements `json.Marshaler`. As a known
   compatibility limitation, socket.io 2.5.0 instead sends `err.data` when it is
   set, which can be any JSON value, and `err.message` otherwise.
+- A recovered panic never sends its value: the peer receives `internal error` in
+  the ERROR packet of a connect or event middleware, `OnConnect` or `OfFunc` match
+  function panic, and in the `handler_panic` error ACK of a typed handler; an
+  untyped handler or ACK callback panic closes the connection without a reply
+  ([usage](V1.md#handler-errors-and-panics)). socket.io 2.5.0 recovers none of
+  these and never sends a thrown error either: an exception thrown in an event
+  listener, a packet middleware (`socket.use`), an ACK callback, a `connection`
+  listener, a `disconnect` listener or root namespace middleware (`io.use`) is an
+  uncaught exception of the Node process, and one thrown in the middleware of any
+  other namespace closes the client's transport.
 - Namespace query strings (`0/nsp?x=1`) are parsed into `Header.Query` and merged into
   `Handshake().Query` of that socket.
 - The reference server queues outbound packets without a bound. This server bounds

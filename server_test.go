@@ -85,7 +85,7 @@ func TestServerLoggerOption(t *testing.T) {
 	defer ts.Close()
 
 	// A raw engine.io client sends a CONNECT for a namespace that has no
-	// handler; the server logs it as an unhandled error with nsp=/nope.
+	// handler; the server logs it at DEBUG with nsp=/nope.
 	dialer := engineclient.Dialer{Transports: []transport.Transport{polling.Default}}
 	conn, err := dialer.Dial(ts.URL, nil)
 	require.NoError(t, err)
@@ -97,9 +97,9 @@ func TestServerLoggerOption(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, w.Close())
 
-	require.Eventually(t, func() bool { return custom.find("msg", "socketio: unhandled error")["nsp"] == "/nope" },
-		5*time.Second, 20*time.Millisecond, "custom logger did not receive the namespace error")
-	require.Equal(t, "WARN", custom.find("msg", "socketio: unhandled error")["level"])
+	require.Eventually(t, func() bool { return custom.find("msg", "socketio: connect without handler")["nsp"] == "/nope" },
+		5*time.Second, 20*time.Millisecond, "custom logger did not receive the namespace record")
+	require.Equal(t, "DEBUG", custom.find("msg", "socketio: connect without handler")["level"])
 	require.False(t, fallback.hasAttr("nsp", "/nope"),
 		"error was also written to the package-level logger")
 }

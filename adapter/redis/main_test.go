@@ -67,20 +67,28 @@ func leakedModuleStacks() []string {
 	return leaks
 }
 
-func TestMain(m *testing.M) {
-	code := m.Run()
-	deadline := time.Now().Add(5 * time.Second)
+// moduleGoroutineGrace is how long library goroutines may outlive the Close
+// calls of the cleanups that ended them.
+const moduleGoroutineGrace = 5 * time.Second
+
+// awaitModuleGoroutines waits until no goroutine of moduleGoroutines remains
+// and returns the stacks of those still running after moduleGoroutineGrace.
+func awaitModuleGoroutines() []string {
+	deadline := time.Now().Add(moduleGoroutineGrace)
 	for {
 		leaks := leakedModuleStacks()
-		if len(leaks) == 0 {
-			break
+		if len(leaks) == 0 || time.Now().After(deadline) {
+			return leaks
 		}
-		if time.Now().After(deadline) {
-			fmt.Fprintln(os.Stderr, "library goroutines remain after tests:\n"+strings.Join(leaks, "\n\n"))
-			code = 1
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if leaks := awaitModuleGoroutines(); len(leaks) > 0 {
+		fmt.Fprintln(os.Stderr, "library goroutines remain after tests:\n"+strings.Join(leaks, "\n\n"))
+		code = 1
 	}
 	os.Exit(code)
 }

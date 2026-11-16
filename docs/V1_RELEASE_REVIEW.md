@@ -77,8 +77,14 @@ documentation checks.
 
 ## Verdict: ready after fixes
 
-**State on `master` at `64c30489` (2026-11-15).** A later commit that changes only this
-document leaves this state unchanged. No release blocker is open. B1 is fixed by
+**State on `master` at `5000046b` (2026-11-16), the commit tagged `v1.5.0`.** A later
+commit that changes only this document leaves this state unchanged. `v1.5.0` is released:
+`5000046b` passed the final head verification ([P4](#p4-final-head-verification)) and
+carries the tag ([P5](#p5-tag-v150)); the GitHub Release `v1.5.0`, the latest release,
+publishes the refreshed release text ([P6](#p6-github-release)); the module proxy resolves
+`@latest` to `v1.5.0` and pkg.go.dev shows it ([P7](#p7-module-index)). The evidence is in
+[Final head verification and release on 2026-11-16](#final-head-verification-and-release-on-2026-11-16).
+No release blocker is open. B1 is fixed by
 [W1](#w1-fix-the-permanent-session-deadlock) (#147) and B2 by
 [W47](#w47-bound-polling-request-io-by-the-session-deadlines) (#205). Every major M1–M7
 and every before-tag work item (W1–W10, W45–W55, W58–W68, W73–W79, W81–W86, W88–W90 and
@@ -93,24 +99,14 @@ fixes are
 of which W80 and W87 follow the tag, and
 [W90](#w90-record-the-2026-11-14-audit-and-the-current-state) records them.
 [W106](#w106-make-the-tests-that-failed-in-the-stress-runs-of-2026-11-15-pass-under-load)
-removed the four Stress failures of T30, each a fault of the test. On `64c30489` the
-dispatched Stress run 43762022486 reported no failed or unfinished test and no race
-report in any package on Ubuntu and macOS, and the dispatched CI run 43762025324 passed
-in all 30 jobs, on Linux, macOS and Windows. By the owner's decision of 2026-11-15, only
-what blocks the release of the Go server role lands before the tag.
+removed the four Stress failures of T30, each a fault of the test.
 
-Open for the release at that commit, in this order (each item's Status line gives its
-state):
+Open owner-only steps (each item's Status line gives its state):
 
-1. Before the tag: only the owner's final head verification
-   [P4](#p4-final-head-verification), whose runs have the commit to tag as their head; the
-   runs on `64c30489` do not replace them.
-2. The tag: [P5](#p5-tag-v150), on the head P4 verified.
-3. After the tag: the GitHub Release with the refreshed release text
-   ([P6](#p6-github-release)) and the module index ([P7](#p7-module-index)); only then,
-   once the tag and the GitHub Release exist, the announcement ([P8](#p8-announcement)).
-   The repository metadata ([P2](#p2-repository-metadata)) can be set at any time before
-   P8; P9 is optional.
+1. The repository metadata ([P2](#p2-repository-metadata)): the description and the
+   homepage are not set.
+2. The announcement ([P8](#p8-announcement)), after P2.
+3. Optional: the remote branch cleanup ([P9](#p9-remote-branch-cleanup)).
 
 Work that follows the tag: W38, W69–W72, W80 (#276), W87 (#283), W91–W105 and W107, and
 the owner decisions D9 and D11–D14; the [item index](#how-to-use-this-plan) lists them.
@@ -119,13 +115,13 @@ That work includes two major findings, deferred in writing by the owner's decisi
 2026-11-15: API-15 ([W80](#w80-reopen-a-namespace-from-the-go-client): the Go client cannot
 reopen a namespace while its connection stays open) and CL-24
 ([W87](#w87-complete-the-user-guide): the user guide has no `http.Server.WriteTimeout`
-rule for polling). [P6](#p6-github-release) requires the release notes to name both. The
-major finding C29, owned by D10, is not open: D10 kept the current behaviour without a
-pull request.
+rule for polling). The release notes of the GitHub Release name both
+([P6](#p6-github-release)). The major finding C29, owned by D10, is not open: D10 kept the
+current behaviour without a pull request.
 
 `v1.5.0` is the first usable release of this module path, so it also fixes the public
-API surface for the life of v1: once tagged, later v1 releases can add to the API but
-cannot remove or change it. [Decisions required before tagging](#decisions-required-before-tagging)
+API surface for the life of v1: later v1 releases can add to the API but cannot remove or
+change it. [Decisions required before tagging](#decisions-required-before-tagging)
 and the D items record those choices.
 
 The findings come from these reviews: the original review of `7311fbe` (2026-10-21) found
@@ -145,18 +141,19 @@ W107 and the rows C35, C36, T31, interop-39 and interop-40
 ## Scorecard
 
 The scores are the original review's at `7311fbe` and were not re-scored. The other
-columns give what that review found and the state on `master` at `64c30489`.
+columns give what that review found and the state on `master` at `5000046b`, the commit
+tagged `v1.5.0`.
 
 | Dimension | Score at `7311fbe` | Open before the tag | Found, and the state now |
 | --- | --- | --- | --- |
 | Clarity | 5/10 | none | **Found:** no inline quick start or migration note, 9 of 12 packages without a package doc, the `OnError` and Redis callback contracts documented incorrectly. **Now:** fixed by W8, W9, W13, W27, W68, W85 and W88 (godoc for every exported identifier); this review records the current state (W90). **After the tag:** W87 and W99. |
 | Architecture | 7/10 | none | **Found:** the adapter, alias and typed-event contracts needed decisions before the API freeze. **Now:** D1–D6 decided and applied. |
-| Tests | 7/10 | none | **Found:** no goroutine-leak gate, and no scenario with a non-reading client that keeps sending packets, which triggers B1. **Now:** the leak gate runs in eight test packages (W12, W89), B1 has regression tests (W1), the stress packages run under CPU load on a schedule (W55), W74 pins contracts no test discriminated, and W106 fixed the four tests that failed in the Stress runs of 2026-11-15 (T30); the dispatched Stress run on `64c30489` had no failure. **After the tag:** W69, W71, W100, W101 (with T31's fixed time windows) and W104. |
+| Tests | 7/10 | none | **Found:** no goroutine-leak gate, and no scenario with a non-reading client that keeps sending packets, which triggers B1. **Now:** the leak gate runs in eight test packages (W12, W89), B1 has regression tests (W1), the stress packages run under CPU load on a schedule (W55), W74 pins contracts no test discriminated, and W106 fixed the four tests that failed in the Stress runs of 2026-11-15 (T30); the dispatched Stress run on `5000046b` had no failure (P4). **After the tag:** W69, W71, W100, W101 (with T31's fixed time windows) and W104. |
 | API compatibility | 4/10 | none | **Found:** no migration notes for the upstream API breaks, the changed defaults and the Redis wire break. **Now:** the migration guide (W8, W51), the API decisions D1–D6, and D7, D8 and D10, which keep the current contracts. **After the tag:** the migration rows of W87, and W80. |
 | Interoperability | 8/10 | none | **Found:** `forceBase64` over websocket unsupported, and undocumented wire differences. **Now:** fixed by W15, W16, W64, W65, W82 (socket.io-client 1.0–1.3 over websocket) and W83 (`CLOSE` at ping timeout). **After the tag:** W72, the reference differences of W98 and the Go client's of W102. |
 | Performance | 6/10 | none | **Found:** the JSON encoder from #143 regressed encode cost, Redis `PUBLISH` could block indefinitely, and nothing benchmarked Socket.IO-level code. **Now:** W2–W4, W18–W26 and W54, each with a committed benchmark. |
 | Correctness and security | 6/10 | none | **Found:** any client could trigger a session deadlock (B1). **Now:** B1 and B2 fixed (W1, W47), C14–C20 fixed (W76, W77, W79, W81, W84, W86), and C29 settled by D10. **After the tag:** W91–W97, W107 and the decisions D9 and D11–D14. |
-| Release engineering | 7/10 | P4 | **Found:** no release notes, the version and the inherited tags undecided, the stress job never ran on push. **Now:** W10, W39, W52, W66 and W67 done, P1 and P3 done. **Before the tag:** P4 (REL-21). **The tag and after, in this order:** P5 (REL-22), the GitHub Release P6 with the refreshed release text (REL-20), P7, and the announcement P8 only once P5 and P6 exist; P2 at any time before P8; W105. |
+| Release engineering | 7/10 | none | **Found:** no release notes, the version and the inherited tags undecided, the stress job never ran on push. **Now:** W10, W39, W52, W66 and W67 done, P1 and P3 done, and P4–P7 done: `v1.5.0` tagged on the verified head and published as the GitHub Release with the refreshed release text, and resolved by the module proxy and pkg.go.dev (REL-2, REL-3, REL-20 to REL-22). **After the tag:** P2, then the announcement P8; the optional P9; W105. |
 
 ## Work plan
 
@@ -207,7 +204,8 @@ to do the work. The status of each item is owned by its **Status** line and nowh
    and lands before P4. W107 covers Redis adapter findings of the work on W106 and
    follows the tag.
 7. After the tag: the open items W38, W69–W72, W80, W87, W91–W105 and W107, in numeric
-   order unless **Depends on** says otherwise. W38 needs the tag.
+   order unless **Depends on** says otherwise, and the owner-only steps P2, P8 (after P2)
+   and the optional P9. W38 needs the tag.
 
 A major (M1–M7) that is not fixed before the tag is deferred only in writing: the owner
 sets the item's Status to `deferred — <reason> (<date>)` and the release notes state the
@@ -4300,7 +4298,12 @@ announced before both exist.
 
 #### P4. Final head verification
 
-- **Status:** open
+- **Status:** done (2026-11-16); on `5000046b`: the dispatched CI run
+  [43778427743](https://github.com/sshaplygin/go-socket.io/actions/runs/43778427743)
+  passed in all 30 jobs, and the dispatched Stress run
+  [43778425345](https://github.com/sshaplygin/go-socket.io/actions/runs/43778425345)
+  had 0 failed, 0 unfinished and 0 race reports on `ubuntu-latest` and `macos-latest`;
+  see [Final head verification and release on 2026-11-16](#final-head-verification-and-release-on-2026-11-16)
 - **Owner:** repository owner
 - **Depends on:** W63–W68, W73, W79, W90, W106, and the owner decisions D7, D8 and D10
 - **Steps:** CONTRIBUTING.md "Before tagging v1", steps 1–3 and the verification parts of
@@ -4318,7 +4321,8 @@ announced before both exist.
 
 #### P5. Tag v1.5.0
 
-- **Status:** open
+- **Status:** done (2026-11-16); the annotated tag `v1.5.0` names `5000046b`, the head P4
+  verified, and its tagger is the owner
 - **Owner:** repository owner only
 - **Depends on:** P4
 - **Steps:** tag `v1.5.0` on the head P4 verified, with the git identity checked as in
@@ -4329,7 +4333,10 @@ announced before both exist.
 
 #### P6. GitHub Release
 
-- **Status:** open
+- **Status:** done (2026-11-16); the
+  [GitHub Release `v1.5.0`](https://github.com/sshaplygin/go-socket.io/releases/tag/v1.5.0)
+  is the latest release, and its deferred-majors paragraph names API-15 (W80) and CL-24
+  (W87)
 - **Owner:** repository owner
 - **Depends on:** P5, W66
 - **Steps:** publish the GitHub Release for `v1.5.0` with the W66 text, refreshed against the
@@ -4341,8 +4348,9 @@ announced before both exist.
   "Before tagging v1" step 5 requires, each with what it costs a user and a link to its
   item at the tag URL
   (`https://github.com/sshaplygin/go-socket.io/blob/v1.5.0/docs/V1_RELEASE_REVIEW.md#<anchor>`).
-  At `64c30489` these are API-15 (W80: after `io server disconnect` or `Socket.Close` the
-  Go client cannot rejoin that namespace while the connection stays open) and CL-24 (W87:
+  At `5000046b`, the head P4 verified, these are API-15 (W80: after
+  `io server disconnect` or `Socket.Close` the Go client cannot rejoin that namespace
+  while the connection stays open) and CL-24 (W87:
   the user guide has no `http.Server.WriteTimeout` rule; a `WriteTimeout` shorter than a
   pending poll loses the packet written to that poll and disconnects polling clients with
   `transport error`). The line does not read "none" while such a finding exists.
@@ -4353,7 +4361,8 @@ announced before both exist.
 
 #### P7. Module index
 
-- **Status:** open
+- **Status:** done (2026-11-16); with a fresh cache, `go list -m -versions` and `@latest`
+  give only `v1.5.0`, and pkg.go.dev shows `v1.5.0`
 - **Owner:** repository owner
 - **Depends on:** P5
 - **Steps:** in a scratch module with a fresh cache,
@@ -5469,8 +5478,8 @@ Every finding is listed under the dimension that reported it.
 | ID | Severity | Re-check | Location | Finding | Recommendation |
 | --- | --- | --- | --- | --- | --- |
 | REL-1 | major → minor | partially-confirmed | `CONTRIBUTING.md:53` | No v1.5.0 release notes or migration guide, although this release breaks the upstream API | Before tagging, write release notes for the GitHub release covering the module path change, the API mapping from upstream v1.7.0/v1.8.0-rc.1, changed defaults and the support matrix. Either add a short 'Migrating from googollee/go-socket.io' section to docs/V1.md or link one from the release. Add a 'publish GitHub release notes' step to CONTRIBUTING 'Before tagging v1'. Fixed by #191 (W8). |
-| REL-2 | major → minor | partially-confirmed | `CONTRIBUTING.md:49` | A v1.5.0 tag was published and deleted before; the stale module is still cached and will undermine release verification | Before tagging, delete the cached v1.5.0 entries (cache/download/.../@v/v1.5.0.* and the extracted @v1.5.0 directory, or `go clean -modcache`). Run the consumption check with a fresh `GOMODCACHE=$(mktemp -d) GOFLAGS=-mod=mod go get github.com/sshaplygin/go-socket.io@v1.5.0`. Alternatively, choose a version that was never tagged. |
-| REL-3 | minor | — | `.git/config` | The repo-local git identity is a placeholder and has leaked into master history; an annotated tag would carry it | Remove or replace the local user.name/user.email before creating the tag or merging more PRs. Check the squash-merge body for Co-authored-by lines before confirming. |
+| REL-2 | major → minor | partially-confirmed | `CONTRIBUTING.md:49` | A v1.5.0 tag was published and deleted before; the stale module is still cached and will undermine release verification | Before tagging, delete the cached v1.5.0 entries (cache/download/.../@v/v1.5.0.* and the extracted @v1.5.0 directory, or `go clean -modcache`). Run the consumption check with a fresh `GOMODCACHE=$(mktemp -d) GOFLAGS=-mod=mod go get github.com/sshaplygin/go-socket.io@v1.5.0`. Alternatively, choose a version that was never tagged. Fixed by #193 (W10). |
+| REL-3 | minor | — | `.git/config` | The repo-local git identity is a placeholder and has leaked into master history; an annotated tag would carry it | Remove or replace the local user.name/user.email before creating the tag or merging more PRs. Check the squash-merge body for Co-authored-by lines before confirming. Fixed by #193 (W10). |
 | REL-4 | minor | — | `.github/workflows/ci.yaml:378` | The full CI on push and schedule never runs the stress job, although the docs say it runs everything | Run stress-v1 on push and schedule with PKGS=./..., or add a manual `make test-stress` step to the release checklist. Make CLAUDE.md and the ci.yaml comment match whichever you choose. Fixed by #183 (W39). |
 | REL-5 | minor | — | `.github/workflows/ci.yaml:17` | Branch protection requires only the drift and conformance checks; the v1 test, lint and gate jobs are not required | Add Lint v1, Gates v1 and the Go 1.22 job to the required checks; they report as skipped under their own names when their job-level if is false. The Test v1 matrix cannot be required directly: when skipped it reports one check under the unexpanded name (ci.yaml:91-93). Require it through an aggregating 'CI ok' job that runs with `if: always()` and fails when any job it needs failed or was cancelled, or make it always run and skip its steps, as the conformance job does. Fixed by #183 (W39). |
 | REL-6 | minor | — | `README.md:29` | README on master advertises v1.5.0 before it exists; the release checklist's Engine.IO link is missing; old upstream tags make @latest fail today | Push the tag promptly or keep the versioned links in the release PR, as CONTRIBUTING intends. Add the engineio pkg.go.dev link. Consider adding `retract [v0.9.1, v1.4.2]` to go.mod in the release commit to hide the inherited upstream tags. Fixed by #193 (W10). |
@@ -5487,9 +5496,9 @@ Every finding is listed under the dimension that reported it.
 | REL-17 | major | confirmed snapshot (GitHub API, 2026-11-10) | repository settings; `SECURITY.md` (absent) | No security policy: no SECURITY.md; private vulnerability reporting, Dependabot alerts and security updates, secret scanning and push protection are disabled (GitHub API, 2026-11-10) | Enable the settings and publish a security policy (W67 and P1). Fixed by #260 (W67). |
 | REL-18 | minor | — | repository settings, module proxy | Repository presentation: GitHub lists the repository as a fork of the archived `googollee/go-socket.io`; the description is upstream's; there is no GitHub Release; the module proxy resolves `@latest` to `v1.4.2`, which the `retract` directive in `go.mod` hides only once a tagged version carries it | P2, P3, P5–P7. |
 | REL-19 | minor | — | `.golangci.yml`, `.github/workflows/` | No static security analysis: golangci-lint uses the standard set without gosec, and no CodeQL analysis exists | Enable gosec and add CodeQL (W70). CodeQL default setup is configured; W70 states what remains. |
-| REL-20 | major → minor | partially-confirmed (`DOC-5`: every figure matches its committed benchmark; only the #169 row reads as a gain over a state users ran) | PR #265 description (the release text) | The release text that P6 publishes predates #270–#286, which change user-visible behaviour (among them `Server.Count` inside `OnDisconnect`, handler error results and panics on the wire, base64 websocket messages without `b64`, the `CLOSE` answer at ping timeout and the Redis subscription records). Its performance table gives before figures of unreleased fork commits without naming the base, so the #169 row reads 3,619 → 411 allocs/op where the gain over the master before #143 is 1,012 → 510. It carries development chronology (fixes relative to the unreleased snapshot `79b5996`, a sentence about a test's internals) and exists only as a PR description (audits `DOC-5`, `DOC-14`). Its line "Deferred major issues: none" omits the majors whose items follow the tag, API-15 (W80) and CL-24 (W87) | Refresh the text against the head P4 verifies before P6: every user-visible PR merged after #265, the base of each performance row, fixes stated relative to upstream `v1.7.0`, and a deferred-majors line that names every major finding whose item is still open on that head (P6). |
-| REL-21 | major → minor | partially-confirmed | CONTRIBUTING.md "Before tagging v1", P4 | The final-head verification of 2026-11-14 (dispatched CI run 43591826781 and Stress run 43591828823) ran on `594681a9`; pull requests merged after it, so the tag candidate named in #265 is no longer the head of `master`, and every merge between verification and tag moves the head again, v2 merges included (audit `CR-4`) | Run P4 on the commit to tag, tag that SHA, which P5 already requires, and merge nothing between P4 and P5 (P4). |
-| REL-22 | minor | reproduced on `c8c0c1e4` and `5ee06b23` with `git log --first-parent` | git history of `master` | Master history carries 70 placeholder `Co-authored-by` trailers (40 `t <t@t>`, 28 `q <q@q>`, 2 `Probe <probe@example.invalid>`) and 28 commits authored by placeholder identities (20 `q <q@q>`, 8 `t <t@t>`); REL-3 counts two commits (audit `CR-5`) | CONTRIBUTING.md forbids rewriting `master`, so the history stays; check the tagger identity at the tag (P5). |
+| REL-20 | major → minor | partially-confirmed (`DOC-5`: every figure matches its committed benchmark; only the #169 row reads as a gain over a state users ran) | PR #265 description (the release text) | The release text that P6 publishes predates #270–#286, which change user-visible behaviour (among them `Server.Count` inside `OnDisconnect`, handler error results and panics on the wire, base64 websocket messages without `b64`, the `CLOSE` answer at ping timeout and the Redis subscription records). Its performance table gives before figures of unreleased fork commits without naming the base, so the #169 row reads 3,619 → 411 allocs/op where the gain over the master before #143 is 1,012 → 510. It carries development chronology (fixes relative to the unreleased snapshot `79b5996`, a sentence about a test's internals) and exists only as a PR description (audits `DOC-5`, `DOC-14`). Its line "Deferred major issues: none" omits the majors whose items follow the tag, API-15 (W80) and CL-24 (W87) | Refresh the text against the head P4 verifies before P6: every user-visible PR merged after #265, the base of each performance row, fixes stated relative to upstream `v1.7.0`, and a deferred-majors line that names every major finding whose item is still open on that head (P6). Fixed by P6 (2026-11-16). |
+| REL-21 | major → minor | partially-confirmed | CONTRIBUTING.md "Before tagging v1", P4 | The final-head verification of 2026-11-14 (dispatched CI run 43591826781 and Stress run 43591828823) ran on `594681a9`; pull requests merged after it, so the tag candidate named in #265 is no longer the head of `master`, and every merge between verification and tag moves the head again, v2 merges included (audit `CR-4`) | Run P4 on the commit to tag, tag that SHA, which P5 already requires, and merge nothing between P4 and P5 (P4). Fixed by P4 (2026-11-16). |
+| REL-22 | minor | reproduced on `c8c0c1e4` and `5ee06b23` with `git log --first-parent` | git history of `master` | Master history carries 70 placeholder `Co-authored-by` trailers (40 `t <t@t>`, 28 `q <q@q>`, 2 `Probe <probe@example.invalid>`) and 28 commits authored by placeholder identities (20 `q <q@q>`, 8 `t <t@t>`); REL-3 counts two commits (audit `CR-5`) | CONTRIBUTING.md forbids rewriting `master`, so the history stays; check the tagger identity at the tag (P5). Fixed by P5 (2026-11-16). |
 | REL-23 | nit | source-confirmed on `c8c0c1e4` | `.deepsource.toml`, `README.md`, `CONTRIBUTING.md`, `docs/PARITY.md`, the module zip | Files that ship in the module zip but are not part of the library: an inherited `.deepsource.toml` whose exclude pattern `/_example/**` matches no directory, and more than 0.5 MB of process documents (this review and the v2 roadmap). README, CONTRIBUTING.md and PARITY.md send contributors to the file that the ownership table makes the owner of the build and test commands, which CL-14 kept as an editorial choice (audits `CR-8`, `DOC-15`) | Delete `.deepsource.toml`; whether the commands move to CONTRIBUTING.md is the owner's choice (W105). |
 | REL-24 | minor | snapshot (GitHub API, 2026-11-15) | branch protection of `master` | Branch protection has `strict: false`, so a pull request need not be up to date with `master` before it merges, and `enforce_admins: false`; the required checks are `ci-ok`, the two conformance jobs and the shared-file drift check (#203, Tests F5) | Decide whether to require up-to-date branches before merging; a settings change is owner-only (W105). |
 
@@ -5844,3 +5853,51 @@ unchanged by #290–#293 (#292 changed only its tests); the reproductions are th
 work on #292. T31's windows were read in
 the test sources; its Redis failure was observed only in that work.
 The owner's decisions of 2026-11-15 on D7, D8 and D10 are recorded in their Status lines.
+
+### Final head verification and release on 2026-11-16
+
+This record describes `master` at `5000046b`, the merge of #294, which differs from
+`64c30489` only in this document. It was read with `git`, `gh` and the run artifacts.
+
+- **P4, CI:** the dispatched CI run 43778427743 (`workflow_dispatch`, head `5000046b`)
+  succeeded in all 30 jobs, among them the v1 and v2 tests on Linux, macOS and Windows,
+  Go 1.22, JSONv2, Stress v1, lint, the gates and the two conformance jobs, one per pinned
+  client (socket.io-client 1.7.4 and 2.5.0). Each conformance job ran the tagged
+  interoperability tests and `make examples-node` (the Redis TCP and Unix-socket examples
+  with its Node client). The push CI run 43778386577 on the same commit succeeded in all
+  22 jobs.
+- **P4, Stress:** the dispatched Stress run 43778425345 (head `5000046b`) succeeded on
+  `ubuntu-latest` and `macos-latest`. Each `stress-summary.md` lists 14 packages, 13
+  passing and `engineio/parser/internal/packet` without tests, 87,481 test runs, and 0
+  failed, 0 unfinished and 0 race reports in every package; there was no failure to
+  record.
+- **P4, local** (darwin/arm64, Go 1.25.5, Node 26.4.0, Redis in a Docker container over
+  TCP): `make conformance` passed with socket.io-client 1.7.4 and with 2.5.0 against
+  socket.io 2.5.0 and socket.io-redis 5.4.0, and `make examples` passed. `make
+  examples-node` was not run locally; the two conformance jobs above ran it.
+- **P4, consumption:** in a scratch module with an empty `GOMODCACHE` and
+  `GOFLAGS=-mod=mod`, `go get github.com/sshaplygin/go-socket.io@5000046b89bff87c41d6c700567604ecc8de41fd`
+  resolved `v1.4.3-0.20261116000618-5000046b89bf`, and a program that builds a server
+  with `socketio.NewServer` ran. The README install command and pkg.go.dev links name
+  `v1.5.0`.
+- **P5:** `git ls-remote --tags origin 'v1.5.0*'` prints the annotated tag object
+  `29a7c8a9` for `refs/tags/v1.5.0` and `5000046b` for `refs/tags/v1.5.0^{}`; the tagger
+  is the owner. `origin/master` is still `5000046b`, so nothing merged between the P4
+  runs and the tag.
+- **P6:** the GitHub Release `v1.5.0` was published on 2026-11-16; it is neither a draft
+  nor a prerelease, and `gh release list` marks it `Latest`. Its body is the release text
+  refreshed against `5000046b`; the description of #265 keeps the earlier text, whose
+deferred-majors line reads "none". The release's
+  deferred-majors paragraph names API-15 (W80) and CL-24 (W87), each with what it costs a
+  user and a link to its item at the tag URL; they are the only major rows whose owning
+  item is open at the tag. Every pull request merged after #265 up to #293 is named in
+  the text; #294 changes only this document.
+- **P7:** with an empty `GOMODCACHE`, `go get github.com/sshaplygin/go-socket.io@v1.5.0`
+  succeeded and the same program ran; `go list -m -versions` printed only `v1.5.0`,
+  `go list -m github.com/sshaplygin/go-socket.io@latest` printed `v1.5.0`, and
+  `go list -m -retracted -versions` printed `v0.9.1 v1.0.1 v1.4.1 v1.4.2 v1.5.0`.
+  `https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0` shows the module at
+  `v1.5.0`, published on 2026-11-16.
+- **Open:** the repository description is still upstream's and the homepage is empty;
+  the topics are set (P2). Nothing is announced (P8). 274 remote branches remain,
+  `release/v1.5.0` among them (P9).

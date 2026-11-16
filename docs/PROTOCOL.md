@@ -316,7 +316,11 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
 - Event handlers return values become the ACK payload; an ACK packet is sent when the
   client requested an ack and a listener handled the event. Emitting with a trailing
   function argument registers an ack callback; it runs for the first ACK with its id,
-  and a repeated ACK id is ignored, as in the reference. When an event's arguments do not
+  and a repeated ACK id is ignored, as in the reference. What follows a
+  decode error of an untyped handler's arguments depends on the error, not on the
+  JSON value: `encoding/json` returns a `*json.UnmarshalTypeError` for a value that
+  does not fit the Go type, such as a string for an `int` parameter or struct field.
+  When an event's arguments do not
   decode into an untyped handler's parameter types with a `*json.UnmarshalTypeError`,
   for example a string for an `int`, the handler does not run and the connection stays open. This holds for
   the server and for the Go client alike. If the peer requested an ack, the
@@ -328,13 +332,17 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   `encoding/json`, and a build with `GOEXPERIMENT=jsonv2` can word it differently. A
   JavaScript callback, or the callback of a Go `Emit` with an acknowledgement, is called
   with that object as its only argument, and `EmitWithAck` returns a
-  `*RemoteError` with code `invalid_payload`; without an ACK id nothing is sent. The decode error goes to `OnError` in both cases. A binary
+  `*RemoteError` with code `invalid_payload`; without an ACK id nothing is sent. The decode error goes to `OnError` in both cases. A Go callback whose
+  parameters cannot decode that error object reports a decode error instead of
+  being called. A binary
   attachment where an `int` is expected is such an error as well. Any other error decoding the arguments for an untyped handler, such as
   the one `Time.UnmarshalJSON` returns for `"bad"` or an attachment sent as a text
-  frame, goes to `OnError` and closes the connection with no ACK. The
+  frame, closes the connection without an ACK after the `OnError` call. The
   arguments of an ACK decoded into an `Emit` callback follow the same rule: the
   error is reported to `OnError`, the callback is not called, and the connection
-  closes unless the error is a `*json.UnmarshalTypeError`. A missing argument is zero-filled and extra arguments are ignored, so
+  closes unless the error is a `*json.UnmarshalTypeError`. Which error a value
+  produces is decided by `encoding/json` and can differ under `GOEXPERIMENT=jsonv2`.
+  A missing argument is zero-filled and extra arguments are ignored, so
   the handler runs and its return value is the ACK. A packet that is not valid
   (an event payload that is not an array) closes the
   connection and sends no ACK. The reference server has no equivalent, because its

@@ -15,8 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 
+	redisadapter "github.com/sshaplygin/go-socket.io/adapter/redis"
 	"github.com/sshaplygin/go-socket.io/engineio"
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
@@ -134,15 +136,22 @@ func TestEventMiddlewareCannotReplaceArguments(t *testing.T) {
 
 // To give a reason and drop a client, OnConnect accepts it, emits an
 // application event and calls Close: the client receives CONNECT, the event and
-// DISCONNECT in that order, then the session ends. A Close before a rejection is
+// DISCONNECT in that order, then the session ends. Until the Close the socket is
+// in the namespace: a namespace broadcast made before it arrives as well. A Close before a rejection is
 // returned drops the ERROR packet (TestRejectedAdmissionDuringCloseDoesNotConnect
 // and the subtest here).
 func TestRootRejectionKeepsReasonWithOnConnectClose(t *testing.T) {
 	t.Run("emit and close in OnConnect", func(t *testing.T) {
 		reasons := make(chan string, 1)
 		ts := newTestServer(t, func(s *Server) {
-			s.Of("/").OnConnect(func(c Conn) error {
+			root := s.Of("/")
+			root.OnConnect(func(c Conn) error {
 				c.Emit("unauthorized", "bad token")
+				// The socket is in the namespace until Close: a namespace
+				// broadcast before it reaches this client too.
+				if err := root.Emit("news", 1); err != nil {
+					return err
+				}
 				return c.Close()
 			})
 			s.OnDisconnect("/", func(_ Conn, reason string) { reasons <- reason })
@@ -150,6 +159,7 @@ func TestRootRejectionKeepsReasonWithOnConnectClose(t *testing.T) {
 		c := dialRaw(t, ts.URL)
 		require.Equal(t, "0", c.read())
 		require.Equal(t, ev("unauthorized", "bad token"), c.read())
+		require.Equal(t, ev("news", 1), c.read())
 		require.Equal(t, "1", c.read())
 		require.True(t, c.readClosed(), "the session stays open")
 		require.Equal(t, "server namespace disconnect", recv(t, reasons, "OnDisconnect"))
@@ -245,6 +255,13 @@ func pollAfterWriteTimeout(t *testing.T, payload string, closed bool) {
 		if r.Method == http.MethodGet && r.URL.Query().Get("sid") != "" {
 			polls <- struct{}{} // net/http set this request's write deadline before calling the handler
 		}
+		if r.URL.Query().Get("unbounded") != "" {
+			// The poll that proves the session is alive must not depend on being
+			// answered within WriteTimeout.
+			if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+				t.Errorf("clear the write deadline: %v", err)
+			}
+		}
 		srv.ServeHTTP(w, r)
 	}))
 	ts.Config.WriteTimeout = writeTimeout
@@ -253,12 +270,14 @@ func pollAfterWriteTimeout(t *testing.T, payload string, closed bool) {
 	// One TCP connection per request: http.Transport silently retries a GET that
 	// fails on a reused connection before any response byte.
 	hc := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	status := 0 // of the last answered request; the requests do not overlap
 	get := func(query string) (string, error) {
 		resp, err := hc.Get(ts.URL + "/socket.io/?EIO=3&b64=1&transport=polling" + query)
 		if err != nil {
 			return "", err
 		}
 		defer func() { _ = resp.Body.Close() }()
+		status = resp.StatusCode
 		body, err := io.ReadAll(resp.Body)
 		return string(body), err
 	}
@@ -296,6 +315,15 @@ func pollAfterWriteTimeout(t *testing.T, payload string, closed bool) {
 		require.Equal(t, "ping timeout", recv(t, reasons, "OnDisconnect"))
 		return
 	}
+	// A session that had seen the failed write would be closed or closing and
+	// would answer the next poll with HTTP 400 or a CLOSE packet. This one
+	// delivers the next packet, so nothing below can precede a late close.
+	c.Emit("next", 1)
+	body, err := get("&unbounded=1&sid=" + handshake.Sid)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, status, "the poll after the lost one: %.80q", body)
+	require.Contains(t, body, ev("next", 1), "the session did not deliver the next packet")
+	require.NotContains(t, body, "push", "the lost packet was sent again")
 	require.True(t, c.Connected(), "the session reported the lost write")
 	require.Equal(t, 1, srv.Count())
 	require.Empty(t, drain(reasons))
@@ -377,16 +405,44 @@ func TestClientBundleIsNotServed(t *testing.T) {
 
 // Engine.IO sessions live in one server instance: a sid issued by one instance
 // is unknown to another one, so polling across instances needs session affinity.
+// A Redis adapter does not change that: a broadcast of the second instance
+// reaches the first instance's client, whose sid the second instance still does
+// not know.
 func TestSessionIsUnknownToAnotherInstance(t *testing.T) {
-	a := newTestServer(t, func(s *Server) { s.OnConnect("/", func(Conn) error { return nil }) })
-	b := newTestServer(t, func(s *Server) { s.OnConnect("/", func(Conn) error { return nil }) })
-	c := dialRaw(t, a.URL)
-	require.Equal(t, "0", c.read())
-	resp, err := http.Get(b.URL + "/socket.io/?EIO=3&transport=polling&sid=" + c.conn.ID())
-	require.NoError(t, err)
-	body, err := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	require.NoError(t, err)
-	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	require.JSONEq(t, `{"code":1,"message":"Session ID unknown"}`, string(body))
+	for _, cluster := range []bool{false, true} {
+		name := "memory adapters"
+		if cluster {
+			name = "Redis adapter cluster"
+		}
+		t.Run(name, func(t *testing.T) {
+			var second *Server
+			setup := func(s *Server) {
+				second = s
+				s.OnConnect("/", func(Conn) error { return nil })
+			}
+			if cluster {
+				r := miniredis.RunT(t)
+				setup = func(s *Server) {
+					second = s
+					s.SetAdapter(redisadapter.New(redisadapter.WithAddr(r.Addr())))
+					s.OnConnect("/", func(Conn) error { return nil })
+				}
+			}
+			a := newTestServer(t, setup)
+			b := newTestServer(t, setup)
+			c := dialRaw(t, a.URL)
+			require.Equal(t, "0", c.read())
+			if cluster {
+				require.NoError(t, second.Of("/").Emit("news", 1))
+				require.Equal(t, ev("news", 1), c.read(), "the instances share broadcasts")
+			}
+			resp, err := http.Get(b.URL + "/socket.io/?EIO=3&transport=polling&sid=" + c.conn.ID())
+			require.NoError(t, err)
+			body, err := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			require.NoError(t, err)
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			require.JSONEq(t, `{"code":1,"message":"Session ID unknown"}`, string(body))
+		})
+	}
 }

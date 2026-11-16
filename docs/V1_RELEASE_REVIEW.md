@@ -14,9 +14,10 @@ source-confirmed. Counts and timings elsewhere come from the original `7311fbe` 
 unless that section reproduced them.
 
 Later reviews added findings to the same catalogue: a tag-readiness review of `6641d4b`
-(2026-10-29), an announcement-readiness check of `27fdab8` (2026-11-10) and a
-release-readiness audit of `594681a9` (2026-11-14), and the work on the Stress failures of
-2026-11-15. The [verdict](#verdict-ready-after-fixes) states where the release stands.
+(2026-10-29), an announcement-readiness check of `27fdab8` (2026-11-10), a
+release-readiness audit of `594681a9` (2026-11-14), the work on the Stress failures of
+2026-11-15 and the reviews of the user guide pull request #283. The
+[verdict](#verdict-ready-after-fixes) states where the release stands.
 
 The document has three parts:
 
@@ -25,7 +26,7 @@ The document has three parts:
   [finding catalogue](#finding-catalogue). They come from the original review, corrected
   where the follow-up validation and the 2026-10-22 fact-check required it, and from the
   later reviews.
-- **[Work plan](#work-plan):** pull-request-sized work items (W1–W107), owner decisions
+- **[Work plan](#work-plan):** pull-request-sized work items (W1–W108), owner decisions
   (D1–D14) and owner-only publication steps (P1–P9) that cover every catalogue ID except
   the editorial `CL-14` (not planned), with their order, acceptance criteria and status.
 - **[Follow-up validation](#follow-up-validation):** the evidence log, with a status and
@@ -77,13 +78,17 @@ documentation checks.
 
 ## Verdict: ready after fixes
 
-**State on `master` at `5000046b` (2026-11-16), the commit tagged `v1.5.0`.** A later
-commit that changes only this document leaves this state unchanged. `v1.5.0` is released:
-`5000046b` passed the final head verification ([P4](#p4-final-head-verification)) and
-carries the tag ([P5](#p5-tag-v150)); the GitHub Release `v1.5.0`, the latest release,
-publishes the refreshed release text ([P6](#p6-github-release)); the module proxy resolves
-`@latest` to `v1.5.0` and pkg.go.dev shows it ([P7](#p7-module-index)). The evidence is in
+**State on `master` at `c6145023` (2026-11-16).** A later commit that changes only this
+document leaves this state unchanged. `v1.5.0` is released: the tagged commit `5000046b`
+passed the final head verification ([P4](#p4-final-head-verification)) and carries the tag
+([P5](#p5-tag-v150)); the GitHub Release `v1.5.0`, the latest release, publishes the
+refreshed release text ([P6](#p6-github-release)); the module proxy resolves `@latest` to
+`v1.5.0` and pkg.go.dev shows it ([P7](#p7-module-index)). The evidence is in
 [Final head verification and release on 2026-11-16](#final-head-verification-and-release-on-2026-11-16).
+Apart from changes to this document, `c6145023` adds to the tagged commit only the user
+guide work of #283 ([W87](#w87-complete-the-user-guide)): documentation and tests, no
+library code
+([User guide record on 2026-11-16](#user-guide-record-on-2026-11-16)).
 No release blocker is open. B1 is fixed by
 [W1](#w1-fix-the-permanent-session-deadlock) (#147) and B2 by
 [W47](#w47-bound-polling-request-io-by-the-session-deadlines) (#205). Every major M1–M7
@@ -96,28 +101,41 @@ keep the current behaviour, which needs no change. The release-readiness audit o
 2026-11-14 at `594681a9` found no blocker that survived its independent re-check; its
 fixes are
 [W74](#w74-pin-the-heartbeat-window-ack-rules-decoder-bounds-and-documented-limits)–[W89](#w89-toolchain-independent-tests-event-based-waits-wider-leak-gate-limit-conformance),
-of which W80 and W87 follow the tag, and
+of which W80 follows the tag and W87 is done (#283), and
 [W90](#w90-record-the-2026-11-14-audit-and-the-current-state) records them.
 [W106](#w106-make-the-tests-that-failed-in-the-stress-runs-of-2026-11-15-pass-under-load)
 removed the four Stress failures of T30, each a fault of the test.
 
 Open owner-only steps (each item's Status line gives its state):
 
-1. The repository metadata ([P2](#p2-repository-metadata)): the description and the
-   homepage are not set.
+1. The repository metadata ([P2](#p2-repository-metadata)): the description is still
+   upstream's and the homepage is not set.
 2. The announcement ([P8](#p8-announcement)), after P2.
 3. Optional: the remote branch cleanup ([P9](#p9-remote-branch-cleanup)).
 
-Work that follows the tag: W38, W69–W72, W80 (#276), W87 (#283), W91–W105 and W107, and
-the owner decisions D9 and D11–D14; the [item index](#how-to-use-this-plan) lists them.
+Work that follows the tag: W38, W69–W72, W80 (#276), W91–W105, W107 and W108, and the
+owner decisions D9 and D11–D14; the [item index](#how-to-use-this-plan) lists them.
 
-That work includes two major findings, deferred in writing by the owner's decision of
-2026-11-15: API-15 ([W80](#w80-reopen-a-namespace-from-the-go-client): the Go client cannot
-reopen a namespace while its connection stays open) and CL-24
-([W87](#w87-complete-the-user-guide): the user guide has no `http.Server.WriteTimeout`
-rule for polling). The release notes of the GitHub Release name both
-([P6](#p6-github-release)). The major finding C29, owned by D10, is not open: D10 kept the
-current behaviour without a pull request.
+The owner deferred two major findings past the tag in writing on 2026-11-15, and the
+release notes of the GitHub Release name both ([P6](#p6-github-release)): API-15
+([W80](#w80-reopen-a-namespace-from-the-go-client): the Go client cannot reopen a
+namespace while its connection stays open) and CL-24 ([W87](#w87-complete-the-user-guide):
+the user guide had no `http.Server.WriteTimeout` rule for polling). API-15 is the only
+open major finding. #283 resolved CL-24 in the user guide: it states the rule for every
+HTTP version and the silent loss over HTTP/1.x, which
+`TestPollingResponseAfterServerWriteTimeoutIsLost` pins. What it left out, the
+consequences over HTTP/2 and the Go client's reasons, is the minor finding CL-37
+([W108](#w108-complete-the-user-guide-topics-that-283-left-out)). Over HTTP/2 a
+`WriteTimeout` shorter than a pending poll resets the poll; with a server built with
+Go 1.23 or later the session then ends with `transport error`, and with Go 1.22 the next
+packet the server writes is lost unseen, as over HTTP/1.x. CL-37 is minor because a
+deployment that follows the guide's rule, which names no HTTP version, is not affected,
+and no sentence of the user guide is false for HTTP/2: it states the loss and the
+`ping timeout` cases for HTTP/1.x only. The one PROTOCOL.md sentence that holds over
+HTTP/1.x only, when a connection is closed under such a `WriteTimeout`, is part of CL-37.
+The major
+finding C29, owned by D10, is not open: D10 kept the current behaviour without a pull
+request.
 
 `v1.5.0` is the first usable release of this module path, so it also fixes the public
 API surface for the life of v1: later v1 releases can add to the API but cannot remove or
@@ -136,23 +154,26 @@ audit of `594681a9` (2026-11-14) added W74–W105 and D7–D14
 ([Release-readiness audit on 2026-11-14](#release-readiness-audit-on-2026-11-14)); the
 Stress runs of 2026-11-15 added W106; the work on W106 and the last review of W90 added
 W107 and the rows C35, C36, T31, interop-39 and interop-40
-([Stress fixes and owner decisions on 2026-11-15](#stress-fixes-and-owner-decisions-on-2026-11-15)).
+([Stress fixes and owner decisions on 2026-11-15](#stress-fixes-and-owner-decisions-on-2026-11-15));
+what #283 (W87) left out and the last two review rounds of #283 added W108 and the rows
+C37, API-27, API-28, CL-37 to CL-45 and interop-41
+([User guide record on 2026-11-16](#user-guide-record-on-2026-11-16)).
 
 ## Scorecard
 
 The scores are the original review's at `7311fbe` and were not re-scored. The other
-columns give what that review found and the state on `master` at `5000046b`, the commit
-tagged `v1.5.0`.
+columns give what that review found and the state on `master` at `c6145023`: the commit
+tagged `v1.5.0` (`5000046b`) and #283 (W87).
 
 | Dimension | Score at `7311fbe` | Open before the tag | Found, and the state now |
 | --- | --- | --- | --- |
-| Clarity | 5/10 | none | **Found:** no inline quick start or migration note, 9 of 12 packages without a package doc, the `OnError` and Redis callback contracts documented incorrectly. **Now:** fixed by W8, W9, W13, W27, W68, W85 and W88 (godoc for every exported identifier); this review records the current state (W90). **After the tag:** W87 and W99. |
+| Clarity | 5/10 | none | **Found:** no inline quick start or migration note, 9 of 12 packages without a package doc, the `OnError` and Redis callback contracts documented incorrectly. **Now:** fixed by W8, W9, W13, W27, W68, W85 and W88 (godoc for every exported identifier); this review records the current state (W90); W87 (#283) added the user guide's rooms, disconnect reasons, deployment and JavaScript API differences. **After the tag:** W99 and W108, which hold what #283 left out. |
 | Architecture | 7/10 | none | **Found:** the adapter, alias and typed-event contracts needed decisions before the API freeze. **Now:** D1–D6 decided and applied. |
 | Tests | 7/10 | none | **Found:** no goroutine-leak gate, and no scenario with a non-reading client that keeps sending packets, which triggers B1. **Now:** the leak gate runs in eight test packages (W12, W89), B1 has regression tests (W1), the stress packages run under CPU load on a schedule (W55), W74 pins contracts no test discriminated, and W106 fixed the four tests that failed in the Stress runs of 2026-11-15 (T30); the dispatched Stress run on `5000046b` had no failure (P4). **After the tag:** W69, W71, W100, W101 (with T31's fixed time windows) and W104. |
-| API compatibility | 4/10 | none | **Found:** no migration notes for the upstream API breaks, the changed defaults and the Redis wire break. **Now:** the migration guide (W8, W51), the API decisions D1–D6, and D7, D8 and D10, which keep the current contracts. **After the tag:** the migration rows of W87, and W80. |
+| API compatibility | 4/10 | none | **Found:** no migration notes for the upstream API breaks, the changed defaults and the Redis wire break. **Now:** the migration guide (W8, W51), the API decisions D1–D6, and D7, D8 and D10, which keep the current contracts; the migration rows of W87 (#283). **After the tag:** W80, and the v1.4.2 parts of those rows with the upstream runs behind them (API-27, W108). |
 | Interoperability | 8/10 | none | **Found:** `forceBase64` over websocket unsupported, and undocumented wire differences. **Now:** fixed by W15, W16, W64, W65, W82 (socket.io-client 1.0–1.3 over websocket) and W83 (`CLOSE` at ping timeout). **After the tag:** W72, the reference differences of W98 and the Go client's of W102. |
 | Performance | 6/10 | none | **Found:** the JSON encoder from #143 regressed encode cost, Redis `PUBLISH` could block indefinitely, and nothing benchmarked Socket.IO-level code. **Now:** W2–W4, W18–W26 and W54, each with a committed benchmark. |
-| Correctness and security | 6/10 | none | **Found:** any client could trigger a session deadlock (B1). **Now:** B1 and B2 fixed (W1, W47), C14–C20 fixed (W76, W77, W79, W81, W84, W86), and C29 settled by D10. **After the tag:** W91–W97, W107 and the decisions D9 and D11–D14. |
+| Correctness and security | 6/10 | none | **Found:** any client could trigger a session deadlock (B1). **Now:** B1 and B2 fixed (W1, W47), C14–C20 fixed (W76, W77, W79, W81, W84, W86), and C29 settled by D10. **After the tag:** W91–W97, W107, the Go client's `disconnecting` listener (C37, W102) and the decisions D9 and D11–D14. |
 | Release engineering | 7/10 | none | **Found:** no release notes, the version and the inherited tags undecided, the stress job never ran on push. **Now:** W10, W39, W52, W66 and W67 done, P1 and P3 done, and P4–P7 done: `v1.5.0` tagged on the verified head and published as the GitHub Release with the refreshed release text, and resolved by the module proxy and pkg.go.dev (REL-2, REL-3, REL-20 to REL-22). **After the tag:** P2, then the announcement P8; the optional P9; W105. |
 
 ## Work plan
@@ -202,8 +223,9 @@ to do the work. The status of each item is owned by its **Status** line and nowh
    freezes, before P5 (decided on 2026-11-15; see their Status lines). W80 (#276), W87 (#283) and W91–W105 follow the tag, and so
    can D9 and D11–D14. W106 covers the tests that failed in the Stress runs of 2026-11-15
    and lands before P4. W107 covers Redis adapter findings of the work on W106 and
-   follows the tag.
-7. After the tag: the open items W38, W69–W72, W80, W87, W91–W105 and W107, in numeric
+   follows the tag. W108 covers the user guide topics that #283 (W87) left out and the
+   findings of the reviews of #283, and follows the tag.
+7. After the tag: the open items W38, W69–W72, W80, W91–W105, W107 and W108, in numeric
    order unless **Depends on** says otherwise, and the owner-only steps P2, P8 (after P2)
    and the optional P9. W38 needs the tag.
 
@@ -215,13 +237,13 @@ deferral (for M6, the encode cost from W2's `BenchmarkEncode/structs100` and
 
 A major found after M1–M7 whose item follows the tag is deferred by the item's Priority
 line, `after release (deferred by the owner on <date>; …)`; its Status stays `open`, so
-that the item remains the work to execute after the tag. API-15 (W80) and CL-24 (W87) are
-deferred this way. The release notes name every major finding whose owning item is still
-open on the head P4 verifies, each with what it costs a user and a link to its item at the
-tag URL (P6). For this rule a W item is open until it is `done`, and a D item is open
-until it is decided and the pull request that implements the decision, if the decision
-needs one, is merged; a D item decided without a pull request keeps the Status
-`decided — …` and is not open.
+that the item remains the work to execute after the tag. API-15 (W80) and CL-24 (W87) were
+deferred this way; W80 is open, and W87 is done. The release notes name every major
+finding whose owning item is still open on the head P4 verifies, each with what it costs a
+user and a link to its item at the tag URL (P6). For this rule a W item is open until it is
+`done`, and a D item is open until it is decided and the pull request that implements the
+decision, if the decision needs one, is merged; a D item decided without a pull request
+keeps the Status `decided — …` and is not open.
 
 **Conventions** (from CONTRIBUTING.md and CLAUDE.md).
 
@@ -339,7 +361,7 @@ have already merged, the item's PR changes no part of this document. Apart from 
 lines and the `Fixed by` notes, do not rewrite the review's findings, the Backlog or the Follow-up
 validation evidence log when an item is done; they record the state at `7311fbe`. This
 progress tracking is not a v1 changelog: after the tag, the owner decides whether the
-remaining items (W38, W69–W72, W80, W87, W91–W105, W107 and the undecided D items) move
+remaining items (W38, W69–W72, W80, W91–W105, W107, W108 and the undecided D items) move
 to GitHub issues, and this document then keeps only the findings and the evidence.
 
 **Standard definition of done** (every item refers to it): the PR is squash-merged by the
@@ -439,7 +461,7 @@ changed to `done — #<PR>` after the merge.
 | [W77](#w77-deliver-onconnect-broadcasts-to-the-connecting-socket) | Deliver OnConnect broadcasts to the connecting socket | before tag | C15, C16 | — |
 | [W78](#w78-make-the-gin-cors-example-work-from-a-browser) | Make the gin-cors example work from a browser | before tag | interop-18, CL-29, API-22 | — |
 | [W79](#w79-log-client-caused-failures-at-debug-and-bound-record-values) | Log client-caused failures at DEBUG and bound record values | before tag | C17, interop-36 | — |
-| [W80](#w80-reopen-a-namespace-from-the-go-client) | Reopen a namespace from the Go client | after release | API-15, API-23, CL-28 | — |
+| [W80](#w80-reopen-a-namespace-from-the-go-client) | Reopen a namespace from the Go client | after release | API-15, API-23, CL-28, API-28 | — |
 | [W81](#w81-log-redis-subscription-loss-and-recovery) | Log Redis subscription loss and recovery | before tag | C19 | — |
 | [W82](#w82-read-base64-websocket-messages-without-b64) | Read base64 websocket messages without b64 | before tag | interop-15 | — |
 | [W83](#w83-answer-a-poll-pending-at-ping-timeout-with-close) | Answer a poll pending at ping timeout with CLOSE | before tag | interop-16, interop-17 | — |
@@ -457,16 +479,17 @@ changed to `done — #<PR>` after the merge.
 | [W95](#w95-send-nothing-after-disconnect-inside-onconnect) | Send nothing after Disconnect inside OnConnect | after release | C24 | — |
 | [W96](#w96-do-not-connect-a-waiter-after-serverclose) | Do not connect a waiter after Server.Close | after release | C26 | — |
 | [W97](#w97-keep-reading-while-a-websocket-write-is-blocked) | Keep reading while a websocket write is blocked | after release | C27 | — |
-| [W98](#w98-document-or-remove-the-remaining-server-reference-differences) | Document or remove the remaining server reference differences | after release | interop-20, interop-21, interop-22, interop-23, interop-24, interop-25, interop-26, interop-27, interop-28, interop-29, interop-30, interop-31, interop-32, interop-33, interop-34, interop-35, interop-40 | D9 (interop-40) |
-| [W99](#w99-correct-the-server-godoc-and-the-reference-documentation) | Correct the server godoc and the reference documentation | after release | API-16, CL-35, CL-36 | W87 |
+| [W98](#w98-document-or-remove-the-remaining-server-reference-differences) | Document or remove the remaining server reference differences | after release | interop-20, interop-21, interop-22, interop-23, interop-24, interop-25, interop-26, interop-27, interop-28, interop-29, interop-30, interop-31, interop-32, interop-33, interop-34, interop-35, interop-40, interop-41 | D9 (interop-40) |
+| [W99](#w99-correct-the-server-godoc-and-the-reference-documentation) | Correct the server godoc and the reference documentation | after release | API-16, CL-35, CL-36, CL-42, CL-43, CL-45 | W87 |
 | [W100](#w100-close-the-test-gaps) | Close the test gaps | after release | T25, T28 | — |
 | [W101](#w101-remove-wall-clock-margins-and-close-ci-coverage-gaps) | Remove wall-clock margins and close CI coverage gaps | after release | T26, T27, T31 | — |
-| [W102](#w102-go-client-and-transport-follow-ups) | Go client and transport follow-ups | after release | C34, interop-38, PERF-17, API-26, interop-39 | — |
+| [W102](#w102-go-client-and-transport-follow-ups) | Go client and transport follow-ups | after release | C34, interop-38, PERF-17, API-26, interop-39, C37 | — |
 | [W103](#w103-follow-ups-of-275-and-280) | Follow-ups of #275 and #280 | after release | C33 | W79 |
 | [W104](#w104-verify-redis-subscription-loss-on-a-real-redis) | Verify Redis subscription loss on a real Redis | after release | T29 | — |
 | [W105](#w105-repository-hygiene) | Repository hygiene | after release | REL-23, REL-24 | — |
 | [W106](#w106-make-the-tests-that-failed-in-the-stress-runs-of-2026-11-15-pass-under-load) | Make the tests that failed in the Stress runs of 2026-11-15 pass under load | before tag | T30 | W55 |
 | [W107](#w107-join-the-redis-adapters-goroutines-on-close-and-report-delivered-replies) | Join the Redis adapter's goroutines on Close and report delivered replies | after release | C35, C36 | — |
+| [W108](#w108-complete-the-user-guide-topics-that-283-left-out) | Complete the user guide topics that #283 left out | after release | API-27, CL-37, CL-38, CL-39, CL-40, CL-41, CL-44 | — |
 | [D7](#d7-servercount-inside-ondisconnect) | Server.Count inside OnDisconnect | owner decision, before the tag | API-24 | — |
 | [D8](#d8-untyped-handler-error-text-on-the-wire) | Untyped handler error text on the wire | owner decision, before the tag | API-25 | — |
 | [D9](#d9-a-log-signal-for-a-message-limit-that-is-too-low) | A log signal for a message limit that is too low | owner decision | C31 | W79 |
@@ -489,12 +512,12 @@ changed to `done — #<PR>` after the merge.
 
 | Catalogue section | Mapping |
 | --- | --- |
-| Correctness and security | C1 W1 · C2 W14 · C3 W11 · C4 W13 · C5 W6 · C6 W47 · C7 W47 · C8 W53 · C9 W58 · C10 W59 · C11 W60 · C12 W62 · C13 W63 · C14 W76 · C15 W77 · C16 W77 · C17 W79 · C18 W84 · C19 W81 · C20 W86 · C21 W93 · C22 W91 · C23 W92 · C24 W95 · C25 W94 · C26 W96 · C27 W97 · C28 D14 · C29 D10 · C30 D11 · C31 D9 · C32 D13 · C33 W103 · C34 W102 · C35 W107 · C36 W107 |
-| API compatibility | API-1 W8 · API-2 D1 · API-3 W6 · API-4 W7 · API-5 W8 · API-6 W8 · API-7 W8 · API-8 W8 · API-9 D2 · API-10 W10 · API-11 W38 · API-12 D6 · API-13 W8 · API-14 W75 · API-15 W80 · API-16 W99 · API-17 W84 · API-18 W87 · API-19 W85 · API-20 W85 · API-21 W87 · API-22 W78 · API-23 W80 · API-24 D7 · API-25 D8 · API-26 W102 |
-| Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 · CL-16 W50 · CL-17 W51 · CL-18 W51 · CL-19 W51 · CL-20 W68 · CL-21 W73 · CL-22 W85 · CL-23 W85 · CL-24 W87 · CL-25 W88 · CL-26 W87 · CL-27 W87 · CL-28 W80 · CL-29 W78 · CL-30 W85 · CL-31 W90 · CL-32 W87 · CL-33 W87 · CL-34 W87 · CL-35 W99 · CL-36 W99 |
+| Correctness and security | C1 W1 · C2 W14 · C3 W11 · C4 W13 · C5 W6 · C6 W47 · C7 W47 · C8 W53 · C9 W58 · C10 W59 · C11 W60 · C12 W62 · C13 W63 · C14 W76 · C15 W77 · C16 W77 · C17 W79 · C18 W84 · C19 W81 · C20 W86 · C21 W93 · C22 W91 · C23 W92 · C24 W95 · C25 W94 · C26 W96 · C27 W97 · C28 D14 · C29 D10 · C30 D11 · C31 D9 · C32 D13 · C33 W103 · C34 W102 · C35 W107 · C36 W107 · C37 W102 |
+| API compatibility | API-1 W8 · API-2 D1 · API-3 W6 · API-4 W7 · API-5 W8 · API-6 W8 · API-7 W8 · API-8 W8 · API-9 D2 · API-10 W10 · API-11 W38 · API-12 D6 · API-13 W8 · API-14 W75 · API-15 W80 · API-16 W99 · API-17 W84 · API-18 W87 · API-19 W85 · API-20 W85 · API-21 W87 · API-22 W78 · API-23 W80 · API-24 D7 · API-25 D8 · API-26 W102 · API-27 W108 · API-28 W80 |
+| Clarity | CL-1 W9 · CL-2 W5 · CL-3 W13 · CL-4 W8 · CL-5 W27 · CL-6 W28 · CL-7 W28 · CL-8 W30 · CL-9 W6 · CL-10 D1 · CL-11 D3 · CL-12 W31 · CL-13 W34 · CL-14 not planned · CL-15 W43 · CL-16 W50 · CL-17 W51 · CL-18 W51 · CL-19 W51 · CL-20 W68 · CL-21 W73 · CL-22 W85 · CL-23 W85 · CL-24 W87 · CL-25 W88 · CL-26 W87 · CL-27 W87 · CL-28 W80 · CL-29 W78 · CL-30 W85 · CL-31 W90 · CL-32 W87 · CL-33 W87 · CL-34 W87 · CL-35 W99 · CL-36 W99 · CL-37 W108 · CL-38 W108 · CL-39 W108 · CL-40 W108 · CL-41 W108 · CL-42 W99 · CL-43 W99 · CL-44 W108 · CL-45 W99 |
 | Architecture | ARCH-1 W5 · ARCH-2 D2 · ARCH-3 D3 · ARCH-4 W26 · ARCH-5 D4 · ARCH-6 D5 · ARCH-7 W33 · ARCH-8 W32 · ARCH-9 W14 · ARCH-10 W37 · ARCH-11 D6 · ARCH-12 W28 · ARCH-13 W26 |
 | Performance | PERF-1 W3 · PERF-2 W18 · PERF-3 W4 · PERF-4 W19 · PERF-5 W20 · PERF-6 W21 · PERF-7 W22 · PERF-8 W23 · PERF-9 W24 · PERF-10 W2 · PERF-11 W25 · PERF-12 W21 · PERF-13 W26 · PERF-14 W50 · PERF-15 W23 · PERF-16 W54 · PERF-17 W102 |
-| Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 · interop-10 W49 · interop-11 W51 · interop-12 W64 · interop-13 W65 · interop-14 W72 · interop-15 W82 · interop-16 W83 · interop-17 W83 · interop-18 W78 · interop-19 W72 · interop-20 W98 · interop-21 W98 · interop-22 W98 · interop-23 W98 · interop-24 W98 · interop-25 W98 · interop-26 W98 · interop-27 W98 · interop-28 W98 · interop-29 W98 · interop-30 W98 · interop-31 W98 · interop-32 W98 · interop-33 W98 · interop-34 W98 · interop-35 W98 · interop-36 W79 · interop-37 D12 · interop-38 W102 · interop-39 W102 · interop-40 W98 |
+| Interoperability | interop-1 W15 · interop-2 W16 · interop-3 W16 · interop-4 W16 · interop-5 W16 · interop-6 W16 · interop-7 W17 · interop-8 W17 · interop-9 W6 · interop-10 W49 · interop-11 W51 · interop-12 W64 · interop-13 W65 · interop-14 W72 · interop-15 W82 · interop-16 W83 · interop-17 W83 · interop-18 W78 · interop-19 W72 · interop-20 W98 · interop-21 W98 · interop-22 W98 · interop-23 W98 · interop-24 W98 · interop-25 W98 · interop-26 W98 · interop-27 W98 · interop-28 W98 · interop-29 W98 · interop-30 W98 · interop-31 W98 · interop-32 W98 · interop-33 W98 · interop-34 W98 · interop-35 W98 · interop-36 W79 · interop-37 D12 · interop-38 W102 · interop-39 W102 · interop-40 W98 · interop-41 W98 |
 | Tests | T1 W3 · T2 W12 · T3 W17 · T4 W29 · T5 W35 · T6 W36 · T7 W43 · T8 W44 · T9 W45 · T10 W46 · T11 W48 · T12 W55 · T13 W56 · T14 W56 · T15 W57 · T16 W61 · T17 W69 · T18 W71 · T19 W74 · T20 W89 · T21 W89 · T22 W89 · T23 W89 · T24 W75 · T25 W100 · T26 W101 · T27 W101 · T28 W100 · T29 W104 · T30 W106 · T31 W101 |
 | Release engineering | REL-1 W8 · REL-2 W10 · REL-3 W10 · REL-4 W39 · REL-5 W39 · REL-6 W10 · REL-7 D1 · REL-8 W41 · REL-9 W40 · REL-10 W34 · REL-11 W10 · REL-12 W1 · REL-13 W42 · REL-14 W52 · REL-15 W52 · REL-16 W66 · REL-17 W67 · REL-18 P2 · REL-19 W70 · REL-20 P6 · REL-21 P4 · REL-22 P5 · REL-23 W105 · REL-24 W105 |
 
@@ -3408,9 +3431,9 @@ changed to `done — #<PR>` after the merge.
 - **Priority:** after release (deferred by the owner on 2026-11-15; the implementation is
   #276)
 - **Findings:** [API-15](#api-compatibility-findings), [API-23](#api-compatibility-findings),
-  [CL-28](#clarity-findings)
+  [CL-28](#clarity-findings), [API-28](#api-compatibility-findings)
 - **Depends on:** none
-- **Problem:** see API-15, API-23 and CL-28.
+- **Problem:** see API-15, API-23, CL-28 and API-28.
 - **Change:** `Socket.Connect` and `ErrRootNamespaceRejoin`, additive, as #276 implements: a
   closed socket on an open connection sends its CONNECT; while the client reconnects it is
   marked open and joins with the other namespaces; with no connection it dials; a close in
@@ -3422,12 +3445,21 @@ changed to `done — #<PR>` after the merge.
   the `Client.Connect` godoc during a reconnection backoff; that the user guide says
   `Connect` returns nil when the server rejects the namespace; a test that detects a
   missing wait other than through `testHookJoinWaits`; and an entry for the changed
-  `Client.Connect` wait in the release notes of the release that ships it. If W87 merged
-  first, the PR removes "cannot reopen a namespace" from the user guide's list of
-  differences.
+  `Client.Connect` wait in the release notes of the release that ships it. The PR removes
+  the bullet "`*client.Socket` has no counterpart of `socket.connect()`" from the user
+  guide's differences from the JavaScript API. The godoc of `Client.Connect`,
+  `Socket.Close` and the `io server disconnect` reason of `Socket.OnDisconnect` state
+  API-28's contract: while a connection is open or being established, `Client.Connect`
+  dials nothing and reopens no closed namespace, and a `Client.Connect` that dials a new
+  connection reopens every closed namespace, one the server disconnected included. At
+  #276's head `a55cbe6f` the `Client.Connect` godoc states the first half, the
+  `Socket.Close` godoc states the second for a closed socket, and the `OnDisconnect`
+  godoc says that a namespace the server disconnected "stays closed until Connect".
 - **Tests:** `TestSocketConnectRejoinsNamespace` (polling and websocket, server and client
   disconnect) fails on master; `TestClientConnectFailureStartsNoReconnection`; the
-  conformance cases with both pinned clients.
+  conformance cases with both pinned clients; for API-28, a test that pins both halves of
+  the `Client.Connect` contract, with a namespace that the server disconnected and one
+  that `Socket.Close` closed.
 - **Benchmarks:** none.
 - **Docs:** client godoc, `docs/V1.md`, `docs/PROTOCOL.md` (interop-24).
 - **Acceptance criteria:** the PR is up to date with `master`; the tests fail on master,
@@ -3566,7 +3598,7 @@ changed to `done — #<PR>` after the merge.
 
 ### W87. Complete the user guide
 
-- **Status:** open
+- **Status:** done — #283
 - **Priority:** after release (deferred by the owner on 2026-11-15; the text is #283)
 - **Findings:** [API-18](#api-compatibility-findings), [API-21](#api-compatibility-findings),
   [CL-24](#clarity-findings), [CL-26](#clarity-findings), [CL-27](#clarity-findings),
@@ -3598,9 +3630,16 @@ changed to `done — #<PR>` after the merge.
   README, the example READMEs.
 - **Acceptance criteria:** the PR is up to date with `master`; every listed topic is
   documented or named as left out with its reason; a scripted check of every relative
-  Markdown link and anchor reports none broken; `make gates` and `make lint` pass.
+  Markdown link and anchor reports none broken; `make gates` and `make lint` pass. Met;
+  the check of each topic is in
+  [User guide record on 2026-11-16](#user-guide-record-on-2026-11-16).
 - **Definition of done:** standard.
-- **Out of scope:** behaviour changes; the API-16 godoc sentence (W99).
+- **Out of scope:** behaviour changes; the API-16 godoc sentence (W99). The topics #283
+  names as left out are [W108](#w108-complete-the-user-guide-topics-that-283-left-out),
+  the godoc duplicates [W99](#w99-correct-the-server-godoc-and-the-reference-documentation)
+  and the reference differences of the Redis lifecycle-name broadcasts (interop-33) and
+  of `newListener`, `removeListener` and `connection` (interop-41)
+  [W98](#w98-document-or-remove-the-remaining-server-reference-differences).
 
 ### W88. Godoc for every exported identifier
 
@@ -3822,7 +3861,7 @@ changed to `done — #<PR>` after the merge.
   [interop-35](#interoperability-findings): interop-20, interop-21, interop-22, interop-23,
   interop-24, interop-25, interop-26, interop-27, interop-28, interop-29, interop-30,
   interop-31, interop-32, interop-33, interop-34, interop-35; and
-  [interop-40](#interoperability-findings)
+  [interop-40](#interoperability-findings), [interop-41](#interoperability-findings)
 - **Depends on:** D9 for interop-40, since D9's option B changes the server's reason for
   that message
 - **Problem:** see the findings.
@@ -3831,7 +3870,10 @@ changed to `done — #<PR>` after the merge.
   finding's recommendation says so, or adds a PROTOCOL.md bullet that states both
   behaviours; the false PROTOCOL.md statements of interop-20 and interop-21 are corrected
   either way. For interop-40 the bullet states the reasons D9's outcome leaves, on the
-  server and in socket.io-client 2.5.0. The item may land as several pull requests.
+  server and in socket.io-client 2.5.0. For interop-41 an alignment changes only the
+  four combinations the finding names; `Conn.Emit("connection", ...)` and a namespace
+  broadcast of `removeListener` stay on the wire, as in socket.io 2.5.0. The item may
+  land as several pull requests.
 - **Tests:** each documented difference is pinned by a Go test; each alignment has a test
   that fails on master.
 - **Benchmarks:** none.
@@ -3847,19 +3889,28 @@ changed to `done — #<PR>` after the merge.
 - **Status:** open
 - **Priority:** after release
 - **Findings:** [API-16](#api-compatibility-findings), [CL-35](#clarity-findings),
-  [CL-36](#clarity-findings)
+  [CL-36](#clarity-findings), [CL-42](#clarity-findings), [CL-43](#clarity-findings),
+  [CL-45](#clarity-findings)
 - **Depends on:** W87, which rewrites the same `docs/V1.md` sections
-- **Problem:** see API-16, CL-35 and CL-36.
+- **Problem:** see API-16, CL-35, CL-36, CL-42, CL-43 and CL-45.
 - **Change:** correct every statement the findings list; add the lifecycle-name sentence to
-  the godoc of `Conn.Emit`, `ServerNamespace.Emit`, `Emitter.Emit` and `OnEvent`.
+  the godoc of `Conn.Emit`, `ServerNamespace.Emit`, `Emitter.Emit` and `OnEvent`. Give
+  each fact CL-42 lists one owner, the godoc or the user guide, and make the other place
+  link to it. State the level of the `socketio: close timed out` record in the
+  `Server.Close` godoc and list the record in the `logger` package doc, or change its
+  level so that it follows the package's level contract (CL-43). The package example in
+  `doc.go` and `example_test.go` use `Server.Of`, as the user guide recommends for new
+  code (CL-45).
 - **Tests:** a test that a blocking `OnConnect` with broadcasts from another goroutine
-  overflows `WithWriteBufferSize` as documented.
+  overflows `WithWriteBufferSize` as documented; a test that a timed-out `Server.Close`
+  logs `socketio: close timed out` at the level its godoc states.
 - **Benchmarks:** none.
 - **Docs:** godoc, `docs/V1.md`, `docs/PROTOCOL.md`, the `logger` package doc.
 - **Acceptance criteria:** the PR lists each statement with its correction; `make lint`,
   `make gates` and a scripted check of Markdown links and anchors pass.
 - **Definition of done:** standard.
-- **Out of scope:** behaviour changes.
+- **Out of scope:** behaviour changes, except the level of the CL-43 record if the PR
+  changes it.
 
 ### W100. Close the test gaps
 
@@ -3907,19 +3958,25 @@ changed to `done — #<PR>` after the merge.
 - **Priority:** after release
 - **Findings:** [C34](#correctness-and-security-findings),
   [interop-38](#interoperability-findings), [PERF-17](#performance-findings),
-  [API-26](#api-compatibility-findings), [interop-39](#interoperability-findings)
+  [API-26](#api-compatibility-findings), [interop-39](#interoperability-findings),
+  [C37](#correctness-and-security-findings)
 - **Depends on:** none
 - **Problem:** see the findings.
 - **Change:** the Go client discards incoming events with lifecycle names, reports an
   untyped handler's error result and a recovered callback panic as the server does, joins
   the upgrade-probe goroutine on `Close`, renews its heartbeat window on every packet,
   starts no polling request after `Close` other than the CLOSE POST, and waits in its ping
-  loop on one timer it stops; `polling.OpError` gains `Unwrap`. The item may land as
+  loop on one timer it stops; `polling.OpError` gains `Unwrap`. A `disconnecting`
+  listener of the Go client runs before `OnDisconnect` for every end of a namespace, or
+  the client godoc and the user guide state when it runs (C37). The item may land as
   several pull requests.
 - **Tests:** a test per change that fails on master; Node conformance with both pinned
   clients for the heartbeat change; for the polling close, a test that holds the CLOSE
   answer and counts the GETs that start after `Close`, and the PR quotes engine.io-client
-  3.5.6 against engine.io 3.6.2 doing the same.
+  3.5.6 against engine.io 3.6.2 doing the same; for C37, a test that registers a
+  `disconnecting` listener and ends the namespace by `Socket.Close`, `Client.Close`,
+  `Conn.Close`, `Conn.Disconnect`, a server DISCONNECT and an Engine.IO close, and pins
+  whether the listener runs in each case.
 - **Benchmarks:** none.
 - **Docs:** client godoc, `docs/V1.md` and the migration notes where a behaviour changes.
 - **Acceptance criteria:** as in Tests; `make test-race` and
@@ -4036,6 +4093,64 @@ changed to `done — #<PR>` after the merge.
   the conformance job's `TestRedis*` tests pass in CI.
 - **Definition of done:** standard.
 - **Out of scope:** the subscription records during an outage (W94, W104).
+
+### W108. Complete the user guide topics that #283 left out
+
+- **Status:** open
+- **Priority:** after release
+- **Findings:** [API-27](#api-compatibility-findings), [CL-37](#clarity-findings),
+  [CL-38](#clarity-findings), [CL-39](#clarity-findings), [CL-40](#clarity-findings),
+  [CL-41](#clarity-findings), [CL-44](#clarity-findings)
+- **Depends on:** none
+- **Problem:** see the findings. #283 (W87) names them in its "Left out" section, or its
+  last two review rounds reported them.
+- **Change:** documentation only, each fact in its owning document:
+  - CL-37: the deployment section of `docs/V1.md` states what a `WriteTimeout` shorter
+    than a pending poll does over HTTP/2: the stream is reset at `WriteTimeout` and the
+    client's poll fails; with a server built with Go 1.23 or later the session ends with
+    `transport error` at that moment; with Go 1.22 the session stays registered, and the
+    next packet the server writes goes into the reset stream and is lost unseen, as over
+    HTTP/1.x. It also states the reasons the Go client reports under such a
+    `WriteTimeout` on both HTTP versions. The PROTOCOL.md sentences about a `WriteTimeout`
+    shorter than a pending poll name the HTTP version and, for HTTP/2, the Go version
+    they hold for.
+  - CL-38: how a deployment gets session affinity: by the `io` cookie, which a
+    websocket-first handshake does not set and which `SameSite=Strict` keeps off
+    cross-site requests, or by the `sid` query parameter at the balancer.
+  - CL-39: what `WithCloseTimeout` bounds, the background write after `Conn.Close`, and
+    when `WithConnInitor` runs, in the guide or by a link to the godoc that owns them.
+  - CL-40: that the error `Client.Connect` returns stands for the first attempt's
+    `connect_error` or `connect_timeout` of `socket.io-client`, and which error is which.
+  - CL-41: one owner for each duplicate it lists, the others linking to it; the example
+    READMEs link to `_examples/README.md` for what they share.
+  - CL-44: the three corrected sentences, and the connect-rejection advice stated for a
+    namespace other than `/`.
+  - API-27: the v1.4.2 behaviour of the "End of a session in `OnError`" and "CONNECT to an
+    unregistered namespace" rows, and every upstream v1.7.0 and v1.4.2 statement of the
+    migration rows and the lifecycle-name bullet that #283 added, checked by running
+    upstream v1.4.2 (with go-engine.io v1.4.1) and v1.7.0 and corrected where a run
+    differs.
+- **Tests:** a test or a quoted probe for each added or changed sentence: for CL-37, tests
+  over HTTP/2 in the root package and in `client` that expect the outcome of the Go
+  version they run on (CI runs Go 1.22, oldstable and stable): with Go 1.23 or later the
+  `transport error` at `WriteTimeout`; with Go 1.22 that the session stays registered and
+  that a packet the server writes after the reset is missing from the next poll, which
+  receives only the packets after it; and the HTTP/1.x Go client case; for CL-38, a run behind a balancer in a Docker container (for example nginx or
+  HAProxy) with `socket.io-client` 1.7.4 and 2.5.0 on polling, quoted in the PR; for the
+  non-root connect rejection of CL-44, a test that pins the packets the advice produces in
+  a namespace other than `/`; for API-27, the upstream runs quoted in the PR.
+- **Benchmarks:** none.
+- **Docs:** `docs/V1.md`, `docs/PROTOCOL.md`, `docs/ARCHITECTURE.md`, the example READMEs.
+- **Acceptance criteria:** as in Tests; the PR body lists every part of each finding with
+  the sentence that resolves it and the test or run behind that sentence, and leaves no
+  part out; a scripted check of every relative Markdown link and anchor reports none
+  broken; `make gates` and
+  `make lint` pass; when an example README changes, `make examples` passes and, for a
+  Redis example, `make examples-node` against a Redis container.
+- **Definition of done:** standard.
+- **Out of scope:** godoc (W99: API-16, CL-42, CL-43, CL-45); the reference differences of
+  interop-33 and interop-41 (W98); Go client behaviour (W80, W102); the `io` cookie of the
+  Go client without a cookie jar (W92); the security scope of session floods (D14).
 
 ### D7. Server.Count inside OnDisconnect
 
@@ -5232,6 +5347,11 @@ Every finding is listed under the dimension that reported it.
   They are not among the 85 entries and have no row in
   [Catalogue cross-check](#catalogue-cross-check); each was checked against `origin/master`
   at `64c30489`, to which their locations refer.
+- C37, API-27, API-28, CL-37 to CL-45 and interop-41 hold what #283 (W87) names as left
+  out and what its last two review rounds reported; see
+  [User guide record on 2026-11-16](#user-guide-record-on-2026-11-16). They are not among
+  the 85 entries and have no row in [Catalogue cross-check](#catalogue-cross-check); each
+  was checked against `origin/master` at `c6145023`, to which their locations refer.
 - The [work plan](#work-plan) maps every ID to exactly one work item, owner decision or
   owner-only publication step, or lists it under "Not planned"; the finding coverage table is in
   [How to use this plan](#how-to-use-this-plan). When a fix merges, the row's
@@ -5279,6 +5399,7 @@ Every finding is listed under the dimension that reported it.
 | C34 | minor | source-confirmed on `c8c0c1e4`; the error-result difference is pinned by `TestClientUntypedErrorResultIsAPlainValue` | `client/packets.go`, `client/namespace_handlers.go`, `client/namespace_listeners.go`, `engineio/client/client.go` (`terminate`) | Go client behaviour that differs from the server role or leaves work behind: incoming EVENT packets with lifecycle names, `disconnecting` among them, which the client also fires itself on close, are dispatched to its listeners, while the server discards them; an untyped client handler's `error` result is answered as `{}` and reaches neither `OnError` nor a log record, and a recovered callback panic reads `event call error: <value>` with no stack; `Close` aborts an upgrade probe without waiting for the probe goroutine (#203, Tests F5) | Apply the server role's rules in the client and join the probe goroutine on `Close` (W102). |
 | C35 | minor | reproduced on `5ee06b23` in the work on #292: 6 of 300 repetitions under CPU load, and every time by a probe that holds a reply `PUBLISH` until both adapters are closed; the non-test code of `adapter/redis` unchanged on `64c30489` | `adapter/redis/subscription.go` (`Close`, `dispatch`), `adapter/redis/cluster.go` (request workers) | A Redis adapter's `Close` returns without waiting for the goroutines that serve it, the subscription dispatcher and the custom-request workers, so a closed adapter can still log after `Close` returns: a `socketio: redis cluster request failed` record at DEBUG, which in Stress runs 43738490624 and 43714889813 landed in the log capture of the next test (T30). By code reading, a subscription loss or recovery record can follow `Close` too, because `dispatch` checks `transportClosed` before it logs (not reproduced). Neither the comment of `Close` nor `docs/V1.md` says that records can follow `Close` | Join those goroutines in `Close`, or state which records can follow it (W107). |
 | C36 | nit | reproduced on `5ee06b23` by the held-reply probe of the work on #292; source-confirmed on `64c30489` | `adapter/redis/cluster.go` (`boundedDo`), `adapter/redis/requests.go` (`replyCluster`) | `boundedDo` checks the closed flag after `conn.Do` and returns `ErrAdapterClosed` instead of the reply, so when `Close` lands between the two, a reply `PUBLISH` that Redis accepted, and whose requester got the answer, is logged at DEBUG as `socketio: redis cluster request failed` with `err=redis adapter closed` | Return the result of a command that ran, and report `ErrAdapterClosed` only for one that did not (W107). |
+| C37 | minor | reproduced on `c6145023` (scratch Go tests, two runs each; not committed) | `client/socket.go` (`detachSocket`, `closeAll`), `client/close.go` (`disconnectNamespace`) | The Go client runs a `disconnecting` listener (`Socket.OnEvent`, `On`, `Once`) when its Engine.IO connection ends, and then before `OnDisconnect`: in the cases tried, the server's `EngineConn().Close()` (`transport close`) and `Server.Close` (`transport error`). For `Socket.Close`, `Client.Close`, `Conn.Close`, `Conn.Disconnect` and a namespace DISCONNECT from the server (its `Conn.Disconnect` or `Conn.Close`) only `OnDisconnect` runs, whether or not a handler of the connection is blocked. No document says when the client runs it, and socket.io-client 2.5.0 has no `disconnecting` event (its `lib/socket.js` does not name it). The review of #283 reported it as a listener that did not run within 2 s of a `Close` from another goroutine while a handler was blocked | Run the listener before `OnDisconnect` for every end of a namespace, or state in the client godoc and the user guide when it runs (W102). |
 
 ### API compatibility findings
 
@@ -5301,15 +5422,17 @@ Every finding is listed under the dimension that reported it.
 | API-15 | major | confirmed | `client/socket.go`, `client/manager.go` | After `io server disconnect` or `Socket.Close`, the Go client cannot rejoin that namespace while the Engine.IO connection stays open: `Client.Socket` returns the same inactive socket, `Client.Connect` returns nil and does nothing, reconnection skips it, and its emits are buffered and then dropped; socket.io-client has `socket.connect()` (audits `API-R2`, `U-8`) | Add `Socket.Connect` (W80). |
 | API-16 | minor | — | `types.go` (`Conn.Emit`, `Emitter.Emit`), `namespace.go` (`ServerNamespace.Emit`), `server.go` (`OnEvent`) | The godoc of `Conn.Emit`, `ServerNamespace.Emit`, `Emitter.Emit` and `OnEvent` does not mention the lifecycle names (`connect`, `disconnect`, `disconnecting`, `error`); the migration guide does not say that upstream sent `c.Emit("error", msg)` to the browser; a namespace or room broadcast of these names runs listeners instead of sending, unlike socket.io 2.5.0 (audit `API-R3`) | A godoc sentence that links the user guide's rule (W99); the migration bullet and the comparison with socket.io 2.5.0 come with W87. |
 | API-17 | minor | — | `namespace_listeners.go` (`DispatchListeners`), `internal/event/event.go` (`AckError`) | An untyped server handler that returned an `error` answered its ACK with the error JSON-encoded as `{}` and reported it nowhere (audits `API-R4`, `U-4`) | Report a non-nil error result to `OnError` or the log and answer with the typed error object (W84; the wire form is D8). Fixed by #280 (W84). |
-| API-18 | minor | — | `docs/V1.md` | The JavaScript API without a Go counterpart is not listed: no client bundle route (`/socket.io/socket.io.js` gets HTTP 400), event middleware cannot rewrite an event, no `binary(false)`, no `connect_error` or `connecting` callback in the Go client, and others (audit `API-R5`) | A list of these differences in the user guide (W87). |
+| API-18 | minor | — | `docs/V1.md` | The JavaScript API without a Go counterpart is not listed: no client bundle route (`/socket.io/socket.io.js` gets HTTP 400), event middleware cannot rewrite an event, no `binary(false)`, no `connect_error` or `connecting` callback in the Go client, and others (audit `API-R5`) | A list of these differences in the user guide (W87). Fixed by #283 (W87). |
 | API-19 | minor | — | `types.go`, `adapter/adapter.go`, `docs/V1.md` | The exported interfaces that the library hands out were open and had no stated compatibility policy; only `adapter.Adapter` was declared frozen (audit `API-R7`) | State which interfaces only the library implements and that they may gain methods in a minor release (W85). Fixed by #281 (W85). |
 | API-20 | nit | — | `engineio/server.go` (`Addr`), `types.go` (`Conn.URL`, `Conn.Emit`), `client/client.go`, `client/types.go` | Small API oddities: `engineio.Server.Addr` always returns nil, struct fields that are ignored, inconsistent conventions; `Conn.URL()` returns a value, so `c.URL().String()` does not compile; plain `Emit` callbacks have no timeout (audits `API-R8`, `U-14`) | Document each in godoc, among them the `u := c.URL(); u.String()` idiom and the missing callback timeout, without behaviour changes (W85; identifiers without godoc are CL-25). Fixed by #281 (W85). |
-| API-21 | minor | — | `docs/V1.md` (migration guide) | Behaviour changes the migration section does not list: argument decode errors, a CONNECT to an unregistered namespace, the v1.4.2 room scope and ID room; the `OnError` row attributes the orderly-close report to v1.4.2 only (audit `USER-4`) | Add the migration rows (W87). |
+| API-21 | minor | — | `docs/V1.md` (migration guide) | Behaviour changes the migration section does not list: argument decode errors, a CONNECT to an unregistered namespace, the v1.4.2 room scope and ID room; the `OnError` row attributes the orderly-close report to v1.4.2 only (audit `USER-4`) | Add the migration rows (W87); the v1.4.2 parts that need a run of v1.4.2, and the upstream runs behind the rows, are API-27 (W108). Fixed by #283 (W87). |
 | API-22 | nit | — | `docs/V1.md` (migration guide) | The guide said a build reports the renamed, removed and re-typed identifiers, but `socketio.NewServer(nil)`, the most common upstream call, still compiles and runs with the fork's defaults, and a missing package stops the build before any identifier error (audit `USER-7`) | Say so and add `NewServer(nil)` to the search list (W78). Fixed by #274 (W78). |
 | API-23 | minor | — | `client/client.go` (`Connect`), `client/options.go` (`WithReconnection`) | A failed first `Client.Connect` is not retried, although reconnection is enabled by default and socket.io-client 2.x retries it; neither the godoc nor the user guide says so (audit `U-7`) | State it in the `Connect` and `WithReconnection` godoc and in the user guide, pinned by a test (W80). |
 | API-24 | minor | — | `server.go` (`Count`), `engineio/server.go` | `socketio.Server.Count` inside `OnDisconnect` is 0, not 1, for a connection whose transport has ended (a transport close without a namespace DISCONNECT, reason `transport close`; a transport error; a ping timeout), as `engine.clientsCount` in engine.io 3.6.2; for a namespace DISCONNECT or a server `Conn.Close` it stays 1. #272 made this change, and the V1.md migration table lists it; the work package had asked for unchanged `socketio.Server` behaviour | Owner decision D7. Decided by D7 (2026-11-15). |
 | API-25 | minor | — | `internal/event/event.go` (`AckError`), `namespace_listeners.go` | An untyped server handler's non-nil error result is sent in its ACK as `{"code":"handler_error","message":"<err.Error()>"}` (#280), so error text reaches clients by default where upstream `v1.7.0` and socket.io 2.5.0 send `{}` | Owner decision D8. Decided by D8 (2026-11-15). |
 | API-26 | nit | source-confirmed on `c8c0c1e4` | `engineio/transport/polling/errors.go` (`OpError`) | `polling.OpError` has no `Unwrap`, so `errors.Is` and `errors.As` cannot reach its `Err`; its godoc states this | Add `Unwrap`, an additive change (W102). |
+| API-27 | minor | — | `docs/V1.md` (migration guide: the rows "End of a session in `OnError`", "Event arguments of the wrong type", "CONNECT to an unregistered namespace" and "Room scope and ID room", and the bullet on lifecycle names) | The upstream v1.7.0 and v1.4.2 behaviour that #283 states in these rows comes from the audit's differential runs (`USER-4`, `API-R3`) and from the upstream sources; no pull request quotes those runs. Two v1.4.2 facts are left out because they need a run of v1.4.2: that v1.4.2 dropped the events of an unregistered namespace whose CONNECT it had acknowledged, and that it called `OnError` with the read error for every end of a session, an orderly client close included (its `conn.go` `serveRead` calls `onError` for every `DecodeHeader` error; read, not run) | Run upstream v1.4.2 and v1.7.0 for each row, quote the runs, and add or correct the v1.4.2 parts (W108). |
+| API-28 | minor | reproduced on `c6145023` (scratch Go test, two runs; not committed) | `client/client.go` (`Connect`), `client/manager.go` (`open`), `client/socket.go` (`Close`) | `Client.Connect` returns nil and rejoins nothing while another namespace of the client is connected, but after every namespace has closed it opens a new connection and rejoins all of them, one the server disconnected (`io server disconnect`) included; the godoc of `Client.Connect` and `Socket.Close` says neither (reported in the review of #283; relates to API-15) | State the contract in the godoc of `Client.Connect`, `Socket.Close` and the `io server disconnect` reason of `Socket.OnDisconnect`, and pin it with a test (W80). |
 
 ### Clarity findings
 
@@ -5338,19 +5461,28 @@ Every finding is listed under the dimension that reported it.
 | CL-21 | minor | — | `_examples/*/main.go`, `.golangci.yml` | Every v1 example `main` ended with `os.Exit(1)`, and no lint rule forbade `log.Fatal`, `log.Panic` or `os.Exit`; golangci-lint did not lint the example modules, `_examples/client`, `engineio/_examples` or the README quick-start fixture | Forbid these calls with golangci-lint in both modules, lint those packages, and make a failing example `main` panic with the error (W73). Fixed by #254 (W73). |
 | CL-22 | major | confirmed | `types.go` (`Conn.Close`) | The `Conn.Close` godoc said read errors, peer closes and ping timeouts are reported to `OnError`, although the end of a session reaches `OnDisconnect` only (W63), and it did not say which argument decode errors close the connection (audits `DOC-1`, `USER-3`) | Correct the godoc and state the decode-error rule by error type in both roles (W85). Fixed by #281 (W85). |
 | CL-23 | major → minor | confirmed (`DOC-2`, `U-2`); partially-confirmed (`CR-3`) | `server.go` (`OnEvent`), `docs/ARCHITECTURE.md`, `docs/PROTOCOL.md` | A handler that blocks longer than the heartbeat window ends its own connection with `ping timeout`: handlers run on the reader of the client's Engine.IO connection, so while one runs no PONG is written and no other namespace of that client is served (a 5 s handler with a 1 s + 1 s window: 0 pongs for 16 pings; with the defaults a 50 s handler ended the connection at 50.004 s). The godoc said a blocking handler "delays only that client", and the finding, rated after-tag by the review of 2026-10-29, had no row in this catalogue (audits `DOC-2`, `U-2`, `CR-3`; #203, Correctness F4) | State the contract in the handler godoc of both roles and in the user guide, with an `AckFunc` called from a goroutine for long work (W85). Fixed by #281 (W85). |
-| CL-24 | major | confirmed (`U-1`); partially-confirmed, minor (`DOC-3`) | `docs/V1.md` (the paragraph that classifies session close reasons) | Over HTTP/1.x an `http.Server.WriteTimeout` shorter than a pending poll silently loses the next packet the server writes to that poll, and the polling clients disconnect with `transport error`; the user guide gives no guidance and says that a `ReadTimeout` or `WriteTimeout` ends a session with `ping timeout`, which a pending poll's `ReadTimeout` does not do. Over HTTP/2 the idle poll is reset at `WriteTimeout` and the session ends with `transport error` (audits `U-1`, `DOC-3`) | A deployment section with the `WriteTimeout` rule and its consequences on both HTTP versions (W87). |
+| CL-24 | major | confirmed (`U-1`); partially-confirmed, minor (`DOC-3`) | `docs/V1.md` (the paragraph that classifies session close reasons) | Over HTTP/1.x an `http.Server.WriteTimeout` shorter than a pending poll silently loses the next packet the server writes to that poll, and the polling clients disconnect with `transport error`; the user guide gives no guidance and says that a `ReadTimeout` or `WriteTimeout` ends a session with `ping timeout`, which a pending poll's `ReadTimeout` does not do. Over HTTP/2 the idle poll is reset at `WriteTimeout` and the session ends with `transport error` (audits `U-1`, `DOC-3`) | A deployment section with the `WriteTimeout` rule and its consequences on both HTTP versions (W87); the consequences over HTTP/2 and the Go client's reasons are CL-37 (W108). Fixed by #283 (W87). |
 | CL-25 | minor | — | the twelve non-internal packages of the root module | 128 of 544 exported identifiers had no doc comment, among them the whole Socket.IO parser codec, the `Emitter` builders and the transport fields the documentation tells users to set; CL-5 was marked fixed (audit `DOC-6`; #203, Docs S9) | Document every exported identifier and enable revive's `exported` rule (W88). Fixed by #284 (W88). |
-| CL-26 | minor | — | `docs/V1.md`, `docs/PROTOCOL.md`, `docs/ARCHITECTURE.md`, `_examples/*/README.md`, godoc | Facts stated in several places against the one-owner rule: twice within V1.md (the `BroadcastToRoom` result, the client bridge methods, `OfFunc`, `Server.Close`, the reason strings); the client upgrade twice in ARCHITECTURE.md with the tests paragraph between; run instructions in five example READMEs; the session-end bullet of PROTOCOL.md restating the 413 and 400 answers; the reusable session ID in five places; the handler error wire forms in V1.md and PROTOCOL.md, and the after-close rule in V1.md and the `OnError` godoc (audits `DOC-8`, `U-13`, `USER-6`; #203, Docs S8) | Keep each fact in its owner and link to it (W87). |
-| CL-27 | minor | — | `docs/V1.md`, `docs/PROTOCOL.md` | Terms used without a definition (namespace connection generation, "root" for both the namespace and the package, drain values, stable client sockets, the Redis worker pool, "cancellation fails the transport"), contracts under unrelated headings (`Server.Close` under "Adapters and Redis", the reasons under "Constructor configuration") and vague sentences (audit `DOC-9`) | Define the terms and move the contracts under their own headings (W87; "dispatcher" and "concurrently" are defined by #281). |
+| CL-26 | minor | — | `docs/V1.md`, `docs/PROTOCOL.md`, `docs/ARCHITECTURE.md`, `_examples/*/README.md`, godoc | Facts stated in several places against the one-owner rule: twice within V1.md (the `BroadcastToRoom` result, the client bridge methods, `OfFunc`, `Server.Close`, the reason strings); the client upgrade twice in ARCHITECTURE.md with the tests paragraph between; run instructions in five example READMEs; the session-end bullet of PROTOCOL.md restating the 413 and 400 answers; the reusable session ID in five places; the handler error wire forms in V1.md and PROTOCOL.md, and the after-close rule in V1.md and the `OnError` godoc (audits `DOC-8`, `U-13`, `USER-6`; #203, Docs S8) | Keep each fact in its owner and link to it (W87); the duplicates #283 kept are CL-41 (W108) and, where godoc is involved, CL-42 (W99). Fixed by #283 (W87). |
+| CL-27 | minor | — | `docs/V1.md`, `docs/PROTOCOL.md` | Terms used without a definition (namespace connection generation, "root" for both the namespace and the package, drain values, stable client sockets, the Redis worker pool, "cancellation fails the transport"), contracts under unrelated headings (`Server.Close` under "Adapters and Redis", the reasons under "Constructor configuration") and vague sentences (audit `DOC-9`) | Define the terms and move the contracts under their own headings (W87; "dispatcher" and "concurrently" are defined by #281). Fixed by #283 (W87). |
 | CL-28 | minor | — | `client/socket.go` (`OnDisconnect`), `docs/V1.md` | The Go client's disconnect reasons and what the client sees when the server rejects its namespace CONNECT are documented nowhere; the `Socket.OnDisconnect` godoc says only that it sets the namespace's disconnect callback (audit `DOC-10`) | List the reasons in the `OnDisconnect` godoc and describe the rejection in the user guide (W80). |
 | CL-29 | nit | — | `_examples/README.md` | The examples README states one `-addr` default for all server examples; four differ (audit `DOC-11`; #203, Docs S7) | Give each example's default (W78). Fixed by #274 (W78). |
 | CL-30 | minor | — | `docs/V1.md`, godoc of the transports and of `client.WithTransports` | No document said which calls are safe from other goroutines, or that server options overwrite fields of a user-supplied `polling.Transport` (audit `DOC-13`; #203, Docs S10) | List the calls that may run concurrently and the transport fields the server and the client set (W85). Fixed by #281 (W85). |
 | CL-31 | minor | — | `docs/V1_RELEASE_REVIEW.md` | This document read as "not ready": the verdict said "One confirmed blocker remains: B1" and the scorecard "not ready"; the plan placed W11–W44 and W56–W57 after the tag although every one of them but W38 was done; CL-12 and ARCH-8 lacked their `Fixed by` notes; W70 did not reflect the configured CodeQL default setup; W15's acceptance command named `TestWebsocketBase64Mode`, which no longer exists, so the command passed without running a test; W54 called `TestPollingOverlaps` conformance-tagged; and the catalogue promised to record the after-tag findings listed in #203 without doing so (audits `DOC-12`, `CR-6`) | Describe the current state in the verdict, the scorecard and the plan, correct those statements, and record the findings of the 2026-11-14 audit and of #203 (W90). Fixed by #289 (W90). |
-| CL-32 | minor | — | `docs/V1.md` (migration guide) | The migration advice to call `c.Close()` to drop the client after a connect rejection loses the rejection message: the client sees a transport error instead of the reason (audit `U-10`) | Advice that keeps the reason, pinned by a test (W87). |
-| CL-33 | minor | — | `docs/V1.md` | The user guide does not say that polling needs session affinity across instances: a poll carrying another instance's session ID gets HTTP 400 code 1 (audit `U-11`) | A deployment paragraph (W87). |
-| CL-34 | minor | — | `docs/V1.md` | The user guide has no rooms and broadcasting section, no mapping from the socket.io 2.x calls to the Go methods, and no single list of the disconnect reasons (audit `U-12`) | Add them (W87). |
+| CL-32 | minor | — | `docs/V1.md` (migration guide) | The migration advice to call `c.Close()` to drop the client after a connect rejection loses the rejection message: the client sees a transport error instead of the reason (audit `U-10`) | Advice that keeps the reason, pinned by a test (W87); the advice in a namespace other than `/` is part of CL-44. Fixed by #283 (W87). |
+| CL-33 | minor | — | `docs/V1.md` | The user guide does not say that polling needs session affinity across instances: a poll carrying another instance's session ID gets HTTP 400 code 1 (audit `U-11`) | A deployment paragraph (W87); how a balancer obtains that affinity is CL-38. Fixed by #283 (W87). |
+| CL-34 | minor | — | `docs/V1.md` | The user guide has no rooms and broadcasting section, no mapping from the socket.io 2.x calls to the Go methods, and no single list of the disconnect reasons (audit `U-12`) | Add them (W87). Fixed by #283 (W87). |
 | CL-35 | minor | source-confirmed on `c8c0c1e4`; the `Count` and `logger` statements again on `5ee06b23` | `engineio/server.go` (`Count`), `server.go` (`OnConnect`, `Close`), `namespace.go` (`Sockets`, `Socket`), `types.go` (`Connected`, `Emit`, `Volatile`), `adapter/adapter.go`, `engineio/transport/polling/transport.go` (`CheckOrigin`), `engineio/transport/websocket/transport.go` (`HandshakeTimeout`), `logger/logger.go`, `adapter/redis/options.go` (`New`) | Godoc statements that are false or incomplete on reachable paths: `engineio.Server.Count` lists `Server.Close` among the ends that keep a session registered until its close finishes, but `Close` unregisters every session first; `Server.OnConnect` says a rejected or panicking socket receives an ERROR packet, but none is written once the connection's close has started, and its two paragraphs overlap; `Sockets`, `Socket` and `Connected` say "connected" although they already include a socket whose `OnConnect` runs, before CONNECT is written; `Server.Close` does not say that every other `Close` made while a callback is blocked in it also times out, nor that at the timeout only the caller's connection is still open; `Conn.Emit` does not say that the return values of an acknowledgement callback, an error included, are dropped; `Emitter.Volatile` names two of its drop conditions; `adapter.Adapter` is called the interface meant to be implemented outside the module, although applications also implement `engineio.IDGenerator`, `transport.Transport` and `adapter.SocketLookupBinder`; `polling.Transport.CheckOrigin` says the default "is nil", although `Default` is mutable and read per request; `websocket.Transport.HandshakeTimeout` does not bound the connection phase when a custom `NetDial` is set; the `logger` level contract counts the "closure of a session" as DEBUG, while Redis request failures after the adapter's `Close` are DEBUG too; `redis.New` omits that `Len` and `Clear` also log | Correct each statement (W99). |
 | CL-36 | minor | source-confirmed on `c8c0c1e4`; the `docs/V1.md` and `docs/PROTOCOL.md` statements again on `5ee06b23` | `docs/V1.md`, `docs/PROTOCOL.md` | User-guide and protocol text that is wrong or missing: the migration row "Disconnect reasons" says `OnDisconnect` runs on every close, but a socket rejected by middleware or `OnConnect` never gets it; the gin-cors migration recipe omits `engineio.WithCORS(false)`, which `_examples/gin-cors` needs so that the unknown-transport error does not reflect a foreign Origin with credentials, and does not say that a handshake preflight with custom headers is answered HTTP 400; nothing advises slow admission work in `ServerNamespace.Use`, although while `OnConnect` blocks, broadcasts from other goroutines count toward `WithWriteBufferSize` and can close the connection before CONNECT is written (no test pins it); PROTOCOL.md says an emit ACK callback runs for the first ACK with its id, but a first ACK whose arguments do not decode consumes the callback without running it and a valid repeat is ignored; V1.md states socket.io 2.5.0 interoperability limits (the reference server exits on an incoming `error`) that PROTOCOL.md owns; the Redis paragraphs say "the remaining namespaces log" a loss, which is logged once per factory, and that the backoff starts over at 100 ms "only when" the subscription had stayed up 5 s, which leaves out the first loss; the migration bullet on `Server.Close` from a callback says a caller "reports one although the server did close"; PROTOCOL.md calls session IDs "random, as engine.io's `base64id`", but they are 24 URL-safe characters from 18 random bytes, not that format (#203, Interoperability F6) | Correct each statement, and add a test for the overflow during a blocking `OnConnect` (W99). |
+| CL-37 | minor | the HTTP/2 case reproduced on `c6145023` (scratch test, not committed, three runs per toolchain) with test binaries built by Go 1.22.12, 1.23.12 and 1.25.5 for linux/arm64 and run in a Debian container | `docs/V1.md` (Deployment, Disconnect reasons), `docs/PROTOCOL.md` (the heartbeat and polling request I/O bullets) | The part of CL-24 that #283 left out. The deployment section states the `WriteTimeout` rule for every HTTP version, but its consequences only over HTTP/1.x and only for the JavaScript clients. Over HTTP/2, net/http resets a poll still pending at `WriteTimeout` whether or not a packet is written, and the client's request fails with `stream error: ... INTERNAL_ERROR` on every Go version. With a server built with Go 1.23 or later `OnDisconnect` reports `transport error` at that moment (after 1.001 s for a 1 s `WriteTimeout`). With Go 1.22 the GET handler keeps running on the reset stream and the session stays registered: the next packet the server writes goes into that stream and is lost unseen, the handler returns as if it had delivered it, and the next poll receives only the packets after it, as over HTTP/1.x; without further traffic the session stays until its heartbeat window ends (measured by the executor of #283). The reasons the Go client reports under a short `WriteTimeout` are stated for neither version. PROTOCOL.md's heartbeat bullet says that with a shorter `WriteTimeout` "the connection is closed without a response when the window expires", which holds over HTTP/1.x only | State the consequences over HTTP/2 for each Go version and the Go client's reasons, and name the HTTP version of the PROTOCOL.md sentence (W108). |
+| CL-38 | minor | — | `docs/V1.md` (Deployment), `docs/PROTOCOL.md` (session cookie) | The deployment section requires session affinity but does not say how to obtain it: a balancer can route by the `io` cookie, which a websocket-first handshake does not set and which, with its default `SameSite=Strict`, is not sent on cross-site requests, or by the `sid` query parameter. #283 left it out because it was not verified behind a balancer | Describe the routing choices, verified behind a balancer with both pinned clients (W108). |
+| CL-39 | minor | — | `docs/V1.md` (Constructor configuration, Sessions and shutdown); godoc of `Conn.Close`, `socketio.WithCloseTimeout` and `engineio.WithConnInitor` | The user guide names `WithCloseTimeout` and `ConnInitor` but does not say what `WithCloseTimeout` bounds (the background write of the packets queued before `Conn.Close`, after which the rest is discarded), that `Conn.Close` returns before that write, or when a `ConnInitor` runs (on the handshake request's goroutine, before OPEN is written). The `Conn.Close` and `ConnInitorFunc` godoc state them; `WithCloseTimeout`'s godoc says only "bounds orderly drain". #283 left them out because no test or probe verified them | State them in the guide or link the godoc that owns them, each with a test or a probe (W108). |
+| CL-40 | nit | — | `docs/V1.md` (Differences from the socket.io 2.x JavaScript API), `client/client.go` (`Connect`) | The guide says that the Go client has no `connect_error` or `connect_timeout` callback, but not that the error `Client.Connect` returns for the first attempt takes their place (`ErrConnectTimeout` when `WithTimeout` expires, the dial error otherwise). `TestFailedFirstConnectIsNotRetried` pins only that an error is returned | State the correspondence, with a test for each error (W108). |
+| CL-41 | minor | — | `docs/ARCHITECTURE.md`, `_examples/ack/README.md`, `_examples/binary/README.md`, `_examples/dockerize-default-http/README.md`, `_examples/middleware/README.md`, `_examples/namespaces/README.md`, `docs/PROTOCOL.md`, `docs/V1.md` | The duplicates of CL-26 outside godoc that #283 kept: the client upgrade in two subsections of ARCHITECTURE.md ("Client transport probe and upgrade" and "Client upgrade cancellation"); the run instructions in five example READMEs; PROTOCOL.md's bullet on a polling session the server ends, which restates the 413 and 400 answers of its paragraph on HTTP answers; the reusable session ID in V1.md ("Sessions and shutdown" and the migration row "Ended Engine.IO sessions") and ARCHITECTURE.md; the handler error wire forms in V1.md ("Handler errors and panics") and PROTOCOL.md; and, from the reviews of #283, the ID room in V1.md's rooms section and in its migration row "Room scope and ID room", and the v1.4.2 call `BroadcastToRoom(room, event, s)` that compiles but is read as `(namespace, room, event)`, in V1.md's "Choosing a server API" and in its migration section "Calls that compile but change meaning". #283 kept them because each removal is a rewrite that needs its own check: of ARCHITECTURE.md against `engineio/client`, and of the example READMEs by running every example | Give each fact one owner and link to it (W108). |
+| CL-42 | minor | — | `server.go` (`OnError`, `OnEvent`), `engineio/server.go` (`Count`, `Remove`), `engineio/id.go` (`IDGenerator`), `docs/V1.md`, `docs/PROTOCOL.md` | The duplicates of CL-26 that involve godoc, which #283 did not change: the rule for a handler error after the close started, in V1.md ("Handler errors and panics") and the `Server.OnError` godoc; the argument-decode rule, in the `Server.OnEvent` godoc and PROTOCOL.md's ACK bullet; the reusable session ID, in the godoc of `engineio.Server.Count`, `Server.Remove` and `IDGenerator` as well as in the places CL-41 lists | Give each fact one owner, the godoc or the guide, and link from the other (W99). |
+| CL-43 | minor | source-confirmed on `c6145023`; the record's level and text in the description of #283 (`closeTimer` probe) | `server.go` (`Close`, `waitForConnections`), `logger/logger.go` (package doc) | The `Server.Close` godoc says that on timeout it "logs remaining connections" without the level. The code logs WARN `socketio: close timed out` (`server.go`, `waitForConnections`), which the `logger` package doc does not list among the server's WARN records, although that doc counts errors also returned to a caller as DEBUG and `Close` returns this one. Only V1.md ("Sessions and shutdown") states the level, and no test pins the record (reported in the review of #283) | State the level in the godoc and list the record in the `logger` package doc, or change the level to follow the package's contract, with a test of the record (W99). |
+| CL-44 | nit | the non-root case reproduced on `c6145023` (scratch test, three runs); the others source-confirmed | `docs/PROTOCOL.md` (ACK bullet, server-initiated websocket close), `docs/V1.md` (Typed events, the migration row "Connect rejection") | Wording reported by the final reviews of #283: in PROTOCOL.md's ACK bullet, "such an error" follows the sentence about a Go callback that cannot decode the error object, so it no longer clearly means a `*json.UnmarshalTypeError`; PROTOCOL.md says that a peer that stops reading or does not reply delays a server-initiated websocket close by "at most the 500 ms write deadline", but a frame written within that deadline is followed by up to 250 ms of waiting for the reply (`closeFrameTimeout`, `closeReplyTimeout` in `engineio/transport/websocket/connect.go`), about 750 ms in all; V1.md's sentence "through the bridge methods named above" refers to the methods of `client.Client` and `client.Socket` only, not to the bridge of the server connections; the connect-rejection advice (accept, emit the reason, `c.Close()`) is pinned for `/` only, and in another namespace `c.Close()` disconnects the root namespace first: after the root CONNECT the client receives `1`, `0/chat,`, `2/chat,["unauthorized","bad token"]` and `1/chat,` | Correct the three sentences, and state and pin the advice in a namespace other than `/` (W108). |
+| CL-45 | nit | — | `doc.go`, `example_test.go` | The package example in `doc.go` and the `Example` function in `example_test.go` register handlers with the `Server.OnConnect("/", ...)` and `Server.OnEvent("/", ...)` wrappers, while the user guide recommends `Server.Of(namespace)` for new code; the programs under `_examples` use the same wrappers (#283, "Outside W87") | Use `Server.Of` in the package example and the `Example` function (W99). |
 
 ### Architecture findings
 
@@ -5436,6 +5568,7 @@ Every finding is listed under the dimension that reported it.
 | interop-38 | minor | source-confirmed on `c8c0c1e4` | `engineio/client/client.go` (PONG case of `NextReader`) | The Go Engine.IO client renews its heartbeat window only when it reads a PONG; engine.io-client 3.x renews it on every packet. #281 states the rule in the `ReasonPingTimeout` godoc and the user guide | Renew the window on every packet, as the reference client does (W102). |
 | interop-39 | nit | reproduced on `64c30489` (scratch Go probe, 17 of 20 runs) and compared with engine.io 3.6.2 and engine.io-client 3.5.6 (ten runs); see [Stress fixes and owner decisions on 2026-11-15](#stress-fixes-and-owner-decisions-on-2026-11-15) | `engineio/client/client.go` (`terminate`, `sendClose`), `engineio/transport/polling/connect.go` (`serveGet`) | After `Conn.Close` returns, the Go polling client can still start long-poll GETs until its CLOSE POST is answered: `terminate` sends CLOSE from a goroutine, and `serveGet` stops only when the transport's `Close`, at the end of `sendClose`, marks it stopped. engine.io-client 3.5.6 starts only the CLOSE POST after `close()`. With a unique session ID the extra GET gets HTTP 400 or is cancelled; with an ID the server has issued again it reaches the newer session and can end it, as in `TestReusedIDWaitsForPreviousConnection` (T30, #291) | Start no polling request after `Close` other than the CLOSE POST (W102). |
 | interop-40 | nit | reproduced on `64c30489` (three runs) and against socket.io 2.5.0 / engine.io 3.6.2 (three runs): a limit of 1000 and a 5000-character emit from socket.io-client 2.5.0 over polling | `engineio/internal/session/close.go`, `engineio/transport/polling` | Over polling, a message over `WithMaxHTTPBufferSize` ends the session with the `OnDisconnect` reason `transport error`, and socket.io-client 2.5.0 reports `transport error`; with socket.io 2.5.0 the server reason is `parse error` and the client reports `transport close`. C31 and D9 record the reasons; `docs/PROTOCOL.md` does not list the difference | List the difference with D9's outcome, or align the reasons (W98). |
+| interop-41 | nit | reproduced on `c6145023` (scratch Go test, three runs) and against socket.io 2.5.0 (Node 26.4.0, socket.io-client 2.5.0, polling and websocket, two runs each) | `internal/event/event.go` (reserved names), `docs/PROTOCOL.md` | Four combinations of an event name and an emit differ from socket.io 2.5.0: this server sends `newListener` and `removeListener` from `Conn.Emit`, and `connection` and `newListener` from a namespace broadcast, as ordinary events. socket.io 2.5.0 keeps those four local: `socket.emit('newListener', ...)` and `socket.emit('removeListener', ...)` run the socket's own listeners, and a namespace `emit('connection', x)` runs the namespace's `connection` listeners with `x`. Both servers send `Conn.Emit("connection", ...)` (`socket.emit('connection', ...)`) and a namespace `emit('removeListener', ...)` to the client. PROTOCOL.md does not list the difference; #283 left the topic out as not verified | List the difference, or keep those four combinations local as the reference does (W98). |
 
 ### Tests findings
 
@@ -5899,5 +6032,106 @@ deferred-majors line reads "none". The release's
   `https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0` shows the module at
   `v1.5.0`, published on 2026-11-16.
 - **Open:** the repository description is still upstream's and the homepage is empty;
-  the topics are set (P2). Nothing is announced (P8). 274 remote branches remain,
-  `release/v1.5.0` among them (P9).
+  the topics are set (P2). Nothing is announced (P8). 273 remote branches besides
+  `master` remain, `release/v1.5.0` among them (P9).
+
+### User guide record on 2026-11-16
+
+This record describes `master` at `c6145023`, the squash merge of #283 (W87, head
+`b4f19a66`) on 2026-11-16. Its parent is `2ebe093c`, which the head of #283 contains, so
+the pull request was up to date with `master`. #283 changed `README.md`, `docs/V1.md`,
+`docs/PROTOCOL.md` and `docs/PARITY.md` and added `guide_behavior_test.go` (nine tests)
+and `client/first_connect_test.go` (one test); it changed no library code and no godoc.
+The push CI run 43865558911 on `c6145023` succeeded in all 22 jobs, `Gates v1`,
+`Lint v1`, `Stress v1` and both conformance jobs among them; the pull request run
+43861530321 on `b4f19a66` succeeded. `make gates`, `make lint` and a check of every
+relative Markdown link and anchor passed on the branch of the pull request that adds this
+record, whose code is that of `c6145023` (Go 1.25.5, golangci-lint v2.15.0,
+darwin/arm64); its description quotes the commands and their output.
+
+W87's topics, checked against the text on `c6145023`:
+
+| Topic | On `c6145023` |
+| --- | --- |
+| Definitions (CL-27) | `docs/V1.md` defines a namespace connection generation, tells the root package and the root namespace apart, names `WithCloseTimeout` and `WithWriteBufferSize` instead of drain and queue values, says "a retained `*client.Socket`" and spells out the Redis remote-request limit; PROTOCOL.md states the case that "cancellation fails the transport" stood for. `Server.Close` is under "Sessions and shutdown" and the reasons under "Disconnect reasons" |
+| Rooms and broadcasting, with the socket.io 2.x mapping (CL-34) | "Rooms and broadcasting"; `TestRoomsArePerNamespace`, `TestReservedBroadcastRunsRecipientListeners` |
+| One disconnect-reason table for both roles (CL-34) | "Disconnect reasons"; `TestDisconnectReasonsEqualEngineConstants`, `TestAbortedPollEndsSessionWithTransportError` |
+| Sessions and shutdown | "Sessions and shutdown" |
+| The `WriteTimeout` rule (CL-24) | "Deployment": the rule for every HTTP version and the HTTP/1.x consequences for `socket.io-client` 1.7.4 and 2.5.0; `TestPollingResponseAfterServerWriteTimeoutIsLost`. Left out: HTTP/2 and the Go client (CL-37) |
+| Session affinity (CL-33) | "Deployment"; `TestSessionIsUnknownToAnotherInstance`. Left out: how a balancer obtains it (CL-38) |
+| No session cap, and what to put in front (C28, D14) | "Deployment", with the cost measured by the probe in the description of #283 |
+| Differences from the JavaScript API (API-18) | "Differences from the socket.io 2.x JavaScript API"; `TestClientBundleIsNotServed`, `TestEventMiddlewareCannotReplaceArguments`, `TestFailedFirstConnectIsNotRetried` |
+| Migration rows (API-21) | The rows for argument decode errors, a CONNECT to an unregistered namespace, the room scope and the ID room, and the `OnError` row with the v1.7.0 cases; the lifecycle-name bullet. Left out: the v1.4.2 parts (API-27) |
+| PROTOCOL.md: polling request I/O and the lifecycle-name bullet | In "Engine.IO protocol v3" and "Socket.IO protocol v4" respectively |
+| Duplicates replaced by links (CL-26) | The duplicates within V1.md. Left out: CL-41 and, with godoc, CL-42 |
+| Connect-rejection advice that keeps the reason and says the socket receives broadcasts until its close (CL-32) | The migration row "Connect rejection"; `TestRootRejectionKeepsReasonWithOnConnectClose` |
+| A link from "Adapters and Redis" to session affinity | Present |
+| The other topics that #283 had removed | Each named in the "Left out" section of #283 with a reason; recorded below |
+
+Each topic of the "Left out" section of #283, and where it is recorded:
+
+| Left out | Recorded as |
+| --- | --- |
+| `WriteTimeout` over HTTP/2 | CL-37 (W108) |
+| Session affinity by the `io` cookie, its `SameSite` attribute and routing at a balancer | CL-38 (W108) |
+| The Go client's disconnect reasons under a server `WriteTimeout` | CL-37 (W108) |
+| Lifecycle-name broadcasts in detail, through the Redis adapter included | interop-33 (W98), unchanged |
+| `WithCloseTimeout`, the background write after `Conn.Close`, `WithConnInitor` | CL-39 (W108) |
+| `newListener`, `removeListener` and `connection` as ordinary event names | interop-41 (W98): run against socket.io 2.5.0 for this record, four of the six combinations of these names with `Conn.Emit` and a namespace broadcast are a wire difference |
+| v1.4.2 dropping the events of an unregistered namespace it had acknowledged; what v1.4.2 adds to the `OnError` row | API-27 (W108) |
+| `connect_error` and `connect_timeout` of the first attempt as the error of `Connect` | CL-40 (W108) |
+| ARCHITECTURE.md, the example READMEs, the session-end bullet of PROTOCOL.md, the reusable session ID, the handler error wire forms (CL-26) | CL-41 (W108) |
+| The after-close rule and the argument-decode rule in godoc (CL-26) | CL-42 (W99) |
+| The lifecycle-name sentence in the godoc of `Emit` and `OnEvent` | API-16 (W99), unchanged |
+| `example_test.go` and `doc.go` use the `Server.OnConnect("/", ...)` wrappers | CL-45 (W99) |
+| `SECURITY.md` and session floods | D14, unchanged |
+
+Findings of the last two review rounds of #283 (the executor's reports on `53101c7c` and
+`b4f19a66` and the non-blocking findings of the four reviews):
+
+| Report | Recorded as | How it was checked |
+| --- | --- | --- |
+| `Client.Connect` rejoins nothing while another namespace is connected, and all namespaces after the last one closed | API-28 (W80) | Scratch test in `client`, two runs: with `/` and `/chat` connected and `/chat` closed by the server's `Disconnect` or by `Socket.Close`, `Client.Connect()` returns nil and the server sees no join within 1 s; after `Socket.Close` of `/`, `Client.Connect()` returns nil and the server sees the joins of `/` and `/chat` |
+| An `OnEvent("disconnecting", ...)` listener of the Go client did not run within 2 s of a `Close` or `Disconnect` from another goroutine while a handler was blocked | C37 (W102) | Reproduced, with a wider cause: in scratch tests in `client` the listener ran in none of the cases `Conn.Close`, `Conn.Disconnect`, `Socket.Close` and `Client.Close`, with or without a blocked handler, nor for the server's `Conn.Disconnect` or `Conn.Close`; it ran before `OnDisconnect` for the ends of the Engine.IO connection tried, the server's `EngineConn().Close()` (`transport close`) and `Server.Close` (`transport error`) |
+| The `Server.Close` godoc omits the level of its timeout record, which the `logger` package doc does not list | CL-43 (W99) | `go doc . Server.Close`, `logger/logger.go` and `server.go` read |
+| "such an error" in PROTOCOL.md's ACK bullet; the delay of a server-initiated websocket close; "the bridge methods named above"; the non-root connect rejection | CL-44 (W108) | The sentences and `engineio/transport/websocket/connect.go` read; the non-root case by a scratch test in the root package, three runs with the same packets |
+| The ID room and the v1.4.2 `BroadcastToRoom(room, event, s)` call each stated twice in V1.md | CL-41 (W108) | Read |
+| The upstream behaviour in the migration rows rests on the audit's differential runs; v1.4.2 calling `OnError` for every session end | API-27 (W108) | The rows read; the v1.4.2 source is the executor's and reviewers' reading, not run here |
+
+Not recorded as rows: a rejection whose `Error` method panics sends `internal error`, which
+#280 documents, and #283 removed the sentence that contradicted it; the sentences of
+`master` that the ninth round of review found dropped are in `docs/V1.md` again.
+
+Runs for this record (scratch tests and scripts, not committed):
+
+- CL-37, HTTP/2: an `httptest` server with `EnableHTTP2`, TLS, `WriteTimeout` 1 s and a
+  one-minute heartbeat window, a raw polling session and a pending poll; 200 ms after the
+  reset the server emits `push`, then `next`, and the client polls again without a write
+  deadline. Test binaries built for linux/arm64 with Go 1.22.12, 1.23.12 and 1.25.5, run
+  three times each in a `debian:bookworm-20261020-slim` container. On every version the
+  idle poll failed after 1.00x s with `stream error: stream ID 3; INTERNAL_ERROR;
+  received from peer`. With Go 1.23.12 and 1.25.5 `OnDisconnect` reported
+  `transport error` after 1.00x s and the next poll got HTTP 400 `Session ID unknown`.
+  With Go 1.22.12 the GET handler was still running before the push and returned 1.20 s
+  after it started, the next poll got HTTP 200 with only `42["next",1]`, the session
+  stayed connected (`Count` 1) and `OnDisconnect` did not run.
+- interop-41: socket.io 2.5.0 with socket.io-client 2.5.0 under Node 26.4.0, over
+  polling and websocket, two runs each. In the connection handler the server calls
+  `socket.emit` with `newListener`, `removeListener` and `connection`, then the
+  namespace's `emit` with `connection`, `newListener` and `removeListener`, then
+  `socket.emit('barrier')`. Every run printed `events received: ["connection","sock-c"]
+  ["removeListener","nsp-r"] ["barrier"]`; the socket's `newListener` and
+  `removeListener` listeners ran with `sock-n` and `sock-r`, and the namespace's
+  `connection` listener ran with `nsp-c`. This server, sending the same through
+  `Conn.Emit` and `Server.Of("/").Emit`, wrote all six events before the barrier in
+  three runs: `2["newListener","sock-n"]`, `2["removeListener","sock-r"]`,
+  `2["connection","sock-c"]`, `2["connection","nsp-c"]`, `2["newListener","nsp-n"]`,
+  `2["removeListener","nsp-r"]`.
+
+Owner-only steps, read on 2026-11-16: `gh repo view sshaplygin/go-socket.io --json
+description,homepageUrl,repositoryTopics` gives the description "socket.io library for
+golang, a realtime application framework." (upstream's), an empty `homepageUrl` and ten
+topics, so P2 stays `open`. Before the branch of that pull request was pushed,
+`git ls-remote --heads origin` listed 276 branches, 275 of them besides `master`, among
+them `release/v1.5.0`, `release/v1.5.0-review`, `v1-h/release-notes` and the merged
+branch of #283, so P9 stays `open`. Nothing is announced (P8).

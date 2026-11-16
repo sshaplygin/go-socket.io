@@ -244,7 +244,18 @@ jobs:
         run: make architecture-check
       - name: API and statement coverage
         if: needs.changes.outputs.v1_packages != ''
-        run: make cover-check
+        run: make cover-check COVER_PROFILE=coverage.out
+      # A failed upload does not fail the job: the floor above is the gate, Codecov is the
+      # public report. Pull requests from forks have no token and upload without one.
+      - name: Upload coverage to Codecov
+        if: needs.changes.outputs.v1_packages != ''
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.out
+          disable_search: true
+          flags: v1
+          fail_ci_if_error: false
       - name: Install golangci-lint
         # golangci-lint-action lints one working directory; make lint-go also lints each example
         # module, the underscore packages of the root module and the quick-start fixture.

@@ -395,13 +395,14 @@ func (s *Socket) OnConnect(f func(Conn) error) {
 //
 //   - "io server disconnect": the server disconnected the namespace, for example
 //     with socket.disconnect() or a Go server's Conn.Disconnect or Conn.Close.
-//     The namespace stays closed until Connect.
+//     The namespace stays closed until Connect, or until a Client.Connect that
+//     dials a new connection.
 //   - "io client disconnect": Close, Client.Close, Conn.Close or Conn.Disconnect.
 //   - "transport close": the server ended the Engine.IO session in an orderly way.
 //   - "transport error": a transport read or write failed, or a received message
 //     exceeded WithMaxMessageSize.
-//   - "ping timeout": nothing arrived from the server within its ping interval
-//     and timeout.
+//   - "ping timeout": no PONG arrived from the server within its ping interval
+//     plus its ping timeout.
 //   - "forced close": the client ended the session itself, for example after a
 //     failed write or ErrWriteBufferFull, or the session ended without one of
 //     the causes above.
@@ -455,12 +456,12 @@ func (s *Socket) Close() error {
 // connection the reconnection restores. When the Client has no connection and
 // is not reconnecting, as after Client.Close, after the last namespace closed,
 // after the reconnection gave up (OnReconnectFailed) or after a connection
-// ended with WithReconnection(false), Connect dials one as
-// Client.Connect does and returns its error, but it reopens only this Socket:
-// other closed Sockets stay closed, and Sockets that are not closed join the new
-// connection as they do with Client.Connect. A Connect that runs while
-// Client.Close or the Close of the last namespace is closing the connection
-// waits for that close and then dials.
+// ended with WithReconnection(false), Connect dials one as Client.Connect does
+// and returns its error, but it reopens only this Socket: other closed Sockets
+// stay closed, and Sockets that are not closed join the new connection as they
+// do with Client.Connect. A dial that fails starts no reconnection. A Connect
+// that runs while Client.Close or the Close of the last namespace is closing
+// the connection waits for that close and then dials.
 //
 // A connected or joining Socket is left as it is, so concurrent calls send one
 // CONNECT. A namespace the server rejected (OnError receives the server's
@@ -474,6 +475,12 @@ func (s *Socket) Close() error {
 // Events emitted while the Socket is closed are buffered as before its first
 // CONNECT and sent once the server accepts it; the buffer is shared with the
 // Client's other namespaces (see WithWriteBufferSize).
+//
+// On an open connection a Close of a joined or joining Socket queues one
+// DISCONNECT and a Connect of a closed Socket other than the root queues one
+// CONNECT; the connection writes them in call order. WithWriteBufferSize does
+// not bound these packets and nothing merges them: Close and Connect calls
+// that outrun the connection add two queued packets per round.
 //
 // The server joins the root namespace when the Engine.IO connection opens, and
 // protocol v4 has no client CONNECT for it. On an open connection Connect
@@ -583,10 +590,10 @@ func (m *clientState) namespaceDisconnected(current *conn, namespace string) err
 	return m.closeSocket(socket, "io server disconnect", true, current, nil)
 }
 
-// supersededLocked reports whether a DISCONNECT that c's reader read no longer
-// concerns the Sockets. The reader of a connection that a close retired keeps
-// running while the connection drains, and a Socket that is open after that
-// close was opened for the next connection. The caller holds m.mu.
+// supersededLocked reports whether a DISCONNECT that c's reader read, or the end
+// of c, no longer concerns the Sockets. The reader of a connection that a close
+// retired keeps running while the connection drains, and a Socket that is open
+// after that close was opened for the next connection. The caller holds m.mu.
 func (m *clientState) supersededLocked(c *conn) bool {
 	return m.conn != c || m.retired == c
 }

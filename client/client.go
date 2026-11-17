@@ -39,12 +39,18 @@ func New(addr string, opts ...Option) (*Client, error) {
 
 // Connect returns once Engine.IO is open and namespace CONNECT packets are queued.
 // A failed or timed-out attempt returns its error and can be retried; late dial
-// results are closed. Automatic reconnection starts only after a connection has
-// opened, so the Client does not retry a failed Connect itself, unlike
-// socket.io-client 2.x. While a connection is open or being established, Connect
-// dials nothing and does not reopen closed namespaces; see Socket.Connect. A
-// Connect that runs while Close is closing the connection waits for that close
-// and then dials.
+// results are closed. A failed Connect starts no automatic reconnection, unlike
+// socket.io-client 2.x: only the end of a connection that had opened starts one.
+//
+// While a connection is open, Connect returns nil, dials nothing and reopens no
+// closed namespace; see Socket.Connect. While a dial is in progress, that of a
+// reconnection included, Connect waits for it, returns its result and reopens
+// no closed namespace either. In every other state Connect dials, and a Connect
+// that dials reopens every closed namespace of the Client, one that the server
+// disconnected (reason "io server disconnect") included. Between the attempts
+// of a reconnection Connect dials as well: its dial ends that reconnection,
+// also when it fails. A Connect that runs while Close, or the Close of the last
+// open namespace, is closing the connection waits for that close and then dials.
 func (c *Client) Connect() error { return c.manager.Connect() }
 
 // Close disconnects all namespace sockets and returns without waiting for the

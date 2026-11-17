@@ -184,30 +184,105 @@ func TestSocketConnectDials(t *testing.T) {
 }
 
 // A failed first Connect is the caller's to retry: unlike socket.io-client 2.x,
-// the Client starts no reconnection for it, whatever WithReconnection says.
+// the Client starts no reconnection for it, whatever WithReconnection says. The
+// same holds for a Connect that fails after a close retired the connection.
 func TestClientConnectFailureStartsNoReconnection(t *testing.T) {
-	cl, err := newTestManager(t, "http://unused/", WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
-	require.NoError(t, err)
-	attempts := make(chan int, 4)
-	cl.OnReconnectAttempt(func(n int) { attempts <- n })
+	t.Run("first Connect", func(t *testing.T) {
+		cl, err := newTestManager(t, "http://unused/", WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
+		require.NoError(t, err)
+		attempts := make(chan int, 4)
+		cl.OnReconnectAttempt(func(n int) { attempts <- n })
+		failed := errors.New("down")
+		fc := newFakeConn(t)
+		dials := 0
+		cl.dial = func(string) (engineclient.Conn, error) {
+			dials++
+			if dials == 1 {
+				return nil, failed
+			}
+			return fc, nil
+		}
+		require.ErrorIs(t, cl.Connect(), failed)
+		cl.state.mu.Lock()
+		retry := cl.state.retry
+		cl.state.mu.Unlock()
+		require.Nil(t, retry, "no reconnection run")
+		require.NoError(t, cl.Connect())
+		fc.reads <- "0"
+		require.Equal(t, 2, dials)
+		require.Empty(t, attempts)
+	})
+	for _, closer := range []string{"Client.Close", "last Socket"} {
+		t.Run("after "+closer, func(t *testing.T) {
+			failedConnectAfterClose(t, closer, func(p *rejoinPeer) error { return p.cl.Connect() })
+		})
+	}
+}
+
+// A Socket.Connect that fails its dial after a close retired the connection
+// returns the dial's error and leaves no reconnection behind.
+func TestSocketConnectFailureStartsNoReconnection(t *testing.T) {
+	for _, closer := range []string{"Client.Close", "last Socket"} {
+		t.Run("after "+closer, func(t *testing.T) {
+			failedConnectAfterClose(t, closer, func(p *rejoinPeer) error { return p.chat.Connect() })
+		})
+	}
+}
+
+// failedConnectAfterClose closes the Client's connection while its writer is
+// held, so that the closed connection's workers are still running when open
+// fails its dial. The end of that connection must not start a reconnection:
+// the next Socket.Connect makes its own dial.
+func failedConnectAfterClose(t *testing.T, closer string, open func(*rejoinPeer) error) {
+	p := newRejoinPeer(t, WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
+	m := p.cl.state
+	m.mu.Lock()
+	old := m.conn
+	m.mu.Unlock()
+	next := newFakeConn(t)
 	failed := errors.New("down")
-	fc := newFakeConn(t)
-	dials := 0
-	cl.dial = func(string) (engineclient.Conn, error) {
-		dials++
-		if dials == 1 {
+	var dials atomic.Int32
+	p.cl.dial = func(string) (engineclient.Conn, error) {
+		if dials.Add(1) == 1 {
 			return nil, failed
 		}
-		return fc, nil
+		return next, nil
 	}
-	require.ErrorIs(t, cl.Connect(), failed)
-	cl.state.mu.Lock()
-	retry := cl.state.retry
-	cl.state.mu.Unlock()
+	attempts := make(chan int, 16)
+	p.cl.OnReconnectAttempt(func(n int) {
+		select {
+		case attempts <- n:
+		default:
+		}
+	})
+	p.fc.hold.Store(true)
+	if closer == "last Socket" {
+		require.NoError(t, p.root.Close())
+		require.NoError(t, p.chat.Close())
+	} else {
+		require.NoError(t, p.cl.Close())
+	}
+	require.ElementsMatch(t, []string{"/:io client disconnect", "/chat:io client disconnect"},
+		[]string{recv(t, p.disconnects, "first OnDisconnect"), recv(t, p.disconnects, "second OnDisconnect")})
+	require.ErrorIs(t, open(p), failed)
+	require.Equal(t, int32(1), dials.Load())
+	_ = p.fc.Close() // the closed connection's workers end
+	// connectionEnded records the end of a connection in the critical section
+	// in which it starts that connection's reconnection run.
+	require.Eventually(t, func() bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return m.ended == old
+	}, waitFor, time.Millisecond, "the end of the closed connection is handled")
+	m.mu.Lock()
+	retry, worker := m.retry, m.reconnectWorker
+	m.mu.Unlock()
 	require.Nil(t, retry, "no reconnection run")
-	require.NoError(t, cl.Connect())
-	fc.reads <- "0"
-	require.Equal(t, 2, dials)
+	require.Nil(t, worker, "no reconnection worker")
+	require.Equal(t, int32(1), dials.Load())
+	require.NoError(t, p.chat.Connect())
+	require.Equal(t, int32(2), dials.Load(), "Connect dials")
+	require.Equal(t, "0/chat,", recv(t, next.out, "chat CONNECT on the dialed connection"))
 	require.Empty(t, attempts)
 }
 
@@ -232,39 +307,62 @@ func TestSocketConnectIgnoresCrossingDisconnect(t *testing.T) {
 	require.False(t, p.chat.Connected())
 }
 
+// closeHeld holds a close of p's connection between stopping the client and
+// closing the connection, starts open during that window and releases the close
+// once open waits for it. It returns the results of the close and of open, the
+// next connection, and whether the closed connection was closing when the dial
+// for the next one was called: that is false when open does not wait.
+func closeHeld(t *testing.T, p *rejoinPeer, closeIt, open func() error) (closed, opened <-chan error, next *fakeConn, closingAtDial func() bool) {
+	t.Helper()
+	m := p.cl.state
+	m.mu.Lock()
+	old := m.conn
+	m.mu.Unlock()
+	next = newFakeConn(t)
+	var atDial atomic.Bool
+	dialing := make(chan struct{}, 1)
+	p.cl.dial = func(string) (engineclient.Conn, error) {
+		atDial.Store(isDone(old.closing))
+		dialing <- struct{}{}
+		return next, nil
+	}
+	closing, release, waits := make(chan struct{}), make(chan struct{}), make(chan struct{}, 1)
+	var once, released sync.Once
+	m.testHookClosing = func() { once.Do(func() { close(closing); <-release }) }
+	unblock := func() { released.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	m.testHookJoinWaits = func() { waits <- struct{}{} }
+	closeResult, openResult := make(chan error, 1), make(chan error, 1)
+	go func() { closeResult <- closeIt() }()
+	recv(t, closing, "close stopped the client")
+	go func() { openResult <- open() }()
+	select {
+	case <-waits: // Connect waits for the close
+	case <-dialing: // Connect dialed during the close
+	case <-time.After(waitFor):
+		t.Fatal("timed out waiting for Connect to wait for the close or to dial")
+	}
+	unblock()
+	return closeResult, openResult, next, atDial.Load
+}
+
 // Connect during Client.Close, or during the Close of the last Socket, waits for
-// that close and then dials: it joins the next connection, not the closing one.
+// that close and then dials: the closed connection is closing before the dial
+// for the next one is called, and the Socket joins the next connection.
 func TestSocketConnectWaitsForClose(t *testing.T) {
 	for _, by := range []string{"last Socket", "Client.Close"} {
 		t.Run(by, func(t *testing.T) {
 			p := newRejoinPeer(t)
+			closeIt := p.cl.Close
 			if by == "last Socket" {
 				require.NoError(t, p.root.Close())
 				require.Equal(t, "/:io client disconnect", recv(t, p.disconnects, "root Close"))
+				closeIt = p.chat.Close
 			}
-			next := newFakeConn(t)
-			p.cl.dial = func(string) (engineclient.Conn, error) { return next, nil }
-			closing, release, waits := make(chan struct{}), make(chan struct{}), make(chan struct{}, 1)
-			var once, released sync.Once
-			p.cl.state.testHookClosing = func() { once.Do(func() { close(closing); <-release }) }
-			unblock := func() { released.Do(func() { close(release) }) }
-			t.Cleanup(unblock)
-			p.cl.state.testHookJoinWaits = func() { waits <- struct{}{} }
-			closed := make(chan error, 1)
-			go func() {
-				if by == "last Socket" {
-					closed <- p.chat.Close()
-				} else {
-					closed <- p.cl.Close()
-				}
-			}()
-			recv(t, closing, "close stopped the client")
-			joined := make(chan error, 1)
-			go func() { joined <- p.chat.Connect() }()
-			recv(t, waits, "Connect waits for the close")
-			unblock()
+			closed, joined, next, closingAtDial := closeHeld(t, p, closeIt, p.chat.Connect)
 			require.NoError(t, recv(t, closed, "close"))
 			require.NoError(t, recv(t, joined, "Connect"))
+			require.True(t, closingAtDial(), "the closed connection is closing before Connect dials")
 			require.Equal(t, "0/chat,", recv(t, next.out, "chat CONNECT on the next connection"))
 			next.reads <- "0"
 			next.reads <- "0/chat,"
@@ -279,23 +377,10 @@ func TestSocketConnectWaitsForClose(t *testing.T) {
 // connection that every Socket joins.
 func TestClientConnectWaitsForClose(t *testing.T) {
 	p := newRejoinPeer(t)
-	next := newFakeConn(t)
-	p.cl.dial = func(string) (engineclient.Conn, error) { return next, nil }
-	closing, release, waits := make(chan struct{}), make(chan struct{}), make(chan struct{}, 1)
-	var once, released sync.Once
-	p.cl.state.testHookClosing = func() { once.Do(func() { close(closing); <-release }) }
-	p.cl.state.testHookJoinWaits = func() { waits <- struct{}{} }
-	unblock := func() { released.Do(func() { close(release) }) }
-	t.Cleanup(unblock)
-	closed := make(chan error, 1)
-	go func() { closed <- p.cl.Close() }()
-	recv(t, closing, "Client.Close stopped the client")
-	connected := make(chan error, 1)
-	go func() { connected <- p.cl.Connect() }()
-	recv(t, waits, "Client.Connect waits for the close")
-	unblock()
+	closed, connected, next, closingAtDial := closeHeld(t, p, p.cl.Close, p.cl.Connect)
 	require.NoError(t, recv(t, closed, "Client.Close"))
 	require.NoError(t, recv(t, connected, "Client.Connect"))
+	require.True(t, closingAtDial(), "the closed connection is closing before Client.Connect dials")
 	require.Equal(t, "0/chat,", recv(t, next.out, "chat CONNECT on the next connection"))
 	next.reads <- "0"
 	next.reads <- "0/chat,"
@@ -530,15 +615,24 @@ func TestConnectIgnoresDisconnectReadByClosedConnectionAfterFailedDial(t *testin
 		}
 		return next, nil
 	}
+	attempts := make(chan int, 16)
+	p.cl.OnReconnectAttempt(func(n int) {
+		select {
+		case attempts <- n:
+		default:
+		}
+	})
 	p.fc.hold.Store(true)
 	require.NoError(t, p.cl.Close())
 	require.ErrorIs(t, p.chat.Connect(), failed)
 	p.fc.reads <- "1/chat,"
 	p.fc.reads <- "1/chat,"
 	require.NoError(t, p.root.Connect())
-	_ = p.fc.Close()
+	require.Equal(t, int32(2), dials.Load(), "the root Socket's Connect dials while the closed connection drains")
+	_ = p.fc.Close() // the next connection starts once the closed one has ended
 	require.Equal(t, "0/chat,", recv(t, next.out, "chat CONNECT on the next connection"))
 	require.Equal(t, int32(2), dials.Load())
+	require.Empty(t, attempts)
 }
 
 // Once the reconnection has given up, the Client has no connection and is not
@@ -594,4 +688,195 @@ func TestSocketConnectAfterConnectionEndedWithoutReconnection(t *testing.T) {
 	next.reads <- "0"
 	next.reads <- "0/chat,"
 	require.ElementsMatch(t, []string{"/", "/chat"}, []string{recv(t, p.connects, "root OnConnect"), recv(t, p.connects, "chat OnConnect")})
+}
+
+// newClosedPairPeer is a rejoinPeer whose /chat namespace the server
+// disconnected and whose /side namespace Socket.Close closed; the root is open.
+func newClosedPairPeer(t *testing.T, opts ...Option) (*rejoinPeer, *Socket) {
+	t.Helper()
+	p := newRejoinPeer(t, opts...)
+	side := p.cl.Socket("/side")
+	side.OnConnect(func(c Conn) error { p.connects <- c.Namespace(); return nil })
+	side.OnDisconnect(func(c Conn, reason string) { p.disconnects <- c.Namespace() + ":" + reason })
+	require.Equal(t, "0/side,", recv(t, p.fc.out, "side CONNECT"))
+	p.fc.reads <- "0/side,"
+	require.Equal(t, "/side", recv(t, p.connects, "side OnConnect"))
+	p.fc.reads <- "1/chat,"
+	require.Equal(t, "/chat:io server disconnect", recv(t, p.disconnects, "server disconnect"))
+	require.NoError(t, side.Close())
+	require.Equal(t, "/side:io client disconnect", recv(t, p.disconnects, "Socket.Close"))
+	require.Equal(t, []string{"1/side,"}, p.written(t))
+	return p, side
+}
+
+func (p *rejoinPeer) open(s *Socket) bool {
+	p.cl.state.mu.Lock()
+	defer p.cl.state.mu.Unlock()
+	return s.active
+}
+
+// rejoined reads the CONNECTs that a new connection writes for /chat and /side
+// and answers them and the root's.
+func (p *rejoinPeer) rejoined(t *testing.T, next *fakeConn) {
+	t.Helper()
+	require.Equal(t, "0/chat,", recv(t, next.out, "chat CONNECT on the new connection"))
+	require.Equal(t, "0/side,", recv(t, next.out, "side CONNECT on the new connection"))
+	next.reads <- "0"
+	next.reads <- "0/chat,"
+	next.reads <- "0/side,"
+	require.ElementsMatch(t, []string{"/", "/chat", "/side"},
+		[]string{recv(t, p.connects, "OnConnect"), recv(t, p.connects, "OnConnect"), recv(t, p.connects, "OnConnect")})
+}
+
+// While a connection is open or a dial is in progress, Client.Connect dials
+// nothing and leaves closed namespaces closed, both one that the server
+// disconnected and one that Socket.Close closed.
+func TestClientConnectLeavesClosedNamespacesClosed(t *testing.T) {
+	t.Run("open connection", func(t *testing.T) {
+		p, side := newClosedPairPeer(t)
+		var dials atomic.Int32
+		p.cl.dial = func(string) (engineclient.Conn, error) {
+			dials.Add(1)
+			return nil, errors.New("unexpected dial")
+		}
+		require.NoError(t, p.cl.Connect())
+		require.Zero(t, dials.Load())
+		require.Empty(t, p.written(t), "no CONNECT")
+		require.False(t, p.open(p.chat), "the namespace the server disconnected stays closed")
+		require.False(t, p.open(side), "the namespace Socket.Close closed stays closed")
+	})
+	t.Run("dial in progress", func(t *testing.T) {
+		p, side := newClosedPairPeer(t, WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
+		next := newFakeConn(t)
+		var dials atomic.Int32
+		entered, release, waits := make(chan struct{}, 1), make(chan struct{}), make(chan struct{}, 1)
+		p.cl.dial = func(string) (engineclient.Conn, error) {
+			dials.Add(1)
+			entered <- struct{}{}
+			<-release
+			return next, nil
+		}
+		var once sync.Once
+		unblock := func() { once.Do(func() { close(release) }) }
+		t.Cleanup(unblock)
+		t.Cleanup(func() { _ = p.cl.Close() }) // before next closes
+		p.cl.state.testHookJoinWaits = func() { waits <- struct{}{} }
+		close(p.fc.peerGone)
+		recv(t, entered, "reconnection dial")
+		connected := make(chan error, 1)
+		go func() { connected <- p.cl.Connect() }()
+		recv(t, waits, "Client.Connect waits for the dial in progress")
+		unblock()
+		require.NoError(t, recv(t, connected, "Client.Connect"))
+		require.Equal(t, int32(1), dials.Load(), "Client.Connect joins the reconnection's dial")
+		next.reads <- "0"
+		require.Equal(t, "/", recv(t, p.connects, "root OnConnect"))
+		p.root.Emit("barrier")
+		require.Equal(t, `2["barrier"]`, strings.TrimSuffix(recv(t, next.out, "barrier"), "\n"), "no CONNECT on the restored connection")
+		require.False(t, p.open(p.chat), "the namespace the server disconnected stays closed")
+		require.False(t, p.open(side), "the namespace Socket.Close closed stays closed")
+	})
+}
+
+// A Client.Connect that dials reopens every closed namespace, both one that the
+// server disconnected and one that Socket.Close closed.
+func TestClientConnectDialReopensClosedNamespaces(t *testing.T) {
+	t.Run("after Client.Close", func(t *testing.T) {
+		p, _ := newClosedPairPeer(t)
+		next := newFakeConn(t)
+		var dials atomic.Int32
+		p.cl.dial = func(string) (engineclient.Conn, error) {
+			dials.Add(1)
+			return next, nil
+		}
+		require.NoError(t, p.cl.Close())
+		require.Equal(t, "/:io client disconnect", recv(t, p.disconnects, "Client.Close"))
+		require.NoError(t, p.cl.Connect())
+		require.Equal(t, int32(1), dials.Load())
+		p.rejoined(t, next)
+	})
+	// Between the attempts of a reconnection Client.Connect dials itself. Its
+	// dial ends the reconnection, also when it fails.
+	for _, result := range []string{"dial succeeds", "dial fails"} {
+		t.Run("between reconnection attempts, "+result, func(t *testing.T) {
+			p, side := newClosedPairPeer(t, WithReconnectionDelay(time.Hour), WithReconnectionDelayMax(time.Hour), WithRandomizationFactor(-1))
+			m := p.cl.state
+			m.mu.Lock()
+			old := m.conn
+			m.mu.Unlock()
+			next := newFakeConn(t)
+			failed := errors.New("down")
+			var dials atomic.Int32
+			p.cl.dial = func(string) (engineclient.Conn, error) {
+				if dials.Add(1) == 1 && result == "dial fails" {
+					return nil, failed
+				}
+				return next, nil
+			}
+			attempts := make(chan int, 4)
+			p.cl.OnReconnectAttempt(func(n int) { attempts <- n })
+			t.Cleanup(func() { _ = p.cl.Close() }) // before next closes
+			close(p.fc.peerGone)
+			// connectionEnded records the end of a connection in the critical
+			// section in which it starts that connection's reconnection run.
+			require.Eventually(t, func() bool {
+				m.mu.Lock()
+				defer m.mu.Unlock()
+				return m.ended == old
+			}, waitFor, time.Millisecond, "the end of the connection is handled")
+			m.mu.Lock()
+			run := m.retry
+			m.mu.Unlock()
+			require.NotNil(t, run, "the reconnection waits for its first attempt")
+			if result == "dial fails" {
+				require.ErrorIs(t, p.cl.Connect(), failed)
+				require.Equal(t, int32(1), dials.Load())
+				recv(t, run.done, "the reconnection ended")
+				m.mu.Lock()
+				retry := m.retry
+				m.mu.Unlock()
+				require.Nil(t, retry, "no reconnection after the failed Connect")
+				require.True(t, p.open(p.chat), "the namespace the server disconnected is open")
+				require.True(t, p.open(side), "the namespace Socket.Close closed is open")
+				require.Empty(t, attempts)
+				return
+			}
+			require.NoError(t, p.cl.Connect())
+			require.Equal(t, int32(1), dials.Load())
+			recv(t, run.done, "the reconnection ended")
+			p.rejoined(t, next)
+			require.Empty(t, attempts)
+		})
+	}
+}
+
+// On an open connection every Close and every Connect queues its packet. The
+// queue of these packets is not bounded by WithWriteBufferSize and nothing
+// merges them: while the writer is held, each round adds two packets, and the
+// connection then writes them in call order.
+func TestSocketConnectCloseRoundsQueueEveryPacket(t *testing.T) {
+	p := newRejoinPeer(t)
+	const rounds = 1000
+	p.fc.hold.Store(true)
+	for i := 0; i < rounds; i++ {
+		require.NoError(t, p.chat.Close())
+		require.NoError(t, p.chat.Connect())
+	}
+	recv(t, p.fc.held, "the writer is held on the first packet")
+	p.cl.state.mu.Lock()
+	current := p.cl.state.conn
+	p.cl.state.mu.Unlock()
+	current.mu.Lock()
+	queued := len(current.controls)
+	current.mu.Unlock()
+	require.Equal(t, 2*rounds-1, queued, "every packet but the one the writer holds is queued")
+	p.fc.hold.Store(false)
+	p.fc.release <- struct{}{}
+	for i := 0; i < rounds; i++ {
+		require.Equal(t, "1/chat,", strings.TrimSuffix(recv(t, p.fc.out, "DISCONNECT"), "\n"), "round %d", i)
+		require.Equal(t, "0/chat,", strings.TrimSuffix(recv(t, p.fc.out, "CONNECT"), "\n"), "round %d", i)
+	}
+	p.fc.reads <- "0/chat,"
+	require.Equal(t, "/chat", recv(t, p.connects, "OnConnect"))
+	require.Empty(t, p.written(t))
 }

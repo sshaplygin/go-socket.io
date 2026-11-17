@@ -41,7 +41,7 @@ type clientState struct {
 	retired *conn
 	// Test hooks, nil outside tests: testHookClosing runs after a close stopped
 	// the client and before it closes the connection, testHookJoinWaits when
-	// Connect waits for that close.
+	// Connect waits for that close or for a dial in progress.
 	testHookClosing, testHookJoinWaits func()
 }
 
@@ -85,8 +85,9 @@ func (m *clientState) open(c *manager, retry *reconnectRun, number int, join *So
 			}
 		}
 		// The connection has ended and connectionEnded has not yet decided on
-		// its recovery: the reconnection it starts restores this Socket too.
-		recovering := m.conn != nil && !live && m.ended != m.conn && !m.stopped &&
+		// its recovery: the reconnection it starts restores this Socket too. A
+		// connection that a close retired gets none.
+		recovering := m.conn != nil && !live && m.ended != m.conn && m.retired != m.conn && !m.stopped &&
 			m.attempt == nil && !c.options.DisableReconnection
 		if live || m.retry != nil || recovering {
 			m.mu.Unlock()
@@ -95,6 +96,9 @@ func (m *clientState) open(c *manager, retry *reconnectRun, number int, join *So
 	}
 	if attempt := m.attempt; attempt != nil {
 		m.mu.Unlock()
+		if m.testHookJoinWaits != nil {
+			m.testHookJoinWaits()
+		}
 		<-attempt.finished
 		return attempt.err
 	}

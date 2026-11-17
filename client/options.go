@@ -86,8 +86,9 @@ func WithLogger(value *slog.Logger) Option {
 	return func(config *options) { config.Logger = value }
 }
 
-// WithReconnection enables automatic engine recovery; the default is true. It
-// redials after an open connection ends, not after a failed Client.Connect.
+// WithReconnection enables automatic engine recovery; the default is true. Only
+// the end of a connection that had opened starts it: a failed Client.Connect or
+// Socket.Connect does not.
 func WithReconnection(value bool) Option {
 	return func(config *options) { config.DisableReconnection = !value }
 }

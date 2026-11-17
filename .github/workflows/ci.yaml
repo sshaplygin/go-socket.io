@@ -220,7 +220,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.v1 == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Lint, coverage and govulncheck take up to about 6.5 minutes; the limit leaves room for
+    # the 3 minutes that a stalled coverage upload may take, so that it cannot cancel the job.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -266,7 +268,8 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           make vuln
       # The last step: the action exports the token to the environment of every later step
-      # of the job. A failed or stalled upload does not fail the job: the coverage floor is
+      # of the job, which leaves only the post-job steps of setup-go and checkout.
+      # A failed or stalled upload does not fail the job: the coverage floor is
       # the gate, Codecov is the public report. Pull requests from forks have no token and
       # upload without one.
       - name: Upload coverage to Codecov

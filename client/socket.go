@@ -245,17 +245,21 @@ type bufferedEvent struct {
 
 // Socket is one namespace on a Client. Its callbacks receive that namespace's Conn.
 type Socket struct {
-	state          *clientState
-	namespace      string
-	query          string
-	handler        *namespaceHandler
-	nc             *namespaceConn
-	active         bool
-	connected      bool
-	requested      bool
-	connectPending bool
-	connectQueued  bool
-	buffer         []bufferedEvent
+	state     *clientState
+	namespace string
+	query     string
+	handler   *namespaceHandler
+	nc        *namespaceConn
+	active    bool
+	connected bool
+	requested bool
+	// sent reports that the current connection carries a CONNECT of this
+	// Socket; rejoining, that the CONNECT in flight follows an earlier one on
+	// that connection.
+	sent, rejoining bool
+	connectPending  bool
+	connectQueued   bool
+	buffer          []bufferedEvent
 }
 
 // Socket returns the namespace socket, creating it. A namespace query is carried
@@ -276,7 +280,7 @@ func (c *manager) Socket(nsp string) *Socket {
 	m.sockets[namespace] = s
 	m.order = append(m.order, s)
 	if current := m.conn; current != nil && !m.stopped && !isDone(current.closing) {
-		s.requested = true
+		s.requested, s.sent = true, true
 		if namespace != rootNamespace {
 			current.writeControl(socketConnectHeader(s))
 		}
@@ -399,13 +403,14 @@ func (s *Socket) OnConnect(f func(Conn) error) {
 //     dials a new connection.
 //   - "io client disconnect": Close, Client.Close, Conn.Close or Conn.Disconnect.
 //   - "transport close": the server ended the Engine.IO session in an orderly way.
-//   - "transport error": a transport read or write failed, or a received message
-//     exceeded WithMaxMessageSize.
+//   - "transport error": the Engine.IO connection reported a transport failure,
+//     for example a broken read, or a received message exceeded
+//     WithMaxMessageSize.
 //   - "ping timeout": no PONG arrived from the server within its ping interval
 //     plus its ping timeout.
-//   - "forced close": the client ended the session itself, for example after a
-//     failed write or ErrWriteBufferFull, or the session ended without one of
-//     the causes above.
+//   - "forced close": the client ended the session itself, for example when its
+//     write of a Socket.IO packet to the connection failed or after
+//     ErrWriteBufferFull, or the session ended without one of the causes above.
 //
 // After the last four the Client reconnects, unless WithReconnection(false).
 // A namespace the server rejected was never connected and gets no callback.
@@ -469,11 +474,21 @@ func (s *Socket) Close() error {
 // CONNECT. A namespace the server rejected (OnError receives the server's
 // message) counts as joining: for a namespace other than the root, Close
 // followed by Connect sends a new CONNECT.
-// A server sends the CONNECT reply of a namespace socket before its DISCONNECT,
-// so a DISCONNECT that arrives while the Socket waits for that reply ends the
-// namespace socket that Close ended, for example when the server disconnected
-// it while Close and Connect were on their way: the Socket keeps waiting, gets
-// no OnDisconnect for it and joins with the reply.
+//
+// The server of this module sends the CONNECT reply of a namespace socket
+// before its DISCONNECT, and socket.io 2.5.0 sends no DISCONNECT for a namespace
+// socket that has not connected. When the Socket has sent an earlier CONNECT on
+// the same connection, Connect therefore takes a DISCONNECT that arrives before
+// its reply as the end of the earlier namespace socket, for example one that
+// the server disconnected while Close and Connect were on their way: the Socket
+// keeps waiting, gets no OnDisconnect for it and joins with the reply.
+// socket.io 2.0.0 to 2.4.1 send a DISCONNECT and no reply when a namespace
+// middleware calls socket.disconnect(). When that DISCONNECT answers a Connect
+// that follows an earlier CONNECT on the connection, the Socket keeps waiting;
+// Close followed by Connect sends a new CONNECT.
+// Before the reply to the first CONNECT of a Socket on a connection, a
+// DISCONNECT closes the Socket, without OnDisconnect.
+//
 // Events emitted while the Socket is closed are buffered as before its first
 // CONNECT and sent once the server accepts it; the buffer is shared with the
 // Client's other namespaces (see WithWriteBufferSize).
@@ -581,10 +596,14 @@ func (m *clientState) namespaceDisconnected(current *conn, namespace string) err
 		m.mu.Unlock()
 		return nil
 	}
-	if namespace != rootNamespace && socket.active && socket.requested && !socket.connected && socket.nc == nil {
-		// A server sends a namespace socket's CONNECT reply before its DISCONNECT,
-		// so this DISCONNECT ends an earlier namespace socket: one that the
-		// server disconnected while Close and Connect were on their way.
+	if namespace != rootNamespace && socket.active && socket.rejoining && socket.requested && !socket.connected && socket.nc == nil {
+		// The Socket has sent an earlier CONNECT on this connection. This
+		// module's server and socket.io 2.5.0 send no DISCONNECT before a
+		// namespace socket's CONNECT reply, so from them this DISCONNECT ends
+		// the earlier namespace socket, which the server disconnected while
+		// Close and Connect were on their way. The first CONNECT of a Socket on
+		// a connection has no earlier namespace socket: a DISCONNECT before its
+		// reply closes the Socket.
 		m.mu.Unlock()
 		return nil
 	}

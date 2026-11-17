@@ -78,9 +78,9 @@ func (m *clientState) open(c *manager, retry *reconnectRun, number int, join *So
 			}
 			join.active = true
 			join.connected, join.requested, join.nc = false, false, nil
-			join.connectPending, join.connectQueued = false, false
+			join.connectPending, join.connectQueued, join.rejoining = false, false, false
 			if live {
-				join.requested = true
+				join.requested, join.rejoining, join.sent = true, join.sent, true
 				m.conn.writeControl(socketConnectHeader(join))
 			}
 		}
@@ -184,6 +184,7 @@ func (m *clientState) open(c *manager, retry *reconnectRun, number int, join *So
 	}
 	m.conn, m.rootReady, m.retired = current, false, nil
 	for _, socket := range m.order {
+		socket.sent, socket.rejoining = false, false
 		if !socket.active {
 			continue
 		}
@@ -206,7 +207,7 @@ func (m *clientState) open(c *manager, retry *reconnectRun, number int, join *So
 			if !socket.active || socket.requested {
 				continue
 			}
-			socket.requested = true
+			socket.requested, socket.sent = true, true
 			if socket.namespace != rootNamespace {
 				current.writeControl(socketConnectHeader(socket))
 			}

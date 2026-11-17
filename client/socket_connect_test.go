@@ -396,8 +396,8 @@ func failedConnectAfterClose(t *testing.T, closer string, open func(*rejoinPeer)
 }
 
 // A DISCONNECT that the server sent before it read Close and Connect ends the
-// namespace socket that Close ended. A server sends a namespace socket's CONNECT
-// reply before its DISCONNECT, so the reply that follows joins the Socket.
+// namespace socket that Close ended: the Socket has sent an earlier CONNECT on
+// the connection, and the reply that follows joins it.
 func TestSocketConnectIgnoresCrossingDisconnect(t *testing.T) {
 	p := newRejoinPeer(t)
 	require.NoError(t, p.chat.Close())
@@ -414,6 +414,110 @@ func TestSocketConnectIgnoresCrossingDisconnect(t *testing.T) {
 	p.fc.reads <- "1/chat,"
 	require.Equal(t, "/chat:io server disconnect", recv(t, p.disconnects, "DISCONNECT of the joined namespace"))
 	require.False(t, p.chat.Connected())
+}
+
+// A DISCONNECT that arrives before the reply to a Socket's first CONNECT on a
+// connection answers that CONNECT: the connection has no earlier namespace
+// socket of that Socket. socket.io 2.4.1 and earlier send it when a namespace
+// middleware calls socket.disconnect(). It closes the Socket.
+func TestFirstConnectDisconnectBeforeReplyClosesSocket(t *testing.T) {
+	t.Run("only namespace of a dialed connection", func(t *testing.T) {
+		cl, err := newTestManager(t, "http://unused/chat")
+		require.NoError(t, err)
+		first, second := newFakeConn(t), newFakeConn(t)
+		dials := make(chan *fakeConn, 2)
+		dials <- first
+		dials <- second
+		cl.dial = func(string) (engineclient.Conn, error) { return <-dials, nil }
+		chat := cl.Socket("/chat")
+		connects, disconnects := make(chan string, 8), make(chan string, 8)
+		chat.OnConnect(func(c Conn) error { connects <- c.Namespace(); return nil })
+		chat.OnDisconnect(func(_ Conn, reason string) { disconnects <- reason })
+		require.NoError(t, cl.Connect())
+		require.Equal(t, "0/chat,", recv(t, first.out, "chat CONNECT"))
+		first.reads <- "1/chat,"
+		recv(t, first.closed, "the Engine.IO connection to close with its last namespace")
+		require.False(t, chat.Connected())
+		// The Socket is closed and the Client has no connection: Connect dials.
+		// The next connection starts after the reader of the first one has ended.
+		require.NoError(t, chat.Connect())
+		require.Equal(t, "0/chat,", recv(t, second.out, "chat CONNECT on the next connection"))
+		second.reads <- "0/chat,"
+		require.Equal(t, "/chat", recv(t, connects, "OnConnect on the next connection"))
+		require.Empty(t, disconnects, "a namespace that never joined gets no OnDisconnect")
+	})
+	t.Run("Socket added to an open connection", func(t *testing.T) {
+		p := newRejoinPeer(t)
+		late := p.cl.Socket("/late")
+		require.Equal(t, []string{"0/late,"}, p.written(t))
+		p.read(t, "1/late,")
+		require.False(t, late.Connected())
+		// A closed Socket sends CONNECT; one that still waited would send nothing.
+		require.NoError(t, late.Connect())
+		require.Equal(t, []string{"0/late,"}, p.written(t))
+		// That CONNECT follows an earlier one: the Socket waits through a DISCONNECT.
+		p.read(t, "1/late,")
+		require.NoError(t, late.Connect())
+		require.Empty(t, p.written(t))
+	})
+	t.Run("first Socket.Connect on a connection", func(t *testing.T) {
+		p := newRejoinPeer(t)
+		require.NoError(t, p.cl.Close())
+		next := newFakeConn(t)
+		p.cl.dial = func(string) (engineclient.Conn, error) { return next, nil }
+		p.fc = next
+		require.NoError(t, p.root.Connect())
+		next.reads <- "0"
+		require.Equal(t, "/", recv(t, p.connects, "root OnConnect on the next connection"))
+		require.NoError(t, p.chat.Connect())
+		require.Equal(t, []string{"0/chat,"}, p.written(t))
+		p.read(t, "1/chat,")
+		require.NoError(t, p.chat.Connect())
+		require.Equal(t, []string{"0/chat,"}, p.written(t))
+		p.read(t, "1/chat,")
+		require.NoError(t, p.chat.Connect())
+		require.Empty(t, p.written(t))
+	})
+	t.Run("restored connection of a Socket that waited for a rejoin", func(t *testing.T) {
+		p := newRejoinPeer(t, WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
+		require.NoError(t, p.chat.Close())
+		require.Equal(t, "/chat:io client disconnect", recv(t, p.disconnects, "Socket.Close"))
+		require.NoError(t, p.chat.Connect())
+		next := newFakeConn(t)
+		p.cl.dial = func(string) (engineclient.Conn, error) { return next, nil }
+		reconnects := make(chan int, 2)
+		p.cl.OnReconnect(func(n int) { reconnects <- n })
+		close(p.fc.peerGone)
+		require.True(t, strings.HasPrefix(recv(t, p.disconnects, "engine end"), "/:"))
+		require.Equal(t, 1, recv(t, reconnects, "OnReconnect"))
+		p.fc = next
+		require.Equal(t, "0/chat,", recv(t, next.out, "chat CONNECT on the restored connection"))
+		next.reads <- "0"
+		require.Equal(t, "/", recv(t, p.connects, "root OnConnect on the restored connection"))
+		p.read(t, "1/chat,")
+		require.NoError(t, p.chat.Connect())
+		require.Equal(t, []string{"0/chat,"}, p.written(t))
+	})
+}
+
+// A Connect that follows an earlier CONNECT of the Socket on the same connection
+// cannot tell a DISCONNECT that answers it from the end of the earlier namespace
+// socket: the Socket keeps waiting for the reply, and Close ends the wait.
+func TestSocketConnectRejoinWaitsThroughDisconnect(t *testing.T) {
+	p := newRejoinPeer(t)
+	p.read(t, "1/chat,")
+	require.Equal(t, "/chat:io server disconnect", recv(t, p.disconnects, "server disconnect"))
+	require.NoError(t, p.chat.Connect())
+	require.Equal(t, []string{"0/chat,"}, p.written(t))
+	p.read(t, "1/chat,")
+	require.NoError(t, p.chat.Connect())
+	require.Empty(t, p.written(t), "the Socket still waits for its reply")
+	require.NoError(t, p.chat.Close())
+	require.NoError(t, p.chat.Connect())
+	require.Equal(t, []string{"1/chat,", "0/chat,"}, p.written(t))
+	p.read(t, "0/chat,")
+	require.Equal(t, "/chat", recv(t, p.connects, "OnConnect"))
+	require.Empty(t, p.disconnects)
 }
 
 // closeHeld holds a close of p's connection between stopping the client and

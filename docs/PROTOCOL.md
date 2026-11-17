@@ -298,14 +298,24 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   until the root namespace connects, which does not happen again on that
   connection; this server accepts it.
 - A server's DISCONNECT for a namespace can cross the client's `1/<nsp>` and
-  `0/<nsp>` of a rejoin. Servers send the CONNECT reply of a namespace socket
-  before its DISCONNECT, so the Go client takes a DISCONNECT that arrives before
-  the reply as the end of the earlier namespace socket and joins with the reply.
-  socket.io-client 2.5.0 and 1.7.4 report it as `io server disconnect` and ignore
-  the reply, while the server keeps the namespace socket it created. When a
+  `0/<nsp>` of a rejoin. This server sends the CONNECT reply of a namespace socket
+  before its DISCONNECT, and socket.io 2.5.0 sends no DISCONNECT for a namespace
+  socket that has not connected. When a `Socket` has sent an earlier CONNECT on
+  the same connection, the Go client therefore takes a DISCONNECT that arrives
+  before the reply as the end of the earlier namespace socket and joins with the
+  reply. socket.io-client 2.5.0 and 1.7.4 report it as `io server disconnect` and
+  ignore the reply, while the server keeps the namespace socket it created. When a
   CONNECT reply arrives for a namespace that a server DISCONNECT closed in the Go
   client, with no client DISCONNECT sent after the last CONNECT, the client sends
   `1/<nsp>` so that the server drops the namespace socket of that reply.
+- socket.io 2.0.0 to 2.4.1 answer a namespace CONNECT with `1/<nsp>` and no
+  CONNECT reply when a namespace middleware calls `socket.disconnect()`; in
+  socket.io 2.5.0 that call sends nothing. socket.io-client 2.5.0 and 1.7.4 report
+  that DISCONNECT as `io server disconnect`. The Go client closes the `Socket`,
+  without `OnDisconnect`, when the DISCONNECT answers the first CONNECT of that
+  `Socket` on the connection. When it answers a `Socket.Connect` that follows an
+  earlier CONNECT on the connection, the Go client cannot tell it from the crossing
+  DISCONNECT above and the `Socket` keeps waiting for a reply.
 - A CONNECT to a namespace without a registered handler is answered with an ERROR packet
   (`4/<nsp>,"Invalid namespace"`) and the connection stays open. No `OnError` is called.
   The name is repeated as received. socket.io 2.5.0 parses the name as a URL path: it

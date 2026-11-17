@@ -110,7 +110,7 @@ func preparedHeader(h Header, attachments int) []byte {
 	return text
 }
 
-// EncodePrepared writes a snapshot previously returned by Prepare.
+// EncodePrepared writes a snapshot previously returned by Prepare or WithHeader.
 func (e *Encoder) EncodePrepared(packet *PreparedPacket) (err error) {
 	w, err := e.w.NextWriter(Text)
 	if err != nil {

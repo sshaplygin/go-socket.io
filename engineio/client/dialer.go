@@ -40,7 +40,7 @@ type Dialer struct {
 	OnPong func(rtt time.Duration)
 }
 
-// Dial returns a connection which dials to url with requestHeader.
+// Dial returns a connection which dials to urlStr with requestHeader.
 func (d *Dialer) Dial(urlStr string, requestHeader http.Header) (Conn, error) {
 	u, err := url.Parse(urlStr)
 	if err != nil {

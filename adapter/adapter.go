@@ -74,11 +74,15 @@ var ErrExceptUnsupported = errors.New("socketio: broadcast except is not support
 type Adapter interface {
 	// SendTo snapshots matching sockets and emits on the caller's goroutine after
 	// releasing the adapter lock. Delivery uses target.Emit, or target.EmitWithOptions
-	// when Volatile or NoCompress is set. An adapter
+	// when Volatile or NoCompress is set. Memory first uses an unexported path that
+	// the library's sockets implement: it prepares the packet once per SendTo call
+	// for all of them, and it uses Emit or EmitWithOptions only for a target that
+	// does not implement or does not accept that path. An adapter
 	// unable to exclude returns an error wrapping
 	// ErrExceptUnsupported before sending anything.
 	SendTo(opts Options, event string, args ...interface{}) error
-	// IDs returns a copy of the IDs in any of rooms, or all sockets when empty.
+	// IDs returns a copy of the IDs of the sockets in any of rooms or, with no
+	// rooms, of the sockets the adapter holds (for Memory, see Memory.IDs).
 	IDs(rooms ...string) []string
 	// Join adds the socket to a room.
 	Join(room string, connection Socket)

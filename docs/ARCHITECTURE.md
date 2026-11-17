@@ -29,7 +29,8 @@ Redis composes the memory adapter; the root server does not import Redis.
 `internal/event` shares typed payload and ACK encoding between the Socket.IO roles.
 
 `make architecture-check` verifies direct imports, transitive role and codec
-boundaries, package privacy and the absence of unsupported import paths.
+boundaries, package privacy and that none of a listed set of unsupported package
+directories and files exists.
 
 ## Runtime
 

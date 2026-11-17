@@ -27,10 +27,8 @@ NODE_PATH=/path/to/node_modules node client.js http://127.0.0.1:8000
 ```
 
 Success exits zero; connection failures, assertions and the 10 second deadline
-exit nonzero. Run every executable example on a free port from the root:
-
-```sh
-CONFORMANCE_NODE_MODULES=/path/to/node_modules make examples-node
-```
+exit nonzero. From the root, `make examples-node` runs every executable example
+on a free port; its command and what it requires are in
+[the examples index](../README.md#examples).
 
 See [the examples index](../README.md).

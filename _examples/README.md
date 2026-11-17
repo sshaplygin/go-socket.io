@@ -5,8 +5,9 @@ directive pointing at the repository root, so it builds against the checked-out
 fork. The `client` example uses the root module. Framework examples (`gf`,
 `gin-cors`, `gin-gonic`, `go-echo`, `iris` and both Redis examples) require Go
 1.26 or newer for their current dependencies; the root library remains compatible
-with Go 1.22. The GoFrame example intentionally stays on v1.16.5 to exercise the
-Redis adapter with redigo v2.0.0+incompatible.
+with Go 1.22. The GoFrame example stays on v1.16.5, whose dependencies select
+redigo v2.0.0+incompatible. The example does not use the Redis adapter, so its
+build does not compile the adapter against that redigo version.
 
 ```sh
 cd _examples/<name>
@@ -55,7 +56,9 @@ individual protocol features.
 | `redis-adapter-unix-socket` | the same through a Unix socket, in Docker; port 8080, page at `/public/` |
 | `client` | the Go client joining the chat of another example |
 
-`client` joins the chat of a running example and prints what it receives, for a second:
+`client` joins the chat of a running example and prints what it receives. It waits up
+to five seconds for `login` and fails without it, then sends one message and listens
+for one more second:
 
 ```sh
 go run ./_examples/client -addr http://127.0.0.1:8000 -name gopher   # from the repository root
@@ -96,7 +99,8 @@ CONFORMANCE_REDIS_SOCKET=/path/to/redis.sock make examples-node
 ```
 
 Use `socket.io-client@1.7.4` in the same command for the other supported client.
-The target requires `CONFORMANCE_NODE_MODULES`, starts each example with a
+The target requires `CONFORMANCE_NODE_MODULES`, `CONFORMANCE_REDIS_ADDR` and
+`CONFORMANCE_REDIS_SOCKET`, starts each example with a
 random local port, and fails on a missing dependency or any client failure.
 Both pinned clients run in CI.
 

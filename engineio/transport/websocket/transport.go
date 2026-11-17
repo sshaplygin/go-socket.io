@@ -26,9 +26,10 @@ type DialError struct {
 
 // Transport is the websocket transport. Its fields are read on each Dial and
 // Accept call and must not be changed while it is in use. An engineio.Server
-// uses a copy of a Transport given to engineio.WithTransports, with
-// EnableCompression and CompressionThreshold set from the server's options and
-// CheckOrigin set to the server's origin policy when it is nil.
+// uses a copy of a Transport given to engineio.WithTransports, or of Default
+// when it is given no transports, with EnableCompression and
+// CompressionThreshold set from the server's options and CheckOrigin set to
+// the server's origin policy when it is nil.
 type Transport struct {
 	// EnableCompression negotiates permessage-deflate; frames below the threshold
 	// (1024 when nonpositive) are sent uncompressed.

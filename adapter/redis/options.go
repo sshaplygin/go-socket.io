@@ -123,6 +123,8 @@ func WithPassword(value string) Option { return func(config *options) { config.P
 
 // WithDB selects the database on subscriber, pooled and request connections.
 // Redis Pub/Sub channels are shared across databases; use WithPrefix for isolation.
+// A value of zero or less sends no SELECT, so connections use database 0; a
+// negative value is not reported as an error.
 func WithDB(value int) Option { return func(config *options) { config.DB = value } }
 
 // WithSubscribeTimeout bounds the subscriber connection: during namespace
@@ -147,9 +149,11 @@ func (opts *options) subscribeTimeout() time.Duration {
 }
 
 // WithRequestsTimeout bounds each cluster request and each broadcast PUBLISH,
-// including Redis commands. Publication errors are returned by SendTo. The
-// bound applies per I/O phase (dial, write, read), so a stalled publication can
-// take up to about two to three times the timeout.
+// including Redis commands. Publication errors are returned by SendTo. A
+// cluster request, its Redis commands and the wait for replies included, is
+// bounded as a whole by one deadline of this length. For a broadcast PUBLISH
+// the bound applies per I/O phase (dial, write, read), so a stalled publication
+// can take up to about two to three times the timeout.
 // Nonpositive values select the default five seconds.
 func WithRequestsTimeout(value time.Duration) Option {
 	return func(config *options) { config.RequestsTimeout = value }

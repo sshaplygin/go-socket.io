@@ -21,7 +21,8 @@ type options struct {
 	Transports []transport.Transport
 	// Path is the Engine.IO endpoint; empty means /socket.io.
 	Path string
-	// Query is added to every engine request, separate from namespace queries.
+	// Query is added to every engine request, separate from namespace queries; for
+	// a key that the address passed to New also has, its values replace the address's.
 	Query url.Values
 	// Header is sent with every request, including a websocket upgrade.
 	Header http.Header
@@ -39,7 +40,8 @@ type options struct {
 	// ReconnectionDelay defaults to one second; ReconnectionDelayMax to five seconds.
 	ReconnectionDelay    time.Duration
 	ReconnectionDelayMax time.Duration
-	// RandomizationFactor defaults to 0.5; a negative value disables jitter.
+	// RandomizationFactor defaults to 0.5; a value that is negative, greater than 1
+	// or NaN disables jitter.
 	RandomizationFactor float64
 }
 
@@ -56,7 +58,8 @@ func WithPath(value string) Option {
 	return func(config *options) { config.Path = value }
 }
 
-// WithQuery adds engine request query values, copied when New is called.
+// WithQuery adds engine request query values, copied when New is called. For a key
+// that the address passed to New also has, the option's values replace the address's.
 func WithQuery(value url.Values) Option {
 	return func(config *options) { config.Query = value }
 }
@@ -72,6 +75,8 @@ func WithTimeout(value time.Duration) Option {
 }
 
 // WithWriteBufferSize bounds queued writes and pre-connect events; nonpositive means 64.
+// The bound on queued writes applies to each Engine.IO connection; the bound on
+// pre-connect events applies to all namespaces of the Client together.
 func WithWriteBufferSize(value int) Option {
 	return func(config *options) { config.WriteBufferSize = value }
 }
@@ -108,7 +113,8 @@ func WithReconnectionDelayMax(value time.Duration) Option {
 	return func(config *options) { config.ReconnectionDelayMax = value }
 }
 
-// WithRandomizationFactor sets retry jitter; zero means 0.5 and negative disables jitter.
+// WithRandomizationFactor sets retry jitter; zero means 0.5, and a value that is
+// negative, greater than 1 or NaN disables jitter.
 func WithRandomizationFactor(value float64) Option {
 	return func(config *options) { config.RandomizationFactor = value }
 }

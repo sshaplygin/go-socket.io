@@ -19,8 +19,9 @@ type Transport interface {
 	Dial(u *url.URL, requestHeader http.Header) (Conn, error)
 }
 
-// Manager is an immutable registry of transports by name, in upgrade order.
-// It is safe for concurrent use.
+// Manager is a registry of transports by name, in upgrade order. Its methods do
+// not change it, and it is safe for concurrent use while no caller writes to a
+// slice that UpgradeFrom returned.
 type Manager struct {
 	order      []string
 	transports map[string]Transport
@@ -59,7 +60,8 @@ func NewManager(opts ...Option) *Manager {
 }
 
 // UpgradeFrom returns a name list of transports which can upgrade from given
-// name.
+// name, or nil for a name that is not registered. The list is not a copy: it
+// shares the manager's storage, so writing to it changes later results.
 func (m *Manager) UpgradeFrom(name string) []string {
 	for i, n := range m.order {
 		if n == name {

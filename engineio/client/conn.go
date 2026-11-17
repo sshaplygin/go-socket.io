@@ -14,7 +14,11 @@ import (
 type Conn interface {
 	// ID returns the session ID that the server sent in its OPEN packet.
 	ID() string
-	// ReadyState returns the connection's current state.
+	// ReadyState returns the connection's current state: StateOpen until the
+	// client starts to close the connection, then StateClosed, also while the
+	// transport is still closing. It never returns StateOpening or
+	// StateClosing. NextReader and NextWriter can return the CloseError while
+	// ReadyState still returns StateOpen.
 	ReadyState() ReadyState
 	// Transport returns the current transport's name.
 	Transport() string
@@ -65,7 +69,8 @@ type CompressWriter interface {
 // ReadyState is the state of a session.
 type ReadyState string
 
-// The ready states of a client connection.
+// The ready states of a session. Conn.ReadyState says which of them a client
+// Conn reports.
 const (
 	StateOpening ReadyState = "opening" // The OPEN handshake is incomplete.
 	StateOpen    ReadyState = "open"    // The OPEN handshake completed; no close has started.
@@ -94,7 +99,7 @@ const (
 	ReasonServerShutdown CloseReason = "server shutting down"
 )
 
-// CloseError is returned, wrapped, by NextReader and NextWriter once a session
+// CloseError is returned, as a *CloseError, by NextReader and NextWriter once a session
 // closes, including the first call that observes the close. Previously obtained
 // readers and writers keep returning their own errors.
 type CloseError struct {

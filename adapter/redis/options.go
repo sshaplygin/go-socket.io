@@ -150,10 +150,10 @@ func (opts *options) subscribeTimeout() time.Duration {
 
 // WithRequestsTimeout bounds each cluster request and each broadcast PUBLISH,
 // including Redis commands. Publication errors are returned by SendTo. A
-// cluster request, its Redis commands and the wait for replies included, has
-// one deadline of this length. For a broadcast PUBLISH the bound applies per
-// I/O phase (dial, write, read), so a stalled publication can take up to about
-// two to three times the timeout.
+// cluster request, its Redis commands and the wait for replies included, is
+// bounded as a whole by one deadline of this length. For a broadcast PUBLISH
+// the bound applies per I/O phase (dial, write, read), so a stalled publication
+// can take up to about two to three times the timeout.
 // Nonpositive values select the default five seconds.
 func WithRequestsTimeout(value time.Duration) Option {
 	return func(config *options) { config.RequestsTimeout = value }

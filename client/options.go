@@ -21,7 +21,8 @@ type options struct {
 	Transports []transport.Transport
 	// Path is the Engine.IO endpoint; empty means /socket.io.
 	Path string
-	// Query is added to every engine request, separate from namespace queries.
+	// Query is added to every engine request, separate from namespace queries; for
+	// a key that the address passed to New also has, its values replace the address's.
 	Query url.Values
 	// Header is sent with every request, including a websocket upgrade.
 	Header http.Header
@@ -39,7 +40,8 @@ type options struct {
 	// ReconnectionDelay defaults to one second; ReconnectionDelayMax to five seconds.
 	ReconnectionDelay    time.Duration
 	ReconnectionDelayMax time.Duration
-	// RandomizationFactor defaults to 0.5; a negative value disables jitter.
+	// RandomizationFactor defaults to 0.5; a value that is negative, greater than 1
+	// or NaN disables jitter.
 	RandomizationFactor float64
 }
 

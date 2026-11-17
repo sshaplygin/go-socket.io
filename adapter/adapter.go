@@ -81,9 +81,8 @@ type Adapter interface {
 	// unable to exclude returns an error wrapping
 	// ErrExceptUnsupported before sending anything.
 	SendTo(opts Options, event string, args ...interface{}) error
-	// IDs returns a copy of the IDs in any of rooms, or all sockets when empty.
-	// With no rooms, Memory lists every socket that is in at least one room (see
-	// Memory.IDs).
+	// IDs returns a copy of the IDs of the sockets in any of rooms or, with no
+	// rooms, of the sockets the adapter holds (for Memory, see Memory.IDs).
 	IDs(rooms ...string) []string
 	// Join adds the socket to a room.
 	Join(room string, connection Socket)

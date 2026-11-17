@@ -456,9 +456,10 @@ func (s *Socket) Close() error {
 // "io server disconnect") or that Close closed, as socket.connect() does in
 // socket.io-client 2.x. On an open Engine.IO connection it sends the namespace
 // CONNECT and returns; OnConnect runs when the server accepts it. While the
-// Client is reconnecting, or when its connection has ended and its reconnection
-// has not started yet, Connect dials nothing and the namespace joins the
-// connection the reconnection restores. When the Client has no connection and
+// Client is reconnecting, the dial of a reconnection attempt included, or when
+// its connection has ended and its reconnection has not started yet, Connect
+// dials nothing and returns nil at once; the namespace joins the connection
+// the reconnection restores. When the Client has no connection and
 // is not reconnecting, as after Client.Close, after the last namespace closed,
 // after the reconnection gave up (OnReconnectFailed) or after a connection
 // ended with WithReconnection(false), Connect dials one as Client.Connect does
@@ -466,9 +467,10 @@ func (s *Socket) Close() error {
 // stay closed, and Sockets that are not closed join the new connection as they
 // do with Client.Connect. A dial that fails starts no reconnection. A Connect
 // that runs while Client.Close or the Close of the last namespace is closing
-// the connection waits for that close and then dials. While a dial is in
-// progress, Connect makes none: it waits for that dial and returns its result,
-// which is io.ErrClosedPipe when Client.Close cancelled the dial.
+// the connection waits for that close and then dials. While a dial of
+// Client.Connect or of another Socket.Connect is in progress, Connect makes
+// none: it waits for that dial and returns its result, which is
+// io.ErrClosedPipe when Client.Close cancelled the dial.
 //
 // A connected or joining Socket is left as it is, so concurrent calls send one
 // CONNECT. A namespace the server rejected (OnError receives the server's

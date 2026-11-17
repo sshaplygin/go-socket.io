@@ -82,12 +82,13 @@ func TestSocketConnectConcurrentCallsSendOneConnect(t *testing.T) {
 				require.Equal(t, "/chat:io client disconnect", recv(t, p.disconnects, "Socket.Close"))
 			}
 			p.chat.Emit("pending", 1)
-			var wg sync.WaitGroup
-			for i := 0; i < 8; i++ {
-				wg.Add(1)
-				go func() { defer wg.Done(); require.NoError(t, p.chat.Connect()) }()
+			results := make(chan error, 8)
+			for i := 0; i < cap(results); i++ {
+				go func() { results <- p.chat.Connect() }()
 			}
-			wg.Wait()
+			for i := 0; i < cap(results); i++ {
+				require.NoError(t, recv(t, results, "concurrent Connect"))
+			}
 			want := []string{"0/chat,"}
 			if by == "client" {
 				want = []string{"1/chat,", "0/chat,"}
@@ -132,8 +133,9 @@ func TestSocketConnectRootOnOpenConnection(t *testing.T) {
 	}
 }
 
-// While the Client is reconnecting, Connect does not dial: the namespace joins
-// the connection the reconnection restores.
+// While the Client is reconnecting, here during the dial of an attempt, Connect
+// does not dial and returns nil before that dial ends: the namespace joins the
+// connection the reconnection restores.
 func TestSocketConnectWhileReconnecting(t *testing.T) {
 	p := newRejoinPeer(t, WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
 	p.fc.reads <- "1/chat,"
@@ -151,7 +153,7 @@ func TestSocketConnectWhileReconnecting(t *testing.T) {
 	close(p.fc.peerGone)
 	require.True(t, strings.HasPrefix(recv(t, p.disconnects, "engine end"), "/:"))
 	recv(t, dials, "reconnection dial")
-	require.NoError(t, p.chat.Connect())
+	require.NoError(t, p.chat.Connect(), "Connect returns while the reconnection's dial is held")
 	require.Empty(t, dials, "Connect joins the reconnection in progress")
 	close(release)
 	require.Equal(t, 1, recv(t, reconnects, "OnReconnect"))
@@ -232,42 +234,83 @@ func TestSocketConnectBetweenReconnectionAttempts(t *testing.T) {
 	})
 }
 
-// While a dial is in progress Connect makes none: it waits for that dial and
-// returns its result.
+// While a dial of Client.Connect or of another Socket.Connect is in progress,
+// Connect makes none: it waits for that dial and returns its result.
 func TestSocketConnectJoinsDialInProgress(t *testing.T) {
-	for _, end := range []string{"dial succeeds", "Client.Close cancels the dial"} {
-		t.Run(end, func(t *testing.T) {
-			cl, err := newTestManager(t, "http://unused/")
-			require.NoError(t, err)
-			fc := newFakeConn(t)
-			dialing, release := make(chan struct{}, 2), make(chan struct{})
-			cl.dial = func(string) (engineclient.Conn, error) {
-				dialing <- struct{}{}
-				<-release
-				return fc, nil
-			}
-			chat := cl.Socket("/chat")
-			waits := make(chan struct{}, 1)
-			cl.state.testHookJoinWaits = func() { waits <- struct{}{} }
-			results := make(chan error, 2)
-			go func() { results <- cl.Connect() }()
-			recv(t, dialing, "Client.Connect dials")
-			go func() { results <- chat.Connect() }()
-			recv(t, waits, "Socket.Connect waits for the dial")
-			if end == "dial succeeds" {
-				close(release)
-				require.NoError(t, recv(t, results, "first result"))
-				require.NoError(t, recv(t, results, "second result"))
-				require.Equal(t, "0/chat,", recv(t, fc.out, "chat CONNECT"))
-			} else {
-				require.NoError(t, cl.Close())
-				require.ErrorIs(t, recv(t, results, "first result"), io.ErrClosedPipe)
-				require.ErrorIs(t, recv(t, results, "second result"), io.ErrClosedPipe)
-				close(release)
-			}
-			require.Empty(t, dialing, "one dial")
-		})
+	for _, dialer := range []string{"Client.Connect", "another Socket.Connect"} {
+		for _, end := range []string{"dial succeeds", "Client.Close cancels the dial"} {
+			t.Run(dialer+"/"+end, func(t *testing.T) {
+				cl, err := newTestManager(t, "http://unused/")
+				require.NoError(t, err)
+				fc := newFakeConn(t)
+				dialing, release := make(chan struct{}, 2), make(chan struct{})
+				cl.dial = func(string) (engineclient.Conn, error) {
+					dialing <- struct{}{}
+					<-release
+					return fc, nil
+				}
+				chat, side := cl.Socket("/chat"), cl.Socket("/side")
+				waits := make(chan struct{}, 1)
+				cl.state.testHookJoinWaits = func() { waits <- struct{}{} }
+				results := make(chan error, 2)
+				first := cl.Connect
+				if dialer != "Client.Connect" {
+					first = side.Connect
+				}
+				go func() { results <- first() }()
+				recv(t, dialing, dialer+" dials")
+				go func() { results <- chat.Connect() }()
+				recv(t, waits, "Socket.Connect waits for the dial")
+				if end == "dial succeeds" {
+					close(release)
+					require.NoError(t, recv(t, results, "first result"))
+					require.NoError(t, recv(t, results, "second result"))
+					require.Equal(t, "0/chat,", recv(t, fc.out, "chat CONNECT"))
+					require.Equal(t, "0/side,", recv(t, fc.out, "side CONNECT"))
+				} else {
+					require.NoError(t, cl.Close())
+					require.ErrorIs(t, recv(t, results, "first result"), io.ErrClosedPipe)
+					require.ErrorIs(t, recv(t, results, "second result"), io.ErrClosedPipe)
+					close(release)
+				}
+				require.Empty(t, dialing, "one dial")
+			})
+		}
 	}
+}
+
+// A namespace the server rejected counts as joining, and every connection that
+// a reconnection restores sends its CONNECT again.
+func TestReconnectionAsksAgainForRejectedNamespace(t *testing.T) {
+	cl, err := newTestManager(t, "http://unused/", WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
+	require.NoError(t, err)
+	conns := make(chan *fakeConn, 3)
+	for i := 0; i < cap(conns); i++ {
+		conns <- newFakeConn(t)
+	}
+	current := make(chan *fakeConn, cap(conns))
+	cl.dial = func(string) (engineclient.Conn, error) {
+		fc := <-conns
+		current <- fc
+		return fc, nil
+	}
+	errs := make(chan string, 8)
+	connects := make(chan string, 1)
+	chat := cl.Socket("/chat")
+	chat.OnConnect(func(c Conn) error { connects <- c.Namespace(); return nil })
+	chat.OnError(func(_ Conn, err error) { errs <- err.Error() })
+	require.NoError(t, cl.Connect())
+	for i := 0; i < cap(conns); i++ {
+		fc := recv(t, current, "dialed connection")
+		require.Equal(t, "0/chat,", recv(t, fc.out, "chat CONNECT"))
+		fc.reads <- `4/chat,"not yet"`
+		require.Equal(t, "not yet", recv(t, errs, "rejection"))
+		require.NoError(t, chat.Connect())
+		if i < cap(conns)-1 {
+			close(fc.peerGone)
+		}
+	}
+	require.Empty(t, connects, "a rejected namespace does not connect")
 }
 
 // Without a connection, Connect dials and returns the dial's error, which is

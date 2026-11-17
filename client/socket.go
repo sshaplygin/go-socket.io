@@ -461,7 +461,9 @@ func (s *Socket) Close() error {
 // stay closed, and Sockets that are not closed join the new connection as they
 // do with Client.Connect. A dial that fails starts no reconnection. A Connect
 // that runs while Client.Close or the Close of the last namespace is closing
-// the connection waits for that close and then dials.
+// the connection waits for that close and then dials. While a dial is in
+// progress, Connect makes none: it waits for that dial and returns its result,
+// which is io.ErrClosedPipe when Client.Close cancelled the dial.
 //
 // A connected or joining Socket is left as it is, so concurrent calls send one
 // CONNECT. A namespace the server rejected (OnError receives the server's

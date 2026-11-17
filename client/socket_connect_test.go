@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -159,6 +160,114 @@ func TestSocketConnectWhileReconnecting(t *testing.T) {
 	next.reads <- "0/chat,"
 	require.ElementsMatch(t, []string{"/", "/chat"}, []string{recv(t, p.connects, "root OnConnect"), recv(t, p.connects, "chat OnConnect")})
 	require.Empty(t, dials)
+}
+
+// Between the attempts of a reconnection Connect does not dial either, unlike
+// Client.Connect: the reconnection goes on and restores the namespace.
+func TestSocketConnectBetweenReconnectionAttempts(t *testing.T) {
+	// The delay before the first attempt never ends in this test.
+	t.Run("during the delay", func(t *testing.T) {
+		p := newRejoinPeer(t, WithReconnectionDelay(time.Hour), WithReconnectionDelayMax(time.Hour), WithRandomizationFactor(-1))
+		p.fc.reads <- "1/chat,"
+		require.Equal(t, "/chat:io server disconnect", recv(t, p.disconnects, "server disconnect"))
+		m := p.cl.state
+		m.mu.Lock()
+		old := m.conn
+		m.mu.Unlock()
+		var dials atomic.Int32
+		p.cl.dial = func(string) (engineclient.Conn, error) {
+			dials.Add(1)
+			return nil, errors.New("down")
+		}
+		close(p.fc.peerGone)
+		// connectionEnded records the end of a connection in the critical
+		// section in which it starts that connection's reconnection run.
+		require.Eventually(t, func() bool {
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			return m.ended == old
+		}, waitFor, time.Millisecond, "the end of the connection is handled")
+		m.mu.Lock()
+		run := m.retry
+		m.mu.Unlock()
+		require.NotNil(t, run, "the reconnection waits for its first attempt")
+		require.NoError(t, p.chat.Connect())
+		m.mu.Lock()
+		retry, active := m.retry, p.chat.active
+		m.mu.Unlock()
+		require.Same(t, run, retry, "Connect leaves the reconnection running")
+		require.True(t, active, "the reconnection restores the namespace")
+		require.Zero(t, dials.Load(), "Connect dials nothing")
+	})
+	// OnReconnectAttempt runs between the delay and the attempt's dial.
+	t.Run("before the dial of an attempt", func(t *testing.T) {
+		p := newRejoinPeer(t, WithReconnectionDelay(time.Millisecond), WithRandomizationFactor(-1))
+		p.fc.reads <- "1/chat,"
+		require.Equal(t, "/chat:io server disconnect", recv(t, p.disconnects, "server disconnect"))
+		next := newFakeConn(t)
+		var dials atomic.Int32
+		p.cl.dial = func(string) (engineclient.Conn, error) {
+			dials.Add(1)
+			return next, nil
+		}
+		attempting, release := make(chan int, 1), make(chan struct{})
+		var released sync.Once
+		unblock := func() { released.Do(func() { close(release) }) }
+		p.cl.OnReconnectAttempt(func(n int) {
+			attempting <- n
+			<-release
+		})
+		reconnects := make(chan int, 1)
+		p.cl.OnReconnect(func(n int) { reconnects <- n })
+		t.Cleanup(func() { _ = p.cl.Close() }) // before next closes
+		t.Cleanup(unblock)
+		close(p.fc.peerGone)
+		require.Equal(t, 1, recv(t, attempting, "first reconnection attempt"))
+		require.NoError(t, p.chat.Connect())
+		require.Zero(t, dials.Load(), "Connect dials nothing")
+		unblock()
+		require.Equal(t, 1, recv(t, reconnects, "the first attempt restores the connection"))
+		require.Equal(t, "0/chat,", recv(t, next.out, "chat CONNECT on the restored connection"))
+		require.Equal(t, int32(1), dials.Load(), "the reconnection made the only dial")
+	})
+}
+
+// While a dial is in progress Connect makes none: it waits for that dial and
+// returns its result.
+func TestSocketConnectJoinsDialInProgress(t *testing.T) {
+	for _, end := range []string{"dial succeeds", "Client.Close cancels the dial"} {
+		t.Run(end, func(t *testing.T) {
+			cl, err := newTestManager(t, "http://unused/")
+			require.NoError(t, err)
+			fc := newFakeConn(t)
+			dialing, release := make(chan struct{}, 2), make(chan struct{})
+			cl.dial = func(string) (engineclient.Conn, error) {
+				dialing <- struct{}{}
+				<-release
+				return fc, nil
+			}
+			chat := cl.Socket("/chat")
+			waits := make(chan struct{}, 1)
+			cl.state.testHookJoinWaits = func() { waits <- struct{}{} }
+			results := make(chan error, 2)
+			go func() { results <- cl.Connect() }()
+			recv(t, dialing, "Client.Connect dials")
+			go func() { results <- chat.Connect() }()
+			recv(t, waits, "Socket.Connect waits for the dial")
+			if end == "dial succeeds" {
+				close(release)
+				require.NoError(t, recv(t, results, "first result"))
+				require.NoError(t, recv(t, results, "second result"))
+				require.Equal(t, "0/chat,", recv(t, fc.out, "chat CONNECT"))
+			} else {
+				require.NoError(t, cl.Close())
+				require.ErrorIs(t, recv(t, results, "first result"), io.ErrClosedPipe)
+				require.ErrorIs(t, recv(t, results, "second result"), io.ErrClosedPipe)
+				close(release)
+			}
+			require.Empty(t, dialing, "one dial")
+		})
+	}
 }
 
 // Without a connection, Connect dials and returns the dial's error, which is

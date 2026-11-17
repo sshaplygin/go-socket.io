@@ -133,6 +133,51 @@ func TestSocketConnectRootNamespace(t *testing.T) {
 		require.False(t, chat.Connected(), "a closed namespace stays closed on the new connection")
 		require.Empty(t, connects)
 	})
+	// This server accepts a namespace CONNECT while the client's root namespace
+	// is disconnected. A third namespace keeps the connection open.
+	t.Run("namespace rejoin without the root", func(t *testing.T) {
+		serverConnects, received := make(chan socketio.Conn, 8), make(chan string, 8)
+		ts := newTestServer(t, func(srv *socketio.Server) {
+			for _, nsp := range []string{"/", "/chat", "/keep"} {
+				srv.OnConnect(nsp, func(c socketio.Conn) error { serverConnects <- c; return nil })
+				srv.OnEvent(nsp, "kick", func(c socketio.Conn) { c.Disconnect() })
+				srv.OnEvent(nsp, "echo", func(c socketio.Conn, value string) string {
+					received <- c.Namespace() + ":" + value
+					return value
+				})
+			}
+		}, steadyPing...)
+		cl, err := client.New(ts.URL)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = cl.Close() })
+		connects, disconnects := make(chan string, 8), make(chan string, 8)
+		root, chat, keep := cl.Socket("/"), cl.Socket("/chat"), cl.Socket("/keep")
+		for _, s := range []*client.Socket{root, chat, keep} {
+			s.OnConnect(func(c client.Conn) error { connects <- c.Namespace(); return nil })
+			s.OnDisconnect(func(c client.Conn, reason string) { disconnects <- c.Namespace() + ":" + reason })
+		}
+		require.NoError(t, cl.Connect())
+		var engineID string
+		for i := 0; i < 3; i++ {
+			recv(t, connects, "OnConnect")
+			engineID = recv(t, serverConnects, "server OnConnect").EngineConn().ID()
+		}
+		root.Emit("kick")
+		require.Equal(t, "/:io server disconnect", recv(t, disconnects, "root disconnect"))
+		require.NoError(t, chat.Close())
+		require.Equal(t, "/chat:io client disconnect", recv(t, disconnects, "chat Close"))
+		require.NoError(t, chat.Connect())
+		require.Equal(t, "/chat", recv(t, connects, "chat OnConnect"))
+		rejoined := recv(t, serverConnects, "server chat OnConnect")
+		require.Equal(t, "/chat", rejoined.Namespace())
+		require.Equal(t, engineID, rejoined.EngineConn().ID(), "the namespace rejoins the open Engine.IO connection")
+		acks := make(chan string, 1)
+		chat.Emit("echo", "chat", func(value string) { acks <- value })
+		require.Equal(t, "chat", recv(t, acks, "chat ACK"))
+		require.Equal(t, "/chat:chat", recv(t, received, "chat event"))
+		require.False(t, root.Connected())
+		require.Empty(t, disconnects)
+	})
 	t.Run("only namespace", func(t *testing.T) {
 		url, serverConnects, _ := rejoinServer(t)
 		cl, err := client.New(url)

@@ -28,7 +28,10 @@ func (m *clientState) connectionEnded(previous *conn) {
 	<-previous.writeStopped
 	<-previous.errorStopped
 	m.mu.Lock()
-	if m.conn != previous || m.stopped || m.attempt != nil || m.retry != nil || m.client.options.DisableReconnection {
+	m.ended = previous
+	// A connection that a close retired is not recovered, also when a Connect
+	// that followed the close failed its dial and left the client not stopped.
+	if m.supersededLocked(previous) || m.stopped || m.attempt != nil || m.retry != nil || m.client.options.DisableReconnection {
 		m.mu.Unlock()
 		return
 	}
@@ -79,7 +82,7 @@ func (m *clientState) reconnect(run *reconnectRun) {
 		if !m.retryCurrent(run) {
 			return
 		}
-		err := m.open(c, run, n)
+		err := m.open(c, run, n, nil)
 		if err == nil || !m.retryCurrent(run) {
 			return
 		}

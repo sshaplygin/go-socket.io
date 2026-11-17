@@ -37,6 +37,7 @@ without a counterpart in its
 | Local room unions, exclusions and lock release during delivery | `adapter` tests |
 | Redis publication, queries, remote operations, timeouts, subscription readiness and reconnection | `adapter/redis` tests, including `TestRedisGoPacketWithNodeOracle`, which `make conformance` runs against the reference `notepack.io`; mixed Go/Node cluster tests with real Redis |
 | Go client reconnect, pre-connect buffering, namespace lifecycle and transport selection | `client` integration tests and private manager tests |
+| Go client namespace rejoin on an open connection (`socket.connect()` in `socket.io-client`) | `client` tests in `socket_connect_test.go` and `socket_connect_integration_test.go`; `internal/conformance` `TestGoClientNamespaceRejoin` and `TestGoClientCrossingDisconnect` against the Node server |
 | Public consumer contracts, independent client/server roles and package privacy | `internal/parity` compilation fixtures and `.github/architecture` tests |
 | Runnable chat, ACK, binary, namespaces and middleware examples | `make examples` and `make examples-node` |
 | User-guide behavior: lifecycle-name broadcasts, rooms per namespace, event middleware arguments, a reason given before closing a root connection, a poll answered after `http.Server.WriteTimeout` over HTTP/1.x, an aborted poll, the client bundle route and sessions local to one instance | Root `guide_behavior_test.go` |

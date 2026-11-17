@@ -34,24 +34,75 @@ type clientState struct {
 	closingAll      bool
 	rootReady       bool
 	buffered        int
+	// ended is the last connection whose end connectionEnded has handled.
+	ended *conn
+	// retired is the connection that a close which stopped the client closes.
+	// Every Socket was detached from it; see supersededLocked.
+	retired *conn
+	// Test hooks, nil outside tests: testHookClosing runs after a close stopped
+	// the client and before it closes the connection, testHookJoinWaits when
+	// Connect waits for that close or for a dial in progress.
+	testHookClosing, testHookJoinWaits func()
 }
 
 func (m *clientState) connect(c *manager) (result error) {
-	return m.open(c, nil, 0)
+	return m.open(c, nil, 0, nil)
 }
 
-func (m *clientState) open(c *manager, retry *reconnectRun, number int) (result error) {
+// open dials unless a connection is open or being established. A non-nil join
+// reopens that Socket only: it joins the open connection at once, or the one a
+// dial or the reconnection in progress establishes.
+func (m *clientState) open(c *manager, retry *reconnectRun, number int, join *Socket) (result error) {
 	m.mu.Lock()
 	if retry != nil && (m.retry != retry || m.stopped) {
 		m.mu.Unlock()
 		return io.ErrClosedPipe
 	}
+	// Client.Close, or the Close of the last Socket, has stopped the client and
+	// is about to close its connection. Connect follows that close and dials.
+	for retry == nil && m.stopped && m.conn != nil && !isDone(m.conn.closing) {
+		closing := m.conn.closing
+		m.mu.Unlock()
+		if m.testHookJoinWaits != nil {
+			m.testHookJoinWaits()
+		}
+		<-closing
+		m.mu.Lock()
+	}
+	live := m.conn != nil && !isDone(m.conn.closing) && !m.stopped
+	if join != nil {
+		if !join.active {
+			if join.namespace == rootNamespace && live {
+				m.mu.Unlock()
+				return ErrRootNamespaceRejoin
+			}
+			join.active = true
+			join.connected, join.requested, join.nc = false, false, nil
+			join.connectPending, join.connectQueued, join.rejoining = false, false, false
+			if live {
+				join.requested, join.rejoining, join.sent = true, join.sent, true
+				m.conn.writeControl(socketConnectHeader(join))
+			}
+		}
+		// The connection has ended and connectionEnded has not yet decided on
+		// its recovery: the reconnection it starts restores this Socket too. A
+		// connection that a close retired gets none.
+		recovering := m.conn != nil && !live && m.ended != m.conn && m.retired != m.conn && !m.stopped &&
+			m.attempt == nil && !c.options.DisableReconnection
+		if live || m.retry != nil || recovering {
+			m.mu.Unlock()
+			return nil
+		}
+	}
 	if attempt := m.attempt; attempt != nil {
 		m.mu.Unlock()
+		if m.testHookJoinWaits != nil {
+			m.testHookJoinWaits()
+		}
 		<-attempt.finished
 		return attempt.err
 	}
-	if m.conn != nil && !isDone(m.conn.closing) {
+	if live {
 		m.mu.Unlock()
 		return nil
 	}
@@ -64,7 +115,7 @@ func (m *clientState) open(c *manager, retry *reconnectRun, number int) (result 
 	m.attempt, m.stopped, m.closingAll = a, false, false
 	// An explicit Connect starts a new lifecycle. A Socket.Close after this
 	// point must remain effective when this attempt's dial eventually returns.
-	if retry == nil {
+	if retry == nil && join == nil {
 		for _, socket := range m.order {
 			socket.active = true
 		}
@@ -131,8 +182,9 @@ func (m *clientState) open(c *manager, retry *reconnectRun, number int) (result 
 			return err
 		}
 	}
-	m.conn, m.rootReady = current, false
+	m.conn, m.rootReady, m.retired = current, false, nil
 	for _, socket := range m.order {
+		socket.sent, socket.rejoining = false, false
 		if !socket.active {
 			continue
 		}
@@ -155,7 +207,7 @@ func (m *clientState) open(c *manager, retry *reconnectRun, number int) (result 
 			if !socket.active || socket.requested {
 				continue
 			}
-			socket.requested = true
+			socket.requested, socket.sent = true, true
 			if socket.namespace != rootNamespace {
 				current.writeControl(socketConnectHeader(socket))
 			}

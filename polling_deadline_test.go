@@ -11,8 +11,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,7 +52,9 @@ type deadlineServer struct {
 	conns   chan Conn
 	ticks   chan struct{}
 	posts   chan struct{}
-	writes  chan struct{} // a blockingWriter started a write
+	reads   chan bodyRead // Read calls on the body of a stalled POST
+	stalled atomic.Int64  // numbers the stalled POSTs
+	writes  chan struct{} // a blockingWriter or failingWriter started a write
 	reasons chan string
 }
 
@@ -66,9 +70,18 @@ func (temporaryError) Temporary() bool { return true }
 func (temporaryError) Timeout() bool   { return false }
 
 // failingWriter fails every write with a temporaryError.
-type failingWriter struct{ http.ResponseWriter }
+type failingWriter struct {
+	http.ResponseWriter
+	started chan<- struct{}
+}
 
-func (failingWriter) Write([]byte) (int, error) { return 0, temporaryError{} }
+func (f failingWriter) Write([]byte) (int, error) {
+	select {
+	case f.started <- struct{}{}:
+	default:
+	}
+	return 0, temporaryError{}
+}
 
 // failingBody fails every read with a temporaryError.
 type failingBody struct{ io.ReadCloser }
@@ -101,6 +114,35 @@ func (b *blockingWriter) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
+// stalledPostHeader numbers a POST whose body the test leaves incomplete, so the
+// handler reports the Read calls on that body.
+const stalledPostHeader = "X-Stalled-Post"
+
+// bodyRead is a Read call on the body of a stalled POST: the POST's number and
+// the body bytes returned before the call.
+type bodyRead struct {
+	post string
+	read int
+}
+
+// reportingBody reports each Read call before it reads.
+type reportingBody struct {
+	io.ReadCloser
+	post  string
+	read  int
+	reads chan<- bodyRead
+}
+
+func (b *reportingBody) Read(p []byte) (int, error) {
+	select {
+	case b.reads <- bodyRead{b.post, b.read}:
+	default: // the test reads only the calls it waits for
+	}
+	n, err := b.ReadCloser.Read(p)
+	b.read += n
+	return n, err
+}
+
 // sendBufferListener sets a small send buffer on every accepted connection.
 type sendBufferListener struct {
 	net.Listener
@@ -125,7 +167,7 @@ func newDeadlineServer(t *testing.T, cfg deadlineConfig) *deadlineServer {
 		engineLog = slog.New(cfg.engineLog)
 	}
 	d := &deadlineServer{cfg: cfg, conns: make(chan Conn, 1), ticks: make(chan struct{}, 8),
-		posts: make(chan struct{}, 8), writes: make(chan struct{}, 8), reasons: make(chan string, 1)}
+		posts: make(chan struct{}, 8), reads: make(chan bodyRead, 64), writes: make(chan struct{}, 8), reasons: make(chan string, 1)}
 	d.srv = NewServer(WithLogger(quiet), WithEngineOptions(engineio.WithLogger(engineLog),
 		engineio.WithPingInterval(cfg.heartbeat), engineio.WithPingTimeout(cfg.heartbeat),
 		engineio.WithHTTPCompression(false), engineio.WithMaxHTTPBufferSize(cfg.limit)))
@@ -136,12 +178,15 @@ func newDeadlineServer(t *testing.T, cfg deadlineConfig) *deadlineServer {
 	d.ts = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			d.posts <- struct{}{}
+			if post := r.Header.Get(stalledPostHeader); post != "" {
+				r.Body = &reportingBody{ReadCloser: r.Body, post: post, reads: d.reads}
+			}
 		}
 		if cfg.opaque {
 			w = opaqueWriter{w}
 		}
 		if session := r.URL.Query().Get("sid") != ""; session && cfg.failWrites && r.Method == http.MethodGet {
-			w = failingWriter{w}
+			w = failingWriter{ResponseWriter: w, started: d.writes}
 		} else if session && cfg.blockWrites && r.Method == http.MethodGet {
 			b := &blockingWriter{ResponseWriter: w, started: d.writes, expired: make(chan struct{})}
 			t.Cleanup(func() { b.once.Do(func() { close(b.expired) }) }) // ts.Close waits for the handler
@@ -237,23 +282,34 @@ func (d *deadlineServer) dial(t *testing.T, method, sid, extra string) net.Conn 
 }
 
 // partialPost sends a POST that declares 100 body bytes, delivers 11 and idles.
+// It returns once the server reads past the delivered bytes.
 func (d *deadlineServer) partialPost(t *testing.T, sid string) net.Conn {
 	t.Helper()
-	raw := d.dial(t, http.MethodPost, sid, "Content-Type: text/plain;charset=UTF-8\r\nContent-Length: 100\r\n")
-	_, err := io.WriteString(raw, partialBody)
-	require.NoError(t, err)
-	recv(t, d.posts, "partial POST")
-	time.Sleep(100 * time.Millisecond) // let the server start reading the body
-	return raw
+	return d.stalledPost(t, sid, partialBody)
 }
 
-// emptyPost sends a POST that declares 100 body bytes and delivers none.
+// emptyPost sends a POST that declares 100 body bytes and delivers none. It
+// returns once the server reads the body.
 func (d *deadlineServer) emptyPost(t *testing.T, sid string) net.Conn {
 	t.Helper()
-	raw := d.dial(t, http.MethodPost, sid, "Content-Type: text/plain;charset=UTF-8\r\nContent-Length: 100\r\n")
-	recv(t, d.posts, "empty POST")
-	time.Sleep(100 * time.Millisecond) // let the server start reading the body
-	return raw
+	return d.stalledPost(t, sid, "")
+}
+
+// stalledPost sends a POST that declares 100 body bytes and delivers body. It
+// returns once a Read on the body has consumed body and the next Read waits
+// for bytes the client never sends.
+func (d *deadlineServer) stalledPost(t *testing.T, sid, body string) net.Conn {
+	t.Helper()
+	post := strconv.FormatInt(d.stalled.Add(1), 10)
+	raw := d.dial(t, http.MethodPost, sid, "Content-Type: text/plain;charset=UTF-8\r\nContent-Length: 100\r\n"+stalledPostHeader+": "+post+"\r\n")
+	_, err := io.WriteString(raw, body)
+	require.NoError(t, err)
+	recv(t, d.posts, "stalled POST")
+	for {
+		if r := recv(t, d.reads, "a body read waiting for the rest of the stalled POST"); r.post == post && r.read == len(body) {
+			return raw
+		}
+	}
 }
 
 // readResponse reads one HTTP response from raw within a second.
@@ -399,6 +455,32 @@ func (d *deadlineServer) stallPoll(t *testing.T, sid string, c Conn) net.Conn {
 	return raw
 }
 
+// requirePollTaken waits up to 5 s until the session has taken a poll: its
+// handler is parked in flushOut, offering its response to the session writer,
+// or the response write has started, as it does at once when the CONNECT packet
+// missed the OPEN response (see open). Failure to establish the precondition
+// fails the test.
+func (d *deadlineServer) requirePollTaken(t *testing.T) {
+	t.Helper()
+	waiting := func() bool {
+		if len(d.writes) > 0 {
+			return true
+		}
+		for _, stack := range leakedModuleStacks() {
+			header, frames, _ := strings.Cut(stack, "\n")
+			if strings.Contains(header, "[select") && strings.Contains(frames, "polling.(*payload).flushOut") {
+				return true
+			}
+		}
+		return false
+	}
+	for deadline := time.Now().Add(5 * time.Second); !waiting(); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the session took no poll; library goroutines:\n%s", strings.Join(leakedModuleStacks(), "\n\n"))
+		}
+	}
+}
+
 // blockedInWrite reports whether a handler goroutine is writing a poll response.
 func blockedInWrite() bool {
 	for _, stack := range leakedModuleStacks() {
@@ -492,7 +574,7 @@ func TestPollingTemporaryRequestErrorsEndSession(t *testing.T) {
 						_ = resp.Body.Close()
 					}
 				}()
-				time.Sleep(100 * time.Millisecond) // let the poll wait for a packet
+				d.requirePollTaken(t)
 				c.Emit("x", "y")
 			} else {
 				resp, err := d.ts.Client().Post(d.url("&sid="+sid), "text/plain;charset=UTF-8", strings.NewReader(`10:42["tick"]`))
@@ -518,9 +600,10 @@ func requireStalledWrite(t *testing.T) {
 }
 
 // Server.Close and engineio.Abort expire a poll response write that an orderly
-// close left in progress: the response carrying CLOSE blocks in the
-// ResponseWriter, the session stays live until that write ends, and the abort
-// releases the handler within 2 s.
+// close left in progress: the poll response blocks in the ResponseWriter with
+// CLOSE in it or queued behind it (behind the CONNECT packet when that missed the
+// OPEN response, see open), the session stays live until that write ends, and the
+// abort releases the handler within 2 s.
 func TestPollingOrderlyCloseWriteExpiresOnAbort(t *testing.T) {
 	for name, abort := range map[string]func(*deadlineServer, Conn){
 		"Server.Close": func(d *deadlineServer, _ Conn) { _ = d.srv.Close() },
@@ -531,7 +614,7 @@ func TestPollingOrderlyCloseWriteExpiresOnAbort(t *testing.T) {
 			d := newDeadlineServer(t, deadlineConfig{heartbeat: time.Hour, blockWrites: true})
 			sid, c := d.open(t)
 			d.dial(t, http.MethodGet, sid, "")
-			time.Sleep(100 * time.Millisecond) // let the poll wait for a packet
+			d.requirePollTaken(t)
 			require.NoError(t, c.EngineConn().Close())
 			recv(t, d.writes, "the poll response write")
 			start := time.Now()

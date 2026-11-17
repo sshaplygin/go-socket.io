@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -34,15 +35,43 @@ type requestError struct {
 // until the next call, as bufio.Reader.ReadByte does.
 type requestBody struct {
 	io.Reader
+	conn    *serverConn // nil in tests of the reader alone
 	one     [1]byte
 	pending error
 }
 
-func requestReadError(err error) error {
-	if err != nil && err != io.EOF {
-		return &requestError{"request body", err}
+func (b *requestBody) readError(err error) error {
+	if b.conn != nil {
+		return b.conn.bodyReadError(err)
 	}
-	return err
+	return bodyReadError(err, false)
+}
+
+// bodyReadError wraps a failed request body read. A deadline error of a read
+// that the connection's close interrupted becomes net.ErrClosed: it is not an
+// expired session deadline, so it must not report Timeout, which would make a
+// pending poll answer CLOSE and the session name the cause "ping timeout".
+func bodyReadError(err error, closed bool) error {
+	if err == nil || err == io.EOF {
+		return err
+	}
+	if closed && timedOut(err) {
+		err = net.ErrClosed
+	}
+	return &requestError{"request body", err}
+}
+
+// bodyReadError classifies err by whether Close has expired the body reads.
+// A read that a session deadline expired fails here before the session can
+// close for it, so that read keeps its Timeout.
+func (c *serverConn) bodyReadError(err error) error {
+	if err == nil || err == io.EOF {
+		return err
+	}
+	c.ioMu.Lock()
+	closed := c.ioClosed
+	c.ioMu.Unlock()
+	return bodyReadError(err, closed)
 }
 
 func (b *requestBody) Read(p []byte) (int, error) {
@@ -52,7 +81,7 @@ func (b *requestBody) Read(p []byte) (int, error) {
 		return 0, err
 	}
 	n, err := b.Reader.Read(p)
-	return n, requestReadError(err)
+	return n, b.readError(err)
 }
 
 func (b *requestBody) ReadByte() (byte, error) {
@@ -64,11 +93,11 @@ func (b *requestBody) ReadByte() (byte, error) {
 	for i := 0; i < 100; i++ {
 		n, err := b.Reader.Read(b.one[:])
 		if n == 1 {
-			b.pending = requestReadError(err)
+			b.pending = b.readError(err)
 			return b.one[0], nil
 		}
 		if err != nil {
-			return 0, requestReadError(err)
+			return 0, b.readError(err)
 		}
 	}
 	return 0, &requestError{"request body", io.ErrNoProgress}
@@ -277,7 +306,8 @@ func (c *serverConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-// Close closes the connection and expires the tracked POST body reads. A
+// Close closes the connection and expires the tracked POST body reads, whose
+// errors then report a closed connection, not a timeout (bodyReadError). A
 // response write keeps its deadline: an orderly close delivers CLOSE through it.
 func (c *serverConn) Close() error {
 	c.ioMu.Lock()
@@ -323,7 +353,7 @@ func (c *serverConn) feedBody(w http.ResponseWriter, r *http.Request, body io.Re
 		// decoder owns it. That lets this handler feed the body directly, with
 		// no pipe or per-POST goroutine. For unsupported or server-bounded
 		// requests, the pipe still keeps network I/O off the session reader.
-		err = c.payload.feed(&requestBody{Reader: body}, supportBinary)
+		err = c.payload.feed(&requestBody{Reader: body, conn: c}, supportBinary)
 		return err
 	}
 	in, out := io.Pipe()
@@ -337,7 +367,7 @@ func (c *serverConn) feedBody(w http.ResponseWriter, r *http.Request, body io.Re
 	_, err = io.CopyBuffer(out, body, *buf)
 	copyBuffers.Put(buf)
 	if err != nil {
-		_ = out.CloseWithError(&requestError{"request body", err})
+		_ = out.CloseWithError(c.bodyReadError(err))
 	} else {
 		_ = out.Close()
 	}

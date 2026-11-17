@@ -106,6 +106,19 @@ func TestTypedClientPreconnectCancellationAndClose(t *testing.T) {
 	require.ErrorIs(t, s.SendEvent(ctx, "expired", event.ValueOf(1)), context.Canceled)
 }
 
+// The client's untyped handlers JSON-encode an error result as a plain value and
+// do not report it.
+func TestClientUntypedErrorResultIsAPlainValue(t *testing.T) {
+	p := start(t, 'C', hooks{})
+	p.cl.OnEvent("fail", func(Conn) error { return errors.New("failure") })
+	p.cl.OnEvent("barrier", func(Conn) string { return "ok" })
+	p.send(t, `23["fail"]`)
+	require.Equal(t, `33[{}]`, strings.TrimSpace(recv(t, p.fc.out, "error result acknowledgement")))
+	p.send(t, `24["barrier"]`)
+	require.Equal(t, `34["ok"]`, strings.TrimSpace(recv(t, p.fc.out, "barrier")))
+	require.Empty(t, p.errs, "the client's OnError")
+}
+
 func TestTypedClientHandlerFailureAcknowledgesAndReports(t *testing.T) {
 	for _, panics := range []bool{false, true} {
 		t.Run(map[bool]string{false: "error", true: "panic"}[panics], func(t *testing.T) {
@@ -118,12 +131,18 @@ func TestTypedClientHandlerFailureAcknowledgesAndReports(t *testing.T) {
 			})))
 			p.send(t, `23["fail",1]`)
 			ack := recv(t, p.fc.out, "error acknowledgement")
+			reported := recv(t, p.errs, "local handler error").err
 			if panics {
-				require.Contains(t, ack, `"code":"handler_panic"`)
+				// The server receives a fixed text, never the panic value.
+				require.Equal(t, `33[{"code":"handler_panic","message":"internal error"}]`, strings.TrimSpace(ack))
+				var panicked *event.PanicError
+				require.ErrorAs(t, reported, &panicked)
+				require.Equal(t, "failure", panicked.Value)
+				require.Contains(t, string(panicked.Stack), "connection_typed_test.go")
 			} else {
-				require.Contains(t, ack, `"code":"handler_error"`)
+				require.Equal(t, `33[{"code":"handler_error","message":"failure"}]`, strings.TrimSpace(ack))
+				require.EqualError(t, reported, "failure")
 			}
-			require.Error(t, recv(t, p.errs, "local handler error").err)
 		})
 	}
 }

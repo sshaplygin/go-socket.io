@@ -6,11 +6,7 @@ import (
 )
 
 // connect errors.
-var (
-	errUnavailableRootHandler = errors.New("root ('/') doesn't have a namespace handler")
-
-	errFailedConnectNamespace = errors.New("failed connect to namespace without handler")
-)
+var errUnavailableRootHandler = errors.New("root ('/') doesn't have a namespace handler")
 
 // common connection dispatch errors.
 var (

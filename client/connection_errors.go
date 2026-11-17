@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"errors"
 	"log/slog"
+
+	"github.com/sshaplygin/go-socket.io/internal/event"
 )
 
 // reportOverflow reports an overflow with conn, nil on a failed connect.
@@ -21,7 +23,13 @@ func (c *conn) reportOverflow(conn Conn) {
 }
 
 // unhandled logs err, which no OnError receives and which is not expected closure.
+// A recovered panic is logged with its stack.
 func (c *conn) unhandled(nsp string, err error) {
+	var panicked *event.PanicError
+	if errors.As(err, &panicked) {
+		c.log.Warn("socketio: handler panic", nspAttr(nsp), "err", err, "stack", string(panicked.Stack))
+		return
+	}
 	c.log.Warn("socketio: unhandled error", nspAttr(nsp), "err", err)
 }
 

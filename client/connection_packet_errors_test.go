@@ -2,13 +2,17 @@ package client
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	"github.com/sshaplygin/go-socket.io/internal/event"
 )
 
 func TestClientErrorPackets(t *testing.T) {
@@ -121,4 +125,38 @@ func TestClientRegistrationAndDialFailures(t *testing.T) {
 		require.Contains(t, records.String(), "socketio: unhandled error")
 		require.Contains(t, records.String(), "refused")
 	})
+}
+
+// Without a client OnError, a typed handler panic is logged once with its stack.
+func TestTypedClientHandlerPanicWithoutOnErrorIsLogged(t *testing.T) {
+	var records bytes.Buffer
+	c, err := newTestManager(t, "http://127.0.0.1/", WithLogger(slog.New(slog.NewJSONHandler(&records, nil))))
+	require.NoError(t, err)
+	fc := newFakeConn(t)
+	c.dial = func(string) (engineclient.Conn, error) { return fc, nil }
+	require.NoError(t, c.RegisterEvent("fail", event.NewHandler(event.SchemaOf[int](), true, func(context.Context, event.Endpoint, event.Payload) (event.Payload, error) {
+		panic("typed failure")
+	})))
+	c.OnEvent("barrier", func(Conn) string { return "ok" })
+	require.NoError(t, c.Connect())
+	closeAtEnd(t, fc, c.state.conn)
+	fc.reads <- "0"
+	fc.reads <- `23["fail",1]`
+	require.Equal(t, "33[{\"code\":\"handler_panic\",\"message\":\"internal error\"}]\n", recv(t, fc.out, "panic acknowledgement"))
+	// The barrier is dispatched after the panic was reported.
+	fc.reads <- `27["barrier"]`
+	require.Equal(t, "37[\"ok\"]\n", recv(t, fc.out, "barrier"))
+	var panics []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(records.String()), "\n") {
+		var record map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &record), line)
+		if strings.Contains(line, "typed failure") {
+			panics = append(panics, record)
+		}
+	}
+	require.Len(t, panics, 1, records.String())
+	require.Equal(t, "socketio: handler panic", panics[0]["msg"])
+	require.Equal(t, "WARN", panics[0]["level"])
+	require.Equal(t, "panic: typed failure", panics[0]["err"])
+	require.Contains(t, panics[0]["stack"], "connection_packet_errors_test.go")
 }

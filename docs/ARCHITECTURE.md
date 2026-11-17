@@ -45,8 +45,9 @@ check that the entry is still that session, because an ended session's ID can
 be issued again. The Socket.IO server does not remove sessions by ID: it starts
 a connection whose ID is still held by a connection running its disconnect
 handlers only after releasing that connection. Incoming
-event handlers run on the dispatcher; blocking one stalls that connection and
-also blocks the header reader's handoff of the next packet. A client connection
+event handlers run on the dispatcher; blocking one stalls that connection,
+every namespace of it and its heartbeat included ([handler duration](V1.md#connections-and-namespaces)),
+and also blocks the header reader's handoff of the next packet. A client connection
 starts its error worker with the connection.
 Application-initiated disconnection can invoke lifecycle callbacks concurrently.
 The client manager owns namespace sockets, connection generations, retries and

@@ -414,9 +414,29 @@ func (s *Socket) OnDisconnect(f func(Conn, string)) { s.handler.OnDisconnect(f) 
 // not an error; see Client.OnError.
 func (s *Socket) OnError(f func(Conn, error)) { s.handler.OnError(f) }
 
-// OnEvent replaces the namespace's handler for event. If the event's arguments
-// do not decode into the parameter types of f, f is not called, the error goes to
-// OnError and a requested acknowledgement is answered with an error ACK.
+// OnEvent replaces the namespace's handler for event. If the event's arguments do
+// not decode into the parameter types of f, f is not called and the error goes to
+// OnError. What follows depends on the error, not on the JSON value. When it is a
+// *json.UnmarshalTypeError, which encoding/json returns for a value that does not
+// fit the Go type, such as a string for an int parameter or struct field, a
+// requested acknowledgement is answered with an error ACK and the connection stays
+// open. Any other decode error, such as the one Time.UnmarshalJSON returns for
+// "bad", ends the connection without an ACK; OnDisconnect reports forced close.
+// Which error a value produces is decided by encoding/json and can differ under
+// GOEXPERIMENT=jsonv2.
+//
+// f runs on the reader of the client's Engine.IO connection, which serves every
+// namespace socket of the Client and also reads the heartbeat's PONG packets, and
+// the client renews its heartbeat window only when it reads a PONG. While f runs,
+// that Engine.IO connection dispatches nothing else, in any namespace. An f that
+// runs longer than the server's ping timeout (20 seconds by default) can therefore
+// end the Engine.IO connection, with all its namespaces, with a ping timeout on the
+// client or the server, and one that runs longer than the ping interval plus the
+// ping timeout (45 seconds by default) normally does; neither the end nor the
+// survival of the connection can be relied on. When the connection ends this way,
+// OnError is not called, and the ACK of f may still reach the server or be lost.
+// For long work, f starts a goroutine and returns, and the goroutine acknowledges
+// through a final AckFunc parameter.
 func (s *Socket) OnEvent(event string, f interface{}) { s.handler.OnEvent(event, f) }
 
 // Close sends DISCONNECT for this namespace. The last socket closes Engine.IO.

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/engineio"
+	eventImpl "github.com/sshaplygin/go-socket.io/internal/event"
 
 	"github.com/sshaplygin/go-socket.io/parser"
 )
@@ -68,6 +69,7 @@ type connection struct {
 	draining, connecting         bool             // the first close is Close; until connected
 	appSealed                    bool             // Close returned from its own callbacks
 	overflow                     *namespaceConn   // the first close is its overflow, in this namespace
+	overflowByPeer               bool             // refuse queued the packet that overflowed
 	pending                      []*namespaceConn // OnDisconnect calls a library close owes
 	drainTimer                   *time.Timer
 	drainTimeout                 time.Duration  // tests shorten it
@@ -151,9 +153,9 @@ func (c *connection) connect() error {
 		if onError := rootHandler.ErrorHandler(); onError != nil {
 			onError(nil, err)
 		} else {
-			c.unhandled(rootNamespace, err)
+			c.rejected(rootNamespace, err)
 		}
-		c.write(parser.Header{Type: parser.Error}, reflect.ValueOf(err.Error()))
+		c.write(parser.Header{Type: parser.Error}, reflect.ValueOf(eventImpl.WireMessage(err)))
 		return nil
 	}
 	if isDone(c.closing) {
@@ -171,10 +173,15 @@ func (c *connection) connected(err error) bool {
 		if root != nil {
 			onError = root.ErrorHandler()
 		}
-		if onError != nil {
+		switch {
+		case onError != nil:
 			onError(nil, err)
-		} else if !expected(err, c.writer.failed) {
+		case expected(err, c.writer.failed):
+			// the session ended: OnDisconnect reports it
+		case root == nil || root.Err() != nil: // see connect: no OnConnect ran
 			c.unhandled(rootNamespace, err)
+		default:
+			c.rejected(rootNamespace, err)
 		}
 	}
 	c.mu.Lock()
@@ -209,12 +216,56 @@ func (c *connection) reportOverflow(conn Conn) {
 			return
 		}
 	}
+	if c.overflowByPeer {
+		// The packet answered a CONNECT to a namespace that the server does not have or
+		// that refused it (see refuse): the client caused the overflow with the CONNECTs
+		// it sent and by not reading.
+		c.unhandledPeer(c.overflow.namespace, ErrWriteBufferFull)
+		return
+	}
 	c.unhandled(c.overflow.namespace, ErrWriteBufferFull)
 }
 
 // unhandled logs err, which no OnError receives and which is not expected closure.
+// A recovered panic is logged with its stack.
 func (c *connection) unhandled(nsp string, err error) {
+	var panicked *PanicError
+	if errors.As(err, &panicked) {
+		c.log.Warn("socketio: handler panic", nspAttr(nsp), "err", err, "stack", string(panicked.Stack))
+		return
+	}
 	c.log.Warn("socketio: unhandled error", nspAttr(nsp), "err", err)
+}
+
+// unhandledPeer logs err, which no OnError receives, at DEBUG: the peer caused it with
+// what it sent, so it may repeat it at will.
+func (c *connection) unhandledPeer(nsp string, err error) {
+	c.log.Debug("socketio: unhandled error", nspAttr(nsp), "err", err)
+}
+
+// rejected logs err, which connect middleware or OnConnect of nsp returned and which no
+// OnError receives. A rejection is the application's answer to a CONNECT that any
+// client may send again at will, and the ERROR packet carries it to the client, so it is
+// logged at DEBUG (see unhandledPeer); a recovered panic is a fault of the application
+// and is logged at WARN (see unhandled).
+func (c *connection) rejected(nsp string, err error) {
+	if eventImpl.IsPanic(err) {
+		c.unhandled(nsp, err)
+	} else {
+		c.unhandledPeer(nsp, err)
+	}
+}
+
+// notify delivers err of a callback on nc to the OnError of nh on this goroutine,
+// or logs it as unhandled.
+func (c *connection) notify(nh *namespaceHandler, nc *namespaceConn, err error) {
+	if nh != nil {
+		if onError := nh.ErrorHandler(); onError != nil {
+			onError(nc, err)
+			return
+		}
+	}
+	c.unhandled(nc.namespace, err)
 }
 
 // nspAttr is the nsp attribute of namespace nsp; the root namespace is "/".
@@ -239,21 +290,35 @@ func (c *connection) errConn(nsp string) (nc *namespaceConn) {
 // connection's NextReader or of a frame reader, which the decoder returned, ends the
 // session: OnDisconnect reports it and OnError does not.
 func (c *connection) onError(namespace string, err error) {
+	c.onErrorOr(namespace, err, c.unhandled)
+}
+
+// onPeerError is onError for a failure the peer caused with what it sent: a packet
+// that does not decode, a payload of the wrong type or an ERROR packet. Without OnError
+// it is logged at DEBUG (see unhandledPeer).
+func (c *connection) onPeerError(namespace string, err error) {
+	c.onErrorOr(namespace, err, c.unhandledPeer)
+}
+
+// onErrorOr is onError with unhandled in place of c.unhandled.
+func (c *connection) onErrorOr(namespace string, err error, unhandled func(string, error)) {
 	if !expected(err, c.reader.failure()) {
-		c.report(namespace, err)
+		c.report(namespace, err, unhandled)
 	}
 }
 
 // report delivers err to OnError of namespace and waits for it, unless a close started.
-// Without OnError, err is logged as unhandled. Callers report no transport failure: the
-// end of the session reaches OnDisconnect only.
-func (c *connection) report(namespace string, err error) {
+// Without OnError, err is passed to unhandled. Callers report no transport failure: the
+// end of the session reaches OnDisconnect only. After a close started, see
+// reportAfterClose.
+func (c *connection) report(namespace string, err error, unhandled func(string, error)) {
 	if isDone(c.closing) {
+		c.reportAfterClose(namespace, err)
 		return
 	}
 	msg := newErrorMessage(namespace, err)
 	if msg.conn = c.errConn(namespace); msg.conn == nil {
-		c.unhandled(namespace, err)
+		unhandled(namespace, err)
 		return
 	}
 	c.startError()
@@ -261,7 +326,23 @@ func (c *connection) report(namespace string, err error) {
 	case c.errorChan <- msg:
 		<-msg.done
 	case <-c.closing:
+		c.reportAfterClose(namespace, err)
 	}
+}
+
+// reportAfterClose handles err raised after the connection's close started. A
+// recovered panic is reported on this goroutine, because the error worker may have
+// stopped; any other failure is logged at DEBUG only.
+func (c *connection) reportAfterClose(namespace string, err error) {
+	if !eventImpl.IsPanic(err) {
+		c.log.Debug("socketio: error after close", nspAttr(namespace), "err", err)
+		return
+	}
+	if nc := c.errConn(namespace); nc != nil {
+		c.notify(c.namespace(namespace), nc, err)
+		return
+	}
+	c.unhandled(namespace, err)
 }
 
 func (c *connection) namespace(nsp string) *namespaceHandler {

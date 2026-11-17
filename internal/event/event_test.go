@@ -94,6 +94,33 @@ func TestAckEnvelope(t *testing.T) {
 	if (*RemoteError)(nil).Error() != "" {
 		t.Fatal("nil remote error")
 	}
+	// A typed nil is success: its Error method would dereference nil.
+	if got := AckArgs(ValueOf(42), (*derefError)(nil)); len(got) != 2 || got[0] != nil || got[1] != 42 {
+		t.Fatal(got)
+	}
+}
+
+type derefError struct{ msg string }
+
+func (e *derefError) Error() string { return e.msg }
+
+type sliceError []string
+
+func (e sliceError) Error() string { return strings.Join(e, "; ") }
+
+func TestNilError(t *testing.T) {
+	for _, err := range []error{nil, (*derefError)(nil), (*RemoteError)(nil)} {
+		if got := NilError(err); got != nil {
+			t.Fatalf("NilError(%#v) = %v", err, got)
+		}
+	}
+	if got := NilError(sliceError(nil)); got != nil {
+		t.Fatalf("nil slice error %v", got)
+	}
+	plain := errors.New("bad")
+	if got := NilError(plain); got != plain {
+		t.Fatal(got)
+	}
 }
 
 func TestHandlerInvocation(t *testing.T) {
@@ -111,12 +138,21 @@ func TestHandlerInvocation(t *testing.T) {
 	}
 	panicHandler := NewHandler(SchemaOf[int](), false, func(context.Context, Endpoint, Payload) (Payload, error) { panic("test panic") })
 	_, err = panicHandler.Invoke(context.Background(), nil, p)
-	var remote *RemoteError
-	if !errors.As(err, &remote) || remote.Code != "handler_panic" {
+	var panicked *PanicError
+	if !errors.As(err, &panicked) || panicked.Value != "test panic" || !strings.Contains(string(panicked.Stack), "event_test.go") {
 		t.Fatal(err)
+	}
+	if got := AckArgs(Payload{}, err); len(got) != 1 || got[0] != (RemoteError{Code: "handler_panic", Message: PanicMessage}) {
+		t.Fatalf("panic ACK %v", got)
 	}
 	if _, err := (Handler{}).Invoke(context.Background(), nil, p); !errors.Is(err, ErrInvalidPayload) {
 		t.Fatal(err)
+	}
+	typedNil := NewHandler(SchemaOf[int](), true, func(_ context.Context, _ Endpoint, p Payload) (Payload, error) {
+		return p, (*derefError)(nil)
+	})
+	if result, err := typedNil.Invoke(context.Background(), nil, p); err != nil || result.Interface() != 42 {
+		t.Fatalf("typed nil error: %v %v", result, err)
 	}
 }
 
@@ -142,5 +178,50 @@ func TestValidation(t *testing.T) {
 	defer cancel()
 	if Context(ctx) != ctx || Context(nil) == nil {
 		t.Fatal("context")
+	}
+}
+
+type panickingError struct{}
+
+func (panickingError) Error() string { panic("error method boom") }
+
+type panickingUnwrap struct{}
+
+func (panickingUnwrap) Error() string { return "unwrap" }
+func (panickingUnwrap) Unwrap() error { panic("unwrap boom") }
+
+func TestReturnedRecoversErrorMethodPanics(t *testing.T) {
+	plain := errors.New("plain")
+	if got := Returned(plain); got != plain {
+		t.Fatalf("Returned(plain) = %v", got)
+	}
+	if got := Returned((*derefError)(nil)); got != nil {
+		t.Fatalf("Returned(typed nil) = %v", got)
+	}
+	for value, err := range map[string]error{"error method boom": panickingError{}, "unwrap boom": panickingUnwrap{}} {
+		var panicked *PanicError
+		got := Returned(err)
+		if !errors.As(got, &panicked) || panicked.Value != value || len(panicked.Stack) == 0 {
+			t.Fatalf("Returned(%T) = %v", err, got)
+		}
+		if got.Error() != "error method: panic: "+value {
+			t.Fatal(got.Error())
+		}
+		// The encoders do not crash on the unchecked value either.
+		if object := AckError(err); object != (RemoteError{Code: "handler_panic", Message: PanicMessage}) {
+			t.Fatal(object)
+		}
+		if args := AckArgs(Payload{}, err); len(args) != 1 || args[0] != (RemoteError{Code: "handler_panic", Message: PanicMessage}) {
+			t.Fatal(args)
+		}
+	}
+	if got := WireMessage(panickingError{}); got != PanicMessage {
+		t.Fatal(got)
+	}
+	h := NewHandler(SchemaOf[int](), true, func(context.Context, Endpoint, Payload) (Payload, error) {
+		return Payload{}, panickingError{}
+	})
+	if _, err := h.Invoke(context.Background(), nil, ValueOf(1)); !IsPanic(err) {
+		t.Fatalf("Invoke = %v", err)
 	}
 }

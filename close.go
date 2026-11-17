@@ -163,13 +163,10 @@ func (c *connection) disconnectNamespace(nc *namespaceConn, reason string) {
 		c.disconnects.Done()
 	}()
 	nh := c.namespace(fmtNS(nc.namespace))
+	report := func(err error) { c.notify(nh, nc, err) }
 	if nh != nil {
-		if _, err := nh.DispatchEvent(nc, "disconnecting", reflect.ValueOf(reason)); err != nil {
-			if onError := nh.ErrorHandler(); onError != nil {
-				onError(nc, err)
-			} else {
-				c.unhandled(nc.namespace, err)
-			}
+		if _, err := nh.DispatchEvent(nc, "disconnecting", report, reflect.ValueOf(reason)); err != nil {
+			report(err)
 		}
 	}
 	if nh != nil {
@@ -177,7 +174,9 @@ func (c *connection) disconnectNamespace(nc *namespaceConn, reason string) {
 	}
 	nc.retireRooms()
 	if nh != nil {
-		nh.NotifyDisconnect(nc, reason)
+		if err := nh.NotifyDisconnect(nc, reason); err != nil {
+			report(err)
+		}
 	}
 	c.finishRetirement(nc)
 

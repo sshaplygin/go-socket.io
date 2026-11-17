@@ -245,14 +245,16 @@ func (s *Session) observePeerClose(conn transport.Conn, err error) {
 // server transports, websocket and the polling server connection, report the violation
 // through ReadLimitError, so the record does not depend on which failure becomes the
 // close cause, such as a write that fails on the transport's own 1009 close frame before
-// the reader returns. A streamed polling read also returns it as err.
+// the reader returns. A streamed polling read also returns it as err. The record is
+// DEBUG: a websocket frame header or a Content-Length that announces more than the limit
+// is enough to cause it, so a peer can repeat it with every connection or session.
 func (s *Session) observeTooLarge(conn transport.Conn, err error) {
 	if limited, ok := conn.(interface{ ReadLimitError() error }); ok && err != nil && limited.ReadLimitError() != nil {
 		err = limited.ReadLimitError()
 	}
 	var limit *http.MaxBytesError
 	if errors.As(err, &limit) && s.tooLarge.CompareAndSwap(false, true) {
-		s.logger().Warn("engineio: message too large", "err", fmt.Errorf("limit %d bytes: %w", limit.Limit, err))
+		s.logger().Debug("engineio: message too large", "err", fmt.Errorf("limit %d bytes: %w", limit.Limit, err))
 	}
 }
 
@@ -280,6 +282,8 @@ func (s *Session) failRead(err error) error {
 // os.ErrDeadlineExceeded, or an error in its chain reports Timeout, as the
 // deadline errors of gorilla/websocket and of the polling payload do. The
 // transports expire deadlines on the monotonic clock; the wall clock can disagree.
+// The polling GET handler answers a poll with CLOSE for the errors it matches;
+// timedOut in engineio/transport/polling/server.go must stay identical.
 func timedOut(err error) bool {
 	var timeout interface{ Timeout() bool }
 	return errors.Is(err, os.ErrDeadlineExceeded) || errors.As(err, &timeout) && timeout.Timeout()

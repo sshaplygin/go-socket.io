@@ -10,6 +10,7 @@ follow the [migration guide](docs/V1.md#migrating-from-googolleego-socketio).
 
 ![Build Status](https://github.com/sshaplygin/go-socket.io/workflows/CI/badge.svg)
 [![GoDoc](https://pkg.go.dev/badge/github.com/sshaplygin/go-socket.io.svg)](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0)
+[![codecov](https://codecov.io/gh/sshaplygin/go-socket.io/graph/badge.svg)](https://codecov.io/gh/sshaplygin/go-socket.io)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
 ## Compatibility

@@ -245,17 +245,6 @@ jobs:
       - name: API and statement coverage
         if: needs.changes.outputs.v1_packages != ''
         run: make cover-check COVER_PROFILE=coverage.out
-      # A failed upload does not fail the job: the floor above is the gate, Codecov is the
-      # public report. Pull requests from forks have no token and upload without one.
-      - name: Upload coverage to Codecov
-        if: needs.changes.outputs.v1_packages != ''
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage.out
-          disable_search: true
-          flags: v1
-          fail_ci_if_error: false
       - name: Install golangci-lint
         # golangci-lint-action lints one working directory; make lint-go also lints each example
         # module, the underscore packages of the root module and the quick-start fixture.
@@ -276,6 +265,21 @@ jobs:
           go version
           go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           make vuln
+      # The last step: the action exports the token to the environment of every later step
+      # of the job. A failed or stalled upload does not fail the job: the coverage floor is
+      # the gate, Codecov is the public report. Pull requests from forks have no token and
+      # upload without one.
+      - name: Upload coverage to Codecov
+        if: needs.changes.outputs.v1_packages != ''
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.out
+          disable_search: true
+          flags: v1
+          fail_ci_if_error: false
 
   lint-v2:
     name: Lint v2

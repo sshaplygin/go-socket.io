@@ -11,9 +11,9 @@ import (
 
 // Transport is the HTTP long-polling transport. Its fields must not be changed
 // while it is in use. An engineio.Server uses a copy of a Transport given to
-// engineio.WithTransports, with Compression, CompressionThreshold and Cookie
-// set from the server's options and CheckOrigin set to the server's origin
-// policy when it is nil.
+// engineio.WithTransports, or of Default when it is given no transports, with
+// Compression, CompressionThreshold and Cookie set from the server's options
+// and CheckOrigin set to the server's origin policy when it is nil.
 type Transport struct {
 	// Client controls HTTP timeouts and connection pooling. Nil uses Default.Client.
 	// For custom limits, use client.WithTransports(&polling.Transport{Client: c}).

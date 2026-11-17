@@ -7,6 +7,10 @@ import "errors"
 // outbound queue (WithWriteBufferSize) full before any close started; a packet being
 // written does not count. Queue admission does not wait for free capacity: that packet
 // and every later one are dropped, and the connection is closed without draining.
+// A typed send (socketio.Event.Emit, socketio.AckEvent.EmitWithAck) also returns it:
+// on a connected namespace together with that report and close, and before the
+// namespace CONNECT reply, when the Client's pre-connect buffer is full, with no
+// report and no close.
 // Emit encodes arguments synchronously and may invoke application marshalers.
 // An overflow in OnConnect is reported with that namespace's Conn and closes the
 // Engine.IO connection; it does not change the result of Connect.

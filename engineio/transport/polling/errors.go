@@ -38,7 +38,8 @@ func (e *OpError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Op, e.Err.Error())
 }
 
-// Timeout reports whether Err is an expired read or write deadline.
+// Timeout reports whether Err reports a timeout through a Timeout method, as an
+// expired read or write deadline does and, on the client, a timed-out HTTP request.
 func (e *OpError) Timeout() bool {
 	if oe, ok := e.Err.(interface{ Timeout() bool }); ok {
 		return oe.Timeout()

@@ -84,7 +84,8 @@ func loggerFrom(opts *options) *slog.Logger {
 // adapters implementing io.Closer. It waits for in-progress namespace construction.
 // The wait is bounded by ten seconds; on timeout it logs remaining connections and
 // shutdown keeps running in the background.
-// A factory configured after Close is not invoked for new namespaces. Serve returns nil.
+// After Close, no factory is invoked for new namespaces, whether it was configured
+// before or after Close. Serve returns nil.
 // Completed shutdown returns the engine and adapter close errors joined together.
 // A timed-out wait returns an error wrapping context.DeadlineExceeded that states
 // how many connections were still open; when the engine and adapters had closed by
@@ -326,7 +327,10 @@ func (s *Server) broadcastOf(namespace string) adapter.Adapter {
 	return nil
 }
 
-// JoinRoom joins a live connection owned by this server to the room.
+// JoinRoom joins a live connection owned by this server to the room. It returns
+// false, doing nothing, when the namespace has no handler, its adapter could not
+// be created, or connection is not a connected socket of that namespace on this
+// server.
 func (s *Server) JoinRoom(namespace string, room string, connection Conn) bool {
 	nc := s.roomSocket(namespace, connection)
 	if nc == nil {
@@ -337,7 +341,8 @@ func (s *Server) JoinRoom(namespace string, room string, connection Conn) bool {
 	return true
 }
 
-// LeaveRoom removes a live connection owned by this server from the room.
+// LeaveRoom removes a live connection owned by this server from the room. It
+// returns false, doing nothing, in the cases where JoinRoom does.
 func (s *Server) LeaveRoom(namespace string, room string, connection Conn) bool {
 	nc := s.roomSocket(namespace, connection)
 	if nc == nil {
@@ -348,7 +353,8 @@ func (s *Server) LeaveRoom(namespace string, room string, connection Conn) bool 
 	return true
 }
 
-// LeaveAllRooms removes a live connection owned by this server from all rooms.
+// LeaveAllRooms removes a live connection owned by this server from all rooms. It
+// returns false, doing nothing, in the cases where JoinRoom does.
 func (s *Server) LeaveAllRooms(namespace string, connection Conn) bool {
 	nc := s.roomSocket(namespace, connection)
 	if nc == nil {
@@ -456,6 +462,8 @@ func (s *Server) Remove(sid string) {
 }
 
 // ForEach visits the local members of room through their minimal adapter.Socket contract.
+// It returns false, doing nothing, when the namespace has no handler or its
+// adapter could not be created.
 func (s *Server) ForEach(namespace string, room string, f adapter.EachFunc) bool {
 	bc := s.broadcastOf(namespace)
 	if bc != nil {

@@ -53,11 +53,13 @@ type RemoteError = event.RemoteError
 // listeners, event middleware (Conn.Use), ACK callbacks and OnDisconnect: the
 // namespace's OnError receives the PanicError, possibly wrapped, so errors.As
 // identifies it, and without OnError it is logged at WARN as
-// "socketio: handler panic" with its stack (see Server.OnError); so is a panic in
-// an OfFunc match function. An error result whose Error method panics is
-// reported as one too. The Go client's OnError receives one for a panic in a typed
-// handler, and without OnError the client logs it the same way. Value is the value passed
-// to panic and Stack the panicking goroutine's stack from runtime/debug.Stack.
+// "socketio: handler panic" with its stack (see Server.OnError). A panic in an
+// OfFunc match function is logged in the same way (see Server.OfFunc). An error
+// result whose Error method panics is reported as one too. In the Go client, the
+// OnError of the handler's namespace receives one for a panic in a typed handler,
+// and without that OnError the client logs it the same way. Value is the value
+// passed to panic and Stack the panicking goroutine's stack from
+// runtime/debug.Stack.
 // *PanicError implements error; Error returns "panic: " followed by Value, and
 // Unwrap returns Value when it is an error. The peer never receives Value: it gets
 // the fixed text "internal error" where it gets a message.
@@ -70,7 +72,9 @@ var (
 	ErrInvalidEventName = event.ErrInvalidEventName
 	// ErrDuplicateEvent means a typed registration would replace an existing listener.
 	ErrDuplicateEvent = event.ErrDuplicateEvent
-	// ErrUnsupportedEndpoint means the endpoint lacks typed sending support.
+	// ErrUnsupportedEndpoint means the endpoint lacks typed sending support, the
+	// endpoint or Emitter of a typed send is nil, or a typed registration got a
+	// nil registration or a nil or zero ServerNamespace.
 	ErrUnsupportedEndpoint = event.ErrUnsupportedEndpoint
 	// ErrInvalidPayload means an event does not contain exactly one value of its type.
 	ErrInvalidPayload = event.ErrInvalidPayload

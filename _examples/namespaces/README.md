@@ -29,11 +29,14 @@ NODE_PATH=/path/to/node_modules node client.js http://127.0.0.1:8000
 ```
 
 A successful run exits zero; connection failures, assertion failures and the
-10 second deadline exit nonzero. From the repository root, the shared runner
-builds each example and starts it on a free local port:
+10 second deadline exit nonzero. From the repository root, with Redis listening
+on TCP and a Unix socket, the shared runner builds each example and starts it on a
+free local port:
 
 ```sh
-CONFORMANCE_NODE_MODULES=/path/to/node_modules make examples-node
+CONFORMANCE_NODE_MODULES=/path/to/node_modules \
+CONFORMANCE_REDIS_ADDR=127.0.0.1:6379 \
+CONFORMANCE_REDIS_SOCKET=/path/to/redis.sock make examples-node
 ```
 
 See [the examples index](../README.md).

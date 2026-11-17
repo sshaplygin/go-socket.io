@@ -5,10 +5,9 @@
 // # Variables
 //
 // Log is the fallback logger: the Socket.IO parser, the transports,
-// engineio/parser, engineio/client (its dialer, pings and upgrade probes) and
-// the Redis adapter log through it, whatever WithLogger is set to, and it writes
-// to whatever slog.Default() is when a record is logged. Level is the library log
-// level described below.
+// engineio/parser, engineio/client and the Redis adapter log through it,
+// whatever WithLogger is set to, and it writes to whatever slog.Default() is
+// when a record is logged. Level is the library log level described below.
 // To route library records, use the server/client role's WithLogger option or call
 // slog.SetDefault; assigning Log bypasses Wrap.
 //
@@ -65,7 +64,7 @@
 // connects to that namespace, and the full write buffer once for a session. A
 // client that does not read what the server sends it can cause the full write
 // buffer. The Go client logs "socketio: handler panic", with the stack, for a
-// panic of a typed handler when it has no OnError.
+// panic of a typed handler when the handler's namespace has no OnError.
 //
 // Expected closure of a session (EOF, a closed connection, a peer close, a
 // ping timeout and any failure after a close started other than a recovered
@@ -82,8 +81,8 @@
 //	^(engineio|socketio|logger): [a-z][a-z0-9 ]*$
 //
 // prefixed engineio for the engineio packages, socketio for the root package,
-// the parser and the Redis broadcast, and logger for this package. Attribute
-// keys come only from this list:
+// the client package, the parser and the Redis broadcast, and logger for this
+// package. Attribute keys come only from this list:
 //
 //   - sid: the engine.io session id
 //   - nsp: the namespace; the root namespace is "/"
@@ -95,7 +94,6 @@
 //   - duration: how long a session was open
 //   - event: the event name
 //   - ack_id: the acknowledgement id
-//   - type: the packet type
 //   - value: an invalid setting, such as SOCKETIO_LOG_LEVEL
 //   - stack: the goroutine stack of a recovered panic, from runtime/debug.Stack
 //

@@ -24,10 +24,13 @@ var ErrAdapterClosed = errAdapterClosed
 // Expiry of that configured bound returns ErrRequestTimeout; cancellation or
 // expiry of ctx returns its error. Calls also report transport errors and
 // ErrAdapterClosed after closure. Mutations do not roll back completed changes.
+// A sid argument is a namespace socket ID as socketio.Conn.ID returns it, which
+// outside the root namespace differs from the Engine.IO session ID.
 // Cluster is implemented by the library, and a minor release may add methods to it.
 type Cluster interface {
 	adapter.Adapter
-	// IDsContext returns the namespace's socket IDs in the room union, or all IDs.
+	// IDsContext returns the namespace's socket IDs in the room union, or, with no
+	// rooms, the IDs of the sockets in at least one room (see adapter.Memory.IDs).
 	// A timeout returns validated partial results with the deadline error.
 	IDsContext(ctx context.Context, rooms ...string) ([]string, error)
 	// AllRoomsContext returns cluster rooms; timeouts preserve validated partial results.

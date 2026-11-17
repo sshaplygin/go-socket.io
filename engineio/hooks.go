@@ -11,7 +11,8 @@ import (
 // Hooks observes Engine.IO connection and transport events. A nil callback is
 // ignored; other callbacks run synchronously on the goroutine of the event.
 // Header values are borrowed for the call: a hook retaining them must copy them.
-// Install hooks with WithHooks before accepting connections.
+// NewServer keeps the *Hooks given to WithHooks and reads its fields while it
+// serves requests: set them before the server accepts connections.
 type Hooks struct {
 	// Connection fires once per session, after its handshake response and before
 	// Accept returns it; c.ReadyState() is StateOpen in the hook.

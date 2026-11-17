@@ -291,7 +291,8 @@ func WithLogger(value *slog.Logger) Option {
 	return func(config *options) { config.Logger = value }
 }
 
-// WithTransports sets transports in dial/upgrade order. The slice is copied for each instance.
+// WithTransports sets transports in upgrade order: a handshake may use any of them, and a
+// session may upgrade only to a later one. The slice is copied for each instance.
 // The server uses a copy of each polling.Transport and websocket.Transport and sets
 // some fields of the copy from its own options; the godoc of those types lists them.
 func WithTransports(values ...transport.Transport) Option {

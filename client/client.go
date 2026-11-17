@@ -85,19 +85,24 @@ func (c *Client) OnEvent(event string, f interface{}) { c.manager.OnEvent(event,
 // OnReconnectAttempt sets the callback before each automatic dial; nil removes it.
 func (c *Client) OnReconnectAttempt(f func(attempt int)) { c.manager.OnReconnectAttempt(f) }
 
-// OnReconnect runs after the engine opens, before namespace CONNECT packets are sent.
+// OnReconnect sets the callback that runs after an automatic reconnection opens the
+// engine, before namespace CONNECT packets are sent; nil removes it. A dial by
+// Client.Connect or Socket.Connect does not call it.
 func (c *Client) OnReconnect(f func(attempt int)) { c.manager.OnReconnect(f) }
 
 // OnReconnectError sets the callback for a failed automatic dial; nil removes it.
 func (c *Client) OnReconnectError(f func(err error)) { c.manager.OnReconnectError(f) }
 
-// OnReconnectFailed runs when the automatic attempt limit is exhausted.
+// OnReconnectFailed sets the callback that runs when the automatic attempt limit is
+// exhausted; nil removes it.
 func (c *Client) OnReconnectFailed(f func()) { c.manager.OnReconnectFailed(f) }
 
-// OnPing runs on the engine ping goroutine after a PING write and must not block.
+// OnPing sets the callback that runs on the engine ping goroutine after a PING write;
+// it must not block, and nil removes it.
 func (c *Client) OnPing(f func()) { c.manager.OnPing(f) }
 
-// OnPong runs on the engine reader with the PING round trip and must not block.
+// OnPong sets the callback that runs on the engine reader with the PING round trip;
+// it must not block, and nil removes it.
 func (c *Client) OnPong(f func(latency time.Duration)) { c.manager.OnPong(f) }
 
 // Socket returns the namespace socket, creating it. A namespace query is carried

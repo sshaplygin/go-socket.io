@@ -25,7 +25,8 @@ V1 has no standalone changelog or completed-stage ledger. Git commits and PRs
 record changes; release documentation describes the API, defaults, supported
 behavior and limitations. The single exception is
 [docs/V1_RELEASE_REVIEW.md](docs/V1_RELEASE_REVIEW.md), which tracks the progress
-of the v1.5.0 release work item by item. Do not retain compatibility stubs solely for an
+of the v1.5.0 release review's work plan item by item, including the items that
+follow the tag. Do not retain compatibility stubs solely for an
 unreleased intermediate API. V2 changes follow its own roadmap and changelog.
 
 ## Releases

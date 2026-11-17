@@ -23,8 +23,8 @@ follow the [migration guide](docs/V1.md#migrating-from-googolleego-socketio).
 The client versions and the reference server that the v1 interoperability checks use
 are listed in [docs/PARITY.md](docs/PARITY.md).
 V1 protocol details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md). The parts of
-the socket.io 2.x JavaScript API without a counterpart are listed in
-[docs/V1.md](docs/V1.md#differences-from-the-socketio-2x-javascript-api).
+the socket.io 2.x JavaScript API without a counterpart, or with a different one, are
+listed in [docs/V1.md](docs/V1.md#differences-from-the-socketio-2x-javascript-api).
 
 ## Install
 

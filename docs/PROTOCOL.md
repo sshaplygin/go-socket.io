@@ -48,7 +48,8 @@ Package `engineio` of the v1 module at the repository root.
   Sessions are looked up by `sid`; an unknown `sid` is HTTP 400. Server GET responses
   coalesce complete packets for up to 1 ms idle or 5 ms total, at most 64 packets or 256 KiB checked
   between packets. A single packet can exceed that batching byte budget. A change
-  in compression preference starts the next response; cancellation fails the transport.
+  in compression preference starts the next response. A pending poll whose request
+  is cancelled, as when the client aborts it, ends the session with `transport error`.
 - WebSocket: one packet per message; a binary message starts with the packet type byte.
   The optional permessage-deflate extension is off by default, with a 1024-byte
   encoded-packet threshold when enabled. The Go client offers it when configured,
@@ -65,24 +66,27 @@ Package `engineio` of the v1 module at the repository root.
   both on a direct websocket connection and after a polling-to-websocket upgrade;
   without it, it writes binary messages. Binary messages are accepted in either
   mode; socket.io-client 1.7.4 under Node sends them despite `forceBase64`.
-  A server-initiated websocket close, such as `Conn.Close`, `Server.Close`, a
-  client `CLOSE` packet or a ping timeout, sends a close frame with code 1000 before
-  the TCP connection is closed, as engine.io 3.6.2 does, so the client observes close
-  code 1000. The server then waits up to 250 ms for the client's closing reply, so
-  that the TCP close does not reset it (ws 1.1.5, used by socket.io-client 1.7.4 under
-  Node, reports a reset as 1006 even after it read the frame), and closes the TCP
-  connection. The frame is written with a 500 ms deadline: a peer that has stopped
-  reading or does not reply delays the close by at most that long and then sees the
-  connection drop (1006). `engineio.Abort`, and a session that failed with a transport
-  error, drop the connection without a frame, so the client observes 1006; so can a
+- Server-initiated websocket close: `Conn.Close`, `Server.Close`, a client `CLOSE`
+  packet and a ping timeout close an established websocket in three steps; engine.io
+  3.6.2 also sends the 1000 frame before it closes the TCP connection:
+  1. The server writes a close frame with code 1000, with a 500 ms write deadline.
+  2. It waits up to 250 ms for the client's closing reply, so that the TCP close does
+     not reset it: ws 1.1.5, used by socket.io-client 1.7.4 under Node, reports a
+     reset as 1006 even after it read the frame.
+  3. It closes the TCP connection.
+
+  The client observes close code 1000. A peer that has stopped reading or does not
+  reply delays the close by at most the 500 ms write deadline and then sees the
+  connection drop (1006).
+  The reference clients report the close frame as `transport close`, and so does the
+  Go client for codes 1000 and 1001 and for a frame without a code, which engine.io
+  3.6.2 sends; other codes, such as 1009 or 1011, remain `transport error`.
+- Websocket closes without that frame: `engineio.Abort` and a session that failed
+  with a transport error drop the connection, so the client observes 1006; so can a
   connection that resets before the client reads the frame, for example when the
-  server still has unread client data. An upgrade probe the session has not
-  switched to is not an established connection and is the exception: a session
-  closed while it is a probe drops it without a frame (1006), see the upgrade
-  bullet below. The message-limit close below sends code 1009. The reference
-  clients report the close frame as `transport close`, and so does the Go client for
-  codes 1000 and 1001 and for a frame without a code, which engine.io 3.6.2 sends;
-  other codes, such as 1009 or 1011, remain `transport error`.
+  server still has unread client data. A session closed while an upgrade probe is in
+  progress drops the probe, which is not yet the session's connection, without a
+  frame (upgrade bullet below). The message-limit close below sends code 1009.
 - `Server.Close` answers a polling session's pending poll with HTTP 500, and a poll
   that arrives after the close with HTTP 400, so a polling client reports `transport
   error` (in the Go client, `OnDisconnect` reason `transport error`); engine.io 3.6.2
@@ -125,6 +129,30 @@ Package `engineio` of the v1 module at the repository root.
   response (default io, Path=/, HttpOnly, SameSite=Strict). The cookie's attributes
   and name are configurable, and it can be disabled. A websocket-first handshake
   sets no cookie, matching engine.io 3.6.2.
+- Polling request I/O: for a POST with a supported request deadline and no
+  `http.Server.ReadTimeout`, the session decoder reads the body directly and that
+  deadline interrupts a stalled read. Otherwise the handler streams the body through
+  a pipe, so an unsupported or server-bounded body read cannot hold the session open.
+  A GET response is written by its handler after the session has filled it. A
+  client that stops sending or reading therefore never keeps a session open, and a
+  second request of the same kind during that I/O is refused as an overlap. Where
+  `http.NewResponseController` supports deadlines, the body read and the response
+  write follow the heartbeat window, within the `http.Server`'s `ReadTimeout` or
+  `WriteTimeout`; a read or write that such a deadline ends closes the session with
+  `ping timeout`. Over HTTP/1.x a response that fits net/http's buffer is written
+  there even after `WriteTimeout` has expired; net/http fails to send it once the
+  handler has returned, and the session does not see the loss
+  ([deployment](V1.md#deployment)).
+  A close interrupts an incomplete POST body. An
+  orderly close (`Conn.Close`, `engineio.Conn.Close`) lets the response carrying
+  CLOSE keep its deadline, so the packet reaches a slow client; the session stays
+  live until that response is written, until `Server.Close` or `engineio.Abort`, or
+  for at most 30 seconds. `Server.Close` and `engineio.Abort` interrupt a started
+  response at once, also during that wait and on the polling connection an upgrade
+  replaced. Behind a `ResponseWriter` wrapper without deadline support or `Unwrap`, a
+  response cannot be interrupted: the session still ends as above, and the handler
+  goroutine alone waits until the client or the server's own timeouts end the
+  request.
 - Message limit: `WithMaxHTTPBufferSize`, default 1e6 bytes. A longer polling POST
   body is answered HTTP 413 (plain text) and closes the session; a longer websocket
   message closes the connection with close code 1009. A client can see 1006 instead
@@ -274,10 +302,25 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   that a peer's packets and requests cause.
 - Binary attachments are replaced by `{"_placeholder":true,"num":N}` and sent as
   following binary frames; on the Go side they map to `parser.Buffer`.
+- The server sends no EVENT named `connect`, `disconnect`, `disconnecting` or
+  `error` and discards incoming ones
+  ([lifecycle names](V1.md#connections-and-namespaces),
+  [broadcasts](V1.md#rooms-and-broadcasting)). socket.io-client 1.7.4 and 2.5.0 send
+  `disconnecting` as an ordinary event. socket.io 2.5.0 keeps these four names
+  local for `socket.emit` and for a broadcast started from a socket
+  (`socket.to(room).emit`, `socket.broadcast.emit`), where it runs the sender's
+  listeners and none of the recipients'. Its namespace or room broadcast (`io.emit`,
+  `io.to(room).emit`) sends `error`, `disconnect` and `disconnecting` to the clients
+  and keeps `connect` local. The Go client's local names are listed in
+  [V1.md](V1.md#connections-and-namespaces).
 - Event handlers return values become the ACK payload; an ACK packet is sent when the
   client requested an ack and a listener handled the event. Emitting with a trailing
   function argument registers an ack callback; it runs for the first ACK with its id,
-  and a repeated ACK id is ignored, as in the reference. When an event's arguments do not
+  and a repeated ACK id is ignored, as in the reference. What follows a
+  decode error of an untyped handler's arguments depends on the error, not on the
+  JSON value: `encoding/json` returns a `*json.UnmarshalTypeError` for a value that
+  does not fit the Go type, such as a string for an `int` parameter or struct field.
+  When an event's arguments do not
   decode into an untyped handler's parameter types with a `*json.UnmarshalTypeError`,
   for example a string for an `int`, the handler does not run and the connection stays open. This holds for
   the server and for the Go client alike. If the peer requested an ack, the
@@ -289,13 +332,17 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
   `encoding/json`, and a build with `GOEXPERIMENT=jsonv2` can word it differently. A
   JavaScript callback, or the callback of a Go `Emit` with an acknowledgement, is called
   with that object as its only argument, and `EmitWithAck` returns a
-  `*RemoteError` with code `invalid_payload`; without an ACK id nothing is sent. The decode error goes to `OnError` in both cases. A binary
+  `*RemoteError` with code `invalid_payload`; without an ACK id nothing is sent. The decode error goes to `OnError` in both cases. A Go callback whose
+  parameters cannot decode that error object reports a decode error instead of
+  being called. A binary
   attachment where an `int` is expected is such an error as well. Any other error decoding the arguments for an untyped handler, such as
   the one `Time.UnmarshalJSON` returns for `"bad"` or an attachment sent as a text
-  frame, goes to `OnError` and closes the connection with no ACK. The
+  frame, closes the connection without an ACK after the `OnError` call. The
   arguments of an ACK decoded into an `Emit` callback follow the same rule: the
   error is reported to `OnError`, the callback is not called, and the connection
-  closes unless the error is a `*json.UnmarshalTypeError`. A missing argument is zero-filled and extra arguments are ignored, so
+  closes unless the error is a `*json.UnmarshalTypeError`. Which error a value
+  produces is decided by `encoding/json` and can differ under `GOEXPERIMENT=jsonv2`.
+  A missing argument is zero-filled and extra arguments are ignored, so
   the handler runs and its return value is the ACK. A packet that is not valid
   (an event payload that is not an array) closes the
   connection and sends no ACK. The reference server has no equivalent, because its
@@ -341,7 +388,9 @@ The v1 module at the repository root: the `socketio` package and `parser` (`pars
 A Socket.IO packet may contain at most 10 binary attachments. Encoding counts
 only attachments referenced by the encoded JSON and rejects a larger packet
 before writing any frames; decoding rejects a header declaring more than 10
-attachments. JSON field selection applies to embedded and private fields.
+attachments. The encoder writes the struct fields that `encoding/json` would write,
+with its rules for embedded and unexported fields, and finds attachments only in
+those fields.
 Except for `parser.Buffer`, values implementing JSON or text marshaling use
 their marshaled representation; their fields are not inspected for binary
 attachments.

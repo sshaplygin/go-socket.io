@@ -12,6 +12,8 @@ STRESS_PKGS := . ./adapter/... ./client/... ./parser ./engineio/...
 # Statement coverage and exported-function coverage requirements.
 COVER_FLOOR := 91.7
 API_UNCOVERED_MAX := 0
+# When set, cover-check also keeps its statement profile at this path (CI uploads it).
+COVER_PROFILE ?=
 
 .PHONY: all
 all:
@@ -131,6 +133,7 @@ cover-check:
 	profile=$$(mktemp); summary=$$(mktemp); annotated=$$(mktemp); \
 	trap 'rm -f "$$profile" "$$summary" "$$annotated"' 0; \
 	go test -count=1 -coverpkg=./... -coverprofile="$$profile" ./...; \
+	if [ -n "$(COVER_PROFILE)" ]; then cp "$$profile" "$(COVER_PROFILE)"; fi; \
 	go tool cover -func="$$profile" >"$$summary"; \
 	go test -count=1 ./.github/coverage; \
 	go run ./.github/coverage -profile "$$profile" -summary "$$summary" -root . -module "$$(go list -m)" >"$$annotated"; \

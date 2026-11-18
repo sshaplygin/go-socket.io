@@ -220,6 +220,10 @@ func TestClassify(t *testing.T) {
 		{name: "browser test", edit: map[string]string{
 			"internal/browsertest/client_js_test.go": "package browsertest\n\nimport (\n\t\"testing\"\n\n\t\"example.com/m/client\"\n)\n\nfunc TestClient(t *testing.T) { _ = client.Dial() + 1 }\n",
 		}, want: with(map[string]string{"gates_v1": "true", "browser_v1": "true"})},
+		// Only the browser job runs the js-only test files of client.
+		{name: "js-only test file of client", edit: map[string]string{
+			"client/platform_js_test.go": "package client\n\nimport \"testing\"\n\nfunc TestPlatform(t *testing.T) { _ = platform() }\n",
+		}, want: with(map[string]string{"v1": "true", "v1_packages": "./client", "browser_v1": "true"})},
 		{name: "comment in a js-only file", edit: map[string]string{
 			"engineio/transport/browser/dial_js.go": "package browser\n\n// dial uses the WebSocket of the browser.\nfunc dial() int { return 1 }\n",
 		}, want: lintV1},

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
+	"io"
 	"os/exec"
 	"path"
 	"path/filepath"
@@ -424,6 +426,24 @@ type result struct {
 	packages, bench                                         []string
 }
 
+// jsOnly reports whether the GOOS=js GOARCH=wasm build compiles the Go file of c and the
+// native builds of CI (linux, darwin, windows) do not, by file name or build constraint.
+func jsOnly(c change) bool {
+	src := c.after
+	if src == nil {
+		src = c.before
+	}
+	match := func(goos, goarch string) bool {
+		ctxt := build.Default
+		ctxt.GOOS, ctxt.GOARCH = goos, goarch
+		ctxt.OpenFile = func(string) (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(src)), nil }
+		ok, err := ctxt.MatchFile(".", path.Base(c.name))
+		return err == nil && ok
+	}
+	return strings.HasSuffix(c.name, ".go") && match("js", "wasm") &&
+		!match("linux", "amd64") && !match("darwin", "arm64") && !match("windows", "amd64")
+}
+
 // browserPackages are the v1 packages whose tests the browser job runs, with the fixture
 // server they run against. A change reaches them through their dependencies too: the
 // client and, through the fixture server, the root package and engineio.
@@ -487,6 +507,10 @@ func (d *decision) result(mod, root string) (result, error) {
 	if mod == v1 {
 		for _, dir := range browserPackages {
 			r.browser = r.browser || tested[g.module+"/"+dir] != nil
+		}
+		// Only the browser job runs the code of a file that js/wasm alone compiles.
+		for _, c := range m.changes {
+			r.browser = r.browser || jsOnly(c)
 		}
 	}
 	run := map[string]*pkg{}

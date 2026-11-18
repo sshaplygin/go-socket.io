@@ -99,9 +99,9 @@ and run the conformance build tag when selected. The classifier also lists the
 packages for `GOOS=js GOARCH=wasm` and with the `browsertest` tag; those listings
 never add a package to the native test jobs. `browser_v1` selects the `test-v1-browser`
 job (`make test-browser BROWSER_COUNT=3` on Linux, Go stable, part of `ci-ok`) on a
-full run or when the selected tests include `internal/browsertest`, its fixture server or
+full run, when the selected tests include `internal/browsertest`, its fixture server or
 `engineio/transport/browser`, which a change of the client, the root package or
-`engineio` reaches. Source changes run tests;
+`engineio` reaches, and when the code of a Go file that only js/wasm compiles changes. Source changes run tests;
 ordinary comment/formatting changes run lint. Example changes select their
 build and interoperability jobs. Module, workflow and unclassified changes
 select all jobs. Pushes to `master`, scheduled runs and manual runs test both

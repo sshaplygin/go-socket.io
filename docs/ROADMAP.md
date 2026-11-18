@@ -1083,12 +1083,15 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
   dial, reconnections included. No negotiation or autodetection, as in Node, where both ends
   are built with the same parser. No frozen declaration changes ([API.md](API.md#not-frozen)).
 - **Code.** `parser` gains `EncodeMessagePack(Packet, Limits) ([]byte, error)` and
-  `DecodeMessagePack([]byte, Limits) (Packet, error)` beside the 2.3P codec, with its sentinel
-  errors. The bounded reader of `adapter/codec` (`mpread.go`) moves to the new package
-  `internal/mpack` (standard library only), with a writer and the extensions below as a
-  reader option; `adapter/codec` keeps refusing extensions, its tests and fixtures unchanged.
-  `TestForbiddenEdge` and the API.md graph allow `parser` and `adapter/codec` to import
-  `internal/mpack`; `go.mod` does not change.
+  `DecodeMessagePack([]byte, Limits) (Packet, error)` beside the 2.3P codec; they return the
+  existing sentinels (`ErrInvalid`, `ErrTooLarge`, `ErrTooManyAttachments`, `ErrDepth`,
+  `ErrAttachments`) and add none. The bounded reader of `adapter/codec` (`mpread.go`) moves to
+  the new package `internal/mpack` (standard library only, importing nothing of this module),
+  with a writer and two reader options, both off for `adapter/codec`: the extensions below
+  and the rejection of duplicate map keys. So `adapter/codec` keeps its behaviour, tests and
+  fixtures. `TestForbiddenEdge` gains both rules (`internal/mpack` imports nothing of the
+  module; only `parser` and `adapter/codec` import it), the API.md graph gains the `parser`
+  edge, and `go.mod` does not change.
 - **Wire.** A packet is one MessagePack map with the keys `type` (0 to 4), `nsp` (a string),
   `data` and `id`, the last two absent when unset; types 5 and 6 do not exist in this format,
   and binary values are `bin` values inside `data`. Every Socket.IO packet is one Engine.IO
@@ -1115,9 +1118,11 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
   `DefaultMaxDepth`, 64) bounds the arrays and maps in `data`, with the 10000-level ceiling
   of `ErrDepth` whatever `MaxDepth` is. Each declared str, bin, ext, array or map length is
   checked against the bytes left before any allocation. Truncation, trailing bytes, an empty
-  message, invalid UTF-8, a non-string or duplicate map key, NaN or an infinity, another
-  extension type, and a missing `type` or `nsp` are `ErrInvalid`; nothing panics. The
-  attachment timeout does not apply: a packet is one message.
+  message, invalid UTF-8, a non-string or duplicate map key, NaN or an infinity, any other
+  extension, a map shaped like a placeholder (`{_placeholder: true, num: N}`, which could not
+  be told from a binary value, as in `adapter/codec`) and a missing `type` or `nsp` are
+  `ErrInvalid`; nothing panics. The attachment timeout does not apply: a packet is one
+  message.
 - **Runtime.** The root reader decodes each binary message with `DecodeMessagePack` and the
   writer sends one binary message per packet, under the 2.3S limit and error mapping
   (`ErrMessageTooLarge`, `ErrTooManyAttachments`). A text Socket.IO message where MessagePack
@@ -1126,9 +1131,12 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
   the Go client too, with no CONNECT_ERROR and no handler run. Socket.IO hooks receive the
   same values in both formats; `PacketRead` and `PacketWrite` report a binary `Frame`; the
   2.4S redactor returns an empty `Preview` for a MessagePack packet (fail closed).
-- **Deviations from Node** (V2_PROTOCOL records them): Node returns `[type, bytes]` for another
-  extension type, keeps the last of duplicate keys, converts other key types to strings,
-  accepts NaN and infinities and checks only the types of `nsp` and `id`; Go rejects each.
+- **Deviations from Node** (V2_PROTOCOL records them): Node returns `[type, bytes]` for any
+  other extension, keeps the last of duplicate keys, converts other key types to strings,
+  replaces invalid UTF-8 by U+FFFD, accepts NaN, infinities and placeholder-shaped maps, and
+  checks only the types of `nsp` and `id`; Go rejects each. `adapter/codec` keeps refusing
+  extensions, so a Node peer of the M5 mixed Redis cluster that broadcasts an `ArrayBuffer`
+  (ext type 0) is rejected there; M5 acceptance records it.
 - **Node oracle.** `parser/testdata/msgpack` pins `socket.io-msgpack-parser` 3.0.2,
   `socket.io` and `socket.io-client` 4.8.4 in its `package-lock.json`, with a Go bridge and
   `verify.mjs` as in `parser/testdata/oracle`. Node encodes the corpus (the 2.3P oracle cases,

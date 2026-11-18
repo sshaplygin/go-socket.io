@@ -62,6 +62,21 @@ func TestNamespacesEventsAndAcks(t *testing.T) {
 	}
 }
 
+// The fixture's kick disconnects its namespace only.
+func TestServerNamespaceDisconnect(t *testing.T) {
+	_, sockets := connect(t, "/socket.io/", []string{"/", "/admin"})
+	reasons := make(chan string, 2)
+	for _, s := range sockets {
+		s.OnDisconnect(func(c client.Conn, reason string) { reasons <- c.Namespace() + " " + reason })
+	}
+	sockets[1].Emit("kick")
+	require.Equal(t, "/admin io server disconnect", receive(t, reasons, "disconnect"))
+	acks := make(chan string, 1)
+	sockets[0].Emit("echo", "still", func(value string) { acks <- value })
+	require.Equal(t, "still", receive(t, acks, "ACK on /"))
+	require.Empty(t, reasons)
+}
+
 func TestBinaryPayloads(t *testing.T) {
 	_, sockets := connect(t, "/socket.io/", []string{"/"})
 	payload := []byte{0, 1, 127, 128, 255}

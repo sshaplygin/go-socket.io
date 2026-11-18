@@ -88,8 +88,8 @@ func (f *fixture) register(nsp *socketio.ServerNamespace) {
 		r.order = append(r.order, fmt.Sprintf("%d:%d", g, i))
 	})
 	nsp.OnEvent("order-result", func(c socketio.Conn) []string { return c.Context().(*record).order })
-	// The namespace disconnect: DISCONNECT for every namespace, then the engine closes.
-	nsp.OnEvent("kick", func(c socketio.Conn) { go func() { _ = c.Close() }() })
+	// The namespace disconnect: DISCONNECT for this namespace; the others stay connected.
+	nsp.OnEvent("kick", func(c socketio.Conn) { go c.Disconnect() })
 	// The engine close: the event "closing", then a websocket close frame with code 1000,
 	// or CLOSE over polling. The event is written on the engine connection itself, so that
 	// it precedes the close: an Emit is written later by the connection's writer.

@@ -240,6 +240,7 @@ defined by the stage named; all are additions to the frozen declarations.
 | `client/`, with the v1 names of ROADMAP 2.3 *v1 continuity*: `New`, the v1 `With*` options except `WithPerMessageDeflate`, with `WithAuth` and the reconnection options, `Client.Connect`, `Client.Close`, `Client.OnConnect`, `Client.OnDisconnect`, `Client.OnError` and the reconnect callbacks; `*Client` implements `ClientRegistration` | 2.3C |
 | The legacy fields of `engineio.Options` outside the two above, including `WriteBufferSize` | 2.1 |
 | `DisableCORS` on `engineio.Options` and `polling.Transport` | 2.1 (PR E2b) |
+| `parser.Format` with `FormatJSON` (the zero value) and `FormatMessagePack`, `parser.EncodeMessagePack` and `parser.DecodeMessagePack`; the field `Options.Parser` and the client option `WithParser` ([ROADMAP 2.3M](ROADMAP.md#23m-opt-in-messagepack-parser)) | 2.3M, after M3A |
 
 ### Gate evidence
 

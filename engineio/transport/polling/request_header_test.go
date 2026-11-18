@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"sync"
@@ -24,10 +25,12 @@ type recordedRequest struct {
 }
 
 // headerRecorder is an Engine.IO polling endpoint that records every request.
-// It answers the handshake with OPEN, holds polls open until the client
-// cancels them, and accepts POSTs.
+// It answers the handshake with OPEN, answers the first answerPolls polls with
+// NOOP, holds later polls open until the client cancels them, and accepts
+// POSTs.
 type headerRecorder struct {
-	open []byte
+	open        []byte
+	answerPolls int
 
 	mu       sync.Mutex
 	requests []recordedRequest
@@ -66,6 +69,14 @@ func (h *headerRecorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && sid == "":
 		_, _ = w.Write(h.open)
 	case r.Method == http.MethodGet:
+		h.mu.Lock()
+		answer := h.answerPolls > 0
+		h.answerPolls--
+		h.mu.Unlock()
+		if answer {
+			_, _ = w.Write([]byte("1:6"))
+			return
+		}
 		<-r.Context().Done()
 	default:
 		_, _ = io.Copy(io.Discard, r.Body)
@@ -166,4 +177,139 @@ func TestDialContentTypeKeepsCallerHeader(t *testing.T) {
 	for _, r := range requests {
 		require.Equal(t, "1", r.header.Get("X-Test"), "%s (sid %q)", r.method, r.sid)
 	}
+}
+
+// keyDeletingRoundTripper deletes a header key from each request it sends, as
+// Go's Fetch round trip does with its js.fetch:* options under js/wasm.
+type keyDeletingRoundTripper struct {
+	key  string
+	next http.RoundTripper
+}
+
+func (rt keyDeletingRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	r.Header.Del(rt.key)
+	return rt.next.RoundTrip(r)
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// exchangeRepeatedly opens a polling connection to srv through httpClient and
+// makes it send the handshake, three POSTs and two polls: the recorder answers
+// the first poll with NOOP, which the test reads, so a second poll follows.
+func exchangeRepeatedly(t *testing.T, h *headerRecorder, srv *httptest.Server, httpClient *http.Client, query string, header http.Header) []recordedRequest {
+	t.Helper()
+	u, err := url.Parse(srv.URL + "/?" + query)
+	require.NoError(t, err)
+	t.Cleanup(httpClient.CloseIdleConnections)
+	cc, err := dial(httpClient, u, header)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, cc.Close()) })
+	_, err = cc.Open()
+	require.NoError(t, err)
+
+	_, pt, r, err := cc.NextReader()
+	require.NoError(t, err)
+	require.Equal(t, eioparser.NOOP, pt)
+	require.NoError(t, r.Close())
+	for i := 0; i < 3; i++ {
+		w, err := cc.NextWriter(eioparser.String, eioparser.MESSAGE)
+		require.NoError(t, err)
+		_, err = w.Write([]byte("hello"))
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+		require.NoError(t, cc.Flush())
+	}
+	return h.waitFor(t, func(requests []recordedRequest) bool {
+		return countRequests(requests, http.MethodGet, true) > 1 && countRequests(requests, http.MethodPost, true) > 2
+	})
+}
+
+var pollingModes = []struct{ name, query string }{
+	{"binary", "EIO=3&transport=polling"},
+	{"b64", "EIO=3&transport=polling&b64=1"},
+}
+
+// TestDialRequestHeaderPerRequest checks that every polling request gets its
+// own copy of the request header: a RoundTripper that removes a key from one
+// request must not remove it from the later ones.
+func TestDialRequestHeaderPerRequest(t *testing.T) {
+	const key = "X-Option"
+	for _, mode := range pollingModes {
+		t.Run(mode.name, func(t *testing.T) {
+			h := newHeaderRecorder(t)
+			h.answerPolls = 1
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Record whether the client still had the key when it sent the
+				// request: the RoundTripper copies it to X-Seen before deleting it.
+				r.Header.Set(key, r.Header.Get("X-Seen"))
+				h.ServeHTTP(w, r)
+			}))
+			t.Cleanup(srv.Close)
+			httpClient := &http.Client{Timeout: 5 * time.Second, Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				r.Header.Set("X-Seen", r.Header.Get(key))
+				return keyDeletingRoundTripper{key: key, next: http.DefaultTransport}.RoundTrip(r)
+			})}
+
+			requests := exchangeRepeatedly(t, h, srv, httpClient, mode.query, http.Header{key: {"on"}})
+			for _, r := range requests {
+				require.Equal(t, "on", r.header.Get(key), "%s (sid %q)", r.method, r.sid)
+			}
+		})
+	}
+}
+
+// TestDialCookieJarHeaderPerRequest checks that a cookie jar adds its cookie
+// once to each request: http.Client adds jar cookies to the request it is
+// given, so a header shared across requests grew by one cookie per request.
+func TestDialCookieJarHeaderPerRequest(t *testing.T) {
+	for _, mode := range pollingModes {
+		t.Run(mode.name, func(t *testing.T) {
+			h := newHeaderRecorder(t)
+			h.answerPolls = 1
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Query().Get("sid") == "" {
+					http.SetCookie(w, &http.Cookie{Name: "io", Value: "sid1"})
+				}
+				h.ServeHTTP(w, r)
+			}))
+			t.Cleanup(srv.Close)
+			jar, err := cookiejar.New(nil)
+			require.NoError(t, err)
+
+			requests := exchangeRepeatedly(t, h, srv, &http.Client{Timeout: 5 * time.Second, Jar: jar}, mode.query, nil)
+			for _, r := range requests {
+				if r.sid == "" {
+					continue
+				}
+				require.Equal(t, []string{"io=sid1"}, r.header.Values("Cookie"), "%s", r.method)
+			}
+		})
+	}
+}
+
+// TestDialCopiesRequestHeader checks that Dial keeps no reference to the
+// header it is given: a change to the caller's values after Dial does not
+// reach the requests.
+func TestDialCopiesRequestHeader(t *testing.T) {
+	h := newHeaderRecorder(t)
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	u, err := url.Parse(srv.URL + "/?EIO=3&transport=polling")
+	require.NoError(t, err)
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	t.Cleanup(httpClient.CloseIdleConnections)
+	header := http.Header{"X-Test": {"1"}}
+	cc, err := dial(httpClient, u, header)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, cc.Close()) })
+	header["X-Test"][0] = "changed"
+	header.Set("X-Other", "added")
+	_, err = cc.Open()
+	require.NoError(t, err)
+
+	requests := h.waitFor(t, func(requests []recordedRequest) bool { return len(requests) > 0 })
+	require.Equal(t, "1", requests[0].header.Get("X-Test"))
+	require.Empty(t, requests[0].header.Get("X-Other"))
 }

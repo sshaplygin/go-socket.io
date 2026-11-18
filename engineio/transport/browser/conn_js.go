@@ -41,6 +41,9 @@ var handlers = [...]string{"onopen", "onmessage", "onerror", "onclose"}
 // liveFuncs counts the js.Funcs of all connections that are not released.
 var liveFuncs atomic.Int64
 
+// uint8Array is the Uint8Array constructor; tests replace it with a value that fails.
+var uint8Array = js.Global().Get("Uint8Array")
+
 type message struct {
 	binary bool
 	data   []byte
@@ -165,7 +168,14 @@ func (c *conn) onMessage(event js.Value) {
 	}
 	if m.binary {
 		m.data = make([]byte, size)
-		js.CopyBytesToGo(m.data, js.Global().Get("Uint8Array").New(data))
+		if err := catch(func() { js.CopyBytesToGo(m.data, uint8Array.New(data)) }); err != nil {
+			// A message that cannot be read ends the connection, as a transport error.
+			if c.finish(err) {
+				_ = c.call("close", codeAbort)
+			}
+			c.wake()
+			return
+		}
 	}
 	c.mu.Lock()
 	if c.err == nil {
@@ -328,9 +338,14 @@ func (w *messageWriter) Close() error {
 	}
 	var data any = w.buf.String()
 	if w.binary {
-		array := js.Global().Get("Uint8Array").New(w.buf.Len())
-		js.CopyBytesToJS(array, w.buf.Bytes())
-		data = array
+		err := catch(func() {
+			array := uint8Array.New(w.buf.Len())
+			js.CopyBytesToJS(array, w.buf.Bytes())
+			data = array
+		})
+		if err != nil {
+			return err
+		}
 	}
 	return w.c.call("send", data)
 }

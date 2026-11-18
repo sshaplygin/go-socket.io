@@ -143,6 +143,30 @@ func TestReadLimit(t *testing.T) {
 	require.NoError(t, c.Close(), "Close after Abort")
 }
 
+func TestUint8ArrayFailure(t *testing.T) {
+	c := dialEngine(t)
+	constructor := uint8Array
+	t.Cleanup(func() { uint8Array = constructor })
+	uint8Array = js.Undefined()
+	w, err := c.NextWriter(eioparser.Binary, eioparser.MESSAGE)
+	require.NoError(t, err)
+	require.Error(t, w.Close(), "writer Close returns the failure")
+	uint8Array = constructor
+	write(t, c, eioparser.String, `51-0["binary",{"_placeholder":true,"num":0}]`)
+	write(t, c, eioparser.Binary, "\x01")
+	// The server's first binary message cannot be copied: that ends the connection.
+	uint8Array = js.Undefined()
+	awaitClosed(t, c.ws)
+	uint8Array = constructor
+	_, _, data := read(t, c)
+	require.True(t, strings.HasPrefix(data, "51-["), data)
+	_, _, _, err = c.NextReader()
+	require.Error(t, err)
+	require.NotErrorAs(t, err, new(*websocket.CloseError))
+	require.NoError(t, c.Close())
+	require.Zero(t, liveFuncs.Load())
+}
+
 func TestDeadlinesAndInvalidCalls(t *testing.T) {
 	c := dialEngine(t)
 	require.True(t, c.Writable())

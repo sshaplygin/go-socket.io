@@ -37,7 +37,8 @@ type clientConn struct {
 	changed      chan struct{}
 
 	// postContentType is the Content-Type of POST requests. GET requests carry
-	// none, so a browser does not preflight them.
+	// none unless the caller's request header sets one, so a browser need not
+	// preflight them.
 	postContentType string
 }
 

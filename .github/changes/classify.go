@@ -420,9 +420,14 @@ func (d *decision) attribute(mod, root string) error {
 
 // result is the job input of one module.
 type result struct {
-	run, examples, experiments, gates, conformance bool
-	packages, bench                                []string
+	run, examples, experiments, gates, conformance, browser bool
+	packages, bench                                         []string
 }
+
+// browserPackages are the v1 packages whose tests the browser job runs, with the fixture
+// server they run against. A change reaches them through their dependencies too: the
+// client and, through the fixture server, the root package and engineio.
+var browserPackages = []string{"internal/browsertest", "internal/browsertest/server", "engineio/transport/browser"}
 
 func patterns(set map[string]*pkg) []string {
 	var list []string
@@ -445,6 +450,7 @@ func (d *decision) result(mod, root string) (result, error) {
 		experiments: m.full || m.experiments,
 		gates:       m.full || m.gates,
 		conformance: m.full || m.conformance,
+		browser:     m.full && mod == v1,
 	}
 	if m.full {
 		r.packages = []string{"./..."}
@@ -477,6 +483,11 @@ func (d *decision) result(mod, root string) (result, error) {
 	if len(code) > 0 && mod == v1 {
 		r.examples = true
 		r.conformance = true
+	}
+	if mod == v1 {
+		for _, dir := range browserPackages {
+			r.browser = r.browser || tested[g.module+"/"+dir] != nil
+		}
 	}
 	run := map[string]*pkg{}
 	for path, p := range tested {

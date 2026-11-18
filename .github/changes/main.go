@@ -2,7 +2,7 @@
 // two revisions, selects gates for their Markdown inputs, sends a change of Go comments or formatting only to the
 // lint job of its module, maps the other Go changes to packages and their reverse
 // dependencies through `go list -deps -test`, and prints the job inputs as GitHub Actions
-// outputs (vN starts lint-vN, vN_packages the test jobs):
+// outputs (vN starts lint-vN, vN_packages the test jobs, browser_v1 the browser job):
 //
 //	go run ./.github/changes BASE HEAD
 //	go run ./.github/changes -full
@@ -64,6 +64,7 @@ func outputs(dir string, d *decision) ([]output, error) {
 		add("examples_"+mod, r.examples)
 		if mod == v1 {
 			add("conformance", r.conformance)
+			add("browser_v1", r.browser)
 		} else {
 			add("experiments_v2", r.experiments)
 		}

@@ -32,6 +32,7 @@ jobs:
       gates_v1: ${{ steps.classify.outputs.gates_v1 }}
       examples_v1: ${{ steps.classify.outputs.examples_v1 }}
       conformance: ${{ steps.classify.outputs.conformance }}
+      browser_v1: ${{ steps.classify.outputs.browser_v1 }}
       v2: ${{ steps.classify.outputs.v2 }}
       v2_packages: ${{ steps.classify.outputs.v2_packages }}
       gates_v2: ${{ steps.classify.outputs.gates_v2 }}
@@ -499,6 +500,26 @@ jobs:
       - name: Tests with race detector
         run: go test -race -count=1 $PKGS
 
+  # The js/wasm client tests in headless Chrome (ubuntu-latest has Chrome installed),
+  # against the native fixture server; selected by the client, the browser transport,
+  # the browser tests and what the fixture server imports.
+  test-v1-browser:
+    name: Test v1 browser (js/wasm, Chrome)
+    needs: changes
+    if: needs.changes.outputs.browser_v1 == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          check-latest: true
+      - name: Install wasmbrowsertest
+        run: make install-wasmbrowsertest
+      - name: Browser tests, three runs
+        run: make test-browser BROWSER_COUNT=3
+
   examples-v1:
     name: Build examples v1
     needs: changes
@@ -559,7 +580,7 @@ jobs:
 
   ci-ok:
     name: ci-ok
-    needs: [changes, conformance, sync-check, gates-v1, gates-v2, lint-v1, lint-v2, test-v1, test-v2, stress-v1, jsonv2-v1, min-go-v1, min-go-v2, examples-v1, examples-v2, experiments-v2]
+    needs: [changes, conformance, sync-check, gates-v1, gates-v2, lint-v1, lint-v2, test-v1, test-v2, test-v1-browser, stress-v1, jsonv2-v1, min-go-v1, min-go-v2, examples-v1, examples-v2, experiments-v2]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

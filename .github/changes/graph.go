@@ -16,10 +16,10 @@ type pkg struct {
 	// deps holds every import path the package, its tests and its external tests depend on,
 	// transitively.
 	deps map[string]bool
-	// listed is true when `go list ./...` with the default build tags matches the package,
-	// which is what `go test ./...` tests.
+	// listed is true when `go list ./...` with the default build tags matches the package
+	// on a native GOOS, which is what `go test ./...` tests.
 	listed bool
-	// tags names the extra build tags under which the package exists ("" for the default).
+	// tags names the keys of the listings in which the package exists ("" for the default).
 	tags map[string]bool
 }
 
@@ -29,15 +29,21 @@ type graph struct {
 	byPath map[string]*pkg
 }
 
-// listing is one go list run: the build tags and GOOS it uses.
+// listing is one go list run: the build tags, GOOS and GOARCH it uses (an empty GOARCH
+// keeps the environment's), and the key it records in pkg.tags.
 type listing struct {
-	tags, goos string
+	key, tags, goos, goarch string
 }
 
 // listings are the build configurations of CI: the test matrix runs linux, darwin and
-// windows with the default tags, the conformance job runs linux with -tags conformance.
+// windows with the default tags, the conformance job runs linux with -tags conformance,
+// and the browser job runs js/wasm tests against a fixture server built with -tags
+// browsertest. Only the default listings mark a package as listed: `go test ./...` of a
+// test job does not run the files that js/wasm or a tag alone compiles.
 var listings = []listing{
-	{"", "linux"}, {"", "darwin"}, {"", "windows"}, {"conformance", "linux"},
+	{"", "", "linux", ""}, {"", "", "darwin", ""}, {"", "", "windows", ""},
+	{"conformance", "conformance", "linux", ""},
+	{"js", "", "js", "wasm"}, {"browsertest", "browsertest", "linux", ""},
 }
 
 func modulePath(root string) (string, error) {
@@ -88,11 +94,14 @@ func loadGraph(root string) (*graph, error) {
 		cmd := exec.Command("go", append(args, "./...")...)
 		cmd.Dir = root
 		cmd.Env = append(cmd.Environ(), "GOOS="+l.goos, "GOFLAGS=-mod=readonly", "GOWORK=off")
+		if l.goarch != "" {
+			cmd.Env = append(cmd.Env, "GOARCH="+l.goarch)
+		}
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
 		if err != nil {
-			return nil, fmt.Errorf("go list in %s (GOOS=%s tags=%q): %w: %s", root, l.goos, l.tags, err, stderr.String())
+			return nil, fmt.Errorf("go list in %s (GOOS=%s GOARCH=%s tags=%q): %w: %s", root, l.goos, l.goarch, l.tags, err, stderr.String())
 		}
 		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 			fields := strings.Split(line, "\t")
@@ -120,8 +129,8 @@ func loadGraph(root string) (*graph, error) {
 				p.dir = filepath.ToSlash(rel)
 				g.byDir[p.dir] = p
 			}
-			p.tags[l.tags] = true
-			p.listed = p.listed || l.tags == ""
+			p.tags[l.key] = true
+			p.listed = p.listed || l.key == ""
 			for _, dep := range strings.Fields(fields[2]) {
 				p.deps[strip(dep)] = true
 			}

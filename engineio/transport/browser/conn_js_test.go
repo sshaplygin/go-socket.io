@@ -162,25 +162,35 @@ func TestDeadlinesAndInvalidCalls(t *testing.T) {
 	requireClosed(t, c)
 }
 
+// captureWebSockets makes the WebSocket constructor record the sockets it creates in
+// the returned array until the test ends.
+func captureWebSockets(t *testing.T) js.Value {
+	original, made := js.Global().Get("WebSocket"), js.Global().Get("Array").New()
+	capture := js.Global().Get("Function").New("W", "made",
+		"return function(...args) { const ws = new W(...args); made.push(ws); return ws }")
+	js.Global().Set("WebSocket", capture.Invoke(original, made))
+	t.Cleanup(func() { js.Global().Set("WebSocket", original) })
+	return made
+}
+
 func TestDialFailures(t *testing.T) {
-	webSocket := js.Global().Get("WebSocket")
 	for name, tc := range map[string]struct {
 		transport Transport
 		url       *url.URL
-		before    func()
+		sockets   int // WebSockets that Dial creates
 		timeout   bool
 	}{
-		"closed listener": {Transport{HandshakeTimeout: 2 * time.Second}, fixtureURL(t, "SOCKETIO_BROWSER_CLOSED_URL", "/socket.io/?EIO=3"), nil, false},
-		"silent server":   {Transport{HandshakeTimeout: 300 * time.Millisecond}, fixtureURL(t, "SOCKETIO_BROWSER_URL", "/silent/?EIO=3"), nil, true},
+		"closed listener": {Transport{HandshakeTimeout: 2 * time.Second}, fixtureURL(t, "SOCKETIO_BROWSER_CLOSED_URL", "/socket.io/?EIO=3"), 1, false},
+		"silent server":   {Transport{HandshakeTimeout: 300 * time.Millisecond}, fixtureURL(t, "SOCKETIO_BROWSER_URL", "/silent/?EIO=3"), 1, true},
 		"subprotocol not selected": {Transport{Subprotocols: []string{"chat"}, HandshakeTimeout: 2 * time.Second},
-			fixtureURL(t, "SOCKETIO_BROWSER_URL", "/socket.io/?EIO=3"), nil, false},
-		"invalid URL":  {Transport{}, &url.URL{Scheme: "ftp", Host: "127.0.0.1"}, nil, false},
-		"no WebSocket": {Transport{}, fixtureURL(t, "SOCKETIO_BROWSER_URL", "/socket.io/"), func() { js.Global().Set("WebSocket", js.Undefined()) }, false},
+			fixtureURL(t, "SOCKETIO_BROWSER_URL", "/socket.io/?EIO=3"), 1, false},
+		"invalid URL":  {Transport{}, &url.URL{Scheme: "ftp", Host: "127.0.0.1"}, 0, false},
+		"no WebSocket": {Transport{}, fixtureURL(t, "SOCKETIO_BROWSER_URL", "/socket.io/"), 0, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if tc.before != nil {
-				tc.before()
-				t.Cleanup(func() { js.Global().Set("WebSocket", webSocket) })
+			made := captureWebSockets(t)
+			if name == "no WebSocket" {
+				js.Global().Set("WebSocket", js.Undefined())
 			}
 			start := time.Now()
 			c, err := tc.transport.Dial(tc.url, nil)
@@ -192,6 +202,13 @@ func TestDialFailures(t *testing.T) {
 				require.GreaterOrEqual(t, time.Since(start), tc.transport.HandshakeTimeout)
 			}
 			require.Zero(t, liveFuncs.Load(), "js.Funcs released")
+			require.Equal(t, tc.sockets, made.Length())
+			// Dial closed the socket; its close event, which must reach no released
+			// js.Func, is delivered before the test ends.
+			for i := 0; i < made.Length(); i++ {
+				require.Contains(t, []int{2, 3}, made.Index(i).Get("readyState").Int(), "CLOSING or CLOSED")
+				awaitClosed(t, made.Index(i))
+			}
 		})
 	}
 }

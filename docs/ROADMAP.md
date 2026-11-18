@@ -1086,13 +1086,16 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
   `DecodeMessagePack([]byte, Limits) (Packet, error)`, which return the existing sentinels
   (`ErrInvalid`, `ErrTooLarge`, `ErrTooManyAttachments`, `ErrDepth`, `ErrAttachments`). They
   use the two conversions of `adapter/codec`, which move to the new package `internal/mpack`
-  (standard library only); 2.3M writes no other reader or writer. `mpread.go` is the bounded
+  (standard library only); 2.3M writes no other reader or writer. `internal/mpack` returns
+  its own errors: `parser` maps them to the sentinels above, `adapter/codec` to its
+  `ErrMalformed`, `ErrLimit` and `ErrInvalid` as today. `mpread.go` is the bounded
   reader, MessagePack to JSON text, with `appendJSONString`, which `response.go` calls.
   `mpwrite.go` is the writer, JSON text to MessagePack; its calls of the
   `vmihailenco/msgpack/v5` encoder become byte appends, so `adapter/codec` imports that
-  library only for the `EncodeBroadcast` envelope in `broadcast.go`, and its unchanged tests
-  and fixtures prove the same bytes. The reader gains two options, both off for
-  `adapter/codec`: the extensions below and the rejection of duplicate map keys.
+  library only for the `EncodeBroadcast` envelope in `broadcast.go`; `TestWriterGoldenWidths`
+  proves the same bytes, the unchanged tests of `adapter/codec` being a second check. Three
+  options stay off for `adapter/codec`: in the reader the extensions below and the rejection
+  of duplicate map keys, in the writer the repeated placeholder of *Wire*.
   `TestForbiddenEdge` gains two rules (`internal/mpack` imports nothing of this module; only
   `parser` and `adapter/codec` import it); the API.md graph gains both edges; `go.mod` stays.
 - **Wire.** A packet is one MessagePack map with the keys `type` (0 to 4), `nsp` (a string),
@@ -1104,10 +1107,13 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
   returns the frozen `Packet` forms of the text path, each binary value a
   `{"_placeholder":true,"num":N}` in order of appearance with its bytes in `Attachments[N]`,
   and applies the checks of the 2.3P decoder. The encoder writes `type`, `nsp`, `data`, `id` in
-  that order, a `bin` for each placeholder and numbers as `notepack.io` does (smallest integer
-  form, else float64). `Attachments` on a type other than Event or Ack, a placeholder that
-  names no attachment or repeats one, and an unused attachment are `ErrAttachments`. It only
-  reads the `Packet`, so a shared packet may be encoded concurrently.
+  that order and numbers as `notepack.io` does up to 2^53 (smallest integer form, else
+  float64; a larger integral value in exponent form stays float64 where `notepack.io` writes
+  a 64-bit integer, other bytes for the same value). It writes a `bin` for each placeholder,
+  the same `bin` again for a repeated index, which 2.3P and Node accept. `Attachments` on a
+  type other than Event or Ack, a placeholder whose index has no attachment and an attachment
+  that no placeholder references, which this wire cannot carry, are `ErrAttachments`. It
+  only reads the `Packet`, so a shared packet may be encoded concurrently.
 - **Extensions.** `notepack.io` writes extension type 0 only, and only its Node build writes
   ext 8, 16 or 32, for an `ArrayBuffer` or a typed array other than `Buffer`. The decoder
   reads fixext 1 `d4 00 00` as `undefined` (`null` in an array, the member omitted in a map,
@@ -1165,11 +1171,12 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
 
 | Test | Package | Asserts |
 | --- | --- | --- |
+| `TestWriterGoldenWidths` | `internal/mpack` | added by the move PR: the writer's bytes equal `testdata/widths.json`, which the `vmihailenco` writer of the merge base generated (the PR body records the command), on each side of every width boundary: integers from fixint to uint64 and int64 (-33/-32, 127/128, 255/256, 65535/65536, 2^32-1/2^32, -129/-128, -32769/-32768, -2^31-1/-2^31, the extremes -2^63 and 2^64-1), an integral float up to 2^53 as an integer and above it as float64, a fraction as float64, str lengths 31/32, 255/256 and 65535/65536, bin lengths 255/256 and 65535/65536, array and map sizes 15/16 and 65535/65536 |
 | `TestParserDefaultIsJSON` | `client` | with zero `Options` and a client without `WithParser`, every Socket.IO message on both transports is text and equals the 2.3P encoding; the zero `parser.Format` is `FormatJSON` |
 | `TestOptionsParserNormalize` | root | zero and both constants are kept; any other value fails `Normalize` |
 | `TestServerParserWiring` | root | the format reaches every session and namespace, `/` and a created one |
 | `TestClientParserWiring` | `client` | `WithParser` reaches the first dial and a reconnection; `New` rejects any other value |
-| `TestMessagePackPacketRoundTrip` | `parser` | every case of `cases.json` (the valid 2.3P oracle cases, IDs 0 and 2^53-1, nested binary values) gives the same `Packet` through both formats, `Data` compared as JSON values |
+| `TestMessagePackPacketRoundTrip` | `parser` | every case of `cases.json` (the valid 2.3P oracle cases, IDs 0 and 2^53-1, nested binary values) gives the same `Packet` through both formats, `Data` compared as JSON values; a repeated placeholder index encodes to two equal `bin` values, and each `ErrAttachments` case of *Wire* returns it |
 | `TestMessagePackNodeFixtures` | `parser` | every committed Node fixture decodes to its expected `Packet` or error: each corpus case with its binary values as `Buffer` and as `ArrayBuffer`, `undefined` and `Date` cases, `client-emit-options` (the bytes of a real `socket.io-client` `emit` with an ack) to the event without `options`, the *rejected by both* fixtures (truncation, trailing bytes, type 5, no `nsp`) and one fixture per deviation; a corpus case without a fixture fails |
 | `TestMessagePackExtensions` | `parser` | each case of *Extensions*; an `ArrayBuffer` and a `Buffer` give equal packets; other extension types fail |
 | `TestMessagePackLimits` | `parser` | one case per error of *Untrusted input*; per bound an at-limit case passes and limit+1 fails; a map `{type: 2, nsp: "/", data: H}` ending in a header `H` of at most 6 bytes that declares 2^32-1 bytes of str, bin or ext (type 0) or 2^32-1 entries of array or map returns `ErrInvalid`, and `AllocedBytesPerOp` of `testing.Benchmark` stays at most 1 KiB for each |
@@ -1184,7 +1191,7 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
 | `TestMessagePackNodeServer` | `client` | the same with the Go client against a Node `socket.io` server |
 | `FuzzMessagePackDecode` | `parser` | seeded with the Node fixtures, 30 s clean: no panic, and what decodes re-encodes and decodes to an equal `Packet` |
 
-DoD for 2.3M: the first fifteen tests of the table pass under `-race`, counted so that a
+DoD for 2.3M: the first sixteen tests of the table pass under `-race`, counted so that a
 missing test fails; `FuzzMessagePackDecode` runs 30 s clean; the oracle passes with the
 pinned versions; no 2M PR changes `go.mod`, `go.sum` or the tests and fixtures of
 `adapter/codec`; `make g2` passes, at the join gate with a positive fixture (both settings)
@@ -1196,14 +1203,15 @@ first block from `v2/`; its merge-base diff needs a checkout with complete histo
 ```sh
 set -e
 go test -race -count=1 ./parser/... ./internal/mpack ./adapter/codec . ./client
+go test -count=1 -v -run '^TestWriterGoldenWidths$' ./internal/mpack | grep '^--- PASS: TestWriterGoldenWidths '
 git diff --exit-code "$(git merge-base origin/master HEAD)" -- go.mod go.sum 'adapter/codec/*_test.go' adapter/codec/testdata
 make g2
 ```
 
 ```sh
 set -e
-N=$(go test -race -count=1 -json -run '^(TestParserDefaultIsJSON|TestOptionsParserNormalize|TestServerParserWiring|TestClientParserWiring|TestMessagePackPacketRoundTrip|TestMessagePackNodeFixtures|TestMessagePackExtensions|TestMessagePackLimits|TestMessagePackEncodeConcurrent|TestMessagePackOracleBridge|TestMessagePackMismatch|TestMessagePackWireFrames|TestMessagePackGoRoundTrip|TestMessagePackLimitIsolation|TestMessagePackHooks)$' ./parser . ./client | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
-[ "$N" -eq 15 ]
+N=$(go test -race -count=1 -json -run '^(TestWriterGoldenWidths|TestParserDefaultIsJSON|TestOptionsParserNormalize|TestServerParserWiring|TestClientParserWiring|TestMessagePackPacketRoundTrip|TestMessagePackNodeFixtures|TestMessagePackExtensions|TestMessagePackLimits|TestMessagePackEncodeConcurrent|TestMessagePackOracleBridge|TestMessagePackMismatch|TestMessagePackWireFrames|TestMessagePackGoRoundTrip|TestMessagePackLimitIsolation|TestMessagePackHooks)$' ./internal/mpack ./parser . ./client | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
+[ "$N" -eq 16 ]
 go test -run '^$' -fuzz '^FuzzMessagePackDecode$' -fuzztime 30s ./parser
 R=parser/testdata/msgpack
 npm ci --ignore-scripts --no-audit --no-fund --prefix "$R"

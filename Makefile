@@ -79,8 +79,9 @@ test-stress-load:
 # and the client's transport substitution, run in headless Chrome by wasmbrowsertest
 # against the native fixture server of internal/browsertest/server. The server serves
 # until its standard input, a FIFO held open on descriptor 3, closes on exit, failure or
-# interruption. go test writes to a file, because POSIX sh has no pipefail; a JavaScript
-# failure in that output also fails the target. BROWSER_COVER receives the statement
+# interruption. go test runs with -v, so that the browser console of passing packages
+# reaches the output too, and writes to a file, because POSIX sh has no pipefail; a
+# JavaScript failure in that output also fails the target. BROWSER_COVER receives the statement
 # profile of engineio/transport/browser, which cover-check cannot see.
 WASMBROWSERTEST_VERSION := v0.11.0
 BROWSER_COUNT ?= 1
@@ -109,9 +110,9 @@ test-browser:
 	SOCKETIO_BROWSER_CLOSED_URL=$$(sed -n 's/^SOCKETIO_BROWSER_CLOSED_URL=//p' "$$tmp/server.log"); \
 	export SOCKETIO_BROWSER_URL SOCKETIO_BROWSER_CLOSED_URL; \
 	status=0; \
-	GOOS=js GOARCH=wasm go test -count=$(BROWSER_COUNT) -timeout 5m -exec "$$runner" -coverpkg=./engineio/transport/browser \
+	GOOS=js GOARCH=wasm go test -v -count=$(BROWSER_COUNT) -timeout 5m -exec "$$runner" -coverpkg=./engineio/transport/browser \
 		-coverprofile="$(BROWSER_COVER)" $(BROWSER_PKGS) >"$$tmp/test.log" 2>&1 3>&- || status=$$?; \
-	GOOS=js GOARCH=wasm go test -count=$(BROWSER_COUNT) -timeout 5m -exec "$$runner" -run '^TestPlatformTransport' \
+	GOOS=js GOARCH=wasm go test -v -count=$(BROWSER_COUNT) -timeout 5m -exec "$$runner" -run '^TestPlatformTransport' \
 		./client >>"$$tmp/test.log" 2>&1 3>&- || status=$$?; \
 	cat "$$tmp/test.log"; \
 	if grep -E 'call to released function|Go program has already exited|Uncaught' "$$tmp/test.log" >/dev/null; then \

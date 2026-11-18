@@ -54,7 +54,8 @@ variables are `STRESS_COUNT` (20), `STRESS_CPU` (`1,4`), `STRESS_TIMEOUT` (`90m`
 `go test`; the loops stop when the target exits, fails or is interrupted.
 `COVER_PROFILE=<path>` makes `cover-check` keep its statement profile there; the lint job of
 `ci.yaml` does so and uploads it to Codecov (`CODECOV_TOKEN`; a failed upload does not fail
-the job, the floor does).
+the job, the floor does). `codecov.yml` sets fixed Codecov project and patch targets;
+those statuses are not required checks.
 For v2, use `make -C v2 <target>`; `graph`, `freeze` and `fixtures` check its API
 contract, and `experiments` validates its standalone modules. The v2 examples
 are not built by its current `examples` target.

@@ -1,0 +1,12 @@
+# Codecov reports the coverage that the lint-v1 job uploads. Its statuses are not
+# required checks; the gate is `make cover-check` (COVER_FLOOR in the Makefile).
+# Fixed targets replace the default `auto` targets, which compare with the base
+# commit and fail on any decrease, even a few hundredths of a percent.
+coverage:
+  status:
+    project:
+      default:
+        target: 90%
+    patch:
+      default:
+        target: 90%

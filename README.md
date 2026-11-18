@@ -12,6 +12,7 @@ follow the [migration guide](docs/V1.md#migrating-from-googolleego-socketio).
 [![GoDoc](https://pkg.go.dev/badge/github.com/sshaplygin/go-socket.io.svg)](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0)
 [![codecov](https://codecov.io/gh/sshaplygin/go-socket.io/graph/badge.svg)](https://codecov.io/gh/sshaplygin/go-socket.io)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
+[![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go)
 
 ## Compatibility
 

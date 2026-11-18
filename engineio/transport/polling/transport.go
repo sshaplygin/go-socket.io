@@ -109,16 +109,16 @@ func dial(client *http.Client, url *url.URL, requestHeader http.Header) (*client
 		req.Header[k] = v
 	}
 	supportBinary := req.URL.Query().Get("b64") == ""
-	if supportBinary {
-		req.Header.Set("Content-Type", "application/octet-stream")
-	} else {
-		req.Header.Set("Content-Type", "text/plain;charset=UTF-8")
+	postContentType := "application/octet-stream"
+	if !supportBinary {
+		postContentType = "text/plain;charset=UTF-8"
 	}
 
 	return &clientConn{
-		payload:    newPayload(supportBinary),
-		httpClient: client,
-		request:    *req,
-		cancel:     cancel,
+		payload:         newPayload(supportBinary),
+		httpClient:      client,
+		request:         *req,
+		postContentType: postContentType,
+		cancel:          cancel,
 	}, nil
 }

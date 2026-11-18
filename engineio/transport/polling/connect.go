@@ -35,6 +35,10 @@ type clientConn struct {
 	pausing      bool
 	pauseEpoch   uint64
 	changed      chan struct{}
+
+	// postContentType is the Content-Type of POST requests. GET requests carry
+	// none, so a browser does not preflight them.
+	postContentType string
 }
 
 // SetReadLimit bounds each response body, including OPEN, before decoding.
@@ -201,6 +205,8 @@ func (c *clientConn) servePost() {
 
 	req.URL = &reqUrl
 	req.Method = http.MethodPost
+	req.Header = req.Header.Clone()
+	req.Header.Set("Content-Type", c.postContentType)
 
 	var buf bytes.Buffer
 	req.Body = io.NopCloser(&buf)

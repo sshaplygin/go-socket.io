@@ -62,7 +62,6 @@ type conn struct {
 	notify  chan struct{} // a message, the end or a new read deadline
 	aborted chan struct{} // closed by Abort; ends the wait of Close
 	limit   atomic.Int64
-	limited atomic.Bool // a message passed the read limit
 	writers atomic.Int32
 	once    sync.Once // the first Close
 	abort   sync.Once // the first Abort
@@ -159,7 +158,6 @@ func (c *conn) onMessage(event js.Value) {
 		size = len(m.data)
 	}
 	if limit > 0 && int64(size) > limit {
-		c.limited.Store(true)
 		if c.finish(readLimitError{limit}) {
 			_ = c.call("close", codeTooLarge)
 		}
@@ -393,10 +391,11 @@ func (c *conn) Abort() error {
 // A larger message closes the connection with code 4009. Nonpositive means no limit.
 func (c *conn) SetReadLimit(n int64) { c.limit.Store(n) }
 
-// ReadLimitError returns the read-limit error once a message passed the limit, else nil.
+// ReadLimitError returns the read-limit error, with the limit then in force, when a
+// message past the limit ended the connection, else nil.
 func (c *conn) ReadLimitError() error {
-	if c.limited.Load() {
-		return readLimitError{c.limit.Load()}
+	if err, ok := c.closeErr().(readLimitError); ok {
+		return err
 	}
 	return nil
 }

@@ -137,6 +137,9 @@ func TestReadLimit(t *testing.T) {
 	require.EqualValues(t, 16, tooLarge.Limit)
 	require.ErrorIs(t, err, websocket.ErrReadLimit)
 	require.ErrorIs(t, c.ReadLimitError(), websocket.ErrReadLimit)
+	c.SetReadLimit(99)
+	require.ErrorAs(t, c.ReadLimitError(), &tooLarge)
+	require.EqualValues(t, 16, tooLarge.Limit, "the limit that closed the connection")
 	require.False(t, c.Writable())
 	require.NoError(t, c.Abort())
 	require.Zero(t, liveFuncs.Load())
@@ -184,6 +187,12 @@ func TestDeadlinesAndInvalidCalls(t *testing.T) {
 	require.Error(t, c.call("close", 1001), "the browser rejects close code 1001")
 	require.NoError(t, c.Close())
 	requireClosed(t, c)
+	// An oversized message after the close did not end the connection.
+	c.SetReadLimit(16)
+	event := js.Global().Get("Object").New()
+	event.Set("data", strings.Repeat("x", 32))
+	c.onMessage(event)
+	require.Nil(t, c.ReadLimitError())
 }
 
 // captureWebSockets makes the WebSocket constructor record the sockets it creates in

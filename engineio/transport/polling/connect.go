@@ -422,7 +422,7 @@ func (c *clientConn) poll(req *http.Request) bool {
 // closeOnPayloadError closes the connection after FeedIn or FlushOut failed,
 // so that readers and writers see the end of the session instead of waiting for
 // a poller or a POST that no longer runs. It does nothing when the connection
-// is already closed, which is why the loops' FeedIn or FlushOut returned. An
+// is already closed: the close is then what ended FeedIn or FlushOut. An
 // upgrade pause does not fail them: PauseContext gates the loops instead.
 func (c *clientConn) closeOnPayloadError(op string, err error) {
 	c.writableMu.Lock()

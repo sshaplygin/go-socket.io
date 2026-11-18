@@ -420,12 +420,16 @@ func (c *clientConn) poll(req *http.Request) bool {
 }
 
 // closeOnPayloadError closes the connection after FeedIn or FlushOut failed,
-// unless the payload is only paused for an upgrade, so that readers and writers
-// see the end of the session instead of waiting for a poller or a POST that no
-// longer runs. Closing an already closed connection does nothing more.
+// so that readers and writers see the end of the session instead of waiting for
+// a poller or a POST that no longer runs. It does nothing when the connection
+// is already closed, which is why the loops' FeedIn or FlushOut returned, or
+// when the payload is only paused for an upgrade.
 func (c *clientConn) closeOnPayloadError(op string, err error) {
+	c.writableMu.Lock()
+	stopped := c.stopped
+	c.writableMu.Unlock()
 	var temporary interface{ Temporary() bool }
-	if errors.As(err, &temporary) && temporary.Temporary() {
+	if stopped || (errors.As(err, &temporary) && temporary.Temporary()) {
 		return
 	}
 	logger.Log.Debug("engineio: polling "+op+" failed", "err", err)

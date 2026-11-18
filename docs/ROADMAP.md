@@ -35,7 +35,7 @@ owning contract and consumer fixtures together.
 | 3A | M3 | freeze chat event schema; then server, browser/CLI and load client in separate directories | M4 single-server acceptance |
 | 5L-A | M3 | freeze single-server admin observation, snapshot/watermark types, command capability and command-result contracts, session-store interface and advertised features; pin the UI release and instrumentation fixtures | 5L contract gate |
 | 5L-B | 5L-A | core observers/snapshots; admin wire/auth module; memory-adapter command capability; browser tests against the pinned UI | M3A acceptance |
-| 2M | M3A | 2.3M MessagePack parser: `parser/` (new files and `testdata/msgpack`); `internal/mpack`; in `adapter/codec` only the move of `mpread.go` (the first 2M PR; overlaps 4A and 5C-A, see 2.3M *Delivery*); the two `internal/mpack` rules in `graph_test.go`; the root `Options.Parser` field with its reader/writer selection; `WithParser` in `client/`; the binary-frame case of the 2.4S redactor; the `-parser` flag of `_examples/admin`; the v2 Node job of 2.5T in `.github/workflows/ci.yaml` (that job only) with its classifier entry; no other wave waits for it | 2.3M DoD and Acceptance |
+| 2M | M3A | 2.3M MessagePack parser: `parser/` (new files and `testdata/msgpack`); `internal/mpack`; in `adapter/codec` only the move of `mpread.go` and `mpwrite.go` with their callers `broadcast.go` and `response.go` (the first 2M PR; overlaps 4A and 5C-A, see 2.3M *Delivery*); the two `internal/mpack` rules in `graph_test.go`; the root `Options.Parser` field with its reader/writer selection; `WithParser` in `client/`; the binary-frame case of the 2.4S redactor; the `-parser` flag of `_examples/admin`; the server-address setting of the 5L browser tests; the extension of the v2 Node CI job that 2.5T creates (that job only) with its classifier entry; no other wave waits for it | 2.3M DoD and Acceptance |
 | 4A | M4 | freeze codec fixtures and adaptertest cases; then Redis and NATS modules independently | each passes shared conformance suite |
 | 4B | 4A | cluster chat profile; mixed Go/Node Redis tests in separate test directories | M5 cluster acceptance |
 | 5C-A | M5, M3A | freeze the 5C additions to the 5L contracts: the node snapshot/watermark adapter interface, the broker encoding of remote commands and the shared-store implementation contract; 5L-A signatures do not change | 5C contract gate |
@@ -1083,15 +1083,18 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
   dial, reconnections included. No negotiation or autodetection, as in Node, where both ends
   are built with the same parser. No frozen declaration changes ([API.md](API.md#not-frozen)).
 - **Code.** `parser` gains `EncodeMessagePack(Packet, Limits) ([]byte, error)` and
-  `DecodeMessagePack([]byte, Limits) (Packet, error)` beside the 2.3P codec; they return the
-  existing sentinels (`ErrInvalid`, `ErrTooLarge`, `ErrTooManyAttachments`, `ErrDepth`,
-  `ErrAttachments`) and add none. The bounded reader of `adapter/codec` (`mpread.go`) moves to
-  the new package `internal/mpack` (standard library only, importing nothing of this module),
-  with a writer and two reader options, both off for `adapter/codec`: the extensions below
-  and the rejection of duplicate map keys. So `adapter/codec` keeps its behaviour, tests and
-  fixtures. `TestForbiddenEdge` gains both rules (`internal/mpack` imports nothing of the
-  module; only `parser` and `adapter/codec` import it), the API.md graph gains the `parser`
-  edge, and `go.mod` does not change.
+  `DecodeMessagePack([]byte, Limits) (Packet, error)`, which return the existing sentinels
+  (`ErrInvalid`, `ErrTooLarge`, `ErrTooManyAttachments`, `ErrDepth`, `ErrAttachments`). They
+  use the two conversions of `adapter/codec`, which move to the new package `internal/mpack`
+  (standard library only); 2.3M writes no other reader or writer. `mpread.go` is the bounded
+  reader, MessagePack to JSON text, with `appendJSONString`, which `response.go` calls.
+  `mpwrite.go` is the writer, JSON text to MessagePack; its calls of the
+  `vmihailenco/msgpack/v5` encoder become byte appends, so `adapter/codec` imports that
+  library only for the `EncodeBroadcast` envelope in `broadcast.go`, and its unchanged tests
+  and fixtures prove the same bytes. The reader gains two options, both off for
+  `adapter/codec`: the extensions below and the rejection of duplicate map keys.
+  `TestForbiddenEdge` gains two rules (`internal/mpack` imports nothing of this module; only
+  `parser` and `adapter/codec` import it); the API.md graph gains both edges; `go.mod` stays.
 - **Wire.** A packet is one MessagePack map with the keys `type` (0 to 4), `nsp` (a string),
   `data` and `id`, the last two absent when unset; types 5 and 6 do not exist in this format,
   and binary values are `bin` values inside `data`. Every Socket.IO packet is one Engine.IO
@@ -1157,13 +1160,12 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
   and the two tests with the switch set; its change-classifier entry selects the job for changes to
   `parser/testdata/msgpack`. `_examples/admin` gains a `-parser msgpack` flag:
   `FormatMessagePack` on the server, `socket.io-msgpack-parser` 3.0.2 on its page.
-- **Delivery.** 2M lands as several PRs. The first only moves the reader to `internal/mpack`;
-  it is the one 2M change in `adapter/codec`, which 4A and 5C-A also write, so it merges as a
-  PR of its own between theirs, and later reader changes go to `internal/mpack`. PRs before
-  the join gate add unexported or internal code only; every exported identifier (`Format` and
-  its constants, `EncodeMessagePack`, `DecodeMessagePack`, `Options.Parser`, `WithParser`)
-  lands in the PR that passes the join gate, so no root tag publishes them without the
-  runtime.
+- **Delivery.** 2M lands as several PRs. The first only moves the reader and the writer to
+  `internal/mpack`: in `adapter/codec` it removes `mpread.go` and `mpwrite.go` and edits
+  their callers `broadcast.go` and `response.go`. It is the one 2M change in `adapter/codec`,
+  which 4A and 5C-A also write, so it merges between their PRs. PRs before the join gate add
+  unexported or internal code only; every exported identifier of *Selection* and *Code*
+  lands in the PR that passes the join gate, so no root tag publishes it without the runtime.
 - Out of scope: autodetection, custom parsers, MessagePack in v1 and a speed claim; the
   benchmark workflow reports `BenchmarkCodec` (`parser`; both formats, encode and decode).
 

@@ -31,6 +31,7 @@ Go 1.22+ is required. Linting uses golangci-lint v2.15.0; vulnerability checks u
 ```sh
 make test               # root module tests, no external services
 make test-race          # tests with the race detector
+make apidiff            # compare with the latest published fork v1 API
 make test-jsonv2        # parser and Socket.IO roles with GOEXPERIMENT=jsonv2
 make test-stress        # concurrent packages, shuffled and repeated
 make test-stress-load   # the stress packages repeated under CPU load; writes stress.json and stress-summary.md
@@ -104,6 +105,15 @@ oldstable and Go 1.25, coverage, examples and Node clients
 1.7.4/2.5.0. Vulnerability checks use the newest Go release available to CI.
 `.github/sync-manifest` is the complete list of files deliberately shared across
 modules; other implementations evolve independently.
+
+`make apidiff` runs pinned `gorelease` in the root module against the newest stable v1
+tag whose go.mod declares the fork module path; inherited upstream tags are excluded. It
+fails on an incompatible API change and when no such tag is reachable. The `lint-v1` job
+runs it with complete Git history. Set `API_BASE` to compare with a specific version.
+The pinned `gorelease` needs Go 1.26 or newer (the `go` command switches toolchains
+unless `GOTOOLCHAIN=local`) and a working tree with no uncommitted or untracked files.
+It checks the default build of the host platform only: exported names declared only in
+files with other GOOS or build tags (such as `conformance`) are not compared.
 
 `.github/workflows/stress.yml` runs `make test-stress-load` on `ubuntu-latest` and
 `macos-latest` with a 120-minute job timeout: nightly, on `workflow_dispatch`, and on

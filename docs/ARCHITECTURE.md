@@ -7,7 +7,7 @@ imports are omitted. Test imports do not define runtime dependencies.
 | Package | Responsibility | May import |
 | --- | --- | --- |
 | root `socketio` | Public server contracts, server and namespace lifecycle, adapter factories, connection queues, packet dispatch, listeners and options | `adapter`, `parser`, `engineio`, `engineio/parser`, `logger`, `internal/event` |
-| `client` | Public client contracts, persistent namespace sockets, connection generations, queues, packet dispatch, listeners, retries and options | `parser`, `engineio/client`, `engineio/parser`, `engineio/transport`, its polling/websocket implementations, `logger`, `internal/event` |
+| `client` | Public client contracts, persistent namespace sockets, connection generations, queues, packet dispatch, listeners, retries and options | `parser`, `engineio/client`, `engineio/parser`, `engineio/transport`, its polling/websocket implementations, `engineio/transport/browser` (js/wasm only), `logger`, `internal/event` |
 | `internal/event` | Typed payload/schema/handler bridge, ACK envelope and common typed errors; no role ownership | `parser` |
 | `adapter` | Room/index/broadcast contract and in-memory implementation | no other repository runtime package |
 | `adapter/redis` | Redis adapter extending/composing the memory adapter | `adapter`, `logger`, `parser` |
@@ -21,6 +21,7 @@ imports are omitted. Test imports do not define runtime dependencies.
 | `engineio/transport` | Transport contracts and registry | `engineio/parser`, `logger` |
 | `engineio/transport/polling` | HTTP polling, streaming feed/flush, pause/deadline ownership | `engineio/transport`, `engineio/parser`, `logger` |
 | `engineio/transport/websocket` | WebSocket transport | `engineio/transport`, `engineio/parser`, `logger` |
+| `engineio/transport/browser` | Client WebSocket transport over the browser's WebSocket API (js/wasm) | `engineio/transport`, `engineio/parser`, `logger` |
 | `logger` | Logging fallback | no other repository runtime package |
 
 The server and client have independent connection contracts. Neither client
@@ -30,7 +31,7 @@ Redis composes the memory adapter; the root server does not import Redis.
 
 `make architecture-check` verifies direct imports, transitive role and codec
 boundaries, package privacy and that none of a listed set of unsupported package
-directories and files exists.
+directories and files exists, for the host platform and for `GOOS=js GOARCH=wasm`.
 
 ## Runtime
 
@@ -98,12 +99,22 @@ terminates the connection because transport ownership may already have changed.
 The candidate and old connection are closed by the paths that own them; an
 abandoned late dial result is closed rather than installed.
 
+The client picks its websocket transport by build constraint. Natively it dials
+with its copy of each `websocket.Transport`. On js/wasm, `client/transports_js.go`
+replaces that copy with an `engineio/transport/browser` transport that has the same
+subprotocols and handshake timeout and dials with the browser's WebSocket API;
+`client/transports_other.go` keeps the copy and does not import the browser package.
+[V1.md](V1.md#browser-client) describes the browser client's use of polling.
+
 Tests live beside their implementation. Public package tests exercise consumers;
 tests in those packages also cover private state and failure paths. Compile fixtures in
 `internal/parity` check role separation, public contracts and canonical `go doc`
 method/field lookup. Runtime helpers remain unexported in their owning public
 package. Node interoperability
-fixtures live in `internal/conformance` behind the `conformance` build tag.
+fixtures live in `internal/conformance` behind the `conformance` build tag. Browser
+tests live in `internal/browsertest`, whose files are all js/wasm tests, and run in
+headless Chrome against the native fixture server in `internal/browsertest/server`,
+behind the `browsertest` build tag.
 
 ### Client upgrade cancellation
 

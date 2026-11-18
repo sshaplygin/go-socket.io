@@ -38,13 +38,15 @@ without a counterpart in its
 | Redis publication, queries, remote operations, timeouts, subscription readiness and reconnection | `adapter/redis` tests, including `TestRedisGoPacketWithNodeOracle`, which `make conformance` runs against the reference `notepack.io`; mixed Go/Node cluster tests with real Redis |
 | Go client reconnect, pre-connect buffering, namespace lifecycle and transport selection | `client` integration tests and private manager tests |
 | Go client namespace rejoin on an open connection (`socket.connect()` in `socket.io-client`) | `client` tests in `socket_connect_test.go` and `socket_connect_integration_test.go`; `internal/conformance` `TestGoClientNamespaceRejoin` and `TestGoClientCrossingDisconnect` against the Node server |
+| Go client in a browser (js/wasm, headless Chrome) over websocket: connect, a second namespace, events, ACKs, binary payloads in both directions, text and binary frames, 200 emits from 4 goroutines in per-goroutine order, `ping timeout` against a server that never answers PING, dial failures, a server close read as close code 1000 after the messages before it, the read limit, deadlines and the release of the browser's callbacks | `internal/browsertest` and the js/wasm tests of `engineio/transport/browser`, run by `make test-browser` against the fixture server of `internal/browsertest/server`; `client` `TestPlatformTransport*` for the transport substitution |
 | Public consumer contracts, independent client/server roles and package privacy | `internal/parity` compilation fixtures and `.github/architecture` tests |
 | Runnable chat, ACK, binary, namespaces and middleware examples | `make examples` and `make examples-node` |
 | User-guide behavior: lifecycle-name broadcasts, rooms per namespace, event middleware arguments, a reason given before closing a root connection, a poll answered after `http.Server.WriteTimeout` over HTTP/1.x, an aborted poll, the client bundle route and sessions local to one instance | Root `guide_behavior_test.go` |
 
-`go test ./...` runs local tests without Node or Redis services. `make conformance`
+`go test ./...` runs local tests without Node, Redis or a browser. `make conformance`
 runs the tagged protocol and interoperability suite; `make examples-node` runs the
-JavaScript example clients, including two-process Redis examples. Missing external
-dependencies fail those explicit targets. Setup is in
+JavaScript example clients, including two-process Redis examples; `make test-browser`
+runs the browser tests in headless Chrome. Missing external dependencies fail those
+explicit targets. Setup is in
 [CLAUDE.md](../CLAUDE.md#interoperability) and
 [_examples/README.md](../_examples/README.md).

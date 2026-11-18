@@ -40,7 +40,8 @@ type Conn interface {
 	// RemoteHeader returns the headers of the request that created a server
 	// connection. On a client connection it returns the headers of the
 	// server's websocket handshake response, or of the latest polling
-	// response.
+	// response. A client transport that cannot observe response headers, as
+	// the browser transport cannot, returns an empty non-nil header.
 	RemoteHeader() http.Header
 	// SetReadDeadline sets the time after which reads fail with an error
 	// that reports Timeout; the zero time means no deadline.

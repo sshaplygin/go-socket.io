@@ -35,6 +35,13 @@ var fixture = map[string]string{
 	"native/native.go":                         "package native\n\n/*\n#define ANSWER 42\n*/\nimport \"C\"\n\nfunc Answer() int { return 42 }\n",
 	"internal/conformance/conformance_test.go": "//go:build conformance\n\npackage conformance\n\nimport (\n\t\"testing\"\n\n\tm \"example.com/m\"\n)\n\nfunc TestInterop(t *testing.T) { _ = m.Serve() }\n",
 	"internal/parity/parity_test.go":           "package parity\n\nimport \"testing\"\n\n// Checks the public contract\nfunc TestB1(t *testing.T) {}\n",
+	"client/client.go":                         "package client\n\n// Dial dials.\nfunc Dial() int { return 1 }\n",
+	"client/transports_js.go":                  "package client\n\nimport \"example.com/m/engineio/transport/browser\"\n\nfunc platform() int { return browser.Dial() }\n",
+	"engineio/transport/browser/transport.go":  "package browser\n\n// Dial dials.\nfunc Dial() int { return dial() }\n",
+	"engineio/transport/browser/dial_js.go":    "package browser\n\n// dial uses the browser.\nfunc dial() int { return 1 }\n",
+	"engineio/transport/browser/dial_other.go": "//go:build !js\n\npackage browser\n\nfunc dial() int { return 0 }\n",
+	"internal/browsertest/client_js_test.go":   "package browsertest\n\nimport (\n\t\"testing\"\n\n\t\"example.com/m/client\"\n)\n\nfunc TestClient(t *testing.T) { _ = client.Dial() }\n",
+	"internal/browsertest/server/main.go":      "//go:build browsertest\n\npackage main\n\nimport m \"example.com/m\"\n\nfunc main() { _ = m.Serve() }\n",
 	"_examples/app/go.mod":                     "module example.com/app\n\ngo 1.22\n",
 	"_examples/app/main.go":                    "package main\n\n// main runs.\nfunc main() {}\n",
 	"_examples/app/chat.go":                    "package main\n\n// chat is a shared copy.\nfunc chat() {}\n",
@@ -73,7 +80,7 @@ const frozenFixture = "package socketio\n\nimport (\n\t\"path/filepath\"\n\t\"st
 // none is the decision of a change no job reads.
 var none = map[string]string{
 	"v1": "false", "v1_packages": "", "gates_v1": "false", "examples_v1": "false",
-	"conformance": "false", "bench_v1": "", "v2": "false", "v2_packages": "",
+	"conformance": "false", "browser_v1": "false", "bench_v1": "", "v2": "false", "v2_packages": "",
 	"gates_v2": "false", "examples_v2": "false", "experiments_v2": "false", "bench_v2": "",
 	"sync": "false", "changed": "false",
 }
@@ -97,7 +104,7 @@ func with(changes map[string]string) map[string]string {
 
 var fullV1 = map[string]string{
 	"v1": "true", "v1_packages": "./...", "gates_v1": "true", "examples_v1": "true",
-	"conformance": "true",
+	"conformance": "true", "browser_v1": "true",
 }
 
 var fullV2 = map[string]string{
@@ -141,7 +148,7 @@ func TestClassify(t *testing.T) {
 			"parser/parser.go": "package parser\n\n// Parse parses.\nfunc Parse(s string) int {\n\treturn len(s) + 1\n}\n",
 		}, want: with(map[string]string{
 			"v1": "true", "v1_packages": ". ./engineio ./parser", "examples_v1": "true",
-			"conformance": "true", "bench_v1": "./parser", "changed": "true",
+			"conformance": "true", "browser_v1": "true", "bench_v1": "./parser", "changed": "true",
 		})},
 		// Comments that linters read run lint only.
 		{name: "deprecation comment", edit: map[string]string{
@@ -167,7 +174,7 @@ func TestClassify(t *testing.T) {
 			"parser/parser.go": "package parser\n\n// Parse parses.\n//\n//go:noinline\nfunc Parse(s string) int {\n\treturn len(s)\n}\n",
 		}, want: with(map[string]string{
 			"v1": "true", "v1_packages": ". ./engineio ./parser", "examples_v1": "true",
-			"conformance": "true", "bench_v1": "./parser", "changed": "true",
+			"conformance": "true", "browser_v1": "true", "bench_v1": "./parser", "changed": "true",
 		})},
 		{name: "line directive", edit: map[string]string{
 			"adapter/adapter.go": "package adapter\n\n//line broadcast.go:10\nfunc Broadcast() int { return 1 }\n",
@@ -195,8 +202,31 @@ func TestClassify(t *testing.T) {
 		{name: "server root", edit: map[string]string{
 			"server.go": "package m\n\nimport \"example.com/m/engineio\"\n\nfunc Serve() int { return engineio.Open() + 1 }\n",
 		}, want: with(map[string]string{
-			"v1": "true", "v1_packages": ".", "examples_v1": "true", "conformance": "true",
+			"v1": "true", "v1_packages": ".", "examples_v1": "true", "conformance": "true", "browser_v1": "true",
 		})},
+		// The browser job runs the js/wasm tests of internal/browsertest and
+		// engineio/transport/browser against a fixture server that imports the root package.
+		{name: "js-only file of the browser transport", edit: map[string]string{
+			"engineio/transport/browser/dial_js.go": "package browser\n\n// dial uses the browser.\nfunc dial() int { return 2 }\n",
+		}, want: with(map[string]string{
+			"v1": "true", "v1_packages": "./client ./engineio/transport/browser", "examples_v1": "true",
+			"conformance": "true", "browser_v1": "true",
+		})},
+		{name: "client", edit: map[string]string{
+			"client/client.go": "package client\n\n// Dial dials.\nfunc Dial() int { return 2 }\n",
+		}, want: with(map[string]string{
+			"v1": "true", "v1_packages": "./client", "examples_v1": "true", "conformance": "true", "browser_v1": "true",
+		})},
+		{name: "browser test", edit: map[string]string{
+			"internal/browsertest/client_js_test.go": "package browsertest\n\nimport (\n\t\"testing\"\n\n\t\"example.com/m/client\"\n)\n\nfunc TestClient(t *testing.T) { _ = client.Dial() + 1 }\n",
+		}, want: with(map[string]string{"gates_v1": "true", "browser_v1": "true"})},
+		// Only the browser job runs the js-only test files of client.
+		{name: "js-only test file of client", edit: map[string]string{
+			"client/platform_js_test.go": "package client\n\nimport \"testing\"\n\nfunc TestPlatform(t *testing.T) { _ = platform() }\n",
+		}, want: with(map[string]string{"v1": "true", "v1_packages": "./client", "browser_v1": "true"})},
+		{name: "comment in a js-only file", edit: map[string]string{
+			"engineio/transport/browser/dial_js.go": "package browser\n\n// dial uses the WebSocket of the browser.\nfunc dial() int { return 1 }\n",
+		}, want: lintV1},
 		{name: "test that no benchmark reaches", edit: map[string]string{
 			"parser/parser_test.go": "package parser\n\nimport \"testing\"\n\nfunc TestParse(t *testing.T) {\n\tif Parse(\"abc\") != 3 {\n\t\tt.Fatal(\"len\")\n\t}\n}\n",
 		}, want: with(map[string]string{"v1": "true", "v1_packages": "./parser"})},
@@ -290,7 +320,7 @@ func TestClassify(t *testing.T) {
 			want: merge(fullV1, map[string]string{"bench_v1": "./...", "changed": "true"})},
 		{name: "deleted file of a package", edit: map[string]string{"engineio/errors.go": deleted, "v2/engineio/errors.go": deleted, ".github/sync-manifest": "\n"},
 			want: with(map[string]string{
-				"v1": "true", "v1_packages": ". ./engineio", "examples_v1": "true", "conformance": "true",
+				"v1": "true", "v1_packages": ". ./engineio", "examples_v1": "true", "conformance": "true", "browser_v1": "true",
 				"v2": "true", "v2_packages": ". ./engineio", "sync": "true",
 			})},
 		{name: "renamed file", moves: [][2]string{{"adapter/adapter.go", "adapter/broadcast.go"}},
@@ -325,7 +355,7 @@ func TestClassify(t *testing.T) {
 		{name: "assembly source", edit: map[string]string{"parser/parse_amd64.s": "#include \"textflag.h\"\n"},
 			want: with(map[string]string{
 				"v1": "true", "v1_packages": ". ./engineio ./parser", "examples_v1": "true",
-				"conformance": "true", "bench_v1": "./parser", "changed": "true",
+				"conformance": "true", "browser_v1": "true", "bench_v1": "./parser", "changed": "true",
 			})},
 		{name: "C source", edit: map[string]string{"adapter/native.c": "int answer(void) { return 42; }\n"},
 			want: with(map[string]string{
@@ -458,7 +488,7 @@ func TestFull(t *testing.T) {
 	if err := run([]string{"-full"}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
-	want := "v1=true\nv1_packages=./...\ngates_v1=true\nexamples_v1=true\nconformance=true\nbench_v1=./...\n" +
+	want := "v1=true\nv1_packages=./...\ngates_v1=true\nexamples_v1=true\nconformance=true\nbrowser_v1=true\nbench_v1=./...\n" +
 		"v2=true\nv2_packages=./...\ngates_v2=true\nexamples_v2=true\nexperiments_v2=true\nbench_v2=./...\n" +
 		"sync=true\nchanged=true\n"
 	if stdout.String() != want {

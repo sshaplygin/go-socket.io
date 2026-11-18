@@ -65,6 +65,7 @@ func WithQuery(value url.Values) Option {
 }
 
 // WithHeader sets request headers, copied when New is called, including websocket upgrades.
+// On js/wasm websocket upgrades carry none of them; see browser.Transport.
 func WithHeader(value http.Header) Option {
 	return func(config *options) { config.Header = value }
 }
@@ -122,6 +123,9 @@ func WithRandomizationFactor(value float64) Option {
 // WithTransports sets transports in dial/upgrade order. The slice is copied for each instance.
 // The client uses a copy of each websocket.Transport whose EnableCompression and
 // CompressionThreshold are replaced by WithPerMessageDeflate and a threshold of 1024.
+// On js/wasm each websocket.Transport becomes a browser.Transport with the same
+// Subprotocols and HandshakeTimeout; its other fields, compression included, are
+// ignored, because the browser negotiates compression itself.
 func WithTransports(values ...transport.Transport) Option {
 	return func(config *options) { config.Transports = append(values[:0:0], values...) }
 }

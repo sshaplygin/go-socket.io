@@ -296,7 +296,6 @@ from one of the native Go client:
   is the page's origin, its cookies are the browser's cookies for the server's site,
   and no application header is sent. The browser does not expose the handshake
   response. `socket.io-client` in a browser has the same limits.
-- The browser negotiates `permessage-deflate` itself.
 - A page can send close codes 1000 and 3000–4999 only. The client sends 1000 on
   `Close`, as the native client does. Where the native client drops the TCP connection
   without a close frame (after a transport error, or for an upgrade probe that it does

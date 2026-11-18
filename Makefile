@@ -81,8 +81,11 @@ test-stress-load:
 # until its standard input, a FIFO held open on descriptor 3, closes on exit, failure or
 # interruption. go test runs with -v, so that the browser console of passing packages
 # reaches the output too, and writes to a file, because POSIX sh has no pipefail; a
-# JavaScript failure in that output also fails the target. BROWSER_COVER receives the statement
-# profile of engineio/transport/browser, which cover-check cannot see.
+# JavaScript failure in that output also fails the target. wasmbrowsertest hands its whole
+# environment to the wasm program, whose wasm_exec.js fails when arguments and environment
+# pass about 8 KB, so go test runs with only the variables that it and the tests need.
+# BROWSER_COVER receives the statement profile of engineio/transport/browser, which
+# cover-check cannot see.
 WASMBROWSERTEST_VERSION := v0.11.0
 BROWSER_COUNT ?= 1
 BROWSER_COVER ?= browser-cover.out
@@ -108,11 +111,16 @@ test-browser:
 		sleep 0.1; done; \
 	SOCKETIO_BROWSER_URL=$$(sed -n 's/^SOCKETIO_BROWSER_URL=//p' "$$tmp/server.log"); \
 	SOCKETIO_BROWSER_CLOSED_URL=$$(sed -n 's/^SOCKETIO_BROWSER_CLOSED_URL=//p' "$$tmp/server.log"); \
-	export SOCKETIO_BROWSER_URL SOCKETIO_BROWSER_CLOSED_URL; \
+	browser_test() { env -i PATH="$$PATH" HOME="$$HOME" TMPDIR="$${TMPDIR:-/tmp}" \
+		GOCACHE="$$(go env GOCACHE)" GOMODCACHE="$$(go env GOMODCACHE)" GOPATH="$$(go env GOPATH)" \
+		GOPROXY="$$(go env GOPROXY)" GOFLAGS="$$(go env GOFLAGS)" GOTOOLCHAIN="$$(go env GOTOOLCHAIN)" \
+		GOOS=js GOARCH=wasm SOCKETIO_BROWSER_URL="$$SOCKETIO_BROWSER_URL" \
+		SOCKETIO_BROWSER_CLOSED_URL="$$SOCKETIO_BROWSER_CLOSED_URL" \
+		SOCKETIO_BROWSER_LEAK="$${SOCKETIO_BROWSER_LEAK:-}" go test "$$@"; }; \
 	status=0; \
-	GOOS=js GOARCH=wasm go test -v -count=$(BROWSER_COUNT) -timeout 5m -exec "$$runner" -coverpkg=./engineio/transport/browser \
+	browser_test -v -count=$(BROWSER_COUNT) -timeout 5m -exec "$$runner" -coverpkg=./engineio/transport/browser \
 		-coverprofile="$(BROWSER_COVER)" $(BROWSER_PKGS) >"$$tmp/test.log" 2>&1 3>&- || status=$$?; \
-	GOOS=js GOARCH=wasm go test -v -count=$(BROWSER_COUNT) -timeout 5m -exec "$$runner" -run '^TestPlatformTransport' \
+	browser_test -v -count=$(BROWSER_COUNT) -timeout 5m -exec "$$runner" -run '^TestPlatformTransport' \
 		./client >>"$$tmp/test.log" 2>&1 3>&- || status=$$?; \
 	cat "$$tmp/test.log"; \
 	if grep -E 'call to released function|Go program has already exited|Uncaught' "$$tmp/test.log" >/dev/null; then \

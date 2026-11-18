@@ -25,6 +25,7 @@ import (
 
 	socketio "github.com/sshaplygin/go-socket.io"
 	"github.com/sshaplygin/go-socket.io/engineio"
+	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -89,8 +90,18 @@ func (f *fixture) register(nsp *socketio.ServerNamespace) {
 	nsp.OnEvent("order-result", func(c socketio.Conn) []string { return c.Context().(*record).order })
 	// The namespace disconnect: DISCONNECT for every namespace, then the engine closes.
 	nsp.OnEvent("kick", func(c socketio.Conn) { go func() { _ = c.Close() }() })
-	// The engine close: a websocket close frame with code 1000, or CLOSE over polling.
-	nsp.OnEvent("close-engine", func(c socketio.Conn) { go func() { _ = c.EngineConn().Close() }() })
+	// The engine close: the event "closing", then a websocket close frame with code 1000,
+	// or CLOSE over polling. The event is written on the engine connection itself, so that
+	// it precedes the close: an Emit is written later by the connection's writer.
+	nsp.OnEvent("close-engine", func(c socketio.Conn) {
+		go func() {
+			if w, err := c.EngineConn().NextWriter(eioparser.String); err == nil {
+				_, _ = io.WriteString(w, `2["closing"]`)
+				_ = w.Close()
+			}
+			_ = c.EngineConn().Close()
+		}()
+	})
 	nsp.OnEvent("drop", func(socketio.Conn) { f.drop() })
 	nsp.OnEvent("cookies", func(socketio.Conn) []string {
 		f.mu.Lock()

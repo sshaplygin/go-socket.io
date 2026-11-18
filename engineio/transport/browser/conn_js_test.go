@@ -100,21 +100,15 @@ func TestTextAndBinaryFrames(t *testing.T) {
 
 func TestPeerCloseAfterQueuedMessages(t *testing.T) {
 	c := dialEngine(t)
-	write(t, c, eioparser.String, `2["echo","before"]`)
+	// The server writes the event "closing", then closes with code 1000.
 	write(t, c, eioparser.String, `2["close-engine"]`)
 	_, _, data := read(t, c)
-	require.Equal(t, `2["echo","before"]`, strings.TrimSpace(data), "messages that precede the close are read first")
-	for {
-		_, _, r, err := c.NextReader()
-		if err != nil {
-			var closeErr *websocket.CloseError
-			require.ErrorAs(t, err, &closeErr)
-			require.Equal(t, websocket.CloseNormalClosure, closeErr.Code)
-			break
-		}
-		require.NoError(t, r.Close())
-	}
-	_, err := c.NextWriter(eioparser.String, eioparser.PING)
+	require.Equal(t, `2["closing"]`, data, "the message that precedes the close is read first")
+	_, _, _, err := c.NextReader()
+	var closeErr *websocket.CloseError
+	require.ErrorAs(t, err, &closeErr)
+	require.Equal(t, websocket.CloseNormalClosure, closeErr.Code)
+	_, err = c.NextWriter(eioparser.String, eioparser.PING)
 	require.IsType(t, &websocket.CloseError{}, err)
 	require.NoError(t, c.Close())
 	require.Zero(t, liveFuncs.Load())

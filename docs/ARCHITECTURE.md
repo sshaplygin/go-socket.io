@@ -29,7 +29,8 @@ Redis composes the memory adapter; the root server does not import Redis.
 `internal/event` shares typed payload and ACK encoding between the Socket.IO roles.
 
 `make architecture-check` verifies direct imports, transitive role and codec
-boundaries, package privacy and the absence of unsupported import paths.
+boundaries, package privacy and that none of a listed set of unsupported package
+directories and files exists.
 
 ## Runtime
 
@@ -38,10 +39,16 @@ Each server Socket.IO connection has up to five workers: a header reader, a
 read dispatcher, a writer, an observer that cancels typed handlers when the
 engine closes, and an error worker that starts on the first `OnError` delivery
 or outbound queue overflow. The writer drains one ordered outbound queue whose
-capacity is the write buffer size. Engine.IO removes a closed session from its
-registry in the session's close path, without a per-session watcher. Incoming
-event handlers run on the dispatcher; blocking one stalls that connection and
-also blocks the header reader's handoff of the next packet. A client connection
+capacity is the write buffer size. When a session's close finishes, Engine.IO
+removes it from the registry behind `Count` and sid lookup and from the shutdown
+set, in the session's close path, without a per-session watcher; removals
+check that the entry is still that session, because an ended session's ID can
+be issued again. The Socket.IO server does not remove sessions by ID: it starts
+a connection whose ID is still held by a connection running its disconnect
+handlers only after releasing that connection. Incoming
+event handlers run on the dispatcher; blocking one stalls that connection,
+every namespace of it and its heartbeat included ([handler duration](V1.md#connections-and-namespaces)),
+and also blocks the header reader's handoff of the next packet. A client connection
 starts its error worker with the connection.
 Application-initiated disconnection can invoke lifecycle callbacks concurrently.
 The client manager owns namespace sockets, connection generations, retries and

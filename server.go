@@ -2,6 +2,7 @@ package socketio
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -42,12 +43,18 @@ type Server struct {
 	activeMu      sync.Mutex
 	active        map[*connection]struct{}
 	activeChanged chan struct{}
+	closeTimer    func(time.Duration) *time.Timer // tests set it; nil means time.NewTimer
+	// holders maps a session ID to its newest active connection; guarded by activeMu.
+	holders map[string]*connection
 
 	limits connLimits
 	log    *slog.Logger
 }
 
-// NewServer returns a server.
+// NewServer returns a Server configured by opts. It creates the Engine.IO
+// server the Server serves through, which Engine returns. Mount the Server as
+// an http.Handler, run Serve to dispatch connections and events, and call Close
+// to shut it down.
 func NewServer(opts ...Option) *Server {
 	config := resolveOptions(opts...)
 	return &Server{
@@ -56,6 +63,7 @@ func NewServer(opts ...Option) *Server {
 		creating:      make(map[string]chan struct{}),
 		adapter:       config.Adapter,
 		active:        make(map[*connection]struct{}),
+		holders:       make(map[string]*connection),
 		activeChanged: make(chan struct{}),
 		closeDone:     make(chan struct{}),
 		engine:        engineio.NewServer(config.EngineOptions...),
@@ -74,9 +82,29 @@ func loggerFrom(opts *options) *slog.Logger {
 
 // Close closes engine sessions, waits for OnDisconnect handlers and closes namespace
 // adapters implementing io.Closer. It waits for in-progress namespace construction.
-// The wait is bounded by ten seconds; on timeout it logs remaining connections.
-// A factory configured after Close is not invoked for new namespaces. Serve returns nil.
+// The wait is bounded by ten seconds; on timeout it logs remaining connections and
+// shutdown keeps running in the background.
+// After Close, no factory is invoked for new namespaces, whether it was configured
+// before or after Close. Serve returns nil.
 // Completed shutdown returns the engine and adapter close errors joined together.
+// A timed-out wait returns an error wrapping context.DeadlineExceeded that states
+// how many connections were still open; when the engine and adapters had closed by
+// then, their errors are joined to it. Callers that treat a timeout as a clean stop
+// can ignore the error with errors.Is(err, context.DeadlineExceeded). Close may be
+// called again to wait once more.
+//
+// The wait includes the connection whose callback calls Close, and that connection
+// cannot finish until the callback returns. Called from a callback of this server
+// (middleware, OnConnect, OnEvent, listeners, acknowledgement callbacks, OnError,
+// disconnecting or OnDisconnect), Close therefore returns the timeout error after ten
+// seconds, and shutdown completes only after the callback returns. Callbacks start it
+// on its own goroutine instead:
+//
+//	go func() {
+//		if err := s.Close(); err != nil {
+//			// handle err
+//		}
+//	}()
 func (s *Server) Close() error { return s.closeWithTimeout(10 * time.Second) }
 
 func (s *Server) closeWithTimeout(timeout time.Duration) error {
@@ -125,7 +153,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.engine.ServeHTTP(w, r)
 }
 
-// OnConnect set a handler function f to handle open event for namespace.
+// OnConnect sets the connect handler of namespace, creating the namespace when
+// it has none; a later call replaces the handler. f runs when a client joins
+// the namespace, for the root namespace when its Engine.IO connection opens,
+// after the connection middleware (see Server.Use). A nil error
+// accepts the join, and the packets f emits are written after the namespace
+// is accepted. An error rejects it: the client receives an ERROR packet with
+// the error text, the Engine.IO connection stays open, and the error goes to
+// OnError, with a nil Conn for the root namespace. An error that holds a nil
+// pointer counts as nil and accepts the join. A panic in f rejects the join
+// with the text "internal error" and is reported as a *PanicError (see OnError).
+//
+// f runs once the namespace middleware (ServerNamespace.Use) has accepted the
+// socket. By then the socket has joined its ID room and is listed by Sockets and
+// SocketIDs, as in the reference's connection listener, so a broadcast that
+// selects it reaches it, whether issued by f or by another goroutine while f
+// runs. Those packets and the Emits of f wait in the connection's write queue
+// (see WithWriteBufferSize) and are written after CONNECT once f returns nil. If
+// f returns an error, the socket receives an ERROR packet instead, the waiting
+// packets are discarded, the socket leaves its rooms and the namespace, and it
+// gets neither disconnecting nor OnDisconnect.
 func (s *Server) OnConnect(namespace string, f func(Conn) error) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -136,10 +183,16 @@ func (s *Server) OnConnect(namespace string, f func(Conn) error) {
 }
 
 // OnDisconnect sets the namespace's disconnect handler. Its reason is the peer's
-// namespace disconnect, the engine's transport close/error or ping timeout, or
-// forced close for an application close, shutdown or parser failure. Rooms have
-// been left before it runs; OnEvent(namespace, "disconnecting", func(Conn, string))
-// observes the same reason while the rooms are still joined.
+// namespace disconnect; server namespace disconnect for Conn.Close and
+// Conn.Disconnect; the engine's transport close/error or ping timeout; or forced
+// close for every other server-side close, such as Server.Close, an engine-level
+// close (EngineConn().Close or engineio.Abort), a parser failure, a panic in an
+// untyped event handler or an ACK callback, or a queue overflow. Rooms have been
+// left before it runs; OnEvent(namespace, "disconnecting", func(Conn, string))
+// observes the same reason while the rooms are still joined. Both run once for
+// each socket whose OnConnect returned nil, also when a close started while
+// OnConnect ran; a socket rejected by middleware or OnConnect gets neither. A
+// panic in f is recovered and reported as a *PanicError (see OnError).
 func (s *Server) OnDisconnect(namespace string, f func(Conn, string)) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -151,7 +204,25 @@ func (s *Server) OnDisconnect(namespace string, f func(Conn, string)) {
 
 // OnError sets the namespace error handler. Root connect and connection-middleware
 // failures pass a nil Conn; errors for other unjoined namespaces pass an inactive
-// Conn. A panic in the error handler is recovered and logged at WARN.
+// Conn. It receives the non-nil error results of untyped event handlers as
+// returned, and a recovered panic of the namespace's callbacks that PanicError
+// lists as a *PanicError, possibly wrapped; each panic is reported once, also
+// after the connection's close started, when the report can follow OnDisconnect.
+// Without an error handler these are logged at WARN, a panic as
+// "socketio: handler panic" with its stack. An error result that a handler
+// of an incoming event returns after the connection's close started is not
+// reported: it is logged at DEBUG as "socketio: error after close". The error
+// results of disconnecting listeners, which only run during a close, and of
+// listeners that an Emit of a reserved event runs locally are always reported. An
+// error result whose Error method panics is reported as that *PanicError. A panic
+// in the error handler is recovered and logged at WARN as
+// "socketio: error handler panic" with its stack. f may be called concurrently,
+// also for one connection: reports raised while handling incoming packets are
+// delivered one at a time, but those of a close (disconnecting listeners,
+// OnDisconnect, panics after the close started) and of a local Emit run on the
+// goroutine that raised them.
+// The end of the Engine.IO session, by a disconnect, a transport failure, a ping
+// timeout, a close or a message-size limit, is not an error: OnDisconnect reports it.
 func (s *Server) OnError(namespace string, f func(Conn, error)) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -165,12 +236,48 @@ func (s *Server) OnError(namespace string, f func(Conn, error)) {
 //
 // f must be a func whose first parameter is Conn; the remaining parameters are
 // decoded from the event arguments. If the client asked for an
-// acknowledgement, the return values are sent back as the ACK payload. A final
-// AckFunc parameter takes ownership of the ACK and suppresses automatic returns;
-// it may be called later, once, from another goroutine. OnEvent replaces every
+// acknowledgement, the return values are sent back in order as the ACK payload.
+// A result of type error is sent as null when nil, also when it holds a nil
+// pointer, and otherwise as the typed error object
+// {"code":"handler_error","message":err.Error()}, or with the code and message of
+// a *RemoteError in its chain; a non-nil one is also reported as OnError
+// describes, whether or not an acknowledgement was requested, and the connection
+// stays open.
+// A final AckFunc parameter takes ownership of the ACK and suppresses automatic
+// returns; it may be called later, once, from another goroutine. If the arguments
+// do not decode into the parameter types, f is not called and the error goes to
+// OnError. What follows depends on the error, not on the JSON value. When it is a
+// *json.UnmarshalTypeError, which encoding/json returns for a value that does not
+// fit the Go type, such as a string for an int parameter or struct field, a
+// requested acknowledgement is answered with an error ACK and the connection stays
+// open. Any other decode error, such as the one Time.UnmarshalJSON returns for
+// "bad", closes the connection without an ACK (see Conn.Close). Which error a
+// value produces is decided by encoding/json and can differ under
+// GOEXPERIMENT=jsonv2. If f
+// panics while handling an incoming event, OnError receives a *PanicError, no
+// automatic ACK is sent (one already sent through an AckFunc stays sent) and the
+// connection is closed with the OnDisconnect reason forced close, unless a close
+// already started, which keeps its reason.
+// A panic in a listener of a reserved event (disconnecting, or a listener that an
+// Emit or broadcast of connect, disconnect, disconnecting or error runs locally) is
+// reported the same way and closes nothing: a disconnect in progress keeps its
+// reason, and the emitting code continues. OnEvent replaces every
 // listener of this event (see ServerNamespace.On and Once).
-// f is called on the read goroutine of the connection, so a blocking f delays only
-// that client. OnEvent panics if f is not a func or its first parameter is not Conn.
+//
+// f is called on the read goroutine of the client's Engine.IO connection, which
+// serves every namespace of that client and also answers its heartbeat. While f
+// runs, that Engine.IO connection dispatches nothing else, in any namespace, and
+// sends no PONG; other clients are not affected. An f that runs longer than the
+// ping timeout (engineio.WithPingTimeout, 20 seconds by default) can therefore end
+// that Engine.IO connection, with all its namespaces, with a ping timeout on the
+// client or the server, and one that runs longer than the ping interval plus the
+// ping timeout (45 seconds by default) normally does; neither the end nor the
+// survival of the connection can be relied on. When the connection ends this way,
+// the ACK of f is lost and OnError is not called. For long work, f starts a
+// goroutine and returns, and the goroutine acknowledges through a final AckFunc
+// parameter.
+//
+// OnEvent panics if f is not a func or its first parameter is not Conn.
 func (s *Server) OnEvent(namespace, event string, f interface{}) {
 	h := s.getNamespace(namespace)
 	if h == nil {
@@ -220,7 +327,10 @@ func (s *Server) broadcastOf(namespace string) adapter.Adapter {
 	return nil
 }
 
-// JoinRoom joins a live connection owned by this server to the room.
+// JoinRoom joins a live connection owned by this server to the room. It returns
+// false, doing nothing, when the namespace has no handler, its adapter could not
+// be created, or connection is not a connected socket of that namespace on this
+// server.
 func (s *Server) JoinRoom(namespace string, room string, connection Conn) bool {
 	nc := s.roomSocket(namespace, connection)
 	if nc == nil {
@@ -231,7 +341,8 @@ func (s *Server) JoinRoom(namespace string, room string, connection Conn) bool {
 	return true
 }
 
-// LeaveRoom removes a live connection owned by this server from the room.
+// LeaveRoom removes a live connection owned by this server from the room. It
+// returns false, doing nothing, in the cases where JoinRoom does.
 func (s *Server) LeaveRoom(namespace string, room string, connection Conn) bool {
 	nc := s.roomSocket(namespace, connection)
 	if nc == nil {
@@ -242,7 +353,8 @@ func (s *Server) LeaveRoom(namespace string, room string, connection Conn) bool 
 	return true
 }
 
-// LeaveAllRooms removes a live connection owned by this server from all rooms.
+// LeaveAllRooms removes a live connection owned by this server from all rooms. It
+// returns false, doing nothing, in the cases where JoinRoom does.
 func (s *Server) LeaveAllRooms(namespace string, connection Conn) bool {
 	nc := s.roomSocket(namespace, connection)
 	if nc == nil {
@@ -270,7 +382,10 @@ func (s *Server) roomSocket(nsp string, conn Conn) *namespaceConn {
 	return nil
 }
 
-// ClearRoom clears the room.
+// ClearRoom removes every socket from room in namespace through the
+// namespace's adapter (see adapter.Adapter.Clear). It returns false, doing
+// nothing, when the namespace has no handler or its adapter could not be
+// created.
 func (s *Server) ClearRoom(namespace string, room string) bool {
 	bc := s.broadcastOf(namespace)
 	if bc != nil {
@@ -329,7 +444,9 @@ func (s *Server) Rooms(namespace string) []string {
 	return nil
 }
 
-// Count number of connections.
+// Count returns the number of Engine.IO sessions registered with the server,
+// as engineio.Server.Count: a connection whose transport has ended is no longer
+// counted, also while its OnDisconnect handlers run.
 func (s *Server) Count() int {
 	return s.engine.Count()
 }
@@ -337,13 +454,16 @@ func (s *Server) Count() int {
 // Engine returns the engine.io server created by NewServer; never nil.
 func (s *Server) Engine() *engineio.Server { return s.engine }
 
-// Remove unregisters an Engine.IO session without closing its transport.
-// Server.Close still closes unregistered sessions that remain open.
+// Remove unregisters an Engine.IO session without closing its transport, as
+// engineio.Server.Remove. Server.Close still closes unregistered sessions that
+// remain open. A session unregisters itself when its close finishes.
 func (s *Server) Remove(sid string) {
 	s.engine.Remove(sid)
 }
 
 // ForEach visits the local members of room through their minimal adapter.Socket contract.
+// It returns false, doing nothing, when the namespace has no handler or its
+// adapter could not be created.
 func (s *Server) ForEach(namespace string, room string, f adapter.EachFunc) bool {
 	bc := s.broadcastOf(namespace)
 	if bc != nil {
@@ -448,13 +568,21 @@ func (s *Server) releaseConnection(c *connection) {
 	c.Wait()
 	s.activeMu.Lock()
 	delete(s.active, c)
+	if s.holders[c.ID()] == c {
+		delete(s.holders, c.ID())
+	}
+	close(c.released)
 	close(s.activeChanged)
 	s.activeChanged = make(chan struct{})
 	s.activeMu.Unlock()
 }
 
 func (s *Server) waitForConnections(timeout time.Duration) error {
-	timer := time.NewTimer(timeout)
+	newTimer := time.NewTimer
+	if s.closeTimer != nil {
+		newTimer = s.closeTimer
+	}
+	timer := newTimer(timeout)
 	defer timer.Stop()
 	engineDone := s.closeDone
 	closed := false
@@ -472,8 +600,21 @@ func (s *Server) waitForConnections(timeout time.Duration) error {
 		case <-changed:
 		case <-timer.C:
 			s.log.Warn("socketio: close timed out", "err", fmt.Errorf("%d connections still open", remaining))
-			return nil
+			return s.timeoutError(timeout, remaining)
 		}
+	}
+}
+
+// timeoutError describes an expired wait. closeErr is read only after closeDone,
+// which publishes it.
+func (s *Server) timeoutError(timeout time.Duration, remaining int) error {
+	select {
+	case <-s.closeDone:
+		return errors.Join(fmt.Errorf("socketio: close timed out after %s with %d connections still open, engine and adapter shutdown finished: %w",
+			timeout, remaining, context.DeadlineExceeded), s.closeErr)
+	default:
+		return fmt.Errorf("socketio: close timed out after %s with %d connections still open, engine and adapter shutdown unfinished: %w",
+			timeout, remaining, context.DeadlineExceeded)
 	}
 }
 
@@ -487,15 +628,25 @@ func (s *Server) serveConn(conn engineio.Conn) {
 		return
 	}
 	s.active[c] = struct{}{}
+	// An ended engine session's ID can be issued again while the connection that
+	// held it still runs its disconnect handlers. Socket.IO names sockets and
+	// rooms after the ID, so a connection waits for the previous holder of its
+	// ID to be released before it connects.
+	previous := s.holders[c.ID()]
+	s.holders[c.ID()] = c
 	s.activeMu.Unlock()
+	if previous != nil {
+		<-previous.released
+	}
+	// Every exit of Start and Read closes the engine session, which then leaves
+	// the engine's registry by itself. A removal by ID here could hit a newer
+	// session that was issued the same ID meanwhile.
 	if !c.Start(s.resolveNamespace) {
-		s.engine.Remove(conn.ID())
 		s.releaseConnection(c)
 		return
 	}
 	go func() {
 		defer s.releaseConnection(c)
 		c.Read()
-		s.engine.Remove(c.Conn.ID())
 	}()
 }

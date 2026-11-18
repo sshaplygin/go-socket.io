@@ -12,8 +12,10 @@ type ConnParameters struct {
 	PingTimeout  time.Duration
 	SID          string
 	Upgrades     []string
-	// MaxPayload is the largest HTTP polling request body, in bytes, that the
-	// server accepts; zero means the peer did not advertise one.
+	// MaxPayload is the largest polling POST body, in wire bytes, that the server
+	// accepts, as its OPEN packet advertises it; zero means none was advertised. It
+	// bounds a websocket message, in data bytes, when the server's websocket transport
+	// has the same limit, as engineio.Options.MaxPayload sets for both.
 	MaxPayload int
 }
 

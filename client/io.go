@@ -111,10 +111,11 @@ func (c *conn) serveWrite() {
 		}
 		pkg, ok := c.nextQueued()
 		if !ok {
-			if isDone(c.seal) {
+			if c.writeDrained() {
 				// A polling writer can finish before its POST reaches the peer.
 				// Drain that request before Close cancels transport I/O. The close
-				// timer remains active and interrupts a blocked transport flush.
+				// timer stays armed; it only starts the Engine.IO close, whose 2 s
+				// bound cancels a blocked flush.
 				go func() {
 					if pending, ok := c.Conn.(interface{ Flush() error }); ok {
 						_ = pending.Flush()
@@ -142,7 +143,11 @@ func (c *conn) serveWrite() {
 			}
 		}
 		if err != nil {
-			c.report(pkg.Header.Namespace, err, c.writer.failed)
+			// A failure of NextWriter or of the frame writer ends the session, which
+			// OnDisconnect reports; OnError receives only errors raised before the transport.
+			if !expected(err, c.writer.failed) {
+				c.report(pkg.Header.Namespace, err)
+			}
 			if c.writer.failed != nil {
 				c.stop()
 			} else {

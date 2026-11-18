@@ -20,8 +20,8 @@ internal tests live beside the implementation they verify.
 | `.github/changes/` | CI and benchmark change classification |
 | `.github/coverage/` | Cross-package coverage attribution |
 | `.github/benchmarks/` | Benchmark comparison and reporting |
+| `.github/stress/` | Summary of the `go test -json` stream of the stress runs under load |
 | `v2/` | Independent API and runtime work; contracts in `docs/API.md` |
-| `v2/_experiments/` | Standalone prototypes, excluded from both runtime modules |
 
 ## Commands
 
@@ -34,7 +34,8 @@ make test-race          # tests with the race detector
 make apidiff            # compare with the latest published fork v1 API
 make test-jsonv2        # parser and Socket.IO roles with GOEXPERIMENT=jsonv2
 make test-stress        # concurrent packages, shuffled and repeated
-make lint               # formatting, vet and golangci-lint
+make test-stress-load   # the stress packages repeated under CPU load; writes stress.json and stress-summary.md
+make lint               # formatting, vet and golangci-lint, example modules and quick-start fixture included
 make vet                # Linux/macOS/Windows, conformance and example packages
 make gates              # architecture, lifecycle and public consumer fixtures
 make cover-check        # statement coverage floor and uncovered public functions
@@ -45,13 +46,23 @@ make vuln               # scan the root and example modules
 ```
 
 `PKGS=<patterns>` narrows `test`, `test-race`, `test-stress` and `bench`.
+`test-stress-load` runs `STRESS_PKGS` with `go test -race -json -shuffle=on` while POSIX
+`sh` busy loops load the CPUs, then summarizes the stream with `.github/stress`; its
+variables are `STRESS_COUNT` (20), `STRESS_CPU` (`1,4`), `STRESS_TIMEOUT` (`90m`),
+`STRESS_LOAD` (busy loops; twice the CPU count from `nproc` or `sysctl -n hw.ncpu`),
+`STRESS_JSON` and `STRESS_SUMMARY` (the output files). The exit status is that of
+`go test`; the loops stop when the target exits, fails or is interrupted.
+`COVER_PROFILE=<path>` makes `cover-check` keep its statement profile there; the lint job of
+`ci.yaml` does so and uploads it to Codecov (`CODECOV_TOKEN`; a failed upload does not fail
+the job, the floor does).
 For v2, use `make -C v2 <target>`; `graph`, `freeze` and `fixtures` check its API
 contract, and `experiments` validates its standalone modules. The v2 examples
 are not built by its current `examples` target.
 
 ### Interoperability
 
-`make conformance` runs the tagged suite with `-race`. Node, npm and a Redis
+`make conformance` runs the tagged suite with `-race`, then the `adapter/redis`
+codec oracle test against the reference server's modules. Node, npm and a Redis
 server are required. Install the client separately from the reference server
 so the server's dependency cannot shadow the selected client:
 
@@ -70,31 +81,44 @@ Unix socket; see [_examples/README.md](_examples/README.md).
 ## CI
 
 `.github/workflows/ci.yaml` tests the change classifier before selecting jobs.
-Pull requests select affected packages and their reverse dependencies across
-Linux, macOS, Windows and the conformance build tag. Source changes run tests;
+Pull requests select affected packages and their reverse dependencies on Linux
+and run the conformance build tag when selected. Source changes run tests;
 ordinary comment/formatting changes run lint. Example changes select their
 build and interoperability jobs. Module, workflow and unclassified changes
-select a full run. Pushes to `master` and scheduled runs test both modules fully.
+select all jobs. Pushes to `master`, scheduled runs and manual runs test both
+modules fully. Pull requests and pushes use Linux; scheduled and manual runs
+also test on macOS and Windows.
 
 Markdown files consumed by checks select their gate jobs: the v1 architecture
-contract and v2 API inventory. Other Markdown does not select runtime tests.
+contract and README quick start, and the v2 API inventory. Other Markdown does
+not select runtime tests.
 Gate tests run in their own job when selected package tests do not already cover
 them. The architecture check runs both in the gate job and alongside selected
 v1 package tests. The `ci-ok` job aggregates all checks and fails if any selected
 job failed or was cancelled. Validate result handling with
 `bash .github/ci/aggregate_test.sh` and selection with `go test ./.github/changes`.
 
-The v1 matrix includes stable/oldstable Go on Linux, macOS and Windows, race
-tests, Go 1.22, repeated concurrency tests on every event, JSONv2 on stable and
-oldstable Go, coverage, examples and Node clients
+The v1 matrix includes stable/oldstable Go on Linux for every event, and on
+macOS and Windows for scheduled and manual runs. It also includes race
+tests, Go 1.22, repeated concurrency tests on every event, JSONv2 on stable,
+oldstable and Go 1.25, coverage, examples and Node clients
 1.7.4/2.5.0. Vulnerability checks use the newest Go release available to CI.
 `.github/sync-manifest` is the complete list of files deliberately shared across
 modules; other implementations evolve independently.
 
-`make apidiff` uses pinned `gorelease` to compare with the newest stable v1 tag
-whose go.mod declares the fork module path. It activates after the first fork
-release; inherited upstream tags are excluded. CI fetches complete history for
-this check. Set `API_BASE` to reproduce a comparison with a specific version.
+`make apidiff` runs pinned `gorelease` in the root module against the newest stable v1
+tag whose go.mod declares the fork module path; inherited upstream tags are excluded. It
+fails on an incompatible API change and when no such tag is reachable. The `lint-v1` job
+runs it with complete Git history. Set `API_BASE` to compare with a specific version.
+
+`.github/workflows/stress.yml` runs `make test-stress-load` on `ubuntu-latest` and
+`macos-latest` with a 120-minute job timeout: nightly, on `workflow_dispatch`, and on
+pull requests that change the workflow file, `.github/stress/` or the Makefile. It is
+not a required check and not part of `ci-ok`, which is why it may use a paths filter.
+A failing test fails its job; known flaky tests are not skipped. The summary is written
+to the job summary, and the JSON stream and the summary are uploaded as artifacts. The
+classifier selects no CI job for the workflow file and the v1 lint job for
+`.github/stress/`; the `changes` job tests `.github/stress` on every run.
 
 Benchmarks compare the PR base and head on the same runner and Go toolchain,
 with ten samples per side. The pinned `sshaplygin/benchmark-report/report` action
@@ -110,13 +134,28 @@ workflow exercises the report action with the collected benchmark samples.
 
 ## Conventions
 
-- Use `gofmt -s`, wrap errors with `%w`, and return errors to callers. Library
-  packages must not terminate the process. Executable entry points own exit status.
-- Root, client and Engine.IO test packages fail when library goroutines remain
-  after cleanup; fixtures must close clients and unblock callbacks.
+- Use `gofmt -s`, wrap errors with `%w`, and return errors to callers. Library code,
+  examples and README snippets never terminate the process: no `log.Fatal*`,
+  `log.Panic*` or `os.Exit`; a failing example `main` panics with the error
+  (`panic(err)`). golangci-lint (forbidigo) enforces this in the default-build files of
+  the packages that `make lint` and `make -C v2 lint` lint; `v2/_examples`,
+  `v2/engineio/_examples` and the other gaps listed in W73 of
+  [docs/V1_RELEASE_REVIEW.md](docs/V1_RELEASE_REVIEW.md#w73-forbid-fatal-exits-by-lint)
+  are not covered. The exceptions are the `.github` CI tools, which report through
+  their exit status, and `os.Exit` in the `TestMain` functions that set a test binary's
+  exit status, whose files the configuration names.
+- The test packages of the packages that start goroutines (root, `client`,
+  `adapter/redis`, `engineio`, `engineio/client`, `engineio/internal/session` and the
+  polling and websocket transports) fail when library goroutines remain after
+  cleanup; fixtures must close clients and unblock callbacks.
 - Reproduce a bug with a behavioral test; verify concurrency changes with `-race`.
   Test observable contracts, failure paths and boundaries. Avoid tests that only
   repeat implementation details or count documentation markers.
+- Every exported identifier of the root module's non-internal packages has godoc
+  that states its contract: behavior, errors, concurrency and ownership of
+  arguments. golangci-lint (revive `exported`) enforces a doc comment on exported
+  functions, methods, types, constants and variables there; struct fields and
+  interface methods are not checked by the linter.
 - Public API changes update the owning reference and consumer fixtures. Client
   APIs contain client operations; server-only operations belong to server types.
 - Repository text is English. Commit and PR descriptions state the problem,
@@ -130,7 +169,7 @@ Each fact has one owner; other documents link to it.
 
 | File | Owns |
 | --- | --- |
-| `README.md` | V1 purpose, install, version compatibility and links to examples |
+| `README.md` | V1 purpose, install, version compatibility, the server quick start and links to examples |
 | `docs/V1.md` | V1 usage, lifecycle, adapters and typed events |
 | `docs/PROTOCOL.md` | V1 wire behavior and interoperability limits |
 | `docs/PARITY.md` | Reference implementations and behavioral test coverage |
@@ -139,6 +178,7 @@ Each fact has one owner; other documents link to it.
 | Godoc | Public signatures and detailed method contracts |
 | `_examples/README.md` | Running and testing v1 examples |
 | `CONTRIBUTING.md` | Contribution and release procedure |
+| `SECURITY.md` | Supported versions and vulnerability reporting |
 | `CLAUDE.md` | Development commands and repository conventions |
 | `v2/README.md`, `docs/V2_PROTOCOL.md` | V2 status and protocol behavior |
 | `docs/API.md` | V2 API inventory and compile fixtures |

@@ -3,8 +3,9 @@
 The declarations of roadmap stage 2.0: the method-signature inventory and the
 package graph that parallel work (2.1 to 2.4) builds against. The G2 gate (ROADMAP wave
 2A) froze them; [Frozen contract](#frozen-contract) records what is frozen and what is
-explicitly not. The skeleton is declarations only. Every operation that needs the runtime returns
-`socketio.ErrNotImplemented` (`Server.ServeHTTP` answers 501); nothing here works yet. Behaviour is specified in
+explicitly not. Operations that need the runtime return `socketio.ErrNotImplemented`
+until their stage lands (`Server.ServeHTTP` answers 501); `RedactHandshake` (2.2) is
+implemented. Behaviour is specified in
 [ROADMAP.md](ROADMAP.md) (sections 2.0 to 2.4) and, once it exists, in the godoc of each
 declaration. This file lists signatures and does not restate behaviour. A signature
 change updates this file, the fixtures and the owning roadmap section in one PR.
@@ -79,7 +80,7 @@ from the declaration, and `make graph` checks the package graph.
 | `adapter.go` | `LocalSockets` | `Deliver(ctx, SocketID, parser.Packet) error`; `Snapshot(SocketID) (RemoteSocket, bool)` |
 | `adapter.go` | `AdapterFactory` | `func(ctx, nsp *Namespace) (Adapter, error)` |
 | `adapter.go` | `BroadcastOptions` | `{Rooms, Except []Room; Flags BroadcastFlags}` |
-| `adapter.go` | `RedactHandshake` | `RedactHandshake(json.RawMessage) (json.RawMessage, error)`; drops `auth` and the three headers, keeps the rest; the skeleton returns `ErrNotImplemented` |
+| `adapter.go` | `RedactHandshake` | `RedactHandshake(json.RawMessage) (json.RawMessage, error)`; drops `auth` and the three headers (names compared without case), keeps every other member byte for byte; nil yields nil, a value that is not an object an error |
 | `adapter.go` | `BroadcastFlags` | `{Local bool}`; other flags are later additive fields, so literals use field names |
 | `adapter.go` | `RemoteSocket` | `{ID SocketID; Rooms []Room; Handshake, Data json.RawMessage}`; `Handshake` omits `auth` and three headers only (see *Frozen at G2*), `Data` is nil or valid JSON |
 | `options.go` | `Options` | `{Logger *slog.Logger; Engine engineio.Options; Hooks *Hooks; Adapter AdapterFactory; AckTimeout time.Duration; OutboundQueueGroups, OutboundQueueBytes, HandlerQueueEvents, HandlerQueueBytes, MaxPendingAcks, MaxAttachments, MaxEventBytes, MaxConcurrentConnects int; AttachmentTimeout, ConnectTimeout time.Duration}`; defaults and units in the godoc |
@@ -125,8 +126,9 @@ Additions only; nothing existing changed.
 | `engineio/hooks.go` | `SessionInfo`, `PacketInfo`, `HandshakeResult` | `{SID, Transport, RemoteAddr string}`; `{Type packet.Type; Frame frame.Type; Bytes int; Preview []byte}`; `{Result string; Err error; Duration time.Duration}` |
 | `engineio/hooks.go` | `CloseReason` | `type CloseReason string` with `CloseTransportClose`, `CloseTransportError`, `ClosePingTimeout`, `CloseForced`, `CloseServerShuttingDown`, `CloseParseError`; handshake results `HandshakeResultOK`, `HandshakeResultBadTransport`, `HandshakeResultChecker`, `HandshakeResultAccept`, `HandshakeResultNoHijacker`, `HandshakeResultInit`, `HandshakeResultTimeout`, `HandshakeResultClosed` |
 | `engineio/hooks.go` | `ChainHooks`, `LoggingHooks` | `ChainHooks(...*Hooks) *Hooks`; `LoggingHooks(*slog.Logger) *Hooks`; the skeleton returns nil |
-| `engineio/options.go` | `Options` fields | `Hooks *Hooks`; `PayloadPreviewBytes int` (0 to 256) |
-| `engineio/options.go` | `Options.Normalize` | `(Options) Normalize() (Options, error)`; rejects a preview limit outside 0..256 |
+| `engineio/options.go` | `Options` fields | `Hooks *Hooks`; `PayloadPreviewBytes int` (0 to 256); `UpgradeTimeout time.Duration` (2.1; zero means 10 s, a negative value is rejected by `Normalize` and treated as zero by `NewServer`); `MaxPayload int` (2.1; a positive value replaces the transport limits on the server, zero keeps them, a negative value is rejected by `Normalize` and treated as zero by `NewServer`) |
+| `engineio/options.go` | `Options.Normalize` | `(Options) Normalize() (Options, error)`; rejects a preview limit outside 0..256 and a negative `UpgradeTimeout` or `MaxPayload` |
+| `engineio/client/dialer.go` | `Dialer` fields | `HandshakeTimeout time.Duration` (2.1; bounds each transport tried, zero means 10 s, a negative value means no bound) |
 | `parser/value.go` | `Arguments` | `{Values []json.RawMessage; Attachments [][]byte}`; borrowed when passed, owned when returned |
 | `parser/value.go` | `Packet` | `{Type Type; Namespace string; ID *uint64; Data json.RawMessage; Attachments [][]byte}` |
 | `parser/value.go` | `BinaryValue` | `SocketIOBinary() []byte` |
@@ -228,13 +230,16 @@ defined by the stage named; all are additions to the frozen declarations.
 | --- | --- |
 | Payload preview redaction: the `engineio` redactor type and its `Options` field | 2.4E, with the Socket.IO supplier in 2.4S |
 | Binding a codec to an event descriptor; constructors without handler reflection | 2.3S |
-| Lifecycle context of `Socket` and `Namespace`, socket disconnect, connection callbacks, `Socket.Data` and handshake accessors | 2.3S |
+| Lifecycle context of `Namespace` | 2.3S |
+| The v1 continuity declarations of the root ([ROADMAP 2.3](ROADMAP.md#23-socketio-v5-and-the-generic-api), *v1 continuity*): `Namespace.OnConnect`, `Namespace.OnDisconnect`, `Namespace.OnError`, `Namespace.RoomLen`, `Namespace.Sockets`; `Socket.Context`, `Socket.Connected`, `Socket.Disconnect`, `Socket.Close`, `Socket.Handshake`, `Socket.RemoteHeader`, `Socket.RemoteAddr`, `Socket.LocalAddr`, `Socket.URL`, `Socket.To`, `Socket.Rooms`, `Socket.LeaveAll`; the type `Handshake`; `SetData` and `Data`; `Server.Count`; `Event.PlainAck` and `AckEvent.PlainAck` | 2.3S |
 | Delivery of a received `ServerSideEmit` to application handlers, and acknowledgements of server-side emits | 4b, additively, with 2.3S for the namespace side |
 | Further broadcast flags: volatile, compress, timeout | a later stage, additive |
 | Upgrade results, request-rejection reasons, disconnect reasons and adapter results as constants | 2.4 (`docs/OBSERVABILITY.md`) |
 | Behaviour of `ChainHooks` and `LoggingHooks`, and every hook fire point | 2.4E and 2.4S |
-| The in-memory adapter, `client/`, and the runtime behind every declaration | 2.2, 2.3C, 2.1 to 2.4 |
+| The in-memory adapter and the runtime behind every declaration | 2.2, 2.1 to 2.4 |
+| `client/`, with the v1 names of ROADMAP 2.3 *v1 continuity*: `New`, the v1 `With*` options except `WithPerMessageDeflate`, with `WithAuth` and the reconnection options, `Client.Connect`, `Client.Close`, `Client.OnConnect`, `Client.OnDisconnect`, `Client.OnError` and the reconnect callbacks; `*Client` implements `ClientRegistration` | 2.3C |
 | The legacy fields of `engineio.Options` outside the two above, including `WriteBufferSize` | 2.1 |
+| `DisableCORS` on `engineio.Options` and `polling.Transport` | 2.1 (PR E2b) |
 
 ### Gate evidence
 

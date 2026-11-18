@@ -93,6 +93,14 @@ func (c *conn) nextQueued() (outboundPayload, bool) {
 	return outboundPayload{}, false
 }
 
+// writeDrained rechecks the queues with the seal: Close may have admitted packets
+// since nextQueued observed them empty. Once sealed, no new packets can enter.
+func (c *conn) writeDrained() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return isDone(c.seal) && len(c.controls) == 0 && len(c.writeChan) == 0
+}
+
 type queuedPayload struct {
 	payload  outboundPayload
 	sequence uint64
@@ -104,7 +112,8 @@ type controlPayload struct {
 }
 
 // Lifecycle packets retain their position among application writes without
-// consuming an application slot. At most one CONNECT/DISCONNECT is owed per socket.
+// consuming an application slot. Each Socket.Close and Socket.Connect on an open
+// connection queues its own packet; see Socket.Connect.
 func (c *conn) writeControl(header parser.Header) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

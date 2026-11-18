@@ -101,10 +101,17 @@ func eventPacketHandler(c *conn, event string, header parser.Header) error {
 	}
 	args, err := decodeCallbackArgs(c.decoder, types, len(snapshot) > 0 && snapshot[0].Variadic())
 	if err != nil {
+		var typeErr *json.UnmarshalTypeError
+		mismatch := errors.As(err, &typeErr)
+		if mismatch && header.NeedAck {
+			// The attachments are consumed and the connection stays open, so the
+			// peer waiting for its acknowledgement gets the error ACK that typed
+			// acknowledged handlers send for the same failure.
+			writeInvalidPayloadAck(conn, header, err)
+		}
 		c.onError(header.Namespace, err)
 		c.log.Debug("socketio: event decode failed", nspAttr(header.Namespace), "event", event, "err", err)
-		var typeErr *json.UnmarshalTypeError
-		if errors.As(err, &typeErr) {
+		if mismatch {
 			return nil
 		}
 		return errDecodeArgs

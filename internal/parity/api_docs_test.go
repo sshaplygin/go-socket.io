@@ -31,7 +31,7 @@ func TestPublicRoleDocumentation(t *testing.T) {
 		{"engineio", []string{"Conn", "CompressWriter", "IDGenerator"}, []string{"Conn.ID", "CompressWriter.NextWriterCompress", "IDGenerator.NewID"}},
 		{"engineio/parser", []string{"FrameWriter", "FrameReader", "PayloadWriter", "PayloadReader"}, []string{"FrameWriter.NextWriter", "FrameReader.NextReader", "PayloadWriter.AcquirePayloadWriter", "PayloadReader.AcquirePayloadReader"}},
 		{"client", []string{"Conn", "Namespace", "Emitter", "Socket", "AckFunc"},
-			[]string{"Conn.Close", "Namespace.Emit", "Emitter.Emit", "Socket.OnConnect", "Socket.Emit"}},
+			[]string{"Conn.Close", "Namespace.Emit", "Emitter.Emit", "Socket.OnConnect", "Socket.Emit", "Socket.Connect"}},
 	} {
 		t.Run(role.path, func(t *testing.T) {
 			packages, err := parser.ParseDir(token.NewFileSet(), filepath.Join(root, role.path), func(info os.FileInfo) bool {

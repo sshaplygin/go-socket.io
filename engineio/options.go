@@ -28,7 +28,7 @@ type options struct {
 	// DisableHTTPCompression disables gzip/deflate for polling responses.
 	DisableHTTPCompression bool
 	// CompressionThreshold is the encoded size from which compression applies;
-	// nonpositive values mean 1024 bytes.
+	// nonpositive values mean 1024 bytes. See WithCompressionThreshold.
 	CompressionThreshold int
 	// Cookie is copied with Value replaced by the session ID. Nil defaults to
 	// io, Path=/, HttpOnly, SameSite=Strict. An empty Name defaults to io.
@@ -57,8 +57,8 @@ type options struct {
 	// it creates. nil means logger.Log. It chooses the sink only: logger.Level
 	// decides what is enabled while it is not logger.LevelUnset (set from
 	// SOCKETIO_LOG_LEVEL or by logger.Level.Set), the handler otherwise.
-	// Transports, the parser, the packet codec and the client dialer do not
-	// have access to options and keep using logger.Log.
+	// The Socket.IO parser, the transports, engineio/parser, engineio/client and
+	// the Redis adapter do not have access to options and keep using logger.Log.
 	Logger *slog.Logger
 }
 
@@ -240,7 +240,9 @@ func WithHTTPCompression(value bool) Option {
 	return func(config *options) { config.DisableHTTPCompression = !value }
 }
 
-// WithCompressionThreshold sets the compression threshold; nonpositive means 1024 bytes.
+// WithCompressionThreshold sets the compression threshold of both transports;
+// nonpositive means 1024 bytes. polling.Transport.CompressionThreshold and
+// websocket.Transport.CompressionThreshold say what each transport measures.
 func WithCompressionThreshold(value int) Option {
 	return func(config *options) { config.CompressionThreshold = value }
 }
@@ -289,7 +291,10 @@ func WithLogger(value *slog.Logger) Option {
 	return func(config *options) { config.Logger = value }
 }
 
-// WithTransports sets transports in dial/upgrade order. The slice is copied for each instance.
+// WithTransports sets transports in upgrade order: a handshake may use any of them, and a
+// session may upgrade only to a later one. The slice is copied for each instance.
+// The server uses a copy of each polling.Transport and websocket.Transport and sets
+// some fields of the copy from its own options; the godoc of those types lists them.
 func WithTransports(values ...transport.Transport) Option {
 	return func(config *options) { config.Transports = append(values[:0:0], values...) }
 }

@@ -7,6 +7,7 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
   schedule:
     - cron: '0 8 * * 1' # Mondays 08:00 UTC
 
@@ -14,8 +15,10 @@ on:
 # and v2 in v2/ (github.com/sshaplygin/go-socket.io/v2). The changes job runs the
 # classifier of .github/changes: on a pull request every other job runs only when the
 # diff reaches something it checks, and the test jobs test only the affected packages;
-# push and schedule run everything. Jobs are skipped with a job-level if, never with
-# workflow-level paths filters, so that the required checks always report.
+# push, schedule and manual dispatch run everything. PRs and pushes test on Linux;
+# schedule and manual dispatch also test on macOS and Windows. Jobs are skipped
+# with a job-level if, never with workflow-level paths filters, so that the
+# required checks always report.
 # Stress runs for selected v1 packages on all events. ci-ok aggregates every job,
 # accepting intentional skips but rejecting failures and cancellations.
 jobs:
@@ -50,7 +53,7 @@ jobs:
       - name: Test aggregate result handling
         run: bash .github/ci/aggregate_test.sh
       - name: Test the classifier
-        run: go test -count=1 ./.github/changes
+        run: go test -count=1 ./.github/changes ./.github/stress
       - name: Classify the change
         id: classify
         env:
@@ -217,7 +220,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.v1 == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Lint, coverage and govulncheck take up to about 6.5 minutes; the limit leaves room for
+    # the 3 minutes that a stalled coverage upload may take, so that it cannot cancel the job.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
@@ -245,12 +250,13 @@ jobs:
         run: make architecture-check
       - name: API and statement coverage
         if: needs.changes.outputs.v1_packages != ''
-        run: make cover-check
+        run: make cover-check COVER_PROFILE=coverage.out
+      - name: Install golangci-lint
+        # golangci-lint-action lints one working directory; make lint-go also lints each example
+        # module, the underscore packages of the root module and the quick-start fixture.
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.15.0
-          args: ./... ./.github/architecture ./.github/changes
+        run: make lint-go
       - name: govulncheck
         # setup-go reads a manifest that can lag behind go.dev, so scan with the newest
         # published release; the go command downloads that toolchain via the module proxy.
@@ -265,6 +271,22 @@ jobs:
           go version
           go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           make vuln
+      # The last step: the action exports the token to the environment of every later step
+      # of the job, which leaves only the post-job steps of setup-go and checkout.
+      # A failed or stalled upload does not fail the job: the coverage floor is
+      # the gate, Codecov is the public report. Pull requests from forks have no token and
+      # upload without one.
+      - name: Upload coverage to Codecov
+        if: needs.changes.outputs.v1_packages != ''
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.out
+          disable_search: true
+          flags: v1
+          fail_ci_if_error: false
 
   lint-v2:
     name: Lint v2
@@ -329,7 +351,7 @@ jobs:
       fail-fast: false
       matrix:
         go: ['stable', 'oldstable']
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest"]') }}
     env:
       PKGS: ${{ needs.changes.outputs.v1_packages }}
     defaults:
@@ -361,7 +383,7 @@ jobs:
       fail-fast: false
       matrix:
         go: ['stable', 'oldstable']
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest"]') }}
     env:
       PKGS: ${{ needs.changes.outputs.v2_packages }}
     defaults:
@@ -406,7 +428,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go: [stable, oldstable]
+        # 1.25 is the first release with the experiment, and its encoding/json
+        # error text differs from later releases.
+        go: [stable, oldstable, '1.25']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

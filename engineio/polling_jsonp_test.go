@@ -59,7 +59,9 @@ func TestPollingIgnoresJSONPCallback(t *testing.T) {
 	should.Equal("Content-Type", resp.Header.Get("Access-Control-Allow-Headers"))
 }
 
-// JSONP is removed (D4): a form POST (`d=`) is rejected and never reaches the session.
+// JSONP is removed (D4): a form POST (`d=`) is not unwrapped into a payload. Like
+// any body under a content type other than application/octet-stream it is decoded
+// as a text payload, which `d=...` is not, so it is answered 400 and delivers nothing.
 func TestPollingRejectsJSONPFormPost(t *testing.T) {
 	must := require.New(t)
 	should := assert.New(t)
@@ -69,19 +71,36 @@ func TestPollingRejectsJSONPFormPost(t *testing.T) {
 	httpSvr := httptest.NewServer(svr)
 	defer httpSvr.Close()
 
-	_, _, sid := pollingHandshake(t, httpSvr.URL, "")
-	conn, err := svr.Accept()
-	must.NoError(err)
-	defer func() { _ = conn.Close() }()
-
-	poll := httpSvr.URL + "/?EIO=3&transport=polling&sid=" + sid
-	for _, u := range []string{poll, poll + "&j=0"} {
-		resp, err := http.Post(u, "application/x-www-form-urlencoded", strings.NewReader("d=6%3A4form"))
+	open := func() (string, Conn) {
+		_, _, sid := pollingHandshake(t, httpSvr.URL, "")
+		conn, err := svr.Accept()
 		must.NoError(err)
-		must.NoError(resp.Body.Close())
-		should.Equal(http.StatusBadRequest, resp.StatusCode, u)
+		return httpSvr.URL + "/?EIO=3&transport=polling&sid=" + sid, conn
 	}
 
+	for _, suffix := range []string{"", "&j=0"} {
+		poll, conn := open()
+		read := make(chan string, 1)
+		go func() {
+			_, r, err := conn.NextReader()
+			if err != nil {
+				read <- ""
+				return
+			}
+			b, _ := io.ReadAll(r)
+			_ = r.Close()
+			read <- string(b)
+		}()
+		resp, err := http.Post(poll+suffix, "application/x-www-form-urlencoded", strings.NewReader("d=6%3A4form"))
+		must.NoError(err)
+		must.NoError(resp.Body.Close())
+		should.Equal(http.StatusBadRequest, resp.StatusCode, suffix)
+		should.Empty(<-read, "the form body reached the session")
+		_ = conn.Close()
+	}
+
+	poll, conn := open()
+	defer func() { _ = conn.Close() }()
 	posted := make(chan int, 1)
 	go func() {
 		resp, err := http.Post(poll, "text/plain;charset=UTF-8", strings.NewReader("5:4text"))

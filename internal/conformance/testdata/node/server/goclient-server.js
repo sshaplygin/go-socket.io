@@ -11,16 +11,25 @@ for (const name of ['/', '/chat', '/late']) {
     const sid = socket.conn.id;
     let state = sessions.get(sid);
     if (!state) {
-      state = {connected: [], disconnected: []};
+      state = {connected: [], disconnected: [], received: []};
       sessions.set(sid, state);
       socket.conn.once('close', () => sessions.delete(sid));
     }
     state.connected.push(socket.nsp.name);
+    // Records the name of every event this socket receives from the client.
+    socket.use((packet, next) => { state.received.push([socket.nsp.name, packet[0]]); next(); });
     socket.on('disconnect', reason => state.disconnected.push([socket.nsp.name, reason]));
     socket.on('echo', (value, ack) => { socket.emit('reply', value); ack(value); });
     socket.on('binary', (value, ack) => ack(value));
     socket.on('ask', () => socket.emit('question', 'server', value => socket.emit('answer', value)));
+    // Emits num with a string, which a Go handler declared for int cannot decode,
+    // and reports what the server-side ACK callback received.
+    socket.on('ask-mismatch', ack => {
+      const timer = setTimeout(() => ack('callback not called'), 3000);
+      socket.emit('num', 'bad', value => { clearTimeout(timer); ack(value); });
+    });
     socket.on('drop-transport', () => socket.conn.close());
+    socket.on('kick', () => socket.disconnect());
     socket.on('inspect', ack => ack({
       sid, id: socket.id, namespace: socket.nsp.name,
       transport: socket.conn.transport.name,
@@ -28,7 +37,7 @@ for (const name of ['/', '/chat', '/late']) {
       namespaceQuery: socket.handshake.query.namespace,
       header: socket.handshake.headers['x-go-client'],
       url: socket.handshake.url,
-      connected: state.connected, disconnected: state.disconnected
+      connected: state.connected, disconnected: state.disconnected, received: state.received
     }));
     socket.on('await-upgrade', ack => {
       if (socket.conn.transport.name === 'websocket') ack('websocket');

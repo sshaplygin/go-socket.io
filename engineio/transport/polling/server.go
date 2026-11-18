@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,7 +29,27 @@ type serverConn struct {
 	writableMu   sync.Mutex
 	pollWaiting  bool
 	noCompress   atomic.Bool
+	tooLarge     atomic.Pointer[http.MaxBytesError] // see ReadLimitError
 	cookie       atomic.Pointer[http.Cookie]
+
+	// pollMu guards poll, held by a GET handler from its flushOut to the end of its
+	// response write (another GET is an overlap). pollDone is allocated only if
+	// Drained observes that poll and closes when it returns.
+	pollMu   sync.Mutex
+	poll     bool
+	pollDone chan struct{}
+
+	// ioMu orders deadline updates and Close against tracked request I/O. It is
+	// a leaf lock: only ResponseController deadline setters run under it.
+	ioMu      sync.Mutex
+	ioClosed  bool       // Close ran: body reads are expired
+	ioAborted bool       // Abort ran: response writes are expired too
+	reading   requestSet // the POSTs whose bodies are being read
+	writing   requestSet // the GETs whose responses are being written
+	readIO    requestIO  // reused by the usual one-at-a-time POST
+	writeIO   requestIO  // reused by the usual one-at-a-time GET
+	readBusy  bool
+	writeBusy bool
 }
 
 // newServerConn creates the polling connection of a request. JSONP is not supported
@@ -106,6 +127,24 @@ func (c *serverConn) SetHeaders(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// closePayload is a payload of one CLOSE packet in the connection's framing.
+func (c *serverConn) closePayload() []byte {
+	if c.supportBinary {
+		return []byte{0x00, 0x01, 0xff, '1'}
+	}
+	return []byte("1:1")
+}
+
+// timedOut reports whether err is an expired read or write deadline, which the
+// session reports as "ping timeout": the payload's own deadline errors and a
+// request body read that its tracked deadline interrupted report Timeout. A body
+// read that Close or Abort interrupted does not (bodyReadError). It must match timedOut in engineio/internal/session/close.go, which classifies the same
+// errors for the session's close reason.
+func timedOut(err error) bool {
+	var timeout interface{ Timeout() bool }
+	return errors.Is(err, os.ErrDeadlineExceeded) || errors.As(err, &timeout) && timeout.Timeout()
+}
+
 // progressWriter records whether a write to w was attempted.
 type progressWriter struct {
 	w       io.Writer
@@ -130,6 +169,11 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodGet:
 		c.SetHeaders(w, r)
+		if !c.beginPoll() {
+			http.Error(w, newOpError("write", errOverlap).Error(), http.StatusInternalServerError)
+			return
+		}
+		defer c.endPoll()
 
 		if c.supportBinary {
 			w.Header().Set("Content-Type", "application/octet-stream")
@@ -137,49 +181,69 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/plain; charset=UTF-8")
 		}
 
-		// FlushOut has returned, so the session writer no longer uses w. If it had
-		// already started the response, a second one would corrupt it.
+		// The session writer fills resp; FlushOut has returned once this
+		// goroutine writes it. If the response had started, a second one would
+		// corrupt it.
 		c.setPollWaiting(true)
 		defer c.setPollWaiting(false)
-		var out io.Writer = w
+		resp := newResponseBuffer(w)
+		defer resp.release()
+		var out io.Writer = resp
+		var compressed *responseWriter
 		if c.transport.Compression {
 			w.Header().Add("Vary", "Accept-Encoding")
-			compressed := &responseWriter{w: w, conn: c, encoding: acceptedEncoding(r.Header.Get("Accept-Encoding"))}
-			defer func() {
-				if err := compressed.Close(); err != nil {
-					_ = c.payload.Store("write", err)
-					_ = c.Close()
-				}
-			}()
+			compressed = &responseWriter{w: resp, conn: c, encoding: acceptedEncoding(r.Header.Get("Accept-Encoding"))}
 			out = compressed
 		}
 		pw := &progressWriter{w: out, started: func() { c.setPollWaiting(false) }}
-		if err := c.payload.flushOut(r.Context(), pw); err != nil {
-			if pw.wrote {
-				logger.Log.Debug("engineio: poll response failed after it was started", "err", err)
-				return
+		err := c.payload.flushOut(r.Context(), pw)
+		if compressed != nil {
+			if err := compressed.Close(); err != nil {
+				_ = c.payload.Store("write", err)
+				_ = c.Close()
 			}
+		}
+		if pw.wrote {
+			if werr := c.writeResponse(w, r, resp.buf.Bytes()); err == nil {
+				err = werr
+			}
+			if err != nil {
+				logger.Log.Debug("engineio: poll response failed after it was started", "err", err)
+			}
+			return
+		}
+		if timedOut(err) {
+			// The session's heartbeat window expired while this poll waited: the
+			// session ends with "ping timeout", and engine.io 3.6.2 answers the
+			// pending poll of such a session with CLOSE. The write is not tracked,
+			// like the error response below: the abort of the session expires
+			// tracked writes, and the packet fits in the response buffer.
+			//
+			// The session re-arms the write deadline when its reader asks for the
+			// next packet. A reader that is later than the window lets the deadline
+			// expire here while the session is still open: the client is told CLOSE
+			// and stops polling, and the session ends when its reader next fails,
+			// at most one window later.
+			if _, werr := w.Write(c.closePayload()); werr != nil {
+				logger.Log.Debug("engineio: poll close answer failed", "err", werr)
+			}
+			return
+		}
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
 	case http.MethodPost:
 		c.SetHeaders(w, r)
 
-		mime := r.Header.Get("Content-Type")
-		isSupportBinary, err := mimeIsSupportBinary(mime)
-		if err != nil {
-			logger.Log.Debug("engineio: unsupported content type", "err", err)
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
+		isSupportBinary := requestBodyIsBinary(r.Header.Get("Content-Type"))
 
 		body := http.MaxBytesReader(w, r.Body, c.readLimit)
-		defer func() { _ = body.Close() }()
 		if r.ContentLength > c.readLimit {
 			c.rejectLargeBody(w, &http.MaxBytesError{Limit: c.readLimit})
 			return
 		}
-		if err := c.payload.FeedIn(body, isSupportBinary); err != nil {
+		if err := c.feedBody(w, r, body, isSupportBinary); err != nil {
 			logger.Log.Debug("engineio: post payload failed", "err", err)
 			cause := err
 			if op, ok := cause.(*OpError); ok {
@@ -194,7 +258,7 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		_, err = w.Write([]byte("ok"))
+		_, err := w.Write([]byte("ok"))
 		if err != nil {
 			logger.Log.Debug("engineio: post answer failed", "err", err)
 		}
@@ -204,11 +268,59 @@ func (c *serverConn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ReadLimitError returns the limit error once a POST passed the limit, whether it
+// declared its length or not, else nil. The reader's error is an *OpError, which does
+// not unwrap, so the session recognises the violation through this method.
+func (c *serverConn) ReadLimitError() error {
+	if err := c.tooLarge.Load(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (c *serverConn) rejectLargeBody(w http.ResponseWriter, err *http.MaxBytesError) {
+	c.tooLarge.Store(err)
 	_ = c.payload.Store("read", err)
 	_ = c.Close()
 	http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
 }
+
+// beginPoll admits the connection's one GET handler at a time.
+func (c *serverConn) beginPoll() bool {
+	c.pollMu.Lock()
+	defer c.pollMu.Unlock()
+	if c.poll {
+		return false
+	}
+	c.poll = true
+	return true
+}
+
+func (c *serverConn) endPoll() {
+	c.pollMu.Lock()
+	c.poll = false
+	if c.pollDone != nil {
+		close(c.pollDone)
+		c.pollDone = nil
+	}
+	c.pollMu.Unlock()
+}
+
+// Drained closes when the GET handler of the moment has returned, so after Close
+// its response write has ended; it is closed already when no GET is being handled.
+func (c *serverConn) Drained() <-chan struct{} {
+	c.pollMu.Lock()
+	defer c.pollMu.Unlock()
+	if c.poll {
+		if c.pollDone == nil {
+			c.pollDone = make(chan struct{})
+		}
+		return c.pollDone
+	}
+	return closedChan
+}
+
+var closedChan = func() chan struct{} { ch := make(chan struct{}); close(ch); return ch }()
 
 // Writable reports whether a poll is waiting and its response has not started.
 func (c *serverConn) Writable() bool {

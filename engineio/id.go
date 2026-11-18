@@ -8,7 +8,8 @@ import (
 type IDGenerator interface {
 	// NewID returns an identifier not used by any registered or still open
 	// session of the server; an empty or duplicate identifier fails the
-	// handshake.
+	// handshake. A session's identifier is free again once its close has
+	// finished (see Server.Count).
 	NewID() string
 }
 

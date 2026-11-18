@@ -2,11 +2,13 @@ package websocket
 
 import (
 	"encoding/base64"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -21,16 +23,30 @@ type conn struct {
 	transport.FrameReader
 
 	ws wrapper
-	// base64 is set by b64 in the request URL: binary packets travel as
-	// "b<type><base64>" text messages in both directions.
+	// base64 is set by b64 in the request URL: binary packets are written as
+	// "b<type><base64>" text messages. Such messages are read as binary
+	// packets in either mode (see packetReader).
 	base64 bool
 
 	url          url.URL
 	remoteHeader http.Header
 
-	closed    chan struct{}
-	closeOnce sync.Once
+	closed     chan struct{}
+	closedOnce sync.Once
+	closeOnce  sync.Once
+	aborted    atomic.Bool
+	abort      chan struct{} // closed by Abort
+	abortOnce  sync.Once
 }
+
+// closeFrameTimeout bounds how long Close takes to write its close frame, and
+// closeReplyTimeout how long it then waits for the peer's reply. A peer that
+// stopped reading, with its receive window full, or that does not answer cannot
+// hold Close longer: the connection is then closed.
+const (
+	closeFrameTimeout = 500 * time.Millisecond
+	closeReplyTimeout = 250 * time.Millisecond
+)
 
 func newConn(ws *websocket.Conn, url url.URL, header http.Header, settings ...*Transport) *conn {
 	w := newWrapper(ws)
@@ -43,20 +59,14 @@ func newConn(ws *websocket.Conn, url url.URL, header http.Header, settings ...*T
 	}
 	closed := make(chan struct{})
 
-	// With b64, inbound text messages starting with 'b' decode as binary packets;
-	// binary messages are still accepted.
-	var decoder eioparser.FrameReader = w
-	b64 := url.Query().Get("b64") != ""
-	if b64 {
-		decoder = base64FrameReader{w}
-	}
 	return &conn{
 		url:          url,
 		remoteHeader: header,
 		ws:           w,
-		base64:       b64,
+		base64:       url.Query().Get("b64") != "",
 		closed:       closed,
-		FrameReader:  eioparser.NewPacketDecoder(decoder),
+		abort:        make(chan struct{}),
+		FrameReader:  packetReader{w},
 	}
 }
 
@@ -137,15 +147,77 @@ func (c *conn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Close closes the connection. Only the first call closes the underlying
-// websocket and reports its error; later calls return nil.
+// Close closes the connection. It first writes a close frame with the normal
+// closure status (1000), on server (Accept) and client (Dial) connections, so
+// that the peer can tell an orderly stop from a dropped connection, as the
+// websocket transports of engine.io and engine.io-client do. Only the first
+// call closes the underlying websocket and reports its error; later calls
+// return nil.
+//
+// Close then waits up to closeReplyTimeout for the peer's reply to its frame
+// before it closes the TCP connection, reading the peer's frames itself when no
+// reader runs: a connection closed first would answer the reply with a reset,
+// which a client such as ws 1.1.5 reports as an abnormal close (1006) although
+// it has read the frame.
+//
+// Close does not take the write lock: it can run on a frame writer that fails
+// while it holds that lock (see Session.closeTransport), and Abort can run while
+// Close writes the frame. gorilla/websocket allows WriteControl and Close
+// concurrently with a frame writer; WriteControl waits for the frame the writer
+// is sending at most until closeFrameTimeout. An open message that has not been
+// flushed is dropped, and the writer then fails with websocket.ErrCloseSent.
 func (c *conn) Close() error {
+	c.markClosed()
 	var err error
 	c.closeOnce.Do(func() {
-		close(c.closed)
+		if c.aborted.Load() {
+			return
+		}
+		msg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
+		announced := c.ws.WriteControl(websocket.CloseMessage, msg, time.Now().Add(closeFrameTimeout)) == nil
+		if announced {
+			c.ws.awaitPeerClose(time.Now().Add(closeReplyTimeout), c.abort)
+		}
 		err = c.ws.Close()
+		// An Abort, or the end of the wait for an unresponsive peer, has closed
+		// the connection already.
+		if (announced || c.aborted.Load()) && errors.Is(err, net.ErrClosed) {
+			err = nil
+		}
 	})
 	return err
+}
+
+// Abort closes the connection at once, without a close frame, and also ends a
+// Close that is waiting to write one.
+func (c *conn) Abort() error {
+	c.aborted.Store(true)
+	c.abortOnce.Do(func() { close(c.abort) })
+	c.markClosed()
+	_ = c.ws.Close()
+	return nil
+}
+
+// PeerClosed reports whether the peer sent a close frame with status 1000
+// (normal closure), 1001 (going away) or none (1005): an orderly close, which
+// the session reports as "transport close". It is set before the reply to the
+// frame is written and before the read that received the frame returns its
+// error, so a write that the reply makes fail also observes it.
+func (c *conn) PeerClosed() bool { return c.ws.peerClosed.Load() }
+
+// ReadLimitError returns the read-limit error once a message passed the limit, else
+// nil. A limit on inflated bytes is recorded before the 1009 close frame is written,
+// and gorilla's limit on wire bytes when the read returns, so the session can log the
+// violation from whichever failed read or write sees it first.
+func (c *conn) ReadLimitError() error {
+	if c.ws.readFailed.Load() {
+		return readLimitError{c.ws.readLimit.Load()}
+	}
+	return nil
+}
+
+func (c *conn) markClosed() {
+	c.closedOnce.Do(func() { close(c.closed) })
 }
 
 // Writable reports that no message writer is open on this connection.

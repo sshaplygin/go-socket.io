@@ -1,7 +1,9 @@
 package websocket
 
 import (
+	"errors"
 	"io"
+	"net/http"
 	"sync/atomic"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 type messageReader struct {
 	io.Reader
 	err error
+	w   wrapper // for limitError
 }
 
 func (r *messageReader) Read(p []byte) (int, error) {
@@ -18,8 +21,33 @@ func (r *messageReader) Read(p []byte) (int, error) {
 		return 0, r.err
 	}
 	n, err := r.Reader.Read(p)
-	r.err = err
-	return n, err
+	r.err = r.w.limitError(err)
+	return n, r.err
+}
+
+// readLimitError is websocket.ErrReadLimit for a message past limit bytes. errors.As
+// also finds it as *http.MaxBytesError, the polling transports' limit error, so the
+// Engine.IO layer recognises a limit violation without knowing the transport.
+type readLimitError struct{ limit int64 }
+
+func (e readLimitError) Error() string { return websocket.ErrReadLimit.Error() }
+func (e readLimitError) Unwrap() error { return websocket.ErrReadLimit }
+func (e readLimitError) As(target any) bool {
+	t, ok := target.(**http.MaxBytesError)
+	if ok {
+		*t = &http.MaxBytesError{Limit: e.limit}
+	}
+	return ok
+}
+
+// limitError returns err as a readLimitError when it is websocket.ErrReadLimit, and
+// records the violation for ReadLimitError.
+func (w wrapper) limitError(err error) error {
+	if errors.Is(err, websocket.ErrReadLimit) {
+		w.readFailed.Store(true)
+		return readLimitError{w.readLimit.Load()}
+	}
+	return err
 }
 
 // thresholdWriter retains only the short prefix needed to choose compression.

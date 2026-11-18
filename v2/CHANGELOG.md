@@ -10,6 +10,36 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
 
 ### Added
 
+- `RedactHandshake` has its body (roadmap 2.2): it drops the top-level `auth` member and the
+  `authorization`, `cookie` and `proxy-authorization` members of `headers` (names compared
+  without case) and keeps every other member byte for byte; nil yields nil and a value that
+  is not one JSON object an error. Before, it returned `ErrNotImplemented`.
+- `engineio.Options.UpgradeTimeout` (roadmap 2.1): the probe and `UPGRADE` of a websocket
+  upgrade must arrive within it of the accept of the websocket connection. Zero means 10 s,
+  the `upgradeTimeout` of the Node server; `Normalize` rejects a negative value and
+  `NewServer` treats it as zero.
+- `engineio.Options.MaxPayload` (roadmap 2.1): when positive, it replaces the `MaxPayload` of
+  the server's polling and websocket transports (a POST body in wire bytes, one websocket
+  message in data bytes) and is advertised in `OPEN`. Zero keeps the transport values, 1 MiB
+  by default; `Normalize` rejects a negative value and `NewServer` treats it as zero.
+- `client.Dialer.HandshakeTimeout` (roadmap 2.1): bounds each transport tried, from the dial
+  to the `OPEN` packet. When it expires, the attempt fails with an error that wraps
+  `os.ErrDeadlineExceeded`; a shorter bound of the transport fails it with the transport's
+  own error. Zero means 10 s; a negative value means no bound.
+- In-memory adapter (roadmap 2.2), unexported, built from a `LocalSockets` value, with the
+  default `AdapterFactory` over `Namespace.LocalSockets()`: room union with deduplication,
+  `Except` rooms, empty selection of every socket, `LocalRecipients` counting successful
+  `Deliver` calls, a partial result with an error that groups the failed deliveries by cause
+  (count and sample socket IDs per cause; causes past the first 8 other than the two
+  sentinels share one counted group, so the error is bounded however many fail) and matches
+  with `errors.Is` `ErrSocketClosed`, `ErrWriteBufferFull`, a done context, the first 8 other
+  causes and the first cause of the shared group, no publication, no lock held across
+  `Deliver`, owned result slices.
+  `Sockets` and `FetchSockets` list present sockets only and return at once with a nil
+  error; `ServerSideEmit` and `Close` do nothing and return nil. The conformance tests
+  replay the 22 Node cases of `testdata/rooms` (from `socket.io-adapter` 2.5.5, formerly
+  `_experiments/adapter-rooms`). `Options.Adapter == nil` does not select it yet: stage 2.3S
+  wires it with the namespace runtime, so library behaviour is unchanged.
 - `adapter/codec`: encoder and decoder for the messages of the non-sharded Node Redis adapter
   (`@socket.io/redis-adapter@8.3.0`): the MessagePack broadcast `[uid, packet, opts]`, the JSON
   requests (all-rooms, join, leave, disconnect, fetch-sockets, server-side emit) and the
@@ -17,14 +47,9 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   package. Decoders are bounded (message size, nesting depth, binary values) and have fuzz
   targets; the 22 publications captured from Node and the pinned Node oracle are in
   `adapter/codec/testdata`, and the supported ones re-encode to Node's exact bytes. It adds
-  `github.com/vmihailenco/msgpack/v5` to `v2/go.mod`. Nothing uses the package yet
-  (the memory adapter and the broker adapters come later), so the library behaviour is
-  unchanged.
-- `_experiments/adapter-rooms`: standalone module (not imported by the v2 module) with
-  22 fixtures captured from the Node in-memory adapter (`socket.io-adapter` 2.5.5) for
-  room membership and recipient selection, a Go fixture validator and a Node script that
-  reproduces the fixtures; preparation for the stage 2.2 memory adapter, no change to the
-  library.
+  `github.com/vmihailenco/msgpack/v5` to `v2/go.mod`. Nothing uses the package yet: its
+  consumers are the broker adapters of stage 4b (the in-memory adapter exchanges no
+  messages), so the library behaviour is unchanged.
 - v2 API skeleton in the root package (roadmap 2.0): `Event[T]`, `AckEvent[T, R]`,
   `Args2`, `Binary`, `Endpoint`, `ClientRegistration`, raw handlers, `Server`,
   `Namespace`, `Socket`, `Options`, the `Adapter` contract with `AdapterFactory`
@@ -131,8 +156,7 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   message, coded by the prepared v4 codec, now in package `websocket` (`Encode`, `Decode`,
   `Packet`, `ErrTooLarge`, `ErrInvalidPacket`, `ErrInvalidLimit`): a binary message is the raw
   data of a MESSAGE packet, without the type byte of v3, and `b` + base64 text is read as binary.
-  The handshake, heartbeat and `EIO` check are still Engine.IO v3, so a v3 peer that sends binary
-  over websocket no longer interoperates. A message is limited to `websocket.Transport.MaxPayload`
+  A v3 peer that sends binary over websocket no longer interoperates. A message is limited to `websocket.Transport.MaxPayload`
   (new field, default 1 MiB as for polling), fragments together; the transport answered any
   size before. A peer that violates the protocol is sent a close frame with status 1002, 1007
   (invalid UTF-8) or 1009 (too large), then a TCP half-close and up to one second of draining
@@ -169,10 +193,76 @@ are recorded in Git commits and PRs; see the [contribution policy](../CONTRIBUTI
   POST carry every packet that the session writers hand over at once, a POST up to the
   server's `maxPayload`, or to the client's `MaxPayload` (default 1 MiB) until it is advertised. A client response larger than its `MaxPayload` ends the session with `payload.ErrTooLarge`. Closing a polling client aborts its pending requests.
   `transport.ConnParameters` gains `MaxPayload` (JSON `maxPayload`, omitted when zero).
-  The handshake, heartbeat and `EIO` check are still Engine.IO v3 until the rest of 2.1
-  lands, so a v3 peer no longer interoperates over polling.
+  A v3 peer no longer interoperates over polling.
 - `payload.New` takes the read and write limits instead of a binary flag, and `FeedIn`
   no longer takes one.
+- `engineio.Server` requires Engine.IO protocol v4 (stage 2.1): a request whose `EIO` query
+  parameter is missing or not `4` is HTTP 400 with
+  `{"code":5,"message":"Unsupported protocol version"}`, checked before the transport, and the
+  `engineio/client` dialer sends `EIO=4` (it sent `EIO=3`). Rejections carry the JSON error body
+  `{"code":N,"message":"..."}` of the Engine.IO v4 specification instead of plain text: unknown
+  transport 0, unknown `sid` 1, a handshake that is neither GET nor an OPTIONS preflight 2 (such
+  a request reached the transport before), a transport change the session cannot make, a failed
+  session start or an invalid polling method 3, and a `RequestChecker` error 4 with HTTP 403
+  instead of 502 with the error text. A failed transport accept (502) and a writer without
+  `http.Hijacker` (501) stay plain text. New `engineio: request rejected` records:
+  `reason="bad eio"` and `"bad handshake method"` from the server; `"flush"` for a poll
+  answered with HTTP 500 (DEBUG once the connection has closed or an earlier poll reported
+  the failure that ended the payload, WARN otherwise) and `"bad method"` from the polling
+  transport, through `logger.Log`. An OPTIONS request without `sid` is answered as a CORS
+  preflight and opens no session; before, it created a session and called `ConnInitor`.
+- `engineio` runs the Engine.IO v4 heartbeat and upgrade (stage 2.1), as the Node server and
+  client do. The server sends `PING` `pingInterval` after the handshake and after each `PONG`
+  and closes a session with reason `ping timeout` when no `PONG` follows within `pingTimeout`;
+  it no longer answers a client `PING`, which now closes the session with reason
+  `transport error` (`invalid heartbeat direction`). The transport deadlines are
+  `pingInterval + pingTimeout` from the last `PING` or `PONG` (they were `pingTimeout` from
+  the last client `PING`). The `engineio/client` dialer answers each server `PING` with `PONG` from
+  `NextReader`, sends none, and closes when no `PING` arrives within
+  `pingInterval + pingTimeout`; `NextReader` then fails with `ping timeout: ...`. Its ping
+  goroutine and the `engineio: ping failed` record are removed. The `OPEN` packet carries
+  `maxPayload`: the polling POST limit (`polling.Transport.MaxPayload`, default 1 MiB), or the
+  websocket message limit on a server without polling. During an upgrade the server answers the
+  polls with `NOOP` (at most one per 100 ms) from the probe until `UPGRADE`, a failed upgrade or
+  the close, and pauses polling on `UPGRADE` (`5`) instead of after the probe: until `UPGRADE` the session still runs on polling, and a failed upgrade
+  no longer pauses and resumes it. An Engine.IO v3 client, which sends the pings, no longer
+  keeps a session open.
+- `engineio.Server` upgrades a session at most once (roadmap 2.1): it reserves the upgrade
+  before the websocket transport hijacks the request. A websocket request with the `sid` of a
+  session that is upgrading is answered before the hijack with HTTP 400,
+  `{"code":3,"message":"Bad request"}` and one `engineio: request rejected` record with
+  `reason="bad upgrade"`. Before, it got a second 101 and its probe was answered; its
+  `UPGRADE` switched the session again and left the connection switched out first open.
+- A websocket request with the `sid` of a session that was upgraded or opened on websocket
+  gets the same code-3 answer and record; before, it got an empty HTTP 200.
+- A request with the `sid` of a session that is closed but still registered, when the session
+  would not serve it (a websocket request, or a request on another transport than the
+  session's), is answered with HTTP 400, `{"code":1,"message":"Session ID unknown"}` and one
+  `engineio: request rejected` record with `reason="unknown sid"` (DEBUG), as the Node server,
+  which deletes a closed client, answers. Before, a websocket request got 101 and the
+  connection was closed, and a polling request for a session closed on websocket got code 3
+  with `reason="bad upgrade"`. A polling request for a session closed on polling still
+  reaches that session's polling connection.
+- The probe and `UPGRADE` of an upgrade must arrive within `Options.UpgradeTimeout`, 10 s by
+  default, of the accept of the websocket connection; the window was `pingTimeout`, 60 s by
+  default. On expiry the websocket connection is closed and the session stays on polling.
+- The Go client's handshake is bounded by `Dialer.HandshakeTimeout`, 10 s by default. Before,
+  the websocket dial and upgrade were bounded only by `websocket.Transport.HandshakeTimeout`
+  (none by default), the websocket `OPEN` read had no bound, and the polling open request
+  was bounded only by its `http.Client`. A `*websocket.Transport` is dialed through a copy
+  whose `HandshakeTimeout` is the shorter bound. The wait for `OPEN` is bounded through the
+  connection's `SetReadDeadline`, so an attempt now fails when a transport's connection cannot
+  set a read deadline; a negative `HandshakeTimeout` sets none.
+- `engineio.NewServer` keeps private copies of its `*polling.Transport` and
+  `*websocket.Transport` values, with `polling.Default.CheckOrigin` resolved into the polling
+  copy. Before, changes to those structs, or to the shared `polling.Default` and
+  `websocket.Default`, after `NewServer` changed the running server.
+- `client.Dialer.Dial` closes the connection of its last attempt when that attempt fails; it
+  was left open.
+- `client.Dialer.Dial` gives each transport attempt its own copy of the URL, so a transport
+  tried after a failed websocket attempt is dialed with the caller's scheme. Before, the
+  websocket attempt left its `ws` scheme in the shared URL and the next attempt failed with
+  `unsupported protocol scheme "ws"`.
 
 ### Removed
 

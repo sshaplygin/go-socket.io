@@ -2,7 +2,9 @@ package polling
 
 import (
 	"bytes"
+	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,29 +23,25 @@ func TestPayloadFeedIn(t *testing.T) {
 	p.Pause()
 	p.Resume()
 
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
+	// No read deadline while packets are exchanged: FeedIn and NextReader meet on
+	// channels, so a delay of either goroutine cannot expire the other's call; runPeer bounds
+	// the whole exchange by exchangeLimit instead.
+	finish := runPeer(t, p, exchangeLimit, func() error {
 		for _, test := range payloadVectors {
 			if len(test.packets) != 1 {
 				continue
 			}
-			r := bytes.NewReader(test.data)
-			err := p.FeedIn(r, test.supportBinary)
-			must.NoError(err)
+			if err := p.FeedIn(bytes.NewReader(test.data), test.supportBinary); err != nil {
+				return err
+			}
 		}
-	}()
+		return nil
+	})
 
 	for _, test := range payloadVectors {
 		if len(test.packets) != 1 {
 			continue
 		}
-		err := p.SetReadDeadline(time.Now().Add(time.Second / 10))
-		require.NoError(t, err)
-
 		ft, pt, r, err := p.NextReader()
 		must.NoError(err)
 		should.Equal(test.packets[0].ft, ft)
@@ -56,14 +54,107 @@ func TestPayloadFeedIn(t *testing.T) {
 
 		should.Equal(test.packets[0].data, b)
 	}
+	finish()
 
+	// Every FeedIn has returned, so nothing can answer this NextReader before its deadline.
 	err := p.SetReadDeadline(time.Now().Add(time.Second / 10))
 	require.NoError(t, err)
 
 	_, _, _, err = p.NextReader()
 	should.Equal("read: timeout", err.Error())
+}
 
-	wg.Wait()
+// exchangeLimit bounds a payload exchange of a few packets, which takes milliseconds, so
+// that one whose sides stop meeting fails the test instead of hanging the package.
+const exchangeLimit = 10 * time.Second
+
+// peerT is the part of testing.T that runPeer uses, so that a test can observe its failures.
+type peerT interface {
+	Helper()
+	Errorf(format string, args ...any)
+	Cleanup(func())
+}
+
+// runPeer runs peer, the other side of a payload exchange, in a goroutine and returns
+// finish, which waits for peer to return and ends the exchange. The payload has no
+// deadline during the exchange. A peer error, or an exchange not finished within limit,
+// fails the test and closes p, which fails the pending calls of both sides. Cleanup ends
+// the exchange, closes p and waits for peer.
+func runPeer(t peerT, p *payload, limit time.Duration, peer func() error) (finish func()) {
+	t.Helper()
+	done, finished, watched := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := peer(); err != nil {
+			t.Errorf("payload peer: %v", err)
+			_ = p.Close()
+		}
+	}()
+	go func() {
+		defer close(watched)
+		timer := time.NewTimer(limit)
+		defer timer.Stop()
+		select {
+		case <-finished:
+		case <-timer.C:
+			t.Errorf("payload exchange did not finish within %v", limit)
+			_ = p.Close()
+		}
+	}()
+	end := sync.OnceFunc(func() { close(finished); <-watched })
+	t.Cleanup(func() {
+		end()
+		_ = p.Close()
+		<-done
+	})
+	return func() {
+		<-done
+		end()
+	}
+}
+
+// peerRecorder is a peerT that records failures and runs cleanups on demand.
+type peerRecorder struct {
+	mu       sync.Mutex
+	errors   []string
+	cleanups []func()
+}
+
+func (*peerRecorder) Helper() {}
+
+func (r *peerRecorder) Errorf(format string, args ...any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.errors = append(r.errors, fmt.Sprintf(format, args...))
+}
+
+func (r *peerRecorder) Cleanup(f func()) { r.cleanups = append(r.cleanups, f) }
+
+func (r *peerRecorder) cleanup() {
+	for i := len(r.cleanups) - 1; i >= 0; i-- {
+		r.cleanups[i]()
+	}
+}
+
+func (r *peerRecorder) failures() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.errors...)
+}
+
+// TestRunPeerBoundsLostExchange: when the sides of an exchange stop meeting, runPeer fails
+// the test and releases the pending call within its limit instead of letting it hang. Here
+// the peer returns without feeding, so nothing else would ever answer NextReader.
+func TestRunPeerBoundsLostExchange(t *testing.T) {
+	const limit = 100 * time.Millisecond
+	p := newPayload(true)
+	rec := &peerRecorder{}
+	finish := runPeer(rec, p, limit, func() error { return nil })
+	_, _, _, err := p.NextReader()
+	require.Error(t, err)
+	finish()
+	rec.cleanup()
+	require.Equal(t, []string{fmt.Sprintf("payload exchange did not finish within %v", limit)}, rec.failures())
 }
 
 func TestPayloadFlushOutText(t *testing.T) {
@@ -75,16 +166,10 @@ func TestPayloadFlushOutText(t *testing.T) {
 	p.Pause()
 	p.Resume()
 
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
-		should := assert.New(t)
-		must := require.New(t)
-
+	// No write deadline while packets are exchanged: FlushOut and NextWriter meet on
+	// channels, so a delay of either goroutine cannot expire the other's call; runPeer bounds
+	// the whole exchange by exchangeLimit instead.
+	finish := runPeer(t, p, exchangeLimit, func() error {
 		for _, test := range payloadVectors {
 			if len(test.packets) != 1 {
 				continue
@@ -93,11 +178,13 @@ func TestPayloadFlushOutText(t *testing.T) {
 				continue
 			}
 			buf := bytes.NewBuffer(nil)
-			err := p.FlushOut(buf)
-			must.NoError(err)
+			if err := p.FlushOut(buf); err != nil {
+				return err
+			}
 			should.Equal(test.data, buf.Bytes())
 		}
-	}()
+		return nil
+	})
 
 	for _, test := range payloadVectors {
 		if len(test.packets) != 1 {
@@ -106,9 +193,6 @@ func TestPayloadFlushOutText(t *testing.T) {
 		if test.supportBinary != supportBinary {
 			continue
 		}
-		err := p.SetWriteDeadline(time.Now().Add(time.Second / 10))
-		require.NoError(t, err)
-
 		w, err := p.NextWriter(test.packets[0].ft, test.packets[0].pt)
 		must.NoError(err)
 
@@ -116,14 +200,14 @@ func TestPayloadFlushOutText(t *testing.T) {
 		must.NoError(err)
 		must.Nil(w.Close())
 	}
+	finish()
 
+	// Every FlushOut has returned, so nothing can take this writer before its deadline.
 	err := p.SetWriteDeadline(time.Now().Add(time.Second / 10))
 	require.NoError(t, err)
 
 	_, err = p.NextWriter(eioparser.Binary, eioparser.OPEN)
 	should.Equal("write: timeout", err.Error())
-
-	wg.Wait()
 }
 
 func TestPayloadFlushOutBinary(t *testing.T) {
@@ -135,15 +219,10 @@ func TestPayloadFlushOutBinary(t *testing.T) {
 	p.Pause()
 	p.Resume()
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
-		should := assert.New(t)
-		must := require.New(t)
-
+	// No write deadline while packets are exchanged: FlushOut and NextWriter meet on
+	// channels, so a delay of either goroutine cannot expire the other's call; runPeer bounds
+	// the whole exchange by exchangeLimit instead.
+	finish := runPeer(t, p, exchangeLimit, func() error {
 		for _, test := range payloadVectors {
 			if len(test.packets) != 1 {
 				continue
@@ -153,11 +232,13 @@ func TestPayloadFlushOutBinary(t *testing.T) {
 			}
 
 			buf := bytes.NewBuffer(nil)
-			err := p.FlushOut(buf)
-			must.NoError(err)
+			if err := p.FlushOut(buf); err != nil {
+				return err
+			}
 			should.Equal(test.data, buf.Bytes())
 		}
-	}()
+		return nil
+	})
 
 	for _, test := range payloadVectors {
 		if len(test.packets) != 1 {
@@ -166,9 +247,6 @@ func TestPayloadFlushOutBinary(t *testing.T) {
 		if test.supportBinary != supportBinary {
 			continue
 		}
-
-		err := p.SetWriteDeadline(time.Now().Add(time.Second / 10))
-		must.NoError(err)
 
 		w, err := p.NextWriter(test.packets[0].ft, test.packets[0].pt)
 		must.NoError(err)
@@ -179,14 +257,35 @@ func TestPayloadFlushOutBinary(t *testing.T) {
 		err = w.Close()
 		must.NoError(err)
 	}
+	finish()
 
+	// Every FlushOut has returned, so nothing can take this writer before its deadline.
 	err := p.SetWriteDeadline(time.Now().Add(time.Second / 10))
 	must.NoError(err)
 
 	_, err = p.NextWriter(eioparser.Binary, eioparser.OPEN)
 	should.Equal("write: timeout", err.Error())
+}
 
-	wg.Wait()
+// requireParked waits up to 5 s until, for each method, a goroutine is parked on
+// a channel operation inside it, so the next step wakes a waiting call instead
+// of meeting a call that has not started.
+func requireParked(t *testing.T, methods ...string) {
+	t.Helper()
+	parked := func(method string) bool {
+		for _, stack := range leakedModuleStacks() {
+			header, frames, _ := strings.Cut(stack, "\n")
+			if (strings.Contains(header, "[select") || strings.Contains(header, "[chan ")) &&
+				strings.Contains(frames, "polling.(*payload)."+method+"(") {
+				return true
+			}
+		}
+		return false
+	}
+	for _, method := range methods {
+		require.Eventually(t, func() bool { return parked(method) }, 5*time.Second, time.Millisecond,
+			"no goroutine waits in %s; library goroutines:\n%s", method, strings.Join(leakedModuleStacks(), "\n\n"))
+	}
 }
 
 func TestPayloadWaitNextClose(t *testing.T) {
@@ -213,8 +312,7 @@ func TestPayloadWaitNextClose(t *testing.T) {
 		should.Equal(io.EOF, err)
 	}()
 
-	// let next run
-	time.Sleep(time.Second / 10)
+	requireParked(t, "NextReader", "NextWriter")
 
 	err := p.Close()
 	must.NoError(err)
@@ -258,8 +356,7 @@ func TestPayloadWaitInOutClose(t *testing.T) {
 		should.Equal(io.EOF, err)
 	}()
 
-	// let next run
-	time.Sleep(time.Second / 10)
+	requireParked(t, "FeedIn", "FlushOut")
 
 	must.NoError(p.Close())
 
@@ -334,8 +431,7 @@ func TestPayloadNextPause(t *testing.T) {
 		should.True(op.Temporary())
 	}()
 
-	// let next run
-	time.Sleep(time.Second / 10)
+	requireParked(t, "NextReader", "NextWriter")
 	p.Pause()
 
 	wg.Wait()

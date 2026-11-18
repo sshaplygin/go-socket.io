@@ -28,10 +28,17 @@ type Options struct {
 
 // Socket is the minimal namespace socket used by adapters.
 // EmitWithOptions applies Volatile and NoCompress to this socket only; room
-// selection, exclusion and cluster routing belong to the adapter.
+// selection, exclusion and cluster routing belong to the adapter. Socket is
+// implemented by the library, and a minor release may add methods to it.
 type Socket interface {
+	// ID returns the socket ID that Options.Except and the room of the
+	// socket's own ID use.
 	ID() string
+	// Emit sends event with args to this socket, as socketio.Conn.Emit does:
+	// a trailing func is registered as the acknowledgement callback.
 	Emit(event string, args ...interface{})
+	// EmitWithOptions is Emit with the Volatile and NoCompress flags of opts;
+	// its other fields are ignored.
 	EmitWithOptions(opts Options, event string, args ...interface{})
 }
 
@@ -41,6 +48,8 @@ type Socket interface {
 // lookup returns nil for IDs not connected to the namespace, is safe for
 // concurrent use and holds no server lock while the adapter runs.
 type SocketLookupBinder interface {
+	// BindSocketLookup receives the lookup of the namespace's connected
+	// sockets by ID.
 	BindSocketLookup(lookup func(string) Socket)
 }
 
@@ -60,16 +69,20 @@ var ErrExceptUnsupported = errors.New("socketio: broadcast except is not support
 // SendTo; Rooms(nil) is equivalent to AllRooms. Because Send and SendAll return
 // no error, an adapter must not drop a SendTo failure silently; it should log it
 // at WARN, or at DEBUG once the adapter is closed, as the Redis adapter does.
-// The Adapter method set is fixed for v1; new capabilities are expressed through
-// optional interfaces.
+// Adapter is the interface meant to be implemented outside this module: its method
+// set is fixed for v1, and new capabilities are expressed through optional interfaces.
 type Adapter interface {
 	// SendTo snapshots matching sockets and emits on the caller's goroutine after
 	// releasing the adapter lock. Delivery uses target.Emit, or target.EmitWithOptions
-	// when Volatile or NoCompress is set. An adapter
+	// when Volatile or NoCompress is set. Memory first uses an unexported path that
+	// the library's sockets implement: it prepares the packet once per SendTo call
+	// for all of them, and it uses Emit or EmitWithOptions only for a target that
+	// does not implement or does not accept that path. An adapter
 	// unable to exclude returns an error wrapping
 	// ErrExceptUnsupported before sending anything.
 	SendTo(opts Options, event string, args ...interface{}) error
-	// IDs returns a copy of the IDs in any of rooms, or all sockets when empty.
+	// IDs returns a copy of the IDs of the sockets in any of rooms or, with no
+	// rooms, of the sockets the adapter holds (for Memory, see Memory.IDs).
 	IDs(rooms ...string) []string
 	// Join adds the socket to a room.
 	Join(room string, connection Socket)

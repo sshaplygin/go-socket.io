@@ -10,7 +10,8 @@ import (
 	eioparser "github.com/sshaplygin/go-socket.io/engineio/parser"
 )
 
-// Conn is an accepted server-side Engine.IO connection.
+// Conn is an accepted server-side Engine.IO connection. It is implemented by the
+// library, and a minor release may add methods to it.
 type Conn interface {
 	// ID returns the session identifier sent in the handshake.
 	ID() string
@@ -27,7 +28,9 @@ type Conn interface {
 	// writer to finish the frame and release the transport.
 	NextWriter(fType eioparser.FrameType) (io.WriteCloser, error)
 	// Close closes the session. A polling session first delivers writes it has
-	// already accepted; Abort closes immediately.
+	// already accepted. A websocket session sends a close frame with status 1000
+	// (normal closure) and waits briefly for the client's reply, at most 0.75
+	// seconds in all. Abort closes immediately and sends no frame.
 	Close() error
 	// URL returns the request URL of the current transport.
 	URL() url.URL
@@ -46,6 +49,10 @@ type Conn interface {
 // CompressWriter optionally writes packets with a per-packet compression flag.
 // NextWriter on these connections is NextWriterCompress with compress true.
 type CompressWriter interface {
+	// NextWriterCompress is NextWriter with a compression preference: false
+	// sends the message uncompressed, true lets the transport compress it
+	// under the server's compression options. The caller must Close the
+	// writer to finish the frame.
 	NextWriterCompress(ft eioparser.FrameType, compress bool) (io.WriteCloser, error)
 }
 
@@ -65,10 +72,16 @@ var (
 type ReadyState = sessionImpl.ReadyState
 
 const (
+	// StateOpening means the handshake has not started: the OPEN packet is not
+	// yet being written.
 	StateOpening = sessionImpl.StateOpening
-	StateOpen    = sessionImpl.StateOpen
+	// StateOpen means the OPEN packet is being or has been written and no close
+	// has started.
+	StateOpen = sessionImpl.StateOpen
+	// StateClosing means a close has started and the transport is not closed yet.
 	StateClosing = sessionImpl.StateClosing
-	StateClosed  = sessionImpl.StateClosed
+	// StateClosed means the transport connection is closed.
+	StateClosed = sessionImpl.StateClosed
 )
 
 // CloseReason is the string reason a session closed: the first cause observed.
@@ -77,10 +90,21 @@ const (
 type CloseReason = sessionImpl.CloseReason
 
 const (
+	// ReasonTransportClose means the client sent a CLOSE packet, or closed its
+	// websocket with a close frame of status 1000, 1001 or none (1005).
 	ReasonTransportClose = sessionImpl.ReasonTransportClose
-	ReasonPingTimeout    = sessionImpl.ReasonPingTimeout
+	// ReasonPingTimeout means the transport reported a deadline or timeout
+	// error: the heartbeat window of PingInterval + PingTimeout passed without
+	// a packet, or a server-configured HTTP timeout (http.Server ReadTimeout or
+	// WriteTimeout), a poll request context deadline, or a TCP timeout expired.
+	// CloseError.Err is nil for it.
+	ReasonPingTimeout = sessionImpl.ReasonPingTimeout
+	// ReasonTransportError means a transport read or write failed with an error
+	// that is not a deadline or timeout error.
 	ReasonTransportError = sessionImpl.ReasonTransportError
-	ReasonForcedClose    = sessionImpl.ReasonForcedClose
+	// ReasonForcedClose means Conn.Close or Abort was called.
+	ReasonForcedClose = sessionImpl.ReasonForcedClose
+	// ReasonServerShutdown means Server.Close closed the session.
 	ReasonServerShutdown = sessionImpl.ReasonServerShutdown
 )
 
@@ -95,7 +119,9 @@ const (
 // non-nil. Unwrap returns Err.
 type CloseError = sessionImpl.CloseError
 
-// Abort immediately closes a server session; custom engines receive ordinary Close.
+// Abort immediately closes a server session; a websocket is dropped without a
+// close frame, so its client sees close code 1006. Custom engines receive
+// ordinary Close.
 func Abort(c Conn) error {
 	if s, ok := c.(*sessionImpl.Session); ok {
 		return s.Abort()

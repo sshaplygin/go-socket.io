@@ -28,6 +28,8 @@ type Session struct {
 	closeErr      error         // written by transportOnce; published by closeDone/transportDone
 	transportOnce sync.Once
 	transportDone chan struct{}
+	aborted       chan struct{} // closed by abortTransport; ends the orderly close's drain
+	abortOnce     sync.Once
 	writeGate     chan struct{}
 	stopWrites    chan struct{}
 	closeTimeout  time.Duration
@@ -56,8 +58,9 @@ type Session struct {
 
 	cause    atomic.Pointer[closeCause]       // the first close cause observed
 	closing  atomic.Pointer[closingTransport] // immutable connection snapshot once closed
+	retired  atomic.Pointer[closingTransport] // the connection an upgrade replaced
 	writers  atomic.Int64                     // open frame writers returned to callers
-	deadline atomic.Int64                     // UnixNano of the liveness deadline of conn
+	tooLarge atomic.Bool                      // the read-limit record was logged
 }
 
 // Done closes when session shutdown starts, before an orderly transport drain.
@@ -82,6 +85,7 @@ func New(conn transport.Conn, sid, transport string, params eioparser.ConnParame
 		closeDone:      make(chan struct{}),
 		notified:       make(chan struct{}),
 		transportDone:  make(chan struct{}),
+		aborted:        make(chan struct{}),
 		writeGate:      make(chan struct{}, 1),
 		stopWrites:     make(chan struct{}),
 		closeTimeout:   30 * time.Second,
@@ -155,7 +159,8 @@ func (s *Session) Transport() string {
 // frameReader and frameWriter observe the failures of a frame; io.EOF ends a frame.
 type frameReader struct {
 	io.ReadCloser
-	s *Session
+	s    *Session
+	conn transport.Conn // the connection the frame is read from
 }
 
 func (r frameReader) Read(p []byte) (int, error) {
@@ -163,27 +168,33 @@ func (r frameReader) Read(p []byte) (int, error) {
 	if err == io.EOF {
 		return n, err
 	}
-	return n, r.s.fail(err)
+	return n, r.fail(err)
 }
 
-func (r frameReader) Close() error { return r.s.fail(r.ReadCloser.Close()) }
+func (r frameReader) Close() error { return r.fail(r.ReadCloser.Close()) }
+
+func (r frameReader) fail(err error) error {
+	r.s.observePeerClose(r.conn, err)
+	return r.s.failRead(err)
+}
 
 type frameWriter struct {
 	io.WriteCloser
 	s    *Session
+	conn transport.Conn // the connection the frame is written to
 	once sync.Once
 	err  error
 }
 
 func (w *frameWriter) Write(p []byte) (int, error) {
 	n, err := w.WriteCloser.Write(p)
-	return n, w.s.fail(err)
+	return n, w.s.failConn(w.conn, err)
 }
 
 func (w *frameWriter) Close() error {
 	w.once.Do(func() {
 		defer w.s.writers.Add(-1)
-		w.err = w.s.fail(w.WriteCloser.Close())
+		w.err = w.s.failConn(w.conn, w.WriteCloser.Close())
 	})
 	return w.err
 }
@@ -193,7 +204,7 @@ func (w *frameWriter) Close() error {
 // connection's FramerReader.
 func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 	for {
-		ft, pt, r, err := s.nextReader()
+		ft, pt, r, conn, err := s.nextReader()
 		if err != nil {
 			_ = s.fail(err)
 			if closeErr := s.Close(); closeErr != nil {
@@ -242,7 +253,7 @@ func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 				return err
 			}()
 
-			if s.fail(err) != nil {
+			if s.failConn(conn, err) != nil {
 				if closeErr := s.Close(); closeErr != nil {
 					s.logger().Debug("engineio: session close failed", "err", closeErr)
 				}
@@ -251,12 +262,12 @@ func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 			}
 		case eioparser.CLOSE:
 			// unlocks the wrapped connection's FrameReader
-			if err = s.fail(r.Close()); err != nil {
+			if err = s.failConn(conn, r.Close()); err != nil {
 				s.logger().Debug("engineio: close reader failed", "err", err)
 			}
 			s.observe(reasonTransportClose, nil) // a failed drain remains a transport error
 
-			if err = s.closeMode(reasonTransportClose, true); err != nil {
+			if err = s.closeMode(reasonTransportClose, true, false); err != nil {
 				s.logger().Debug("engineio: session close failed", "err", err)
 			}
 
@@ -265,7 +276,7 @@ func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 		case eioparser.MESSAGE:
 			// Caller must Close the ReadCloser to unlock the connection's
 			// FrameReader when finished reading.
-			return eioparser.FrameType(ft), frameReader{r, s}, nil
+			return eioparser.FrameType(ft), frameReader{r, s, conn}, nil
 
 		default:
 			// Known control packets can be ignored here, but an invalid wire
@@ -273,13 +284,13 @@ func (s *Session) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
 			if pt < eioparser.OPEN || pt > eioparser.NOOP {
 				// Drain through the bounded reader before recording the parse
 				// error so an inflated-size failure keeps its transport cause.
-				if s.fail(r.Close()) == nil {
+				if s.failConn(conn, r.Close()) == nil {
 					_ = s.fail(fmt.Errorf("invalid Engine.IO packet type %d", pt))
 				}
 				_ = s.Close()
 				return 0, nil, s.readerCloseError()
 			}
-			if err = s.fail(r.Close()); err != nil {
+			if err = s.failConn(conn, r.Close()); err != nil {
 				s.logger().Debug("engineio: close reader failed", "err", err)
 				_ = s.Close()
 				return 0, nil, s.readerCloseError()
@@ -325,60 +336,85 @@ func (s *Session) NextWriter(typ eioparser.FrameType) (io.WriteCloser, error) {
 
 // NextWriterCompress writes a MESSAGE with its per-packet compression preference.
 func (s *Session) NextWriterCompress(typ eioparser.FrameType, compress bool) (io.WriteCloser, error) {
-	w, err := s.nextWriterCompress(eioparser.FrameType(typ), eioparser.MESSAGE, compress)
-	if s.fail(err) != nil {
+	w, conn, err := s.nextWriterCompress(eioparser.FrameType(typ), eioparser.MESSAGE, compress)
+	if s.failConn(conn, err) != nil {
 		_ = s.Close()
 		return nil, fmt.Errorf("next writer: %w", s.closeError())
 	}
 	s.writers.Add(1)
-	return &frameWriter{WriteCloser: w, s: s}, nil
+	return &frameWriter{WriteCloser: w, s: s, conn: conn}, nil
 }
 
+// ErrClosedDuringInit is what Init returns for a session that something other
+// than the handshake itself closed before the handshake ended: Close, Abort,
+// Shutdown, or a transport failure another goroutine had already observed. The
+// session was not refused; it opened, or was about to, and ended, and its own
+// close record says why. It matches io.ErrClosedPipe.
+var ErrClosedDuringInit = fmt.Errorf("session closed during handshake: %w", io.ErrClosedPipe)
+
+// Init performs the handshake: it writes the OPEN packet and marks the session
+// open. It returns ErrClosedDuringInit if the session was closed meanwhile by
+// anyone but Init. If the OPEN packet could not be written on a session that
+// was still open, Init closes the session and returns that failure.
+//
+// The session is marked open once Init owns the OPEN writer and before the
+// packet is written, so it is open, and listed by Server.Clients, no later than
+// the client can have received OPEN. The writer is held across the mark, so no
+// other packet can precede OPEN; upgradeLocker is never held across a write.
 func (s *Session) Init() error {
 	w, err := s.nextWriter(eioparser.String, eioparser.OPEN)
 	if err != nil {
-		_ = s.fail(err)
-		if closeErr := s.Close(); closeErr != nil {
-			s.logger().Debug("engineio: session close failed", "err", closeErr)
-		}
-
-		return err
-	}
-
-	if _, err := s.params.WriteTo(w); err != nil {
-		_ = s.fail(err)
-		if closeErr := w.Close(); closeErr != nil {
-			s.logger().Debug("engineio: close writer failed", "err", closeErr)
-		}
-
-		if closeErr := s.Close(); closeErr != nil {
-			s.logger().Debug("engineio: session close failed", "err", closeErr)
-		}
-
-		return err
-	}
-
-	if err := w.Close(); err != nil {
-		_ = s.fail(err)
-		if closeErr := s.Close(); closeErr != nil {
-			s.logger().Debug("engineio: session close failed", "err", closeErr)
-		}
-
-		return err
+		return s.initFailed(err, nil)
 	}
 
 	// The open record is logged under the lock: close reads opened under it, so a
 	// concurrent close cannot log the session's close record before its open record.
+	// A session closed in the meantime stays closed; the OPEN packet is still
+	// completed so that the writer is released, and Init reports the close below.
 	s.upgradeLocker.Lock()
-	defer s.upgradeLocker.Unlock()
 	if !s.closed {
 		s.opened = time.Now()
 		s.logger().Debug("engineio: session open", "remote_addr", fmt.Sprint(s.conn.RemoteAddr()))
 	}
+	s.upgradeLocker.Unlock()
+
+	if _, err := s.params.WriteTo(w); err != nil {
+		return s.initFailed(err, w)
+	}
+
+	if err := w.Close(); err != nil {
+		return s.initFailed(err, nil)
+	}
+
+	s.upgradeLocker.RLock()
+	defer s.upgradeLocker.RUnlock()
 	if s.closed {
-		return io.ErrClosedPipe
+		return ErrClosedDuringInit
 	}
 	return nil
+}
+
+// initFailed ends a session whose OPEN packet could not be written and returns
+// what Init reports; w, if not nil, still holds the packet's writer and is
+// closed first. A close cause recorded before err is why the write failed: the
+// session was closed by someone else, and Init returns ErrClosedDuringInit
+// with err attached. Without one, err is the handshake's own failure and is
+// returned as it is.
+func (s *Session) initFailed(err error, w io.WriteCloser) error {
+	closedByOther := s.cause.Load() != nil
+	_ = s.fail(err)
+	if w != nil {
+		if closeErr := w.Close(); closeErr != nil {
+			s.logger().Debug("engineio: close writer failed", "err", closeErr)
+		}
+	}
+	if closeErr := s.Close(); closeErr != nil {
+		s.logger().Debug("engineio: session close failed", "err", closeErr)
+	}
+	if closedByOther {
+		return fmt.Errorf("%w: %w", ErrClosedDuringInit, err)
+	}
+	return err
 }
 
 func (s *Session) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -404,18 +440,19 @@ func (s *Session) readerCloseError() error {
 	return fmt.Errorf("next reader: %w", s.closeError())
 }
 
-func (s *Session) nextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
+// nextReader returns the next packet and the connection it was read from.
+func (s *Session) nextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, transport.Conn, error) {
 	for {
 		s.upgradeLocker.RLock()
 		conn, closed := s.conn, s.closed
 		s.upgradeLocker.RUnlock()
 		if closed {
-			return 0, 0, nil, s.closeError()
+			return 0, 0, nil, nil, s.closeError()
 		}
 
 		ft, pt, r, err := conn.NextReader()
 		if err != nil {
-			if op, ok := err.(polling.Error); ok && op.Temporary() {
+			if op, ok := err.(polling.Error); ok && op.Temporary() && !timedOut(err) {
 				continue
 			}
 			if s.replaced(conn) {
@@ -423,20 +460,24 @@ func (s *Session) nextReader() (eioparser.FrameType, eioparser.PacketType, io.Re
 				// closed this one while we waited on it; read from the new one.
 				continue
 			}
-			return 0, 0, nil, err
+			s.observePeerClose(conn, err)
+			return 0, 0, nil, nil, err
 		}
-		return ft, pt, r, nil
+		return ft, pt, r, conn, nil
 	}
 }
 
 func (s *Session) nextWriter(ft eioparser.FrameType, pt eioparser.PacketType) (io.WriteCloser, error) {
-	return s.nextWriterCompress(ft, pt, true)
+	w, _, err := s.nextWriterCompress(ft, pt, true)
+	return w, err
 }
 
-func (s *Session) nextWriterCompress(ft eioparser.FrameType, pt eioparser.PacketType, compress bool) (io.WriteCloser, error) {
+// nextWriterCompress returns the writer and the connection it writes to, also
+// with the error of that connection.
+func (s *Session) nextWriterCompress(ft eioparser.FrameType, pt eioparser.PacketType, compress bool) (io.WriteCloser, transport.Conn, error) {
 	select {
 	case <-s.stopWrites:
-		return nil, s.closeError()
+		return nil, nil, s.closeError()
 	case <-s.writeGate:
 	}
 	owned := true
@@ -451,7 +492,7 @@ func (s *Session) nextWriterCompress(ft eioparser.FrameType, pt eioparser.Packet
 		conn, closed := s.conn, s.closed
 		s.upgradeLocker.RUnlock()
 		if closed {
-			return nil, s.closeError()
+			return nil, nil, s.closeError()
 		}
 
 		if !notified && s.hooks != nil && s.hooks.PacketCreate != nil {
@@ -466,19 +507,19 @@ func (s *Session) nextWriterCompress(ft eioparser.FrameType, pt eioparser.Packet
 			w, err = conn.NextWriter(ft, pt)
 		}
 		if err != nil {
-			if op, ok := err.(polling.Error); ok && op.Temporary() {
+			if op, ok := err.(polling.Error); ok && op.Temporary() && !timedOut(err) {
 				continue
 			}
 			if s.replaced(conn) {
 				// See nextReader: retry on the connection that replaced conn.
 				continue
 			}
-			return nil, err
+			return nil, conn, err
 		}
 		// Caller must Close the WriteCloser to unlock the connection's
 		// FrameWriter when finished writing.
 		owned = false
-		return &orderedWriter{WriteCloser: w, release: s.writeGate}, nil
+		return &orderedWriter{WriteCloser: w, release: s.writeGate}, conn, nil
 	}
 }
 
@@ -499,7 +540,6 @@ func (w *orderedWriter) Close() error {
 
 func (s *Session) setDeadline() error {
 	deadline := time.Now().Add(s.params.PingInterval + s.params.PingTimeout)
-	s.deadline.Store(deadline.UnixNano())
 
 	// Deadline setters can wait for an open transport writer. Do not retain
 	// the session lock while waiting: closing must be able to interrupt it.

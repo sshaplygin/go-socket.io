@@ -13,7 +13,14 @@ import (
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
-// Client multiplexes namespace sockets over one Engine.IO connection.
+// Client multiplexes namespace sockets over one Engine.IO connection. Its Emit,
+// OnConnect, OnDisconnect, OnError and OnEvent, and the typed-descriptor bridges
+// RegisterEvent, SendEvent and RequestAck, act on the namespace selected by the
+// address passed to New; OnReconnectAttempt, OnReconnect, OnReconnectError,
+// OnReconnectFailed, OnPing and OnPong belong to the connection. Socket returns a
+// namespace socket, which also has On, Once, Off, Send, Connected and ID. Emit and
+// Close of a Client, of its sockets and of a Conn may be called from any goroutine,
+// concurrently with each other and with callbacks.
 type Client struct{ manager *manager }
 
 // New configures addr (http://host:port[/namespace]) without opening a connection.
@@ -31,44 +38,71 @@ func New(addr string, opts ...Option) (*Client, error) {
 }
 
 // Connect returns once Engine.IO is open and namespace CONNECT packets are queued.
-// A failed or timed-out attempt can be retried; late dial results are closed.
+// A failed or timed-out attempt returns its error and can be retried; late dial
+// results are closed. A failed Connect starts no automatic reconnection, unlike
+// socket.io-client 2.x: only the end of a connection that had opened starts one.
+//
+// While a connection is open, Connect returns nil, dials nothing and reopens no
+// closed namespace; see Socket.Connect. While a dial is in progress, that of a
+// reconnection included, Connect waits for it, returns its result and reopens
+// no closed namespace either. In every other state Connect dials, and a Connect
+// that dials reopens every closed namespace of the Client, one that the server
+// disconnected (reason "io server disconnect") included. Between the attempts
+// of a reconnection Connect dials as well: its dial ends that reconnection,
+// also when it fails. A Connect that runs while Close, or the Close of the last
+// open namespace, is closing the connection waits for that close and then dials.
 func (c *Client) Connect() error { return c.manager.Connect() }
 
-// Close disconnects all namespace sockets and drains their queued packets before
-// closing Engine.IO, bounded by WithCloseTimeout.
+// Close disconnects all namespace sockets and returns without waiting for the
+// network. Queued packets and each namespace DISCONNECT are written in the
+// background, bounded by WithCloseTimeout; over polling, the Engine.IO CLOSE
+// packet follows them within a further 2 s; over websocket, a close frame
+// (status 1000) follows them, and writing it and waiting for the server's reply
+// take at most a further 0.75 s. A program that exits right after
+// Close can lose them; to make sure its last events arrived, it waits for their
+// ACKs before exiting.
 func (c *Client) Close() error { return c.manager.Close() }
 
-// Emit sends through the namespace selected by the address passed to New.
+// Emit is Socket.Emit on the namespace selected by the address passed to New.
 func (c *Client) Emit(event string, args ...interface{}) { c.manager.Emit(event, args...) }
 
 // OnConnect sets the default namespace's connection callback.
 func (c *Client) OnConnect(f func(Conn) error) { c.manager.OnConnect(f) }
 
-// OnDisconnect sets the default namespace's disconnect callback.
+// OnDisconnect sets the default namespace's disconnect callback; Socket.OnDisconnect
+// lists its reasons.
 func (c *Client) OnDisconnect(f func(Conn, string)) { c.manager.OnDisconnect(f) }
 
-// OnError sets the default namespace's error callback.
+// OnError sets the default namespace's error callback. The end of the Engine.IO
+// session, by a disconnect, a transport failure, a ping timeout, a close or a
+// message-size limit, is not an error: OnDisconnect reports it.
 func (c *Client) OnError(f func(Conn, error)) { c.manager.OnError(f) }
 
-// OnEvent replaces the default namespace's handler for event.
+// OnEvent replaces the default namespace's handler for event, as Socket.OnEvent
+// does, including what a long-running f does to the connection's heartbeat.
 func (c *Client) OnEvent(event string, f interface{}) { c.manager.OnEvent(event, f) }
 
 // OnReconnectAttempt sets the callback before each automatic dial; nil removes it.
 func (c *Client) OnReconnectAttempt(f func(attempt int)) { c.manager.OnReconnectAttempt(f) }
 
-// OnReconnect runs after the engine opens, before namespace CONNECT packets are sent.
+// OnReconnect sets the callback that runs after an automatic reconnection opens the
+// engine, before namespace CONNECT packets are sent; nil removes it. A dial by
+// Client.Connect or Socket.Connect does not call it.
 func (c *Client) OnReconnect(f func(attempt int)) { c.manager.OnReconnect(f) }
 
 // OnReconnectError sets the callback for a failed automatic dial; nil removes it.
 func (c *Client) OnReconnectError(f func(err error)) { c.manager.OnReconnectError(f) }
 
-// OnReconnectFailed runs when the automatic attempt limit is exhausted.
+// OnReconnectFailed sets the callback that runs when the automatic attempt limit is
+// exhausted; nil removes it.
 func (c *Client) OnReconnectFailed(f func()) { c.manager.OnReconnectFailed(f) }
 
-// OnPing runs on the engine ping goroutine after a PING write and must not block.
+// OnPing sets the callback that runs on the engine ping goroutine after a PING write;
+// it must not block, and nil removes it.
 func (c *Client) OnPing(f func()) { c.manager.OnPing(f) }
 
-// OnPong runs on the engine reader with the PING round trip and must not block.
+// OnPong sets the callback that runs on the engine reader with the PING round trip;
+// it must not block, and nil removes it.
 func (c *Client) OnPong(f func(latency time.Duration)) { c.manager.OnPong(f) }
 
 // Socket returns the namespace socket, creating it. A namespace query is carried

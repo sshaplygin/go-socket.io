@@ -1,8 +1,17 @@
 package redis
 
 import (
+	"bytes"
 	"context"
+	"flag"
+	"fmt"
 	"io"
+	"net"
+	"os"
+	"os/exec"
+	"regexp"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -55,7 +64,16 @@ func TestCloseCancelsSubscriberReconnect(t *testing.T) {
 	s := miniredis.RunT(t)
 	bc := newTestRedisBroadcast(t, s)
 	entered := make(chan struct{})
-	dial := func(ctx context.Context) (redis.Conn, error) { close(entered); <-ctx.Done(); return nil, ctx.Err() }
+	var dials atomic.Int32
+	var enter sync.Once
+	// Closing entered once keeps a stray later dial from panicking the
+	// binary; such a dial after the require.Never window below goes unseen.
+	dial := func(ctx context.Context) (redis.Conn, error) {
+		dials.Add(1)
+		enter.Do(func() { close(entered) })
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	bc.dial.Store(&dial)
 	bc.subLock.Lock()
 	_ = bc.sub.Close()
@@ -71,6 +89,235 @@ func TestCloseCancelsSubscriberReconnect(t *testing.T) {
 	case <-closed:
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("Close waits for reconnect dial instead of canceling it")
+	}
+	// The next backoff timer starts after done is closed, so it is ready in
+	// the same select only if the dispatcher stalls for the backoff; this
+	// catches a stray dial then. TestResubscribeAfterCloseDoesNotDial is the
+	// deterministic check.
+	require.Never(t, func() bool { return dials.Load() > 1 }, redisReconnectMax, time.Millisecond,
+		"subscriber dialed again after Close")
+}
+
+// Once done is closed the reconnect loop must not dial again, even when the
+// backoff timer is ready at the same time and transportCtx is not yet
+// canceled (closeTransport closes done before it cancels transportCtx).
+func TestResubscribeAfterCloseDoesNotDial(t *testing.T) {
+	if os.Getenv(syncTimerChildEnv) != "1" {
+		// With synchronous timer channels (Go 1.23 semantics) an expired
+		// timer is ready in the same select as done. Go 1.23 to 1.26 give
+		// this module's own tests asynchronous channels because of its go
+		// 1.22 line (Go 1.27 removed them, Go 1.22 has only those), so repeat
+		// the check in a child with synchronous ones. On Go 1.22 the child
+		// adds nothing: there a missing done re-check is detected only by
+		// chance, and newer Go jobs detect it deterministically.
+		require.NoError(t, runSyncTimerChild(t.Name()))
+	}
+	var dials atomic.Int32
+	dial := func(context.Context) (redis.Conn, error) { dials.Add(1); return nil, io.EOF }
+	for i := 0; i < 500; i++ {
+		bc := &broadcast{done: make(chan struct{}), transportCtx: context.Background(), pattern: "p#*", reqChannel: "p-request#/#", resChannel: "p-response#/#"}
+		bc.dial.Store(&dial)
+		close(bc.done)
+		// A zero delay keeps the timer ready on every attempt.
+		if sub, _ := bc.resubscribe(0); sub != nil {
+			t.Fatal("closed broadcast resubscribed")
+		}
+	}
+	if n := dials.Load(); n != 0 {
+		t.Fatalf("closed broadcast dialed %d times", n)
+	}
+}
+
+// syncTimerChildEnv marks a child test binary started by runSyncTimerChild.
+const syncTimerChildEnv = "SOCKETIO_SYNC_TIMER_CHILD"
+
+// runSyncTimerChild runs the test name in a child test binary with
+// synchronous timer channels. It fails unless the child ran that test and
+// the test passed.
+func runSyncTimerChild(name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	command, err := syncTimerChildCommand(ctx, name)
+	if err != nil {
+		return err
+	}
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("synchronous timer child %s: %w\n%s", name, err, output)
+	}
+	return childPassed(name, output)
+}
+
+// syncTimerChildCommand builds the command runSyncTimerChild runs.
+func syncTimerChildCommand(ctx context.Context, name string) (*exec.Cmd, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	args := []string{"-test.run=^" + regexp.QuoteMeta(name) + "$", "-test.count=1", "-test.timeout=30s", "-test.v"}
+	// Under go test -cover the child adds its counters to the directory this
+	// binary reads its own from when it writes the profile.
+	if dir := flag.Lookup("test.gocoverdir"); dir != nil && dir.Value.String() != "" {
+		args = append(args, "-test.gocoverdir="+dir.Value.String())
+	}
+	command := exec.CommandContext(ctx, executable, args...)
+	command.Env = syncTimerChildEnviron(os.Environ())
+	return command, nil
+}
+
+// syncTimerChildEnviron returns the environment of a child started by
+// runSyncTimerChild from the parent's environ.
+func syncTimerChildEnviron(environ []string) []string {
+	return childEnviron(environ, runtime.GOOS == "windows")
+}
+
+// childEnviron builds the child environment; foldCase matches keys as
+// os/exec does on Windows. A race-enabled child would otherwise sleep a
+// second before it exits.
+func childEnviron(environ []string, foldCase bool) []string {
+	godebug := []string{}
+	for _, setting := range strings.Split(lookupLastEnv(environ, "GODEBUG", foldCase), ",") {
+		setting = strings.TrimSpace(setting)
+		if k, _, _ := strings.Cut(setting, "="); setting != "" && k != "asynctimerchan" {
+			godebug = append(godebug, setting)
+		}
+	}
+	godebug = append(godebug, "asynctimerchan=0")
+	gorace := strings.TrimSpace(lookupLastEnv(environ, "GORACE", foldCase) + " atexit_sleep_ms=0")
+	return append(environ[:len(environ):len(environ)],
+		syncTimerChildEnv+"=1", "GODEBUG="+strings.Join(godebug, ","), "GORACE="+gorace)
+}
+
+// lookupLastEnv returns the value os/exec passes for key: the last one.
+func lookupLastEnv(environ []string, key string, foldCase bool) string {
+	value := ""
+	for _, kv := range environ {
+		if k, v, ok := strings.Cut(kv, "="); ok && (k == key || foldCase && strings.EqualFold(k, key)) {
+			value = v
+		}
+	}
+	return value
+}
+
+// lastGodebug returns the value of the last key setting in a GODEBUG value,
+// the one the runtime applies.
+func lastGodebug(godebug, key string) string {
+	value := ""
+	for _, setting := range strings.Split(godebug, ",") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(setting), "="); ok && k == key {
+			value = v
+		}
+	}
+	return value
+}
+
+// The child must run with synchronous timer channels, without the race exit
+// sleep and marked as the child; otherwise TestResubscribeAfterCloseDoesNotDial
+// silently falls back to its in-process check.
+func TestSyncTimerChildCommandEnvironment(t *testing.T) {
+	command, err := syncTimerChildCommand(context.Background(), "TestResubscribeAfterCloseDoesNotDial")
+	require.NoError(t, err)
+	fold := runtime.GOOS == "windows"
+	require.Equal(t, "0", lastGodebug(lookupLastEnv(command.Env, "GODEBUG", fold), "asynctimerchan"), command.Env)
+	require.True(t, strings.HasSuffix(lookupLastEnv(command.Env, "GORACE", fold), "atexit_sleep_ms=0"), command.Env)
+	require.Equal(t, "1", lookupLastEnv(command.Env, syncTimerChildEnv, fold), command.Env)
+	require.Equal(t, syncTimerChildEnviron(os.Environ()), command.Env)
+}
+
+// The child keeps the parent's GODEBUG and GORACE settings, overriding only
+// asynctimerchan and atexit_sleep_ms. On Windows os/exec treats keys that
+// differ only in case as one variable.
+func TestSyncTimerChildEnvironMergesParentSettings(t *testing.T) {
+	for _, tc := range []struct {
+		environ          []string
+		foldCase         bool
+		godebug, gorace  string
+		preservedEntries []string
+	}{
+		{[]string{"PATH=/bin"}, false, "asynctimerchan=0", "atexit_sleep_ms=0", nil},
+		{
+			[]string{"GODEBUG=asynctimerchan=1,gctrace=0", "GORACE=halt_on_error=1 log_path=race.log"}, false,
+			"gctrace=0,asynctimerchan=0", "halt_on_error=1 log_path=race.log atexit_sleep_ms=0", nil,
+		},
+		{
+			[]string{"godebug=gctrace=0", "Gorace=halt_on_error=1"}, true,
+			"gctrace=0,asynctimerchan=0", "halt_on_error=1 atexit_sleep_ms=0", nil,
+		},
+		{
+			[]string{"godebug=gctrace=0", "Gorace=halt_on_error=1"}, false,
+			"asynctimerchan=0", "atexit_sleep_ms=0", []string{"godebug=gctrace=0", "Gorace=halt_on_error=1"},
+		},
+	} {
+		env := childEnviron(tc.environ, tc.foldCase)
+		require.Equal(t, tc.godebug, lookupLastEnv(env, "GODEBUG", tc.foldCase), tc.environ)
+		require.Equal(t, tc.gorace, lookupLastEnv(env, "GORACE", tc.foldCase), tc.environ)
+		require.Equal(t, "1", lookupLastEnv(env, syncTimerChildEnv, tc.foldCase), tc.environ)
+		require.Subset(t, env, tc.preservedEntries)
+	}
+}
+
+// childPassed checks the verbose output of a child test binary for the
+// result of the test name: a pattern that matched no test, or a skipped
+// test, also exits successfully.
+func childPassed(name string, output []byte) error {
+	if !bytes.Contains(output, []byte("\n--- PASS: "+name+" (")) {
+		return fmt.Errorf("synchronous timer child did not pass %s:\n%s", name, output)
+	}
+	return nil
+}
+
+// A child whose pattern matches no test exits successfully without running
+// anything.
+func TestSyncTimerChildFailsWithoutTest(t *testing.T) {
+	require.Error(t, runSyncTimerChild("TestNoSuchTest"), "a child that ran no test passed")
+}
+
+func TestSyncTimerChildRequiresPassResult(t *testing.T) {
+	const name = "TestResubscribeAfterCloseDoesNotDial"
+	for _, output := range []string{
+		"testing: warning: no tests to run\nPASS\n",
+		"=== RUN   " + name + "\n--- SKIP: " + name + " (0.00s)\nPASS\n",
+		"=== RUN   " + name + "Twice\n--- PASS: " + name + "Twice (0.00s)\nPASS\n",
+	} {
+		require.Error(t, childPassed(name, []byte(output)), output)
+	}
+	require.NoError(t, childPassed(name, []byte("=== RUN   "+name+"\n--- PASS: "+name+" (0.01s)\nPASS\n")))
+}
+
+// Construction subscribes with the WithSubscribeTimeout context, which may
+// end during the first publishing dial. The subscriber step then reports
+// the context error and opens no connection.
+func TestConstructionSubscribeAfterContextEnds(t *testing.T) {
+	s := miniredis.RunT(t)
+	bc := newTestRedisBroadcast(t, s)
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, tc := range []struct {
+		ctx  context.Context
+		want error
+	}{{expired, context.DeadlineExceeded}, {canceled, context.Canceled}} {
+		before := s.TotalConnectionCount()
+		sub, err := bc.subscribe(tc.ctx)
+		require.Nil(t, sub)
+		require.ErrorIs(t, err, tc.want)
+		require.Equal(t, before, s.TotalConnectionCount(), "subscriber connection opened after %v", tc.want)
+	}
+}
+
+func TestSubscribeWithCanceledContextDoesNotDial(t *testing.T) {
+	var dials atomic.Int32
+	dial := func(context.Context) (redis.Conn, error) { dials.Add(1); return nil, io.EOF }
+	bc := &broadcast{pattern: "p#*", reqChannel: "p-request#/#", resChannel: "p-response#/#"}
+	bc.dial.Store(&dial)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := bc.subscribeChannels(ctx, []interface{}{bc.reqChannel, bc.resChannel}); err != context.Canceled {
+		t.Fatalf("canceled subscription returned %v", err)
+	}
+	if n := dials.Load(); n != 0 {
+		t.Fatalf("canceled subscription dialed %d times", n)
 	}
 }
 
@@ -257,50 +504,120 @@ func TestNamespaceCloseWaitsForUnsubscribeAcknowledgements(t *testing.T) {
 	}
 }
 
-func TestNamespaceCloseConfirmsRemovalAfterSubscriberReplacement(t *testing.T) {
-	s := miniredis.RunT(t)
-	factory := New(WithAddr(s.Addr()))
-	closing, err := factory("/closing")
-	if err != nil {
-		t.Fatal(err)
+// delayedCloseConn models a server that handles a client disconnect after a
+// delay. Close fails the client side at once, so redigo reports an error to
+// the reader, but the socket stays open until delay has passed and Redis only
+// forgets the connection's subscriptions then.
+type delayedCloseConn struct {
+	net.Conn
+	delay time.Duration
+}
+
+func (c *delayedCloseConn) Close() error {
+	_ = c.Conn.SetDeadline(time.Unix(1, 0))
+	time.AfterFunc(c.delay, func() { _ = c.Conn.Close() })
+	return nil
+}
+
+// useDelayedDisconnect makes every later subscriber connection of owner a
+// delayedCloseConn.
+func useDelayedDisconnect(s *miniredis.Miniredis, owner *broadcast, delay time.Duration) {
+	dial := func(ctx context.Context) (redis.Conn, error) {
+		return redis.Dial("tcp", s.Addr(), redis.DialNetDial(func(network, addr string) (net.Conn, error) {
+			conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			return &delayedCloseConn{Conn: conn, delay: delay}, nil
+		}))
 	}
-	remaining, err := factory("/remaining")
-	if err != nil {
-		t.Fatal(err)
-	}
-	owner := closing.(*broadcast)
-	defer func() { _ = owner.Close(); _ = remaining.(*broadcast).Close() }()
-	sent := make(chan struct{})
-	s.Server().SetPreHook(func(_ *server.Peer, command string, args ...string) bool {
-		if command == "UNSUBSCRIBE" && len(args) > 0 && args[0] == owner.reqChannel {
-			close(sent)
-			return true
-		}
-		return false
-	})
-	done := make(chan error, 1)
-	go func() { done <- owner.Close() }()
-	select {
-	case <-sent:
-	case <-time.After(time.Second):
-		t.Fatal("unsubscribe not sent")
-	}
+	owner.dial.Store(&dial)
+}
+
+// replaceSubscriber closes the subscriber connection of owner and waits for
+// the dispatcher to install its replacement.
+func replaceSubscriber(t *testing.T, owner *broadcast) {
+	t.Helper()
 	owner.subLock.Lock()
-	_ = owner.sub.Close()
+	previous := owner.sub
+	_ = previous.Close()
 	owner.subLock.Unlock()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("replacement did not confirm retired subscription removal")
-	}
-	if got := s.PubSubNumSub(owner.reqChannel)[owner.reqChannel]; got != 0 {
-		t.Fatalf("replacement retained closed namespace: %d", got)
-	}
-	if got := s.PubSubNumSub("socket.io-request#/remaining#")["socket.io-request#/remaining#"]; got != 1 {
-		t.Fatalf("remaining namespace subscriber count %d", got)
+	require.Eventually(t, func() bool {
+		owner.subLock.Lock()
+		defer owner.subLock.Unlock()
+		return owner.sub != previous
+	}, 2*time.Second, time.Millisecond, "subscriber did not reconnect")
+}
+
+// awaitSubscribers waits until Redis counts want subscribers on channel. Redis
+// counts a closed connection until it has handled the disconnect, which is
+// asynchronous to the client's Close.
+func awaitSubscribers(t *testing.T, s *miniredis.Miniredis, channel string, want int, msg string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return s.PubSubNumSub(channel)[channel] == want
+	}, 2*time.Second, time.Millisecond, "%s: want %d subscribers on %s", msg, want, channel)
+}
+
+func TestNamespaceCloseConfirmsRemovalAfterSubscriberReplacement(t *testing.T) {
+	// Redis forgets the subscriptions of a closed connection only once it has
+	// handled the disconnect, which is asynchronous to the client's Close.
+	for _, tc := range []struct {
+		name  string
+		delay time.Duration
+	}{
+		{"prompt server disconnect", 0},
+		{"slow server disconnect", 50 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := miniredis.RunT(t)
+			factory := New(WithAddr(s.Addr()))
+			closing, err := factory("/closing")
+			if err != nil {
+				t.Fatal(err)
+			}
+			remaining, err := factory("/remaining")
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := closing.(*broadcast)
+			defer func() { _ = owner.Close(); _ = remaining.(*broadcast).Close() }()
+			if tc.delay > 0 {
+				useDelayedDisconnect(s, owner, tc.delay)
+				replaceSubscriber(t, owner)
+			}
+			sent := make(chan struct{})
+			s.Server().SetPreHook(func(_ *server.Peer, command string, args ...string) bool {
+				if command == "UNSUBSCRIBE" && len(args) > 0 && args[0] == owner.reqChannel {
+					close(sent)
+					return true
+				}
+				return false
+			})
+			done := make(chan error, 1)
+			go func() { done <- owner.Close() }()
+			select {
+			case <-sent:
+			case <-time.After(time.Second):
+				t.Fatal("unsubscribe not sent")
+			}
+			owner.subLock.Lock()
+			_ = owner.sub.Close()
+			owner.subLock.Unlock()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("replacement did not confirm retired subscription removal")
+			}
+			// The retired connection is counted until Redis handles its
+			// disconnect, so wait for the counts to settle on the replacement's.
+			remainingChannel := "socket.io-request#/remaining#"
+			awaitSubscribers(t, s, owner.reqChannel, 0, "replacement retained closed namespace")
+			awaitSubscribers(t, s, remainingChannel, 1, "remaining namespace subscriber count")
+		})
 	}
 }
 
@@ -314,40 +631,46 @@ func (c *failedUnsubscribeConn) Send(command string, args ...interface{}) error 
 }
 
 func TestNamespaceCloseRecoversFromUnsubscribeWriteFailure(t *testing.T) {
-	s := miniredis.RunT(t)
-	factory := New(WithAddr(s.Addr()))
-	closing, err := factory("/closing")
-	require.NoError(t, err)
-	remaining, err := factory("/remaining")
-	require.NoError(t, err)
-	owner := closing.(*broadcast)
-	t.Cleanup(func() { _ = owner.Close(); _ = remaining.(*broadcast).Close() })
+	for _, tc := range []struct {
+		name  string
+		delay time.Duration
+	}{
+		{"prompt server disconnect", 0},
+		{"slow server disconnect", 50 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := miniredis.RunT(t)
+			factory := New(WithAddr(s.Addr()))
+			closing, err := factory("/closing")
+			require.NoError(t, err)
+			remaining, err := factory("/remaining")
+			require.NoError(t, err)
+			owner := closing.(*broadcast)
+			t.Cleanup(func() { _ = owner.Close(); _ = remaining.(*broadcast).Close() })
 
-	dial := *owner.dial.Load()
-	failUnsubscribe := func(ctx context.Context) (redis.Conn, error) {
-		conn, err := dial(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return &failedUnsubscribeConn{Conn: conn}, nil
+			if tc.delay > 0 {
+				useDelayedDisconnect(s, owner, tc.delay)
+			}
+			dial := *owner.dial.Load()
+			failUnsubscribe := func(ctx context.Context) (redis.Conn, error) {
+				conn, err := dial(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return &failedUnsubscribeConn{Conn: conn}, nil
+			}
+			owner.dial.Store(&failUnsubscribe)
+			replaceSubscriber(t, owner)
+
+			// A failed write must close that transport and await a replacement which
+			// subscribes only the remaining namespace before reporting success.
+			require.NoError(t, owner.Close())
+			// The retired connection is counted until Redis handles its
+			// disconnect, so wait for the counts to settle on the replacement's.
+			awaitSubscribers(t, s, owner.reqChannel, 0, "closed namespace retained")
+			awaitSubscribers(t, s, "socket.io-request#/remaining#", 1, "remaining namespace subscriber count")
+		})
 	}
-	owner.dial.Store(&failUnsubscribe)
-	owner.subLock.Lock()
-	previous := owner.sub
-	_ = previous.Close()
-	owner.subLock.Unlock()
-	require.Eventually(t, func() bool {
-		owner.subLock.Lock()
-		defer owner.subLock.Unlock()
-		return owner.sub != previous
-	}, 2*time.Second, time.Millisecond, "subscriber did not reconnect")
-
-	// A failed write must close that transport and await a replacement which
-	// subscribes only the remaining namespace before reporting success.
-	require.NoError(t, owner.Close())
-	require.Zero(t, s.PubSubNumSub(owner.reqChannel)[owner.reqChannel])
-	channel := "socket.io-request#/remaining#"
-	require.Equal(t, 1, s.PubSubNumSub(channel)[channel])
 }
 
 func TestUnsubscribeAcknowledgementsConfirmOneCommandAtATime(t *testing.T) {

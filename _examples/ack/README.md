@@ -21,10 +21,8 @@ NODE_PATH=/path/to/node_modules node client.js http://127.0.0.1:8000
 ```
 
 A successful run exits zero; a failed assertion, connection error or timeout
-exits nonzero. From the repository root, run this to build and check every
-executable example on a free local port:
+exits nonzero. From the repository root, `make examples-node` builds and checks
+every executable example on a free local port; its command and what it requires
+are in [the examples index](../README.md#examples).
 
-```sh
-CONFORMANCE_NODE_MODULES=/path/to/node_modules make examples-node
-```
  See [the examples index](../README.md) for the other examples.

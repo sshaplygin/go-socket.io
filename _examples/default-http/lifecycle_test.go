@@ -52,9 +52,9 @@ func TestListenerFailureStopsEngineAndEarlierListeners(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer occupied.Close()
+	defer func() { _ = occupied.Close() }()
 	server := socketio.NewServer()
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	addr := unusedAddress(t)
 	err = serve(context.Background(), server,
 		&http.Server{Addr: addr},
@@ -71,7 +71,7 @@ func TestServeFailureStopsHTTPAndEngine(t *testing.T) {
 	for _, cancelled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "running", true: "shutdown delay"}[cancelled], func(t *testing.T) {
 			server := socketio.NewServer()
-			defer server.Close()
+			defer func() { _ = server.Close() }()
 			failure := errors.New("adapter unavailable")
 			server.SetAdapter(func(string) (adapter.Adapter, error) { return nil, failure })
 			server.Of("/failed")
@@ -98,7 +98,7 @@ func TestServeFailureStopsHTTPAndEngine(t *testing.T) {
 
 func TestSignalStopsLiveChatAndWaitsForDisconnect(t *testing.T) {
 	server := socketio.NewServer()
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	registerChat(server)
 	disconnected := make(chan struct{}, 1)
 	server.OnDisconnect("/", func(socketio.Conn, string) { disconnected <- struct{}{} })
@@ -120,7 +120,7 @@ func TestSignalStopsLiveChatAndWaitsForDisconnect(t *testing.T) {
 		}
 		return true
 	})
-	defer peer.Close()
+	defer func() { _ = peer.Close() }()
 	waitFor(t, "live chat connection", func() bool { return server.Count() == 1 })
 	cancel()
 	select {
@@ -144,7 +144,7 @@ func TestSignalStopsLiveChatAndWaitsForDisconnect(t *testing.T) {
 
 func TestSignalPreservesGracefulDelay(t *testing.T) {
 	server := socketio.NewServer()
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	const delay = 30 * time.Millisecond
@@ -166,7 +166,7 @@ func TestSignalPreservesGracefulDelay(t *testing.T) {
 
 func TestShutdownWaitsForActiveHTTPHandler(t *testing.T) {
 	server := socketio.NewServer()
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	started, finished, release := make(chan struct{}), make(chan struct{}), make(chan struct{})

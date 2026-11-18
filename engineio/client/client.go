@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -20,8 +21,16 @@ import (
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
-// Opener is client connection which need receive open message first.
+// closePacketTimeout bounds, from Close, the wait for an in-flight POST and the
+// final POST that carries the polling CLOSE packet.
+const closePacketTimeout = 2 * time.Second
+
+// Opener is a client transport connection that performs the Engine.IO
+// handshake itself, as polling does. Dialer.Dial calls Open on a connection
+// that implements it; on any other connection it reads the OPEN packet with
+// NextReader.
 type Opener interface {
+	// Open reads the server's OPEN packet and returns its parameters.
 	Open() (eioparser.ConnParameters, error)
 }
 
@@ -34,6 +43,7 @@ type client struct {
 	close          chan struct{}
 	closeOnce      sync.Once
 	writers        atomic.Int64
+	tooLarge       atomic.Bool // the read-limit record was logged
 	mu             sync.RWMutex
 	initOnce       sync.Once
 	writeGate      chan struct{}
@@ -128,14 +138,20 @@ func (c *client) terminate(reason CloseReason, err error) error {
 	var result error
 	c.closeOnce.Do(func() {
 		c.mu.Lock()
+		// Only Close of a session that has not failed or been closed by the server tells it.
+		orderly := reason == ReasonForcedClose && c.cause == nil
+		// A message past the read limit reaches failure only: the transport errors
+		// terminate receives come from an upgrade probe that passed its exchange,
+		// where the probe's own limit applies (see probeTransport).
 		if c.cause == nil {
 			c.cause = &CloseError{Reason: reason, Err: err}
 		}
+		failed := c.cause.Reason == ReasonTransportError
 		conn, probe := c.conn, c.probe
 		close(c.close)
 		c.mu.Unlock()
-		if probe != nil {
-			_ = probe.Close()
+		if probe != nil && probe != conn {
+			_ = abortConn(probe)
 		}
 		// Context-aware pauses are canceled and resumed by probe rollback.
 		// Legacy transports still need Resume before Close can finish.
@@ -144,9 +160,46 @@ func (c *client) terminate(reason CloseReason, err error) error {
 				p.Resume()
 			}
 		}
-		result = conn.Close()
+		if polling, ok := conn.(interface{ Flush() error }); ok && orderly {
+			go c.sendClose(conn, polling)
+			return
+		}
+		if failed {
+			result = abortConn(conn)
+		} else {
+			result = conn.Close()
+		}
 	})
 	return result
+}
+
+// abortConn drops conn without a websocket close frame, after a transport error
+// and for an upgrade probe the client has not switched to; Close of an open
+// websocket sends one. Transports without Abort, such as polling, are closed.
+func abortConn(conn transport.Conn) error {
+	if a, ok := conn.(interface{ Abort() error }); ok {
+		return a.Abort()
+	}
+	return conn.Close()
+}
+
+// sendClose queues CLOSE behind the writes already admitted, lets the in-flight
+// POST finish and sends CLOSE in a final POST, as engine.io-client's
+// Polling.doClose does, then cancels the outstanding requests. closePacketTimeout
+// bounds it; a failed or expired CLOSE POST is not reported.
+func (c *client) sendClose(conn transport.Conn, polling interface{ Flush() error }) {
+	expired := make(chan struct{})
+	bound := time.AfterFunc(closePacketTimeout, func() { close(expired); _ = conn.Close() })
+	defer bound.Stop()
+	select {
+	case <-c.writeGate:
+		if w, err := conn.NextWriter(eioparser.String, eioparser.CLOSE); err == nil && w.Close() == nil {
+			_ = polling.Flush()
+		}
+		c.releaseWrite()
+	case <-expired:
+	}
+	_ = conn.Close()
 }
 
 func (c *client) closeError() error {
@@ -162,6 +215,7 @@ func (c *client) connection() transport.Conn {
 }
 
 func (c *client) failure(err error) error {
+	c.observeTooLarge(err)
 	c.mu.RLock()
 	read, write := c.readDeadline, c.writeDeadline
 	c.mu.RUnlock()
@@ -170,6 +224,8 @@ func (c *client) failure(err error) error {
 	if c.params.PingInterval+c.params.PingTimeout > 0 &&
 		(!read.IsZero() && !now.Before(read) || !write.IsZero() && !now.Before(write)) {
 		reason, err = ReasonPingTimeout, nil
+	} else if peerClosed(err) {
+		reason, err = ReasonTransportClose, io.EOF
 	}
 	// Keep the dialer's existing ping-loop lifecycle: a reader reports the first
 	// cause immediately, while Close or the failed ping ends the engine client.
@@ -179,6 +235,40 @@ func (c *client) failure(err error) error {
 	}
 	c.mu.Unlock()
 	return c.closeError()
+}
+
+// observeTooLarge logs a message past the read limit of a built-in transport, once per
+// connection, from the first failed read or write that sees it: the websocket
+// transport records the violation (ReadLimitError) before a write can fail on its 1009
+// close frame, and the polling transport returns *http.MaxBytesError to the reader.
+func (c *client) observeTooLarge(err error) {
+	c.mu.RLock()
+	conn, name := c.conn, c.transport
+	c.mu.RUnlock()
+	if limited, ok := conn.(interface{ ReadLimitError() error }); ok && limited.ReadLimitError() != nil {
+		err = limited.ReadLimitError()
+	}
+	var limit *http.MaxBytesError
+	if errors.As(err, &limit) && c.tooLarge.CompareAndSwap(false, true) {
+		logger.Log.Warn("engineio: message too large", "transport", name, "err", fmt.Errorf("limit %d bytes: %w", limit.Limit, err))
+	}
+}
+
+// peerClosed reports whether err is the close frame of an orderly websocket
+// close by the peer: normal closure (what this server sends), going away, or a
+// frame without a status, which engine.io 3.6.2 sends. engine.io-client
+// 3.5.6 reports any close of its websocket as "transport close"; other statuses
+// signal a failure of the connection and stay transport errors.
+func peerClosed(err error) bool {
+	var closeErr *websocket.CloseError
+	if !errors.As(err, &closeErr) {
+		return false
+	}
+	switch closeErr.Code {
+	case websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived:
+		return true
+	}
+	return false
 }
 
 func (c *client) NextReader() (eioparser.FrameType, io.ReadCloser, error) {
@@ -509,7 +599,7 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 		cancel()
 		p.mu.Unlock()
 		if conn != nil {
-			_ = conn.Close()
+			_ = abortConn(conn)
 		}
 		if committing {
 			_ = c.terminate(ReasonTransportError, err)
@@ -534,7 +624,7 @@ func (c *client) probeTransport(deadline time.Time, u url.URL, header http.Heade
 		close(finished)
 		if !switched {
 			if probe != nil {
-				_ = probe.Close()
+				_ = abortConn(probe)
 			}
 			if pause != nil {
 				cancel()
@@ -646,7 +736,7 @@ func (c *client) dialProbe(p *clientProbe, u url.URL, header http.Header, candid
 		if p.done || p.err != nil {
 			p.mu.Unlock()
 			if conn != nil {
-				_ = conn.Close()
+				_ = abortConn(conn)
 			}
 			return
 		}

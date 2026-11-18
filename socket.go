@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/adapter"
+	eventImpl "github.com/sshaplygin/go-socket.io/internal/event"
 
 	"github.com/sshaplygin/go-socket.io/parser"
 )
@@ -31,7 +32,6 @@ type namespaceConn struct {
 	ack             sync.Map
 	outMu           sync.Mutex
 	connecting      bool
-	acceptDone      chan struct{}
 	connectDone     chan struct{}
 	connectErr      error
 	disconnectEmits bool
@@ -321,10 +321,16 @@ func (nc *namespaceConn) Use(f func(string, []interface{}) error) {
 	nc.outMu.Unlock()
 }
 
+func (nc *namespaceConn) hasMiddleware() bool {
+	nc.outMu.Lock()
+	defer nc.outMu.Unlock()
+	return len(nc.middleware) != 0
+}
+
 func (nc *namespaceConn) runMiddleware(event string, args []reflect.Value) (err error) {
 	defer func() {
 		if value := recover(); value != nil {
-			err = fmt.Errorf("event middleware panic: %v", value)
+			err = fmt.Errorf("event middleware: %w", eventImpl.NewPanicError(value))
 		}
 	}()
 	nc.outMu.Lock()
@@ -338,7 +344,7 @@ func (nc *namespaceConn) runMiddleware(event string, args []reflect.Value) (err 
 		values[i] = arg.Interface()
 	}
 	for _, f := range chain {
-		if err := f(event, values); err != nil {
+		if err := eventImpl.Returned(f(event, values)); err != nil {
 			return err
 		}
 	}
@@ -372,7 +378,7 @@ func (nc *namespaceConn) sendPayload(pkg outboundPayload, ack *callbackFunc) {
 			nc.connection.pendingWrites++
 			nc.pending = append(nc.pending, pkg)
 		} else {
-			nc.connection.overflowWrite(header)
+			nc.connection.overflowWrite(header, false)
 		}
 		return
 	}
@@ -381,32 +387,13 @@ func (nc *namespaceConn) sendPayload(pkg outboundPayload, ack *callbackFunc) {
 
 func (nc *namespaceConn) acceptPending() {
 	nc.outMu.Lock()
-	if done := nc.acceptDone; done != nil {
-		nc.outMu.Unlock()
-		<-done
-		return
-	}
-	if !nc.connecting || nc.rejected {
-		nc.outMu.Unlock()
-		return
-	}
-	nc.acceptDone = make(chan struct{})
-	nc.outMu.Unlock()
-	// Adapter callbacks can emit or disconnect. Keep connecting true so their
-	// packets join pending until this admission has queued CONNECT.
-	nc.Join(nc.ID())
-	nc.outMu.Lock()
 	defer nc.outMu.Unlock()
-	defer close(nc.acceptDone)
-	if nc.rejected {
+	if !nc.connecting || nc.rejected {
 		return
 	}
 	pending := nc.pending
 	nc.pending = nil
 	nc.connecting = false
-	if nh := nc.connection.namespace(fmtNS(nc.namespace)); nh != nil {
-		nh.AddSocket(nc)
-	}
 	nc.connection.write(parser.Header{Type: parser.Connect, Namespace: fmtNS(nc.namespace)})
 	for _, p := range pending {
 		nc.connection.mu.Lock()
@@ -427,7 +414,21 @@ func (nc *namespaceConn) reject() {
 	nc.connection.mu.Unlock()
 	nc.pending = nil
 	nc.outMu.Unlock()
+	if nh := nc.connection.namespace(fmtNS(nc.namespace)); nh != nil {
+		nh.RemoveSocket(nc)
+	}
 	nc.retireRooms()
+}
+
+// enter makes the connecting socket a broadcast target once its middleware has
+// passed: it joins its ID room and the namespace's sockets before OnConnect runs,
+// as the reference does before its connection listeners. Packets addressed to it
+// wait in pending until acceptPending queues CONNECT; reject discards them.
+func (nc *namespaceConn) enter() {
+	nc.Join(nc.ID())
+	if nh := nc.connection.namespace(fmtNS(nc.namespace)); nh != nil {
+		nh.AddSocket(nc)
+	}
 }
 
 func (nc *namespaceConn) To(rooms ...string) Emitter {
@@ -533,11 +534,8 @@ func (nc *namespaceConn) emitLocal(event string, args ...interface{}) {
 			values[i] = reflect.ValueOf(arg)
 		}
 	}
-	if _, err := handler.DispatchEvent(nc, event, values...); err != nil {
-		if onError := handler.ErrorHandler(); onError != nil {
-			onError(nc, err)
-		} else {
-			nc.connection.unhandled(nc.namespace, err)
-		}
+	report := func(err error) { nc.connection.notify(handler, nc, err) }
+	if _, err := handler.DispatchEvent(nc, event, report, values...); err != nil {
+		report(err)
 	}
 }

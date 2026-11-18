@@ -38,7 +38,7 @@ func (c *connection) serveWrite() {
 		}
 		pkg, ok := c.nextQueued()
 		if !ok {
-			if isDone(c.seal) {
+			if c.writeDrained() {
 				// A drained application close lets polling send Engine.IO CLOSE.
 				// Keep the drain timer active until the reader ends: its abort
 				// must still interrupt an engine waiting for the next poll.
@@ -60,7 +60,11 @@ func (c *connection) serveWrite() {
 			err = c.encoder.EncodePrepared(pkg.prepared)
 		}
 		if err != nil {
-			c.report(pkg.Header.Namespace, err, c.writer.failed)
+			// A failure of NextWriter or of the frame writer ends the session, which
+			// OnDisconnect reports; OnError receives only errors raised before the transport.
+			if !expected(err, c.writer.failed) {
+				c.report(pkg.Header.Namespace, err, c.unhandled)
+			}
 			if c.writer.failed != nil {
 				c.stop()
 			} else {
@@ -125,7 +129,7 @@ func (c *connection) serveRead(connect, disconnect func(*connection, parser.Head
 		}
 		if next.err != nil {
 			c.log.Debug("socketio: header decode failed", "err", next.err)
-			c.onError(rootNamespace, next.err)
+			c.onPeerError(rootNamespace, next.err)
 			return
 		}
 		// A ready replacement takes priority over the header already read. Its

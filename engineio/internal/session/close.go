@@ -1,8 +1,12 @@
 package session
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"os"
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
@@ -29,37 +33,63 @@ type closingTransport struct {
 }
 
 // Close starts an orderly polling close after accepted writes. It returns while
-// waiting for a poll; the transport remains closing for at most 30 seconds.
-// Other transports and failed sessions close immediately. The first cause wins.
+// waiting for a poll and while the poll response carrying CLOSE is written; the
+// transport remains closing, and the session live, until that write ends, until
+// Abort or Shutdown, or for at most 30 seconds. Other transports and failed
+// sessions close immediately. A websocket first receives a close frame (see
+// Abort). The first cause wins.
 func (s *Session) Close() error {
 	return s.close(reasonForcedClose)
 }
 
 // Abort closes the transport immediately, interrupting an orderly Close already
-// waiting for a polling request. It preserves the first close cause.
-func (s *Session) Abort() error { return s.closeMode(reasonForcedClose, true) }
+// waiting for a polling request. A websocket is dropped without the close frame
+// that Close and Shutdown send, also while one is being written. It preserves
+// the first close cause.
+func (s *Session) Abort() error { return s.closeMode(reasonForcedClose, true, true) }
 
 // Shutdown closes the transport immediately for server shutdown. It interrupts
 // an orderly Close and preserves a previously observed close cause.
-func (s *Session) Shutdown() error { return s.closeMode(reasonShutdown, true) }
+func (s *Session) Shutdown() error { return s.closeMode(reasonShutdown, true, false) }
 
 func (s *Session) close(reason string) error {
-	return s.closeMode(reason, false)
+	return s.closeMode(reason, false, false)
 }
 
-func (s *Session) closeMode(reason string, abort bool) error {
+// closeMode closes the session. abort ends it without an orderly drain; immediate
+// also drops the transports before anything else, without a close frame.
+func (s *Session) closeMode(reason string, abort, immediate bool) error {
 	s.observe(reason, nil)
 	s.upgradeLocker.Lock()
 	first, opened := !s.closed, s.opened
 	s.closed = true
 	conn, probe := s.conn, s.probe
+	if probe == conn {
+		// The upgrade has switched to the probe, which stays named s.probe until
+		// the upgrade goroutine returns (it still runs Hooks.Upgrade and closes the
+		// polling connection). It is the session's transport now and closes as one.
+		probe = nil
+	}
 	if first {
 		s.closing.Store(&closingTransport{conn: conn})
 		close(s.stopWrites)
 	}
 	s.upgradeLocker.Unlock()
-	c := s.cause.Load()
 	graceful, canDrain := conn.(interface{ CloseGracefully() error })
+	if immediate && !canDrain {
+		// A transport that drains aborts through abortTransport below. The others
+		// are cut here, ahead of a Close that may be writing a close frame.
+		abortConn(conn)
+	}
+	if probe != nil {
+		// An upgrade candidate, one the session has not switched to, is not an
+		// established transport: it is dropped without a close frame in every mode,
+		// and the closer does not wait for its peer. The upgrade goroutine may still
+		// be configuring the probe, and a close that announced itself would read
+		// the peer's frames from it.
+		abortConn(probe)
+	}
+	c := s.cause.Load()
 	orderly := canDrain && !opened.IsZero() && c.reason == reasonForcedClose && !abort
 	if !first {
 		// The first closer owns synchronous Error notification and will close
@@ -75,7 +105,7 @@ func (s *Session) closeMode(reason string, abort bool) error {
 		}
 		if abort {
 			<-s.notified
-			s.closeTransport(conn)
+			s.abortTransport(conn)
 		} else if orderly {
 			return nil
 		}
@@ -99,7 +129,7 @@ func (s *Session) closeMode(reason string, abort bool) error {
 	if orderly {
 		go func() {
 			defer s.finishClose()
-			timer := time.AfterFunc(s.closeTimeout, func() { s.closeTransport(conn) })
+			timer := time.AfterFunc(s.closeTimeout, func() { s.abortTransport(conn) })
 			defer timer.Stop()
 			select {
 			case <-s.transportDone:
@@ -111,26 +141,65 @@ func (s *Session) closeMode(reason string, abort bool) error {
 				}
 				s.writeGate <- struct{}{}
 			}
-			s.closeTransport(conn)
+			s.closeTransport(conn, false)
+			if drain, ok := conn.(interface{ Drained() <-chan struct{} }); ok {
+				// The response carrying CLOSE may still be written. The timer or an
+				// abort expires it where the transport can, and ends the wait anyway.
+				select {
+				case <-drain.Drained():
+				case <-s.aborted:
+				}
+			}
 		}()
 		return nil
 	}
-	s.closeTransport(conn)
+	s.closeTransport(conn, true)
 	s.finishClose()
 	return s.closeErr
 }
 
 // closeTransport may run on a failing frame reader or writer. Its brief write
 // lock is safe because no holder of upgradeLocker, read or write, waits for a
-// frame reader or writer (see upgradeLocker).
-func (s *Session) closeTransport(conn transport.Conn) {
+// frame reader or writer (see upgradeLocker). A first close that is not the end
+// of an orderly one also aborts a transport that distinguishes the two (the
+// polling transport then expires a response write in progress instead of
+// delivering CLOSE); a connection an upgrade retired is aborted by every close.
+func (s *Session) closeTransport(conn transport.Conn, abort bool) {
 	s.transportOnce.Do(func() {
+		if _, drains := conn.(interface{ CloseGracefully() error }); !drains {
+			if c := s.cause.Load(); c != nil && c.reason == reasonTransportError {
+				// A failed transport has no use for a close frame, and a peer
+				// that stopped reading would delay it.
+				abortConn(conn)
+			}
+		}
 		s.closeErr = conn.Close()
+		if abort {
+			abortConn(conn)
+		}
 		s.upgradeLocker.Lock()
 		s.transportClosed = true
 		s.upgradeLocker.Unlock()
 		close(s.transportDone)
 	})
+	if retired := s.retired.Load(); retired != nil {
+		abortConn(retired.conn)
+	}
+}
+
+// abortTransport is Abort, Shutdown and the orderly close's timer: it aborts
+// conn even after the orderly close has closed it, expiring a response write
+// left in progress. fail does not get here (see failRead).
+func (s *Session) abortTransport(conn transport.Conn) {
+	s.closeTransport(conn, true)
+	abortConn(conn)
+	s.abortOnce.Do(func() { close(s.aborted) })
+}
+
+func abortConn(conn transport.Conn) {
+	if aborter, ok := conn.(interface{ Abort() error }); ok {
+		_ = aborter.Abort()
+	}
 }
 
 // observe records reason as the close cause unless one was observed before.
@@ -139,9 +208,9 @@ func (s *Session) observe(reason string, err error) {
 }
 
 // fail observes a non-nil err of a transport read or write as "ping timeout" once the
-// PingTimeout deadline has passed, as "transport error" before, and returns it.
+// deadline has expired (see timedOut), as "transport error" otherwise, and returns it.
 func (s *Session) fail(err error) error {
-	if err != nil && time.Now().UnixNano() >= s.deadline.Load() {
+	if timedOut(err) {
 		s.observe(reasonPingTimeout, nil)
 	} else if err != nil {
 		s.observe(reasonTransportError, err)
@@ -149,11 +218,75 @@ func (s *Session) fail(err error) error {
 	if err != nil {
 		if _, synthetic := err.(*CloseError); !synthetic {
 			if closing := s.closing.Load(); closing != nil && s.cause.Load().reason == reasonForcedClose {
-				s.closeTransport(closing.conn)
+				s.closeTransport(closing.conn, true)
 			}
 		}
 	}
 	return err
+}
+
+// observePeerClose observes "transport close" when a read or write of conn
+// failed with err after the peer's orderly websocket close frame (status 1000,
+// 1001 or none), which engine.io reports as a close. The websocket transport
+// notes the frame before the read returns and before it replies to the frame,
+// so a write that fails because of that reply (websocket.ErrCloseSent) sees it
+// too. Other statuses and a connection dropped without a frame remain transport
+// errors (see fail). It takes no lock: conn is the connection of the failing
+// reader or writer, never s.conn.
+func (s *Session) observePeerClose(conn transport.Conn, err error) {
+	s.observeTooLarge(conn, err)
+	if peer, ok := conn.(interface{ PeerClosed() bool }); ok && err != nil && peer.PeerClosed() {
+		s.observe(reasonTransportClose, nil)
+	}
+}
+
+// observeTooLarge logs a message past the read limit of a built-in transport, once per
+// session, from the first failed read or write of conn that sees it. Both built-in
+// server transports, websocket and the polling server connection, report the violation
+// through ReadLimitError, so the record does not depend on which failure becomes the
+// close cause, such as a write that fails on the transport's own 1009 close frame before
+// the reader returns. A streamed polling read also returns it as err. The record is
+// DEBUG: a websocket frame header or a Content-Length that announces more than the limit
+// is enough to cause it, so a peer can repeat it with every connection or session.
+func (s *Session) observeTooLarge(conn transport.Conn, err error) {
+	if limited, ok := conn.(interface{ ReadLimitError() error }); ok && err != nil && limited.ReadLimitError() != nil {
+		err = limited.ReadLimitError()
+	}
+	var limit *http.MaxBytesError
+	if errors.As(err, &limit) && s.tooLarge.CompareAndSwap(false, true) {
+		s.logger().Debug("engineio: message too large", "err", fmt.Errorf("limit %d bytes: %w", limit.Limit, err))
+	}
+}
+
+// failConn is fail for an error of an I/O on conn (see observePeerClose).
+func (s *Session) failConn(conn transport.Conn, err error) error {
+	s.observePeerClose(conn, err)
+	return s.fail(err)
+}
+
+// failRead is fail for an open frame reader. A read that fails while the
+// session closes on Close failed because of that close; like readerCloseError
+// for NextReader, it returns (the frame's own error) only once the close has
+// finished, so the caller's cleanup cannot abort the CLOSE still being delivered.
+func (s *Session) failRead(err error) error {
+	err = s.fail(err)
+	if _, synthetic := err.(*CloseError); err != nil && !synthetic {
+		if closing := s.closing.Load(); closing != nil && s.cause.Load().reason == reasonForcedClose {
+			<-s.closeDone
+		}
+	}
+	return err
+}
+
+// timedOut reports whether err is an expired transport deadline: it matches
+// os.ErrDeadlineExceeded, or an error in its chain reports Timeout, as the
+// deadline errors of gorilla/websocket and of the polling payload do. The
+// transports expire deadlines on the monotonic clock; the wall clock can disagree.
+// The polling GET handler answers a poll with CLOSE for the errors it matches;
+// timedOut in engineio/transport/polling/server.go must stay identical.
+func timedOut(err error) bool {
+	var timeout interface{ Timeout() bool }
+	return errors.Is(err, os.ErrDeadlineExceeded) || errors.As(err, &timeout) && timeout.Timeout()
 }
 
 // closeError returns the immutable first cause; close records it before publishing closed.

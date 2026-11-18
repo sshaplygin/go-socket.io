@@ -20,7 +20,9 @@ func (c *manager) OnReconnectAttempt(f func(attempt int)) {
 	c.state.observersMu.Unlock()
 }
 
-// OnReconnect runs after the engine opens, before namespace CONNECT packets are sent.
+// OnReconnect sets the callback that runs after an automatic reconnection opens the
+// engine, before namespace CONNECT packets are sent; nil removes it. A dial by
+// Client.Connect or Socket.Connect does not call it.
 func (c *manager) OnReconnect(f func(attempt int)) {
 	c.state.observersMu.Lock()
 	c.state.observers.reconnect = f
@@ -34,21 +36,24 @@ func (c *manager) OnReconnectError(f func(err error)) {
 	c.state.observersMu.Unlock()
 }
 
-// OnReconnectFailed runs when the automatic attempt limit is exhausted.
+// OnReconnectFailed sets the callback that runs when the automatic attempt limit is
+// exhausted; nil removes it.
 func (c *manager) OnReconnectFailed(f func()) {
 	c.state.observersMu.Lock()
 	c.state.observers.failed = f
 	c.state.observersMu.Unlock()
 }
 
-// OnPing runs on the engine ping goroutine after a PING write and must not block.
+// OnPing sets the callback that runs on the engine ping goroutine after a PING write;
+// it must not block, and nil removes it.
 func (c *manager) OnPing(f func()) {
 	c.state.observersMu.Lock()
 	c.state.observers.ping = f
 	c.state.observersMu.Unlock()
 }
 
-// OnPong runs on the engine reader with the PING round trip and must not block.
+// OnPong sets the callback that runs on the engine reader with the PING round trip;
+// it must not block, and nil removes it.
 func (c *manager) OnPong(f func(latency time.Duration)) {
 	c.state.observersMu.Lock()
 	c.state.observers.pong = f

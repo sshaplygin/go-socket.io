@@ -23,6 +23,9 @@ for script in "$root"/_examples/*/client.js; do
   example=${script%/client.js}
   echo "==> ${example##*/} Node client"
   (cd "$example" && go build -o "$scratch/server" .)
+  # Create or empty the log before the launch: the background subshell opens it later,
+  # and the poll must not read a missing log or the previous example's port.
+  : >"$scratch/server.log"
   (cd "$example" && exec "$scratch/server" -addr 127.0.0.1:0) >"$scratch/server.log" 2>&1 &
   server_pid=$!
   url=

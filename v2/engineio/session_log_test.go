@@ -57,7 +57,7 @@ func readAll(conn engineio.Conn) error {
 
 // upgrade moves the session of conn to websocket with a probe and an UPGRADE packet.
 func (f *logFixture) upgrade(t *testing.T, conn engineio.Conn) {
-	u, err := url.Parse(f.url + "/?EIO=3&sid=" + conn.ID())
+	u, err := url.Parse(f.url + "/?EIO=4&sid=" + conn.ID())
 	require.NoError(t, err)
 	f.cl, err = websocket.Default.Dial(u, nil)
 	require.NoError(t, err)
@@ -108,11 +108,14 @@ func TestSessionCloseRecord(t *testing.T) {
 			f.upgrade(t, conn)
 			require.Error(t, readAll(conn))
 		}},
+		// The close record of a peer close after an upgrade names websocket, the transport
+		// the session ends on. Whether the switch moves the transport deadline is not
+		// observable through the reason: each PING moves the deadline to pingInterval +
+		// pingTimeout from then, so the ping timeout of an unanswered PING ends the
+		// session before a deadline could turn a peer close into "ping timeout".
 		{"peer close after upgrade", "P", "transport error", "websocket", func(t *testing.T, f *logFixture) {
-			start, conn := time.Now(), f.accept(t)
-			time.Sleep(200 * time.Millisecond) // of PingTimeout 400 ms
+			conn := f.accept(t)
 			f.upgrade(t, conn)
-			time.Sleep(time.Until(start.Add(480 * time.Millisecond))) // past the handshake's deadline
 			require.NoError(t, f.cl.Close())
 			require.Error(t, readAll(conn))
 		}},
@@ -139,13 +142,16 @@ func TestSessionCloseRecord(t *testing.T) {
 				rec := logtest.NewRecorder()
 				opts := &engineio.Options{Logger: slog.New(rec)}
 				opts.PingTimeout = map[string]time.Duration{"ping timeout": 100 * time.Millisecond, "transport error": 400 * time.Millisecond}[tc.reason]
+				if tc.reason == "ping timeout" {
+					opts.PingInterval = 100 * time.Millisecond // the server's PING goes unanswered
+				}
 				f := &logFixture{srv: engineio.NewServer(opts)}
 				ts := httptest.NewServer(f.srv)
 				t.Cleanup(ts.Close)
 				t.Cleanup(func() { _ = f.srv.Close() })
 				f.url = ts.URL
 
-				u, err := url.Parse(ts.URL + "/?EIO=3")
+				u, err := url.Parse(ts.URL + "/?EIO=4")
 				require.NoError(t, err)
 				if tr == "polling" {
 					f.cl, err = polling.Default.Dial(u, nil)

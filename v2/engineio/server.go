@@ -12,17 +12,24 @@ import (
 	"time"
 
 	"github.com/sshaplygin/go-socket.io/v2/engineio/internal"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/payload"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/session"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/transport"
+	"github.com/sshaplygin/go-socket.io/v2/engineio/transport/polling"
 	"github.com/sshaplygin/go-socket.io/v2/engineio/transport/websocket"
 )
 
 var _ http.Handler = (*Server)(nil)
 
+// protocolVersion is the only value of the EIO query parameter the server serves.
+const protocolVersion = "4"
+
 // Server is instance of server
 type Server struct {
-	pingInterval time.Duration
-	pingTimeout  time.Duration
+	pingInterval   time.Duration
+	pingTimeout    time.Duration
+	upgradeTimeout time.Duration
+	maxPayload     int // advertised in the OPEN packet
 
 	transports *transport.Manager
 	sessions   *session.Manager
@@ -37,12 +44,17 @@ type Server struct {
 	log *slog.Logger
 }
 
-// NewServer returns a server.
+// NewServer returns a server. It keeps private copies of the *polling.Transport and
+// *websocket.Transport values of opts.Transports, with the Options overrides applied, so
+// later changes to those structs have no effect on the server.
 func NewServer(opts *Options) *Server {
+	transports := serverTransports(opts)
 	return &Server{
-		transports:     transport.NewManager(opts.getTransport()),
+		transports:     transport.NewManager(transports),
 		pingInterval:   opts.getPingInterval(),
 		pingTimeout:    opts.getPingTimeout(),
+		upgradeTimeout: opts.getUpgradeTimeout(),
+		maxPayload:     advertisedMaxPayload(transports),
 		requestChecker: opts.getRequestChecker(),
 		connInitor:     opts.getConnInitor(),
 		sessions:       session.NewManager(opts.getSessionIDGenerator()),
@@ -107,16 +119,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
 	reqTransport := query.Get("transport")
+	if query.Get("EIO") != protocolVersion {
+		internal.WriteError(w, http.StatusBadRequest, internal.CodeUnsupportedProto)
+		s.reject(reqTransport, r.RemoteAddr, "bad eio", nil)
+		return
+	}
+
 	srvTransport, ok := s.transports.Get(reqTransport)
 	if !ok {
-		http.Error(w, fmt.Sprintf("invalid transport: %s", reqTransport), http.StatusBadRequest)
+		internal.WriteError(w, http.StatusBadRequest, internal.CodeUnknownTransport)
 		s.reject(reqTransport, r.RemoteAddr, "bad transport", nil)
 		return
 	}
 
 	header, err := s.requestChecker(r)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("request checker err: %s", err.Error()), http.StatusBadGateway)
+		internal.WriteError(w, http.StatusForbidden, internal.CodeForbidden)
 		s.reject(reqTransport, r.RemoteAddr, "checker", err)
 		return
 	}
@@ -130,8 +148,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// if we can't find session in current session pool, let's create this. behaviour for new connections
 	if !ok {
 		if sid != "" {
-			http.Error(w, fmt.Sprintf("invalid sid value: %s", sid), http.StatusBadRequest)
+			internal.WriteError(w, http.StatusBadRequest, internal.CodeUnknownSID)
 			s.reject(reqTransport, r.RemoteAddr, "unknown sid", nil)
+			return
+		}
+
+		// A handshake is a GET. An OPTIONS preflight reaches the transport, which
+		// answers it with the CORS headers, and opens no session.
+		if r.Method != http.MethodGet && r.Method != http.MethodOptions {
+			internal.WriteError(w, http.StatusBadRequest, internal.CodeBadHandshake)
+			s.reject(reqTransport, r.RemoteAddr, "bad handshake method", nil)
 			return
 		}
 
@@ -140,40 +166,64 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.acceptFailed(w, r, reqTransport, err, "transport accept err: ")
 			return
 		}
+		if r.Method == http.MethodOptions {
+			if handler, ok := transportConn.(http.Handler); ok {
+				handler.ServeHTTP(w, r)
+			}
+			_ = transportConn.Close()
+			return
+		}
 
 		reqSession, err = s.newSession(r.Context(), transportConn, reqTransport)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("create new session err: %s", err.Error()), http.StatusBadRequest)
+			internal.WriteError(w, http.StatusBadRequest, internal.CodeBadRequest)
 			s.reject(reqTransport, r.RemoteAddr, "init", err)
 			return
 		}
 
 		s.connInitor(r, reqSession)
-	}
-
-	// try upgrade current connection
-	if current := reqSession.Transport(); current != reqTransport {
-		if !s.canUpgrade(current, reqTransport) {
-			http.Error(w, fmt.Sprintf("invalid transport upgrade: %s to %s", current, reqTransport), http.StatusBadRequest)
-			s.reject(reqTransport, r.RemoteAddr, "bad upgrade", nil)
-			return
-		}
-
-		transportConn, err := srvTransport.Accept(w, r)
-		if err != nil {
-			s.acceptFailed(w, r, reqTransport, err, "")
-			return
-		}
-
-		reqSession.Upgrade(reqTransport, transportConn)
-
-		if handler, ok := transportConn.(http.Handler); ok {
-			handler.ServeHTTP(w, r)
-		}
+		reqSession.ServeHTTP(w, r)
 		return
 	}
 
-	reqSession.ServeHTTP(w, r)
+	// A request of the session's transport is served by the session, except a request of
+	// the transport named "websocket": it would be a second connection of the session.
+	current := reqSession.Transport()
+	if current == reqTransport && reqTransport != "websocket" {
+		reqSession.ServeHTTP(w, r)
+		return
+	}
+
+	// Anything else is an upgrade. A closed session cannot make one: as the Node server,
+	// which deletes a closed client, the server answers as for an unknown sid.
+	if internal.Closed(reqSession) {
+		internal.WriteError(w, http.StatusBadRequest, internal.CodeUnknownSID)
+		s.reject(reqTransport, r.RemoteAddr, "unknown sid", nil)
+		return
+	}
+
+	// The upgrade is reserved before the transport accepts (hijacks) the request, so that a
+	// session upgrades once; a request for a session already on reqTransport, or whose
+	// upgrade is reserved or done, is rejected without the hijack.
+	if current == reqTransport || !s.canUpgrade(current, reqTransport) ||
+		!internal.ReserveUpgrade(reqSession, s.upgradeTimeout) {
+		internal.WriteError(w, http.StatusBadRequest, internal.CodeBadRequest)
+		s.reject(reqTransport, r.RemoteAddr, "bad upgrade", nil)
+		return
+	}
+
+	transportConn, err := srvTransport.Accept(w, r)
+	if err != nil {
+		internal.ReleaseUpgrade(reqSession)
+		s.acceptFailed(w, r, reqTransport, err, "")
+		return
+	}
+
+	reqSession.Upgrade(reqTransport, transportConn)
+
+	if handler, ok := transportConn.(http.Handler); ok {
+		handler.ServeHTTP(w, r)
+	}
 }
 
 // Count counts connected
@@ -191,6 +241,7 @@ func (s *Server) newSession(_ context.Context, conn transport.Conn, reqTransport
 		PingInterval: s.pingInterval,
 		PingTimeout:  s.pingTimeout,
 		Upgrades:     s.transports.UpgradeFrom(reqTransport),
+		MaxPayload:   s.maxPayload,
 	}
 
 	sid := s.sessions.NewID()
@@ -222,6 +273,71 @@ func (s *Server) newSession(_ context.Context, conn transport.Conn, reqTransport
 	}(newSession)
 
 	return newSession, nil
+}
+
+// serverTransports returns the transports of opts, with a private copy of each
+// *polling.Transport and *websocket.Transport that carries the non-zero Options overrides.
+// polling.Default.CheckOrigin, the fallback of a polling transport without CheckOrigin,
+// is resolved into the copy. Other transports are used as given.
+func serverTransports(opts *Options) []transport.Transport {
+	var maxPayload int
+	if opts != nil {
+		maxPayload = max(opts.MaxPayload, 0)
+	}
+	trs := opts.getTransport()
+	out := make([]transport.Transport, len(trs))
+	for i, t := range trs {
+		switch t := t.(type) {
+		case *polling.Transport:
+			c := *t
+			if c.CheckOrigin == nil {
+				c.CheckOrigin = polling.Default.CheckOrigin
+			}
+			if c.CheckOrigin == nil {
+				c.CheckOrigin = func(*http.Request) bool { return false } // no CORS headers
+			}
+			if maxPayload > 0 {
+				c.MaxPayload = maxPayload
+			}
+			out[i] = &c
+		case *websocket.Transport:
+			c := *t
+			if maxPayload > 0 {
+				c.MaxPayload = maxPayload
+			}
+			out[i] = &c
+		default:
+			out[i] = t
+		}
+	}
+	return out
+}
+
+// advertisedMaxPayload is the maxPayload of the OPEN packet: the POST limit of the
+// polling transport, which a client uses to batch its POSTs. Without a polling
+// transport it is the message limit of the websocket transport, as the single
+// maxHttpBufferSize of the Node server bounds both; payload.DefaultMaxPayload when
+// neither is configured. The defaults are those the transports apply.
+func advertisedMaxPayload(transports []transport.Transport) int {
+	limit := 0
+	for _, t := range transports {
+		switch t := t.(type) {
+		case *polling.Transport:
+			return orDefault(t.MaxPayload)
+		case *websocket.Transport:
+			if limit == 0 {
+				limit = orDefault(t.MaxPayload)
+			}
+		}
+	}
+	return orDefault(limit)
+}
+
+func orDefault(limit int) int {
+	if limit <= 0 {
+		return payload.DefaultMaxPayload
+	}
+	return limit
 }
 
 // acceptFailed answers a request whose transport refused to accept it. A

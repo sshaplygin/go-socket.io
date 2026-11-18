@@ -34,10 +34,10 @@ func TestOptionsReachConnections(t *testing.T) {
 		size  int
 		drain time.Duration
 	}{
-		{"nil options", nil, 64, time.Minute},
-		{"zero", []Option{}, 64, time.Minute},
-		{"heartbeat only", []Option{WithEngineOptions(engineio.WithPingTimeout(3 * time.Second))}, 64, time.Minute},
-		{"negative", []Option{WithWriteBufferSize(-1), WithCloseTimeout(-time.Second)}, 64, time.Minute},
+		{"nil options", nil, 1024, time.Minute},
+		{"zero", []Option{}, 1024, time.Minute},
+		{"heartbeat only", []Option{WithEngineOptions(engineio.WithPingTimeout(3 * time.Second))}, 1024, time.Minute},
+		{"negative", []Option{WithWriteBufferSize(-1), WithCloseTimeout(-time.Second)}, 1024, time.Minute},
 		{"custom", []Option{WithWriteBufferSize(5), WithCloseTimeout(3 * time.Second)}, 5, 3 * time.Second},
 		{"ordered", []Option{WithWriteBufferSize(2), WithCloseTimeout(time.Second), WithWriteBufferSize(5), WithCloseTimeout(3 * time.Second)}, 5, 3 * time.Second},
 	}

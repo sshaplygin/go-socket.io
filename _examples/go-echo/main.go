@@ -3,13 +3,12 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	socketio "github.com/sshaplygin/go-socket.io"
 )
@@ -20,9 +19,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, *addr); err != nil {
-		log.Print(err)
-		stop()
-		os.Exit(1)
+		panic(err)
 	}
 }
 
@@ -32,10 +29,9 @@ func run(ctx context.Context, addr string) error {
 	registerChat(server)
 
 	e := echo.New()
-	e.HideBanner = true
 
 	e.Static("/", "../asset")
-	e.Any("/socket.io/", func(context echo.Context) error {
+	e.Any("/socket.io/", func(context *echo.Context) error {
 		server.ServeHTTP(context.Response(), context.Request())
 		return nil
 	})

@@ -57,6 +57,7 @@ type goClientMetadata struct {
 	SID, ID, Namespace, Transport, Query, NamespaceQuery, Header, URL string
 	Connected                                                         []string
 	Disconnected                                                      [][]string
+	Received                                                          [][]string
 }
 
 func TestGoClientConformance(t *testing.T) {
@@ -140,6 +141,120 @@ func TestGoClientConformance(t *testing.T) {
 	}
 }
 
+// socket.io 2.5.0 joins a namespace again on the same Engine.IO connection when the
+// client sends CONNECT after the server's socket.disconnect() or the client's
+// DISCONNECT. It joins the root namespace only when a connection opens, and holds a
+// namespace CONNECT that arrives while the root namespace is disconnected.
+func TestGoClientNamespaceRejoin(t *testing.T) {
+	for _, name := range []string{"polling", "websocket"} {
+		t.Run(name, func(t *testing.T) {
+			opts := []client.Option{client.WithPath("/client-engine"), client.WithTransports(polling.Default)}
+			if name == "websocket" {
+				opts[1] = client.WithTransports(websocket.Default)
+			}
+			cl, err := client.New(goClientReference(t), opts...)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = cl.Close() })
+			connected, disconnected := make(chan string, 8), make(chan string, 8)
+			root, chat, late := cl.Socket("/"), cl.Socket("/chat"), cl.Socket("/late")
+			for _, s := range []*client.Socket{root, chat, late} {
+				s.OnConnect(func(c client.Conn) error { connected <- c.Namespace(); return nil })
+				s.OnDisconnect(func(c client.Conn, reason string) { disconnected <- c.Namespace() + ":" + reason })
+			}
+			require.NoError(t, cl.Connect())
+			for i := 0; i < 3; i++ {
+				goClientReceive(t, connected, "initial CONNECT")
+			}
+			inspect := func(s *client.Socket) goClientMetadata {
+				result := make(chan goClientMetadata, 1)
+				s.Emit("inspect", func(value goClientMetadata) { result <- value })
+				return goClientReceive(t, result, "Node metadata ACK")
+			}
+			echo := func(s *client.Socket, value string) {
+				ack := make(chan string, 1)
+				s.Emit("echo", value, func(v string) { ack <- v })
+				require.Equal(t, value, goClientReceive(t, ack, "Node ACK"))
+			}
+			sid := inspect(root).SID
+
+			chat.Emit("kick")
+			require.Equal(t, "/chat:io server disconnect", goClientReceive(t, disconnected, "server namespace disconnect"))
+			buffered := make(chan string, 1)
+			chat.Emit("echo", "while closed", func(v string) { buffered <- v })
+			require.NoError(t, chat.Connect())
+			require.Equal(t, "/chat", goClientReceive(t, connected, "CONNECT after Socket.Connect"))
+			require.Equal(t, "while closed", goClientReceive(t, buffered, "ACK of the buffered event"))
+			echo(chat, "after server disconnect")
+
+			require.NoError(t, chat.Close())
+			require.Equal(t, "/chat:io client disconnect", goClientReceive(t, disconnected, "Socket.Close"))
+			require.NoError(t, chat.Connect())
+			require.Equal(t, "/chat", goClientReceive(t, connected, "CONNECT after Close and Connect"))
+			echo(chat, "after client disconnect")
+			meta := inspect(root)
+			require.Equal(t, sid, meta.SID, "the namespace rejoined the same Engine.IO connection")
+			require.ElementsMatch(t, []string{"/", "/chat", "/late", "/chat", "/chat"}, meta.Connected)
+			require.Equal(t, [][]string{{"/chat", "server namespace disconnect"}, {"/chat", "client namespace disconnect"}}, meta.Disconnected)
+
+			root.Emit("kick")
+			require.Equal(t, "/:io server disconnect", goClientReceive(t, disconnected, "root disconnect"))
+			require.ErrorIs(t, root.Connect(), client.ErrRootNamespaceRejoin)
+			require.NoError(t, chat.Close())
+			require.Equal(t, "/chat:io client disconnect", goClientReceive(t, disconnected, "Socket.Close"))
+			require.NoError(t, chat.Connect())
+			meta = inspect(late)
+			require.Equal(t, sid, meta.SID)
+			require.ElementsMatch(t, []string{"/", "/chat", "/late", "/chat", "/chat"}, meta.Connected, "the CONNECT waits for a root namespace")
+			require.False(t, chat.Connected())
+			require.Empty(t, connected, "each join calls OnConnect once")
+		})
+	}
+}
+
+// A socket.disconnect() that crosses the client's Close and Connect leaves the
+// namespace joined on both sides: the Go client takes the server's DISCONNECT as
+// the end of the namespace socket that Close ended.
+func TestGoClientCrossingDisconnect(t *testing.T) {
+	for _, name := range []string{"polling", "websocket"} {
+		t.Run(name, func(t *testing.T) {
+			opts := []client.Option{client.WithPath("/client-engine"), client.WithTransports(polling.Default)}
+			if name == "websocket" {
+				opts[1] = client.WithTransports(websocket.Default)
+			}
+			cl, err := client.New(goClientReference(t), opts...)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = cl.Close() })
+			connected, disconnected := make(chan string, 8), make(chan string, 8)
+			root, chat := cl.Socket("/"), cl.Socket("/chat")
+			for _, s := range []*client.Socket{root, chat} {
+				s.OnConnect(func(c client.Conn) error { connected <- c.Namespace(); return nil })
+				s.OnDisconnect(func(c client.Conn, reason string) { disconnected <- c.Namespace() + ":" + reason })
+			}
+			require.NoError(t, cl.Connect())
+			goClientReceive(t, connected, "initial CONNECT")
+			goClientReceive(t, connected, "initial CONNECT")
+
+			chat.Emit("kick")
+			require.NoError(t, chat.Close())
+			require.NoError(t, chat.Connect())
+			require.Equal(t, "/chat", goClientReceive(t, connected, "CONNECT after Socket.Connect"))
+			ack := make(chan string, 1)
+			chat.Emit("echo", "rejoined", func(v string) { ack <- v })
+			require.Equal(t, "rejoined", goClientReceive(t, ack, "Node ACK"))
+			require.True(t, chat.Connected())
+			// Whether the kick crosses Close depends on timing; the result does not.
+			require.Contains(t, []string{"/chat:io client disconnect", "/chat:io server disconnect"}, goClientReceive(t, disconnected, "chat disconnect"))
+			result := make(chan goClientMetadata, 1)
+			chat.Emit("inspect", func(value goClientMetadata) { result <- value })
+			meta := goClientReceive(t, result, "Node metadata ACK")
+			require.Equal(t, []string{"/", "/chat", "/chat"}, meta.Connected)
+			require.Len(t, meta.Disconnected, 1, "Node keeps the rejoined /chat socket")
+			require.Empty(t, connected, "OnConnect once per join")
+			require.Empty(t, disconnected)
+		})
+	}
+}
+
 func TestGoClientReconnect(t *testing.T) {
 	for _, name := range []string{"polling", "websocket", "upgrade"} {
 		t.Run(name, func(t *testing.T) {
@@ -176,7 +291,8 @@ func TestGoClientReconnect(t *testing.T) {
 			cl.Emit("drop-transport")
 			for i := 0; i < 2; i++ {
 				reason := goClientReceive(t, disconnected, "Node transport disconnect")
-				require.Contains(t, []string{"transport close", "transport error"}, strings.SplitN(reason, ":", 2)[1])
+				// Node closes a websocket with a close frame and a polling session with CLOSE.
+				require.Equal(t, "transport close", strings.SplitN(reason, ":", 2)[1])
 			}
 			require.Equal(t, 1, goClientReceive(t, reconnected, "Node reconnect"))
 			require.NoError(t, goClientReceive(t, reentrant, "Connect inside OnReconnect"))

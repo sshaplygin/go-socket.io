@@ -37,7 +37,7 @@ func main() {
 		panic(err)
 	}
 	defer defaultClient.Close()
-	server := socketio.NewServer(socketio.WithEngineOptions(engineio.WithPingInterval(25*time.Second), engineio.WithPingTimeout(20*time.Second)), socketio.WithWriteBufferSize(64), socketio.WithCloseTimeout(time.Minute))
+	server := socketio.NewServer(socketio.WithEngineOptions(engineio.WithPingInterval(25*time.Second), engineio.WithPingTimeout(20*time.Second)), socketio.WithWriteBufferSize(1024), socketio.WithCloseTimeout(time.Minute))
 	defer server.Close()
 	server.OnConnect("/", func(socketio.Conn) error { return nil })
 	socket, err := client.New("http://127.0.0.1:8000", client.WithWriteBufferSize(64), client.WithCloseTimeout(time.Minute))

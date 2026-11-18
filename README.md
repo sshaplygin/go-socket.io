@@ -4,13 +4,15 @@ A [Socket.IO](https://socket.io) server and Go client with namespaces, rooms, ac
 broadcast and a Redis adapter for multi-instance deployments. Engine.IO is included as
 the `engineio` sub-package and can be used on its own.
 
-This is a maintained fork of `googollee/go-socket.io`. Applications moving from upstream
-v1.4.2 or v1.7.0 should follow the
-[migration guide](docs/V1.md#migrating-from-googolleego-socketio).
+This module is a maintained successor of the archived `googollee/go-socket.io` for
+`socket.io-client` 1.x and 2.x. Applications moving from upstream v1.4.2 or v1.7.0 should
+follow the [migration guide](docs/V1.md#migrating-from-googolleego-socketio).
 
 ![Build Status](https://github.com/sshaplygin/go-socket.io/workflows/CI/badge.svg)
 [![GoDoc](https://pkg.go.dev/badge/github.com/sshaplygin/go-socket.io.svg)](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0)
+[![codecov](https://codecov.io/gh/sshaplygin/go-socket.io/graph/badge.svg)](https://codecov.io/gh/sshaplygin/go-socket.io)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
+[![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go)
 
 ## Compatibility
 
@@ -19,19 +21,69 @@ v1.4.2 or v1.7.0 should follow the
 | v1 (this module, repository root) | v4 | v3 | `socket.io-client` 1.x and 2.x |
 | v2 (in development in [`v2/`](v2/README.md), no runtime yet) | v5 | v4 | `socket.io-client` 3.x and 4.x |
 
-The v1 interoperability checks use `socket.io-client` **1.7.4** and **2.5.0**;
-the reference server is Socket.IO 2.5.0 with Engine.IO 3.6.2.
-V1 protocol details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md).
+The client versions and the reference server that the v1 interoperability checks use
+are listed in [docs/PARITY.md](docs/PARITY.md).
+V1 protocol details and deviations: [docs/PROTOCOL.md](docs/PROTOCOL.md). The parts of
+the socket.io 2.x JavaScript API without a counterpart, or with a different one, are
+listed in [docs/V1.md](docs/V1.md#differences-from-the-socketio-2x-javascript-api).
 
 ## Install
 
-Install the maintained fork directly:
+Install the module:
 
 ```sh
 go get github.com/sshaplygin/go-socket.io@v1.5.0
 ```
 
 Go 1.22 or later is required.
+
+## Quick start
+
+A server whose `join` handler adds the socket to the `lobby` room, broadcasts the client's
+name to that room as `joined` and returns the ACK:
+
+<!-- quickstart:begin -->
+```go
+package main
+
+import (
+	"log"
+	"net/http"
+
+	socketio "github.com/sshaplygin/go-socket.io"
+)
+
+func main() {
+	if err := run(); err != nil {
+		panic(err)
+	}
+}
+
+func run() error {
+	server := socketio.NewServer()
+	defer func() { _ = server.Close() }()
+	root := server.Of("/")
+	root.OnEvent("join", func(s socketio.Conn, name string) string {
+		s.Join("lobby")
+		if err := root.To("lobby").Emit("joined", name); err != nil {
+			log.Print(err)
+		}
+		return "welcome, " + name // sent as the ACK when the client asks for one
+	})
+	go func() {
+		if err := server.Serve(); err != nil {
+			log.Print(err)
+		}
+	}()
+	http.Handle("/socket.io/", server)
+	return http.ListenAndServe(":8000", nil)
+}
+```
+<!-- quickstart:end -->
+
+A JavaScript client connected to `http://localhost:8000` that calls
+`socket.emit("join", "Ann", ack => console.log(ack))` receives `joined` with `Ann` and the
+ACK `welcome, Ann`.
 
 ## Examples
 
@@ -40,13 +92,16 @@ Start with the [net/http server](_examples/default-http/) or the
 [Go client](_examples/client/). The directory also includes ACKs, binary events,
 namespaces, middleware, framework integrations, Redis and graceful shutdown.
 
+To try Socket.IO in the browser, open the [online lab](https://sshaplygin.dev/labs/socketio/).
+
 ## Usage
 
 The Go client is available in
 [`github.com/sshaplygin/go-socket.io/client`](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0/client);
 server and client use separate connection types and constructors.
 
-Configuration, namespace lifecycle, adapters and typed events: [V1 usage](docs/V1.md).
+Configuration, namespace lifecycle, rooms, deployment behind HTTP servers and load
+balancers, adapters and typed events: [V1 usage](docs/V1.md).
 API reference: [Socket.IO](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0)
 and [Engine.IO](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0/engineio).
 
@@ -54,6 +109,7 @@ and [Engine.IO](https://pkg.go.dev/github.com/sshaplygin/go-socket.io@v1.5.0/eng
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the PR process and [CLAUDE.md](CLAUDE.md) for
 how to build and test.
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

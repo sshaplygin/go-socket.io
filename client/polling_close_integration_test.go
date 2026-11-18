@@ -72,10 +72,12 @@ func TestPollingCloseDrainsLastPost(t *testing.T) {
 				t.Fatal("no disconnect POST")
 			}
 			if deadline {
+				// After the close deadline, Engine.IO waits up to 2 s for the
+				// in-flight POST so that CLOSE can follow it, then cancels it.
 				select {
 				case <-canceled:
-				case <-time.After(time.Second):
-					t.Fatal("close deadline did not cancel POST")
+				case <-time.After(3 * time.Second):
+					t.Fatal("the 2 s close bound did not cancel POST")
 				}
 				return
 			}

@@ -184,3 +184,31 @@ func TestSessionLogAttributes(t *testing.T) {
 	require.Equal(t, "websocket", h.last()["transport"])
 	require.Equal(t, "websocket", s.Transport())
 }
+
+// limitConn has passed its read limit: its writes fail, as after the transport's 1009
+// close frame, and its reads fail.
+type limitConn struct{ failingConn }
+
+func (limitConn) ReadLimitError() error { return &http.MaxBytesError{Limit: 512} }
+
+// A write that fails before the reader reports the limit still yields exactly one record.
+func TestTooLargeRecordedWhenAWriteFailsFirst(t *testing.T) {
+	h := newAttrHandler()
+	s, err := New(limitConn{}, "sid", "websocket", eioparser.ConnParameters{PingTimeout: time.Second}, slog.New(h))
+	require.NoError(t, err)
+	_, err = s.NextWriter(eioparser.String)
+	require.Error(t, err)
+	_, _, err = s.NextReader()
+	require.Error(t, err)
+	var got []map[string]string
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, m := range *h.recs {
+		if m["msg"] == "engineio: message too large" {
+			got = append(got, m)
+		}
+	}
+	require.Len(t, got, 1)
+	require.Equal(t, "limit 512 bytes: http: request body too large", got[0]["err"])
+	require.Equal(t, "sid", got[0]["sid"])
+}

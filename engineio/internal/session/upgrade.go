@@ -160,6 +160,7 @@ func (s *Session) switchTransport(t string, conn transport.Conn) bool {
 		}
 		return false
 	}
+	s.retired.Store(&closingTransport{conn: s.conn})
 	s.conn = conn
 	s.transport = t
 	s.upgraded = true

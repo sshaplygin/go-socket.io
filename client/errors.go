@@ -7,6 +7,11 @@ import "errors"
 // outbound queue (WithWriteBufferSize) full before any close started; a packet being
 // written does not count. Queue admission does not wait for free capacity: that packet
 // and every later one are dropped, and the connection is closed without draining.
+// A typed send (socketio.Event.Emit, socketio.AckEvent.EmitWithAck) also returns it:
+// on a connected namespace together with that report and close, and, while the
+// Socket is open but not connected to its namespace (before its CONNECT reply, also
+// during a reconnection), when the Client's pre-connect buffer is full, with no
+// report and no close.
 // Emit encodes arguments synchronously and may invoke application marshalers.
 // An overflow in OnConnect is reported with that namespace's Conn and closes the
 // Engine.IO connection; it does not change the result of Connect.
@@ -14,6 +19,11 @@ import "errors"
 // a packet with k binary attachments takes k+1 Engine.IO frames, and transport
 // throughput can be lower than the application's emit rate.
 var ErrWriteBufferFull = errors.New("client: write buffer full")
+
+// ErrRootNamespaceRejoin is returned by Socket.Connect for a closed root namespace
+// while the Engine.IO connection is open: the server joins the root namespace only
+// when a connection opens.
+var ErrRootNamespaceRejoin = errors.New("client: root namespace cannot rejoin an open connection")
 
 // ErrConnectTimeout means the engine connection did not open within WithTimeout.
 var ErrConnectTimeout = errors.New("client: connect timeout")

@@ -25,7 +25,7 @@ type rolePeer struct {
 	on           func(string, func(string), bool) func()
 	off          func(string)
 	failures     chan error
-	disconnected chan struct{}
+	disconnected chan string
 	close        func()
 }
 
@@ -43,7 +43,7 @@ func receiveRole[T any](t *testing.T, ch <-chan T) T {
 
 func newRolePeer(t *testing.T, role string) *rolePeer {
 	t.Helper()
-	p := &rolePeer{failures: make(chan error, 8), disconnected: make(chan struct{}, 1)}
+	p := &rolePeer{failures: make(chan error, 8), disconnected: make(chan string, 1)}
 	ready := make(chan struct{}, 1)
 	var once sync.Once
 	if role == "server" {
@@ -51,7 +51,7 @@ func newRolePeer(t *testing.T, role string) *rolePeer {
 		n := s.Of("/")
 		n.OnConnect(func(socketio.Conn) error { ready <- struct{}{}; return nil })
 		n.OnError(func(_ socketio.Conn, err error) { p.failures <- err })
-		n.OnDisconnect(func(socketio.Conn, string) { p.disconnected <- struct{}{} })
+		n.OnDisconnect(func(_ socketio.Conn, reason string) { p.disconnected <- reason })
 		p.on = func(name string, f func(string), one bool) func() {
 			handler := func(_ socketio.Conn, value string) { f(value) }
 			if one {
@@ -109,7 +109,7 @@ func newRolePeer(t *testing.T, role string) *rolePeer {
 		n := cl.Socket("/")
 		n.OnConnect(func(client.Conn) error { ready <- struct{}{}; return nil })
 		n.OnError(func(_ client.Conn, err error) { p.failures <- err })
-		n.OnDisconnect(func(client.Conn, string) { p.disconnected <- struct{}{} })
+		n.OnDisconnect(func(_ client.Conn, reason string) { p.disconnected <- reason })
 		p.on = func(name string, f func(string), one bool) func() {
 			handler := func(_ client.Conn, value string) { f(value) }
 			if one {
@@ -177,13 +177,9 @@ func TestRolesFrameReaderFailureReportedOnce(t *testing.T) {
 			require.NoError(t, err)
 			// Flush websocket fragments, then break TCP before the message ends.
 			require.NoError(t, p.wire.NetConn().Close())
-			failure := receiveRole(t, p.failures)
-			var closed *gorilla.CloseError
-			require.ErrorAs(t, failure, &closed)
-			require.Equal(t, gorilla.CloseAbnormalClosure, closed.Code)
-			receiveRole(t, p.disconnected)
+			require.Equal(t, "transport error", receiveRole(t, p.disconnected))
 			p.close()
-			require.Empty(t, p.failures, "the same frame failure must not be reported twice")
+			require.Empty(t, p.failures, "the session end reached OnError")
 		})
 	}
 }

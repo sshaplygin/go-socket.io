@@ -7,7 +7,33 @@ run:
 linters:
   # Default set: errcheck, govet, ineffassign, staticcheck, unused.
   default: standard
+  enable:
+    - forbidigo
+    - revive
   settings:
+    # Every exported function, method, type, constant and variable of the public
+    # packages has a doc comment that starts with its name. Internal packages,
+    # examples and the CI tools are excluded below; revive skips test files.
+    revive:
+      rules:
+        - name: exported
+    # Examples, README snippets and library code never terminate the process: a library
+    # returns the error, and a failing example main panics with it, which runs deferred
+    # cleanup and can be recovered, instead of exiting past it.
+    forbidigo:
+      analyze-types: true
+      # godoc Example functions are shown to users as code to copy; check them too.
+      exclude-godoc-examples: false
+      forbid:
+        - pattern: ^log\.(Logger\.)?Fatal(f|ln)?$
+          pkg: ^log$
+          msg: return the error; a failing main panics
+        - pattern: ^log\.(Logger\.)?Panic(f|ln)?$
+          pkg: ^log$
+          msg: return the error; a failing main panics with panic(err)
+        - pattern: ^os\.Exit$
+          pkg: ^os$
+          msg: return the error; a failing main panics
     staticcheck:
       # golangci-lint's default staticcheck selection, minus QF1008
       # (redundant embedded-field selectors), which is a style preference:
@@ -17,6 +43,27 @@ linters:
         - -ST1003
         - -ST1016
         - -QF1008
+  exclusions:
+    rules:
+      # The CI tools under .github are neither examples nor library code: they report
+      # failures to the workflow through their exit status.
+      - path: (^|/)\.github/(architecture|changes|coverage|stress)/
+        linters: [forbidigo]
+      # These TestMain functions own the exit status of their test binary: the goroutine-leak
+      # gates set it after m.Run returns, and a helper subprocess exits before running tests.
+      # os.Exit in any other test file is reported.
+      - path: ^((client/|adapter/redis/|engineio/(client/|internal/session/|transport/(polling|websocket)/)?)?main_test|logger/logger_test|engineio/parser/payload_vectors_test)\.go$
+        text: os\.Exit
+        linters: [forbidigo]
+      # Every example module carries an identical lifecycle.go; graceful-shutdown calls
+      # its serveAfter only.
+      - path: _examples/graceful-shutdown/lifecycle\.go$
+        text: func serve is unused
+        linters: [unused]
+      # The godoc requirement covers the public API only: internal packages, the
+      # example applications and the CI tools are not part of it.
+      - path: (^|/)(internal|_examples|\.github)/
+        linters: [revive]
 
 formatters:
   enable:

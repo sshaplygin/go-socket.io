@@ -134,6 +134,7 @@ func newTestSession(t *testing.T, conn transport.Conn, tr string) *Session {
 		Upgrades:     []string{"websocket"},
 	}, nil)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() }) // stops the heartbeat that InitSession starts
 	return s
 }
 
@@ -149,9 +150,9 @@ func TestSessionAccessors(t *testing.T) {
 	require.Nil(t, s.RemoteHeader())
 }
 
-func TestSessionNextReaderAnswersPingAndSkipsUnknown(t *testing.T) {
+func TestSessionNextReaderSkipsControlPackets(t *testing.T) {
 	conn := &scriptConn{reads: []scriptedPacket{
-		{ft: frame.String, pt: packet.PING, data: "probe"},
+		{ft: frame.String, pt: packet.PONG},
 		{ft: frame.String, pt: packet.NOOP},
 		{ft: frame.String, pt: packet.MESSAGE, data: "hello"},
 	}}
@@ -165,7 +166,7 @@ func TestSessionNextReaderAnswersPingAndSkipsUnknown(t *testing.T) {
 	require.Equal(t, "hello", string(b))
 	require.NoError(t, r.Close())
 
-	require.Equal(t, []writtenPacket{{ft: frame.String, pt: packet.PONG, data: "probe"}}, conn.written())
+	require.Empty(t, conn.written(), "the server answers neither PONG nor NOOP")
 	require.False(t, conn.isClosed())
 }
 
@@ -184,16 +185,6 @@ func TestSessionNextReaderErrors(t *testing.T) {
 	s := newTestSession(t, conn, "polling")
 	_, _, err := s.NextReader()
 	require.ErrorIs(t, err, readErr)
-	require.True(t, conn.isClosed())
-
-	writeErr := errors.New("write failed")
-	conn = &scriptConn{
-		reads:     []scriptedPacket{{ft: frame.String, pt: packet.PING, data: "x"}},
-		writerErr: writeErr,
-	}
-	s = newTestSession(t, conn, "polling")
-	_, _, err = s.NextReader()
-	require.ErrorIs(t, err, writeErr, "a failed PONG must end the session")
 	require.True(t, conn.isClosed())
 }
 
@@ -251,26 +242,25 @@ func TestSessionUpgrade(t *testing.T) {
 }
 
 func TestSessionUpgradeFailures(t *testing.T) {
+	// The old transport is paused only on UPGRADE, so a failed upgrade neither
+	// pauses nor resumes it.
 	cases := map[string]struct {
-		reads      []scriptedPacket
-		oldPauser  bool
-		wantResume int
+		reads     []scriptedPacket
+		oldPauser bool
 	}{
 		"no probe":         {reads: nil, oldPauser: true},
 		"not a ping":       {reads: []scriptedPacket{{ft: frame.String, pt: packet.MESSAGE}}, oldPauser: true},
 		"old not pausable": {reads: []scriptedPacket{{ft: frame.String, pt: packet.PING, data: "probe"}}},
 		"no upgrade packet": {
-			reads:      []scriptedPacket{{ft: frame.String, pt: packet.PING, data: "probe"}},
-			oldPauser:  true,
-			wantResume: 1,
+			reads:     []scriptedPacket{{ft: frame.String, pt: packet.PING, data: "probe"}},
+			oldPauser: true,
 		},
 		"wrong packet after probe": {
 			reads: []scriptedPacket{
 				{ft: frame.String, pt: packet.PING, data: "probe"},
 				{ft: frame.String, pt: packet.MESSAGE},
 			},
-			oldPauser:  true,
-			wantResume: 1,
+			oldPauser: true,
 		},
 	}
 	for name, tc := range cases {
@@ -287,7 +277,10 @@ func TestSessionUpgradeFailures(t *testing.T) {
 
 			require.Equal(t, "polling", s.Transport(), "a failed upgrade keeps the old transport")
 			require.True(t, next.isClosed(), "the candidate connection is closed")
-			require.Equal(t, tc.wantResume, p.resumed)
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			require.Zero(t, p.paused)
+			require.Zero(t, p.resumed)
 		})
 	}
 }

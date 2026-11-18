@@ -48,15 +48,14 @@ func (n *ServerNamespace) Name() string {
 	return n.name
 }
 
-// OnConnect sets the namespace's connect handler.
+// OnConnect sets the namespace's connect handler, as Server.OnConnect does.
 func (n *ServerNamespace) OnConnect(f func(Conn) error) { n.registration().OnConnect(f) }
 
-// OnDisconnect sets the namespace's disconnect handler.
+// OnDisconnect sets the namespace's disconnect handler, as Server.OnDisconnect
+// does.
 func (n *ServerNamespace) OnDisconnect(f func(Conn, string)) { n.registration().OnDisconnect(f) }
 
-// OnError sets the namespace's error handler. Root connect and connection-middleware
-// failures pass a nil Conn; errors for other unjoined namespaces pass an inactive
-// Conn. A panic in the error handler is recovered and logged at WARN.
+// OnError sets the namespace's error handler, as Server.OnError does.
 func (n *ServerNamespace) OnError(f func(Conn, error)) { n.registration().OnError(f) }
 
 // OnEvent replaces every listener of the event; handler semantics are those of Server.OnEvent.
@@ -66,6 +65,7 @@ func (n *ServerNamespace) OnEvent(event string, f interface{}) { n.registration(
 // and before the socket joins its ID room. A rejection sends ERROR and keeps the
 // engine connection and its other namespaces open. Server.Use is its namespace-name
 // wrapper; Namespace.Use instead registers incoming event middleware on a socket.
+// A nil f is ignored.
 func (n *ServerNamespace) Use(f func(Conn) error) {
 	h := n.registration()
 	h.Use(f)
@@ -121,8 +121,11 @@ func (n *ServerNamespace) Volatile() Emitter { return n.emitter().Volatile() }
 // Local starts a broadcast restricted to this instance.
 func (n *ServerNamespace) Local() Emitter { return n.emitter().Local() }
 
-// SocketIDs lists socket IDs in any of rooms, or the whole namespace. Redis
-// queries the cluster and may return a partial snapshot on error. The slice is a copy.
+// SocketIDs lists socket IDs in any of rooms. With no rooms, the memory and Redis
+// adapters list every socket that is in at least one room (see adapter.Memory.IDs):
+// a socket joins the room of its own ID, so a socket that has left every room, for
+// example by LeaveAll, is not listed. Redis queries the cluster and may return a
+// partial snapshot on error. The slice is a copy.
 func (n *ServerNamespace) SocketIDs(rooms ...string) []string {
 	if n.parent != nil {
 		return parentBroadcast{namespace: n}.IDs(rooms...)
@@ -161,12 +164,16 @@ type dynamicNamespace struct {
 // creates a child with the parent's current registrations and its own adapter.
 // Parent broadcasts and snapshots span its children; later registrations affect
 // children created afterwards only. A parent broadcast stops at the first child
-// adapter error; earlier child deliveries remain. Callback rejection sends nothing.
+// adapter error; earlier child deliveries remain. A parent broadcast with a trailing
+// acknowledgement callback returns ErrBroadcastAck and sends to no child.
 // Children are never removed: each child and its adapter stay registered for the
 // server's lifetime, even if every connection is rejected, so the registry grows
 // with every distinct name a match function accepts. Use restrictive match
 // functions and authenticate at the root namespace to bound the namespaces
-// untrusted clients can create.
+// untrusted clients can create. A panic in match is recovered: the namespace is
+// rejected with the ERROR text "internal error", no later match function is
+// offered the name, and the *PanicError is logged at WARN as
+// "socketio: handler panic" with its stack.
 func (s *Server) OfFunc(match func(string, url.Values) bool) *ServerNamespace {
 	s.parentsMu.Lock()
 	defer s.parentsMu.Unlock()
@@ -215,7 +222,12 @@ func (b parentBroadcast) IDs(rooms ...string) []string {
 }
 
 // On adds a listener after existing listeners; off removes just this listener.
-// Listener payload parameter types must match; a mismatch or non-function panics.
+// f must be a function whose first parameter is Conn, and its payload parameter
+// types and variadic form must match those of the existing listeners; otherwise,
+// or when the event has a typed handler, On panics.
+// The first listener with results supplies the ACK; the error results of each
+// listener that ran are reported as Server.OnError describes, and a panicking
+// listener ends the dispatch as in Server.OnEvent.
 func (n *ServerNamespace) On(event string, f interface{}) (off func()) {
 	return n.registration().AddListener(event, f, false)
 }

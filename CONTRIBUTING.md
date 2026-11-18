@@ -27,7 +27,8 @@ V1 has no standalone changelog or completed-stage ledger. Git commits and PRs
 record changes; release documentation describes the API, defaults, supported
 behavior and limitations. The single exception is
 [docs/V1_RELEASE_REVIEW.md](docs/V1_RELEASE_REVIEW.md), which tracks the progress
-of the v1.5.0 release work item by item. Do not retain compatibility stubs solely for an
+of the v1.5.0 release review's work plan item by item, including the items that
+follow the tag. Do not retain compatibility stubs solely for an
 unreleased intermediate API. V2 changes follow its own roadmap and changelog.
 
 ## Releases
@@ -44,8 +45,14 @@ The first release of the fork is `v1.5.0`; v2 releases follow it. The frozen
 
 Before tagging v1:
 
-1. Run the full CI matrix, including Go 1.22, race/stress tests, lint,
-   vulnerability checks, architecture/consumer fixtures and coverage.
+1. On the final release commit on `master`, manually run
+   `.github/workflows/ci.yaml` (`gh workflow run ci.yaml --ref master`) and
+   verify that the successful run's head SHA matches the commit to tag. This
+   full run includes Linux, macOS and Windows, Go 1.22, race/stress tests, lint,
+   vulnerability checks, architecture/consumer fixtures and coverage. A green
+   push run alone does not cover the macOS and Windows test matrix. Inspect the
+   latest run of the Stress workflow (`.github/workflows/stress.yml`) on the
+   release head and record its failures in the release pull request.
 2. Build the examples and run Node interoperability with both pinned clients,
    Redis TCP/Unix examples and the mixed Go/Node Redis adapter.
 3. Check that the usage and protocol documents agree with the implementation.

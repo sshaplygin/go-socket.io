@@ -26,6 +26,7 @@ const (
 var gateInputs = map[string]string{
 	"docs/ARCHITECTURE.md": v1,
 	"docs/API.md":          v2,
+	"README.md":            v1,
 }
 
 // copies are example files that make examples compares byte for byte with one master copy,
@@ -269,6 +270,13 @@ func (d *decision) path(status, name string, before, after []byte) {
 		return
 	case name == ".github/dependabot.yml":
 		d.note("no job reads %s", name)
+		return
+	case name == ".github/workflows/stress.yml":
+		d.note("no CI job reads %s", name)
+		return
+	case strings.HasPrefix(name, ".github/stress/"):
+		// The Stress workflow is not a required check; lint-v1 vets and lints its tool.
+		d.lint(v1, name)
 		return
 	case strings.HasPrefix(name, ".github/"):
 		// The classifier itself and anything else under .github.

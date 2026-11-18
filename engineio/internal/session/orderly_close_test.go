@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"io"
 	"strings"
 	"sync"
@@ -329,4 +330,105 @@ func TestReaderWaitsForOrderlyTransportClose(t *testing.T) {
 		t.Fatal("reader did not end after transport close")
 	}
 	require.Equal(t, StateClosed, s.ReadyState())
+}
+
+// drainingConn is an orderlyConn whose poll handler never returns on its own,
+// as a response write without deadline support to a client that never reads.
+type drainingConn struct {
+	*orderlyConn
+	drained chan struct{}
+	aborts  atomic.Int32
+	readErr error
+}
+
+func (c *drainingConn) Drained() <-chan struct{} { return c.drained }
+
+func (c *drainingConn) Abort() error {
+	c.aborts.Add(1)
+	return c.Close()
+}
+
+// NextReader hands out a frame whose read fails with readErr, if set.
+func (c *drainingConn) NextReader() (eioparser.FrameType, eioparser.PacketType, io.ReadCloser, error) {
+	if c.readErr != nil {
+		return eioparser.String, eioparser.MESSAGE, io.NopCloser(failingReader{c.readErr}), nil
+	}
+	return c.orderlyConn.NextReader()
+}
+
+type failingReader struct{ err error }
+
+func (r failingReader) Read([]byte) (int, error) { return 0, r.err }
+
+func newDrainingConn() *drainingConn {
+	return &drainingConn{orderlyConn: newOrderlyConn(), drained: make(chan struct{})}
+}
+
+// The orderly close waits for the response carrying CLOSE only until its timer,
+// Abort or Shutdown: a write the transport cannot expire does not keep the
+// session open.
+func TestOrderlyCloseDrainBound(t *testing.T) {
+	for name, end := range map[string]func(*Session) error{
+		"timer":    func(*Session) error { return nil },
+		"abort":    (*Session).Abort,
+		"shutdown": (*Session).Shutdown,
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := newDrainingConn()
+			s := newTestSession(t, c, "polling")
+			s.closeTimeout = time.Hour
+			if name == "timer" {
+				s.closeTimeout = 20 * time.Millisecond
+			}
+			require.NoError(t, s.Init())
+			close(c.allow)
+			require.NoError(t, s.Close())
+			waitClose(t, c.done) // CLOSE written, transport closed, drain pending
+			ended := make(chan error, 1)
+			go func() { ended <- end(s) }()
+			waitClose(t, s.Closed())
+			require.NoError(t, <-ended)
+			require.Equal(t, ReasonForcedClose, s.closeError().Reason)
+			require.Equal(t, int32(1), c.aborts.Load())
+			require.Equal(t, eioparser.CLOSE, c.written()[len(c.written())-1].pt)
+		})
+	}
+}
+
+// An open frame reader that fails while the session closes on Close returns
+// its own error only once the close has finished, so that the caller's cleanup
+// cannot abort the CLOSE still being delivered.
+func TestFrameReaderFailureWaitsForClose(t *testing.T) {
+	cause := errors.New("body read expired")
+	c := newDrainingConn()
+	c.readErr = cause
+	s := newTestSession(t, c, "polling")
+	s.closeTimeout = time.Hour
+	require.NoError(t, s.Init())
+	_, r, err := s.NextReader()
+	require.NoError(t, err)
+	close(c.allow)
+	require.NoError(t, s.Close())
+	waitClose(t, c.done)
+	read := make(chan error, 1)
+	go func() { _, err := r.Read(make([]byte, 1)); read <- err }()
+	select {
+	case err := <-read:
+		t.Fatalf("the read returned %v before the close finished", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(c.drained)
+	waitClose(t, s.Closed())
+	require.ErrorIs(t, waitErr(t, read), cause)
+}
+
+func waitErr(t *testing.T, ch <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-ch:
+		return err
+	case <-time.After(time.Second):
+		t.Fatal("no result")
+		return nil
+	}
 }

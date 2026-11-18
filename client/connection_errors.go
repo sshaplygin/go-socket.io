@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"errors"
 	"log/slog"
+
+	"github.com/sshaplygin/go-socket.io/internal/event"
 )
 
 // reportOverflow reports an overflow with conn, nil on a failed connect.
@@ -21,7 +23,13 @@ func (c *conn) reportOverflow(conn Conn) {
 }
 
 // unhandled logs err, which no OnError receives and which is not expected closure.
+// A recovered panic is logged with its stack.
 func (c *conn) unhandled(nsp string, err error) {
+	var panicked *event.PanicError
+	if errors.As(err, &panicked) {
+		c.log.Warn("socketio: handler panic", nspAttr(nsp), "err", err, "stack", string(panicked.Stack))
+		return
+	}
 	c.log.Warn("socketio: unhandled error", nspAttr(nsp), "err", err)
 }
 
@@ -40,23 +48,25 @@ func (c *conn) errConn(nsp string) (nc *namespaceConn) {
 	return nc
 }
 
-// onError reports err of the packet being read (see report); a failure of the frame
-// reader that the decoder returned is expected closure.
+// onError reports err of the packet being read (see report). A failure of the engine
+// connection's NextReader or of a frame reader, which the decoder returned, ends the
+// session: OnDisconnect reports it and OnError does not.
 func (c *conn) onError(namespace string, err error) {
-	c.report(namespace, err, c.reader.failed)
+	if !expected(err, c.reader.failed) {
+		c.report(namespace, err)
+	}
 }
 
 // report delivers err to OnError of namespace and waits for it, unless a close started.
-// Without OnError, err is logged as unhandled unless it is the frame failure failed.
-func (c *conn) report(namespace string, err, failed error) {
+// Without OnError, err is logged as unhandled. Callers report no transport failure: the
+// end of the session reaches OnDisconnect only.
+func (c *conn) report(namespace string, err error) {
 	if isDone(c.closing) {
 		return
 	}
 	msg := newErrorMessage(namespace, err)
 	if msg.conn = c.errConn(namespace); msg.conn == nil {
-		if !expected(err, failed) {
-			c.unhandled(namespace, err)
-		}
+		c.unhandled(namespace, err)
 		return
 	}
 	select {

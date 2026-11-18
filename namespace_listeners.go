@@ -63,12 +63,19 @@ func (nh *namespaceHandler) Listeners(event string) []*eventListener {
 	return append([]*eventListener(nil), nh.events[event]...)
 }
 
-func (nh *namespaceHandler) DispatchEvent(conn Conn, event string, args ...reflect.Value) ([]reflect.Value, error) {
-	ret, _, err := nh.DispatchListeners(conn, event, nh.Listeners(event), func(...interface{}) {}, args...)
+func (nh *namespaceHandler) DispatchEvent(conn Conn, event string, report func(error), args ...reflect.Value) ([]reflect.Value, error) {
+	ret, _, err := nh.DispatchListeners(conn, event, nh.Listeners(event), func(...interface{}) {}, report, args...)
 	return ret, err
 }
 
-func (nh *namespaceHandler) DispatchListeners(conn Conn, event string, snapshot []*eventListener, ack AckFunc, args ...reflect.Value) ([]reflect.Value, bool, error) {
+var errorType = reflect.TypeOf((*error)(nil)).Elem()
+
+// DispatchListeners calls the listeners in order until one panics; that panic is
+// the returned error. A non-nil result of type error is passed to report, if set,
+// and replaced in the results by its error-first acknowledgement object; a typed
+// nil counts as nil and an error whose methods panic as that recovered panic (see
+// eventImpl.Returned).
+func (nh *namespaceHandler) DispatchListeners(conn Conn, event string, snapshot []*eventListener, ack AckFunc, report func(error), args ...reflect.Value) ([]reflect.Value, bool, error) {
 	var result []reflect.Value
 	ownsAck := false
 	for _, listener := range snapshot {
@@ -94,6 +101,21 @@ func (nh *namespaceHandler) DispatchListeners(conn Conn, event string, snapshot 
 		ret, err := listener.handler.Call(values)
 		if err != nil {
 			return nil, ownsAck, err
+		}
+		for i, value := range ret {
+			if value.Type() != errorType {
+				continue
+			}
+			returned, _ := value.Interface().(error)
+			returned = eventImpl.Returned(returned)
+			if returned == nil {
+				ret[i] = reflect.Zero(errorType) // a typed nil is sent as null
+				continue
+			}
+			if report != nil {
+				report(returned)
+			}
+			ret[i] = reflect.ValueOf(eventImpl.AckError(returned))
 		}
 		if len(result) == 0 && len(ret) != 0 {
 			result = ret

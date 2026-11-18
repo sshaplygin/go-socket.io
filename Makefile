@@ -12,6 +12,8 @@ STRESS_PKGS := . ./adapter/... ./client/... ./parser ./engineio/...
 # Statement coverage and exported-function coverage requirements.
 COVER_FLOOR := 91.7
 API_UNCOVERED_MAX := 0
+# When set, cover-check also keeps its statement profile at this path (CI uploads it).
+COVER_PROFILE ?=
 
 .PHONY: all
 all:
@@ -25,11 +27,14 @@ test:
 test-race:
 	go test -race -count=1 $(PKGS)
 
-# Optional interoperability gate; default Go tests do not require Node.
+# Optional interoperability gate; default Go tests do not require Node. The Redis
+# codec oracle decodes a Go-encoded broadcast with the reference server's notepack.io.
 .PHONY: conformance
 conformance:
 	go vet -tags conformance ./internal/conformance/...
 	go test -race -count=1 -tags conformance ./internal/conformance/...
+	NODE_PATH="$(CURDIR)/internal/conformance/testdata/node/server/node_modules" \
+		go test -race -count=1 -run '^TestRedisGoPacketWithNodeOracle$$' ./adapter/redis
 
 .PHONY: apidiff
 apidiff:
@@ -38,23 +43,55 @@ apidiff:
 test-jsonv2:
 	GOEXPERIMENT=jsonv2 go test -race -count=1 ./parser/... . ./client/...
 
-# Race tests of STRESS_PKGS that are also in PKGS, repeated and shuffled.
+# Race tests of STRESS_PKGS that are also in PKGS, repeated and shuffled. The ten runs of
+# the root package can exceed go test's default timeout of 10 minutes per package.
 .PHONY: test-stress
 test-stress:
 	@set -e; selected=$$(go list $(PKGS)); \
 	pkgs=$$(go list $(STRESS_PKGS) | grep -Fx "$$selected" || true); \
 	if test -z "$$pkgs"; then echo "test-stress: no stress package in PKGS"; exit 0; fi; \
-	echo go test -race -count=5 -shuffle=on -cpu=1,4 $$pkgs; \
-	go test -race -count=5 -shuffle=on -cpu=1,4 $$pkgs
+	echo go test -race -count=5 -shuffle=on -cpu=1,4 -timeout=20m $$pkgs; \
+	go test -race -count=5 -shuffle=on -cpu=1,4 -timeout=20m $$pkgs
+
+# Race tests of STRESS_PKGS repeated under CPU load: STRESS_LOAD POSIX sh busy loops (twice the
+# CPU count) run while go test -json writes STRESS_JSON, which .github/stress summarizes into
+# STRESS_SUMMARY and stdout. The exit status is that of go test. The traps kill the loops on
+# exit, failure and interruption: a non-interactive sh starts them with SIGINT ignored.
+STRESS_COUNT ?= 20
+STRESS_CPU ?= 1,4
+STRESS_TIMEOUT ?= 90m
+STRESS_LOAD ?= $(shell n=$$(nproc 2>/dev/null || sysctl -n hw.ncpu); echo $$((n * 2)))
+STRESS_JSON ?= stress.json
+STRESS_SUMMARY ?= stress-summary.md
+
+.PHONY: test-stress-load
+test-stress-load:
+	@set -e; pids=; i=0; \
+	trap 'kill $$pids 2>/dev/null' EXIT; trap 'exit 130' INT; trap 'exit 143' TERM; \
+	while test $$i -lt $(STRESS_LOAD); do sh -c 'while :; do :; done' & pids="$$pids $$!"; i=$$((i+1)); done; \
+	echo "$(STRESS_LOAD) busy loops; go test -race -json -count=$(STRESS_COUNT) -shuffle=on -cpu=$(STRESS_CPU) -timeout=$(STRESS_TIMEOUT) $(STRESS_PKGS) >$(STRESS_JSON)"; \
+	status=0; go test -race -json -count=$(STRESS_COUNT) -shuffle=on -cpu=$(STRESS_CPU) -timeout=$(STRESS_TIMEOUT) $(STRESS_PKGS) >$(STRESS_JSON) || status=$$?; \
+	go run ./.github/stress -json $(STRESS_JSON) -summary $(STRESS_SUMMARY) || true; \
+	exit $$status
 
 .PHONY: bench
 bench:
 	go test -run '^$$' -bench . -benchmem $(PKGS)
 
 .PHONY: lint
-lint: vet
+lint: vet lint-go
 	gofmt -s -l . | tee /dev/stderr | test -z "$$(cat)"
-	golangci-lint run ./... ./.github/architecture ./.github/changes
+
+# golangci-lint of the root module, the packages that ./... skips (the Go client example,
+# the Engine.IO example, the README quick-start fixture and the .github tools) and every
+# example module with the root configuration. The CI lint job runs this target after its
+# own Format step.
+.PHONY: lint-go
+lint-go:
+	golangci-lint run ./... ./_examples/client ./engineio/_examples ./internal/parity/testdata/quickstart \
+		./.github/architecture ./.github/changes ./.github/stress
+	@set -e; for d in $(EXAMPLES); do echo "==> golangci-lint $$d"; \
+		(cd $$d && golangci-lint run --config "$(CURDIR)/.golangci.yml" ./...); done
 
 # go vet of every Go file that a CI job compiles, so that a change of comments alone, which
 # runs only the lint job, cannot fail a job that the change skips: the root module under
@@ -63,7 +100,7 @@ lint: vet
 # engineio/_examples (vetted again by make examples), and the .github tools.
 .PHONY: vet
 vet:
-	go vet ./.github/architecture ./.github/changes
+	go vet ./.github/architecture ./.github/changes ./.github/stress
 	@set -e; for os in linux darwin windows; do echo "==> GOOS=$$os"; GOOS=$$os go vet ./...; done
 	GOOS=linux GOARCH=386 go vet ./...
 	go vet -tags conformance ./...
@@ -99,6 +136,7 @@ cover-check:
 	profile=$$(mktemp); summary=$$(mktemp); annotated=$$(mktemp); \
 	trap 'rm -f "$$profile" "$$summary" "$$annotated"' 0; \
 	go test -count=1 -coverpkg=./... -coverprofile="$$profile" ./...; \
+	if [ -n "$(COVER_PROFILE)" ]; then cp "$$profile" "$(COVER_PROFILE)"; fi; \
 	go tool cover -func="$$profile" >"$$summary"; \
 	go test -count=1 ./.github/coverage; \
 	go run ./.github/coverage -profile "$$profile" -summary "$$summary" -root . -module "$$(go list -m)" >"$$annotated"; \
@@ -126,6 +164,7 @@ examples:
 	@set -e; for d in $(CHAT_COPIES); do cmp $$d/chat.go _examples/default-http/chat.go; done
 	@set -e; for f in $(LIFECYCLE_COPIES); do cmp $$f _examples/default-http/lifecycle.go; done
 	cd _examples/default-http && go test -race -count=1 ./...
+	cd _examples/gin-cors && go test -race -count=1 ./...
 
 .PHONY: examples-node
 # CONFORMANCE_NODE_MODULES selects the pinned socket.io-client used by the runner.

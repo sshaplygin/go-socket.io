@@ -56,9 +56,11 @@ type Transport struct {
 	ReadBufferSize  int
 	WriteBufferSize int
 
-	// MaxPayload limits one message, in wire bytes (frames of a fragmented
-	// message together), on both sides. A larger message ends the connection with
-	// close status 1009. Zero means payload.DefaultMaxPayload.
+	// MaxPayload limits one message, in data bytes (frames of a fragmented message
+	// together, WebSocket headers excluded), on both sides. A larger message received
+	// ends the connection with close status 1009. A larger message to send is not sent:
+	// the writer's Close returns ErrTooLarge and the connection stays open. Node's ws
+	// limits received messages only. Zero means payload.DefaultMaxPayload.
 	MaxPayload int
 
 	Subprotocols     []string

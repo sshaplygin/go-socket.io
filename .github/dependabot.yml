@@ -5,6 +5,10 @@ updates:
     directories: ["/", "/v2"]
     schedule:
       interval: weekly
+    ignore:
+      # gobwas/ws v1.5.0 declares go 1.26; v2 (its only user here) supports Go 1.22.
+      - dependency-name: github.com/gobwas/ws
+        versions: [">= 1.5.0"]
     groups:
       go-minor-patch:
         update-types: ["minor", "patch"]

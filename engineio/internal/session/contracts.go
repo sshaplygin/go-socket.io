@@ -39,8 +39,8 @@ type CompressWriter interface {
 type ReadyState string
 
 const (
-	StateOpening ReadyState = "opening" // The OPEN packet has not been written.
-	StateOpen    ReadyState = "open"    // The OPEN packet is written; no close has started.
+	StateOpening ReadyState = "opening" // The handshake has not started: the OPEN packet is not yet being written.
+	StateOpen    ReadyState = "open"    // The OPEN packet is being or has been written; no close has started.
 	StateClosing ReadyState = "closing" // A close has started; the transport is not closed yet.
 	StateClosed  ReadyState = "closed"  // The transport connection is closed.
 )
@@ -49,13 +49,19 @@ const (
 type CloseReason string
 
 const (
-	// ReasonTransportClose means the client sent a CLOSE packet.
+	// ReasonTransportClose means the client sent a CLOSE packet, or closed its
+	// websocket with a close frame of status 1000, 1001 or none (1005).
 	ReasonTransportClose CloseReason = "transport close"
-	// ReasonPingTimeout means no packet arrived within PingInterval + PingTimeout.
+	// ReasonPingTimeout means the transport reported a deadline or timeout error:
+	// the heartbeat window of PingInterval + PingTimeout passed without a packet,
+	// or a server-configured HTTP timeout (http.Server ReadTimeout/WriteTimeout),
+	// a poll request context deadline, or a TCP timeout expired. CloseError.Err
+	// is nil for it.
 	ReasonPingTimeout CloseReason = "ping timeout"
-	// ReasonTransportError means a transport read or write failed before the deadline.
+	// ReasonTransportError means a transport read or write failed with an error
+	// that is not a deadline or timeout error.
 	ReasonTransportError CloseReason = "transport error"
-	// ReasonForcedClose means Conn.Close was called.
+	// ReasonForcedClose means Conn.Close or Abort was called.
 	ReasonForcedClose CloseReason = "forced close"
 	// ReasonServerShutdown means engineio.Server.Close closed the session.
 	ReasonServerShutdown CloseReason = "server shutting down"

@@ -47,14 +47,18 @@ type discardFrame struct{}
 func (discardFrame) Write(b []byte) (int, error) { return len(b), nil }
 func (discardFrame) Close() error                { return nil }
 
-func rootWithOrderlyEngine(t *testing.T) (*connection, engineio.Conn, *rootOrderlyTransport) {
+// rootWithOrderlyEngine returns a root connection over a real engine session
+// whose transport can only finish its orderly close when aborted. The drain
+// deadline starts when the root Close is called, so a test that asserts a state
+// the deadline would end passes a long one and shortens the running timer itself.
+func rootWithOrderlyEngine(t *testing.T, drain time.Duration) (*connection, engineio.Conn, *rootOrderlyTransport) {
 	t.Helper()
 	tr := &rootOrderlyTransport{entered: make(chan struct{}), closed: make(chan struct{})}
 	engine := engineio.NewServer(engineio.WithTransports([]transport.Transport{rootOrderlyFactory{tr}}...), engineio.WithPingInterval(time.Hour), engineio.WithPingTimeout(time.Hour))
 	engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example.test/?EIO=3&transport=polling", nil))
 	s, err := engine.Accept()
 	require.NoError(t, err)
-	c := newConnection(s, newNamespaceRegistry(), 1, 50*time.Millisecond, slog.Default())
+	c := newConnection(s, newNamespaceRegistry(), 1, drain, slog.Default())
 	c.connecting = false
 	t.Cleanup(func() { c.stop(); _ = engineio.Abort(s); _ = engine.Close() })
 	return c, s, tr
@@ -71,17 +75,26 @@ func (rootOrderlyFactory) Dial(*url.URL, http.Header) (transport.Conn, error) {
 }
 
 func TestRootDrainDeadlineAbortsOrderlyEngine(t *testing.T) {
-	c, s, tr := rootWithOrderlyEngine(t)
+	// The deadline is far away while the Closing contract is observed, so no
+	// scheduling delay can let it expire first; it is brought forward below.
+	c, s, tr := rootWithOrderlyEngine(t, time.Hour)
 	require.NoError(t, c.Close())
 	go c.serveWrite()
 	recv(t, tr.entered, "engine orderly close after queue drain")
 	require.Equal(t, engineio.StateClosing, s.ReadyState())
+	require.Never(t, func() bool { return s.ReadyState() != engineio.StateClosing }, 100*time.Millisecond, time.Millisecond,
+		"the orderly close waits for the transport, not for a deadline that is not due")
+
+	// The drain deadline expires: the root timer, not the test, aborts the engine.
+	c.mu.Lock()
+	c.drainTimer.Reset(10 * time.Millisecond)
+	c.mu.Unlock()
 	recv(t, tr.closed, "root deadline interrupts engine orderly wait")
 	require.Eventually(t, func() bool { return s.ReadyState() == engineio.StateClosed }, time.Second, time.Millisecond)
 }
 
 func TestRootOverflowAbortsOrderlyEngine(t *testing.T) {
-	c, s, tr := rootWithOrderlyEngine(t)
+	c, s, tr := rootWithOrderlyEngine(t, time.Hour)
 	require.NoError(t, s.Close())
 	recv(t, tr.entered, "engine orderly close")
 	// The root has not started its own drain; overflow must still interrupt

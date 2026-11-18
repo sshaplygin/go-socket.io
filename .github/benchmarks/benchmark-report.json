@@ -27,6 +27,7 @@
     ],
     "sort": "name",
     "unchanged": "show",
+    "below_threshold": "collapse",
     "missing": "show",
     "max_rows": 0,
     "units": "auto",

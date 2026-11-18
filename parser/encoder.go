@@ -8,20 +8,36 @@ import (
 	"github.com/sshaplygin/go-socket.io/logger"
 )
 
+// FrameWriter is the transport side of an Encoder.
 type FrameWriter interface {
+	// NextWriter returns a writer for one frame of type ft. The frame is
+	// complete when the writer is closed; the Encoder closes every writer it
+	// obtains, also after a failed write.
 	NextWriter(ft FrameType) (io.WriteCloser, error)
 }
 
+// Encoder writes Socket.IO packets to a FrameWriter: the text header and JSON
+// payload in one Text frame, followed by one Binary frame per attachment.
+// An Encoder is not safe for concurrent use; the frames of concurrent calls can
+// interleave.
 type Encoder struct {
 	w FrameWriter
 }
 
+// NewEncoder returns an Encoder that writes to w.
 func NewEncoder(w FrameWriter) *Encoder {
 	return &Encoder{
 		w: w,
 	}
 }
 
+// Encode prepares a packet with Prepare and writes it with EncodePrepared.
+// Only args[0] is encoded as the packet payload, typically a slice holding the
+// event name and its arguments; further arguments are ignored. An Event or Ack
+// header is sent as its binary variant when the payload contains attachments,
+// and Header.ID is written only when Header.NeedAck is set. Encode returns the
+// errors of Prepare unchanged, before any frame is written, and the first error
+// of the FrameWriter or of a frame writer.
 func (e *Encoder) Encode(h Header, args ...interface{}) (err error) {
 	packet, err := Prepare(h, args...)
 	if err != nil {
@@ -94,7 +110,7 @@ func preparedHeader(h Header, attachments int) []byte {
 	return text
 }
 
-// EncodePrepared writes a snapshot previously returned by Prepare.
+// EncodePrepared writes a snapshot previously returned by Prepare or WithHeader.
 func (e *Encoder) EncodePrepared(packet *PreparedPacket) (err error) {
 	w, err := e.w.NextWriter(Text)
 	if err != nil {

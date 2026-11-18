@@ -66,13 +66,16 @@ type Option func(*options)
 // New returns a lazy namespace factory interoperable with socket.io-redis 5.4.0.
 // Namespaces share one subscriber and publishing pool. Construction waits for
 // subscription acknowledgements within WithSubscribeTimeout (ten seconds by
-// default); lost subscriptions reconnect with bounded backoff. WithDB selects
+// default). A lost subscription reconnects with bounded backoff; the loss is
+// logged once at WARN and the recovery at INFO, and messages from other
+// instances published in between are not delivered to this one. WithDB selects
 // the Redis database, but Pub/Sub isolation requires distinct prefixes.
 //
 // Values implement Cluster for bounded context/error query and control methods.
-// IDs and AllRooms return partial snapshots and log errors; Len returns -1
-// on failure. Clear performs bounded, acknowledged remote leaves. Queries are not
-// atomic snapshots, and Clear does not roll back partial effects.
+// IDs and AllRooms return partial snapshots and log errors (at DEBUG once the
+// adapter is closed); Len returns -1 on failure. Clear performs bounded,
+// acknowledged remote leaves. Queries are not atomic snapshots, and Clear does
+// not roll back partial effects.
 func New(opts ...Option) adapter.Factory {
 	config := new(options)
 	for _, option := range opts {
@@ -120,6 +123,8 @@ func WithPassword(value string) Option { return func(config *options) { config.P
 
 // WithDB selects the database on subscriber, pooled and request connections.
 // Redis Pub/Sub channels are shared across databases; use WithPrefix for isolation.
+// A value of zero or less sends no SELECT, so connections use database 0; a
+// negative value is not reported as an error.
 func WithDB(value int) Option { return func(config *options) { config.DB = value } }
 
 // WithSubscribeTimeout bounds the subscriber connection: during namespace
@@ -144,9 +149,11 @@ func (opts *options) subscribeTimeout() time.Duration {
 }
 
 // WithRequestsTimeout bounds each cluster request and each broadcast PUBLISH,
-// including Redis commands. Publication errors are returned by SendTo. The
-// bound applies per I/O phase (dial, write, read), so a stalled publication can
-// take up to about two to three times the timeout.
+// including Redis commands. Publication errors are returned by SendTo. A
+// cluster request, its Redis commands and the wait for replies included, is
+// bounded as a whole by one deadline of this length. For a broadcast PUBLISH
+// the bound applies per I/O phase (dial, write, read), so a stalled publication
+// can take up to about two to three times the timeout.
 // Nonpositive values select the default five seconds.
 func WithRequestsTimeout(value time.Duration) Option {
 	return func(config *options) { config.RequestsTimeout = value }

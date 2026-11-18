@@ -412,3 +412,38 @@ func TestWebsocketHandshakeMessageLimit(t *testing.T) {
 	_, _, err = c.ReadMessage()
 	require.True(t, gorilla.IsCloseError(err, gorilla.CloseMessageTooBig), "%v", err)
 }
+
+// TestPollingWriterDetachedByDeadlineReportsPingTimeout holds a poll response
+// in a session writer past the write deadline. The poll ends and detaches the
+// writer; its Close reports the expired deadline, and the session closes with
+// "ping timeout", not "transport error".
+func TestPollingWriterDetachedByDeadlineReportsPingTimeout(t *testing.T) {
+	svr := NewServer(WithPingInterval(250*time.Millisecond), WithPingTimeout(250*time.Millisecond))
+	defer func() { _ = svr.Close() }()
+	httpSvr := httptest.NewServer(svr)
+	defer httpSvr.Close()
+	_, _, sid := pollingHandshake(t, httpSvr.URL, "")
+	c, err := svr.Accept()
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	polled := make(chan struct{})
+	go func() {
+		defer close(polled)
+		resp, err := http.Get(httpSvr.URL + "/?EIO=3&transport=polling&sid=" + sid)
+		if err == nil {
+			_, _ = io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+		}
+	}()
+	w, err := c.NextWriter(eioparser.String)
+	require.NoError(t, err)
+	_, err = w.Write([]byte("hello"))
+	require.NoError(t, err)
+	<-polled // the poll ends when the write deadline expires
+	require.EqualError(t, w.Close(), "write: timeout")
+	_, _, err = c.NextReader()
+	var closeErr *CloseError
+	require.ErrorAs(t, err, &closeErr)
+	require.Equal(t, ReasonPingTimeout, closeErr.Reason)
+}

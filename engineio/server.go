@@ -3,6 +3,7 @@ package engineio
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,7 +19,9 @@ import (
 	"github.com/sshaplygin/go-socket.io/engineio/transport"
 )
 
-// Server is instance of server
+// Server is an Engine.IO server: an http.Handler that opens sessions on the
+// polling and websocket transports and hands each session to Accept once its
+// handshake has been written. Its methods are safe for concurrent use.
 type Server struct {
 	originCheck       func(*http.Request) bool
 	pingInterval      time.Duration
@@ -45,7 +48,9 @@ type Server struct {
 	log *slog.Logger
 }
 
-// NewServer returns a server.
+// NewServer returns a Server configured by opts; an option that is not given
+// keeps its default. The Server serves requests through ServeHTTP and needs no
+// start call; Close shuts it down.
 func NewServer(opts ...Option) *Server {
 	config := resolveOptions(opts...)
 	return &Server{
@@ -70,6 +75,7 @@ func NewServer(opts ...Option) *Server {
 // Close closes server. Accept returns io.EOF from then on. Every session not yet
 // returned by Accept, and every accepted session, is closed and removed. An
 // in-progress Error hook completes its transport close when the hook returns.
+// A websocket session receives a close frame with status 1000, as from Conn.Close.
 // Sessions shut down concurrently, so a blocked hook does not delay other sessions;
 // their Error hooks may therefore run concurrently on library goroutines.
 // Once shutdown has started, repeated calls return without waiting for it to
@@ -101,7 +107,12 @@ func (s *Server) Close() error {
 	return nil
 }
 
-// Accept accepts a connection.
+// Accept blocks until a session has written its handshake and run the
+// Connection hook, and returns it. The caller owns the returned Conn: it reads
+// the messages with NextReader and ends the session with Close. A session that
+// completes its handshake waits until an Accept call takes it. After Close,
+// Accept returns io.EOF, and a session that was still waiting is closed. Accept
+// may be called from several goroutines; each session is returned once.
 func (s *Server) Accept() (Conn, error) {
 	select {
 	case c := <-s.connChan:
@@ -125,7 +136,22 @@ func (s *Server) dropUnaccepted() {
 
 func (s *Server) drop(c *sessionImpl.Session) {
 	_ = c.Shutdown()
-	s.Remove(c.ID())
+	s.unregister(c, false)
+}
+
+// unregister removes session c from the registry, and with live also from the
+// shutdown set. It leaves an entry that another session holds: the ID of an
+// ended session can be issued again, so removal by ID could hit a newer session.
+func (s *Server) unregister(c *sessionImpl.Session, live bool) {
+	sid := c.ID()
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	if live && s.live[sid] == c {
+		delete(s.live, sid)
+	}
+	if registered, ok := s.sessions.Get(sid); ok && registered == c {
+		s.sessions.Remove(sid)
+	}
 }
 
 func isClosed(ch <-chan struct{}) bool {
@@ -137,10 +163,25 @@ func isClosed(ch <-chan struct{}) bool {
 	}
 }
 
+// Addr returns nil. A Server does not listen on an address of its own; it is
+// mounted as an http.Handler on the caller's HTTP server.
 func (s *Server) Addr() net.Addr {
 	return nil
 }
 
+// ServeHTTP handles one Engine.IO request. A GET request without a sid query
+// parameter starts a session on the transport named by the transport
+// parameter; a request with a sid continues that session or upgrades it to
+// another transport. It does not check the request path, so it answers on
+// whatever path the caller routes to it.
+//
+// A request rejected before a transport handles it is answered with one of the
+// JSON error bodies described in docs/PROTOCOL.md; after Close every request
+// is rejected that way, as a bad request. The transports answer what they
+// reject themselves: the polling transport in plain text (HTTP 400, 413 or
+// 500), and gorilla/websocket a websocket handshake it refuses. A websocket
+// request that fails after its connection was taken over from the HTTP server
+// gets no HTTP answer; the connection is closed.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if isClosed(s.closed) {
 		s.writeServerError(w, r, 3, nil)
@@ -190,7 +231,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			} else {
 				s.connectionError(r, 3, err)
 			}
-			s.reject(reqTransport, r.RemoteAddr, "accept", err)
+			s.rejectAt(acceptLevel(w, r, reqTransport), reqTransport, r.RemoteAddr, "accept", err)
 			return
 		}
 
@@ -201,7 +242,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			} else {
 				s.connectionError(r, 3, err)
 			}
-			s.reject(reqTransport, r.RemoteAddr, "init", err)
+			level := slog.LevelWarn // no session: its ID or its transport deadline failed
+			if errors.Is(err, io.EOF) {
+				level = slog.LevelDebug // the server is closing
+			}
+			s.rejectAt(level, reqTransport, r.RemoteAddr, "init", err)
 			return
 		}
 	}
@@ -234,7 +279,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			} else {
 				s.connectionError(r, 3, err)
 			}
-			s.reject(reqTransport, r.RemoteAddr, "accept", err)
+			s.rejectAt(acceptLevel(w, r, reqTransport), reqTransport, r.RemoteAddr, "accept", err)
 			return
 		}
 
@@ -249,13 +294,23 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reqSession.ServeHTTP(w, r)
 }
 
-// Count counts connected
+// Count returns the number of registered sessions, whatever their state. A
+// session is registered from its handshake until its close has finished, by
+// whichever path it ends: a client CLOSE, a transport error, a ping timeout,
+// Conn.Close, Abort or Server.Close. A polling session closed by Conn.Close
+// finishes once a poll has delivered its CLOSE packet, or when Abort,
+// Server.Close or a 30-second limit ends the wait.
+// The server then forgets the session's ID: a later request carrying it is
+// answered as for an unknown session. Remove unregisters a session earlier.
 func (s *Server) Count() int {
 	return s.sessions.Count()
 }
 
 // Clients returns a snapshot of open or closing sessions keyed by session ID.
-// Count includes every registered session until Remove, regardless of state.
+// A session is open from the start of its OPEN packet's delivery, so one whose
+// client has received that packet is listed. A session that is still opening,
+// or already closed, is not. Count also includes registered sessions that are
+// opening, or closed and still finishing their close.
 func (s *Server) Clients() map[string]Conn {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
@@ -268,8 +323,12 @@ func (s *Server) Clients() map[string]Conn {
 	return clients
 }
 
-// Remove unregisters a session without closing it. Server.Close still closes
-// the session if its transport remains open.
+// Remove unregisters the session registered under sid without closing it.
+// Server.Close still closes the session if its transport remains open. A
+// session unregisters itself when its close finishes, so an ended session needs
+// no Remove call. After that, sid names no session and Remove does nothing,
+// unless an IDGenerator has issued sid again: Remove then unregisters the newer
+// session.
 func (s *Server) Remove(sid string) {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
@@ -300,13 +359,9 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 	newSession.SetRequest(r)
 	s.installHooks(newSession, r, reqTransport != "websocket")
 
-	newSession.SetCloseCallback(func() {
-		s.lifecycle.Lock()
-		if s.live[sid] == newSession {
-			delete(s.live, sid)
-		}
-		s.lifecycle.Unlock()
-	})
+	// The ended session leaves the shutdown snapshot and the registry. A session
+	// refused as a duplicate also runs this, so only this session's entries go.
+	newSession.SetCloseCallback(func() { s.unregister(newSession, true) })
 
 	// Register before the handshake: the client may send its next request
 	// with this sid as soon as it reads the OPEN packet.
@@ -329,7 +384,16 @@ func (s *Server) newSession(r *http.Request, conn transport.Conn, reqTransport s
 
 	go func(newSession *sessionImpl.Session) {
 		if err := newSession.Init(); err != nil {
-			s.Remove(newSession.ID())
+			// A close during the handshake has already unregistered it, and
+			// its ID may since belong to a newer session.
+			s.unregister(newSession, false)
+			if errors.Is(err, sessionImpl.ErrClosedDuringInit) {
+				// Opened and closed by someone else while its handshake was
+				// being written: not a refused request. The session's own
+				// close record has the reason.
+				s.log.Debug("engineio: session closed during handshake", "sid", newSession.ID(), "transport", reqTransport)
+				return
+			}
 			s.connectionError(r, 3, err)
 			s.reject(reqTransport, fmt.Sprint(conn.RemoteAddr()), "init", err)
 
@@ -367,17 +431,30 @@ func writeServerError(w http.ResponseWriter, code int) {
 	}{code, serverErrors[code]})
 }
 
-// reject logs a request ServeHTTP rejects or a failed session initialisation: at DEBUG
-// for an unknown sid, at WARN otherwise.
+// reject logs a request ServeHTTP rejects, or a session whose OPEN packet could not be
+// written, at DEBUG: the request or the peer that sent it is the cause, and any peer can
+// repeat it at will.
 func (s *Server) reject(transport, addr, reason string, err error) {
-	level, args := slog.LevelWarn, []any{"transport", transport, "remote_addr", addr, "reason", reason}
-	if reason == "unknown sid" {
-		level = slog.LevelDebug
-	}
+	s.rejectAt(slog.LevelDebug, transport, addr, reason, err)
+}
+
+// rejectAt is reject at level, which is WARN for a cause on the server's side.
+func (s *Server) rejectAt(level slog.Level, transport, addr, reason string, err error) {
+	args := []any{"transport", transport, "remote_addr", addr, "reason", reason}
 	if err != nil {
 		args = append(args, "err", err)
 	}
 	s.log.Log(context.Background(), level, "engineio: request rejected", args...)
+}
+
+// acceptLevel is the level of a failed Accept of transport: WARN for a websocket
+// upgrade request that w cannot take over because it does not implement http.Hijacker,
+// a fault of the server's handler chain, and DEBUG otherwise.
+func acceptLevel(w http.ResponseWriter, r *http.Request, transport string) slog.Level {
+	if _, ok := w.(http.Hijacker); !ok && transport == "websocket" && websocket.IsWebSocketUpgrade(r) {
+		return slog.LevelWarn
+	}
+	return slog.LevelDebug
 }
 
 // canUpgrade reports whether a session on transport from may move to

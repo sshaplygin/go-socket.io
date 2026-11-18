@@ -1098,9 +1098,9 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
   binary message: a binary websocket message, or `b` plus base64 on polling. Engine.IO ping,
   pong, probe, upgrade and noop stay text. The decoder takes the keys in any order and
   ignores other top-level keys, as Node does: `socket.io-client` 4.8.4 adds `options`
-  (`{compress}`) to every EVENT it emits. It returns the frozen `Packet` forms, each binary value a `{"_placeholder":true,"num":N}` in order of
-  appearance with its bytes in `Attachments[N]`, so the layers above see the same `Packet` as
-  on the text path; it checks the result as the 2.3P decoder does (namespace, ID range, `data`
+  (`{compress}`) to every EVENT it emits. It returns the frozen `Packet` forms, each binary
+  value a `{"_placeholder":true,"num":N}` in order of appearance with its bytes in
+  `Attachments[N]`, so the layers above see the same `Packet` as on the text path; it checks the result as the 2.3P decoder does (namespace, ID range, `data`
   shape per type, event name). The encoder writes `type`, `nsp`, `data`, `id` in that order, a
   `bin` of `Attachments[N]` for each placeholder and numbers as `notepack.io` does (smallest
   integer form, else float64); `Attachments` on a type other than Event or Ack is
@@ -1153,8 +1153,8 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
 - **Interop, CI and example.** The Node tests below use the modules that `npm ci` installs in
   `parser/testdata/msgpack`. Without Node or without those modules they skip; under
   `SOCKETIO_NODE_INTEROP=1` they fail instead. Wave 2M extends the v2 Node CI job of 2.5T
-  (that job only): on the Node version it pins, `npm ci` in `parser/testdata/msgpack`, the
-  switch set and the two tests run; its change-classifier entry selects the job for changes to
+  (that job only): on the Node version it pins, it runs `npm ci` in `parser/testdata/msgpack`
+  and the two tests with the switch set; its change-classifier entry selects the job for changes to
   `parser/testdata/msgpack`. `_examples/admin` gains a `-parser msgpack` flag:
   `FormatMessagePack` on the server, `socket.io-msgpack-parser` 3.0.2 on its page.
 - **Delivery.** 2M lands as several PRs. The first only moves the reader to `internal/mpack`;

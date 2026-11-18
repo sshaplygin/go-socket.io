@@ -110,6 +110,10 @@ modules; other implementations evolve independently.
 tag whose go.mod declares the fork module path; inherited upstream tags are excluded. It
 fails on an incompatible API change and when no such tag is reachable. The `lint-v1` job
 runs it with complete Git history. Set `API_BASE` to compare with a specific version.
+The pinned `gorelease` needs Go 1.26 or newer (the `go` command switches toolchains
+unless `GOTOOLCHAIN=local`) and a working tree with no uncommitted or untracked files.
+It checks the default build of the host platform only: exported names declared only in
+files with other GOOS or build tags (such as `conformance`) are not compared.
 
 `.github/workflows/stress.yml` runs `make test-stress-load` on `ubuntu-latest` and
 `macos-latest` with a 120-minute job timeout: nightly, on `workflow_dispatch`, and on

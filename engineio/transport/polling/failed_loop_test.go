@@ -3,6 +3,7 @@ package polling
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -93,7 +94,7 @@ func TestFailedPollClosesClientConn(t *testing.T) {
 				if err == nil {
 					cc.Resume()
 				}
-				return err == io.ErrClosedPipe
+				return errors.Is(err, io.ErrClosedPipe)
 			}, 2*time.Second, 20*time.Millisecond, "connection still open 2s after the failed poll")
 		})
 	}

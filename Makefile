@@ -75,6 +75,51 @@ test-stress-load:
 	go run ./.github/stress -json $(STRESS_JSON) -summary $(STRESS_SUMMARY) || true; \
 	exit $$status
 
+# Browser tests: the js/wasm tests of internal/browsertest and engineio/transport/browser
+# and the client's transport substitution, run in headless Chrome by wasmbrowsertest
+# against the native fixture server of internal/browsertest/server. The server serves
+# until its standard input, a FIFO held open on descriptor 3, closes on exit, failure or
+# interruption. go test writes to a file, because POSIX sh has no pipefail; a JavaScript
+# failure in that output also fails the target. BROWSER_COVER receives the statement
+# profile of engineio/transport/browser, which cover-check cannot see.
+WASMBROWSERTEST_VERSION := v0.11.0
+BROWSER_COUNT ?= 1
+BROWSER_COVER ?= browser-cover.out
+BROWSER_PKGS := ./internal/browsertest/... ./engineio/transport/browser/...
+
+.PHONY: install-wasmbrowsertest
+install-wasmbrowsertest:
+	go install github.com/agnivade/wasmbrowsertest@$(WASMBROWSERTEST_VERSION)
+
+.PHONY: test-browser
+test-browser:
+	@set -eu; \
+	runner=$$(command -v wasmbrowsertest) || { echo "test-browser: wasmbrowsertest is not on PATH; run make install-wasmbrowsertest" >&2; exit 1; }; \
+	tmp=$$(mktemp -d); pid=; \
+	trap 'exec 3>&-; test -z "$$pid" || wait $$pid || true; rm -f "$$tmp/stdin" "$$tmp/server.log" "$$tmp/test.log"; rmdir "$$tmp"' EXIT; \
+	trap 'exit 130' INT; trap 'exit 143' TERM; \
+	mkfifo "$$tmp/stdin"; \
+	go run -tags browsertest ./internal/browsertest/server <"$$tmp/stdin" >"$$tmp/server.log" 2>&1 & pid=$$!; \
+	exec 3>"$$tmp/stdin"; \
+	i=0; until grep -q '^SOCKETIO_BROWSER_CLOSED_URL=' "$$tmp/server.log"; do \
+		i=$$((i + 1)); if test $$i -gt 300 || ! kill -0 $$pid 2>/dev/null; then \
+			cat "$$tmp/server.log" >&2; echo "test-browser: the server printed no URL within 30 s" >&2; exit 1; fi; \
+		sleep 0.1; done; \
+	SOCKETIO_BROWSER_URL=$$(sed -n 's/^SOCKETIO_BROWSER_URL=//p' "$$tmp/server.log"); \
+	SOCKETIO_BROWSER_CLOSED_URL=$$(sed -n 's/^SOCKETIO_BROWSER_CLOSED_URL=//p' "$$tmp/server.log"); \
+	export SOCKETIO_BROWSER_URL SOCKETIO_BROWSER_CLOSED_URL; \
+	status=0; \
+	GOOS=js GOARCH=wasm go test -count=$(BROWSER_COUNT) -timeout 5m -exec "$$runner" -coverpkg=./engineio/transport/browser \
+		-coverprofile="$(BROWSER_COVER)" $(BROWSER_PKGS) >"$$tmp/test.log" 2>&1 3>&- || status=$$?; \
+	GOOS=js GOARCH=wasm go test -count=$(BROWSER_COUNT) -timeout 5m -exec "$$runner" -run '^TestPlatformTransport' \
+		./client >>"$$tmp/test.log" 2>&1 3>&- || status=$$?; \
+	cat "$$tmp/test.log"; \
+	if grep -E 'call to released function|Go program has already exited|Uncaught' "$$tmp/test.log" >/dev/null; then \
+		echo "test-browser: JavaScript error in the test output" >&2; test $$status -ne 0 || status=1; fi; \
+	if test $$status -ne 0; then echo "==> server output" >&2; cat "$$tmp/server.log" >&2; fi; \
+	test ! -s "$(BROWSER_COVER)" || go tool cover -func="$(BROWSER_COVER)" | tail -n 1; \
+	exit $$status
+
 .PHONY: bench
 bench:
 	go test -run '^$$' -bench . -benchmem $(PKGS)
@@ -84,27 +129,33 @@ lint: vet lint-go
 	gofmt -s -l . | tee /dev/stderr | test -z "$$(cat)"
 
 # golangci-lint of the root module, the packages that ./... skips (the Go client example,
-# the Engine.IO example, the README quick-start fixture and the .github tools) and every
-# example module with the root configuration. The CI lint job runs this target after its
-# own Format step.
+# the Engine.IO example, the README quick-start fixture and the .github tools), the
+# js/wasm files of the browser client and its tests, the browsertest-tagged fixture server
+# and every example module with the root configuration. The CI lint job runs this target
+# after its own Format step.
 .PHONY: lint-go
 lint-go:
 	golangci-lint run ./... ./_examples/client ./engineio/_examples ./internal/parity/testdata/quickstart \
 		./.github/architecture ./.github/changes ./.github/stress
+	GOOS=js GOARCH=wasm golangci-lint run ./client/... ./engineio/... ./internal/browsertest/...
+	golangci-lint run --build-tags browsertest ./internal/browsertest/...
 	@set -e; for d in $(EXAMPLES); do echo "==> golangci-lint $$d"; \
 		(cd $$d && golangci-lint run --config "$(CURDIR)/.golangci.yml" ./...); done
 
 # go vet of every Go file that a CI job compiles, so that a change of comments alone, which
 # runs only the lint job, cannot fail a job that the change skips: the root module under
 # each GOOS of the test matrix (a file excluded on linux, the GOOS of the lint job, is
-# checked only by its own GOOS), the conformance-tagged tests, the example modules and
-# engineio/_examples (vetted again by make examples), and the .github tools.
+# checked only by its own GOOS), the conformance-tagged tests, the js/wasm files of the
+# browser client and its tests, the browsertest-tagged fixture server, the example modules
+# and engineio/_examples (vetted again by make examples), and the .github tools.
 .PHONY: vet
 vet:
 	go vet ./.github/architecture ./.github/changes ./.github/stress
 	@set -e; for os in linux darwin windows; do echo "==> GOOS=$$os"; GOOS=$$os go vet ./...; done
 	GOOS=linux GOARCH=386 go vet ./...
 	go vet -tags conformance ./...
+	GOOS=js GOARCH=wasm go vet ./client/... ./engineio/... ./internal/browsertest/...
+	go vet -tags browsertest ./internal/browsertest/...
 	@set -e; for d in $(EXAMPLES); do echo "==> $$d"; (cd $$d && go vet ./...); done
 	go vet ./engineio/_examples
 
@@ -113,6 +164,7 @@ vet:
 architecture-check:
 	go test -race -count=1 ./.github/architecture
 	go run ./.github/architecture
+	go run ./.github/architecture -goos js -goarch wasm
 
 .PHONY: vuln
 vuln:

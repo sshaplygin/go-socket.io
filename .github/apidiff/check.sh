@@ -16,9 +16,11 @@ if [[ -z "$base" ]]; then
     fi
   done < <(git tag --list 'v1.*' --sort=-version:refname)
 fi
+# A missing baseline means the checkout lacks tags (for example a shallow clone);
+# passing silently would disable the gate.
 if [[ -z "$base" ]]; then
-  echo 'API compatibility: no published fork v1 baseline yet; the gate activates with v1.5.0.'
-  exit 0
+  echo 'API compatibility: no stable fork v1 tag is reachable; fetch the tags (fetch-depth: 0) or set API_BASE.' >&2
+  exit 1
 fi
 
 # gorelease exits unsuccessfully on incompatible changes in a stable v1 module.

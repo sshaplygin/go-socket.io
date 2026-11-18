@@ -39,6 +39,7 @@ conformance:
 .PHONY: apidiff
 apidiff:
 	bash .github/apidiff/check.sh
+
 .PHONY: test-jsonv2
 test-jsonv2:
 	GOEXPERIMENT=jsonv2 go test -race -count=1 ./parser/... . ./client/...

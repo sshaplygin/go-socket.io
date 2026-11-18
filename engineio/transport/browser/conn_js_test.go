@@ -69,6 +69,17 @@ func dialEngine(t *testing.T) *conn {
 	return c.(*conn)
 }
 
+// awaitClosed waits until ws is CLOSED. The browser sets that state in the task that
+// dispatches the close event, so the event has then been delivered.
+func awaitClosed(t *testing.T, ws js.Value) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for ws.Get("readyState").Int() != 3 {
+		require.True(t, time.Now().Before(deadline), "the WebSocket did not close")
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func requireClosed(t *testing.T, c *conn) {
 	t.Helper()
 	require.Zero(t, liveFuncs.Load(), "js.Funcs released")
@@ -100,8 +111,10 @@ func TestTextAndBinaryFrames(t *testing.T) {
 
 func TestPeerCloseAfterQueuedMessages(t *testing.T) {
 	c := dialEngine(t)
-	// The server writes the event "closing", then closes with code 1000.
+	// The server writes the event "closing", then closes with code 1000. Both arrive
+	// before the first read.
 	write(t, c, eioparser.String, `2["close-engine"]`)
+	awaitClosed(t, c.ws)
 	_, _, data := read(t, c)
 	require.Equal(t, `2["closing"]`, data, "the message that precedes the close is read first")
 	_, _, _, err := c.NextReader()

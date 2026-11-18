@@ -1093,16 +1093,19 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
   `data` and `id`, the last two absent when unset; types 5 and 6 do not exist in this format,
   and binary values are `bin` values inside `data`. Every Socket.IO packet is one Engine.IO
   binary message: a binary websocket message, or `b` plus base64 on polling. Engine.IO ping,
-  pong, probe, upgrade and noop stay text. The decoder takes the keys in any order and returns
-  the frozen `Packet` forms, each binary value a `{"_placeholder":true,"num":N}` in order of
+  pong, probe, upgrade and noop stay text. The decoder takes the keys in any order and
+  ignores other top-level keys, as Node does: `socket.io-client` 4.8.4 adds `options`
+  (`{compress}`) to every EVENT it emits. It returns the frozen `Packet` forms, each binary value a `{"_placeholder":true,"num":N}` in order of
   appearance with its bytes in `Attachments[N]`, so the layers above see the same `Packet` as
   on the text path; it checks the result as the 2.3P decoder does (namespace, ID range, `data`
   shape per type, event name). The encoder writes `type`, `nsp`, `data`, `id` in that order, a
   `bin` of `Attachments[N]` for each placeholder and numbers as `notepack.io` does (smallest
   integer form, else float64); `Attachments` on a type other than Event or Ack is
   `ErrAttachments`. It only reads the `Packet`, so a shared packet may be encoded concurrently.
-- **Extensions.** `notepack.io` writes extension type 0 only; a browser client sends binary
-  values as `ArrayBuffer`. The decoder reads fixext 1 `d4 00 00` as `undefined` (`null` in an
+- **Extensions.** `notepack.io` writes extension type 0 only. Its Node build writes an
+  `ArrayBuffer` or a typed array other than `Buffer` as ext 8, 16 or 32 of type 0, so Node
+  clients and servers send such binary values that way; its browser build writes an
+  `ArrayBuffer` as `bin`. The decoder reads fixext 1 `d4 00 00` as `undefined` (`null` in an
   array, the member omitted in a map, `data` or `id` absent at the top), fixext 8 `d7 00` and a
   signed 64-bit millisecond count as a `Date`, written as its `toISOString` string (beyond
   ±8.64e15 ms `ErrInvalid`), and ext 8, 16 or 32 of type 0 as an `ArrayBuffer`, a binary
@@ -1130,7 +1133,8 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
   `socket.io` and `socket.io-client` 4.8.4 in its `package-lock.json`, with a Go bridge and
   `verify.mjs` as in `parser/testdata/oracle`. Node encodes the corpus (the 2.3P oracle cases,
   IDs 0 and 2^53-1, binary values as `Buffer` and as `ArrayBuffer`, `undefined`, `Date` and
-  the invalid inputs) to hex fixtures committed beside them; `verify.mjs` fails when Node
+  the invalid inputs) to hex fixtures committed beside them, plus `client-emit-options`: the
+  bytes of a real `socket.io-client` `emit` with an ack, which carry `options`; `verify.mjs` fails when Node
   decodes a Go encoding to another object or when only one side rejects an invalid input.
 - **Interop and example.** The two Node tests below use the modules of `parser/testdata/msgpack`;
   without Node they skip, or fail under `SOCKETIO_NODE_INTEROP=1`, which the 2.5T Node CI job sets.
@@ -1146,7 +1150,7 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
 | `TestServerParserWiring` | root | the format reaches every session and namespace, `/` and a created one |
 | `TestClientParserWiring` | `client` | `WithParser` reaches the first dial and a reconnection; `New` rejects any other value |
 | `TestMessagePackPacketRoundTrip` | `parser` | every 2.3P corpus case gives the same `Packet` through both formats |
-| `TestMessagePackNodeFixtures` | `parser` | every committed Node fixture decodes to its expected `Packet` or error; a corpus case without a fixture fails |
+| `TestMessagePackNodeFixtures` | `parser` | every committed Node fixture decodes to its expected `Packet` or error, `client-emit-options` to the event without `options`; a corpus case without a fixture fails |
 | `TestMessagePackExtensions` | `parser` | each case of *Extensions*; an `ArrayBuffer` and a `Buffer` give equal packets; other extension types fail |
 | `TestMessagePackLimits` | `parser` | one case per bound and error of *Untrusted input*; `testing.AllocsPerRun` shows that no declared length allocates beyond the message size |
 | `TestMessagePackEncodeConcurrent` | `parser` | 32 goroutines encode one `Packet` with three attachments under `-race`; the `Packet` equals its snapshot and every output equals the fixture |
@@ -1155,7 +1159,7 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
 | `TestMessagePackWireFrames` | `client` | on both transports every Socket.IO message is binary (`b` on polling); ping, pong, probe and upgrade stay text |
 | `TestMessagePackLimitIsolation` | root | an oversize message closes only its own session |
 | `TestMessagePackHooks` | root | one scripted session per format gives equal Socket.IO hook calls apart from IDs and durations; packet hooks report binary frames; with `PayloadPreviewBytes` 256 a CONNECT with auth `{"token":"secret"}` leaves every `Preview` empty |
-| `TestMessagePackNodeClient` | `client` | `socket.io-client` with the parser against the Go server, subtests `websocket` and `polling`: CONNECT with auth, an event without and one with binary values, an ack in each direction |
+| `TestMessagePackNodeClient` | `client` | `socket.io-client` with the parser against the Go server, subtests `websocket` and `polling`: CONNECT with auth, an event without and one with binary values (a `Buffer` and an `ArrayBuffer`, so ext type 0 arrives), an ack in each direction |
 | `TestMessagePackNodeServer` | `client` | the same with the Go client against a Node `socket.io` server |
 
 DoD for 2.3M: the first fourteen tests of the table pass under `-race` (the count makes a
@@ -1181,8 +1185,7 @@ Acceptance for 2.3M: with Node installed, the two Node tests pass on both transp
 command below is the join gate and is repeated at the tag that carries 2.3M. The owner
 starts `_examples/admin` with `-parser msgpack`, opens the example page in two tabs and the
 pinned Admin UI with its parser set to MessagePack (a setting of the UI since 0.3.0): the
-tabs appear as live connections, an event with a binary value sent from a page appears in
-the UI, and with commands enabled a socket joins and leaves a room. Started without the
+tabs appear as live connections, an event sent from a page appears in the UI, and with commands enabled a socket joins and leaves a room. Started without the
 flag, the example serves the JSON page as before and the UI set to MessagePack cannot
 connect to it.
 

@@ -29,9 +29,21 @@ type listedPackage struct {
 type packageGraph map[string][]string
 
 func inspect(ctx context.Context, root string) (int, error) {
+	return inspectPlatform(ctx, root, "", "")
+}
+
+// inspectPlatform is inspect with the packages and files that go list selects for
+// goos and goarch; an empty value keeps the environment's.
+func inspectPlatform(ctx context.Context, root, goos, goarch string) (int, error) {
 	cmd := exec.CommandContext(ctx, "go", "list", "-json", "./...")
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "GOWORK=off")
+	if goos != "" {
+		cmd.Env = append(cmd.Env, "GOOS="+goos)
+	}
+	if goarch != "" {
+		cmd.Env = append(cmd.Env, "GOARCH="+goarch)
+	}
 	var diagnostic bytes.Buffer
 	cmd.Stderr = &diagnostic
 	out, err := cmd.Output()

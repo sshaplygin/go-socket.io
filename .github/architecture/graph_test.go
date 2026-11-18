@@ -416,3 +416,22 @@ func TestRealGoListRejectsUnlistedExternalImports(t *testing.T) {
 		})
 	}
 }
+
+// A file that only js/wasm compiles is checked by the js/wasm listing alone.
+func TestRealGoListRejectsJSOnlyImport(t *testing.T) {
+	root := t.TempDir()
+	writeFixture(t, root, "go.mod", "module "+modulePath+"\n\ngo 1.22\n")
+	for path := range allowedImports {
+		writeFixture(t, root, filepath.Join(path, "component.go"), "package component\n")
+	}
+	writeFixture(t, root, "engineio/transport/browser/component_js.go", "package component\nimport _ \""+fullPath("engineio/client")+"\"\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if _, err := inspect(ctx, root); err != nil {
+		t.Fatalf("native listing compiled the js-only file: %v", err)
+	}
+	want := "forbidden production import: " + fullPath("engineio/transport/browser") + " -> " + fullPath("engineio/client")
+	if _, err := inspectPlatform(ctx, root, "js", "wasm"); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("js/wasm listing accepted the unlisted edge: %v", err)
+	}
+}

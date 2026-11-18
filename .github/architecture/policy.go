@@ -7,7 +7,7 @@ const modulePath = "github.com/sshaplygin/go-socket.io"
 // These are allowed direct edges, not required imports. Test imports are separate.
 var allowedImports = map[string][]string{
 	"":                                 {"adapter", "parser", "engineio", "engineio/parser", "logger", "internal/event"},
-	"client":                           {"parser", "engineio/client", "engineio/parser", "engineio/transport", "engineio/transport/polling", "engineio/transport/websocket", "logger", "internal/event"},
+	"client":                           {"parser", "engineio/client", "engineio/parser", "engineio/transport", "engineio/transport/browser", "engineio/transport/polling", "engineio/transport/websocket", "logger", "internal/event"},
 	"internal/event":                   {"parser"},
 	"adapter":                          {},
 	"adapter/redis":                    {"adapter", "logger", "parser"},
@@ -21,6 +21,7 @@ var allowedImports = map[string][]string{
 	"engineio/transport":               {"engineio/parser", "logger"},
 	"engineio/transport/polling":       {"engineio/transport", "engineio/parser", "logger"},
 	"engineio/transport/websocket":     {"engineio/transport", "engineio/parser", "logger"},
+	"engineio/transport/browser":       {"engineio/transport", "engineio/parser", "logger"},
 	"logger":                           {},
 }
 

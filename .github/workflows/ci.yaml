@@ -517,6 +517,10 @@ jobs:
           check-latest: true
       - name: Install wasmbrowsertest
         run: make install-wasmbrowsertest
+      # Ubuntu 23.10+ forbids unprivileged user namespaces through AppArmor, and Chrome's
+      # sandbox needs them. Lift that restriction instead of running Chrome with --no-sandbox.
+      - name: Allow the Chrome sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Browser tests, three runs
         run: make test-browser BROWSER_COUNT=3
 

@@ -240,9 +240,9 @@ jobs:
         run: go mod verify
       - name: Format
         run: gofmt -s -l . && test -z "$(gofmt -s -l .)"
-      # Every Go file a CI job compiles: the three GOOS of the test matrix, the conformance
-      # tag, the examples and the .github tools, so that a change of comments alone, which
-      # runs only this job, cannot fail a skipped job.
+      # Every Go file a CI job compiles: the three GOOS of the test matrix, js/wasm, the
+      # conformance and browsertest tags, the examples and the .github tools, so that a
+      # change of comments alone, which runs only this job, cannot fail a skipped job.
       - name: Vet
         run: make vet
       # Coverage tests the consumer fixtures as part of the full package suite.

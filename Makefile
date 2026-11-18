@@ -106,7 +106,9 @@ test-browser:
 	go run -tags browsertest ./internal/browsertest/server <"$$tmp/stdin" >"$$tmp/server.log" 2>&1 & pid=$$!; \
 	exec 3>"$$tmp/stdin"; \
 	i=0; until grep -q '^SOCKETIO_BROWSER_CLOSED_URL=' "$$tmp/server.log"; do \
-		i=$$((i + 1)); if test $$i -gt 300 || ! kill -0 $$pid 2>/dev/null; then \
+		if ! kill -0 $$pid 2>/dev/null; then \
+			cat "$$tmp/server.log" >&2; echo "test-browser: the server exited before it printed its URLs" >&2; exit 1; fi; \
+		i=$$((i + 1)); if test $$i -gt 300; then \
 			cat "$$tmp/server.log" >&2; echo "test-browser: the server printed no URL within 30 s" >&2; exit 1; fi; \
 		sleep 0.1; done; \
 	SOCKETIO_BROWSER_URL=$$(sed -n 's/^SOCKETIO_BROWSER_URL=//p' "$$tmp/server.log"); \

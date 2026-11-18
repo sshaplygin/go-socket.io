@@ -35,7 +35,7 @@ owning contract and consumer fixtures together.
 | 3A | M3 | freeze chat event schema; then server, browser/CLI and load client in separate directories | M4 single-server acceptance |
 | 5L-A | M3 | freeze single-server admin observation, snapshot/watermark types, command capability and command-result contracts, session-store interface and advertised features; pin the UI release and instrumentation fixtures | 5L contract gate |
 | 5L-B | 5L-A | core observers/snapshots; admin wire/auth module; memory-adapter command capability; browser tests against the pinned UI | M3A acceptance |
-| 2M | M3A | 2.3M MessagePack parser: `parser/` (new files and `testdata/msgpack`), `internal/mpack` with the reader moved from `adapter/codec`, the root `Options.Parser` field with its reader/writer selection, `WithParser` in `client/`, the MessagePack case of the 2.4S redactor and the `-parser` flag of `_examples/admin`; no other wave waits for it | 2.3M DoD and Acceptance |
+| 2M | M3A | 2.3M MessagePack parser: `parser/` (new files and `testdata/msgpack`); `internal/mpack`; in `adapter/codec` only the move of `mpread.go` (the first 2M PR; overlaps 4A and 5C-A, see 2.3M *Delivery*); the two `internal/mpack` rules in `graph_test.go`; the root `Options.Parser` field with its reader/writer selection; `WithParser` in `client/`; the binary-frame case of the 2.4S redactor; the `-parser` flag of `_examples/admin`; the v2 Node job of 2.5T in `.github/workflows/ci.yaml` (that job only) with its classifier entry; no other wave waits for it | 2.3M DoD and Acceptance |
 | 4A | M4 | freeze codec fixtures and adaptertest cases; then Redis and NATS modules independently | each passes shared conformance suite |
 | 4B | 4A | cluster chat profile; mixed Go/Node Redis tests in separate test directories | M5 cluster acceptance |
 | 5C-A | M5, M3A | freeze the 5C additions to the 5L contracts: the node snapshot/watermark adapter interface, the broker encoding of remote commands and the shared-store implementation contract; 5L-A signatures do not change | 5C contract gate |
@@ -1150,10 +1150,20 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
   deviation above (`ext-type-1`, `fixext-2`, `duplicate-key`, `int-key`, `invalid-utf8`,
   `nan`, `infinity`, `placeholder-map`, `nsp-no-slash`, `id-negative`, `id-unsafe`), each
   with its expected Go error.
-- **Interop and example.** The two Node tests below use the modules of `parser/testdata/msgpack`;
-  without Node they skip, or fail under `SOCKETIO_NODE_INTEROP=1`, which the 2.5T Node CI job sets.
-  `_examples/admin` gains a `-parser msgpack` flag: `FormatMessagePack` on the server and
-  `socket.io-msgpack-parser` 3.0.2 on its page.
+- **Interop, CI and example.** The Node tests below use the modules that `npm ci` installs in
+  `parser/testdata/msgpack`. Without Node or without those modules they skip; under
+  `SOCKETIO_NODE_INTEROP=1` they fail instead. Wave 2M extends the v2 Node CI job of 2.5T
+  (that job only): on the Node version it pins, `npm ci` in `parser/testdata/msgpack`, the
+  switch set and the two tests run; its change-classifier entry selects the job for changes to
+  `parser/testdata/msgpack`. `_examples/admin` gains a `-parser msgpack` flag:
+  `FormatMessagePack` on the server, `socket.io-msgpack-parser` 3.0.2 on its page.
+- **Delivery.** 2M lands as several PRs. The first only moves the reader to `internal/mpack`;
+  it is the one 2M change in `adapter/codec`, which 4A and 5C-A also write, so it merges as a
+  PR of its own between theirs, and later reader changes go to `internal/mpack`. PRs before
+  the join gate add unexported or internal code only; every exported identifier (`Format` and
+  its constants, `EncodeMessagePack`, `DecodeMessagePack`, `Options.Parser`, `WithParser`)
+  lands in the PR that passes the join gate, so no root tag publishes them without the
+  runtime.
 - Out of scope: autodetection, custom parsers, MessagePack in v1 and a speed claim; the
   benchmark workflow reports `BenchmarkCodec` (`parser`; both formats, encode and decode).
 
@@ -1179,10 +1189,11 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
 | `FuzzMessagePackDecode` | `parser` | seeded with the Node fixtures, 30 s clean: no panic, and what decodes re-encodes and decodes to an equal `Packet` |
 
 DoD for 2.3M: the first fifteen tests of the table pass under `-race` (the count makes a
-missing test fail); `FuzzMessagePackDecode` runs 30 s clean;
-the oracle passes with the pinned versions; `go.mod`, `go.sum` and the tests and fixtures of
-`adapter/codec` do not change; `make g2` passes with a positive fixture (both settings) and a
-negative one (a string as `Parser`); V2_PROTOCOL, API.md and CHANGELOG list the changes.
+missing test fail); `FuzzMessagePackDecode` runs 30 s clean; the oracle passes with the
+pinned versions; no 2M PR changes `go.mod`, `go.sum` or the tests and fixtures of
+`adapter/codec` (each checks its diff against its merge base); `make g2` passes with a
+positive fixture (both settings) and a negative one (a string as `Parser`); V2_PROTOCOL,
+API.md and CHANGELOG list the changes. Every 2M PR runs this block from `v2/`.
 
 ```sh
 go test -race -count=1 ./parser/... ./internal/mpack ./adapter/codec . ./client
@@ -1193,22 +1204,24 @@ R=parser/testdata/msgpack
 npm ci --ignore-scripts --no-audit --no-fund --prefix "$R"
 [ "$(npm ls --all --prefix "$R" socket.io-msgpack-parser notepack.io | grep -c -F -e socket.io-msgpack-parser@3.0.2 -e notepack.io@2.2.0)" -eq 2 ]
 npm test --prefix "$R"
-git diff --exit-code origin/master -- go.mod go.sum 'adapter/codec/*_test.go' adapter/codec/testdata
+git diff --exit-code "$(git merge-base origin/master HEAD)" -- go.mod go.sum 'adapter/codec/*_test.go' adapter/codec/testdata
 make g2
 ```
 
-Acceptance for 2.3M: with Node installed, the two Node tests pass on both transports; the
-command below is the join gate and is repeated at the tag that carries 2.3M. The owner
-starts `_examples/admin` with `-parser msgpack`, opens the example page in two tabs and the
-pinned Admin UI with its parser set to MessagePack (a setting of the UI since 0.3.0): the
-tabs appear as live connections, an event sent from a page appears in the UI, and with commands enabled a socket joins and leaves a room. Started without the
-flag, the example serves the JSON page as before and the UI set to MessagePack cannot
-connect to it.
+Acceptance for 2.3M, from `v2/`: the four Node subtests pass with none skipped (the block
+below, the join gate, repeated at the tag that carries 2.3M), and the 5L browser tests
+against the pinned Admin UI run once more against `_examples/admin` started with
+`-parser msgpack`, the UI's parser set to MessagePack (a setting of the UI since 0.3.0). The
+example module builds with a `replace` directive, so `contrib/admin` and its `go.mod` do not
+change.
 
 ```sh
+npm ci --ignore-scripts --no-audit --no-fund --prefix parser/testdata/msgpack
 export SOCKETIO_NODE_INTEROP=1
-N=$(go test -race -count=1 -json -run '^(TestMessagePackNodeClient|TestMessagePackNodeServer)$' ./client | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
-[ "$N" -eq 2 ]
+J=$(mktemp)
+go test -race -count=1 -json -run '^(TestMessagePackNodeClient|TestMessagePackNodeServer)$' ./client > "$J"
+[ "$(grep -E -c '"Action":"pass","Package":"[^"]+","Test":"TestMessagePackNode(Client|Server)/(websocket|polling)","Elapsed"' "$J")" -eq 4 ]
+! grep -q '"Action":"skip"' "$J"
 ```
 
 ### 2.4 Observability

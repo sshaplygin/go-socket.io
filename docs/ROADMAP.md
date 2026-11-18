@@ -1075,13 +1075,13 @@ format stays JSON text exactly as in Socket.IO protocol v5 over Engine.IO v4. 2.
 format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `socket.io` and
 `socket.io-client` 4.8.4) on the server and the Go client, selected by an option on each end.
 
-- **Selection.** `parser.Format` (`uint8`): `FormatJSON`, the zero value, and
-  `FormatMessagePack`. The root `Options` gains `Parser parser.Format`, the 2.3C client gains
-  `WithParser(parser.Format)`. The zero value and every existing literal keep JSON;
-  `Options.Normalize` and `client.New` return an error for any other value. A server uses one
-  format for every session and namespace, the 5L admin namespace included; a client for every
-  dial, reconnections included. No negotiation or autodetection, as in Node, where both ends
-  are built with the same parser. No frozen declaration changes ([API.md](API.md#not-frozen)).
+- **Selection.** `parser.Format` (`uint8`) is `FormatJSON`, the zero value, or
+  `FormatMessagePack`. The root `Options` gains `Parser parser.Format`, the 2.3C client
+  `WithParser(parser.Format)`. Every existing literal keeps JSON; `Options.Normalize` and
+  `client.New` return an error for any other value. A server uses one format for every
+  session and namespace, the 5L admin namespace included; a client for every dial,
+  reconnections included. Nothing negotiates or detects the format, as in Node. No frozen
+  declaration changes ([API.md](API.md#not-frozen)).
 - **Code.** `parser` gains `EncodeMessagePack(Packet, Limits) ([]byte, error)` and
   `DecodeMessagePack([]byte, Limits) (Packet, error)`, which return the existing sentinels
   (`ErrInvalid`, `ErrTooLarge`, `ErrTooManyAttachments`, `ErrDepth`, `ErrAttachments`). They
@@ -1099,67 +1099,61 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
   `data` and `id`, the last two absent when unset; types 5 and 6 do not exist in this format,
   and binary values are `bin` values inside `data`. Every Socket.IO packet is one Engine.IO
   binary message: a binary websocket message, or `b` plus base64 on polling. Engine.IO ping,
-  pong, probe, upgrade and noop stay text. The decoder takes the keys in any order and
-  ignores other top-level keys, as Node does: `socket.io-client` 4.8.4 adds `options`
-  (`{compress}`) to every EVENT it emits. It returns the frozen `Packet` forms, each binary
-  value a `{"_placeholder":true,"num":N}` in order of appearance with its bytes in
-  `Attachments[N]`, so the layers above see the same `Packet` as on the text path; it checks the result as the 2.3P decoder does (namespace, ID range, `data`
-  shape per type, event name). The encoder writes `type`, `nsp`, `data`, `id` in that order, a
-  `bin` of `Attachments[N]` for each placeholder and numbers as `notepack.io` does (smallest
-  integer form, else float64); `Attachments` on a type other than Event or Ack is
-  `ErrAttachments`. It only reads the `Packet`, so a shared packet may be encoded concurrently.
-- **Extensions.** `notepack.io` writes extension type 0 only. Its Node build writes an
-  `ArrayBuffer` or a typed array other than `Buffer` as ext 8, 16 or 32 of type 0, so Node
-  clients and servers send such binary values that way; its browser build writes an
-  `ArrayBuffer` as `bin`. The decoder reads fixext 1 `d4 00 00` as `undefined` (`null` in an
-  array, the member omitted in a map, `data` or `id` absent at the top), fixext 8 `d7 00` and a
-  signed 64-bit millisecond count as a `Date`, written as its `toISOString` string (beyond
-  ±8.64e15 ms `ErrInvalid`), and ext 8, 16 or 32 of type 0 as an `ArrayBuffer`, a binary
-  value like `bin`. The encoder writes no extension.
+  pong, probe, upgrade and noop stay text. The decoder takes the keys in any order and ignores
+  other top-level keys, as Node does (`socket.io-client` adds `options` to every EVENT). It
+  returns the frozen `Packet` forms of the text path, each binary value a
+  `{"_placeholder":true,"num":N}` in order of appearance with its bytes in `Attachments[N]`,
+  and applies the checks of the 2.3P decoder. The encoder writes `type`, `nsp`, `data`, `id` in
+  that order, a `bin` for each placeholder and numbers as `notepack.io` does (smallest integer
+  form, else float64). `Attachments` on a type other than Event or Ack, a placeholder that
+  names no attachment or repeats one, and an unused attachment are `ErrAttachments`. It only
+  reads the `Packet`, so a shared packet may be encoded concurrently.
+- **Extensions.** `notepack.io` writes extension type 0 only, and only its Node build writes
+  ext 8, 16 or 32, for an `ArrayBuffer` or a typed array other than `Buffer`. The decoder
+  reads fixext 1 `d4 00 00` as `undefined` (`null` in an array, the member omitted in a map,
+  `data` or `id` absent at the top), fixext 8 `d7 00` and a signed 64-bit millisecond count
+  as a `Date`, written as its `toISOString` string (beyond ±8.64e15 ms `ErrInvalid`), and
+  ext 8, 16 or 32 of type 0 as a binary value like `bin`. The encoder writes no extension.
 - **Untrusted input.** `MaxEventBytes` bounds the message and also the decoded `Data` plus
   `Attachments`; `MaxAttachments` bounds the binary values; `MaxDepth` (default
-  `DefaultMaxDepth`, 64) bounds the arrays and maps in `data`, with the 10000-level ceiling
-  of `ErrDepth` whatever `MaxDepth` is. Each declared str, bin, ext, array or map length is
+  `DefaultMaxDepth`, 64) bounds the arrays and maps in `data`, with the 10000-level ceiling of
+  `ErrDepth` whatever `MaxDepth` is. Each declared str, bin, ext, array or map length is
   checked against the bytes left before any allocation. Truncation, trailing bytes, an empty
   message, invalid UTF-8, a non-string or duplicate map key, NaN or an infinity, any other
-  extension, a map shaped like a placeholder (`{_placeholder: true, num: N}`, which could not
-  be told from a binary value, as in `adapter/codec`) and a missing `type` or `nsp` are
-  `ErrInvalid`; nothing panics. The attachment timeout does not apply: a packet is one
-  message.
+  extension, a map shaped like a placeholder (as in `adapter/codec`) and a missing `type` or
+  `nsp` are `ErrInvalid`; nothing panics. No attachment timeout applies.
 - **Runtime.** The root reader decodes each binary message with `DecodeMessagePack` and the
   writer sends one binary message per packet, under the 2.3S limit and error mapping
   (`ErrMessageTooLarge`, `ErrTooManyAttachments`). A text Socket.IO message where MessagePack
   is configured, and a binary message with no attachment pending where JSON is, is a
-  malformed envelope: the session closes with `parse error` (`engineio.CloseParseError`), on
-  the Go client too, with no CONNECT_ERROR and no handler run. Socket.IO hooks receive the
-  same values in both formats; `PacketRead` and `PacketWrite` report a binary `Frame`, and
-  the 2.4S redactor leaves the preview of a binary frame empty (fail closed).
-- **Deviations from Node** (V2_PROTOCOL records them): Node returns `[type, bytes]` for any
-  other extension, keeps the last of duplicate keys, converts other key types to strings,
-  replaces invalid UTF-8 by U+FFFD, accepts NaN, infinities and placeholder-shaped maps, and
-  checks only the types of `nsp` and `id`; Go rejects each. `adapter/codec` keeps refusing
-  extensions, so a Node peer of the M5 mixed Redis cluster that broadcasts an `ArrayBuffer`
-  (ext type 0) is rejected there; V2_PROTOCOL records it with the adapter deviations.
-- **Node oracle.** `parser/testdata/msgpack` pins `socket.io-msgpack-parser` 3.0.2,
-  `socket.io` and `socket.io-client` 4.8.4 in its `package-lock.json`, with a Go bridge and
-  `verify.mjs` as in `parser/testdata/oracle`, and `cases.json`, the corpus of valid packets
-  (the valid 2.3P oracle cases, IDs 0 and 2^53-1, nested binary values). Node encodes each
-  case, binary values as `Buffer` and as `ArrayBuffer`, plus `undefined` and `Date` cases and
-  `client-emit-options` (the bytes of a real `socket.io-client` `emit` with an ack, which
-  carry `options`), to hex fixtures committed beside them. `verify.mjs` checks that Node
-  decodes each Go encoding to the object it encoded, and two named classes of invalid
-  fixtures, as the README of the 2.3P oracle lists them: *rejected by both* (truncation,
-  trailing bytes, type 5, no `nsp`) and *accepted by Node, rejected by Go on purpose*, one per
-  deviation above (`ext-type-1`, `fixext-2`, `duplicate-key`, `int-key`, `invalid-utf8`,
-  `nan`, `infinity`, `placeholder-map`, `nsp-no-slash`, `id-negative`, `id-unsafe`), each
-  with its expected Go error.
+  malformed envelope: the session closes with `parse error` (`engineio.CloseParseError`),
+  with no CONNECT_ERROR and no handler run. The Go client closes the same way and then
+  follows 2.3C: before the CONNECT ack as after a failed first dial, after it as for any
+  lost session, with `parse error` as the `OnDisconnect` reason. Socket.IO hooks receive the
+  same values in both formats; `PacketRead` and `PacketWrite` report a binary `Frame`. In a
+  MessagePack session the 2.4S redactor leaves the preview of a binary frame empty (fail
+  closed); the previews of JSON sessions do not change.
+- **Deviations from Node.** Node returns `[type, bytes]` for any other extension, keeps the
+  last of duplicate keys, converts other key types to strings, replaces invalid UTF-8 by
+  U+FFFD, accepts NaN, infinities and placeholder-shaped maps, and checks only the types of
+  `nsp` and `id`; Go rejects each. `adapter/codec` keeps refusing extensions, so a Node peer
+  of the M5 mixed Redis cluster that broadcasts an `ArrayBuffer` (ext type 0) is rejected
+  there. 2M adds a section for this format to V2_PROTOCOL: its list *Deliberate differences
+  from `socket.io-msgpack-parser`* holds the former, its note *Adapter messages* the latter.
+- **Node oracle.** `parser/testdata/msgpack` pins the packages above in its
+  `package-lock.json`, with a Go bridge and `verify.mjs` as in `parser/testdata/oracle`: Node
+  encodes the corpus `cases.json` to committed hex fixtures and decodes each Go encoding to
+  the object it encoded. Invalid fixtures form two named classes, each fixture with its
+  expected Go error: *rejected by both*, and *accepted by Node, rejected by Go on purpose*
+  with one fixture per deviation of *Deviations from Node*.
 - **Interop, CI and example.** The Node tests below use the modules that `npm ci` installs in
   `parser/testdata/msgpack`. Without Node or without those modules they skip; under
-  `SOCKETIO_NODE_INTEROP=1` they fail instead. Wave 2M extends the v2 Node CI job of 2.5T
-  (that job only): on the Node version it pins, it runs `npm ci` in `parser/testdata/msgpack`
-  and the two tests with the switch set; its change-classifier entry selects the job for changes to
-  `parser/testdata/msgpack`. `_examples/admin` gains a `-parser msgpack` flag:
-  `FormatMessagePack` on the server, `socket.io-msgpack-parser` 3.0.2 on its page.
+  `SOCKETIO_NODE_INTEROP=1` they fail instead. Wave 2M extends the v2 Node CI job that 2.5T
+  creates (that job only): it runs `npm ci` there and the two tests with the switch set. Its
+  change-classifier entry selects the job for `parser/testdata/msgpack` and for the changes
+  that select the tests of `parser`, `internal/mpack`, `client` or the root package.
+  `_examples/admin` gains a `-parser msgpack` flag (`FormatMessagePack` on the server, the
+  Node parser on its page); the 5L browser tests gain a setting for an external server.
 - **Delivery.** 2M lands as several PRs. The first only moves the reader and the writer to
   `internal/mpack`: in `adapter/codec` it removes `mpread.go` and `mpwrite.go` and edits
   their callers `broadcast.go` and `response.go`. It is the one 2M change in `adapter/codec`,
@@ -1175,17 +1169,17 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
 | `TestOptionsParserNormalize` | root | zero and both constants are kept; any other value fails `Normalize` |
 | `TestServerParserWiring` | root | the format reaches every session and namespace, `/` and a created one |
 | `TestClientParserWiring` | `client` | `WithParser` reaches the first dial and a reconnection; `New` rejects any other value |
-| `TestMessagePackPacketRoundTrip` | `parser` | every case of `cases.json` gives the same `Packet` through both formats, `Data` compared as JSON values |
-| `TestMessagePackNodeFixtures` | `parser` | every committed Node fixture decodes to its expected `Packet` or error, `client-emit-options` to the event without `options`; a corpus case without a fixture fails |
+| `TestMessagePackPacketRoundTrip` | `parser` | every case of `cases.json` (the valid 2.3P oracle cases, IDs 0 and 2^53-1, nested binary values) gives the same `Packet` through both formats, `Data` compared as JSON values |
+| `TestMessagePackNodeFixtures` | `parser` | every committed Node fixture decodes to its expected `Packet` or error: each corpus case with its binary values as `Buffer` and as `ArrayBuffer`, `undefined` and `Date` cases, `client-emit-options` (the bytes of a real `socket.io-client` `emit` with an ack) to the event without `options`, the *rejected by both* fixtures (truncation, trailing bytes, type 5, no `nsp`) and one fixture per deviation; a corpus case without a fixture fails |
 | `TestMessagePackExtensions` | `parser` | each case of *Extensions*; an `ArrayBuffer` and a `Buffer` give equal packets; other extension types fail |
-| `TestMessagePackLimits` | `parser` | one case per error of *Untrusted input*; per bound an at-limit case passes and limit+1 fails; headers of at most 6 bytes declaring 2^32-1 bytes of str, bin or ext or 2^32-1 entries of array or map return `ErrInvalid`, and `AllocedBytesPerOp` of `testing.Benchmark` stays at most 1 KiB for each |
+| `TestMessagePackLimits` | `parser` | one case per error of *Untrusted input*; per bound an at-limit case passes and limit+1 fails; a map `{type: 2, nsp: "/", data: H}` ending in a header `H` of at most 6 bytes that declares 2^32-1 bytes of str, bin or ext (type 0) or 2^32-1 entries of array or map returns `ErrInvalid`, and `AllocedBytesPerOp` of `testing.Benchmark` stays at most 1 KiB for each |
 | `TestMessagePackEncodeConcurrent` | `parser` | 32 goroutines encode one `Packet` with three attachments under `-race`; the `Packet` equals its snapshot and every output equals `testdata/msgpack/concurrent.hex` |
 | `TestMessagePackOracleBridge` | `parser` | the bridge of `testdata/msgpack` builds and answers, as `TestOracleBridge` does |
-| `TestMessagePackMismatch` | `client` | four cells, each on websocket and on polling (eight subtests), closed within 100 ms of the first CONNECT with no CONNECT_ERROR and no handler run: a Go server of each format against a Go client of the other (the server closes; its `SessionClose` hook reports `CloseParseError`), and a raw Engine.IO server answering the CONNECT in the format the Go client does not use (the client closes first; `Connect` returns an error matching `parser.ErrUnexpectedFrame` for a JSON client, `parser.ErrInvalid` for a MessagePack one) |
+| `TestMessagePackMismatch` | `client` | six cells, each on websocket and on polling (twelve subtests), each closed within 100 ms of the mismatching message with no CONNECT_ERROR and no event handler run. Server-detected, two cells: a Go server of each format against a Go client of the other; the server closes, its `SessionClose` hook reports `CloseParseError` and `Connect` returns an error. Client-detected before the ack, two cells: a raw Engine.IO server answers the CONNECT in the format the Go client does not use; the client closes first, `Connect` returns an error matching `parser.ErrUnexpectedFrame` (JSON client) or `parser.ErrInvalid` (MessagePack client), `OnConnect` and `OnDisconnect` do not run, and with reconnection left on no second handshake reaches the raw server within the 100 ms. Client-detected after the ack, two cells with `WithReconnection(false)`: the raw server acks the CONNECT in the client's format, then sends an EVENT in the other; the client closes first, `OnDisconnect` receives `parse error` once, and no second handshake reaches the raw server within the 100 ms |
 | `TestMessagePackWireFrames` | `client` | on both transports every Socket.IO message is binary (`b` on polling); ping, pong, probe and upgrade stay text |
 | `TestMessagePackGoRoundTrip` | `client` | a Go server and a Go client with `FormatMessagePack`, subtests `websocket` and `polling`: CONNECT with auth, an event with nested binary values, an ack in each direction, one of them with binary |
 | `TestMessagePackLimitIsolation` | root | an oversize message closes only its own session |
-| `TestMessagePackHooks` | root | one scripted session per format gives equal Socket.IO hook calls apart from IDs and durations; packet hooks report binary frames; with `PayloadPreviewBytes` 256 an EVENT with the argument `{"token":"secret"}` leaves every `Preview` empty |
+| `TestMessagePackHooks` | root | one scripted session per format gives equal Socket.IO hook calls apart from IDs and durations; packet hooks report binary frames; with `PayloadPreviewBytes` 256 an EVENT with the argument `{"token":"secret"}` leaves the `Preview` of every binary frame of the MessagePack session empty |
 | `TestMessagePackNodeClient` | `client` | `socket.io-client` with the parser against the Go server, subtests `websocket` and `polling`: CONNECT with auth, an event without and one with binary values (a `Buffer` and an `ArrayBuffer`, so ext type 0 arrives), an ack in each direction |
 | `TestMessagePackNodeServer` | `client` | the same with the Go client against a Node `socket.io` server |
 | `FuzzMessagePackDecode` | `parser` | seeded with the Node fixtures, 30 s clean: no panic, and what decodes re-encodes and decodes to an equal `Packet` |

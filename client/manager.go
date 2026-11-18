@@ -3,10 +3,13 @@ package client
 import (
 	"io"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
 	engineclient "github.com/sshaplygin/go-socket.io/engineio/client"
+	"github.com/sshaplygin/go-socket.io/engineio/transport"
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
@@ -137,8 +140,10 @@ func (m *clientState) open(c *manager, retry *reconnectRun, number int, join *So
 		err  error
 	}
 	dialed := make(chan dialResult)
+	dials := &dialTracker{}
 	go func() {
-		conn, err := c.engineDial()
+		conn, err := c.engineDial(dials)
+		dials.settle()
 		select {
 		case dialed <- dialResult{conn, err}:
 		case <-a.stop:
@@ -156,8 +161,10 @@ func (m *clientState) open(c *manager, retry *reconnectRun, number int, join *So
 	var engine engineclient.Conn
 	select {
 	case <-a.stop:
+		dials.abort()
 		return io.ErrClosedPipe
 	case <-timeout:
+		dials.abort()
 		return ErrConnectTimeout
 	case dial := <-dialed:
 		if dial.err != nil {
@@ -305,12 +312,96 @@ func (c *conn) connectClient() error {
 	return nil
 }
 
-func (c *manager) engineDial() (engineclient.Conn, error) {
+// engineDial dials the Engine.IO connection. The transport connections it opens
+// before it returns are recorded in dials, so that an attempt that ends first
+// can close them and unblock the dial.
+func (c *manager) engineDial(dials *dialTracker) (engineclient.Conn, error) {
 	if c.dial != nil {
 		return c.dial(c.url)
 	}
-	d := engineclient.Dialer{MaxMessageSize: c.options.MaxMessageSize, Transports: c.options.Transports, Upgrade: true, OnPing: c.ping, OnPong: c.pong}
+	transports := make([]transport.Transport, len(c.options.Transports))
+	for i, t := range c.options.Transports {
+		transports[i] = trackedTransport{Transport: t, dials: dials}
+	}
+	d := engineclient.Dialer{MaxMessageSize: c.options.MaxMessageSize, Transports: transports, Upgrade: true, OnPing: c.ping, OnPong: c.pong}
 	return d.Dial(c.url, c.options.Header)
+}
+
+// dialTracker records the transport connections of one engine dial until the
+// dial returns (settle) or its connect attempt ends first (abort). After
+// settle, later connections, such as upgrade probes, are not recorded.
+type dialTracker struct {
+	mu      sync.Mutex
+	conns   []transport.Conn
+	settled bool
+	aborted bool
+}
+
+// add records conn. It reports false when the attempt has already ended; the
+// caller then closes conn itself.
+func (d *dialTracker) add(conn transport.Conn) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.aborted {
+		return false
+	}
+	if !d.settled {
+		d.conns = append(d.conns, conn)
+	}
+	return true
+}
+
+// settle marks the dial as returned; its connections now belong to the
+// Engine.IO connection or were closed by it.
+func (d *dialTracker) settle() {
+	d.mu.Lock()
+	d.settled, d.conns = true, nil
+	d.mu.Unlock()
+}
+
+// abort closes the recorded connections if the dial has not returned, so that
+// a dial blocked on the handshake fails and returns.
+func (d *dialTracker) abort() {
+	d.mu.Lock()
+	if d.settled {
+		d.mu.Unlock()
+		return
+	}
+	d.settled, d.aborted = true, true
+	conns := d.conns
+	d.conns = nil
+	d.mu.Unlock()
+	for _, conn := range conns {
+		abortTransportConn(conn)
+	}
+}
+
+// trackedTransport records the connections its Transport dials in dials.
+type trackedTransport struct {
+	transport.Transport
+	dials *dialTracker
+}
+
+func (t trackedTransport) Dial(u *url.URL, requestHeader http.Header) (transport.Conn, error) {
+	conn, err := t.Transport.Dial(u, requestHeader)
+	if err != nil {
+		return nil, err
+	}
+	if !t.dials.add(conn) {
+		abortTransportConn(conn)
+		return nil, io.ErrClosedPipe
+	}
+	return conn, nil
+}
+
+// abortTransportConn closes conn without a closing handshake when the
+// transport supports that, as the Engine.IO dialer does for a failed attempt.
+func abortTransportConn(conn transport.Conn) {
+	if a, ok := conn.(interface{ Abort() error }); ok {
+		_ = a.Abort()
+		return
+	}
+	_ = conn.Close()
 }
 
 func socketConnectHeader(s *Socket) parser.Header {

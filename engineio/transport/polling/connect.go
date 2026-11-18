@@ -217,6 +217,7 @@ func (c *clientConn) servePost() {
 		buf.Reset()
 
 		if err := c.payload.FlushOut(postBodyWriter{Writer: &buf, c: c}); err != nil {
+			c.closeOnPayloadError("post", err)
 			return
 		}
 		query.Set("t", transport.Timestamp())
@@ -408,6 +409,7 @@ func (c *clientConn) poll(req *http.Request) bool {
 
 	if err = c.payload.FeedIn(c.responseBody(resp), isSupportBinary); err != nil {
 		abandonBody(resp.Body)
+		c.closeOnPayloadError("get", err)
 
 		return false
 	}
@@ -415,6 +417,24 @@ func (c *clientConn) poll(req *http.Request) bool {
 	c.remoteHeader.Store(resp.Header)
 	discardBody(resp.Body)
 	return true
+}
+
+// closeOnPayloadError closes the connection after FeedIn or FlushOut failed,
+// so that readers and writers see the end of the session instead of waiting for
+// a poller or a POST that no longer runs. It does nothing when the connection
+// is already closed: the close is then what ended FeedIn or FlushOut. An
+// upgrade pause does not fail them: PauseContext gates the loops instead.
+func (c *clientConn) closeOnPayloadError(op string, err error) {
+	c.writableMu.Lock()
+	stopped := c.stopped
+	c.writableMu.Unlock()
+	if stopped {
+		return
+	}
+	logger.Log.Debug("engineio: polling "+op+" failed", "err", err)
+	if err = c.Close(); err != nil {
+		logger.Log.Debug("engineio: close connection failed", "err", err)
+	}
 }
 
 // abandonBody closes a response body after a failed FeedIn. FeedIn can return on

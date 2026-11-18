@@ -24,6 +24,7 @@ func TestRoleConsumerFixtures(t *testing.T) {
 		{"engine_codecs", ""},
 		{"external_server", ""},
 		{"external_client", ""},
+		{"external_browser", ""},
 		{"external_client_namespace", "undefined: client.NamespaceHandler"},
 		{"external_client_connection", "undefined: client.Manager"},
 		{"external_server_namespace", "undefined: socketio.NamespaceHandler"},

@@ -152,7 +152,7 @@ func prepareOptions(u *url.URL, opts ...Option) (address, namespace string, conf
 			copied := *t
 			copied.EnableCompression = config.PerMessageDeflate
 			copied.CompressionThreshold = 1024
-			config.Transports[i] = &copied
+			config.Transports[i] = platformTransport(&copied)
 		}
 	}
 	if config.WriteBufferSize <= 0 {

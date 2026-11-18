@@ -227,6 +227,6 @@ Socket.IO v4 → v5:
 
 Not planned: EIO=3 in v2, permessage-deflate, connection state recovery. WebTransport and
 WebSocket over HTTP/2 are not implemented; they are planned in
-[ROADMAP.md](ROADMAP.md#stage-7-additional-engineio-transports). Socket.IO packets are JSON text
-only; the opt-in MessagePack parser of Node's `socket.io-msgpack-parser` is planned in
+[ROADMAP.md](ROADMAP.md#stage-7-additional-engineio-transports). Socket.IO packets use the JSON
+text envelope (with binary attachments); the opt-in MessagePack parser of Node's `socket.io-msgpack-parser` is planned in
 [ROADMAP.md](ROADMAP.md#23m-opt-in-messagepack-parser).

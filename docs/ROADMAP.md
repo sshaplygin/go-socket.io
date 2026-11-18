@@ -1188,15 +1188,24 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
 | `TestMessagePackNodeServer` | `client` | the same with the Go client against a Node `socket.io` server |
 | `FuzzMessagePackDecode` | `parser` | seeded with the Node fixtures, 30 s clean: no panic, and what decodes re-encodes and decodes to an equal `Packet` |
 
-DoD for 2.3M: the first fifteen tests of the table pass under `-race` (the count makes a
-missing test fail); `FuzzMessagePackDecode` runs 30 s clean; the oracle passes with the
+DoD for 2.3M: the first fifteen tests of the table pass under `-race`, counted so that a
+missing test fails; `FuzzMessagePackDecode` runs 30 s clean; the oracle passes with the
 pinned versions; no 2M PR changes `go.mod`, `go.sum` or the tests and fixtures of
-`adapter/codec` (each checks its diff against its merge base); `make g2` passes with a
-positive fixture (both settings) and a negative one (a string as `Parser`); V2_PROTOCOL,
-API.md and CHANGELOG list the changes. Every 2M PR runs this block from `v2/`.
+`adapter/codec`; `make g2` passes, at the join gate with a positive fixture (both settings)
+and a negative one (a string as `Parser`); V2_PROTOCOL, API.md and CHANGELOG list the
+changes, and the commands of `CLAUDE.md` list `SOCKETIO_NODE_INTEROP`. Every 2M PR runs the
+first block from `v2/`; its merge-base diff needs a checkout with complete history
+(`fetch-depth: 0` in CI). The PR that passes the join gate also runs the second block.
 
 ```sh
+set -e
 go test -race -count=1 ./parser/... ./internal/mpack ./adapter/codec . ./client
+git diff --exit-code "$(git merge-base origin/master HEAD)" -- go.mod go.sum 'adapter/codec/*_test.go' adapter/codec/testdata
+make g2
+```
+
+```sh
+set -e
 N=$(go test -race -count=1 -json -run '^(TestParserDefaultIsJSON|TestOptionsParserNormalize|TestServerParserWiring|TestClientParserWiring|TestMessagePackPacketRoundTrip|TestMessagePackNodeFixtures|TestMessagePackExtensions|TestMessagePackLimits|TestMessagePackEncodeConcurrent|TestMessagePackOracleBridge|TestMessagePackMismatch|TestMessagePackWireFrames|TestMessagePackGoRoundTrip|TestMessagePackLimitIsolation|TestMessagePackHooks)$' ./parser . ./client | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
 [ "$N" -eq 15 ]
 go test -run '^$' -fuzz '^FuzzMessagePackDecode$' -fuzztime 30s ./parser
@@ -1204,24 +1213,22 @@ R=parser/testdata/msgpack
 npm ci --ignore-scripts --no-audit --no-fund --prefix "$R"
 [ "$(npm ls --all --prefix "$R" socket.io-msgpack-parser notepack.io | grep -c -F -e socket.io-msgpack-parser@3.0.2 -e notepack.io@2.2.0)" -eq 2 ]
 npm test --prefix "$R"
-git diff --exit-code "$(git merge-base origin/master HEAD)" -- go.mod go.sum 'adapter/codec/*_test.go' adapter/codec/testdata
-make g2
 ```
 
 Acceptance for 2.3M, from `v2/`: the four Node subtests pass with none skipped (the block
 below, the join gate, repeated at the tag that carries 2.3M), and the 5L browser tests
-against the pinned Admin UI run once more against `_examples/admin` started with
-`-parser msgpack`, the UI's parser set to MessagePack (a setting of the UI since 0.3.0). The
-example module builds with a `replace` directive, so `contrib/admin` and its `go.mod` do not
-change.
+against the pinned Admin UI run once more, through their server-address setting, against
+`_examples/admin` started with `-parser msgpack`, the UI's parser set to MessagePack (in the
+UI since 0.3.0). The example uses a `replace` directive, so `contrib/admin` does not change.
 
 ```sh
+set -e
 npm ci --ignore-scripts --no-audit --no-fund --prefix parser/testdata/msgpack
 export SOCKETIO_NODE_INTEROP=1
 J=$(mktemp)
 go test -race -count=1 -json -run '^(TestMessagePackNodeClient|TestMessagePackNodeServer)$' ./client > "$J"
 [ "$(grep -E -c '"Action":"pass","Package":"[^"]+","Test":"TestMessagePackNode(Client|Server)/(websocket|polling)","Elapsed"' "$J")" -eq 4 ]
-! grep -q '"Action":"skip"' "$J"
+if grep -q '"Action":"skip"' "$J"; then exit 1; fi
 ```
 
 ### 2.4 Observability

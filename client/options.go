@@ -65,6 +65,7 @@ func WithQuery(value url.Values) Option {
 }
 
 // WithHeader sets request headers, copied when New is called, including websocket upgrades.
+// On js/wasm websocket upgrades carry none of them; see browser.Transport.
 func WithHeader(value http.Header) Option {
 	return func(config *options) { config.Header = value }
 }

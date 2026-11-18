@@ -284,6 +284,28 @@ rejects the handshake. Applications needing to reject HTTP requests must also
 use request authentication/access controls, such as HTTP middleware. In
 particular, do not rely on the permissive default for cookie-authenticated access.
 
+### Browser clients
+
+A Go client built for `GOOS=js GOARCH=wasm` opens its websocket connections with the
+browser's WebSocket API through `engineio/transport/browser`; the
+[`browser.Transport` documentation](../engineio/transport/browser/transport.go) states
+what its `Dial` and connections do with headers. On the wire, such a connection differs
+from one of the native Go client:
+
+- The handshake request carries only the headers that the browser sets: its `Origin`
+  is the page's origin, its cookies are the browser's cookies for the server's site,
+  and no application header is sent. The browser does not expose the handshake
+  response. `socket.io-client` in a browser has the same limits.
+- The browser negotiates `permessage-deflate` itself.
+- A page can send close codes 1000 and 3000–4999 only. The client sends 1000 on
+  `Close`, as the native client does. Where the native client drops the TCP connection
+  without a close frame (after a transport error, or for an upgrade probe that it does
+  not switch to), it sends 4000; where the native client sends 1009 for a message past
+  its size limit, it sends 4009. The server reports both as a transport error, as it
+  reports 1009.
+- A browser reports a failed connection without detail: the error of the transport's
+  `Dial` carries only the close code of the browser's close event, usually 1006.
+
 ## Socket.IO protocol v4
 
 The v1 module at the repository root: the `socketio` package and `parser` (`parser.Buffer`,

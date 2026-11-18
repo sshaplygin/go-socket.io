@@ -15,6 +15,7 @@ internal tests live beside the implementation they verify.
 | `_examples/` | Runnable v1 applications; each has its own module except `_examples/client` |
 | `engineio/_examples/` | Engine.IO echo application in the root module |
 | `internal/conformance/` | Tagged interoperability tests and pinned Node fixtures |
+| `internal/browsertest/` | js/wasm client tests run in headless Chrome; their native fixture server in `server/` (tag `browsertest`) |
 | `internal/parity/` | Consumer compilation, role boundaries and library lifecycle policy |
 | `.github/architecture/` | Runtime dependency and package-privacy checks |
 | `.github/changes/` | CI and benchmark change classification |
@@ -26,7 +27,9 @@ internal tests live beside the implementation they verify.
 ## Commands
 
 Go 1.22+ is required. Linting uses golangci-lint v2.15.0; vulnerability checks use
-`govulncheck` v1.9.0. Build those tools with a current Go toolchain.
+`govulncheck` v1.9.0; browser tests use `wasmbrowsertest` v0.11.0
+(`make install-wasmbrowsertest`, version `WASMBROWSERTEST_VERSION` in the Makefile) and
+Google Chrome. Build those tools with a current Go toolchain.
 
 ```sh
 make test               # root module tests, no external services
@@ -36,10 +39,11 @@ make test-jsonv2        # parser and Socket.IO roles with GOEXPERIMENT=jsonv2
 make test-stress        # concurrent packages, shuffled and repeated
 make test-stress-load   # the stress packages repeated under CPU load; writes stress.json and stress-summary.md
 make lint               # formatting, vet and golangci-lint, example modules and quick-start fixture included
-make vet                # Linux/macOS/Windows, conformance and example packages
+make vet                # Linux/macOS/Windows, js/wasm, conformance, browsertest and example packages
 make gates              # architecture, lifecycle and public consumer fixtures
 make cover-check        # statement coverage floor and uncovered public functions
 make sync-check         # compare the explicit pairs in .github/sync-manifest
+make test-browser       # js/wasm tests in headless Chrome against the fixture server
 make examples           # build/vet applications and test shared chat/lifecycle code
 make bench              # benchmarks with allocation counts
 make vuln               # scan the root and example modules
@@ -56,6 +60,14 @@ variables are `STRESS_COUNT` (20), `STRESS_CPU` (`1,4`), `STRESS_TIMEOUT` (`90m`
 `ci.yaml` does so and uploads it to Codecov (`CODECOV_TOKEN`; a failed upload does not fail
 the job, the floor does). `codecov.yml` sets fixed Codecov project and patch targets;
 those statuses are not required checks.
+`test-browser` starts `go run -tags browsertest ./internal/browsertest/server`, runs
+`internal/browsertest`, `engineio/transport/browser` and the `TestPlatformTransport` tests
+of `client` with `GOOS=js GOARCH=wasm go test -exec wasmbrowsertest`, and stops the server
+when it exits, fails or is interrupted. It fails on a test failure or a JavaScript error
+in the output; `BROWSER_COUNT` (1) sets `-count`, and `BROWSER_COVER` (`browser-cover.out`)
+receives the statement profile of `engineio/transport/browser`, which `cover-check` does
+not see. `SOCKETIO_BROWSER_LEAK=1` makes a test leak a client to show that the goroutine
+gate fails under wasm.
 For v2, use `make -C v2 <target>`; `graph`, `freeze` and `fixtures` check its API
 contract, and `experiments` validates its standalone modules. The v2 examples
 are not built by its current `examples` target.
@@ -83,7 +95,13 @@ Unix socket; see [_examples/README.md](_examples/README.md).
 
 `.github/workflows/ci.yaml` tests the change classifier before selecting jobs.
 Pull requests select affected packages and their reverse dependencies on Linux
-and run the conformance build tag when selected. Source changes run tests;
+and run the conformance build tag when selected. The classifier also lists the
+packages for `GOOS=js GOARCH=wasm` and with the `browsertest` tag; those listings
+never add a package to the native test jobs. `browser_v1` selects the `test-v1-browser`
+job (`make test-browser BROWSER_COUNT=3` on Linux, Go stable, part of `ci-ok`) on a
+full run or when the selected tests include `internal/browsertest`, its fixture server or
+`engineio/transport/browser`, which a change of the client, the root package or
+`engineio` reaches. Source changes run tests;
 ordinary comment/formatting changes run lint. Example changes select their
 build and interoperability jobs. Module, workflow and unclassified changes
 select all jobs. Pushes to `master`, scheduled runs and manual runs test both
@@ -95,8 +113,9 @@ contract and README quick start, and the v2 API inventory. Other Markdown does
 not select runtime tests.
 Gate tests run in their own job when selected package tests do not already cover
 them. The architecture check runs both in the gate job and alongside selected
-v1 package tests. The `ci-ok` job aggregates all checks and fails if any selected
-job failed or was cancelled. Validate result handling with
+v1 package tests; `make architecture-check` also checks the js/wasm package graph.
+The `ci-ok` job aggregates all checks and fails if any selected job failed or was
+cancelled. Validate result handling with
 `bash .github/ci/aggregate_test.sh` and selection with `go test ./.github/changes`.
 
 The v1 matrix includes stable/oldstable Go on Linux for every event, and on
@@ -151,8 +170,9 @@ workflow exercises the report action with the collected benchmark samples.
   exit status, whose files the configuration names.
 - The test packages of the packages that start goroutines (root, `client`,
   `adapter/redis`, `engineio`, `engineio/client`, `engineio/internal/session` and the
-  polling and websocket transports) fail when library goroutines remain after
-  cleanup; fixtures must close clients and unblock callbacks.
+  polling, websocket and browser transports) and `internal/browsertest` fail when
+  library goroutines remain after cleanup; fixtures must close clients and unblock
+  callbacks.
 - Reproduce a bug with a behavioral test; verify concurrency changes with `-race`.
   Test observable contracts, failure paths and boundaries. Avoid tests that only
   repeat implementation details or count documentation markers.

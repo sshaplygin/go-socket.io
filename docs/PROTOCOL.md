@@ -165,6 +165,15 @@ Package `engineio` of the v1 module at the repository root.
 - The Go client limits incoming websocket messages (inflated bytes) and whole decoded
   polling response bodies, OPEN included, to 1 MiB by default. The configurable
   limit also applies to reconnects and candidate upgrade transports before probe I/O.
+- The Go client's polling GETs, the handshake included, carry no `Content-Type`
+  unless the request header given to the client sets one, as engine.io-client 3.5.6
+  does. Its POSTs carry `Content-Type: application/octet-stream`, or
+  `text/plain;charset=UTF-8` with `b64=1`; engine.io-client 3.5.6 instead chooses by
+  payload and sends `application/octet-stream` only for a payload that contains a
+  binary packet. In a browser, a cross-origin handshake without other non-safelisted
+  headers is therefore sent without a preflight, which the server would answer
+  HTTP 400 with code 2; a POST without `b64=1` is preflighted, and the server answers
+  that `OPTIONS` request on the open session with HTTP 200 (see [CORS](#cors)).
 - When the Go client closes a polling connection, it queues `CLOSE` (`1`) behind the
   packets already written, lets the in-flight POST finish and sends `CLOSE` in a final
   POST before it cancels outstanding requests, as engine.io-client 3.5.6 does. `Close`

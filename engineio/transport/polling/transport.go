@@ -82,6 +82,10 @@ func (t *Transport) Accept(w http.ResponseWriter, r *http.Request) (transport.Co
 // Dial returns a client connection to u, with the transport query parameter
 // set; it modifies u. It sends no request: the connection's Open performs the
 // handshake. Requests use t.Client, or Default.Client when it is nil.
+//
+// Dial copies requestHeader and does not modify it. Each request sends its own
+// copy, so a cookie jar or RoundTripper that changes one request's header does
+// not affect the others; POSTs also carry the Content-Type of their payload.
 func (t *Transport) Dial(u *url.URL, requestHeader http.Header) (transport.Conn, error) {
 	query := u.Query()
 	query.Set("transport", t.Name())
@@ -106,7 +110,7 @@ func dial(client *http.Client, url *url.URL, requestHeader http.Header) (*client
 	ctx, cancel := context.WithCancel(req.Context())
 	req = req.WithContext(ctx)
 	for k, v := range requestHeader {
-		req.Header[k] = v
+		req.Header[k] = append([]string(nil), v...)
 	}
 	supportBinary := req.URL.Query().Get("b64") == ""
 	postContentType := "application/octet-stream"

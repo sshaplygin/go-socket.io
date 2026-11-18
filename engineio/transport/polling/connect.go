@@ -206,8 +206,8 @@ func (c *clientConn) servePost() {
 
 	req.URL = &reqUrl
 	req.Method = http.MethodPost
-	req.Header = req.Header.Clone()
-	req.Header.Set("Content-Type", c.postContentType)
+	header := req.Header.Clone()
+	header.Set("Content-Type", c.postContentType)
 
 	var buf bytes.Buffer
 	req.Body = io.NopCloser(&buf)
@@ -221,6 +221,7 @@ func (c *clientConn) servePost() {
 		}
 		query.Set("t", transport.Timestamp())
 		req.URL.RawQuery = query.Encode()
+		req.Header = header.Clone()
 
 		resp, err := c.httpClient.Do(&req)
 		if err != nil {
@@ -279,6 +280,7 @@ func (c *clientConn) getOpen() {
 	reqUrl := *req.URL
 	req.URL = &reqUrl
 	req.Method = http.MethodGet
+	req.Header = req.Header.Clone()
 
 	query.Set("t", transport.Timestamp())
 	req.URL.RawQuery = query.Encode()
@@ -354,6 +356,7 @@ func (c *clientConn) serveGet(after <-chan struct{}) {
 		}
 		query.Set("t", transport.Timestamp())
 		req.URL.RawQuery = query.Encode()
+		req.Header = c.request.Header.Clone()
 		keep := c.poll(&req)
 		c.setPolling(false)
 		if !keep {

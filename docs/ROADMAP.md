@@ -1134,11 +1134,12 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
   is configured, and a binary message with no attachment pending where JSON is, is a
   malformed envelope: the session closes with `parse error` (`engineio.CloseParseError`),
   with no CONNECT_ERROR and no handler run. The Go client closes the same way and then
-  follows 2.3C: before the CONNECT ack as after a failed first dial, after it as for any
-  lost session, with `parse error` as the `OnDisconnect` reason. Socket.IO hooks receive the
-  same values in both formats; `PacketRead` and `PacketWrite` report a binary `Frame`. In a
-  MessagePack session the 2.4S redactor leaves the preview of a binary frame empty (fail
-  closed); the previews of JSON sessions do not change.
+  follows 2.3C: before the CONNECT ack as after a failed first dial (in a reconnection
+  attempt as after a failed dial: `OnReconnectError`, the loop continues), after it as for
+  any lost session, with `parse error` as the `OnDisconnect` reason. Socket.IO hooks
+  receive the same values in both formats; `PacketRead` and `PacketWrite` report a binary
+  `Frame`. In a MessagePack session the 2.4S redactor leaves the preview of a binary frame
+  empty (fail closed); the previews of JSON sessions do not change.
 - **Deviations from Node.** Node returns `[type, bytes]` for any other extension, keeps the
   last of duplicate keys, converts other key types to strings, replaces invalid UTF-8 by
   U+FFFD, accepts NaN, infinities and placeholder-shaped maps, and checks only the types of
@@ -1182,7 +1183,7 @@ format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `s
 | `TestMessagePackLimits` | `parser` | one case per error of *Untrusted input*; per bound an at-limit case passes and limit+1 fails; a map `{type: 2, nsp: "/", data: H}` ending in a header `H` of at most 6 bytes that declares 2^32-1 bytes of str, bin or ext (type 0) or 2^32-1 entries of array or map returns `ErrInvalid`, and `AllocedBytesPerOp` of `testing.Benchmark` stays at most 1 KiB for each |
 | `TestMessagePackEncodeConcurrent` | `parser` | 32 goroutines encode one `Packet` with three attachments under `-race`; the `Packet` equals its snapshot and every output equals `testdata/msgpack/concurrent.hex` |
 | `TestMessagePackOracleBridge` | `parser` | the bridge of `testdata/msgpack` builds and answers, as `TestOracleBridge` does |
-| `TestMessagePackMismatch` | `client` | six cells, each on websocket and on polling (twelve subtests), each closed within 100 ms of the mismatching message with no CONNECT_ERROR and no event handler run. Server-detected, two cells: a Go server of each format against a Go client of the other; the server closes, its `SessionClose` hook reports `CloseParseError` and `Connect` returns an error. Client-detected before the ack, two cells: a raw Engine.IO server answers the CONNECT in the format the Go client does not use; the client closes first, `Connect` returns an error matching `parser.ErrUnexpectedFrame` (JSON client) or `parser.ErrInvalid` (MessagePack client), `OnConnect` and `OnDisconnect` do not run, and with reconnection left on no second handshake reaches the raw server within the 100 ms. Client-detected after the ack, two cells with `WithReconnection(false)`: the raw server acks the CONNECT in the client's format, then sends an EVENT in the other; the client closes first, `OnDisconnect` receives `parse error` once, and no second handshake reaches the raw server within the 100 ms |
+| `TestMessagePackMismatch` | `client` | six cells, each on websocket and on polling (twelve subtests), each closed within 100 ms of the mismatching message with no CONNECT_ERROR, no event handler run and no second handshake within those 100 ms. Server-detected, two cells, reconnection left on: a Go server of each format against a Go client of the other; the server closes, its `SessionClose` hook reports `CloseParseError` and `Connect` returns a non-nil error (the client sees only a closed transport). Client-detected before the ack, two cells, reconnection left on: a raw Engine.IO server answers the CONNECT in the format the Go client does not use; the client closes first, `Connect` returns an error matching `parser.ErrUnexpectedFrame` (JSON client) or `parser.ErrInvalid` (MessagePack client), and `OnConnect` and `OnDisconnect` do not run. Client-detected after the ack, two cells with `WithReconnection(false)`: the raw server acks the CONNECT in the client's format, then sends an EVENT in the other; the client closes first and ends as 2.3C states for a lost session, with `parse error` given once to `OnDisconnect` |
 | `TestMessagePackWireFrames` | `client` | on both transports every Socket.IO message is binary (`b` on polling); ping, pong, probe and upgrade stay text |
 | `TestMessagePackGoRoundTrip` | `client` | a Go server and a Go client with `FormatMessagePack`, subtests `websocket` and `polling`: CONNECT with auth, an event with nested binary values, an ack in each direction, one of them with binary |
 | `TestMessagePackLimitIsolation` | root | an oversize message closes only its own session |
@@ -1196,9 +1197,9 @@ missing test fails; `FuzzMessagePackDecode` runs 30 s clean; the oracle passes w
 pinned versions; no 2M PR changes `go.mod`, `go.sum` or the tests and fixtures of
 `adapter/codec`; `make g2` passes, at the join gate with a positive fixture (both settings)
 and a negative one (a string as `Parser`); V2_PROTOCOL, API.md and CHANGELOG list the
-changes, and the commands of `CLAUDE.md` list `SOCKETIO_NODE_INTEROP`. Every 2M PR runs the
-first block from `v2/`; its merge-base diff needs a checkout with complete history
-(`fetch-depth: 0` in CI). The PR that passes the join gate also runs the second block.
+changes, and the commands of `CLAUDE.md` list `SOCKETIO_NODE_INTEROP`. The author of
+every 2M PR runs the first block from `v2/` in a clone with complete history (for the
+merge-base diff) and records it in the PR body; the join-gate PR also runs the second.
 
 ```sh
 set -e
@@ -1223,7 +1224,8 @@ Acceptance for 2.3M, from `v2/`: the four Node subtests pass with none skipped (
 below, the join gate, repeated at the tag that carries 2.3M), and the 5L browser tests
 against the pinned Admin UI run once more, through their server-address setting, against
 `_examples/admin` started with `-parser msgpack`, the UI's parser set to MessagePack (in the
-UI since 0.3.0). The example uses a `replace` directive, so `contrib/admin` does not change.
+UI since 0.3.0). The example uses a `replace` directive, so the library code and `go.mod`
+of `contrib/admin` do not change.
 
 ```sh
 set -e

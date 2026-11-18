@@ -35,6 +35,7 @@ owning contract and consumer fixtures together.
 | 3A | M3 | freeze chat event schema; then server, browser/CLI and load client in separate directories | M4 single-server acceptance |
 | 5L-A | M3 | freeze single-server admin observation, snapshot/watermark types, command capability and command-result contracts, session-store interface and advertised features; pin the UI release and instrumentation fixtures | 5L contract gate |
 | 5L-B | 5L-A | core observers/snapshots; admin wire/auth module; memory-adapter command capability; browser tests against the pinned UI | M3A acceptance |
+| 2M | M3A | 2.3M MessagePack parser: `parser/` (new files and `testdata/msgpack`); `internal/mpack`; in `adapter/codec` only the move of `mpread.go` and `mpwrite.go` with their callers `broadcast.go` and `response.go` (the first 2M PR; overlaps 4A and 5C-A, see 2.3M *Delivery*); the two `internal/mpack` rules in `graph_test.go`; the root `Options.Parser` field with its reader/writer selection; `WithParser` in `client/`; the binary-frame case of the 2.4S redactor; the `-parser` flag of `_examples/admin`; the server-address setting of the 5L browser tests; the extension of the v2 Node CI job that 2.5T creates (that job only) with its classifier entry; no other wave waits for it | 2.3M DoD and Acceptance |
 | 4A | M4 | freeze codec fixtures and adaptertest cases; then Redis and NATS modules independently | each passes shared conformance suite |
 | 4B | 4A | cluster chat profile; mixed Go/Node Redis tests in separate test directories | M5 cluster acceptance |
 | 5C-A | M5, M3A | freeze the 5C additions to the 5L contracts: the node snapshot/watermark adapter interface, the broker encoding of remote commands and the shared-store implementation contract; 5L-A signatures do not change | 5C contract gate |
@@ -1065,6 +1066,176 @@ nsp.OnRaw(func(ctx context.Context, s *socketio.Socket, e socketio.RawEvent) err
   returns at once and leaves no goroutine, and `Close` on a new client, on an ended one and
   called twice returns nil.
 - Example migration is owned by 2.5D after runtime and observability gates pass.
+
+### 2.3M Opt-in MessagePack parser
+
+Entry: M3A. Exit: the Acceptance below; [Milestones](#milestones) names the root minor
+that carries it. No gate of M3, 5L-A, 5L-B or M3A waits for it. The default client-server
+format stays JSON text exactly as in Socket.IO protocol v5 over Engine.IO v4. 2.3M adds the
+format of Node's `socket.io-msgpack-parser` 3.0.2 (`notepack.io` 2.2.0; peers `socket.io` and
+`socket.io-client` 4.8.4) on the server and the Go client, selected by an option on each end.
+
+- **Selection.** `parser.Format` (`uint8`) is `FormatJSON`, the zero value, or
+  `FormatMessagePack`. The root `Options` gains `Parser parser.Format`, the 2.3C client
+  `WithParser(parser.Format)`. Every existing literal keeps JSON; `Options.Normalize` and
+  `client.New` return an error for any other value. A server uses one format for every
+  session and namespace, the 5L admin namespace included; a client for every dial,
+  reconnections included. Nothing negotiates or detects the format, as in Node. No frozen
+  declaration changes ([API.md](API.md#not-frozen)).
+- **Code.** `parser` gains `EncodeMessagePack(Packet, Limits) ([]byte, error)` and
+  `DecodeMessagePack([]byte, Limits) (Packet, error)`, which return the existing sentinels
+  (`ErrInvalid`, `ErrTooLarge`, `ErrTooManyAttachments`, `ErrDepth`, `ErrAttachments`). They
+  use the two conversions of `adapter/codec`, which move to the new package `internal/mpack`
+  (standard library only); 2.3M writes no other reader or writer. `internal/mpack` returns
+  its own errors: `parser` maps them to the sentinels above, `adapter/codec` to its
+  `ErrMalformed`, `ErrLimit` and `ErrInvalid` as today. `mpread.go` is the bounded
+  reader, MessagePack to JSON text, with `appendJSONString`, which `response.go` calls.
+  `mpwrite.go` is the writer, JSON text to MessagePack; its calls of the
+  `vmihailenco/msgpack/v5` encoder become byte appends, so `adapter/codec` imports that
+  library only for the `EncodeBroadcast` envelope in `broadcast.go`; `TestWriterGoldenWidths`
+  proves the same bytes, the unchanged tests of `adapter/codec` being a second check. Three
+  options stay off for `adapter/codec`: in the reader the extensions below and the rejection
+  of duplicate map keys, in the writer the repeated placeholder of *Wire*.
+  `TestForbiddenEdge` gains two rules (`internal/mpack` imports nothing of this module; only
+  `parser` and `adapter/codec` import it); the API.md graph gains both edges; `go.mod` stays.
+- **Wire.** A packet is one MessagePack map with the keys `type` (0 to 4), `nsp` (a string),
+  `data` and `id`, the last two absent when unset; types 5 and 6 do not exist in this format,
+  and binary values are `bin` values inside `data`. Every Socket.IO packet is one Engine.IO
+  binary message: a binary websocket message, or `b` plus base64 on polling. Engine.IO ping,
+  pong, probe, upgrade and noop stay text. The decoder takes the keys in any order and ignores
+  other top-level keys, as Node does (`socket.io-client` adds `options` to every EVENT). It
+  returns the frozen `Packet` forms of the text path, each binary value a
+  `{"_placeholder":true,"num":N}` in order of appearance with its bytes in `Attachments[N]`,
+  and applies the checks of the 2.3P decoder. The encoder writes `type`, `nsp`, `data`, `id` in
+  that order and numbers as `notepack.io` does up to 2^53 (smallest integer form, else
+  float64; a larger integral value in exponent form stays float64 where `notepack.io` writes
+  a 64-bit integer, other bytes for the same value). It writes a `bin` for each placeholder,
+  the same `bin` again for a repeated index, which 2.3P and Node accept. `Attachments` on a
+  type other than Event or Ack, a placeholder whose index has no attachment and an attachment
+  that no placeholder references, which this wire cannot carry, are `ErrAttachments`. It
+  only reads the `Packet`, so a shared packet may be encoded concurrently.
+- **Extensions.** `notepack.io` writes extension type 0 only, and only its Node build writes
+  ext 8, 16 or 32, for an `ArrayBuffer` or a typed array other than `Buffer`. The decoder
+  reads fixext 1 `d4 00 00` as `undefined` (`null` in an array, the member omitted in a map,
+  `data` or `id` absent at the top), fixext 8 `d7 00` and a signed 64-bit millisecond count
+  as a `Date`, written as its `toISOString` string (beyond ±8.64e15 ms `ErrInvalid`), and
+  ext 8, 16 or 32 of type 0 as a binary value like `bin`. The encoder writes no extension.
+- **Untrusted input.** `MaxEventBytes` bounds the message and also the decoded `Data` plus
+  `Attachments`; `MaxAttachments` bounds the binary values; `MaxDepth` (default
+  `DefaultMaxDepth`, 64) bounds the arrays and maps in `data`, with the 10000-level ceiling of
+  `ErrDepth` whatever `MaxDepth` is. Each declared str, bin, ext, array or map length is
+  checked against the bytes left before any allocation. Truncation, trailing bytes, an empty
+  message, invalid UTF-8, a non-string or duplicate map key, NaN or an infinity, any other
+  extension, a map shaped like a placeholder (as in `adapter/codec`) and a missing `type` or
+  `nsp` are `ErrInvalid`; nothing panics. No attachment timeout applies.
+- **Runtime.** The root reader decodes each binary message with `DecodeMessagePack` and the
+  writer sends one binary message per packet, under the 2.3S limit and error mapping
+  (`ErrMessageTooLarge`, `ErrTooManyAttachments`). A text Socket.IO message where MessagePack
+  is configured, and a binary message with no attachment pending where JSON is, is a
+  malformed envelope: the session closes with `parse error` (`engineio.CloseParseError`),
+  with no CONNECT_ERROR and no handler run. The Go client closes the same way and then
+  follows 2.3C: before the CONNECT ack as after a failed first dial (in a reconnection
+  attempt as after a failed dial: `OnReconnectError`, the loop continues), after it as for
+  any lost session, with `parse error` as the `OnDisconnect` reason. Socket.IO hooks
+  receive the same values in both formats; `PacketRead` and `PacketWrite` report a binary
+  `Frame`. In a MessagePack session the 2.4S redactor leaves the preview of a binary frame
+  empty (fail closed); the previews of JSON sessions do not change.
+- **Deviations from Node.** Node returns `[type, bytes]` for any other extension, keeps the
+  last of duplicate keys, converts other key types to strings, replaces invalid UTF-8 by
+  U+FFFD, accepts NaN, infinities and placeholder-shaped maps, and checks only the types of
+  `nsp` and `id`; Go rejects each. `adapter/codec` keeps refusing extensions, so a Node peer
+  of the M5 mixed Redis cluster that broadcasts an `ArrayBuffer` (ext type 0) is rejected
+  there. 2M adds a section for this format to V2_PROTOCOL: its list *Deliberate differences
+  from `socket.io-msgpack-parser`* holds the former, its note *Adapter messages* the latter.
+- **Node oracle.** `parser/testdata/msgpack` pins the packages above in its
+  `package-lock.json`, with a Go bridge and `verify.mjs` as in `parser/testdata/oracle`: Node
+  encodes the corpus `cases.json` to committed hex fixtures and decodes each Go encoding to
+  the object it encoded. Invalid fixtures form two named classes, each fixture with its
+  expected Go error: *rejected by both*, and *accepted by Node, rejected by Go on purpose*
+  with one fixture per deviation of *Deviations from Node*.
+- **Interop, CI and example.** The Node tests below use the modules that `npm ci` installs in
+  `parser/testdata/msgpack`. Without Node or without those modules they skip; under
+  `SOCKETIO_NODE_INTEROP=1` they fail instead. Wave 2M extends the v2 Node CI job that 2.5T
+  creates (that job only): it runs `npm ci` there and the two tests with the switch set. Its
+  change-classifier entry selects the job for `parser/testdata/msgpack` and for the changes
+  that select the tests of `parser`, `internal/mpack`, `client` or the root package.
+  `_examples/admin` gains a `-parser msgpack` flag (`FormatMessagePack` on the server, the
+  Node parser on its page); the 5L browser tests gain a setting for an external server.
+- **Delivery.** 2M lands as several PRs. The first only moves the reader and the writer to
+  `internal/mpack`: in `adapter/codec` it removes `mpread.go` and `mpwrite.go` and edits
+  their callers `broadcast.go` and `response.go`. It is the one 2M change in `adapter/codec`,
+  which 4A and 5C-A also write, so it merges between their PRs. PRs before the join gate add
+  unexported or internal code only; every exported identifier of *Selection* and *Code*
+  lands in the PR that passes the join gate, so no root tag publishes it without the runtime.
+- Out of scope: autodetection, custom parsers, MessagePack in v1 and a speed claim; the
+  benchmark workflow reports `BenchmarkCodec` (`parser`; both formats, encode and decode).
+
+| Test | Package | Asserts |
+| --- | --- | --- |
+| `TestWriterGoldenWidths` | `internal/mpack` | added by the move PR: the writer's bytes equal `testdata/widths.json`, which the `vmihailenco` writer of the merge base generated (the PR body records the command), on each side of every width boundary: integers from fixint to uint64 and int64 (-33/-32, 127/128, 255/256, 65535/65536, 2^32-1/2^32, -129/-128, -32769/-32768, -2^31-1/-2^31, the extremes -2^63 and 2^64-1), an integral float up to 2^53 as an integer and above it as float64, a fraction as float64, str lengths 31/32, 255/256 and 65535/65536, bin lengths 255/256 and 65535/65536, array and map sizes 15/16 and 65535/65536 |
+| `TestParserDefaultIsJSON` | `client` | with zero `Options` and a client without `WithParser`, every Socket.IO message on both transports is text and equals the 2.3P encoding; the zero `parser.Format` is `FormatJSON` |
+| `TestOptionsParserNormalize` | root | zero and both constants are kept; any other value fails `Normalize` |
+| `TestServerParserWiring` | root | the format reaches every session and namespace, `/` and a created one |
+| `TestClientParserWiring` | `client` | `WithParser` reaches the first dial and a reconnection; `New` rejects any other value |
+| `TestMessagePackPacketRoundTrip` | `parser` | every case of `cases.json` (the valid 2.3P oracle cases, IDs 0 and 2^53-1, nested binary values) gives the same `Packet` through both formats, `Data` compared as JSON values; a repeated placeholder index encodes to two equal `bin` values, and each `ErrAttachments` case of *Wire* returns it |
+| `TestMessagePackNodeFixtures` | `parser` | every committed Node fixture decodes to its expected `Packet` or error: each corpus case with its binary values as `Buffer` and as `ArrayBuffer`, `undefined` and `Date` cases, `client-emit-options` (the bytes of a real `socket.io-client` `emit` with an ack) to the event without `options`, the *rejected by both* fixtures (truncation, trailing bytes, type 5, no `nsp`) and one fixture per deviation; a corpus case without a fixture fails |
+| `TestMessagePackExtensions` | `parser` | each case of *Extensions*; an `ArrayBuffer` and a `Buffer` give equal packets; other extension types fail |
+| `TestMessagePackLimits` | `parser` | one case per error of *Untrusted input*; per bound an at-limit case passes and limit+1 fails; a map `{type: 2, nsp: "/", data: H}` ending in a header `H` of at most 6 bytes that declares 2^32-1 bytes of str, bin or ext (type 0) or 2^32-1 entries of array or map returns `ErrInvalid`, and `AllocedBytesPerOp` of `testing.Benchmark` stays at most 1 KiB for each |
+| `TestMessagePackEncodeConcurrent` | `parser` | 32 goroutines encode one `Packet` with three attachments under `-race`; the `Packet` equals its snapshot and every output equals `testdata/msgpack/concurrent.hex` |
+| `TestMessagePackOracleBridge` | `parser` | the bridge of `testdata/msgpack` builds and answers, as `TestOracleBridge` does |
+| `TestMessagePackMismatch` | `client` | six cells, each on websocket and on polling (twelve subtests), each closed within 100 ms of the mismatching message with no CONNECT_ERROR, no event handler run and no second handshake within those 100 ms. Server-detected, two cells, reconnection left on: a Go server of each format against a Go client of the other; the server closes, its `SessionClose` hook reports `CloseParseError` and `Connect` returns a non-nil error (the client sees only a closed transport). Client-detected before the ack, two cells, reconnection left on: a raw Engine.IO server answers the CONNECT in the format the Go client does not use; the client closes first, `Connect` returns an error matching `parser.ErrUnexpectedFrame` (JSON client) or `parser.ErrInvalid` (MessagePack client), and `OnConnect` and `OnDisconnect` do not run. Client-detected after the ack, two cells with `WithReconnection(false)`: the raw server acks the CONNECT in the client's format, then sends an EVENT in the other; the client closes first and ends as 2.3C states for a lost session, with `parse error` given once to `OnDisconnect` |
+| `TestMessagePackWireFrames` | `client` | on both transports every Socket.IO message is binary (`b` on polling); ping, pong, probe and upgrade stay text |
+| `TestMessagePackGoRoundTrip` | `client` | a Go server and a Go client with `FormatMessagePack`, subtests `websocket` and `polling`: CONNECT with auth, an event with nested binary values, an ack in each direction, one of them with binary |
+| `TestMessagePackLimitIsolation` | root | an oversize message closes only its own session |
+| `TestMessagePackHooks` | root | one scripted session per format gives equal Socket.IO hook calls apart from IDs and durations; packet hooks report binary frames; with `PayloadPreviewBytes` 256 an EVENT with the argument `{"token":"secret"}` leaves the `Preview` of every binary frame of the MessagePack session empty |
+| `TestMessagePackNodeClient` | `client` | `socket.io-client` with the parser against the Go server, subtests `websocket` and `polling`: CONNECT with auth, an event without and one with binary values (a `Buffer` and an `ArrayBuffer`, so ext type 0 arrives), an ack in each direction |
+| `TestMessagePackNodeServer` | `client` | the same with the Go client against a Node `socket.io` server |
+| `FuzzMessagePackDecode` | `parser` | seeded with the Node fixtures, 30 s clean: no panic, and what decodes re-encodes and decodes to an equal `Packet` |
+
+DoD for 2.3M: the first sixteen tests of the table pass under `-race`, counted so that a
+missing test fails; `FuzzMessagePackDecode` runs 30 s clean; the oracle passes with the
+pinned versions; no 2M PR changes `go.mod`, `go.sum` or the tests and fixtures of
+`adapter/codec`; `make g2` passes, at the join gate with a positive fixture (both settings)
+and a negative one (a string as `Parser`); V2_PROTOCOL, API.md and CHANGELOG list the
+changes, and the commands of `CLAUDE.md` list `SOCKETIO_NODE_INTEROP`. The author of
+every 2M PR runs the first block from `v2/` in a clone with complete history (for the
+merge-base diff) and records it in the PR body; the join-gate PR also runs the second.
+
+```sh
+set -e
+go test -race -count=1 ./parser/... ./internal/mpack ./adapter/codec . ./client
+go test -count=1 -v -run '^TestWriterGoldenWidths$' ./internal/mpack | grep '^--- PASS: TestWriterGoldenWidths '
+git diff --exit-code "$(git merge-base origin/master HEAD)" -- go.mod go.sum 'adapter/codec/*_test.go' adapter/codec/testdata
+make g2
+```
+
+```sh
+set -e
+N=$(go test -race -count=1 -json -run '^(TestWriterGoldenWidths|TestParserDefaultIsJSON|TestOptionsParserNormalize|TestServerParserWiring|TestClientParserWiring|TestMessagePackPacketRoundTrip|TestMessagePackNodeFixtures|TestMessagePackExtensions|TestMessagePackLimits|TestMessagePackEncodeConcurrent|TestMessagePackOracleBridge|TestMessagePackMismatch|TestMessagePackWireFrames|TestMessagePackGoRoundTrip|TestMessagePackLimitIsolation|TestMessagePackHooks)$' ./internal/mpack ./parser . ./client | grep -E -c '"Action":"pass","Package":"[^"]+","Test":"Test[A-Za-z]+","Elapsed"')
+[ "$N" -eq 16 ]
+go test -run '^$' -fuzz '^FuzzMessagePackDecode$' -fuzztime 30s ./parser
+R=parser/testdata/msgpack
+npm ci --ignore-scripts --no-audit --no-fund --prefix "$R"
+[ "$(npm ls --all --prefix "$R" socket.io-msgpack-parser notepack.io | grep -c -F -e socket.io-msgpack-parser@3.0.2 -e notepack.io@2.2.0)" -eq 2 ]
+npm test --prefix "$R"
+```
+
+Acceptance for 2.3M, from `v2/`: the four Node subtests pass with none skipped (the block
+below, the join gate, repeated at the tag that carries 2.3M), and the 5L browser tests
+against the pinned Admin UI run once more, through their server-address setting, against
+`_examples/admin` started with `-parser msgpack`, the UI's parser set to MessagePack (in the
+UI since 0.3.0). The example uses a `replace` directive, so the library code and `go.mod`
+of `contrib/admin` do not change.
+
+```sh
+set -e
+npm ci --ignore-scripts --no-audit --no-fund --prefix parser/testdata/msgpack
+export SOCKETIO_NODE_INTEROP=1
+J=$(mktemp)
+go test -race -count=1 -json -run '^(TestMessagePackNodeClient|TestMessagePackNodeServer)$' ./client > "$J"
+[ "$(grep -E -c '"Action":"pass","Package":"[^"]+","Test":"TestMessagePackNode(Client|Server)/(websocket|polling)","Elapsed"' "$J")" -eq 4 ]
+if grep -q '"Action":"skip"' "$J"; then exit 1; fi
+```
 
 ### 2.4 Observability
 
@@ -2476,14 +2647,16 @@ versions and the results.
 | M10 | Go client transports and the raw HTTP/2 stream (7.5, 7.6) | next root minor; `contrib/webtransport` minor |
 
 Each milestone takes the next root minor at its tag; the numbers above assume the
-order M3A, M4, M5, M6. Acceptance checks run before tagging. Publication checks that require released
+order M3A, M4, M5, M6. 2.3M (wave 2M) is not a milestone and renumbers none: the first root
+minor tagged after its join gate carries it and repeats the 2.3M Acceptance command at tag
+time. Acceptance checks run before tagging. Publication checks that require released
 module versions run at tag time. Tags require the owner's explicit instruction;
 see [CONTRIBUTING.md](../CONTRIBUTING.md#releases). A reviewed M2 snapshot does not
 receive development PRs; topic branches continue to target `master`.
 
 ## Out of scope
 
-Engine.IO v3 in v2; connection state recovery; permessage-deflate
+Engine.IO v3 in v2; JSONP polling; connection state recovery; permessage-deflate
 in v2; a server-sent events transport (one direction only; polling is the fallback);
 WebSocket over HTTP/3 (RFC 9220); WebTransport over HTTP/2; Redis sharded Pub/Sub, Cluster, Ring and replica-routed clients;
 cluster broadcast ACKs; NATS JetStream persistence; framework-specific integration

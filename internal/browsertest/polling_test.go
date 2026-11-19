@@ -110,6 +110,9 @@ func TestPollingCookies(t *testing.T) {
 		"no credentials":      nil,
 	} {
 		t.Run(name, func(t *testing.T) {
+			// Every response of a session sets its cookie, and the browser keeps one io
+			// cookie for the host: the late CLOSE of an earlier session would replace it.
+			awaitNoLibraryGoroutines(t, 5*time.Second)
 			_, sockets := connect(t, "/socket.io/", []string{"/"},
 				client.WithTransports(polling.Default), client.WithHeader(header))
 			sid := sockets[0].ID()

@@ -29,11 +29,13 @@ import (
 	"github.com/sshaplygin/go-socket.io/parser"
 )
 
-// fixture records what the tests read back through acknowledgements.
+// fixture records what the tests read back through acknowledgements. The records are
+// kept by Engine.IO session ID, because the test packages share the server and run
+// concurrently.
 type fixture struct {
 	mu      sync.Mutex
-	cookies []string              // the Cookie header of each polling request
-	code    int                   // the close code of the latest server close error
+	cookies map[string][]string   // the Cookie header of each polling GET and POST of a session
+	codes   map[string]int        // the close code of the server close error of a session
 	conns   map[net.Conn]struct{} // accepted TCP connections, for drop
 }
 
@@ -44,7 +46,7 @@ func main() {
 	must(err)
 	must(closed.Close())
 
-	f := &fixture{conns: map[net.Conn]struct{}{}}
+	f := &fixture{cookies: map[string][]string{}, codes: map[string]int{}, conns: map[net.Conn]struct{}{}}
 	server := socketio.NewServer(socketio.WithEngineOptions(engineio.WithHooks(&engineio.Hooks{Error: f.closeError})))
 	for _, name := range []string{"/", "/admin"} {
 		f.register(server.Of(name))
@@ -102,50 +104,55 @@ func (f *fixture) register(nsp *socketio.ServerNamespace) {
 			_ = c.EngineConn().Close()
 		}()
 	})
-	nsp.OnEvent("drop", func(socketio.Conn) { f.drop() })
-	nsp.OnEvent("cookies", func(socketio.Conn) []string {
+	nsp.OnEvent("drop", func(c socketio.Conn) { f.drop(c.RemoteAddr().String()) })
+	nsp.OnEvent("cookies", func(_ socketio.Conn, sid string) []string {
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		return append([]string{}, f.cookies...)
+		return append([]string{}, f.cookies[sid]...)
 	})
-	nsp.OnEvent("closecode", func(socketio.Conn) int {
+	nsp.OnEvent("closecode", func(_ socketio.Conn, sid string) int {
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		return f.code
+		return f.codes[sid]
 	})
 }
 
 func (f *fixture) recordCookie(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("transport") == "polling" {
+		// A preflight never carries cookies, so only the requests themselves are recorded.
+		if query := r.URL.Query(); query.Get("transport") == "polling" && query.Get("sid") != "" && r.Method != http.MethodOptions {
 			f.mu.Lock()
-			f.cookies = append(f.cookies, r.Header.Get("Cookie"))
+			f.cookies[query.Get("sid")] = append(f.cookies[query.Get("sid")], r.Header.Get("Cookie"))
 			f.mu.Unlock()
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
-func (f *fixture) closeError(_ engineio.Conn, err error) {
+func (f *fixture) closeError(c engineio.Conn, err error) {
 	var closeErr *websocket.CloseError
 	if errors.As(err, &closeErr) {
 		f.mu.Lock()
-		f.code = closeErr.Code
+		f.codes[c.ID()] = closeErr.Code
 		f.mu.Unlock()
 	}
 }
 
-// drop resets every accepted TCP connection, which the peers see as a transport error.
-func (f *fixture) drop() {
+// drop resets the accepted TCP connection from remote, which the peer sees as a
+// transport error.
+func (f *fixture) drop(remote string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for c := range f.conns {
+		if c.RemoteAddr().String() != remote {
+			continue
+		}
 		if tcp, ok := c.(*net.TCPConn); ok {
 			_ = tcp.SetLinger(0)
 		}
 		_ = c.Close()
+		delete(f.conns, c)
 	}
-	clear(f.conns)
 }
 
 type trackingListener struct {

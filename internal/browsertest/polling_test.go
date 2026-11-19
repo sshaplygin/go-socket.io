@@ -113,6 +113,10 @@ func TestPollingCookies(t *testing.T) {
 			_, sockets := connect(t, "/socket.io/", []string{"/"},
 				client.WithTransports(polling.Default), client.WithHeader(header))
 			sid := sockets[0].ID()
+			// Each ACK arrives in the response to another GET.
+			for i := 0; i < 3; i++ {
+				require.Equal(t, "poll", ack[string](t, sockets[0], "echo", "poll"))
+			}
 			// Every request after the handshake: the cookie that the handshake set, or none.
 			want := ""
 			if header != nil {
@@ -177,10 +181,12 @@ func TestCloseDuringUpgrade(t *testing.T) {
 		"probe dial": {`return function(url, ...rest) {
 			const ws = new orig(url.replace("/socket.io/", "/silent/"), ...rest); made.push(ws); return ws }`,
 			2 * time.Second},
-		// The probe opened, and its PING never reaches the server.
-		"probe exchange": {`return function(...args) {
-			const ws = new orig(...args), send = ws.send.bind(ws)
-			ws.send = (data) => { if (data === "2probe") { made.push(ws) } else { send(data) } }
+		// The probe opened to /nopong/, outside the session, and sent its PING; the
+		// client reads no message on it, so only the client can end the probe.
+		"probe exchange": {`return function(url, ...rest) {
+			const ws = new orig(url.replace("/socket.io/", "/nopong/"), ...rest), send = ws.send.bind(ws)
+			Object.defineProperty(ws, "onmessage", {set() {}})
+			ws.send = (data) => { if (data === "2probe") { made.push(ws) } send(data) }
 			return ws }`, time.Second},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -310,10 +310,11 @@ from one of the native Go client:
   cookie, and a request of one session can carry the ID of the other, so a load
   balancer that keys [session affinity](V1.md#deployment) on the `io` cookie can route
   it to the other session's instance. `socket.io-client` in the same page shares that
-  cookie store.
-  The browser tests show this for a server on another port of the page's host with the
-  default `SameSite=Strict` cookie ([cookie defaults](V1.md#changed-defaults-and-behavior));
-  a browser does not send a `SameSite=Strict` cookie to a server of another site.
+  cookie store. The default cookie is `SameSite=Strict`
+  ([cookie defaults](V1.md#changed-defaults-and-behavior)), so a browser does not send
+  it to a server of another site. The browser tests check that the credentialed
+  requests of a session carry its `io` cookie to a server on another port of the
+  page's host.
 - Closing a polling connection aborts its outstanding fetch requests, an open long
   poll included.
 - The websocket handshake request carries only the headers that the browser sets: its

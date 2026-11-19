@@ -286,11 +286,25 @@ particular, do not rely on the permissive default for cookie-authenticated acces
 
 ### Browser clients
 
-A Go client built for `GOOS=js GOARCH=wasm` opens its websocket connections with the
+A Go client built for `GOOS=js GOARCH=wasm` sends its polling requests with the
+browser's Fetch API through `net/http`, and opens its websocket connections with the
 browser's WebSocket API through `engineio/transport/browser`; the
 [`browser.Transport` documentation](../engineio/transport/browser/transport.go) states
 what its `Dial` and connections do with headers. On the wire, such a connection differs
 from one of the native Go client:
+
+- A polling request carries only the headers that Fetch permits. The browser drops the
+  forbidden headers that the client gives it, such as `Cookie`, `Origin` and `Host`,
+  and sets its own, so an `http.Client.Jar` has no effect.
+- A cross-origin polling request carries the browser's cookies only when the client's
+  request header sets `js.fetch:credentials` to `include`: `net/http` passes that key
+  to Fetch as the `credentials` option, whose default is `same-origin`, and does not
+  send it. With it, every polling `GET` and `POST` after the handshake carries the
+  `io` cookie that the handshake response set, also for a server on another port of
+  the page's host; a preflight carries no cookie. Without it, no polling request
+  carries one. [Browser client](V1.md#browser-client) shows how to set it.
+- Closing a polling connection aborts its outstanding fetch requests, an open long
+  poll included.
 
 - The handshake request carries only the headers that the browser sets: its `Origin`
   is the page's origin, its cookies are the browser's cookies for the server's site,

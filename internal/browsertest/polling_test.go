@@ -178,19 +178,20 @@ func TestCloseAbortsLongPoll(t *testing.T) {
 func TestCloseDuringUpgrade(t *testing.T) {
 	for name, tc := range map[string]struct {
 		wrapper string        // the WebSocket replacement: made receives the probe
+		state   int           // the probe's readyState when Close is called
 		bound   time.Duration // after Close, until no library goroutine remains
 	}{
 		// The probe dials a server that never answers: the dial ends at HandshakeTimeout.
 		"probe dial": {`return function(url, ...rest) {
 			const ws = new orig(url.replace("/socket.io/", "/silent/"), ...rest); made.push(ws); return ws }`,
-			2 * time.Second},
+			0, 2 * time.Second}, // CONNECTING
 		// The probe opened to /nopong/, outside the session, and sent its PING; the
 		// client reads no message on it, so only the client can end the probe.
 		"probe exchange": {`return function(url, ...rest) {
 			const ws = new orig(url.replace("/socket.io/", "/nopong/"), ...rest), send = ws.send.bind(ws)
 			Object.defineProperty(ws, "onmessage", {set() {}})
 			ws.send = (data) => { if (data === "2probe") { made.push(ws) } send(data) }
-			return ws }`, time.Second},
+			return ws }`, 1, time.Second}, // OPEN
 	} {
 		t.Run(name, func(t *testing.T) {
 			made := wrapGlobal(t, "WebSocket", tc.wrapper)
@@ -200,7 +201,9 @@ func TestCloseDuringUpgrade(t *testing.T) {
 			reasons := make(chan string, 1)
 			sockets[0].OnDisconnect(func(_ client.Conn, reason string) { reasons <- reason })
 			eventually(t, 5*time.Second, "upgrade probe", func() bool { return made.Length() == 1 })
+			// The upgrade has neither switched nor given up: the probe is still in its stage.
 			require.Equal(t, "polling", transportOf(echoConn(t, sockets[0])))
+			require.Equal(t, tc.state, made.Index(0).Get("readyState").Int(), "probe readyState before Close")
 			require.NoError(t, cl.Close())
 			require.Equal(t, "io client disconnect", receive(t, reasons, "disconnect"))
 			awaitNoLibraryGoroutines(t, tc.bound)

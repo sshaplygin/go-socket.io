@@ -197,13 +197,17 @@ func TestCloseDuringUpgrade(t *testing.T) {
 			made := wrapGlobal(t, "WebSocket", tc.wrapper)
 			awaitNoLibraryGoroutines(t, 5*time.Second)
 			// WithTimeout is also the HandshakeTimeout of the websocket transport.
+			start := time.Now()
 			cl, sockets := connect(t, "/socket.io/", []string{"/"}, client.WithTransports(), client.WithTimeout(time.Second))
 			reasons := make(chan string, 1)
 			sockets[0].OnDisconnect(func(_ client.Conn, reason string) { reasons <- reason })
 			eventually(t, 5*time.Second, "upgrade probe", func() bool { return made.Length() == 1 })
-			// The upgrade has neither switched nor given up: the probe is still in its stage.
+			// The upgrade has neither switched nor given up: the probe is still in its stage,
+			// and less time has passed than the 10 s default of Dialer.UpgradeTimeout, after
+			// which the client gives up a probe whose browser dial is still CONNECTING.
 			require.Equal(t, "polling", transportOf(echoConn(t, sockets[0])))
 			require.Equal(t, tc.state, made.Index(0).Get("readyState").Int(), "probe readyState before Close")
+			require.Less(t, time.Since(start), 10*time.Second)
 			require.NoError(t, cl.Close())
 			require.Equal(t, "io client disconnect", receive(t, reasons, "disconnect"))
 			awaitNoLibraryGoroutines(t, tc.bound)

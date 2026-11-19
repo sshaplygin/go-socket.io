@@ -60,7 +60,8 @@ func TestConnectTimeout(t *testing.T) {
 		err       error         // nil: an error other than ErrConnectTimeout
 		bound     time.Duration // after Close, until no library goroutine remains
 	}{
-		"polling":                 {300 * time.Millisecond, &polling.Transport{Client: &http.Client{Timeout: 2 * time.Second}}, client.ErrConnectTimeout, 3 * time.Second},
+		// Under the 2 s Client.Timeout: only the abort of the timed-out dial ends the fetch in time.
+		"polling":                 {300 * time.Millisecond, &polling.Transport{Client: &http.Client{Timeout: 2 * time.Second}}, client.ErrConnectTimeout, time.Second},
 		"websocket":               {300 * time.Millisecond, &websocket.Transport{HandshakeTimeout: 2 * time.Second}, client.ErrConnectTimeout, 3 * time.Second},
 		"websocket handshake 300": {2 * time.Second, &websocket.Transport{HandshakeTimeout: 300 * time.Millisecond}, nil, time.Second},
 	} {

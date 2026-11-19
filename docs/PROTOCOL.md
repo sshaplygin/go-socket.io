@@ -296,19 +296,26 @@ from one of the native Go client:
 - A polling request carries only the headers that Fetch permits. The browser drops the
   forbidden headers that the client gives it, such as `Cookie`, `Origin` and `Host`,
   and sets its own, so an `http.Client.Jar` has no effect.
-- A cross-origin polling request carries the browser's cookies only when the client's
-  request header sets `js.fetch:credentials` to `include`: `net/http` passes that key
-  to Fetch as the `credentials` option, whose default is `same-origin`, and does not
-  send it. With it, every polling `GET` and `POST` after the handshake carries the
-  `io` cookie that the handshake response set, also for a server on another port of
-  the page's host; a preflight carries no cookie. Without it, no polling request
-  carries one. [Browser client](V1.md#browser-client) shows how to set it.
+- A cross-origin polling request carries cookies only when the client's request header
+  sets `js.fetch:credentials` to `include`: `net/http` passes that key to Fetch as the
+  `credentials` option, whose default is `same-origin`, and does not send it. A
+  preflight carries no cookie. [Browser client](V1.md#browser-client) shows how to set
+  the key.
+- Such a request carries the `io` cookie that the browser holds for the server's site,
+  not a cookie of its own session: every polling response of a session sets `io` to its
+  session ID, and the latest response of any session to that site wins. Two sessions
+  from one page therefore replace each other's cookie, and a request of one session can
+  carry the ID of the other, so a load balancer that keys
+  [session affinity](V1.md#deployment) on the `io` cookie can route it to the other
+  session's instance. `socket.io-client` in the same page shares that cookie store.
+  The browser tests show this for a server on another port of the page's host with the
+  default `SameSite=Strict` cookie ([cookie defaults](V1.md#changed-defaults-and-behavior));
+  a browser does not send a `SameSite=Strict` cookie to a server of another site.
 - Closing a polling connection aborts its outstanding fetch requests, an open long
   poll included.
-
-- The handshake request carries only the headers that the browser sets: its `Origin`
-  is the page's origin, its cookies are the browser's cookies for the server's site,
-  and no application header is sent. The browser does not expose the handshake
+- The websocket handshake request carries only the headers that the browser sets: its
+  `Origin` is the page's origin, its cookies are the browser's cookies for the server's
+  site, and no application header is sent. The browser does not expose the handshake
   response. `socket.io-client` in a browser has the same limits.
 - A page can send close codes 1000 and 3000–4999 only. The client sends 1000 on
   `Close`, as the native client does. Where the native client drops the TCP connection
